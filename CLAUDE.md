@@ -7,7 +7,7 @@ Interface visual moderna para busca de torrents via Jackett.
 - **Backend**: Go 1.22 + Gin — API REST que proxifica o Jackett
 - **Frontend**: React 18 + TypeScript + Vite + TailwindCSS (dark theme)
 - **Deploy**: single binary Go com frontend embutido via `//go:embed all:dist`
-- **Infra**: Docker no Raspberry Pi (context `raspberrypisrv`, IP `192.168.0.100`)
+- **Infra**: Docker no Raspberry Pi (context `homeserver`, IP `192.168.0.100`)
 
 ## Comandos essenciais
 
