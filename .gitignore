@@ -1,0 +1,24 @@
+# Frontend
+web/node_modules/
+web/dist/
+
+# Built frontend assets (populated by npm run build)
+ui/dist/*
+!ui/dist/.gitkeep
+
+# Binary
+jackui
+
+# Config with secrets
+config.yaml
+*.yaml
+!*.example.yaml
+
+# OS
+.DS_Store
+*.swp
+*.swo
+
+# Go
+*.test
+coverage.out

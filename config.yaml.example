@@ -1,0 +1,27 @@
+port: 8989
+jackett:
+  url: http://localhost:9117
+  api_key: YOUR_API_KEY_HERE
+
+download_clients:
+  - id: qbit-local
+    name: "qBittorrent Local"
+    type: qbittorrent
+    url: http://localhost:8080
+    username: admin
+    password: adminadmin
+    default: true
+  - id: qbit-remote
+    name: "qBittorrent Remoto"
+    type: qbittorrent
+    url: http://192.168.0.100:8080
+    username: admin
+    password: adminadmin
+    default: false
+  - id: transmission-local
+    name: "Transmission Local"
+    type: transmission
+    url: http://localhost:9091
+    username: ""
+    password: ""
+    default: false
