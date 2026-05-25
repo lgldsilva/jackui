@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -48,6 +49,8 @@ func Load(path string) (*Config, error) {
 		cfg.Port = 8989
 	}
 
+	applyEnvOverrides(&cfg)
+
 	return &cfg, nil
 }
 
@@ -62,6 +65,22 @@ func (c *Config) Save(path string) error {
 	}
 
 	return nil
+}
+
+// applyEnvOverrides sobrescreve valores do YAML com variáveis de ambiente quando definidas.
+// JACKUI_PORT, JACKETT_URL, JACKETT_API_KEY são os mais comuns em Docker.
+func applyEnvOverrides(cfg *Config) {
+	if v := os.Getenv("JACKETT_URL"); v != "" {
+		cfg.Jackett.URL = v
+	}
+	if v := os.Getenv("JACKETT_API_KEY"); v != "" {
+		cfg.Jackett.APIKey = v
+	}
+	if v := os.Getenv("JACKUI_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			cfg.Port = p
+		}
+	}
 }
 
 func defaultConfig() *Config {

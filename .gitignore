@@ -9,10 +9,12 @@ ui/dist/*
 # Binary
 jackui
 
-# Config with secrets
+# Config e segredos — nunca versionar
 config.yaml
+.env
 *.yaml
 !*.example.yaml
+!docker-compose.yml
 
 # OS
 .DS_Store
