@@ -1,6 +1,6 @@
 .PHONY: setup deploy restart logs down build test dev-frontend dev-backend clean
 
-DOCKER_CONTEXT ?= raspberrypisrv
+DOCKER_CONTEXT ?= homeserver
 IMAGE          := jackui:latest
 
 # Cores
