@@ -404,20 +404,31 @@ export default function PlayerModal({
     }
   }, [info?.infoHash])
 
-  // Drop the torrent when modal closes + persist final resume position
+  // Mirror the values the unmount cleanup needs into a ref, refreshed every
+  // render. This lets the cleanup run ONLY on real unmount (deps: []) while
+  // still seeing current values — without it, depending on [libraryEntryID]
+  // re-ran the cleanup the moment the library entry loaded mid-playback,
+  // calling streamDrop() and KILLING the torrent we were actively streaming
+  // (ffmpeg then died with "torrent closed" → "Sem seeds").
+  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null }>({ infoHash: '', libraryEntryID: null })
+  useEffect(() => {
+    cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID }
+  })
+
+  // Drop the torrent + persist final resume position — ONLY when the modal
+  // truly unmounts (user closes/navigates), never on intra-playback state changes.
   useEffect(() => {
     return () => {
-      // Best-effort final resume save (sync values captured via refs)
+      const { infoHash, libraryEntryID: libID } = cleanupRef.current
       const v = videoRef.current
-      if (libraryEntryID !== null && v && v.currentTime > 1) {
-        libraryUpdateResume(libraryEntryID, v.currentTime, v.duration || 0).catch(() => {})
+      if (libID !== null && v && v.currentTime > 1) {
+        libraryUpdateResume(libID, v.currentTime, v.duration || 0).catch(() => {})
       }
-      if (info?.infoHash) {
-        streamDrop(info.infoHash).catch(() => {})
+      if (infoHash) {
+        streamDrop(infoHash).catch(() => {})
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [libraryEntryID])
+  }, [])
 
   // Detect season/episode from title for better subtitle matches
   const parseSeasonEpisode = (title: string): { season?: number; episode?: number; cleanQuery: string } => {

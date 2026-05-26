@@ -412,24 +412,25 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		// `independent_segments` declares every segment starts with a
 		// keyframe — required for HLS over fragmented MP4 transcode and
 		// for Safari's "can decode this segment standalone" check.
-		// `append_list` keeps adding entries as segments are produced
-		// (default behaviour during live encode; explicit for clarity).
-		"-hls_flags", "temp_file+independent_segments+append_list",
-		// Note: we INTENTIONALLY don't set `-hls_playlist_type vod` here.
-		// vod means "all segments declared up-front, writer waits till end".
-		// We want incremental playlist writes so Safari can start fetching
-		// segments while encoding is still running. Live-style playlist
-		// grows until ffmpeg finishes, then gets an `#EXT-X-ENDLIST` tag.
-		// `-hls_playlist_type vod` declares the stream as finite Video-on-Demand
-		// in the playlist header (`#EXT-X-PLAYLIST-TYPE:VOD`). Without this flag,
-		// Safari and other HLS players assume LIVE: the seekbar is hidden, and
-		// clicking it jumps to the "live edge" (the start of the playlist while
-		// encoding is in progress) — both reported by users.
-		// CRITICAL: VOD does NOT block incremental writes. ffmpeg keeps
-		// appending segments as it encodes; the EXT-X-ENDLIST marker is
-		// written when encode finishes. Clients see growing playlist + VOD
-		// type + correct seek-to-timestamp behavior.
-		"-hls_playlist_type", "vod",
+		// NOTE: NO `append_list`. It makes ffmpeg emit a stray
+		// `#EXT-X-DISCONTINUITY` before the very first segment (verified on the
+		// 1070: 1 with the flag, 0 without). Safari chokes on that leading
+		// discontinuity — loadedmetadata reports videoWidth/Height 0 and the
+		// element errors with SRC_NOT_SUPPORTED, even though the .ts segments
+		// are perfectly valid H.264 Main 1080p. We never restart ffmpeg into an
+		// existing playlist, so append_list bought us nothing but the bug.
+		"-hls_flags", "temp_file+independent_segments",
+		// `-hls_playlist_type event` (NOT vod). This was the killer bug: with
+		// `vod`, ffmpeg DEFERS writing index.m3u8 until the entire transcode
+		// finishes (vod = "final, complete playlist"). For a movie streamed
+		// over a torrent the transcode never ends in time, so the playlist
+		// NEVER appeared and WaitForMaster always timed out — even though
+		// hundreds of .ts segments were on disk. Proven on the GTX 1070: with
+		// real-time input, `vod` had 0 m3u8 after 15s while `event` had it.
+		// `event` writes the playlist incrementally (appended as segments land)
+		// and signals a growing, seekable stream — Safari shows a seekbar over
+		// the transcoded buffer instead of treating it as headless LIVE.
+		"-hls_playlist_type", "event",
 		"-hls_segment_filename", filepath.Join(dir, "seg_%05d.ts"),
 		"-y",
 		filepath.Join(dir, "index.m3u8"),
