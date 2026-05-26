@@ -1,0 +1,104 @@
+package handlers
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/history"
+	"github.com/luizg/jackui/internal/parser"
+)
+
+// enrichedCached is a cached result with parsed quality + origin query exposed.
+type enrichedCached struct {
+	history.CachedResult
+	Quality parser.Quality `json:"quality"`
+}
+
+func enrichCached(items []history.CachedResult) []enrichedCached {
+	out := make([]enrichedCached, len(items))
+	for i, r := range items {
+		out[i] = enrichedCached{CachedResult: r, Quality: parser.Parse(r.Title)}
+	}
+	return out
+}
+
+// GetHistory handles GET /api/history — recent search entries (filtered per-user; admin sees all).
+// ?all=1 lets admin opt-in to global view; default is own data even for admin.
+func GetHistory(store *history.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		includeAll := isAdmin && c.Query("all") == "1"
+		entries, err := store.RecentEntries(100, userID, includeAll)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if entries == nil {
+			entries = []history.Entry{}
+		}
+		c.JSON(http.StatusOK, entries)
+	}
+}
+
+// GetHistoryResults handles GET /api/history/results?q= — returns cached results for a query.
+func GetHistoryResults(store *history.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("q")
+		if query == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			return
+		}
+
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		includeAll := isAdmin && c.Query("all") == "1"
+		results, err := store.Search(query, userID, includeAll)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, enrichCached(results))
+	}
+}
+
+// SearchCache handles GET /api/history/cache?q=&limit= — FTS5 search across all cached results.
+func SearchCache(store *history.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		query := c.Query("q")
+		if query == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			return
+		}
+		limit := 200
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		includeAll := isAdmin && c.Query("all") == "1"
+		results, err := store.SearchAll(query, limit, userID, includeAll)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, enrichCached(results))
+	}
+}
+
+// DeleteHistory handles DELETE /api/history — clears the user's results, or one query if ?q= is provided.
+// Admins with ?all=1 wipe everyone's data.
+func DeleteHistory(store *history.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		includeAll := isAdmin && c.Query("all") == "1"
+		if q := c.Query("q"); q != "" {
+			if err := store.DeleteQuery(q, userID, includeAll); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "query cleared"})
+			return
+		}
+		if err := store.DeleteAll(userID, includeAll); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "history cleared"})
+	}
+}

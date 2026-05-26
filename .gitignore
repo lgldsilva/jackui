@@ -24,3 +24,20 @@ config.yaml
 # Go
 *.test
 coverage.out
+
+# IDE / editor metadata
+.idea/
+.vscode/
+*.bak
+
+# Claude Code worktrees + agent transcripts
+.claude/
+
+# Runtime data — SQLite DBs, stream cache, HLS sessions, thumbnails
+/data/
+data/
+
+# Allow docker-compose variants that aren't secrets (override the *.yaml rule)
+!docker-compose.nvidia.yml
+!docker-compose.vaapi.yml
+!docker-compose.gluetun.yml

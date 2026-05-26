@@ -1,0 +1,21 @@
+# NVIDIA overlay — adds GPU access to the JackUI container.
+# Compose with: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+#
+# Requires:
+#   - NVIDIA GPU
+#   - nvidia-driver installed on the host
+#   - nvidia-container-toolkit installed (`apt install nvidia-container-toolkit`)
+#   - The JackUI image built from Dockerfile.nvidia (image tag jackui:nvidia)
+
+services:
+  jackui:
+    image: jackui:nvidia
+    # Both modern (deploy.resources) and legacy (runtime) syntax — works across Docker versions
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu", "video", "compute", "utility"]

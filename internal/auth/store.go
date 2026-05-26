@@ -1,0 +1,313 @@
+// Package auth implements user authentication with JWT access tokens + opaque refresh tokens.
+//
+// Design:
+//   - Access token: stateless JWT, short TTL (15min). Validated cryptographically per-request.
+//   - Refresh token: opaque random string, long TTL (1 day normal, 30 days "remember me"),
+//     stored hashed in DB so we can revoke (logout = delete row).
+//   - Login returns both. Frontend hits /refresh when access expires to get a new pair (rolling refresh).
+package auth
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"time"
+
+	_ "modernc.org/sqlite"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// Role identifies a user's authorization level.
+type Role string
+
+const (
+	RoleAdmin Role = "admin"
+	RoleUser  Role = "user"
+)
+
+// User is the public, password-less representation.
+type User struct {
+	ID        int       `json:"id"`
+	Username  string    `json:"username"`
+	Role      Role      `json:"role"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// Store wraps the SQLite-backed user + refresh token persistence.
+type Store struct {
+	db *sql.DB
+}
+
+// New opens (or creates) the auth DB at path.
+func New(path string) (*Store, error) {
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	s := &Store{db: db}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *Store) Close() { s.db.Close() }
+
+func (s *Store) migrate() error {
+	_, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			username      TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			role          TEXT NOT NULL DEFAULT 'user',
+			created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS refresh_tokens (
+			token_hash  TEXT PRIMARY KEY,
+			user_id     INTEGER NOT NULL,
+			expires_at  DATETIME NOT NULL,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			remember_me INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
+		CREATE INDEX IF NOT EXISTS idx_refresh_exp  ON refresh_tokens(expires_at);
+	`)
+	if err != nil {
+		return err
+	}
+	// Idempotent ALTER for older DBs that pre-date the remember_me column
+	if !s.hasColumn("refresh_tokens", "remember_me") {
+		if _, err := s.db.Exec(`ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) hasColumn(table, col string) bool {
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err == nil && n == col {
+			return true
+		}
+	}
+	return false
+}
+
+// Bootstrap ensures an admin user exists. If no users at all, creates "admin" with the given password.
+// Use this once at startup with the password from config/env.
+func (s *Store) Bootstrap(adminUser, adminPass string) error {
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+	if adminPass == "" {
+		return errors.New("admin password required for bootstrap")
+	}
+	_, err := s.CreateUser(adminUser, adminPass, RoleAdmin)
+	return err
+}
+
+// CreateUser hashes the password and inserts a new user. Returns the inserted ID.
+func (s *Store) CreateUser(username, password string, role Role) (int, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return 0, fmt.Errorf("hash password: %w", err)
+	}
+	if role != RoleAdmin && role != RoleUser {
+		role = RoleUser
+	}
+	res, err := s.db.Exec(
+		"INSERT INTO users(username, password_hash, role) VALUES(?, ?, ?)",
+		username, string(hash), string(role),
+	)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	return int(id), nil
+}
+
+// VerifyPassword loads a user by username and checks bcrypt against the supplied password.
+// Returns the User on match.
+func (s *Store) VerifyPassword(username, password string) (*User, error) {
+	var u User
+	var hash string
+	var ts string
+	err := s.db.QueryRow(
+		"SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?",
+		username,
+	).Scan(&u.ID, &u.Username, &hash, &u.Role, &ts)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("usuário ou senha inválidos")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		return nil, errors.New("usuário ou senha inválidos")
+	}
+	u.CreatedAt, _ = parseTime(ts)
+	return &u, nil
+}
+
+// GetUserByID is used by middleware after JWT validation to load current user state.
+func (s *Store) GetUserByID(id int) (*User, error) {
+	var u User
+	var ts string
+	err := s.db.QueryRow(
+		"SELECT id, username, role, created_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Username, &u.Role, &ts)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("user not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt, _ = parseTime(ts)
+	return &u, nil
+}
+
+// ListUsers returns all users (admin only).
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.db.Query("SELECT id, username, role, created_at FROM users ORDER BY created_at")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		var ts string
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &ts); err != nil {
+			continue
+		}
+		u.CreatedAt, _ = parseTime(ts)
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUser removes a user (and cascades refresh tokens via FK).
+func (s *Store) DeleteUser(id int) error {
+	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
+	return err
+}
+
+// ─── Refresh tokens ────────────────────────────────────────────────────────
+
+// CreateRefreshToken generates a fresh random token, stores its hash, returns the plain string.
+// `remember` controls TTL behavior on refresh: when true, every successful refresh re-extends
+// the expiration by 30 days from now (sliding window — only logs out after 30d of inactivity).
+func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool) (string, error) {
+	plain, err := randomToken(32)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256Hex(plain)
+	rem := 0
+	if remember {
+		rem = 1
+	}
+	_, err = s.db.Exec(
+		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me) VALUES(?, ?, ?, ?)",
+		hash, userID, time.Now().Add(ttl).UTC().Format("2006-01-02 15:04:05"), rem,
+	)
+	if err != nil {
+		return "", err
+	}
+	return plain, nil
+}
+
+// ValidateRefreshToken looks up a token, checks expiry, returns the owning user
+// plus the `remember` flag that the session was created with.
+func (s *Store) ValidateRefreshToken(plain string) (*User, bool, error) {
+	hash := sha256Hex(plain)
+	var userID int
+	var expStr string
+	var remember int
+	err := s.db.QueryRow(
+		"SELECT user_id, expires_at, remember_me FROM refresh_tokens WHERE token_hash = ?",
+		hash,
+	).Scan(&userID, &expStr, &remember)
+	if err == sql.ErrNoRows {
+		return nil, false, errors.New("refresh token inválido")
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	exp, err := parseTime(expStr)
+	if err != nil {
+		return nil, false, err
+	}
+	if time.Now().UTC().After(exp) {
+		return nil, false, errors.New("refresh token expirado")
+	}
+	u, err := s.GetUserByID(userID)
+	return u, remember == 1, err
+}
+
+// ConsumeRefreshToken deletes a refresh token (use on logout, or rolling rotation).
+func (s *Store) ConsumeRefreshToken(plain string) error {
+	hash := sha256Hex(plain)
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token_hash = ?", hash)
+	return err
+}
+
+// CleanupExpired removes refresh tokens past their TTL. Call periodically.
+func (s *Store) CleanupExpired() error {
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < ?", now)
+	return err
+}
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+func randomToken(byteLen int) (string, error) {
+	b := make([]byte, byteLen)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(b), nil
+}
+
+func sha256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// parseTime accepts the formats SQLite may emit for DATETIME columns:
+//   - "2006-01-02 15:04:05"           (CURRENT_TIMESTAMP default format)
+//   - "2006-01-02T15:04:05Z"          (driver-normalized ISO 8601)
+//   - RFC3339 with sub-second precision
+func parseTime(s string) (time.Time, error) {
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z",
+		time.RFC3339,
+		time.RFC3339Nano,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time format: %q", s)
+}

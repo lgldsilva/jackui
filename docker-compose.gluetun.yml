@@ -1,0 +1,29 @@
+# Gluetun overlay — routes all JackUI traffic through the existing gluetun VPN container.
+#
+# Compose with: docker compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d
+#
+# Requires:
+#   1. The 'gluetun' container is already running on the same Docker host
+#      (managed by another compose project — the VPN gateway)
+#   2. Gluetun's compose file MUST expose the JackUI port + BitTorrent ports.
+#      Add these lines to gluetun's `ports:` section and recreate it:
+#
+#        ports:
+#          - "8989:8989/tcp"     # JackUI web UI
+#          - "42069:42069/tcp"   # BitTorrent peer (TCP)
+#          - "42069:42069/udp"   # BitTorrent peer (UDP / DHT)
+#
+#   3. Once gluetun re-exposes the ports, traffic to those ports on the host
+#      goes through the VPN tunnel before reaching JackUI.
+
+services:
+  jackui:
+    # Container network namespace is shared with gluetun.
+    # All outbound traffic from JackUI goes through the VPN.
+    # All inbound traffic to the gluetun-exposed ports lands in JackUI.
+    network_mode: "container:gluetun"
+
+    # When sharing a container's network namespace, we can't define our own ports / network.
+    # The "ports:" and "networks:" fields from the base file are nulled here.
+    ports: !reset []
+    networks: !reset []
