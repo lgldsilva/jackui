@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, SortAsc, SortDesc, Globe, FolderOpen, Loader2 } from 'lucide-react'
-import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
+import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, historyRefresh, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
 import ResultCard from '../components/ResultCard'
 import DownloadModal from '../components/DownloadModal'
 import { usePlayer } from '../components/PlayerProvider'
@@ -68,6 +68,13 @@ export default function HistoryPage() {
   const [globalLoading, setGlobalLoading] = useState(false)
   const [globalSearched, setGlobalSearched] = useState(false)
   const debounceRef = useRef<number | null>(null)
+
+  // Per-row refresh state — keyed by results.id. We track:
+  //   refreshingIDs:  currently-in-flight POST /api/history/:id/refresh
+  //   refreshedLabels: short "agora"/"5min" labels rendered near the seed count.
+  // Map is preferred over arrays of objects because lookups are O(1) per card.
+  const [refreshingIDs, setRefreshingIDs] = useState<Set<number>>(new Set())
+  const [refreshedLabels, setRefreshedLabels] = useState<Map<number, string>>(new Map())
 
   const loadHistory = async () => {
     try { setEntries(await getHistory()) }
@@ -160,6 +167,49 @@ export default function HistoryPage() {
     if (selected === q) {
       setSelected(null)
       setResults([])
+    }
+  }
+
+  // Per-card refresh: re-polls Jackett for fresh seeders/leechers. We update
+  // both the local results array AND the globalResults array so the same row
+  // looks right whether it's reached via "Por busca" or "Busca global".
+  // Backend implements a 5min TTL cache so spamming is cheap (no Jackett hit).
+  const handleRefreshResult = async (result: SearchResult) => {
+    if (result.id === undefined) return
+    const id = result.id
+    setRefreshingIDs(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+    try {
+      const fresh = await historyRefresh(id)
+      const updater = <T extends SearchResult>(arr: T[]): T[] =>
+        arr.map(r => r.id === id ? { ...r, seeders: fresh.seeders, leechers: fresh.leechers } : r)
+      setResults(prev => updater(prev))
+      setGlobalResults(prev => updater(prev))
+      // Show "agora" (5min cache) or "cache" hint right after click.
+      setRefreshedLabels(prev => {
+        const next = new Map(prev)
+        next.set(id, fresh.cached ? 'cache' : 'agora')
+        return next
+      })
+      // Fade the label out after 30s so old marks don't linger across many refreshes.
+      window.setTimeout(() => {
+        setRefreshedLabels(prev => {
+          const next = new Map(prev)
+          next.delete(id)
+          return next
+        })
+      }, 30_000)
+    } catch {
+      /* swallow — the spinner will simply stop without changes */
+    } finally {
+      setRefreshingIDs(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
     }
   }
 
@@ -395,6 +445,9 @@ export default function HistoryPage() {
                         onPlay={(r) => playSingle(r)}
                         onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
                         onExploreContents={setContentsTarget}
+                        onRefresh={handleRefreshResult}
+                        refreshing={result.id !== undefined && refreshingIDs.has(result.id)}
+                        refreshedAt={result.id !== undefined ? refreshedLabels.get(result.id) ?? null : null}
                       />
                       {result.query && (
                         <button
@@ -641,6 +694,9 @@ export default function HistoryPage() {
                             onPlay={(r) => playSingle(r)}
                             onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
                             onExploreContents={setContentsTarget}
+                            onRefresh={handleRefreshResult}
+                            refreshing={result.id !== undefined && refreshingIDs.has(result.id)}
+                            refreshedAt={result.id !== undefined ? refreshedLabels.get(result.id) ?? null : null}
                           />
                         ))}
                       </div>

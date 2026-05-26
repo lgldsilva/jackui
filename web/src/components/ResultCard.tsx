@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen } from 'lucide-react'
+import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch } from '../api/client'
 import QualityBadges from './QualityBadges'
 import { isPlayable } from '../lib/playable'
@@ -55,6 +55,13 @@ interface ResultCardProps {
   onPlay?: (result: SearchResult) => void
   onAddToPlaylist?: (result: SearchResult) => void
   onExploreContents?: (result: SearchResult) => void
+  // onRefresh re-polls Jackett for this row's swarm counts. Only meaningful
+  // when the result has an `id` (i.e. came from the history endpoint). The
+  // host page handles loading state and the eventual numbers update.
+  onRefresh?: (result: SearchResult) => Promise<void> | void
+  refreshing?: boolean
+  // Optional "freshness" hint shown next to seeders (e.g. "atualizado agora").
+  refreshedAt?: string | null
 }
 
 function formatSize(bytes: number): string {
@@ -78,7 +85,7 @@ async function copyToClipboard(text: string) {
   }
 }
 
-export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents }: ResultCardProps) {
+export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
   const [copied, setCopied] = useState(false)
   const [_, force] = useState(0) // re-render when favoriteSet changes globally
   // TMDB lazy enrichment — only fires once the card has been visible.
@@ -267,6 +274,22 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         <div className="flex items-center gap-1 text-red-400">
           <TrendingDown className="w-3.5 h-3.5" />
           <span>{result.leechers} leech</span>
+          {/* Refresh button: only renders when the host wired up onRefresh AND
+              the row carries an id. We avoid stopPropagation here because the
+              card itself doesn't have a click handler at this nesting level. */}
+          {onRefresh && result.id !== undefined && (
+            <button
+              onClick={(e) => { e.stopPropagation(); void onRefresh(result) }}
+              disabled={!!refreshing}
+              title={refreshedAt ? `Atualizado em ${refreshedAt}` : 'Atualizar seeders/leechers'}
+              className="ml-1 inline-flex items-center text-gray-500 hover:text-cyan-400 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin text-cyan-400' : ''}`} />
+            </button>
+          )}
+          {refreshedAt && !refreshing && (
+            <span className="text-[10px] text-cyan-500/70 ml-1">{refreshedAt}</span>
+          )}
         </div>
       </div>
 
