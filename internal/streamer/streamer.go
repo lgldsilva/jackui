@@ -526,10 +526,14 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	f := files[fileIdx]
 
 	r := f.NewReader()
-	// Small readahead — enough for the player to fill its buffer, not so much
-	// that we waste bandwidth pre-fetching what won't be needed.
-	r.SetReadahead(8 << 20) // 8 MiB
-	r.SetResponsive()       // prioritize pieces around current read position
+	// Readahead sized for the HLS transcode path. ffmpeg reads the source
+	// sequentially and each 4s HLS segment of 4K video pulls ~15 MB; with only
+	// 8 MiB of readahead the anacrolix Reader blocks waiting for the next piece
+	// mid-segment, and WaitForMaster times out before the first segment lands
+	// (confirmed on the GTX 1070 with 2160p sources). 32 MiB covers ~2 segments
+	// of 4K lookahead so the encoder never starves on a healthy swarm.
+	r.SetReadahead(32 << 20) // 32 MiB
+	r.SetResponsive()        // prioritize pieces around current read position
 
 	return &trackingReader{Reader: r, streamer: s, hash: hash}, f, nil
 }
