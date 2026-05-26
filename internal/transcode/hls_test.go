@@ -256,6 +256,39 @@ func TestHLSPipelineDoesNotHardcodeRestrictiveLevel(t *testing.T) {
 	}
 }
 
+// TestHLSPipelineDeclaresVODPlaylistType is the regression guard for the
+// "seekbar disappears" bug. Without `-hls_playlist_type vod`, Safari and
+// other HLS players assume the stream is LIVE (no finite duration) and
+// silently omit the progress bar — user can't scrub or skip forward.
+// VOD mode preserves incremental playlist writes (ffmpeg keeps appending
+// segments) while signalling to the client that this is a finite seekable
+// stream. The user reported this regression in production after the 4K
+// level fix landed.
+func TestHLSPipelineDeclaresVODPlaylistType(t *testing.T) {
+	installFastCapsForTest(t)
+
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+
+	sess, err := mgr.GetOrStart(context.Background(), HLSStartOpts{
+		Key:        "vod-guard",
+		Source:     bytes.NewReader([]byte("not a real video")),
+		SourceSize: 16,
+	})
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	defer mgr.Close(sess.Key)
+
+	args := sess.Cmd.Args
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-hls_playlist_type vod") {
+		t.Errorf("ffmpeg args missing -hls_playlist_type vod — Safari will treat as LIVE and hide the seekbar.\nargs: %s", joined)
+	}
+}
+
 // TestHLSStartRejectsNilSource ensures we don't regress to the previous
 // API that accepted nil/plain io.Reader (which would let stdin-piping creep
 // back in by accident).

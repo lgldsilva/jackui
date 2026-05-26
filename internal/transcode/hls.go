@@ -412,6 +412,16 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		// We want incremental playlist writes so Safari can start fetching
 		// segments while encoding is still running. Live-style playlist
 		// grows until ffmpeg finishes, then gets an `#EXT-X-ENDLIST` tag.
+		// `-hls_playlist_type vod` declares the stream as finite Video-on-Demand
+		// in the playlist header (`#EXT-X-PLAYLIST-TYPE:VOD`). Without this flag,
+		// Safari and other HLS players assume LIVE: the seekbar is hidden, and
+		// clicking it jumps to the "live edge" (the start of the playlist while
+		// encoding is in progress) — both reported by users.
+		// CRITICAL: VOD does NOT block incremental writes. ffmpeg keeps
+		// appending segments as it encodes; the EXT-X-ENDLIST marker is
+		// written when encode finishes. Clients see growing playlist + VOD
+		// type + correct seek-to-timestamp behavior.
+		"-hls_playlist_type", "vod",
 		"-hls_segment_filename", filepath.Join(dir, "seg_%05d.ts"),
 		"-y",
 		filepath.Join(dir, "index.m3u8"),
