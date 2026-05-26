@@ -1,0 +1,19 @@
+services:
+  jackui:
+    image: jackui:latest
+    container_name: jackui
+    restart: unless-stopped
+    ports:
+      - "8989:8989"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    environment:
+      - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
+      - JACKETT_API_KEY=${JACKETT_API_KEY}
+      - JACKUI_PORT=8989
+    networks:
+      - media
+
+networks:
+  media:
+    external: true
