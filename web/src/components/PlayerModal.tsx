@@ -328,11 +328,12 @@ export default function PlayerModal({
 
   // Safari HEVC silent-failure backstop. Safari on macOS does NOT fire
   // <video onError> when it can't decode HEVC — it just stays at readyState=0
-  // with no diagnostic. After 18 s (longer than typical "first pieces"
-  // bootstrap, ~5-10 s), if we still haven't reached HAVE_CURRENT_DATA AND
-  // playback hasn't moved, trigger the same fallback that onError would.
-  // We re-derive "is transcoded" inline (the computed const lives further
-  // down in the function body and isn't in scope here yet).
+  // with no diagnostic. After 10 s (the up-front 4K/HEVC routing catches most
+  // cases now; this only rescues codec misses the filename heuristic missed),
+  // if we still haven't reached HAVE_CURRENT_DATA AND playback hasn't moved,
+  // trigger the same fallback that onError would. 10s is safe: with ANY real
+  // buffering we'd have readyState>=2 or buffered>0 by then; total silence at
+  // 10s means codec rejection, not slow pieces.
   useEffect(() => {
     if (!info?.infoHash || selectedFile < 0) return
     const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
@@ -342,9 +343,9 @@ export default function PlayerModal({
       if (!v) return
       // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
       // moved a frame. Either condition alone could be benign during normal
-      // buffering, but BOTH together for 18s smells like a codec rejection.
+      // buffering, but BOTH together for 10s smells like a codec rejection.
       const stuck = v.readyState < 2 && v.currentTime < 0.1 && bufferedEnd < 0.5
-      clientLog('info', 'player', '18s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
+      clientLog('info', 'player', '10s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
       if (stuck) {
         if (caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv)) {
           clientLog('warn', 'player', 'backstop firing fallback — Safari silent HEVC path likely', videoDiagnostic())
@@ -814,7 +815,14 @@ export default function PlayerModal({
   // novamente até funcionar"). Detection by filename is best-effort; if it
   // misses, the auto-fallback flow on onError still rescues it like before.
   const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
-  const safariNeedsTranscode = isSafariBrowser() && /\b(x265|h\.?265|hevc|av1)\b/i.test(selectedFilename)
+  // Route to HLS up-front on Safari for anything it likely can't direct-play:
+  //   - HEVC/x265/AV1 by name (codec markers)
+  //   - 2160p/4K/UHD: even "MP4" containers at 4K are usually HEVC or H264 at
+  //     a level Safari's <video> rejects; trying direct-play first just burns
+  //     ~18s before the fallback. The whole point is to NOT attempt the path
+  //     we know fails. Misses still get rescued by onError/backstop fallback.
+  const safariNeedsTranscode = isSafariBrowser() &&
+    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
   const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
   const transcodeOpts: TranscodeOpts = {}
   if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
