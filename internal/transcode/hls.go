@@ -376,15 +376,23 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 
 	args := []string{
 		"-hide_banner", "-loglevel", "warning",
-		// `-seekable 1` + `-multiple_requests 1` let ffmpeg issue multiple
-		// Range GETs against the loopback URL — needed for the MP4 demuxer
-		// to walk past a giant `mdat` and seek to `moov` at end of file.
-		// `-probesize 50M` + `-analyzeduration 5M` give ffmpeg enough room
-		// to read the moov even when it's deep into the file.
+		// `-seekable 1` + `-multiple_requests 1` let ffmpeg issue Range GETs —
+		// the MP4 demuxer seeks DIRECTLY to `moov` at end of file via these,
+		// independent of probesize.
+		//
+		// `-probesize 10M -analyzeduration 3M`: deliberately MODEST. A large
+		// probesize makes ffmpeg hunt for stream parameters across the whole
+		// file — and MKVs with PGS (image) subtitles have subtitle samples
+		// scattered deep into the movie. ffmpeg then seeks into not-yet-
+		// downloaded regions chasing "unspecified size" PGS params and blocks
+		// on the torrent reader forever (production hang on Breaking Bad x265).
+		// 10M is plenty to detect the video+audio (which sit at the start) and
+		// stops ffmpeg from chasing scattered subtitle samples it'll discard
+		// anyway (`-sn`). Verified: video+audio still detected at 2M probe.
 		"-seekable", "1",
 		"-multiple_requests", "1",
-		"-probesize", "50M",
-		"-analyzeduration", "5M",
+		"-probesize", "10M",
+		"-analyzeduration", "3M",
 		"-i", inputURL,
 		"-map", "0:v:0", "-map", "0:a:0?",
 		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",

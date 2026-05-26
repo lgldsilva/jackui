@@ -361,12 +361,11 @@ export default function PlayerModal({
 
   // Safari HEVC silent-failure backstop. Safari on macOS does NOT fire
   // <video onError> when it can't decode HEVC — it just stays at readyState=0
-  // with no diagnostic. After 10 s (the up-front 4K/HEVC routing catches most
-  // cases now; this only rescues codec misses the filename heuristic missed),
-  // if we still haven't reached HAVE_CURRENT_DATA AND playback hasn't moved,
-  // trigger the same fallback that onError would. 10s is safe: with ANY real
-  // buffering we'd have readyState>=2 or buffered>0 by then; total silence at
-  // 10s means codec rejection, not slow pieces.
+  // with no diagnostic. After 20 s, if we still haven't reached
+  // HAVE_CURRENT_DATA AND playback hasn't moved, trigger the same fallback
+  // that onError would. 20s (not 10s) because HEVC 10-bit transcode legitimately
+  // takes longer to emit the first segment — a tighter window fired the
+  // fallback while ffmpeg was still producing, causing a reload storm.
   useEffect(() => {
     if (!info?.infoHash || selectedFile < 0) return
     const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
@@ -376,9 +375,9 @@ export default function PlayerModal({
       if (!v) return
       // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
       // moved a frame. Either condition alone could be benign during normal
-      // buffering, but BOTH together for 10s smells like a codec rejection.
+      // buffering, but BOTH together for 20s smells like a codec rejection.
       const stuck = v.readyState < 2 && v.currentTime < 0.1 && bufferedEnd < 0.5
-      clientLog('info', 'player', '10s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
+      clientLog('info', 'player', '20s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
       if (stuck) {
         if (caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv)) {
           clientLog('warn', 'player', 'backstop firing fallback — Safari silent HEVC path likely', videoDiagnostic())
@@ -388,7 +387,7 @@ export default function PlayerModal({
           clientLog('warn', 'player', 'backstop wanted to fallback but no GPU encoder available', { caps })
         }
       }
-    }, 18000)
+    }, 20000)
     return () => window.clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps])
