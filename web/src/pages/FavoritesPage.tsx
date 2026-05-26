@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox } from 'lucide-react'
+import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, favoriteSetFolder,
+  streamImport,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
@@ -181,6 +182,59 @@ export default function FavoritesPage() {
 
   const ptr = usePullToRefresh({ onRefresh: load, disabled: loading })
 
+  // ─── Import (magnet / .torrent) ──────────────────────────────────────────
+  const [showImport, setShowImport] = useState(false)
+  const [magnetInput, setMagnetInput] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [dragOverDrop, setDragOverDrop] = useState(false)
+
+  const importMagnets = async () => {
+    const lines = magnetInput.split('\n').map(l => l.trim()).filter(Boolean)
+    if (lines.length === 0) return
+    setImporting(true)
+    setImportMsg(null)
+    let ok = 0
+    const fails: string[] = []
+    for (const magnet of lines) {
+      try {
+        await streamImport({ magnet, folderId: viewMode !== ALL_VIEW ? viewMode : null })
+        ok++
+      } catch (e: unknown) {
+        fails.push(e instanceof Error ? e.message : String(e))
+      }
+    }
+    setImporting(false)
+    setMagnetInput('')
+    setImportMsg(fails.length === 0
+      ? { kind: 'ok', text: `${ok} torrent${ok !== 1 ? 's' : ''} importado${ok !== 1 ? 's' : ''}` }
+      : { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}` })
+    await load()
+  }
+
+  const importTorrentFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.torrent')) {
+      setImportMsg({ kind: 'err', text: 'Arquivo precisa ter extensão .torrent' })
+      return
+    }
+    setImporting(true)
+    setImportMsg(null)
+    try {
+      const buf = await file.arrayBuffer()
+      let bin = ''
+      const bytes = new Uint8Array(buf)
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+      const torrentB64 = btoa(bin)
+      const res = await streamImport({ torrentB64, folderId: viewMode !== ALL_VIEW ? viewMode : null })
+      setImportMsg({ kind: 'ok', text: `Importado: ${res.name}` })
+      await load()
+    } catch (e: unknown) {
+      setImportMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const handleRemove = async (name: string) => {
     if (!confirm(`Remover "${name}" dos favoritos?`)) return
     await favoriteRemove(name)
@@ -356,7 +410,16 @@ export default function FavoritesPage() {
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-500 hidden lg:block">Arraste favoritos pra pastas na lateral pra organizar.</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => { setShowImport(true); setImportMsg(null) }}
+                className="flex items-center gap-1.5 text-xs bg-pink-500/15 hover:bg-pink-500/25 text-pink-200 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Importar torrent
+              </button>
+              <p className="text-xs text-gray-500 hidden lg:block">Arraste favoritos pra pastas na lateral pra organizar.</p>
+            </div>
           </div>
 
           {loading ? (
@@ -453,6 +516,88 @@ export default function FavoritesPage() {
           )}
         </section>
       </main>
+
+      {/* Import modal — paste magnet(s) or drop a .torrent file */}
+      {showImport && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={() => !importing && setShowImport(false)}
+        >
+          <div
+            className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
+                <Download className="w-4 h-4 text-pink-400" />
+                Importar torrent
+                {viewMode !== ALL_VIEW && (
+                  <span className="text-[10px] text-gray-400 font-normal">
+                    → {folders.find(f => f.id === viewMode)?.name || 'pasta'}
+                  </span>
+                )}
+              </h2>
+              <button onClick={() => !importing && setShowImport(false)} className="text-gray-500 hover:text-gray-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Magnet textarea — one per line for batch */}
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
+              <textarea
+                value={magnetInput}
+                onChange={e => setMagnetInput(e.target.value)}
+                placeholder="magnet:?xt=urn:btih:..."
+                rows={3}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono resize-y focus:border-pink-500 focus:outline-none"
+              />
+              <button
+                onClick={importMagnets}
+                disabled={importing || !magnetInput.trim()}
+                className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
+              >
+                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Importar magnet{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-[10px] text-gray-600 uppercase tracking-wider">
+              <div className="flex-1 h-px bg-gray-700" /> ou <div className="flex-1 h-px bg-gray-700" />
+            </div>
+
+            {/* .torrent dropzone */}
+            <label
+              onDragOver={e => { e.preventDefault(); setDragOverDrop(true) }}
+              onDragLeave={() => setDragOverDrop(false)}
+              onDrop={e => {
+                e.preventDefault()
+                setDragOverDrop(false)
+                const f = e.dataTransfer.files?.[0]
+                if (f) importTorrentFile(f)
+              }}
+              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer transition-colors ${
+                dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-gray-700 hover:border-gray-600'
+              }`}
+            >
+              <UploadCloud className="w-7 h-7 text-gray-500" />
+              <span className="text-sm text-gray-400">Arraste um arquivo .torrent ou clique pra escolher</span>
+              <input
+                type="file"
+                accept=".torrent"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) importTorrentFile(f) }}
+              />
+            </label>
+
+            {importMsg && (
+              <p className={`text-sm ${importMsg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+                {importMsg.text}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
