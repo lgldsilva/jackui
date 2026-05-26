@@ -122,6 +122,7 @@ export default function PlayerModal({
   const [resumePosition, setResumePosition] = useState<number | null>(null)
   const lastResumeSaveRef = useRef(0)
   const lastUrlSyncRef = useRef(0)  // throttle for writing ?t= into the URL
+  const bufferRetryRef = useRef(0)  // bounded auto-retries while swarm still delivers
 
   // Sidebar (file list) open/closed state. On lg+ screens the file picker
   // renders as a right column instead of a stacked panel below the video.
@@ -222,6 +223,7 @@ export default function PlayerModal({
     prefetchedNextEpRef.current = false
     prefetchedPlaylistN1Ref.current = false
     prefetchedPlaylistN2Ref.current = false
+    bufferRetryRef.current = 0
     setFileFilter('')
     origCuesRef.current = []
     setCurrentTime(0)
@@ -309,8 +311,23 @@ export default function PlayerModal({
     // still has populated values instead of "—" placeholders.
     setLastErrorDiag(diag as Record<string, unknown>)
     if (transcodeFallbackAttempted || forceH264 || !caps) {
+      // We're already transcoding and it still errored. Before giving up:
+      // if the swarm is STILL delivering bytes, the HLS endpoint just needs
+      // more pieces (the encoder starved before the first segment). Reload
+      // the playlist instead of failing — by the next attempt more of the
+      // file is buffered. Bounded to 6 retries so a truly dead stream still
+      // surfaces an error rather than looping forever.
+      const downloadingNow = (info?.downRate ?? 0) > 30 * 1024 // > 30 KB/s
+      if (downloadingNow && bufferRetryRef.current < 6) {
+        bufferRetryRef.current++
+        clientLog('info', 'player', 'buffer retry — swarm still delivering, reloading playlist',
+          { retry: bufferRetryRef.current, downRate: info?.downRate, ...diag })
+        setVideoError(false)
+        window.setTimeout(() => { videoRef.current?.load() }, 6000)
+        return
+      }
       clientLog('warn', 'player', 'surfacing error UI — no more fallbacks available',
-        { reason: transcodeFallbackAttempted ? 'already-attempted' : forceH264 ? 'h264-already-forced' : 'no-caps', ...diag })
+        { reason: transcodeFallbackAttempted ? 'already-attempted' : forceH264 ? 'h264-already-forced' : 'no-caps', retries: bufferRetryRef.current, ...diag })
       setVideoError(true)
       return
     }
@@ -1034,6 +1051,18 @@ export default function PlayerModal({
                         ? `${info.seeders} seeders / ${info.peers} peers conectados`
                         : 'Aguardando peers...'}
                     </p>
+                    {/* Honest progress: show download rate + bytes buffered so a
+                        slow swarm reads as "still working" instead of "frozen".
+                        ~30 MB is roughly the buffer the transcoder needs before
+                        the first segment lands for 4K. */}
+                    {info.downRate > 0 && (
+                      <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
+                        <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
+                        {info.files?.[selectedFile] && (
+                          <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
+                        )}
+                      </p>
+                    )}
                     {isTranscoded && (
                       <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
                         <Cpu className="w-3 h-3" />
@@ -1114,14 +1143,38 @@ export default function PlayerModal({
                 {/* Native HTML5 controls render the play/pause button + the
                     fullscreen affordance inside the video element. No custom
                     overlays needed. */}
-                {videoError && (
+                {videoError && (() => {
+                  // Honest error classification. The <video> element can't read
+                  // the 503 body, but we already poll streamInfo (peers, rate,
+                  // per-file progress) — use that to distinguish a dead/slow
+                  // swarm (the bytes never arrive) from a real codec problem.
+                  // Showing "codec não suportado" for a slow download is what
+                  // confused the user; this tells them what's actually wrong.
+                  const cf = info?.files?.[selectedFile]
+                  const peers = info?.peers ?? 0
+                  const fileDownloaded = cf?.downloaded ?? 0
+                  const starving = fileDownloaded < 30 * 1024 * 1024 // < 30 MB
+                  let title: string
+                  let detail: string
+                  let kind: 'swarm' | 'codec'
+                  if (peers === 0) {
+                    kind = 'swarm'
+                    title = 'Sem seeds disponíveis'
+                    detail = 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.'
+                  } else if (starving) {
+                    kind = 'swarm'
+                    title = 'Download muito lento para streaming'
+                    detail = `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${peers !== 1 ? 's' : ''} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`
+                  } else {
+                    kind = 'codec'
+                    title = 'Formato não suportado pelo browser'
+                    detail = 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.'
+                  }
+                  return (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
-                    <AlertCircle className="w-12 h-12 mb-3 text-yellow-400" />
-                    <p className="font-medium">Formato não suportado pelo browser</p>
-                    <p className="text-sm text-gray-500 mt-2 max-w-md">
-                      Codec ou container não compatível (provavelmente HEVC/x265 ou MKV).
-                      Use o link "Abrir no VLC" abaixo para reproduzir local.
-                    </p>
+                    <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
+                    <p className="font-medium">{title}</p>
+                    <p className="text-sm text-gray-500 mt-2 max-w-md">{detail}</p>
                     {/* Diagnostic chip — shows the actual MediaError code so we
                         can tell HEVC-decode-rejection (3) from no-src-supported
                         (4) at a glance, without asking the user to open devtools. */}
@@ -1147,7 +1200,8 @@ export default function PlayerModal({
                       Tentar de novo
                     </button>
                   </div>
-                )}
+                  )
+                })()}
               </div>
 
               {/* Skip controls + time display + series navigation.
