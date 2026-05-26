@@ -327,7 +327,13 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	//   -hls_playlist_type vod — Safari/iOS prefer VOD over EVENT for finite content
 	//   -c:v h264_*        — NVENC/VAAPI/QSV/libx264, picked by caps
 	//   -pix_fmt yuv420p   — force 8-bit (NVENC h264 can't do 10-bit)
-	//   -profile:v main -level:v 4.0 — Safari-friendly codec string `avc1.4d402a`
+	//   -profile:v main -level:v 5.2 — Safari-friendly codec string. Level 5.2
+	//                        covers up to 4K@60fps. Previously we hardcoded 4.0
+	//                        which capped at 1080p@30 and caused NVENC to error
+	//                        "Invalid Level" on any 2160p source. Safari iOS 11+,
+	//                        macOS Safari and modern Edge all accept up to L5.2.
+	//                        The cost of overshoot on a 720p source is zero —
+	//                        the level field is metadata only, not encode work.
 	//   -g 60 -bf 0        — keyframe every 2s, no B-frames (HLS demands keyframe
 	//                        at segment boundary; aligning -g with segment length
 	//                        avoids "key frame may not be reached" warnings)
@@ -387,7 +393,7 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	args = append(args, encoderPresetArgs(encoder)...)
 	args = append(args,
 		"-pix_fmt", "yuv420p",
-		"-profile:v", "main", "-level:v", "4.0",
+		"-profile:v", "main", "-level:v", "5.2",
 		"-g", "60", "-bf", "0",
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
 		"-f", "hls",
