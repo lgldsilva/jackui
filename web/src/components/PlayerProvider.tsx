@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
 import PlayerModal from './PlayerModal'
-import AudioBar from './AudioBar'
 
 /**
  * PlayerProvider — central authority for "what's currently playing" and "what's next".
@@ -357,8 +356,14 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={api}>
       {children}
-      {current && currentKind === 'video' && (
+      {/* Unified player: PlayerModal serves BOTH video and audio. Audio opens
+          minimized (a compact floating card with cover art) — this replaces the
+          old separate AudioBar. Video opens full-screen. Either can toggle
+          between full and minimized via the header button, and playback
+          survives navigation since this provider lives above the router. */}
+      {current && (
         <PlayerModal
+          key={currentKind === 'audio' ? 'audio' : 'video'}
           result={current.result}
           initialFileIndex={current.fileIdx}
           initialSeek={current.initialSeek}
@@ -372,22 +377,8 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
           onToggleShuffle={toggleShuffle}
           onPrefetchNextPlaylist={prefetchNext}
           onPrefetchNextNextPlaylist={prefetchNextNext}
-        />
-      )}
-      {current && currentKind === 'audio' && (
-        <AudioBar
-          result={current.result}
-          initialFileIndex={current.fileIdx}
-          onClose={close}
-          playlist={playlistView}
-          onPlaylistAdvance={next}
-          onPlaylistPrevious={previous}
-          repeat={repeat}
-          shuffle={shuffle}
-          onCycleRepeat={cycleRepeat}
-          onToggleShuffle={toggleShuffle}
-          onPrefetchNextPlaylist={prefetchNext}
-          onPrefetchNextNextPlaylist={prefetchNextNext}
+          startMinimized={currentKind === 'audio'}
+          audioMode={currentKind === 'audio'}
         />
       )}
     </Ctx.Provider>
