@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, SkipBack, SkipForward, Rewind, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, SkipBack, SkipForward, Rewind, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -116,6 +116,10 @@ export default function PlayerModal({
   // and either can toggle. Since PlayerProvider lives above the router, the
   // player keeps playing across page navigation in both modes.
   const [minimized, setMinimized] = useState(startMinimized)
+  // Mobile: secondary controls (status, transcode, subtitle, VLC/download) are
+  // collapsed behind an "Opções" toggle so the video + file list get the space
+  // — the Plex/Stremio pattern. Desktop (sm+) always shows them inline.
+  const [showMobileOpts, setShowMobileOpts] = useState(false)
   // Subtitles
   const [subEnabled, setSubEnabled] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
@@ -1404,6 +1408,20 @@ export default function PlayerModal({
                 )}
               </div>
 
+              {/* Mobile-only toggle that collapses everything below (status,
+                  transcode controls, subtitle picker, VLC/download) so the file
+                  list sits right under the video. Desktop shows it all inline. */}
+              <button
+                onClick={() => setShowMobileOpts(v => !v)}
+                className="sm:hidden flex items-center justify-center gap-1.5 w-full px-4 py-2.5 border-b border-gray-700 bg-gray-900/40 text-gray-300 text-sm active:bg-gray-800"
+              >
+                {showMobileOpts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                {showMobileOpts ? 'Ocultar opções' : 'Opções (legendas · status · baixar)'}
+              </button>
+
+              {/* Secondary controls — collapsed on mobile unless toggled, always
+                  shown on desktop. */}
+              <div className={showMobileOpts ? 'flex flex-col' : 'hidden sm:flex sm:flex-col'}>
               {/* Status bar with buffer + torrent progress. `relative` lets the
                   hover preview bubble (absolute) anchor inside this container. */}
               <div className="relative px-3 sm:px-4 py-3 bg-gray-900/50 border-b border-gray-700 flex flex-col gap-2 text-xs">
@@ -1820,6 +1838,7 @@ export default function PlayerModal({
                   )}
                 </div>
               )}
+              </div>{/* end secondary controls (Opções) wrapper */}
               </>)}{/* end !minimized transport/status/subtitle block */}
               </div>{/* end main column */}
 
