@@ -1877,11 +1877,11 @@ export default function PlayerModal({
                         />
                       </div>
                     )}
-                    <div className="flex flex-col gap-1 px-2 py-2 overflow-y-auto min-h-0 max-h-60 lg:max-h-none">
+                    <div className="flex flex-col gap-1 px-2 py-2 overflow-y-auto min-h-0 max-h-[50vh] lg:max-h-none">
                       {filteredFiles.length === 0 && (
                         <p className="text-xs text-gray-500 text-center py-3">Nenhum arquivo bate com "{fileFilter}"</p>
                       )}
-                      {filteredFiles.map(f => {
+                      {filteredFiles.slice(0, 100).map(f => {
                         const ep = parseEpisode(f.path)
                         const extra = isExtra(f.path)
                         // Compact name for sidebar: drop the long shared prefix
@@ -1940,6 +1940,13 @@ export default function PlayerModal({
                           </button>
                         )
                       })}
+                      {filteredFiles.length > 100 && (
+                        <p className="text-[11px] text-gray-500 text-center py-3 px-2 leading-snug">
+                          Mostrando 100 de {filteredFiles.length}. Use o filtro acima
+                          (ex: <span className="font-mono text-gray-400">s04e03</span> ou
+                          parte do nome) pra achar o resto.
+                        </p>
+                      )}
                     </div>
                   </aside>
                 )
