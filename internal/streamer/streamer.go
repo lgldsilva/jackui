@@ -69,6 +69,10 @@ type Streamer struct {
 	// metainfoDir holds serialized .torrent files keyed by info_hash so that
 	// re-opening a previously-seen magnet skips the DHT metadata round-trip.
 	metainfoDir string
+	// verifiedFiles tracks "hash-fileIdx" keys we've already hash-checked
+	// against the disk this process lifetime, so we reconcile the cache for a
+	// given file exactly once (not on every FileReader call).
+	verifiedFiles sync.Map
 	// Global bandwidth limiters wired into the anacrolix client config. Mutated
 	// in place via SetLimit/SetBurst — anacrolix re-reads the limit on every
 	// chunk read/write.
@@ -418,6 +422,12 @@ func (s *Streamer) Add(ctx context.Context, magnetOrURL string) (*TorrentInfo, e
 	s.active[t.InfoHash()] = e
 	s.mu.Unlock()
 
+	// NOTE: we deliberately do NOT call t.VerifyData() here. It hashes the
+	// ENTIRE torrent (every file), which for a season pack is multiple GB and
+	// competes with ffmpeg for disk/CPU during startup — the first playback
+	// then loses the race and times out. Cache reconciliation is done per-file
+	// in FileReader (verifyFilePieces), scoped to just the file being played.
+
 	// Serialize the metainfo to disk so the next Add() for this hash skips
 	// the DHT round-trip. Safe to call after GotInfo — t.Metainfo() is now
 	// populated with the full piece-hash table.
@@ -588,6 +598,14 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	r.SetReadahead(32 << 20) // 32 MiB
 	r.SetResponsive()        // prioritize pieces around current read position
 
+	// Reconcile THIS file's cache against the disk, once. anacrolix assumes an
+	// empty store on add and would re-download pieces we already have (seen in
+	// prod: 1.16 GB on disk, 0 reported). Scoped to the single file (not the
+	// whole torrent) so a season pack doesn't trigger a multi-GB hash storm
+	// that starves the encoder. Runs before warmTail so verified head pieces
+	// are ready when ffmpeg starts reading.
+	go s.verifyFilePieces(hash, fileIdx, f)
+
 	// Warm the TAIL of the file in the background. Container indexes live at the
 	// end: MP4 `moov` (non-faststart) and Matroska `Cues` both sit near EOF.
 	// ffmpeg seeks there during demux init; if those pieces aren't downloaded,
@@ -598,6 +616,26 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	go s.warmTail(f)
 
 	return &trackingReader{Reader: r, streamer: s, hash: hash}, f, nil
+}
+
+// verifyFilePieces hash-checks the on-disk pieces backing a single file so the
+// scheduler reuses the cache instead of re-downloading. Runs once per
+// (hash,fileIdx) per process. Verifying only this file's piece range keeps the
+// cost proportional to what's being watched, not the whole (possibly huge)
+// torrent. Pieces missing from disk fail their hash quickly (sparse reads).
+func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.File) {
+	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
+	if _, loaded := s.verifiedFiles.LoadOrStore(key, true); loaded {
+		return // already reconciled this file
+	}
+	for p := range f.Pieces() {
+		// Only verify pieces that have bytes on disk; fully-missing pieces have
+		// nothing to reconcile and verifying them just wastes a hash pass.
+		if p.State().Complete {
+			continue
+		}
+		_ = p.VerifyData()
+	}
 }
 
 // warmTail prioritizes the last few MB of a file so the container index
