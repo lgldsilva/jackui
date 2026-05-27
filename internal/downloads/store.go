@@ -216,8 +216,10 @@ func (s *Store) ListAll() ([]Download, error) {
 }
 
 // SetStatus updates the lifecycle column and clears the error message when
-// transitioning back to an active state. Returns the refreshed row.
-func (s *Store) SetStatus(id int, status string) error {
+// transitioning back to an active state. Scoped by user_id so a row can only be
+// mutated by its owner (defense-in-depth: handlers also check ownership, the
+// worker passes the row's own UserID).
+func (s *Store) SetStatus(userID, id int, status string) error {
 	if !validStatus(status) {
 		return fmt.Errorf("invalid status: %s", status)
 	}
@@ -227,28 +229,30 @@ func (s *Store) SetStatus(id int, status string) error {
 		_, err = s.db.Exec(`
 			UPDATE downloads SET status=?, error='',
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
-			WHERE id=?`, status, id)
+			WHERE id=? AND user_id=?`, status, id, userID)
 	case StatusCompleted:
 		_, err = s.db.Exec(`
-			UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP WHERE id=?`,
-			status, id)
+			UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`,
+			status, id, userID)
 	default:
-		_, err = s.db.Exec(`UPDATE downloads SET status=? WHERE id=?`, status, id)
+		_, err = s.db.Exec(`UPDATE downloads SET status=? WHERE id=? AND user_id=?`, status, id, userID)
 	}
 	return err
 }
 
-// SetError flips a download into `failed` with a captured error message.
-func (s *Store) SetError(id int, msg string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET status=?, error=? WHERE id=?`,
-		StatusFailed, msg, id)
+// SetError flips a download into `failed` with a captured error message. Scoped
+// by user_id (the worker passes the row's own UserID).
+func (s *Store) SetError(userID, id int, msg string) error {
+	_, err := s.db.Exec(`UPDATE downloads SET status=?, error=? WHERE id=? AND user_id=?`,
+		StatusFailed, msg, id, userID)
 	return err
 }
 
 // UpdateProgress records the latest bytes_downloaded — called periodically
-// by the worker. Errors are non-fatal; the next tick will retry.
-func (s *Store) UpdateProgress(id int, bytes int64) error {
-	_, err := s.db.Exec(`UPDATE downloads SET bytes_downloaded=? WHERE id=?`, bytes, id)
+// by the worker. Errors are non-fatal; the next tick will retry. Scoped by
+// user_id (worker passes the row's own UserID).
+func (s *Store) UpdateProgress(userID, id int, bytes int64) error {
+	_, err := s.db.Exec(`UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`, bytes, id, userID)
 	return err
 }
 

@@ -71,7 +71,7 @@ func TestPauseResumeFlowsThroughCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := s.SetStatus(d.ID, StatusPaused); err != nil {
+	if err := s.SetStatus(1, d.ID, StatusPaused); err != nil {
 		t.Fatalf("SetStatus pause: %v", err)
 	}
 	// Re-create should resume the paused entry, not error out.
@@ -84,19 +84,41 @@ func TestPauseResumeFlowsThroughCreate(t *testing.T) {
 	}
 }
 
+// A user must not be able to mutate another user's download by guessing its ID.
+func TestSetStatusIsUserScoped(t *testing.T) {
+	s := newTestStore(t)
+	owned, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "a"})
+
+	// User 2 tries to pause user 1's download — the WHERE user_id guard makes it
+	// a no-op (no error, zero rows), so the status is unchanged.
+	if err := s.SetStatus(2, owned.ID, StatusPaused); err != nil {
+		t.Fatalf("SetStatus (wrong user): %v", err)
+	}
+	got, _ := s.Get(1, owned.ID)
+	if got.Status == StatusPaused {
+		t.Fatal("cross-user SetStatus mutated another user's download")
+	}
+	// Same for progress.
+	_ = s.UpdateProgress(2, owned.ID, 999)
+	got, _ = s.Get(1, owned.ID)
+	if got.BytesDownloaded == 999 {
+		t.Fatal("cross-user UpdateProgress mutated another user's download")
+	}
+}
+
 func TestUpdateProgressAndComplete(t *testing.T) {
 	s := newTestStore(t)
 	d, _ := s.Create(Download{
 		UserID: 1, InfoHash: "abc", FileIndex: 0, Magnet: "m", Name: "x", FileSize: 1000,
 	})
-	if err := s.UpdateProgress(d.ID, 500); err != nil {
+	if err := s.UpdateProgress(1, d.ID, 500); err != nil {
 		t.Fatalf("UpdateProgress: %v", err)
 	}
 	got, _ := s.Get(1, d.ID)
 	if got.BytesDownloaded != 500 || got.Progress != 0.5 {
 		t.Fatalf("progress not tracked: %+v", got)
 	}
-	if err := s.SetStatus(d.ID, StatusCompleted); err != nil {
+	if err := s.SetStatus(1, d.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus completed: %v", err)
 	}
 	got, _ = s.Get(1, d.ID)
@@ -110,8 +132,8 @@ func TestListActiveOnlyDownloading(t *testing.T) {
 	a, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "a"})
 	b, _ := s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "b"})
 	c, _ := s.Create(Download{UserID: 1, InfoHash: "c", FileIndex: 0, Magnet: "m", Name: "c"})
-	_ = s.SetStatus(b.ID, StatusPaused)
-	_ = s.SetStatus(c.ID, StatusCompleted)
+	_ = s.SetStatus(1, b.ID, StatusPaused)
+	_ = s.SetStatus(1, c.ID, StatusCompleted)
 	active, err := s.ListActive()
 	if err != nil {
 		t.Fatalf("ListActive: %v", err)
