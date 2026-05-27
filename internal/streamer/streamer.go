@@ -3,6 +3,7 @@
 package streamer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -257,6 +258,58 @@ func New(cfg Config) (*Streamer, error) {
 // .torrent (its `metainfo.MetaInfo`). One file per info hash.
 func (s *Streamer) metainfoPath(h metainfo.Hash) string {
 	return filepath.Join(s.metainfoDir, h.HexString()+".torrent")
+}
+
+// ParseMagnet validates a magnet URI and extracts its info hash + display
+// name without touching the network. Used by the import flow to preview what
+// a pasted magnet resolves to before committing it to favorites.
+func (s *Streamer) ParseMagnet(magnet string) (hash, name string, err error) {
+	if i := strings.Index(magnet, "magnet:"); i >= 0 {
+		magnet = magnet[i:]
+	}
+	mi, err := metainfo.ParseMagnetUri(magnet)
+	if err != nil {
+		return "", "", fmt.Errorf("magnet inválido: %w", err)
+	}
+	name = mi.DisplayName
+	if name == "" {
+		name = mi.InfoHash.HexString()
+	}
+	return mi.InfoHash.HexString(), name, nil
+}
+
+// ImportTorrentBytes parses a raw .torrent file, persists its metainfo to the
+// cache (so a later play skips the DHT round-trip), and returns the info hash
+// + torrent name. Does NOT add the torrent to the active set — the import flow
+// only records a favorite; playback adds it on demand.
+func (s *Streamer) ImportTorrentBytes(data []byte) (hash, name string, err error) {
+	mi, err := metainfo.Load(bytes.NewReader(data))
+	if err != nil {
+		return "", "", fmt.Errorf(".torrent inválido: %w", err)
+	}
+	info, err := mi.UnmarshalInfo()
+	if err != nil {
+		return "", "", fmt.Errorf("metadados do .torrent ilegíveis: %w", err)
+	}
+	h := mi.HashInfoBytes()
+	// Persist so playback is instant (no DHT). Best-effort.
+	if s.metainfoDir != "" {
+		path := s.metainfoPath(h)
+		if f, ferr := os.CreateTemp(s.metainfoDir, ".tmp-*.torrent"); ferr == nil {
+			if werr := mi.Write(f); werr == nil {
+				_ = f.Close()
+				_ = os.Rename(f.Name(), path)
+			} else {
+				_ = f.Close()
+				_ = os.Remove(f.Name())
+			}
+		}
+	}
+	name = info.Name
+	if name == "" {
+		name = h.HexString()
+	}
+	return h.HexString(), name, nil
 }
 
 // loadCachedMetainfo reads a persisted .torrent for the given hash.

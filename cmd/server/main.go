@@ -367,6 +367,9 @@ func main() {
 			api.PATCH("/stream/favorites/folders/:id", handlers.FolderPatch(streamSrv))
 			api.DELETE("/stream/favorites/folders/:id", handlers.FolderDelete(streamSrv))
 			api.PATCH("/stream/favorite/:name/folder", handlers.FavoriteMoveToFolder(streamSrv))
+			// Import a torrent (magnet or .torrent file) straight into favorites,
+			// bypassing search. Resolves hash+name locally; caches metainfo.
+			api.POST("/stream/import", handlers.StreamImport(streamSrv))
 			api.POST("/stream/add", handlers.StreamAdd(streamSrv, libraryStore))
 			api.GET("/stream/info/:hash", handlers.StreamInfo(streamSrv))
 			api.GET("/stream/probe/:hash/:file", handlers.StreamProbe(streamSrv))

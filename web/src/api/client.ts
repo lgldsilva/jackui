@@ -608,6 +608,17 @@ export const favoriteRemove = async (name: string): Promise<void> => {
   await api.delete(`/stream/favorite/${encodeURIComponent(name)}`)
 }
 
+// Import a torrent straight into favorites — magnet URI or a base64-encoded
+// .torrent file. Server resolves hash + name locally (no DHT) and caches the
+// metainfo so playback is instant. Returns the resolved entry.
+export interface ImportResult { infoHash: string; name: string; magnet: string }
+export const streamImport = async (
+  payload: { magnet?: string; torrentB64?: string; name?: string; folderId?: number | null },
+): Promise<ImportResult> => {
+  const { data } = await api.post<ImportResult>('/stream/import', payload)
+  return data
+}
+
 // ─── Favorite folders (tree organization) ──────────────────────────────
 // Folders live alongside favorites; each favorite can have an optional
 // folder_id. Server prevents cycles when moving subfolders.
