@@ -149,6 +149,113 @@ func TestHLSPipelineProducesPlaylistForMP4(t *testing.T) {
 	}
 }
 
+// make4KMoovAtEndMP4 produces a 3840×2160 H.264 MP4 source. Used to
+// reproduce the production "Invalid Level" failure where the pipeline
+// hardcoded -level:v 4.0, which only permits up to 1920×1080@30. Anything
+// larger makes nvenc (and libx264 in strict mode) refuse to initialise.
+// Keep duration short — testsrc renders ~1s in <3s wall-clock with ultrafast.
+func make4KMoovAtEndMP4(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	out := filepath.Join(tmpDir, "src_4k.mp4")
+	cmd := exec.Command("ffmpeg",
+		"-hide_banner", "-loglevel", "error", "-y",
+		"-f", "lavfi", "-i", "testsrc=duration=1:size=3840x2160:rate=10",
+		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+		out,
+	)
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Skipf("ffmpeg 4K fixture-gen failed: %v: %s", err, combined)
+	}
+	if fi, err := os.Stat(out); err != nil || fi.Size() == 0 {
+		t.Skipf("4K fixture not generated: %v", err)
+	}
+	return out
+}
+
+// TestHLSPipelineHandles4KSource is the regression guard for the production
+// failure with 2160p HEVC torrents. Before the fix, hls.go appended
+// `-level:v 4.0` unconditionally; ffmpeg refused to initialise the encoder
+// with "Invalid Level" for any source taller than 1080p, and the session
+// died ~26s later with exit status 1. After the fix, the pipeline must
+// either omit `-level:v` (letting the encoder choose) or pick a level
+// matching the source dimensions, and produce a playlist normally.
+func TestHLSPipelineHandles4KSource(t *testing.T) {
+	installFastCapsForTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	fixture := make4KMoovAtEndMP4(t)
+	f, err := os.Open(fixture)
+	if err != nil {
+		t.Fatalf("open 4K fixture: %v", err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatalf("stat 4K fixture: %v", err)
+	}
+
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+
+	sess, err := mgr.GetOrStart(ctx, HLSStartOpts{
+		Key:        "smoke-4k",
+		Source:     f,
+		SourceSize: fi.Size(),
+	})
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	defer mgr.Close(sess.Key)
+
+	// 60s timeout — 4K encode is slow on CPU (libx264 ultrafast). If we don't
+	// see a playlist in 60s the pipeline likely died from "Invalid Level"
+	// (the bug we're guarding against).
+	if err := sess.WaitForMaster(60 * time.Second); err != nil {
+		t.Fatalf("master playlist never produced for 4K source — likely Invalid Level: %v", err)
+	}
+}
+
+// TestHLSPipelineDoesNotHardcodeRestrictiveLevel asserts at the argv level
+// that the pipeline does NOT pass `-level:v 4.0` (or any explicit level
+// below 5.1). This is a fast architectural guard — it catches regressions
+// in milliseconds without needing a 4K fixture. If someone re-adds a
+// hardcoded low level, this test fails immediately.
+func TestHLSPipelineDoesNotHardcodeRestrictiveLevel(t *testing.T) {
+	installFastCapsForTest(t)
+
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+
+	sess, err := mgr.GetOrStart(context.Background(), HLSStartOpts{
+		Key:        "level-guard",
+		Source:     bytes.NewReader([]byte("not a real video")),
+		SourceSize: 16,
+	})
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	defer mgr.Close(sess.Key)
+
+	args := sess.Cmd.Args
+	for i, a := range args {
+		if a == "-level:v" && i+1 < len(args) {
+			lvl := args[i+1]
+			// Forbid anything below 5.1 — 4K@30 needs L5.1, 4K@60 needs L5.2.
+			// Allowing "auto" or omitting entirely is fine.
+			switch lvl {
+			case "4.0", "4.1", "4.2", "5.0":
+				t.Errorf("ffmpeg invoked with -level:v %s — too restrictive for ≥1440p sources, will fail with 'Invalid Level' on 4K. Use -level:v 5.2 or omit.", lvl)
+			}
+		}
+	}
+}
+
 // TestHLSStartRejectsNilSource ensures we don't regress to the previous
 // API that accepted nil/plain io.Reader (which would let stdin-piping creep
 // back in by accident).
