@@ -230,6 +230,72 @@ func (s *Store) SetStatus(userID int, status Status) error {
 	return err
 }
 
+// CreateUserFull creates a user with email + lifecycle status (used by the
+// registration flow). Returns the new id. Username uniqueness is enforced by
+// the table; email uniqueness is checked by the caller (Register handler).
+func (s *Store) CreateUserFull(username, email, password string, role Role, status Status) (int, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return 0, fmt.Errorf("hash password: %w", err)
+	}
+	if role != RoleAdmin && role != RoleUser {
+		role = RoleUser
+	}
+	res, err := s.db.Exec(
+		"INSERT INTO users(username, email, password_hash, role, status, email_verified) VALUES(?, ?, ?, ?, ?, 0)",
+		username, email, string(hash), string(role), string(status),
+	)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	return int(id), nil
+}
+
+// SetEmailVerified flips a user's email_verified flag (after they click the
+// confirmation link). Optionally promotes the account to a new status (an
+// invited user becomes active on confirmation).
+func (s *Store) SetEmailVerified(userID int, promoteTo Status) error {
+	if promoteTo != "" {
+		_, err := s.db.Exec("UPDATE users SET email_verified = 1, status = ? WHERE id = ?", string(promoteTo), userID)
+		return err
+	}
+	_, err := s.db.Exec("UPDATE users SET email_verified = 1 WHERE id = ?", userID)
+	return err
+}
+
+// GetUserByEmail returns the (verified-or-not) user with a given email, or nil
+// when none. Used by password recovery. Empty email never matches.
+func (s *Store) GetUserByEmail(email string) (*User, error) {
+	if email == "" {
+		return nil, nil
+	}
+	var u User
+	var ts string
+	err := s.db.QueryRow(
+		"SELECT id, username, role, email, status, email_verified, created_at FROM users WHERE email = ? AND email != '' LIMIT 1",
+		email,
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt, _ = parseTime(ts)
+	return &u, nil
+}
+
+// Exists reports whether a username or (non-empty) email is already taken.
+func (s *Store) Exists(username, email string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM users WHERE username = ? OR (email != '' AND email = ?)",
+		username, email,
+	).Scan(&n)
+	return n > 0, err
+}
+
 // VerifyPassword loads a user by username and checks bcrypt against the supplied password.
 // Returns the User on match.
 func (s *Store) VerifyPassword(username, password string) (*User, error) {

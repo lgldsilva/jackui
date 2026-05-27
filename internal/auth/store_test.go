@@ -57,6 +57,45 @@ func TestAuthTokenSingleUse(t *testing.T) {
 	}
 }
 
+func TestRegistrationStoreFlow(t *testing.T) {
+	s := newTestStore(t)
+	// Self-register → pending, unverified.
+	id, err := s.CreateUserFull("dave", "dave@x.com", "pw123456", RoleUser, StatusPending)
+	if err != nil {
+		t.Fatalf("CreateUserFull: %v", err)
+	}
+	u, _ := s.GetUserByID(id)
+	if u.Status != StatusPending || u.EmailVerified || u.Email != "dave@x.com" {
+		t.Fatalf("fresh self-register wrong: %+v", u)
+	}
+	// Uniqueness: username OR email collision.
+	if taken, _ := s.Exists("dave", "other@x.com"); !taken {
+		t.Fatal("username collision not detected")
+	}
+	if taken, _ := s.Exists("other", "dave@x.com"); !taken {
+		t.Fatal("email collision not detected")
+	}
+	if taken, _ := s.Exists("nobody", "free@x.com"); taken {
+		t.Fatal("false collision")
+	}
+	// Lookup by email (for password reset).
+	if got, _ := s.GetUserByEmail("dave@x.com"); got == nil || got.ID != id {
+		t.Fatal("GetUserByEmail miss")
+	}
+	// Empty email must never match (existing accounts have email='').
+	if got, _ := s.GetUserByEmail(""); got != nil {
+		t.Fatal("empty email should not match")
+	}
+	// Confirm email.
+	if err := s.SetEmailVerified(id, ""); err != nil {
+		t.Fatalf("SetEmailVerified: %v", err)
+	}
+	u, _ = s.GetUserByID(id)
+	if !u.EmailVerified {
+		t.Fatal("email not marked verified")
+	}
+}
+
 func TestChangePassword(t *testing.T) {
 	s := newTestStore(t)
 	id, _ := s.CreateUser("bob", "oldpass", RoleUser)

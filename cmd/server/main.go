@@ -24,6 +24,7 @@ import (
 	"github.com/luizg/jackui/internal/playlists"
 	"github.com/luizg/jackui/internal/ai"
 	"github.com/luizg/jackui/internal/imagesearch"
+	"github.com/luizg/jackui/internal/mailer"
 	"github.com/luizg/jackui/internal/tmdb"
 	"github.com/luizg/jackui/internal/watchlist"
 	"github.com/luizg/jackui/internal/streamer"
@@ -346,12 +347,25 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"enabled": cfg.Auth.Enabled})
 	})
 
-	// Public auth endpoints (login/refresh/logout don't need an existing token)
+	// Transactional email (reset / verify / invite). Disabled when SMTP is unset
+	// — those flows then log the link instead of sending.
+	mlr := mailer.New(cfg.SMTP)
+	if mlr.Enabled() {
+		log.Printf("Email (SMTP): enabled via %s:%d", cfg.SMTP.Host, cfg.SMTP.Port)
+	} else {
+		log.Printf("Email (SMTP): disabled — reset/verify/invite links are logged, not emailed")
+	}
+
+	// Public auth endpoints (no existing token needed).
 	if authStore != nil && tokenMgr != nil {
 		pub := router.Group("/api/auth")
 		pub.POST("/login", handlers.Login(authStore, tokenMgr))
 		pub.POST("/refresh", handlers.Refresh(authStore, tokenMgr))
 		pub.POST("/logout", handlers.Logout(authStore))
+		pub.POST("/register", handlers.Register(authStore, mlr, cfg.BaseURL))
+		pub.POST("/verify-email", handlers.VerifyEmail(authStore))
+		pub.POST("/forgot", handlers.Forgot(authStore, mlr, cfg.BaseURL))
+		pub.POST("/reset", handlers.Reset(authStore))
 	}
 
 	api := router.Group("/api")
@@ -540,6 +554,7 @@ func main() {
 			adminGroup.POST("", handlers.CreateUser(authStore))
 			adminGroup.DELETE("/:id", handlers.DeleteUser(authStore))
 			adminGroup.PATCH("/:id/status", handlers.SetUserStatus(authStore))
+			adminGroup.POST("/invite", handlers.Invite(authStore, mlr, cfg.BaseURL))
 		}
 		if streamSrv != nil {
 			// Live transcode: remux/transcode torrent file → browser-friendly stream
