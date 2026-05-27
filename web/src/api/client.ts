@@ -455,6 +455,16 @@ export interface AdminUser {
 export const changePassword = async (current: string, next: string): Promise<void> => {
   await api.post('/auth/password', { current, new: next })
 }
+export const mfaEnroll = async (): Promise<{ secret: string; uri: string }> => {
+  const { data } = await api.post<{ secret: string; uri: string }>('/auth/mfa/enroll')
+  return data
+}
+export const mfaVerify = async (code: string): Promise<void> => {
+  await api.post('/auth/mfa/verify', { code })
+}
+export const mfaDisable = async (password: string): Promise<void> => {
+  await api.post('/auth/mfa/disable', { password })
+}
 export const adminListUsers = async (): Promise<AdminUser[]> => {
   const { data } = await api.get<AdminUser[]>('/auth/users')
   return data || []

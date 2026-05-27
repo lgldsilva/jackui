@@ -11,6 +11,7 @@ export interface AuthUser {
   role: Role
   status?: 'active' | 'pending' | 'disabled'
   emailVerified?: boolean
+  mfaEnabled?: boolean
   createdAt: string
 }
 
@@ -27,7 +28,7 @@ interface AuthContextValue {
   enabled: boolean // server has auth turned on
   isAdmin: boolean
   isAuthenticated: boolean
-  login: (username: string, password: string, remember: boolean) => Promise<void>
+  login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
   logout: () => Promise<void>
   refresh: () => Promise<void>
 }
@@ -116,8 +117,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const login = useCallback(async (username: string, password: string, remember: boolean) => {
-    const { data } = await api.post<TokenBundle>('/auth/login', { username, password, remember })
+  const login = useCallback(async (username: string, password: string, remember: boolean, totp?: string) => {
+    const { data } = await api.post<TokenBundle>('/auth/login', { username, password, remember, totp: totp || '' })
     save(ACCESS_KEY, data.access)
     save(REFRESH_KEY, data.refresh)
     setUser(data.user)
