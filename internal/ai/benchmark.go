@@ -113,12 +113,14 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 	var scores []SlotScore
 	for _, s := range slots {
 		score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model}
-		// Warmup: an untimed throwaway call so local/cold models load into memory
-		// (VRAM) before we measure — otherwise the first timed call eats the load
-		// time (or times out) and the model looks slow/broken. Generous timeout.
-		warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
-		_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
-		warmCancel()
+		// Warmup ONLY for local Ollama (loads the model into VRAM so the first
+		// timed call isn't penalized/timed-out). For remote vendors a warmup is a
+		// wasted quota call — their free tiers are rate-limited — so we skip it.
+		if s.Provider == "ollama" {
+			warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
+			_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
+			warmCancel()
+		}
 
 		var accSum float64
 		var latSum time.Duration
