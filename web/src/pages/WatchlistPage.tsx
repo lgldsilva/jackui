@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bell, Loader2, Plus, Trash2, Save, Copy, Clock } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
+import Thumbnail from '../components/Thumbnail'
 import {
   Watchlist, WatchlistHit,
   watchlistsList, watchlistsCreate, watchlistsUpdate, watchlistsDelete, watchlistsHits,
@@ -180,6 +181,8 @@ export default function WatchlistPage() {
                             <button onClick={() => playHit(h)} className="text-green-400 hover:text-green-300 px-1" title="Reproduzir">
                               ▶
                             </button>
+                            {/* Lazy poster — shared session cache prevents N hits triggering N requests. */}
+                            <Thumbnail title={h.title} size="sm" />
                             <div className="flex-1 min-w-0">
                               <p className="text-gray-200 truncate" title={h.title}>{h.title}</p>
                               <p className="text-gray-500">

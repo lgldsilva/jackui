@@ -7,6 +7,7 @@ import {
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
+import Thumbnail from '../components/Thumbnail'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
@@ -461,7 +462,9 @@ export default function FavoritesPage() {
                   }}
                   className="card flex flex-col gap-2 group cursor-grab active:cursor-grabbing"
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    {/* Lazy TMDB poster — falls back to a Film/Music icon when no match. */}
+                    <Thumbnail title={fav.name} size="md" />
                     <h3 className="text-sm font-medium text-gray-100 line-clamp-2 flex-1" title={fav.name}>
                       <FileVideo className="w-3.5 h-3.5 inline mr-1.5 text-gray-500" />
                       {fav.name}

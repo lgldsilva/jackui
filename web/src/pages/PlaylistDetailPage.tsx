@@ -6,6 +6,7 @@ import {
   Playlist, PlaylistItem,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
+import Thumbnail from '../components/Thumbnail'
 import { usePlayer } from '../components/PlayerProvider'
 
 export default function PlaylistDetailPage() {
@@ -185,6 +186,8 @@ export default function PlaylistDetailPage() {
                         <GripVertical className="w-3 h-3" />
                       </button>
                     </div>
+                    {/* Lazy TMDB poster — falls back to Film/Music icon. */}
+                    <Thumbnail title={it.title} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-200 truncate" title={it.title}>{it.title}</p>
                       {it.infoHash && (
