@@ -114,17 +114,20 @@ func TestBreakerOpensAfterThreshold(t *testing.T) {
 }
 
 func TestLooksModelNotFound(t *testing.T) {
-	// Per-vendor "model doesn't exist" signals must all be recognized.
+	// EMPIRICALLY VERIFIED responses (probed each vendor with a bogus model):
+	//   Groq:       404 code "model_not_found" "...does not exist or you do not have access to it"
+	//   OpenRouter: 400 "<id> is not a valid model ID"
+	//   Ollama:     404 "model '<id>' not found"
 	cases := []struct {
 		status int
 		body   string
 		want   bool
 	}{
-		{404, `{"error":{"code":"model_not_found","message":"The model x does not exist"}}`, true}, // groq
-		{400, `{"error":{"message":"x is not a valid model ID"}}`, true},                          // openrouter
-		{404, `{"error":{"message":"No endpoints found for model x"}}`, true},                     // openrouter
-		{404, `{"error":"model 'x' not found, try pulling it first"}`, true},                      // ollama
-		{500, `{"error":"internal"}`, false},                                                      // transient, NOT model-not-found
+		{404, `{"error":{"message":"The model ` + "`x`" + ` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}`, true}, // groq (verified)
+		{400, `{"error":{"message":"vendor/x:free is not a valid model ID","code":400}}`, true},                                                                                  // openrouter (verified)
+		{404, `{"error":{"message":"model 'x:99b' not found","type":"not_found_error","code":null}}`, true},                                                                      // ollama (verified)
+		{404, `{"error":{"message":"No endpoints found for model x"}}`, true},                                                                                                    // openrouter (alt)
+		{500, `{"error":"internal server error"}`, false},                                                                                                                       // transient, NOT model-not-found
 		{200, `ok`, false},
 	}
 	for _, tc := range cases {
