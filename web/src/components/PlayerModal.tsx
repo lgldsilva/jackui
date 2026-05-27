@@ -121,6 +121,7 @@ export default function PlayerModal({
   const [libraryEntryID, setLibraryEntryID] = useState<number | null>(null)
   const [resumePosition, setResumePosition] = useState<number | null>(null)
   const lastResumeSaveRef = useRef(0)
+  const lastUrlSyncRef = useRef(0)  // throttle for writing ?t= into the URL
 
   // Sidebar (file list) open/closed state. On lg+ screens the file picker
   // renders as a right column instead of a stacked panel below the video.
@@ -636,6 +637,20 @@ export default function PlayerModal({
       if (elapsed > 15 || elapsed < -1 /* seek backwards forces save too */) {
         lastResumeSaveRef.current = now
         libraryUpdateResume(libraryEntryID, now, v.duration || 0).catch(() => {})
+      }
+    }
+
+    // Mirror the playhead into the URL (?t=) every 5s so copying the browser
+    // URL — or hitting reload — resumes at this exact point, even across
+    // devices/users (the library-based resume is per-user and lags 15s).
+    // replaceState avoids polluting browser history; preserves ?play & ?f.
+    if (now > 3) {
+      const since = now - lastUrlSyncRef.current
+      if (since > 5 || since < -1 /* seek also refreshes the URL */) {
+        lastUrlSyncRef.current = now
+        const params = new URLSearchParams(window.location.search)
+        params.set('t', String(Math.floor(now)))
+        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
       }
     }
 

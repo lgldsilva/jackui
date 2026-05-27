@@ -381,7 +381,21 @@ export default function FavoritesPage() {
                 <div
                   key={fav.name}
                   draggable
-                  onDragStart={e => { e.dataTransfer.setData('text/x-favorite-name', fav.name); e.dataTransfer.effectAllowed = 'move' }}
+                  onDragStart={e => {
+                    e.dataTransfer.setData('text/x-favorite-name', fav.name)
+                    e.dataTransfer.effectAllowed = 'move'
+                    // Use a small chip as the drag image instead of the full
+                    // card. The default ghost is a translucent copy of the whole
+                    // card, which sits on top of the drop target (folder) and
+                    // hides where you're dropping. A compact label follows the
+                    // cursor without obscuring the target.
+                    const ghost = document.createElement('div')
+                    ghost.textContent = fav.name
+                    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
+                    document.body.appendChild(ghost)
+                    e.dataTransfer.setDragImage(ghost, 12, 12)
+                    setTimeout(() => ghost.remove(), 0)
+                  }}
                   className="card flex flex-col gap-2 group cursor-grab active:cursor-grabbing"
                 >
                   <div className="flex items-start justify-between gap-2">

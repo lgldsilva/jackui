@@ -67,10 +67,12 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin
 			return
 		}
 
-		// First segment + playlist appear ~4s after ffmpeg starts. Bound
-		// the wait at 30s — enough margin for slow torrent piece arrival
-		// plus encoder startup, short enough that a stuck swarm surfaces.
-		if err := sess.WaitForMaster(30 * time.Second); err != nil {
+		// First segment + playlist appear ~4s after ffmpeg starts on 1080p.
+		// 4K sources need longer: each segment pulls ~15 MB and the encoder
+		// can't emit the playlist until the first segment is fully written.
+		// 90s gives margin for 4K piece arrival + NVENC startup on a healthy
+		// swarm, while still surfacing a genuinely stuck torrent.
+		if err := sess.WaitForMaster(90 * time.Second); err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 			return
 		}
