@@ -1,12 +1,15 @@
 package jackett
 
 import (
+	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -74,7 +77,7 @@ func New(apiURL, apiKey string) *Client {
 	return &Client{
 		URL:    strings.TrimRight(apiURL, "/"),
 		APIKey: apiKey,
-		http:   &http.Client{Timeout: 30 * time.Second},
+		http:   &http.Client{Timeout: 150 * time.Second},
 	}
 }
 
@@ -146,6 +149,10 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 func (c *Client) GetIndexers() ([]Indexer, error) {
 	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
 
+	// Jackett's /api/v2.0/indexers only works for admin-cookie sessions; with
+	// apikey-only auth it returns 302 → /UI/Login. We try once, but if we hit
+	// the login redirect we return an empty list (not an error) so the frontend
+	// degrades gracefully into "search-all-indexers" mode without breaking.
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v2.0/indexers", c.URL), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -153,16 +160,28 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 
 	q := req.URL.Query()
 	q.Set("apikey", c.APIKey)
+	q.Set("configured", "true")
 	req.URL.RawQuery = q.Encode()
 
 	_ = endpoint
 
-	resp, err := c.http.Do(req)
+	noFollow := &http.Client{
+		Timeout: c.http.Timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := noFollow.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Jackett API: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently {
+		// Jackett requires admin login for this endpoint — return empty list as
+		// a deliberate "feature degraded" signal. The UI shows a hint.
+		return []Indexer{}, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("Jackett API returned %d: %s", resp.StatusCode, string(body))
@@ -190,28 +209,241 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 	return indexers, nil
 }
 
+// TestConnection probes Jackett to confirm URL + apikey are valid.
+//
+// We deliberately hit the torznab caps endpoint (`/api/v2.0/indexers/all/results/torznab/api?t=caps`)
+// instead of `/api/v2.0/indexers`. Recent Jackett versions only allow the latter
+// after an admin login (the apikey alone gets redirected to /UI/Login), but the
+// torznab path always honors apikey — so it's the right "is Jackett reachable +
+// authorized" probe. A 200 means everything works; 302 means we hit the login
+// redirect (key invalid or Jackett misconfigured); other codes are real errors.
 func (c *Client) TestConnection() error {
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers", c.URL)
+	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	q := req.URL.Query()
 	q.Set("apikey", c.APIKey)
+	q.Set("t", "caps")
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := c.http.Do(req)
+	// Don't follow the auth-redirect — if Jackett wants login, we want to know.
+	httpClient := &http.Client{
+		Timeout: c.http.Timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		return nil
+	case resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently:
+		// Redirect → login page → API key likely wrong (or Jackett requires admin pwd)
+		return fmt.Errorf("API key inválida (Jackett redirecionou para login)")
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized:
 		return fmt.Errorf("invalid API key")
-	}
-	if resp.StatusCode != http.StatusOK {
+	default:
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
+}
+
+// ─── Per-indexer streaming search ────────────────────────────────────────────
+//
+// Background: /api/v2.0/indexers/all/results blocks until EVERY configured indexer
+// responds (or times out internally). For 100+ indexers this is ~100s before
+// any client sees results. We can do better by querying each indexer concurrently
+// and emitting their hits via a callback as soon as each finishes.
+
+// listIndexersResponse mirrors the XML returned by /torznab/api?t=indexers
+type listIndexersResponse struct {
+	XMLName  xml.Name `xml:"indexers"`
+	Indexers []struct {
+		ID         string `xml:"id,attr"`
+		Configured string `xml:"configured,attr"`
+		Title      string `xml:"title"`
+		Language   string `xml:"language"`
+		Type       string `xml:"type"`
+	} `xml:"indexer"`
+}
+
+// ListIndexers returns the configured indexers via Jackett's torznab `t=indexers` endpoint.
+// This works with API key (no admin cookie needed), unlike /api/v2.0/indexers.
+func (c *Client) ListIndexers() ([]Indexer, error) {
+	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	q := req.URL.Query()
+	q.Set("apikey", c.APIKey)
+	q.Set("t", "indexers")
+	q.Set("configured", "true")
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list indexers: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list indexers returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var parsed listIndexersResponse
+	if err := xml.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("decode indexers xml: %w", err)
+	}
+
+	out := make([]Indexer, 0, len(parsed.Indexers))
+	for _, idx := range parsed.Indexers {
+		if idx.Configured != "true" {
+			continue
+		}
+		out = append(out, Indexer{
+			ID:         idx.ID,
+			Name:       idx.Title,
+			Language:   idx.Language,
+			Type:       idx.Type,
+			Configured: true,
+		})
+	}
+	return out, nil
+}
+
+// SearchOnIndexer queries one specific indexer (by id). Used for parallel fan-out.
+func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category string) ([]Result, error) {
+	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results", c.URL, url.PathEscape(indexerID))
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	q := req.URL.Query()
+	q.Set("apikey", c.APIKey)
+	q.Set("Query", query)
+	if category != "" && category != "all" {
+		q.Set("Category[]", category)
+	}
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("indexer %s returned %d", indexerID, resp.StatusCode)
+	}
+
+	var jackResp jackettResponse
+	if err := json.NewDecoder(resp.Body).Decode(&jackResp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	results := make([]Result, 0, len(jackResp.Results))
+	for _, r := range jackResp.Results {
+		categoryID := 0
+		if len(r.Category) > 0 {
+			categoryID = r.Category[0]
+		}
+		results = append(results, Result{
+			Title:       r.Title,
+			Tracker:     r.Tracker,
+			CategoryID:  categoryID,
+			Category:    r.CategoryDesc,
+			Size:        r.Size,
+			Seeders:     r.Seeders,
+			Leechers:    r.Peers - r.Seeders,
+			Age:         formatAge(r.PublishDate),
+			MagnetURI:   r.MagnetUri,
+			Link:        r.Link,
+			InfoHash:    r.InfoHash,
+			PublishDate: r.PublishDate,
+		})
+	}
+	return results, nil
+}
+
+// IndexerHit is what the streaming search callback receives per indexer.
+// One IndexerHit means one indexer is finished (or failed) — emit its results.
+type IndexerHit struct {
+	IndexerID   string
+	IndexerName string
+	Results     []Result
+	Err         error
+	Duration    time.Duration
+}
+
+// StreamSearch fires concurrent queries to every configured indexer (or a filtered subset).
+// Invokes `onHit` from a single goroutine as each indexer finishes. Blocks until all done or ctx cancels.
+//
+// `indexers` filters which to query; empty or ["all"] means every configured indexer.
+// `perIndexerTimeout` caps each individual query (default 30s); slow indexers don't block the rest.
+func (c *Client) StreamSearch(
+	ctx context.Context,
+	query, category string,
+	indexers []string,
+	perIndexerTimeout time.Duration,
+	onHit func(IndexerHit),
+) error {
+	if perIndexerTimeout == 0 {
+		perIndexerTimeout = 30 * time.Second
+	}
+
+	all, err := c.ListIndexers()
+	if err != nil {
+		return fmt.Errorf("list indexers: %w", err)
+	}
+
+	// Filter if user picked specific indexers
+	want := make(map[string]bool)
+	if len(indexers) > 0 && indexers[0] != "all" && indexers[0] != "" {
+		for _, id := range indexers {
+			want[id] = true
+		}
+	}
+	targets := make([]Indexer, 0, len(all))
+	for _, idx := range all {
+		if len(want) == 0 || want[idx.ID] {
+			targets = append(targets, idx)
+		}
+	}
+
+	// Serializing onHit avoids races in the caller
+	var mu sync.Mutex
+	emit := func(h IndexerHit) {
+		mu.Lock()
+		defer mu.Unlock()
+		onHit(h)
+	}
+
+	var wg sync.WaitGroup
+	for _, idx := range targets {
+		wg.Add(1)
+		go func(idx Indexer) {
+			defer wg.Done()
+			t0 := time.Now()
+			ictx, cancel := context.WithTimeout(ctx, perIndexerTimeout)
+			defer cancel()
+			results, err := c.SearchOnIndexer(ictx, idx.ID, query, category)
+			emit(IndexerHit{
+				IndexerID:   idx.ID,
+				IndexerName: idx.Name,
+				Results:     results,
+				Err:         err,
+				Duration:    time.Since(t0),
+			})
+		}(idx)
+	}
+	wg.Wait()
 	return nil
 }
 

@@ -1,5 +1,7 @@
+import { forwardRef } from 'react'
 import { Search } from 'lucide-react'
 import { Indexer } from '../api/client'
+import IndexerMultiSelect from './IndexerMultiSelect'
 
 interface SearchBarProps {
   query: string
@@ -24,7 +26,7 @@ const CATEGORIES = [
   { value: '7000', label: 'Outros' },
 ]
 
-export default function SearchBar({
+const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBar({
   query,
   onQueryChange,
   selectedIndexers,
@@ -34,23 +36,12 @@ export default function SearchBar({
   indexers,
   onSearch,
   loading,
-}: SearchBarProps) {
+}, ref) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       onSearch()
     }
   }
-
-  const handleIndexerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value
-    if (value === 'all') {
-      onIndexersChange([])
-    } else {
-      onIndexersChange([value])
-    }
-  }
-
-  const currentIndexer = selectedIndexers.length === 0 ? 'all' : selectedIndexers[0]
 
   return (
     <div className="flex flex-col gap-3 w-full">
@@ -58,11 +49,12 @@ export default function SearchBar({
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
+            ref={ref}
             type="text"
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Buscar torrents..."
+            placeholder="Buscar torrents... (pressione / para focar)"
             className="input-field pl-10 text-lg py-3"
             autoFocus
           />
@@ -83,18 +75,11 @@ export default function SearchBar({
 
       <div className="flex gap-3">
         <div className="flex-1">
-          <select
-            value={currentIndexer}
-            onChange={handleIndexerChange}
-            className="input-field"
-          >
-            <option value="all">Todos os Indexers</option>
-            {indexers.map((idx) => (
-              <option key={idx.id} value={idx.id}>
-                {idx.name}
-              </option>
-            ))}
-          </select>
+          <IndexerMultiSelect
+            selected={selectedIndexers}
+            onChange={onIndexersChange}
+            indexers={indexers}
+          />
         </div>
 
         <div className="flex-1">
@@ -113,4 +98,6 @@ export default function SearchBar({
       </div>
     </div>
   )
-}
+})
+
+export default SearchBar

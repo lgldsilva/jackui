@@ -6,6 +6,18 @@
   body {
     @apply bg-gray-900 text-gray-100 min-h-screen;
   }
+
+  /* iOS PWA safe areas — pure env() values, fully dynamic.
+     With apple-mobile-web-app-status-bar-style="default", iOS keeps the status
+     bar in a separate strip above the page, so env() correctly returns 0 — no
+     wasted space. On notched devices in black-translucent mode, env() reports
+     the real inset (~44px). Adapts naturally to each context.
+     If you've installed the PWA before May/2026, REMOVE and RE-ADD to refresh
+     the cached status-bar-style metadata. */
+  .safe-top    { padding-top:    env(safe-area-inset-top, 0px); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .safe-left   { padding-left:   env(safe-area-inset-left, 0px); }
+  .safe-right  { padding-right:  env(safe-area-inset-right, 0px); }
 }
 
 @layer components {
@@ -23,5 +35,13 @@
 
   .card {
     @apply bg-gray-800 rounded-xl border border-gray-700 p-4 hover:border-gray-600 transition-colors duration-200;
+  }
+
+  /* Header nav link — Apple HIG-compliant 44x44pt minimum touch target.
+     On mobile (sm:hidden text) the icon alone could be only ~16px = unhittable. */
+  .header-link {
+    @apply flex items-center justify-center gap-2 text-gray-400 hover:text-gray-100
+           transition-colors text-sm rounded-lg p-2.5 min-w-[44px] min-h-[44px]
+           hover:bg-gray-700/40;
   }
 }

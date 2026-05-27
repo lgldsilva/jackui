@@ -1,10 +1,108 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { Settings, SearchX } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import {
+  SearchX, Wifi, WifiOff, Loader2,
+  Plus, X, Filter, SortAsc, SortDesc, Play,
+} from 'lucide-react'
 import SearchBar from '../components/SearchBar'
-import ResultCard from '../components/ResultCard'
+import ResultCard, { refreshFavoritesCache } from '../components/ResultCard'
 import DownloadModal from '../components/DownloadModal'
-import { SearchResult, Indexer, getIndexers, searchTorrents } from '../api/client'
+import { usePlayer } from '../components/PlayerProvider'
+import PlaylistPickerModal from '../components/PlaylistPickerModal'
+import TorrentContentsModal from '../components/TorrentContentsModal'
+import NavHeader from '../components/NavHeader'
+import { SearchResult, Indexer, getIndexers, favoritesList, withToken } from '../api/client'
+import { load, save } from '../lib/storage'
+import { groupByInfoHash } from '../lib/group'
+import { isPlayable } from '../lib/playable'
+
+const TABS_KEY = 'searchTabs'
+const ACTIVE_KEY = 'activeTabId'
+
+// What we persist (NOT the live SSE results — those re-fetch when the user re-searches)
+interface PersistedTab {
+  id: string
+  query: string
+  selectedIndexers: string[]
+  selectedCategory: string
+  titleFilter: string
+  trackerFilter: string
+  minSeeders: number
+  minLeechers: number
+  maxSizeGb: string
+  resultSort: ResultSortKey
+  resultSortAsc: boolean
+  onlyPlayable: boolean
+}
+
+type SearchPhase = 'idle' | 'cache' | 'live' | 'done' | 'error'
+type ResultSortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'age'
+
+interface TabState {
+  id: string
+  query: string
+  results: SearchResult[]
+  phase: SearchPhase
+  error: string
+  summary: { total: number; live: number; cached: number } | null
+  selectedIndexers: string[]
+  selectedCategory: string
+  // Filters (per-tab, persisted across tab switches)
+  titleFilter: string
+  trackerFilter: string
+  minSeeders: number
+  minLeechers: number
+  maxSizeGb: string
+  resultSort: ResultSortKey
+  resultSortAsc: boolean
+  onlyPlayable: boolean
+}
+
+function newTab(id: string): TabState {
+  return {
+    id, query: '', results: [], phase: 'idle', error: '', summary: null,
+    selectedIndexers: [], selectedCategory: 'all',
+    titleFilter: '', trackerFilter: 'all',
+    minSeeders: 0, minLeechers: 0, maxSizeGb: '',
+    resultSort: 'seeders', resultSortAsc: false,
+    onlyPlayable: false,
+  }
+}
+
+let tabCounter = 1
+
+function hydrateTabs(): { tabs: TabState[]; activeId: string } {
+  const persisted = load<PersistedTab[]>(TABS_KEY, [])
+  if (persisted.length === 0) {
+    const id = String(tabCounter++)
+    return { tabs: [newTab(id)], activeId: id }
+  }
+  // Restore counter so new tabs get unique IDs beyond persisted ones
+  const maxId = persisted.reduce((m, t) => Math.max(m, parseInt(t.id) || 0), 0)
+  tabCounter = maxId + 1
+  const tabs = persisted.map(p => ({ ...newTab(p.id), ...p }))
+  const savedActive = load<string>(ACTIVE_KEY, '')
+  const activeId = tabs.some(t => t.id === savedActive) ? savedActive : tabs[0].id
+  return { tabs, activeId }
+}
+
+function persistTabs(tabs: TabState[], activeId: string) {
+  const stripped: PersistedTab[] = tabs.map(t => ({
+    id: t.id,
+    query: t.query,
+    selectedIndexers: t.selectedIndexers,
+    selectedCategory: t.selectedCategory,
+    titleFilter: t.titleFilter,
+    trackerFilter: t.trackerFilter,
+    minSeeders: t.minSeeders,
+    minLeechers: t.minLeechers,
+    maxSizeGb: t.maxSizeGb,
+    resultSort: t.resultSort,
+    resultSortAsc: t.resultSortAsc,
+    onlyPlayable: t.onlyPlayable,
+  }))
+  save(TABS_KEY, stripped)
+  save(ACTIVE_KEY, activeId)
+}
 
 function SkeletonCard() {
   return (
@@ -25,121 +123,511 @@ function SkeletonCard() {
   )
 }
 
+function PhaseIndicator({ phase }: { phase: SearchPhase }) {
+  if (phase === 'idle') return null
+  if (phase === 'cache' || phase === 'live')
+    return <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
+  if (phase === 'done')
+    return <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+  return <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+}
+
+const SORT_OPTIONS: { key: ResultSortKey; label: string }[] = [
+  { key: 'seeders',  label: 'Seeds'    },
+  { key: 'leechers', label: 'Leechers' },
+  { key: 'size',     label: 'Tamanho'  },
+  { key: 'title',    label: 'Nome'     },
+  { key: 'age',      label: 'Data'     },
+]
+
 export default function SearchPage() {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
+  const initial = hydrateTabs()
+  const [tabs, setTabs] = useState<TabState[]>(initial.tabs)
+  const [activeId, setActiveId] = useState(initial.activeId)
   const [indexers, setIndexers] = useState<Indexer[]>([])
-  const [selectedIndexers, setSelectedIndexers] = useState<string[]>([])
-  const [selectedCategory, setSelectedCategory] = useState('all')
-  const [loading, setLoading] = useState(false)
-  const [searched, setSearched] = useState(false)
-  const [error, setError] = useState('')
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
+  const { playSingle } = usePlayer()
+  const [playlistTarget, setPlaylistTarget] = useState<SearchResult | null>(null)
+  const [playlistTargetFile, setPlaylistTargetFile] = useState<{ index: number; title: string } | null>(null)
+  const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
+  const esMap = useRef<Map<string, EventSource>>(new Map())
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  // Infinite scroll pagination (grows as user scrolls)
+  const PAGE_SIZE = 60
+  const [visible, setVisible] = useState(PAGE_SIZE)
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    getIndexers()
-      .then(setIndexers)
-      .catch(() => {
-        // Silently fail — indexers list is optional
-      })
+    getIndexers().then(setIndexers).catch(() => {})
+    // Populate the global favorites cache so cards know which results are starred
+    favoritesList()
+      .then(list => refreshFavoritesCache(list.map(f => ({ name: f.name, infoHash: f.infoHash }))))
+      .catch(() => {})
   }, [])
 
-  const handleSearch = async () => {
-    if (!query.trim()) return
+  useEffect(() => {
+    return () => { esMap.current.forEach(es => es.close()) }
+  }, [])
 
-    setLoading(true)
-    setError('')
-    setSearched(true)
+  // Persist tabs whenever they change (debounced via React batching)
+  useEffect(() => {
+    persistTabs(tabs, activeId)
+  }, [tabs, activeId])
 
-    try {
-      const data = await searchTorrents(query, selectedIndexers, selectedCategory)
-      setResults(data || [])
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Erro ao buscar torrents'
-      setError(errorMessage)
-      setResults([])
-    } finally {
-      setLoading(false)
+  // Reset visible count when active tab or its filters change
+  useEffect(() => { setVisible(PAGE_SIZE) }, [activeId])
+
+  // IntersectionObserver — load more results as user scrolls near bottom
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) setVisible(v => v + PAGE_SIZE)
+    }, { rootMargin: '400px' })
+    obs.observe(sentinel)
+    return () => obs.disconnect()
+  }, [activeId, tabs])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const inField = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')
+      const cmd = e.metaKey || e.ctrlKey
+
+      // Cmd+T → new tab
+      if (cmd && e.key === 't') {
+        e.preventDefault()
+        addTabAndFocus()
+        return
+      }
+      // Cmd+W → close active tab
+      if (cmd && e.key === 'w') {
+        e.preventDefault()
+        setTabs(prev => {
+          if (prev.length === 1) return prev
+          const es = esMap.current.get(activeId)
+          if (es) { es.close(); esMap.current.delete(activeId) }
+          const idx = prev.findIndex(t => t.id === activeId)
+          const next = prev.filter(t => t.id !== activeId)
+          setActiveId(next[Math.max(0, idx - 1)].id)
+          return next
+        })
+        return
+      }
+      // Cmd+1..9 → switch tab by index
+      if (cmd && /^[1-9]$/.test(e.key)) {
+        const idx = parseInt(e.key) - 1
+        if (idx < tabs.length) {
+          e.preventDefault()
+          setActiveId(tabs[idx].id)
+        }
+        return
+      }
+      // "/" → focus search input (only when not in a field)
+      if (!inField && e.key === '/') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+        return
+      }
     }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs, activeId])
+
+  const updateTab = useCallback((id: string, patch: Partial<TabState>) => {
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+  }, [])
+
+  const handleSearch = useCallback((tabId: string) => {
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab || !tab.query.trim()) return
+
+    const existing = esMap.current.get(tabId)
+    if (existing) { existing.close(); esMap.current.delete(tabId) }
+
+    updateTab(tabId, { results: [], error: '', summary: null, phase: 'cache' })
+
+    const params = new URLSearchParams({ q: tab.query })
+    if (tab.selectedIndexers.length > 0 && tab.selectedIndexers[0] !== 'all')
+      params.set('indexers', tab.selectedIndexers.join(','))
+    if (tab.selectedCategory && tab.selectedCategory !== 'all')
+      params.set('category', tab.selectedCategory)
+
+    // EventSource can't set Authorization header — inject Bearer as query token instead.
+    // The middleware's extractToken() reads ?token= as a fallback.
+    const es = new EventSource(withToken(`/api/search/stream?${params}`))
+    esMap.current.set(tabId, es)
+
+    es.addEventListener('result', (e) => {
+      const result = JSON.parse(e.data) as SearchResult
+      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t))
+    })
+
+    es.addEventListener('progress', (e) => {
+      const data = JSON.parse(e.data)
+      if (data.phase === 'live') updateTab(tabId, { phase: 'live' })
+    })
+
+    es.addEventListener('done', (e) => {
+      const data = JSON.parse(e.data)
+      updateTab(tabId, { summary: data, phase: 'done' })
+      es.close()
+      esMap.current.delete(tabId)
+    })
+
+    es.addEventListener('error', (e) => {
+      if ((e as MessageEvent).data) {
+        const data = JSON.parse((e as MessageEvent).data)
+        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, error: data.message || 'Erro na busca' } : t))
+      }
+    })
+
+    es.onerror = () => {
+      if (esMap.current.has(tabId)) {
+        updateTab(tabId, { phase: 'error', error: 'Conexão perdida com o servidor' })
+        es.close()
+        esMap.current.delete(tabId)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs, updateTab])
+
+  const addTab = () => {
+    const id = String(tabCounter++)
+    setTabs(prev => [...prev, newTab(id)])
+    setActiveId(id)
   }
+
+  const addTabAndFocus = () => {
+    addTab()
+    setTimeout(() => searchInputRef.current?.focus(), 50)
+  }
+
+  const closeTab = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const existing = esMap.current.get(id)
+    if (existing) { existing.close(); esMap.current.delete(id) }
+    setTabs(prev => {
+      if (prev.length === 1) return prev
+      const next = prev.filter(t => t.id !== id)
+      if (id === activeId) {
+        const idx = prev.findIndex(t => t.id === id)
+        setActiveId(next[Math.max(0, idx - 1)].id)
+      }
+      return next
+    })
+  }
+
+  const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0]
+  const isSearching = activeTab.phase === 'cache' || activeTab.phase === 'live'
+
+  // All trackers seen in current tab results
+  const trackers = useMemo(() => {
+    const set = new Set(activeTab.results.map(r => r.tracker).filter(Boolean))
+    return ['all', ...Array.from(set).sort()]
+  }, [activeTab.results])
+
+  // Filtered + sorted results (after dedup-grouping by infoHash)
+  const filteredResults = useMemo(() => {
+    const maxBytes = activeTab.maxSizeGb ? parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity
+    const grouped = groupByInfoHash(activeTab.results)
+    let r = grouped.filter(res => {
+      if (res.seeders < activeTab.minSeeders) return false
+      if (res.leechers < activeTab.minLeechers) return false
+      if (res.size > maxBytes) return false
+      if (activeTab.trackerFilter !== 'all' && res.tracker !== activeTab.trackerFilter) return false
+      if (activeTab.titleFilter && !res.title.toLowerCase().includes(activeTab.titleFilter.toLowerCase())) return false
+      if (activeTab.onlyPlayable && !isPlayable(res)) return false
+      return true
+    })
+    r = [...r].sort((a, b) => {
+      let diff = 0
+      switch (activeTab.resultSort) {
+        case 'seeders':  diff = b.seeders - a.seeders; break
+        case 'leechers': diff = b.leechers - a.leechers; break
+        case 'size':     diff = b.size - a.size; break
+        case 'title':    diff = a.title.localeCompare(b.title); break
+        case 'age':      diff = b.publishDate.localeCompare(a.publishDate); break
+      }
+      return activeTab.resultSortAsc ? -diff : diff
+    })
+    return r
+  }, [activeTab])
+
+  const hasResults = activeTab.results.length > 0
+  const isFiltered = filteredResults.length !== activeTab.results.length
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 px-4 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-green-500">Jack</span>
-            <span className="text-2xl font-bold text-gray-100">UI</span>
-            <span className="text-xs text-gray-500 ml-1 bg-gray-700 px-2 py-0.5 rounded-full">
-              Jackett UI
-            </span>
-          </div>
-          <Link
-            to="/settings"
-            className="flex items-center gap-2 text-gray-400 hover:text-gray-100 transition-colors text-sm"
-          >
-            <Settings className="w-4 h-4" />
-            Configuracoes
-          </Link>
-        </div>
-      </header>
+      <NavHeader />
 
-      {/* Main content */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6 flex flex-col gap-6">
+      {/* Tab strip */}
+      <div className="bg-gray-800/60 border-b border-gray-700 px-4">
+        <div className="max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-end gap-0.5 overflow-x-auto">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveId(tab.id)}
+              className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 ${
+                tab.id === activeId
+                  ? 'bg-gray-900 border-gray-700 text-gray-100'
+                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+              }`}
+            >
+              <PhaseIndicator phase={tab.phase} />
+              <span className="truncate flex-1 text-left">
+                {tab.query.trim() || 'Nova busca'}
+              </span>
+              {tabs.length > 1 && (
+                <span
+                  onClick={e => closeTab(tab.id, e)}
+                  className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0 cursor-pointer p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </span>
+              )}
+            </button>
+          ))}
+          <button
+            onClick={addTab}
+            className="flex items-center justify-center w-8 h-8 mb-0.5 text-gray-500 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+            title="Nova aba de busca"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         {/* Search bar */}
         <SearchBar
-          query={query}
-          onQueryChange={setQuery}
-          selectedIndexers={selectedIndexers}
-          onIndexersChange={setSelectedIndexers}
-          selectedCategory={selectedCategory}
-          onCategoryChange={setSelectedCategory}
+          ref={searchInputRef}
+          query={activeTab.query}
+          onQueryChange={q => updateTab(activeTab.id, { query: q })}
+          selectedIndexers={activeTab.selectedIndexers}
+          onIndexersChange={sel => updateTab(activeTab.id, { selectedIndexers: sel })}
+          selectedCategory={activeTab.selectedCategory}
+          onCategoryChange={cat => updateTab(activeTab.id, { selectedCategory: cat })}
           indexers={indexers}
-          onSearch={handleSearch}
-          loading={loading}
+          onSearch={() => handleSearch(activeTab.id)}
+          loading={isSearching}
         />
 
-        {/* Results count */}
-        {searched && !loading && results.length > 0 && (
-          <p className="text-sm text-gray-400">
-            {results.length} resultado{results.length !== 1 ? 's' : ''} para{' '}
-            <span className="text-gray-200 font-medium">"{query}"</span>
-          </p>
+        {/* Status bar */}
+        {activeTab.phase !== 'idle' && (
+          <div className="flex items-center gap-3 text-sm flex-wrap">
+            {activeTab.phase === 'cache' && (
+              <span className="flex items-center gap-2 text-blue-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />Carregando cache...
+              </span>
+            )}
+            {activeTab.phase === 'live' && (
+              <span className="flex items-center gap-2 text-yellow-400">
+                <Wifi className="w-3.5 h-3.5 animate-pulse" />Buscando ao vivo nos indexadores...
+              </span>
+            )}
+            {activeTab.phase === 'done' && activeTab.summary && (
+              <span className="flex items-center gap-2 text-green-400">
+                <Wifi className="w-3.5 h-3.5" />
+                {isFiltered
+                  ? <><span className="text-gray-200 font-medium">{filteredResults.length}</span> de {activeTab.results.length} resultados</>
+                  : <><span className="text-gray-200 font-medium">{activeTab.results.length}</span> resultados</>
+                }{' '}para <span className="text-gray-200 font-medium">"{activeTab.query}"</span>
+                <span className="text-gray-500">
+                  ({activeTab.summary.live} ao vivo, {activeTab.summary.cached} cache)
+                </span>
+              </span>
+            )}
+            {activeTab.phase === 'error' && (
+              <span className="flex items-center gap-2 text-red-400">
+                <WifiOff className="w-3.5 h-3.5" />{activeTab.error || 'Erro na busca'}
+              </span>
+            )}
+            {isSearching && hasResults && (
+              <span className="text-gray-500 ml-auto">{activeTab.results.length} até agora</span>
+            )}
+          </div>
         )}
 
-        {/* Error */}
-        {error && (
+        {/* Filter + Sort toolbar — shown once results start arriving */}
+        {hasResults && (
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
+            <Filter className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+
+            {/* Title filter */}
+            <input
+              type="text"
+              placeholder="Filtrar título..."
+              value={activeTab.titleFilter}
+              onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-44"
+            />
+
+            {/* Tracker dropdown */}
+            <select
+              value={activeTab.trackerFilter}
+              onChange={e => updateTab(activeTab.id, { trackerFilter: e.target.value })}
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-green-500"
+            >
+              {trackers.map(t => (
+                <option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>
+              ))}
+            </select>
+
+            {/* Min seeders */}
+            <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-gray-500 whitespace-nowrap">Seeds ≥</span>
+              <input
+                type="number" min={0}
+                value={activeTab.minSeeders || ''}
+                placeholder="0"
+                onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, parseInt(e.target.value) || 0) })}
+                className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
+              />
+            </label>
+
+            {/* Min leechers */}
+            <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-gray-500 whitespace-nowrap">Leech ≥</span>
+              <input
+                type="number" min={0}
+                value={activeTab.minLeechers || ''}
+                placeholder="0"
+                onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, parseInt(e.target.value) || 0) })}
+                className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
+              />
+            </label>
+
+            {/* Max size */}
+            <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
+              <span className="text-xs text-gray-500 whitespace-nowrap">Máx GB</span>
+              <input
+                type="number" min={0} step={0.1}
+                value={activeTab.maxSizeGb}
+                placeholder="∞"
+                onChange={e => updateTab(activeTab.id, { maxSizeGb: e.target.value })}
+                className="w-14 bg-transparent text-sm text-gray-200 focus:outline-none"
+              />
+            </label>
+
+            {/* Only playable toggle */}
+            <button
+              onClick={() => updateTab(activeTab.id, { onlyPlayable: !activeTab.onlyPlayable })}
+              title="Mostrar apenas resultados que podem ser reproduzidos no player (vídeo)"
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
+                activeTab.onlyPlayable
+                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border-gray-600'
+              }`}
+            >
+              <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
+              Playable
+            </button>
+
+            {/* Sort buttons */}
+            <div className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto">
+              {SORT_OPTIONS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    if (activeTab.resultSort === key) {
+                      updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
+                    } else {
+                      updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
+                    }
+                  }}
+                  className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
+                    activeTab.resultSort === key
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {label}
+                  {activeTab.resultSort === key && (
+                    activeTab.resultSortAsc
+                      ? <SortAsc className="w-3 h-3" />
+                      : <SortDesc className="w-3 h-3" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Reset filters — only if any active */}
+            {(activeTab.titleFilter || activeTab.trackerFilter !== 'all' || activeTab.minSeeders > 0 || activeTab.minLeechers > 0 || activeTab.maxSizeGb || activeTab.onlyPlayable) && (
+              <button
+                onClick={() => updateTab(activeTab.id, {
+                  titleFilter: '', trackerFilter: 'all',
+                  minSeeders: 0, minLeechers: 0, maxSizeGb: '',
+                  onlyPlayable: false,
+                })}
+                className="text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
+                title="Limpar filtros"
+              >
+                <X className="w-3.5 h-3.5" />Limpar
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Soft error with results */}
+        {activeTab.error && hasResults && (
+          <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 rounded-xl px-4 py-2 text-sm">
+            {activeTab.error}
+          </div>
+        )}
+
+        {/* Hard error */}
+        {activeTab.error && !hasResults && (
           <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4">
             <p className="font-medium">Erro na busca</p>
-            <p className="text-sm mt-1">{error}</p>
+            <p className="text-sm mt-1">{activeTab.error}</p>
           </div>
         )}
 
         {/* Loading skeletons */}
-        {loading && (
+        {isSearching && !hasResults && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <SkeletonCard key={i} />
-            ))}
+            {Array.from({ length: 9 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
         )}
 
-        {/* Results grid */}
-        {!loading && results.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {results.map((result, i) => (
-              <ResultCard
-                key={`${result.infoHash || result.link}-${i}`}
-                result={result}
-                onDownload={setDownloadTarget}
-              />
-            ))}
+        {/* Results grid (paginated via infinite scroll) */}
+        {hasResults && filteredResults.length > 0 && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredResults.slice(0, visible).map((result, i) => (
+                <ResultCard
+                  key={`${result.infoHash || result.link}-${i}`}
+                  result={result}
+                  onDownload={setDownloadTarget}
+                  onPlay={(r) => playSingle(r)}
+                  onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
+                  onExploreContents={setContentsTarget}
+                />
+              ))}
+            </div>
+            {visible < filteredResults.length && (
+              <div ref={sentinelRef} className="text-center py-6 text-xs text-gray-500">
+                Mostrando {visible} de {filteredResults.length} • role pra ver mais
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Empty after filter */}
+        {hasResults && filteredResults.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+            <SearchX className="w-12 h-12 mb-3 opacity-30" />
+            <p className="font-medium">Nenhum resultado com os filtros aplicados</p>
+            <p className="text-sm mt-1">{activeTab.results.length} resultado{activeTab.results.length !== 1 ? 's' : ''} disponíve{activeTab.results.length !== 1 ? 'is' : 'l'} antes dos filtros</p>
           </div>
         )}
 
-        {/* Empty state */}
-        {!loading && searched && results.length === 0 && !error && (
+        {/* Empty after search */}
+        {activeTab.phase === 'done' && !hasResults && !activeTab.error && (
           <div className="flex flex-col items-center justify-center py-20 text-gray-500">
             <SearchX className="w-16 h-16 mb-4 opacity-30" />
             <p className="text-xl font-medium">Nenhum resultado encontrado</p>
@@ -148,17 +636,32 @@ export default function SearchPage() {
         )}
 
         {/* Initial state */}
-        {!loading && !searched && (
+        {activeTab.phase === 'idle' && (
           <div className="flex flex-col items-center justify-center py-20 text-gray-600">
             <p className="text-lg">Digite algo para buscar torrents</p>
           </div>
         )}
       </main>
 
-      {/* Download modal */}
-      <DownloadModal
-        result={downloadTarget}
-        onClose={() => setDownloadTarget(null)}
+      <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
+      <PlaylistPickerModal
+        result={playlistTarget}
+        fileIndex={playlistTargetFile?.index}
+        fileTitle={playlistTargetFile?.title}
+        onClose={() => { setPlaylistTarget(null); setPlaylistTargetFile(null) }}
+      />
+      <TorrentContentsModal
+        result={contentsTarget}
+        onClose={() => setContentsTarget(null)}
+        onPlayFile={(r, fileIdx) => {
+          setContentsTarget(null)
+          playSingle(r, fileIdx)
+        }}
+        onAddFileToPlaylist={(r, fileIdx, title) => {
+          setContentsTarget(null)
+          setPlaylistTargetFile({ index: fileIdx, title })
+          setPlaylistTarget(r)
+        }}
       />
     </div>
   )

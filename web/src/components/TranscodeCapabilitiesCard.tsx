@@ -1,0 +1,171 @@
+import { useState, useEffect } from 'react'
+import { Cpu, RefreshCw, Loader2, Check, X, Zap } from 'lucide-react'
+import { transcodeCapabilities, TranscodeCapabilities, TranscodeEncoder } from '../api/client'
+
+const BACKEND_LABELS: Record<string, string> = {
+  'nvidia':    'NVIDIA NVENC',
+  'amd-vaapi': 'AMD/Intel VAAPI',
+  'amd-amf':   'AMD AMF',
+  'intel-qsv': 'Intel QuickSync',
+  'apple-vt':  'Apple VideoToolbox',
+  'cpu':       'CPU (libx264/x265)',
+}
+
+const BACKEND_COLORS: Record<string, string> = {
+  'nvidia':    'text-green-400 border-green-500/30 bg-green-500/10',
+  'amd-vaapi': 'text-red-400 border-red-500/30 bg-red-500/10',
+  'amd-amf':   'text-red-400 border-red-500/30 bg-red-500/10',
+  'intel-qsv': 'text-blue-400 border-blue-500/30 bg-blue-500/10',
+  'apple-vt':  'text-gray-300 border-gray-500/30 bg-gray-500/10',
+  'cpu':       'text-yellow-400 border-yellow-500/30 bg-yellow-500/10',
+}
+
+export default function TranscodeCapabilitiesCard() {
+  const [caps, setCaps] = useState<TranscodeCapabilities | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = async (force = false) => {
+    if (force) setRefreshing(true)
+    else setLoading(true)
+    setError('')
+    try {
+      const data = await transcodeCapabilities(force)
+      setCaps(data)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }
+
+  useEffect(() => { load(false) }, [])
+
+  if (loading && !caps) {
+    return (
+      <div className="card flex items-center gap-3 text-gray-400">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        Probing transcoder capabilities...
+      </div>
+    )
+  }
+
+  if (error) {
+    return <div className="card text-red-400 text-sm">Erro: {error}</div>
+  }
+
+  if (!caps) return null
+
+  // Group encoders by backend for readable layout
+  const byBackend: Record<string, TranscodeEncoder[]> = {}
+  caps.encoders.forEach(e => {
+    if (!byBackend[e.backend]) byBackend[e.backend] = []
+    byBackend[e.backend].push(e)
+  })
+
+  // Order backends: functional first, then alphabetic
+  const sortedBackends = Object.keys(byBackend).sort((a, b) => {
+    const aFunc = byBackend[a].some(e => e.functional) ? 0 : 1
+    const bFunc = byBackend[b].some(e => e.functional) ? 0 : 1
+    if (aFunc !== bFunc) return aFunc - bFunc
+    return a.localeCompare(b)
+  })
+
+  return (
+    <div className="card flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Cpu className="w-5 h-5 text-green-500" />
+          <h2 className="text-lg font-semibold text-gray-100">Hardware Transcoding</h2>
+        </div>
+        <button
+          onClick={() => load(true)}
+          disabled={refreshing}
+          title="Re-probar (use após trocar de GPU ou driver)"
+          className="text-gray-400 hover:text-gray-200 disabled:opacity-50 transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {/* Preferred summary */}
+      <div className="bg-gray-900 rounded-lg p-3 flex flex-col gap-1.5 text-sm">
+        <div className="flex justify-between items-baseline">
+          <span className="text-gray-500 text-xs">Encoder ativo (H.264):</span>
+          <span className="text-green-400 font-mono">{caps.preferred || '<nenhum>'}</span>
+        </div>
+        <div className="flex justify-between items-baseline">
+          <span className="text-gray-500 text-xs">Encoder ativo (HEVC):</span>
+          <span className="text-green-400 font-mono">{caps.preferredHevc || '<nenhum>'}</span>
+        </div>
+        <div className="flex justify-between items-baseline">
+          <span className="text-gray-500 text-xs">FFmpeg:</span>
+          <span className="text-gray-400 text-xs font-mono truncate ml-2" title={caps.ffmpegVersion}>
+            {caps.ffmpegVersion.split(' ').slice(0, 3).join(' ')}
+          </span>
+        </div>
+        <div className="flex gap-2 mt-1 flex-wrap">
+          {caps.hasNvidia && <span className="text-[10px] bg-green-500/20 text-green-300 border border-green-500/30 px-1.5 py-0.5 rounded">NVIDIA</span>}
+          {caps.hasVaapi && <span className="text-[10px] bg-red-500/20 text-red-300 border border-red-500/30 px-1.5 py-0.5 rounded">VAAPI</span>}
+          {caps.hasQsv && <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded">QSV</span>}
+          {!caps.hasNvidia && !caps.hasVaapi && !caps.hasQsv && (
+            <span className="text-[10px] bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-1.5 py-0.5 rounded">CPU-only</span>
+          )}
+        </div>
+      </div>
+
+      {/* Encoders grouped by backend */}
+      <div className="flex flex-col gap-2">
+        {sortedBackends.map(backend => {
+          const encs = byBackend[backend]
+          const anyFunctional = encs.some(e => e.functional)
+          return (
+            <div
+              key={backend}
+              className={`rounded-lg border px-3 py-2 ${anyFunctional ? BACKEND_COLORS[backend] || 'border-gray-700 bg-gray-900/50' : 'border-gray-800 bg-gray-900/30 opacity-60'}`}
+            >
+              <p className="text-xs font-medium mb-1.5">{BACKEND_LABELS[backend] || backend}</p>
+              <div className="flex flex-col gap-1">
+                {encs.map(e => (
+                  <div key={e.id} className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {e.functional ? (
+                        <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
+                      ) : e.available ? (
+                        <X className="w-3 h-3 text-red-400 flex-shrink-0" />
+                      ) : (
+                        <span className="w-3 h-3 inline-block flex-shrink-0 text-gray-600">·</span>
+                      )}
+                      <code className="text-gray-300 truncate">{e.id}</code>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {e.benchFps && (
+                        <span className="flex items-center gap-0.5 text-gray-500 text-[10px]">
+                          <Zap className="w-2.5 h-2.5" />
+                          {e.benchFps.toFixed(0)} fps
+                        </span>
+                      )}
+                      {e.error && (
+                        <span className="text-[10px] text-red-400/70 truncate max-w-[140px]" title={e.error}>
+                          {e.error.split('\n')[0].slice(0, 30)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="text-xs text-gray-500">
+        Probed em {new Date(caps.probedAt).toLocaleString('pt-BR')} •
+        Cache atualizado a cada restart, ou via botão refresh acima
+      </p>
+    </div>
+  )
+}

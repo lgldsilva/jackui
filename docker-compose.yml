@@ -5,12 +5,30 @@ services:
     restart: unless-stopped
     ports:
       - "8989:8989"
+      - "42069:42069/tcp"   # BitTorrent peer port (TCP)
+      - "42069:42069/udp"   # BitTorrent peer port (UDP / DHT)
     volumes:
-      - ./config.yaml:/app/config.yaml
+      - /home/lgldsilva/jackui/config.yaml:/app/config.yaml
+      - /home/lgldsilva/jackui/data:/data
+      - /home/lgldsilva/jackui/streams:/data/streams
     environment:
       - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
       - JACKUI_PORT=8989
+      - JACKUI_DB_PATH=/data/jackui.db
+      - JACKUI_STREAM_DIR=/data/streams
+      - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
+      - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
+      - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
+      - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}
+      - JACKUI_JWT_SECRET=${JACKUI_JWT_SECRET}
+      # Optional TMDB enrichment — posters + overview in result cards.
+      # Get a free key at https://www.themoviedb.org/settings/api
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      # Optional ntfy.sh push for the Watchlist worker.
+      # Pick any unique topic, then subscribe on the ntfy app: ntfy.sh/<your-topic>
+      - JACKUI_NTFY_TOPIC=${JACKUI_NTFY_TOPIC:-}
+      - JACKUI_NTFY_URL=${JACKUI_NTFY_URL:-https://ntfy.sh}
     networks:
       - media
 

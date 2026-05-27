@@ -1,10 +1,29 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="pt-BR" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>JackUI</title>
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
+
+    <!-- PWA manifest + theme -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#10b981" />
+    <meta name="application-name" content="JackUI" />
+
+    <!-- iOS standalone mode (so "Add to Home Screen" launches without Safari chrome) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- 'default' makes iOS render the status bar ABOVE the page content (separate strip),
+         avoiding the notch overlapping our header buttons. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="JackUI" />
+
+    <!-- Disable iOS auto-detection of phone numbers in titles like "S04E12" -->
+    <meta name="format-detection" content="telephone=no" />
   </head>
   <body>
     <div id="root"></div>

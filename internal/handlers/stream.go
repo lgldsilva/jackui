@@ -1,0 +1,691 @@
+package handlers
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/anacrolix/torrent/metainfo"
+	"github.com/gin-gonic/gin"
+	"strings"
+
+	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/library"
+	"github.com/luizg/jackui/internal/streamer"
+	"github.com/luizg/jackui/internal/subtitles"
+)
+
+type streamAddReq struct {
+	Magnet string `json:"magnet"`
+}
+
+// StreamAdd handles POST /api/stream/add — registers a magnet, waits for metadata.
+// Side-effect: persists the magnet in the user's library so they can re-play after restart
+// or from /favorites without going through a new search.
+func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req streamAddReq
+		if err := c.ShouldBindJSON(&req); err != nil || req.Magnet == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet is required"})
+			return
+		}
+		info, err := s.Add(c.Request.Context(), req.Magnet)
+		if err != nil {
+			// Log enough context to debug pipeline issues without leaking the full magnet
+			preview := req.Magnet
+			if len(preview) > 80 {
+				preview = preview[:80] + "..."
+			}
+			fmt.Printf("[stream/add] failed for %q: %v\n", preview, err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		// Persist into the user's library (idempotent upsert).
+		// Kind is left empty here — set later by probe/play hints.
+		if lib != nil {
+			userID, _, _ := auth.UserIDFromCtx(c)
+			lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "")
+		}
+		c.JSON(http.StatusOK, info)
+	}
+}
+
+// StreamInfo handles GET /api/stream/info/:hash — current torrent state + progress.
+func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		info, err := s.Get(h)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, info)
+	}
+}
+
+// StreamFile handles GET /api/stream/:hash/:file — serves one file with HTTP Range support.
+// Browser's <video> tag will issue partial requests; http.ServeContent handles them
+// against the torrent reader, which prioritizes pieces as they're read.
+func StreamFile(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		reader, file, err := s.FileReader(h, fileIdx)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		defer reader.Close()
+
+		// Hint the browser about content type when extension is known
+		// (http.ServeContent infers by extension via mime.TypeByExtension)
+		http.ServeContent(c.Writer, c.Request, file.DisplayPath(), time.Time{}, reader)
+	}
+}
+
+// StreamPlaylistM3U handles GET /api/stream/playlist/:hash/:file.m3u — returns a
+// small M3U playlist file that points back to the stream URL. Used by the "VLC"
+// button: browsers download the .m3u, the OS opens it in the registered M3U
+// handler (VLC on every desktop and iOS/Android with VLC installed).
+//
+// This is universally portable, unlike vlc:// or vlc-x-callback:// URL schemes
+// which only work on subsets of devices and break on desktop VLC entirely.
+func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		info, err := s.Get(h)
+		if err != nil {
+			// Torrent isn't currently active (dropped after restart or idle GC).
+			// Try a best-effort auto-add using a bare magnet — DHT/peers will
+			// resolve metadata if any peers are still seeding. This makes the
+			// VLC link survive cache evictions and container restarts.
+			bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
+			if got, addErr := s.Add(c.Request.Context(), bareMagnet); addErr == nil {
+				info = got
+			} else {
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		if fileIdx < 0 || fileIdx >= len(info.Files) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file index out of range"})
+			return
+		}
+
+		// Build absolute stream URL using the same scheme/host the client used to reach us.
+		scheme := "http"
+		if c.Request.TLS != nil || c.Request.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		host := c.Request.Host
+		// Allow ?transcode=h264 / ?transcode=hevc to route via /stream/transcode.
+		// Path must match the actual Gin route: /api/stream/:hash/:file (no
+		// "file" segment) — the previous "/api/stream/file/HASH/IDX" was a
+		// typo that made the M3U point at a 404, breaking the VLC handoff.
+		// Propagate the caller's auth token into the stream URL. VLC and other
+		// non-browser players don't carry browser cookies/headers, so the only
+		// way the streamer recognises the request is via `?token=` (the same
+		// fallback the auth middleware already honours for <video src>).
+		// Token order: Authorization header (Bearer X), then ?token= query.
+		token := ""
+		if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			token = strings.TrimPrefix(h, "Bearer ")
+		}
+		if token == "" {
+			token = c.Query("token")
+		}
+		appendToken := func(base string) string {
+			if token == "" {
+				return base
+			}
+			sep := "?"
+			if strings.Contains(base, "?") {
+				sep = "&"
+			}
+			return base + sep + "token=" + token
+		}
+
+		path := fmt.Sprintf("/api/stream/%s/%d", h.HexString(), fileIdx)
+		if v := c.Query("transcode"); v == "h264" || v == "hevc" {
+			path = fmt.Sprintf("/api/stream/transcode/%s/%d?video=%s", h.HexString(), fileIdx, v)
+		}
+		streamURL := appendToken(fmt.Sprintf("%s://%s%s", scheme, host, path))
+
+		title := info.Files[fileIdx].Path
+		if title == "" {
+			title = info.Name
+		}
+
+		m3u := "#EXTM3U\n" +
+			"#EXTINF:-1," + title + "\n" +
+			streamURL + "\n"
+
+		// Build a filesystem-safe filename derived from the playing file's
+		// basename. Example: "Season 1/S01E01 - Pilot.mkv" → "S01E01 - Pilot.m3u"
+		// Without this every download was just "stream.m3u" — confusing when
+		// the user later opens the Downloads folder and tries to recall which
+		// episode this was for.
+		base := info.Files[fileIdx].Path
+		if i := strings.LastIndex(base, "/"); i >= 0 {
+			base = base[i+1:]
+		}
+		if dot := strings.LastIndex(base, "."); dot > 0 {
+			base = base[:dot]
+		}
+		// Sanitise for HTTP header — quotes and CRLF would break it.
+		safe := strings.NewReplacer(`"`, "", "\r", "", "\n", "", "\\", "").Replace(base)
+		if safe == "" {
+			safe = "stream"
+		}
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.m3u"`, safe))
+		c.Data(http.StatusOK, "audio/x-mpegurl", []byte(m3u))
+	}
+}
+
+// StreamPrefetch handles POST /api/stream/prefetch/:hash/:file — best-effort
+// background fetch of a file that is NOT being streamed right now. Used by the
+// player to warm up the next episode (or next playlist item, when same torrent)
+// at ~50% of the current item so the transition is seamless.
+//
+// Returns 202 immediately; the actual piece download happens asynchronously.
+func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		if err := s.Prefetch(h, fileIdx); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{"status": "prefetching"})
+	}
+}
+
+// StreamDrop handles DELETE /api/stream/:hash — manually stop a torrent.
+func StreamDrop(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		s.Drop(h)
+		c.JSON(http.StatusOK, gin.H{"message": "dropped"})
+	}
+}
+
+// StreamProbe handles GET /api/stream/probe/:hash/:file — lists embedded audio + sub tracks.
+func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		// ffprobe is bounded; 60s is generous
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+		defer cancel()
+		probe, err := s.Probe(ctx, h, fileIdx)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, probe)
+	}
+}
+
+// StreamSidecars handles GET /api/stream/sidecars/:hash/:file — list .srt/.vtt/.ass sibling files in the torrent.
+func StreamSidecars(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		subs, err := s.Sidecars(h, fileIdx)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, subs)
+	}
+}
+
+// StreamSidecarRead handles GET /api/stream/sidecar/:hash/:file — reads one sidecar file as WebVTT.
+// :file is the absolute torrent file index (from `streamer.Sidecars().Index`).
+// Converts SRT → VTT automatically; serves VTT as-is.
+func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+		defer cancel()
+		raw, format, err := s.ReadSidecar(ctx, h, fileIdx)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		var body []byte
+		switch strings.ToLower(format) {
+		case "srt":
+			body = subtitles.SRTToVTT(raw)
+		case "vtt":
+			body = raw
+		default:
+			// ASS/SSA need ffmpeg to convert — for now, just serve raw with text/plain so browsers can show it as "non-VTT"
+			c.Header("Content-Type", "text/plain; charset=utf-8")
+			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Writer.Write(raw)
+			return
+		}
+		c.Header("Content-Type", "text/vtt; charset=utf-8")
+		c.Header("Cache-Control", "public, max-age=86400, immutable")
+		c.Writer.Write(body)
+	}
+}
+
+// StreamSubtitleExtract handles GET /api/stream/subtrack/:hash/:file/:track — extracts an embedded sub as VTT.
+func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		trackIdx, err := strconv.Atoi(c.Param("track"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
+			return
+		}
+		// Sub extraction can be slow on a fresh stream because MKV interleaves sub data
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+		defer cancel()
+		vtt, err := s.ExtractSubtitle(ctx, h, fileIdx, trackIdx)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.Header("Content-Type", "text/vtt; charset=utf-8")
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.Writer.Write(vtt)
+	}
+}
+
+// StreamThumbnail handles GET /api/stream/thumb/:hash/:file?at=NNN — returns
+// a single JPEG frame captured `at` seconds into the file. Used by the player
+// progress-bar hover preview. The path quantizes `at` to 10s buckets so hovering
+// across the bar reuses cached thumbs instead of running ffmpeg per pixel.
+func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		at, _ := strconv.Atoi(c.Query("at"))
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+		defer cancel()
+		data, _, err := s.ExtractThumbnail(ctx, h, fileIdx, at)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if len(data) == 0 {
+			c.Status(http.StatusNoContent)
+			return
+		}
+		c.Header("Cache-Control", "public, max-age=86400") // 1d browser cache
+		c.Data(http.StatusOK, "image/jpeg", data)
+	}
+}
+
+// StreamMetadata handles GET /api/stream/metadata/:hash — returns a cached
+// snapshot of TorrentInfo without requiring the torrent to be active. Lets the
+// UI render the file list + name *instantly* on subsequent opens, while the
+// (slower) streamAdd kicks off in parallel to actually start downloading.
+//
+// 200 = cache hit, 404 = never seen this hash before.
+func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		cache := s.MetadataCache()
+		if cache == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+			return
+		}
+		meta := cache.Get(h.HexString())
+		if meta == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no cached metadata"})
+			return
+		}
+		c.Header("Cache-Control", "public, max-age=86400") // 1d browser cache
+		c.JSON(http.StatusOK, meta)
+	}
+}
+
+// StreamArtwork handles GET /api/stream/artwork/:hash/:file — extracts the
+// embedded cover-art image (APIC/PICTURE/covr) from an audio file via ffmpeg
+// and serves it with aggressive caching. Returns 204 if no artwork is embedded.
+func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		fileIdx, err := strconv.Atoi(c.Param("file"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+		data, _, err := s.ExtractArtwork(ctx, h, fileIdx)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if len(data) == 0 {
+			c.Status(http.StatusNoContent)
+			return
+		}
+		c.Header("Cache-Control", "public, max-age=2592000, immutable") // 30d
+		c.Data(http.StatusOK, "image/jpeg", data)
+	}
+}
+
+// StreamCacheStats handles GET /api/stream/cache — disk usage of the streaming cache.
+func StreamCacheStats(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		stats, err := s.Stats()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, stats)
+	}
+}
+
+// StreamRateStats handles GET /api/stream/rate — aggregate DL/UL bytes/sec
+// across all active torrents. The frontend polls this every 2s for the header widget.
+func StreamRateStats(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, s.GlobalStats())
+	}
+}
+
+// StreamCacheClear handles DELETE /api/stream/cache — wipe everything.
+// DELETE /api/stream/cache?entry=<name> removes one entry only.
+func StreamCacheClear(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if entry := c.Query("entry"); entry != "" {
+			if err := s.ClearEntry(entry); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "entry cleared"})
+			return
+		}
+		if err := s.ClearAll(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "cache cleared"})
+	}
+}
+
+// StreamFavorite handles POST /api/stream/favorite — body: {name, infoHash, magnet, reason}
+func StreamFavorite(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Name     string `json:"name"`
+			InfoHash string `json:"infoHash"`
+			Magnet   string `json:"magnet"`
+			Reason   string `json:"reason"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+			return
+		}
+		if req.Reason == "" {
+			req.Reason = "manual"
+		}
+		favs := s.Favorites()
+		if favs == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store not initialized"})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		if err := favs.Add(req.Name, req.InfoHash, req.Magnet, req.Reason, userID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "favorited"})
+	}
+}
+
+// StreamUnfavorite handles DELETE /api/stream/favorite/:name
+func StreamUnfavorite(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		name := c.Param("name")
+		favs := s.Favorites()
+		if favs == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store not initialized"})
+			return
+		}
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		includeAll := isAdmin && c.Query("all") == "1"
+		if err := favs.Remove(name, userID, includeAll); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "unfavorited"})
+	}
+}
+
+// StreamFavorites handles GET /api/stream/favorites — list user's favorites.
+// Admin with ?all=1 sees everyone's.
+func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		favs := s.Favorites()
+		if favs == nil {
+			c.JSON(http.StatusOK, []streamer.Favorite{})
+			return
+		}
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		includeAll := isAdmin && c.Query("all") == "1"
+		list, err := favs.List(userID, includeAll)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if list == nil {
+			list = []streamer.Favorite{}
+		}
+		c.JSON(http.StatusOK, list)
+	}
+}
+
+func parseHash(s string) (metainfo.Hash, error) {
+	var h metainfo.Hash
+	return h, h.FromHexString(s)
+}
+
+// ─── Transmission-style download controls ──────────────────────────────────
+
+// StreamPause handles POST /api/stream/:hash/pause — soft-pause peer connections.
+func StreamPause(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := s.Pause(h); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "paused"})
+	}
+}
+
+// StreamResume handles POST /api/stream/:hash/resume — re-enable peer connections.
+func StreamResume(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := s.Resume(h); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "resumed"})
+	}
+}
+
+// StreamSetPriority handles POST /api/stream/:hash/priority — body {priority}.
+func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		var req struct {
+			Priority string `json:"priority"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := s.SetPriority(h, req.Priority); err != nil {
+			code := http.StatusBadRequest
+			if strings.Contains(err.Error(), "não está ativo") {
+				code = http.StatusNotFound
+			}
+			c.JSON(code, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"priority": strings.ToLower(req.Priority)})
+	}
+}
+
+// StreamActive handles GET /api/stream/active — snapshot of every active torrent.
+func StreamActive(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		list := s.ActiveList()
+		if list == nil {
+			list = []*streamer.TorrentInfo{}
+		}
+		c.JSON(http.StatusOK, list)
+	}
+}
+
+// StreamPauseAll handles POST /api/stream/active/pause — bulk pause.
+func StreamPauseAll(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		n := s.PauseAll()
+		c.JSON(http.StatusOK, gin.H{"paused": n})
+	}
+}
+
+// StreamResumeAll handles POST /api/stream/active/resume — bulk resume.
+func StreamResumeAll(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		n := s.ResumeAll()
+		c.JSON(http.StatusOK, gin.H{"resumed": n})
+	}
+}
+
+// StreamGetLimits handles GET /api/stream/limits — current global bandwidth caps.
+func StreamGetLimits(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		down, up := s.RateLimits()
+		c.JSON(http.StatusOK, gin.H{"down": down, "up": up})
+	}
+}
+
+// StreamSetLimits handles POST /api/stream/limits — body {down, up} in bytes/sec.
+// 0 = unlimited; negative values rejected.
+func StreamSetLimits(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Down int64 `json:"down"`
+			Up   int64 `json:"up"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.Down < 0 || req.Up < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "limits must be >= 0 (0 = unlimited)"})
+			return
+		}
+		s.SetRateLimits(req.Down, req.Up)
+		c.JSON(http.StatusOK, gin.H{"down": req.Down, "up": req.Up})
+	}
+}

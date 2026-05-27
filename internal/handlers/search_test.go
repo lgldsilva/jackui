@@ -32,7 +32,7 @@ func TestSearch_MissingQuery(t *testing.T) {
 	client := mockJackettClient(t, func(w http.ResponseWriter, r *http.Request) {})
 
 	router := gin.New()
-	router.GET("/api/search", Search(client))
+	router.GET("/api/search", Search(client, nil))
 
 	req := httptest.NewRequest("GET", "/api/search", nil)
 	w := httptest.NewRecorder()
@@ -60,7 +60,7 @@ func TestSearch_ReturnsResults(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/search", Search(client))
+	router.GET("/api/search", Search(client, nil))
 
 	req := httptest.NewRequest("GET", "/api/search?q=ubuntu", nil)
 	w := httptest.NewRecorder()
@@ -90,7 +90,7 @@ func TestSearch_ForwardsIndexerToJackett(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/search", Search(client))
+	router.GET("/api/search", Search(client, nil))
 
 	req := httptest.NewRequest("GET", "/api/search?q=test&indexers=1337x", nil)
 	w := httptest.NewRecorder()
@@ -112,7 +112,7 @@ func TestSearch_ForwardsCategoryToJackett(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/search", Search(client))
+	router.GET("/api/search", Search(client, nil))
 
 	req := httptest.NewRequest("GET", "/api/search?q=test&category=2000", nil)
 	w := httptest.NewRecorder()
@@ -130,7 +130,7 @@ func TestSearch_JackettError_Returns502(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/search", Search(client))
+	router.GET("/api/search", Search(client, nil))
 
 	req := httptest.NewRequest("GET", "/api/search?q=test", nil)
 	w := httptest.NewRecorder()

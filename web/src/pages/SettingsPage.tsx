@@ -8,6 +8,8 @@ import {
   saveConfig,
   testJackettConnection,
 } from '../api/client'
+import StreamCacheCard from '../components/StreamCacheCard'
+import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 
 const DEFAULT_CLIENT: DownloadClientFull = {
   id: '',
@@ -105,13 +107,25 @@ export default function SettingsPage() {
     setConfig({ ...config, downloadClients: newClients })
   }
 
-  const handleSetDefault = (index: number) => {
+  const handleSetDefault = async (index: number) => {
     if (!config) return
     const newClients = config.downloadClients.map((c, i) => ({
       ...c,
       default: i === index,
     }))
-    setConfig({ ...config, downloadClients: newClients })
+    const updated = { ...config, downloadClients: newClients }
+    // Optimistic UI: reflect immediately, then persist. If save fails we surface via banner.
+    setConfig(updated)
+    setSaving(true)
+    setSaveResult(null)
+    try {
+      await saveConfig(updated)
+      setSaveResult('success')
+    } catch {
+      setSaveResult('error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) {
@@ -133,8 +147,8 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-gray-900">
       {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
+      <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 safe-top">
+        <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
               to="/"
@@ -159,7 +173,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 flex flex-col gap-6">
+      <main className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto px-4 py-6 flex flex-col gap-6">
         {/* Save result */}
         {saveResult && (
           <div
@@ -321,6 +335,12 @@ export default function SettingsPage() {
             />
           </div>
         </section>
+
+        {/* Hardware transcoding capabilities */}
+        <TranscodeCapabilitiesCard />
+
+        {/* Streaming cache */}
+        <StreamCacheCard />
       </main>
 
       {/* Client edit modal */}

@@ -1,0 +1,93 @@
+import { SearchResult } from '../api/client'
+
+// Jackett categories that typically contain playable media (video OR audio)
+const VIDEO_CATEGORIES = new Set([
+  2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080,
+  5000, 5010, 5020, 5030, 5040, 5045, 5050, 5060, 5070, 5080, 5090,
+  100022,
+])
+const AUDIO_CATEGORIES = new Set([
+  3000, 3010, 3020, 3030, 3040, 3050, 3060,
+])
+
+const VIDEO_EXT_RE  = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
+const AUDIO_EXT_RE  = /\.(mp3|flac|ogg|wav|m4a|aac|opus|alac|wma)$/i
+const VIDEO_HINT_RE = /\b(1080p|720p|480p|2160p|4k|bluray|web-dl|webrip|hdtv|x264|x265|hevc|h264|h265)\b/i
+const AUDIO_HINT_RE = /\b(flac|mp3|320kbps|256kbps|192kbps|lossless|hi-?res|24bit|discography|album|ost|soundtrack)\b/i
+
+// Truly non-playable: archives, ebooks, ISOs
+const NEVER_PLAY_RE = /\.(epub|pdf|mobi|cbr|cbz|zip|rar|7z|tar|gz|iso|exe|dmg)$/i
+const NEVER_PLAY_TAGS = /\b(ebook|audiobook[. ]?pdf|programs?|software|game[. ]?iso)\b/i
+
+/**
+ * Heuristic kind detection: best guess at whether this torrent is audio
+ * (music album, audiobook, podcast) or video (movie, series, TV).
+ *
+ * Used by PlayerProvider to choose between AudioBar (persistent bottom bar
+ * for music UX) and PlayerModal (full-screen video). When uncertain returns
+ * 'video' — the safer default since PlayerModal's <video> element can play
+ * audio files too, while AudioBar can't render video.
+ */
+export function detectKind(title: string, categoryId = 0): 'audio' | 'video' {
+  if (AUDIO_EXT_RE.test(title)) return 'audio'
+  if (VIDEO_EXT_RE.test(title)) return 'video'
+  if (AUDIO_CATEGORIES.has(categoryId)) return 'audio'
+  if (VIDEO_CATEGORIES.has(categoryId)) return 'video'
+  if (AUDIO_HINT_RE.test(title)) return 'audio'
+  if (VIDEO_HINT_RE.test(title)) return 'video'
+  return 'video'
+}
+
+/**
+ * Heuristic: can we stream this torrent (video or audio) in our player?
+ * Uses positive signals (allowlist of extensions/categories/hints).
+ * Falls back to "yes" for unknown — better to offer than to hide.
+ */
+export function isPlayable(result: SearchResult): boolean {
+  if (!result.magnetUri) return false
+
+  // Hard rejection: known non-media files
+  if (NEVER_PLAY_RE.test(result.title)) return false
+  if (NEVER_PLAY_TAGS.test(result.title)) return false
+
+  // Positive signals (video OR audio)
+  if (VIDEO_CATEGORIES.has(result.categoryId)) return true
+  if (AUDIO_CATEGORIES.has(result.categoryId)) return true
+  if (result.quality?.resolution) return true
+  if (VIDEO_EXT_RE.test(result.title) || AUDIO_EXT_RE.test(result.title)) return true
+  if (VIDEO_HINT_RE.test(result.title) || AUDIO_HINT_RE.test(result.title)) return true
+
+  // Unknown — offer Play; player will tell user if the file can't be decoded.
+  return true
+}
+
+/**
+ * Build a minimal SearchResult suitable for "deep-link entrant" playback when
+ * we only know an info_hash (and optionally a title + magnet). All non-essential
+ * fields are zero/empty — the player only requires `infoHash` + `magnetUri`
+ * to bootstrap streaming; metadata (file list, size, name) is fetched from
+ * the streamer once the torrent is added.
+ *
+ * Why this helper: the SearchResult shape has 12+ required fields, most of
+ * which are search-time only (seeders, tracker, age, etc.). For URL deep
+ * links we don't have those — we only have `?play=HASH` and at best a
+ * library entry name. Centralising the placeholder construction keeps the
+ * PlayerProvider effect concise and ensures everyone uses the same defaults.
+ */
+export function syntheticResult(hash: string, title: string, magnet: string): SearchResult {
+  return {
+    title: title || hash,
+    tracker: '',
+    categoryId: 0,
+    category: '',
+    size: 0,
+    seeders: 0,
+    leechers: 0,
+    age: '',
+    magnetUri: magnet || `magnet:?xt=urn:btih:${hash}`,
+    link: '',
+    infoHash: hash,
+    publishDate: '',
+  }
+}
+// build marker 1779766535

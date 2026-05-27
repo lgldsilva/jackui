@@ -1,0 +1,18 @@
+# VAAPI overlay — gives the JackUI container access to the host GPU via /dev/dri.
+# Works for AMD Radeon (Mesa) and Intel iGPU (iHD / i965).
+#
+# Compose with: docker compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d
+#
+# Requires:
+#   - A GPU exposed via /dev/dri/renderD128 on the host (most modern Linux distros)
+#   - User in the "render" or "video" group (or run container as root, which we already do)
+
+services:
+  jackui:
+    image: jackui:vaapi
+    devices:
+      - /dev/dri:/dev/dri
+    # Some setups require the container user to be in the render group
+    group_add:
+      - "video"
+      - "render"
