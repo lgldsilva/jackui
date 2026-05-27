@@ -73,7 +73,28 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin
 		// 90s gives margin for 4K piece arrival + NVENC startup on a healthy
 		// swarm, while still surfacing a genuinely stuck torrent.
 		if err := sess.WaitForMaster(90 * time.Second); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			// Classify WHY it failed so the UI can show an honest message
+			// instead of the misleading "codec/container não compatível".
+			// A healthy swarm delivers enough for the first segment within 90s;
+			// if barely anything downloaded, the bottleneck is the swarm, not
+			// the codec. Surface real metrics (rate, %, peers) either way.
+			resp := gin.H{"error": err.Error(), "code": "transcode_failed"}
+			if info, gerr := s.Get(h); gerr == nil {
+				resp["downRate"] = info.DownRate
+				resp["peers"] = info.Peers
+				var fileDownloaded int64
+				if fileIdx >= 0 && fileIdx < len(info.Files) {
+					resp["fileProgress"] = info.Files[fileIdx].Progress
+					fileDownloaded = info.Files[fileIdx].Downloaded
+				}
+				switch {
+				case info.Peers == 0:
+					resp["code"] = "no_seeds"
+				case fileDownloaded < 30<<20: // < 30 MB after 90s ⇒ starving
+					resp["code"] = "slow_download"
+				}
+			}
+			c.JSON(http.StatusServiceUnavailable, resp)
 			return
 		}
 
