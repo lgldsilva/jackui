@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, SkipBack, SkipForward, Rewind, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, SkipBack, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -498,13 +498,6 @@ export default function PlayerModal({
     } else if (v.webkitRequestFullscreen) {
       v.webkitRequestFullscreen()
     }
-  }
-
-  // Seek by delta seconds (skip forward/back)
-  const seekBy = (delta: number) => {
-    const v = videoRef.current
-    if (!v || !v.duration) return
-    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + delta))
   }
 
   // Update offset and reapply to all cues
@@ -1342,34 +1335,8 @@ export default function PlayerModal({
                     <span className="font-mono text-[10px] sm:hidden">{formatTime(resumePosition)}</span>
                   </button>
                 )}
-                <button
-                  onClick={() => seekBy(-30)}
-                  title="-30s"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  <Rewind className="w-4 h-4 sm:w-3.5 sm:h-3.5" />30s
-                </button>
-                <button
-                  onClick={() => seekBy(-10)}
-                  title="-10s"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  <SkipBack className="w-4 h-4 sm:w-3.5 sm:h-3.5" />10s
-                </button>
-                <button
-                  onClick={() => seekBy(10)}
-                  title="+10s"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  10s<SkipForward className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                </button>
-                <button
-                  onClick={() => seekBy(30)}
-                  title="+30s"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  30s<FastForward className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                </button>
+                {/* Skip-by-seconds buttons removed — the native <video> controls
+                    already provide a seek bar. Episode nav + resume stay. */}
                 <span className="text-xs text-gray-400 ml-2 font-mono tabular-nums">
                   {formatTime(currentTime)} <span className="text-gray-600">/</span> {formatTime(duration)}
                 </span>

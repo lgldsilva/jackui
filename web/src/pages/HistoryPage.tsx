@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, SortAsc, SortDesc, Globe, FolderOpen, Loader2 } from 'lucide-react'
-import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, historyRefresh, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
+import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, SortAsc, SortDesc, Globe, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
+import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, historyRefresh, searchTorrents, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
 import ResultCard from '../components/ResultCard'
 import DownloadModal from '../components/DownloadModal'
 import { usePlayer } from '../components/PlayerProvider'
@@ -108,6 +108,23 @@ export default function HistoryPage() {
       setResults([])
     } finally {
       setLoadingResults(false)
+    }
+  }
+
+  // Re-run the selected query live against Jackett (the history view shows the
+  // CACHED results from when it was first searched; seeders/sources go stale).
+  // Refreshes all results at once, vs the per-row seeders refresh.
+  const [refreshingSearch, setRefreshingSearch] = useState(false)
+  const handleRefreshSearch = async () => {
+    if (!selected || refreshingSearch) return
+    setRefreshingSearch(true)
+    try {
+      const fresh = await searchTorrents(selected, ['all'], 'all')
+      if (fresh) setResults(fresh)
+    } catch {
+      /* keep the cached results on failure */
+    } finally {
+      setRefreshingSearch(false)
     }
   }
 
@@ -645,17 +662,30 @@ export default function HistoryPage() {
                     </div>
                   </div>
 
-                  {/* Results count */}
-                  <p className="text-xs text-gray-500">
-                    {loadingResults ? 'Carregando...' : (
-                      <>
-                        <span className="text-gray-300 font-medium">{filteredResults.length}</span>
-                        {filteredResults.length !== results.length && <span> de {results.length}</span>}
-                        {' '}resultado{filteredResults.length !== 1 ? 's' : ''} em cache para{' '}
-                        <span className="text-green-400 font-medium">"{selected}"</span>
-                      </>
+                  {/* Results count + re-run search live */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-xs text-gray-500">
+                      {loadingResults ? 'Carregando...' : (
+                        <>
+                          <span className="text-gray-300 font-medium">{filteredResults.length}</span>
+                          {filteredResults.length !== results.length && <span> de {results.length}</span>}
+                          {' '}resultado{filteredResults.length !== 1 ? 's' : ''} em cache para{' '}
+                          <span className="text-green-400 font-medium">"{selected}"</span>
+                        </>
+                      )}
+                    </p>
+                    {selected && !loadingResults && (
+                      <button
+                        onClick={handleRefreshSearch}
+                        disabled={refreshingSearch}
+                        title="Buscar de novo no Jackett — atualiza seeders e traz resultados novos"
+                        className="flex items-center gap-1.5 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-300 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {refreshingSearch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                        {refreshingSearch ? 'Atualizando...' : 'Atualizar busca'}
+                      </button>
                     )}
-                  </p>
+                  </div>
 
                   {/* Skeletons */}
                   {loadingResults && (
