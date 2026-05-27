@@ -100,8 +100,10 @@ func extractToken(c *gin.Context) string {
 //   - /api/stream/*            direct file, HLS, subtrack, playlist, thumb, artwork
 //   - /api/subtitles/download/* external (OpenSubtitles) VTT loaded via <track>
 //   - /api/local/file          local-filesystem file served to <video>
+//   - /api/local/thumb         local-file frame preview loaded via <img>
 func isMediaPath(path string) bool {
 	return strings.HasPrefix(path, "/api/stream/") ||
 		strings.HasPrefix(path, "/api/subtitles/download/") ||
-		strings.HasPrefix(path, "/api/local/file")
+		strings.HasPrefix(path, "/api/local/file") ||
+		strings.HasPrefix(path, "/api/local/thumb")
 }

@@ -444,6 +444,7 @@ func main() {
 			api.GET("/local/mounts", handlers.LocalMounts(localBrowser))
 			api.GET("/local/list", handlers.LocalList(localBrowser))
 			api.GET("/local/file", handlers.LocalFile(localBrowser))
+			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
 
 			// Background full-file downloads (anacrolix Download API);
 			// worker tick keeps the DB queue in sync with active torrents.

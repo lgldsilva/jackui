@@ -1,9 +1,16 @@
 package handlers
 
 import (
+	"context"
+	"crypto/sha1"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/local"
@@ -75,6 +82,91 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 		}
 
 		http.ServeFile(c.Writer, c.Request, abs)
+	}
+}
+
+// localVideoExts mirrors the frontend's video detection — only these get a
+// frame preview (ffmpeg on a non-video would just fail/waste work).
+var localVideoExts = map[string]bool{
+	".mp4": true, ".m4v": true, ".mkv": true, ".avi": true, ".mov": true, ".wmv": true,
+	".webm": true, ".flv": true, ".mpeg": true, ".mpg": true, ".ts": true, ".m2ts": true,
+}
+
+// LocalThumb handles GET /api/local/thumb?mount=NAME&path=REL&at=SECONDS —
+// extracts a single early frame from a local video file as JPEG, cached on disk.
+// Used by the file browser to show a preview instead of a generic icon. Loaded
+// by <img>, so it accepts ?token= (see isMediaPath).
+func LocalThumb(b *local.Browser) gin.HandlerFunc {
+	cacheDir := filepath.Join(os.TempDir(), "jackui-local-thumbs")
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		path := c.Query("path")
+		if mount == "" || path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		if !localVideoExts[strings.ToLower(filepath.Ext(path))] {
+			c.Status(http.StatusNoContent)
+			return
+		}
+		abs, err := b.ResolvePath(mount, path)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		stat, err := os.Stat(abs)
+		if err != nil || stat.IsDir() {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		at := 10
+		if v, e := strconv.Atoi(c.Query("at")); e == nil && v >= 0 {
+			at = v
+		}
+
+		// Cache key includes mod time so editing/replacing the file busts it.
+		key := fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", abs, stat.ModTime().UnixNano(), at))))
+		cachePath := filepath.Join(cacheDir, key+".jpg")
+		if data, rerr := os.ReadFile(cachePath); rerr == nil {
+			c.Header("Cache-Control", "public, max-age=86400")
+			c.Data(http.StatusOK, "image/jpeg", data)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+		defer cancel()
+		// Try the requested timestamp first, then 1s — a short clip may have no
+		// frame at `at`, and the very start is sometimes black/garbage.
+		seeks := []int{at}
+		if at != 1 {
+			seeks = append(seeks, 1)
+		}
+		var out []byte
+		for _, s := range seeks {
+			cmd := exec.CommandContext(ctx, "ffmpeg",
+				"-hide_banner", "-loglevel", "error",
+				"-ss", strconv.Itoa(s),
+				"-i", abs,
+				"-frames:v", "1",
+				"-vf", "scale=320:-2",
+				"-q:v", "5",
+				"-f", "mjpeg",
+				"-y", "pipe:1",
+			)
+			if data, cerr := cmd.Output(); cerr == nil && len(data) > 0 {
+				out = data
+				break
+			}
+		}
+		if len(out) == 0 {
+			c.Status(http.StatusNoContent)
+			return
+		}
+		if os.MkdirAll(cacheDir, 0o755) == nil {
+			_ = os.WriteFile(cachePath, out, 0o644)
+		}
+		c.Header("Cache-Control", "public, max-age=86400")
+		c.Data(http.StatusOK, "image/jpeg", out)
 	}
 }
 

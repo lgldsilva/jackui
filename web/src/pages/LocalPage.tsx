@@ -17,6 +17,7 @@ import {
   LocalEntry,
   LocalMount,
   localFileURL,
+  localThumbURL,
   localList,
   localMounts,
 } from '../api/client'
@@ -60,11 +61,25 @@ function formatDate(iso: string): string {
   }
 }
 
-function EntryIcon({ entry }: { entry: LocalEntry }) {
-  if (entry.isDir) return <Folder className="w-5 h-5 text-blue-400" />
-  if (isVideo(entry.name)) return <FileVideo className="w-5 h-5 text-purple-400" />
-  if (isAudio(entry.name)) return <FileAudio className="w-5 h-5 text-pink-400" />
-  return <FileIcon className="w-5 h-5 text-gray-400" />
+function EntryIcon({ entry, mount }: { entry: LocalEntry; mount: string }) {
+  const [thumbFailed, setThumbFailed] = useState(false)
+  if (entry.isDir) return <Folder className="w-5 h-5 text-blue-400 flex-shrink-0" />
+  if (isVideo(entry.name)) {
+    // Early-frame preview (lazy); falls back to the icon if the server can't
+    // decode one (204/error). Fixed 16:9 box keeps rows aligned.
+    if (thumbFailed) return <FileVideo className="w-5 h-5 text-purple-400 flex-shrink-0" />
+    return (
+      <img
+        src={localThumbURL(mount, entry.path)}
+        alt=""
+        loading="lazy"
+        onError={() => setThumbFailed(true)}
+        className="w-14 h-8 object-cover rounded bg-gray-900 border border-gray-700 flex-shrink-0"
+      />
+    )
+  }
+  if (isAudio(entry.name)) return <FileAudio className="w-5 h-5 text-pink-400 flex-shrink-0" />
+  return <FileIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
 }
 
 function Breadcrumbs({
@@ -350,7 +365,7 @@ export default function LocalPage() {
                           : 'cursor-default opacity-70'
                       }`}
                     >
-                      <EntryIcon entry={e} />
+                      <EntryIcon entry={e} mount={activeMount} />
                       <span className="flex-1 truncate text-gray-100">
                         {e.name}
                       </span>
