@@ -69,7 +69,12 @@ func TestUpdateResume(t *testing.T) {
 	s := newTestStore(t)
 	e, _ := s.Upsert(1, "ha", "magnet:x", "Movie", 0, 0, "video")
 
-	if err := s.UpdateResume(e.ID, 1, 123.5, 1800, false); err != nil {
+	// Fresh entry: last file untracked (-1).
+	if e.LastFileIndex != -1 {
+		t.Errorf("fresh LastFileIndex: got %d want -1", e.LastFileIndex)
+	}
+
+	if err := s.UpdateResume(e.ID, 1, 123.5, 1800, 3, false); err != nil {
 		t.Fatalf("UpdateResume: %v", err)
 	}
 	got, _ := s.GetByID(e.ID, 1, false)
@@ -79,12 +84,19 @@ func TestUpdateResume(t *testing.T) {
 	if got.DurationSeconds != 1800 {
 		t.Errorf("duration: got %v want 1800", got.DurationSeconds)
 	}
+	if got.LastFileIndex != 3 {
+		t.Errorf("lastFileIndex: got %d want 3", got.LastFileIndex)
+	}
 
-	// Updating with duration=0 should NOT clobber existing duration
-	s.UpdateResume(e.ID, 1, 200, 0, false)
+	// Updating with duration=0 should NOT clobber existing duration; fileIndex=-1
+	// must leave the tracked file untouched.
+	s.UpdateResume(e.ID, 1, 200, 0, -1, false)
 	got2, _ := s.GetByID(e.ID, 1, false)
 	if got2.DurationSeconds != 1800 {
 		t.Errorf("duration overwritten: %v", got2.DurationSeconds)
+	}
+	if got2.LastFileIndex != 3 {
+		t.Errorf("lastFileIndex clobbered by -1: got %d want 3", got2.LastFileIndex)
 	}
 }
 

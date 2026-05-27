@@ -60,16 +60,15 @@ export default function LibraryPage() {
   })
 
   const handlePlay = (e: LibraryEntry) => {
-    playSingle(
-      entryToResult(e),
-      // 0 in the DB is ambiguous — it can be either "user explicitly chose file 0" OR
-      // the column default (NOT NULL DEFAULT 0) from an older session where pickPrimaryFile
-      // hadn't been computed yet. Treating > 0 as "real choice" pushes the decision to
-      // the server's pickPrimaryFile (which detects featurettes/extras), preventing the
-      // Breaking Bad-style bug where a stale 0 made the player target a featurette
-      // instead of S01E01.
-      e.primaryFileIndex > 0 ? e.primaryFileIndex : undefined,
-    )
+    // Prefer the actually-watched file (tracked per resume) so reopening a
+    // season pack continues the same episode. -1 = never tracked → fall back to
+    // primaryFileIndex. 0 there is ambiguous (column default vs real choice), so
+    // only a positive primary counts; otherwise let the server's pickPrimaryFile
+    // decide (it skips featurettes/extras — the Breaking Bad bug).
+    const fileIdx = e.lastFileIndex >= 0
+      ? e.lastFileIndex
+      : (e.primaryFileIndex > 0 ? e.primaryFileIndex : undefined)
+    playSingle(entryToResult(e), fileIdx)
   }
 
   return (
