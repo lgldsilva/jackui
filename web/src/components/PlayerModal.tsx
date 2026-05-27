@@ -934,7 +934,7 @@ export default function PlayerModal({
     <div
       className={minimized
         ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]'
-        : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 sm:p-4'}
+        : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
       onClick={minimized ? undefined : (e) => e.target === e.currentTarget && onClose()}
     >
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
@@ -947,7 +947,7 @@ export default function PlayerModal({
           on phones so the modal becomes edge-to-edge. Returns to bounded card on sm+. */}
       <div className={minimized
         ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
-        : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col'}>
+        : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
         {/* Header — safe-top on mobile so the title + close button clear the iOS
             notch in PWA standalone mode. Bounded to mobile (sm:pt-0 via inline
             class) because on sm+ the modal sits inside the page with margins
