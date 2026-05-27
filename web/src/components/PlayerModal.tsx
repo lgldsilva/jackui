@@ -321,6 +321,16 @@ export default function PlayerModal({
   // notoriously hard to reproduce locally and we want enough context to debug
   // from a single user report (paste the console output).
   const onVideoError = () => {
+    // Spurious-error guard. If there's no resolved source yet (streamURL empty
+    // during startup, or the <video> hasn't latched a currentSrc), the browser
+    // fires onError with networkState=NO_SOURCE — that's not a playback failure.
+    // Surfacing the error UI here is what made the error flash on open/refresh
+    // even when the video then played fine. Ignore and wait for a real src.
+    const vEl = videoRef.current
+    if (!streamURL || !vEl?.currentSrc) {
+      clientLog('info', 'player', 'ignoring onError — no resolved source yet', { hasStreamURL: !!streamURL })
+      return
+    }
     const diag = videoDiagnostic()
     clientLog('warn', 'player', 'video onError fired', diag)
     // Freeze a copy so the error UI (which re-renders after <video> unmounts)
@@ -1137,7 +1147,11 @@ export default function PlayerModal({
                 {!videoError ? (
                   <video
                     ref={videoRef}
-                    src={streamURL}
+                    /* `|| undefined` so an unresolved streamURL never becomes
+                       src="" — an empty src makes the browser fire onError
+                       (networkState=NO_SOURCE), flashing the error UI on every
+                       open and after refresh before the real URL is ready. */
+                    src={streamURL || undefined}
                     /* Native HTML5 controls. Custom overlays (central play
                        button, hover-fullscreen corner, tap-to-toggle on the
                        video area) conflicted with iOS Safari's touch gestures
