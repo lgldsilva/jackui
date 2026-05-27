@@ -397,6 +397,23 @@ export const streamPrefetch = async (hash: string, fileIdx: number): Promise<voi
   }
 }
 
+// streamArtURL returns the persisted per-torrent thumbnail (poster/cover/frame).
+// Serves bytes, 302s to a TMDB poster, or 204s when nothing is resolved yet —
+// so an <img> using it should fall back to the title-based poster on error.
+export const streamArtURL = (hash: string): string =>
+  withToken(`/api/stream/art/${hash}`)
+
+// resolveArt kicks off the server-side art resolution chain (embedded torrent
+// image → TMDB → captured frame) and persists the result by info_hash. Called
+// once on play; best-effort and idempotent (the server skips re-processing).
+export const resolveArt = async (hash: string, fileIdx: number): Promise<void> => {
+  try {
+    await api.post(`/stream/art/${hash}/resolve?file=${fileIdx}`)
+  } catch {
+    // Silent: thumbnail resolution must never affect playback.
+  }
+}
+
 export const streamFileURL = (hash: string, fileIdx: number): string =>
   withToken(`/api/stream/${hash}/${fileIdx}`)
 

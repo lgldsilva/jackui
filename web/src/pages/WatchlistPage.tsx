@@ -182,7 +182,7 @@ export default function WatchlistPage() {
                               ▶
                             </button>
                             {/* Lazy poster — shared session cache prevents N hits triggering N requests. */}
-                            <Thumbnail title={h.title} size="sm" />
+                            <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
                             <div className="flex-1 min-w-0">
                               <p className="text-gray-200 truncate" title={h.title}>{h.title}</p>
                               <p className="text-gray-500">

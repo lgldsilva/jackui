@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
-import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry } from '../api/client'
+import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL } from '../api/client'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
@@ -148,6 +148,8 @@ interface LibraryCardProps {
 
 function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: LibraryCardProps) {
   const { ref, match } = useThumbnail<HTMLDivElement>(entry.name)
+  const [artFailed, setArtFailed] = useState(false)
+  const showArt = !!entry.infoHash && !artFailed
   return (
     <div
       className="card flex flex-col gap-2 hover:bg-gray-800/80 transition-colors text-left p-3 relative group cursor-pointer"
@@ -185,6 +187,18 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: Libr
           </>
         ) : (
           <LibraryIcon className="w-10 h-10 text-gray-700" />
+        )}
+        {/* Per-torrent resolved art (captured frame is already 16:9, so
+            object-cover fills the box cleanly). Sits above the TMDB poster but
+            below the play overlay; a 204/404 reveals the poster underneath. */}
+        {showArt && (
+          <img
+            src={streamArtURL(entry.infoHash)}
+            alt={entry.name}
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover z-[15]"
+            onError={() => setArtFailed(true)}
+          />
         )}
         <div className="absolute inset-0 flex items-center justify-center max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 z-20">
           <Play className="w-10 h-10 text-green-400" />
