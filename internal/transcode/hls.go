@@ -495,7 +495,13 @@ func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
 		if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
 			return nil
 		}
+		// Keep the session alive while a client is actively waiting. Without
+		// this the gcLoop (idle > 60s) reaps the ffmpeg mid-startup for slow
+		// inputs (HEVC + torrent I/O can take >60s to the first segment),
+		// killing it before this 90s wait even completes. A pending
+		// WaitForMaster IS activity — bump LastAccess so the reaper backs off.
 		s.mu.Lock()
+		s.LastAccess = time.Now()
 		closed := s.closed
 		s.mu.Unlock()
 		if closed {
