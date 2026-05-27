@@ -1943,7 +1943,7 @@ export default function PlayerModal({
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
-                    {info.files.length > 8 && (
+                    {info.files.length > 6 && (
                       <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0">
                         <input
                           type="text"
@@ -1954,7 +1954,7 @@ export default function PlayerModal({
                         />
                       </div>
                     )}
-                    <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-none">
+                    <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
                       {filteredFiles.length === 0 && (
                         <p className="text-xs text-gray-500 text-center py-3">Nenhum arquivo bate com "{fileFilter}"</p>
                       )}
