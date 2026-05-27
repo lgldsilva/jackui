@@ -19,6 +19,26 @@ type Client struct {
 	http   *http.Client
 }
 
+// stripAPIKey removes the apikey query param from a Jackett download link before
+// it's handed to the browser — the key must not travel client-side. The streamer
+// re-injects it server-side when fetching (see streamer.addFromTorrentURL).
+func stripAPIKey(link string) string {
+	if link == "" {
+		return link
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		return link
+	}
+	q := u.Query()
+	if q.Get("apikey") == "" {
+		return link
+	}
+	q.Del("apikey")
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 type Result struct {
 	Title       string `json:"title"`
 	Tracker     string `json:"tracker"`
@@ -137,7 +157,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 			Leechers:    r.Peers - r.Seeders,
 			Age:         age,
 			MagnetURI:   r.MagnetUri,
-			Link:        r.Link,
+			Link:        stripAPIKey(r.Link),
 			InfoHash:    r.InfoHash,
 			PublishDate: r.PublishDate,
 		})
@@ -364,7 +384,7 @@ func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category
 			Leechers:    r.Peers - r.Seeders,
 			Age:         formatAge(r.PublishDate),
 			MagnetURI:   r.MagnetUri,
-			Link:        r.Link,
+			Link:        stripAPIKey(r.Link),
 			InfoHash:    r.InfoHash,
 			PublishDate: r.PublishDate,
 		})
