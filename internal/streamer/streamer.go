@@ -588,7 +588,46 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	r.SetReadahead(32 << 20) // 32 MiB
 	r.SetResponsive()        // prioritize pieces around current read position
 
+	// Warm the TAIL of the file in the background. Container indexes live at the
+	// end: MP4 `moov` (non-faststart) and Matroska `Cues` both sit near EOF.
+	// ffmpeg seeks there during demux init; if those pieces aren't downloaded,
+	// the read blocks ~10s+ AND (since reads are serialized) head-of-lines the
+	// sequential probe read, so the first segment never lands inside the wait
+	// window. Kicking off the tail pieces NOW — on a separate reader, concurrent
+	// with the head — means they're already arriving when ffmpeg asks.
+	go s.warmTail(f)
+
 	return &trackingReader{Reader: r, streamer: s, hash: hash}, f, nil
+}
+
+// warmTail prioritizes the last few MB of a file so the container index
+// (moov/Cues) is downloading before ffmpeg seeks to it. Best-effort, bounded:
+// opens its own reader (independent cursor, no contention with the main read),
+// reads a small tail window, then closes after a short grace period.
+func (s *Streamer) warmTail(f *torrent.File) {
+	const tail = 8 << 20 // 8 MiB from the end
+	length := f.Length()
+	if length <= tail {
+		return // small file — head readahead already covers it
+	}
+	r := f.NewReader()
+	r.SetReadahead(tail)
+	r.SetResponsive()
+	if _, err := r.Seek(length-tail, io.SeekStart); err != nil {
+		r.Close()
+		return
+	}
+	buf := make([]byte, 256<<10)
+	done := make(chan struct{})
+	go func() {
+		_, _ = r.Read(buf) // commit the priority hint; bytes themselves discarded
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+	}
+	r.Close()
 }
 
 // Prefetch hints the anacrolix piece scheduler to start downloading the head of
