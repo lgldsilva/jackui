@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/luizg/jackui/internal/config"
 )
 
 // BenchmarkCase is one labelled example: a raw torrent/release name and the
@@ -193,6 +195,26 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key})
 	}
 	return out
+}
+
+// AdoptBenchmark rebuilds the live chain from benchmark scores: every model that
+// produced a usable reply (Samples>0), ordered best-first by composite. This is
+// what the user wants — "use the best benchmark" — while keeping the free local
+// models in the chain as low-ranked fallbacks (the breaker skips a rate-limited
+// vendor at runtime, falling through to the next, ultimately the free local).
+func (c *Client) AdoptBenchmark(scores []SlotScore) {
+	ranked := make([]SlotScore, 0, len(scores))
+	for _, s := range scores {
+		if s.Samples > 0 {
+			ranked = append(ranked, s)
+		}
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Composite > ranked[j].Composite })
+	defs := make([]config.AIChainSlot, 0, len(ranked))
+	for _, s := range ranked {
+		defs = append(defs, config.AIChainSlot{ID: s.SlotID, Provider: s.Provider, Model: s.Model})
+	}
+	c.ApplyChain(defs)
 }
 
 // ApplyOrder re-sorts the live chain to the given slot-id order (best first).

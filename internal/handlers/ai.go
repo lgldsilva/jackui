@@ -73,13 +73,10 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 				return
 			}
 		}
-		// Re-order the live chain by score (ApplyOrder ignores discovered ids that
-		// aren't in the chain — those are informational until adopted in config).
-		order := make([]string, len(scores))
-		for i, s := range scores {
-			order[i] = s.SlotID
-		}
-		client.ApplyOrder(order)
+		// Adopt the ranking as the live chain: best model first, every working
+		// model (incl. discovered free locals) kept as fallback. The breaker then
+		// skips a rate-limited vendor at runtime, falling through to the next.
+		client.AdoptBenchmark(scores)
 
 		c.JSON(http.StatusOK, gin.H{"results": scores})
 	}

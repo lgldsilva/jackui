@@ -205,9 +205,11 @@ func main() {
 		if bs, berr := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(streamCfg.DataDir)); berr == nil {
 			aiBench = bs
 			defer bs.Close()
-			// Boot the chain in its best-known order from the last benchmark.
-			if order := bs.Order(); len(order) > 0 {
-				aiClient.ApplyOrder(order)
+			// Adopt the last benchmark as the chain on boot (best model first +
+			// discovered free local models as fallbacks), so a restart keeps the
+			// tuned chain instead of falling back to the config defaults.
+			if res := bs.Results(); len(res) > 0 {
+				aiClient.AdoptBenchmark(res)
 			}
 		} else {
 			log.Printf("Warning: ai benchmark store init failed: %v", berr)
