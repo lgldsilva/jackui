@@ -1873,11 +1873,11 @@ export default function PlayerModal({
                           value={fileFilter}
                           onChange={e => setFileFilter(e.target.value)}
                           placeholder="Filtrar (ex: s04e03)"
-                          className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-500"
+                          className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 sm:py-1 text-sm sm:text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-500"
                         />
                       </div>
                     )}
-                    <div className="flex flex-col gap-1 px-2 py-2 overflow-y-auto min-h-0 max-h-[50vh] lg:max-h-none">
+                    <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 max-h-[55vh] lg:max-h-none">
                       {filteredFiles.length === 0 && (
                         <p className="text-xs text-gray-500 text-center py-3">Nenhum arquivo bate com "{fileFilter}"</p>
                       )}
@@ -1903,7 +1903,7 @@ export default function PlayerModal({
                               // else: dead row, click does nothing (download via long-press / context menu still available)
                             }}
                             title={f.path}
-                            className={`flex flex-col gap-0.5 px-2.5 py-2 rounded-lg text-xs transition-colors text-left ${
+                            className={`flex flex-col gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${
                               selectedFile === f.index
                                 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                                 : isPlayable
