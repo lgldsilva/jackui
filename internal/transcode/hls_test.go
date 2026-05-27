@@ -256,15 +256,14 @@ func TestHLSPipelineDoesNotHardcodeRestrictiveLevel(t *testing.T) {
 	}
 }
 
-// TestHLSPipelineDeclaresVODPlaylistType is the regression guard for the
-// "seekbar disappears" bug. Without `-hls_playlist_type vod`, Safari and
-// other HLS players assume the stream is LIVE (no finite duration) and
-// silently omit the progress bar — user can't scrub or skip forward.
-// VOD mode preserves incremental playlist writes (ffmpeg keeps appending
-// segments) while signalling to the client that this is a finite seekable
-// stream. The user reported this regression in production after the 4K
-// level fix landed.
-func TestHLSPipelineDeclaresVODPlaylistType(t *testing.T) {
+// TestHLSPipelineUsesEventNotVodPlaylist guards the killer bug: with
+// `-hls_playlist_type vod` ffmpeg DEFERS writing index.m3u8 until the whole
+// transcode finishes. For a movie streamed over a torrent that never happens
+// in time, so the playlist never appears and WaitForMaster times out despite
+// hundreds of .ts segments on disk. `event` writes the playlist incrementally
+// (and is still seekable over the transcoded buffer). This test asserts we use
+// `event` and NOT `vod`.
+func TestHLSPipelineUsesEventNotVodPlaylist(t *testing.T) {
 	installFastCapsForTest(t)
 
 	mgr, err := NewHLSManager(t.TempDir())
@@ -273,7 +272,7 @@ func TestHLSPipelineDeclaresVODPlaylistType(t *testing.T) {
 	}
 
 	sess, err := mgr.GetOrStart(context.Background(), HLSStartOpts{
-		Key:        "vod-guard",
+		Key:        "playlist-type-guard",
 		Source:     bytes.NewReader([]byte("not a real video")),
 		SourceSize: 16,
 	})
@@ -282,10 +281,12 @@ func TestHLSPipelineDeclaresVODPlaylistType(t *testing.T) {
 	}
 	defer mgr.Close(sess.Key)
 
-	args := sess.Cmd.Args
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "-hls_playlist_type vod") {
-		t.Errorf("ffmpeg args missing -hls_playlist_type vod — Safari will treat as LIVE and hide the seekbar.\nargs: %s", joined)
+	joined := strings.Join(sess.Cmd.Args, " ")
+	if !strings.Contains(joined, "-hls_playlist_type event") {
+		t.Errorf("ffmpeg must use -hls_playlist_type event (incremental m3u8).\nargs: %s", joined)
+	}
+	if strings.Contains(joined, "-hls_playlist_type vod") {
+		t.Errorf("regression — vod defers m3u8 to end-of-transcode, playlist never appears for streamed movies.\nargs: %s", joined)
 	}
 }
 

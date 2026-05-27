@@ -67,12 +67,15 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin
 			return
 		}
 
-		// First segment + playlist appear ~4s after ffmpeg starts on 1080p.
-		// 4K sources need longer: each segment pulls ~15 MB and the encoder
-		// can't emit the playlist until the first segment is fully written.
-		// 90s gives margin for 4K piece arrival + NVENC startup on a healthy
-		// swarm, while still surfacing a genuinely stuck torrent.
-		if err := sess.WaitForMaster(90 * time.Second); err != nil {
+		// First segment appears ~4s after ffmpeg starts on 1080p. Large HEVC
+		// MKVs over a torrent need much longer: the demuxer reads the header,
+		// seeks to the Cues at EOF, then has to pull enough video clusters to
+		// fill a 4s segment — all gated on piece arrival. 5 min is generous but
+		// "slow to download" must NOT be treated as failure (user's call). The
+		// session stays alive the whole time (WaitForMaster bumps LastAccess so
+		// the gcLoop won't reap it), and the buffering overlay shows live
+		// progress so the wait is legible rather than a frozen spinner.
+		if err := sess.WaitForMaster(2 * time.Minute); err != nil {
 			// Classify WHY it failed so the UI can show an honest message
 			// instead of the misleading "codec/container não compatível".
 			// A healthy swarm delivers enough for the first segment within 90s;
