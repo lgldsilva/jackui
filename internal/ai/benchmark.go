@@ -103,6 +103,13 @@ func (c *Client) Run(ctx context.Context, cases []BenchmarkCase) []SlotScore {
 	var scores []SlotScore
 	for _, s := range c.slots {
 		score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model}
+		// Warmup: an untimed throwaway call so local/cold models load into memory
+		// (VRAM) before we measure — otherwise the first timed call eats the load
+		// time (or times out) and the model looks slow/broken. Generous timeout.
+		warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
+		_, _, _ = c.IdentifyWithSlot(warmCtx, s.ID, "warmup")
+		warmCancel()
+
 		var accSum float64
 		var latSum time.Duration
 		for _, tc := range cases {

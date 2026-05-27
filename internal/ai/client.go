@@ -82,7 +82,10 @@ func New(cfg config.AIConfig) *Client {
 	return &Client{
 		slots:   slots,
 		breaker: newBreaker(),
-		http:    &http.Client{Timeout: 20 * time.Second},
+		// Generous backstop only — real per-call limits come from the ctx the
+		// caller passes (resolve ~25s, benchmark ~90s, warmup ~120s for cold
+		// local models loading into VRAM).
+		http:    &http.Client{Timeout: 130 * time.Second},
 	}
 }
 
@@ -132,7 +135,7 @@ func (c *Client) MusicQuery(ctx context.Context, rawName string) string {
 		if !c.breaker.available(s.ID) {
 			continue
 		}
-		content, _, err := c.chat(ctx, s, musicSystem, rawName)
+		content, _, err := c.chat(ctx, s, musicSystem, rawName, false)
 		if err != nil {
 			c.breaker.recordFailure(s.ID, isRateLimit(err))
 			continue
@@ -163,7 +166,7 @@ func (c *Client) IdentifyWithSlot(ctx context.Context, slotID, rawName string) (
 }
 
 func (c *Client) identifyWithSlot(ctx context.Context, s Slot, rawName string) (*TitleResult, time.Duration, error) {
-	content, latency, err := c.chat(ctx, s, identifySystem, rawName)
+	content, latency, err := c.chat(ctx, s, identifySystem, rawName, true)
 	if err != nil {
 		return nil, latency, err
 	}
@@ -177,10 +180,18 @@ func (c *Client) identifyWithSlot(ctx context.Context, s Slot, rawName string) (
 // ─── OpenAI-compatible /chat/completions ─────────────────────────────────────
 
 type chatReq struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
-	MaxTokens   int           `json:"max_tokens"`
+	Model          string        `json:"model"`
+	Messages       []chatMessage `json:"messages"`
+	Temperature    float64       `json:"temperature"`
+	MaxTokens      int           `json:"max_tokens"`
+	ResponseFormat *respFormat   `json:"response_format,omitempty"`
+}
+
+// respFormat forces JSON output on providers that support it (Groq/OpenRouter/
+// Ollama OpenAI-compat). Set only for title identification, not the plain-text
+// music query.
+type respFormat struct {
+	Type string `json:"type"`
 }
 
 type chatMessage struct {
@@ -202,8 +213,8 @@ var errRateLimited = errors.New("ai: rate limited")
 
 func isRateLimit(err error) bool { return errors.Is(err, errRateLimited) }
 
-func (c *Client) chat(ctx context.Context, s Slot, system, user string) (string, time.Duration, error) {
-	body, _ := json.Marshal(chatReq{
+func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode bool) (string, time.Duration, error) {
+	reqBody := chatReq{
 		Model:       s.Model,
 		Temperature: 0, // deterministic — we want the same title every time
 		MaxTokens:   200,
@@ -211,7 +222,11 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string) (string,
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-	})
+	}
+	if jsonMode {
+		reqBody.ResponseFormat = &respFormat{Type: "json_object"}
+	}
+	body, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", 0, err
@@ -250,21 +265,32 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string) (string,
 	return cr.Choices[0].Message.Content, latency, nil
 }
 
-// parseTitleJSON pulls the JSON object out of a model reply that may be wrapped
-// in prose or ```json fences, then validates it has a title.
+// parseTitleJSON pulls the JSON object out of a model reply (possibly wrapped in
+// prose or ```json fences). When a weaker free model ignores the JSON format and
+// replies with just the title text, fall back to using that line as the title —
+// better a usable title than a hard failure.
 func parseTitleJSON(content string) (*TitleResult, error) {
 	start := strings.IndexByte(content, '{')
 	end := strings.LastIndexByte(content, '}')
-	if start < 0 || end <= start {
-		return nil, fmt.Errorf("ai: no json object in reply")
+	if start >= 0 && end > start {
+		var res TitleResult
+		if err := json.Unmarshal([]byte(content[start:end+1]), &res); err == nil {
+			res.Title = strings.TrimSpace(res.Title)
+			if res.Title != "" {
+				if res.Kind == "" {
+					res.Kind = "unknown"
+				}
+				return &res, nil
+			}
+		}
 	}
-	var res TitleResult
-	if err := json.Unmarshal([]byte(content[start:end+1]), &res); err != nil {
-		return nil, fmt.Errorf("ai: parse title json: %w", err)
+	// Fallback: take the first non-empty line, stripped of quotes/markdown. Only
+	// accept short, title-like text (reject multi-sentence prose).
+	for _, line := range strings.Split(content, "\n") {
+		t := strings.Trim(strings.TrimSpace(line), "`\"' #*-")
+		if t != "" && len(t) <= 80 && !strings.Contains(t, ". ") {
+			return &TitleResult{Title: t, Kind: "unknown"}, nil
+		}
 	}
-	res.Title = strings.TrimSpace(res.Title)
-	if res.Kind == "" {
-		res.Kind = "unknown"
-	}
-	return &res, nil
+	return nil, fmt.Errorf("ai: no usable title in reply")
 }
