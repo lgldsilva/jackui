@@ -75,6 +75,17 @@ func TestChainFallsThroughOnError(t *testing.T) {
 	}
 }
 
+func TestMusicQuery(t *testing.T) {
+	srv := httptest.NewServer(jsonChat("\"Disturbed The Sickness\"\nextra line", http.StatusOK))
+	defer srv.Close()
+	c := clientForURL(t, srv.URL)
+	q := c.MusicQuery(context.Background(), "Disturbed - The Sickness 2000 [FLAC]")
+	// First line, quotes stripped.
+	if q != "Disturbed The Sickness" {
+		t.Fatalf("MusicQuery = %q, want \"Disturbed The Sickness\"", q)
+	}
+}
+
 func TestParseTitleJSONStripsFences(t *testing.T) {
 	res, err := parseTitleJSON("Here you go:\n```json\n{\"title\": \"Dune\", \"year\": 2021}\n```\nHope it helps!")
 	if err != nil {
