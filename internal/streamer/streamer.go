@@ -30,6 +30,19 @@ import (
 // this on Resume() after a Pause() temporarily zeroed it.
 const defaultMaxEstablishedConns = 80
 
+// publicTrackers is a small set of high-uptime public BitTorrent trackers
+// injected into every added torrent. DHT-only magnets often report 0 peers
+// during quiet DHT windows; announcing to these recovers peers when seeds
+// exist. Each tier is a single-element list (announce-list format).
+var publicTrackers = [][]string{
+	{"udp://tracker.opentrackr.org:1337/announce"},
+	{"udp://open.tracker.cl:1337/announce"},
+	{"udp://tracker.openbittorrent.com:6969/announce"},
+	{"udp://exodus.desync.com:6969/announce"},
+	{"udp://open.demonii.com:1337/announce"},
+	{"udp://tracker.torrent.eu.org:451/announce"},
+}
+
 // videoExtensions are formats we expose as streamable via the player.
 // Anything not in this list is still available for download but won't be auto-selected.
 var videoExtensions = map[string]bool{
@@ -406,6 +419,13 @@ func (s *Streamer) Add(ctx context.Context, magnetOrURL string) (*TorrentInfo, e
 	default:
 		return nil, fmt.Errorf("unsupported source — provide a magnet: or http(s):// URL (got %q)", firstChars(src, 30))
 	}
+
+	// Inject well-known public trackers. Many magnets (and some .torrent files)
+	// are DHT-only with no announce list; on a quiet DHT moment that means
+	// peers=0 and nothing downloads, even when seeds exist. Public trackers
+	// give those torrents another way to find peers. No-op for torrents that
+	// already list these. Must be added before/while waiting for peers.
+	t.AddTrackers(publicTrackers)
 
 	// Wait for metadata with timeout
 	waitCtx, cancel := context.WithTimeout(ctx, s.cfg.MetadataWait)
