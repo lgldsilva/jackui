@@ -349,7 +349,7 @@ export default function SettingsPage() {
         <ErrorBoundary title="Erro no card Usuários"><UsersAdminCard /></ErrorBoundary>
 
         {/* AI title identification + benchmark */}
-        <AIBenchmarkCard />
+        <ErrorBoundary title="Erro no card IA"><AIBenchmarkCard /></ErrorBoundary>
 
         {/* Streaming cache */}
         <StreamCacheCard />
