@@ -59,6 +59,9 @@ export interface SearchResult {
   quality?: Quality
   // Set client-side when multiple results share the same infoHash across trackers
   alsoIn?: string[]
+  // Present when the result comes from a history endpoint — it's the
+  // results.id primary key and unlocks per-row mutations like refresh.
+  id?: number
 }
 
 export interface Indexer {
@@ -168,6 +171,21 @@ export const searchCache = async (q: string): Promise<CachedSearchResult[]> => {
   return data
 }
 
+// Response from POST /api/history/:id/refresh. `cached=true` means the swarm
+// numbers came from the 5min TTL cache (no fresh Jackett call was made).
+export interface HistoryRefreshResponse {
+  id: number
+  seeders: number
+  leechers: number
+  fetchedAt: string
+  cached: boolean
+}
+
+export const historyRefresh = async (id: number): Promise<HistoryRefreshResponse> => {
+  const { data } = await api.post<HistoryRefreshResponse>(`/history/${id}/refresh`)
+  return data
+}
+
 // ─── Streaming ──────────────────────────────────────────────────────────────
 
 export interface StreamFile {
@@ -190,6 +208,11 @@ export interface TorrentInfo {
   upRate: number
   progress: number
   primaryFile: number
+  // Optional fields populated by ActiveList / Get when the user has interacted
+  // with the Transmission-style controls. Older callers (initial streamAdd)
+  // may not see these populated.
+  status?: 'downloading' | 'paused' | 'seeding' | 'complete'
+  priority?: 'low' | 'normal' | 'high' | ''
 }
 
 // streamMetadata returns a cached TorrentInfo snapshot if the server has seen
@@ -221,6 +244,53 @@ export const streamInfo = async (hash: string): Promise<TorrentInfo> => {
 
 export const streamDrop = async (hash: string): Promise<void> => {
   await api.delete(`/stream/${hash}`)
+}
+
+// ─── Transmission-style controls (active torrents) ────────────────────────
+
+export const streamActive = async (): Promise<TorrentInfo[]> => {
+  const { data } = await api.get<TorrentInfo[]>('/stream/active')
+  return data || []
+}
+
+export const streamPause = async (hash: string): Promise<void> => {
+  await api.post(`/stream/${hash}/pause`)
+}
+
+export const streamResume = async (hash: string): Promise<void> => {
+  await api.post(`/stream/${hash}/resume`)
+}
+
+export type StreamPriority = 'low' | 'normal' | 'high'
+
+export const streamSetPriority = async (hash: string, priority: StreamPriority): Promise<void> => {
+  await api.post(`/stream/${hash}/priority`, { priority })
+}
+
+export const streamPauseAll = async (): Promise<{ paused: number }> => {
+  const { data } = await api.post<{ paused: number }>('/stream/active/pause')
+  return data
+}
+
+export const streamResumeAll = async (): Promise<{ resumed: number }> => {
+  const { data } = await api.post<{ resumed: number }>('/stream/active/resume')
+  return data
+}
+
+// Bandwidth caps in bytes/sec (0 = unlimited).
+export interface StreamLimits {
+  down: number
+  up: number
+}
+
+export const streamGetLimits = async (): Promise<StreamLimits> => {
+  const { data } = await api.get<StreamLimits>('/stream/limits')
+  return data
+}
+
+export const streamSetLimits = async (limits: StreamLimits): Promise<StreamLimits> => {
+  const { data } = await api.post<StreamLimits>('/stream/limits', limits)
+  return data
 }
 
 // streamPrefetch hints the server to start downloading head bytes of `fileIdx`
