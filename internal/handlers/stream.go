@@ -456,6 +456,36 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
+// StreamHealth handles GET /api/stream/health/:hash?magnet=... — returns the
+// last-known swarm health (seeders/peers/available + when it was checked) for a
+// card to show instantly, and kicks off a background re-probe when the snapshot
+// is missing or stale (so the next poll/render shows fresh numbers). Live stats
+// are returned immediately for torrents currently streaming.
+func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		snapshot, active := s.HealthSnapshot(h)
+		magnet := c.Query("magnet")
+		stale := snapshot == nil || time.Since(snapshot.CheckedAt) > streamer.HealthFreshFor
+		refreshing := !active && stale && magnet != ""
+		if refreshing {
+			s.ProbeHealthAsync(h, magnet)
+		}
+		resp := gin.H{"active": active, "refreshing": refreshing, "known": snapshot != nil}
+		if snapshot != nil {
+			resp["seeders"] = snapshot.Seeders
+			resp["peers"] = snapshot.Peers
+			resp["available"] = snapshot.Available
+			resp["checkedAt"] = snapshot.CheckedAt
+		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
 // StreamCacheStats handles GET /api/stream/cache — disk usage of the streaming cache.
 func StreamCacheStats(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Bell, Loader2, Plus, Trash2, Save, Copy, Clock } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import Thumbnail from '../components/Thumbnail'
+import SeedBadge from '../components/SeedBadge'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import {
   Watchlist, WatchlistHit, SearchResult,
@@ -192,8 +193,9 @@ export default function WatchlistPage() {
                               >
                                 {h.title}
                               </button>
-                              <p className="text-gray-500">
-                                {h.seeders} seeders · {formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}
+                              <p className="text-gray-500 flex items-center gap-2 flex-wrap">
+                                <SeedBadge infoHash={h.infoHash} magnet={h.magnet} />
+                                <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
                               </p>
                             </div>
                             <button

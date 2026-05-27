@@ -71,6 +71,30 @@ func TestArtAndMetadataDoNotClobber(t *testing.T) {
 	}
 }
 
+func TestHealthRoundTrip(t *testing.T) {
+	c := newTestCache(t)
+	const hash = "ffeeddccbb"
+
+	if got := c.GetHealth(hash); got != nil {
+		t.Fatalf("expected nil health before probe, got %+v", got)
+	}
+	if err := c.SetHealth(hash, 12, 30); err != nil {
+		t.Fatalf("SetHealth: %v", err)
+	}
+	got := c.GetHealth(hash)
+	if got == nil || got.Seeders != 12 || got.Peers != 30 || !got.Available {
+		t.Fatalf("GetHealth = %+v, want seeders=12 peers=30 available=true", got)
+	}
+	if got.CheckedAt.IsZero() {
+		t.Fatal("CheckedAt should be set")
+	}
+	// Zero seeders/peers → not available.
+	_ = c.SetHealth(hash, 0, 0)
+	if got := c.GetHealth(hash); got == nil || got.Available {
+		t.Fatalf("0/0 should be unavailable, got %+v", got)
+	}
+}
+
 func TestArtSourceRank(t *testing.T) {
 	if !(ArtSourceRank("torrent") > ArtSourceRank("tmdb") && ArtSourceRank("tmdb") > ArtSourceRank("frame") && ArtSourceRank("frame") > ArtSourceRank("")) {
 		t.Fatalf("rank order broken: torrent=%d tmdb=%d frame=%d none=%d",

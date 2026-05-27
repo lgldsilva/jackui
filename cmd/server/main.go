@@ -431,6 +431,7 @@ func main() {
 			api.POST("/stream/prefetch/:hash/:file", handlers.StreamPrefetch(streamSrv))
 			api.GET("/stream/artwork/:hash/:file", handlers.StreamArtwork(streamSrv))
 			api.GET("/stream/metadata/:hash", handlers.StreamMetadata(streamSrv))
+			api.GET("/stream/health/:hash", handlers.StreamHealth(streamSrv))
 			api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(streamSrv))
 			// Per-torrent resolved thumbnail (poster/cover/frame, persisted by info_hash).
 			// GET is cheap (cards); POST runs the resolution chain on play.
