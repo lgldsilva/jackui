@@ -468,6 +468,27 @@ export const adminDeleteUser = async (id: number): Promise<void> => {
 export const adminSetUserStatus = async (id: number, status: 'active' | 'pending' | 'disabled'): Promise<void> => {
   await api.patch(`/auth/users/${id}/status`, { status })
 }
+export const adminInvite = async (email?: string): Promise<string> => {
+  const { data } = await api.post<{ link: string }>('/auth/users/invite', { email: email || '' })
+  return data.link
+}
+
+// Public auth flows (no token needed). These bypass the axios auth interceptor
+// concerns since they're called from unauthenticated pages.
+export const registerAccount = async (username: string, email: string, password: string, invite?: string) => {
+  const { data } = await api.post<{ status: string; invited: boolean; message: string }>('/auth/register', { username, email, password, invite: invite || '' })
+  return data
+}
+export const verifyEmail = async (token: string): Promise<void> => {
+  await api.post('/auth/verify-email', { token })
+}
+export const forgotPassword = async (email: string): Promise<string> => {
+  const { data } = await api.post<{ message: string }>('/auth/forgot', { email })
+  return data.message
+}
+export const resetPassword = async (token: string, password: string): Promise<void> => {
+  await api.post('/auth/reset', { token, password })
+}
 
 // ── Swarm health (seeds / availability for cards) ────────────────────────────
 export interface StreamHealth {
