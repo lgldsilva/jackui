@@ -213,27 +213,36 @@ export default function FavoritesPage() {
     await load()
   }
 
-  const importTorrentFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.torrent')) {
-      setImportMsg({ kind: 'err', text: 'Arquivo precisa ter extensão .torrent' })
+  const importTorrentFiles = async (files: File[]) => {
+    const torrents = files.filter(f => f.name.toLowerCase().endsWith('.torrent'))
+    const skipped = files.length - torrents.length
+    if (torrents.length === 0) {
+      setImportMsg({ kind: 'err', text: 'Selecione ao menos um arquivo .torrent' })
       return
     }
     setImporting(true)
     setImportMsg(null)
-    try {
-      const buf = await file.arrayBuffer()
-      let bin = ''
-      const bytes = new Uint8Array(buf)
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
-      const torrentB64 = btoa(bin)
-      const res = await streamImport({ torrentB64, folderId: viewMode !== ALL_VIEW ? viewMode : null })
-      setImportMsg({ kind: 'ok', text: `Importado: ${res.name}` })
-      await load()
-    } catch (e: unknown) {
-      setImportMsg({ kind: 'err', text: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setImporting(false)
+    let ok = 0
+    const fails: string[] = []
+    for (const file of torrents) {
+      try {
+        const buf = await file.arrayBuffer()
+        let bin = ''
+        const bytes = new Uint8Array(buf)
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+        const torrentB64 = btoa(bin)
+        await streamImport({ torrentB64, folderId: viewMode !== ALL_VIEW ? viewMode : null })
+        ok++
+      } catch (e: unknown) {
+        fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+      }
     }
+    setImporting(false)
+    const suffix = skipped > 0 ? ` (${skipped} ignorado${skipped !== 1 ? 's' : ''} — não .torrent)` : ''
+    setImportMsg(fails.length === 0
+      ? { kind: 'ok', text: `${ok} torrent${ok !== 1 ? 's' : ''} importado${ok !== 1 ? 's' : ''}${suffix}` }
+      : { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}${suffix}` })
+    await load()
   }
 
   const handleRemove = async (name: string) => {
@@ -592,20 +601,21 @@ export default function FavoritesPage() {
               onDrop={e => {
                 e.preventDefault()
                 setDragOverDrop(false)
-                const f = e.dataTransfer.files?.[0]
-                if (f) importTorrentFile(f)
+                const fs = Array.from(e.dataTransfer.files || [])
+                if (fs.length) importTorrentFiles(fs)
               }}
               className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer transition-colors ${
                 dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-gray-700 hover:border-gray-600'
               }`}
             >
               <UploadCloud className="w-7 h-7 text-gray-500" />
-              <span className="text-sm text-gray-400">Arraste um arquivo .torrent ou clique pra escolher</span>
+              <span className="text-sm text-gray-400">Arraste arquivos .torrent ou clique pra escolher (vários)</span>
               <input
                 type="file"
                 accept=".torrent"
+                multiple
                 className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) importTorrentFile(f) }}
+                onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) importTorrentFiles(fs) }}
               />
             </label>
 
