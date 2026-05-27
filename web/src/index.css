@@ -18,6 +18,23 @@
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .safe-left   { padding-left:   env(safe-area-inset-left, 0px); }
   .safe-right  { padding-right:  env(safe-area-inset-right, 0px); }
+
+  /* In an installed iOS PWA (standalone) the webview spans the whole screen
+     under the status bar, but env(safe-area-inset-top) frequently resolves to
+     0 there — so the clock/signal/battery overlap the top bar. Force a floor
+     of 44px (status-bar height) in standalone, taking the larger of the real
+     inset (notched devices ~47px) and 44px. Browser tabs keep the plain env(). */
+  @media all and (display-mode: standalone) {
+    .safe-top { padding-top: max(env(safe-area-inset-top), 44px); }
+  }
+
+  /* Top padding that clears the iOS status bar inside a standalone PWA but
+     stays compact (1rem) in a browser tab. Used by overlays that go
+     edge-to-edge on mobile (e.g. the fullscreen player header). */
+  .pt-statusbar { padding-top: 1rem; }
+  @media all and (display-mode: standalone) {
+    .pt-statusbar { padding-top: max(env(safe-area-inset-top), 44px); }
+  }
 }
 
 @layer components {

@@ -948,7 +948,7 @@ export default function PlayerModal({
             notch in PWA standalone mode. Bounded to mobile (sm:pt-0 via inline
             class) because on sm+ the modal sits inside the page with margins
             and the inset is always 0 anyway. */}
-        <div className="flex items-center justify-between p-4 pt-[max(env(safe-area-inset-top),1rem)] sm:pt-4 border-b border-gray-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
           <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
             <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
             <span className="truncate">{info?.name || result.title}</span>
