@@ -456,11 +456,14 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
-// StreamHealth handles GET /api/stream/health/:hash?magnet=... — returns the
-// last-known swarm health (seeders/peers/available + when it was checked) for a
-// card to show instantly, and kicks off a background re-probe when the snapshot
-// is missing or stale (so the next poll/render shows fresh numbers). Live stats
-// are returned immediately for torrents currently streaming.
+// StreamHealth handles GET /api/stream/health/:hash?magnet=...&probe=1 — returns
+// the last-known swarm health (seeders/peers/available + when it was checked).
+//
+// PEEK by default (cheap: DB read / live stats only). A swarm probe — which adds
+// the torrent to the swarm to count peers — is EXPENSIVE and only runs when the
+// caller explicitly asks with probe=1. Auto-probing on every visible card turned
+// the whole UI sluggish and spawned phantom "active torrents", so it's now
+// strictly on-demand.
 func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
@@ -471,7 +474,9 @@ func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 		snapshot, active := s.HealthSnapshot(h)
 		magnet := c.Query("magnet")
 		stale := snapshot == nil || time.Since(snapshot.CheckedAt) > streamer.HealthFreshFor
-		refreshing := !active && stale && magnet != ""
+		// Only probe when explicitly requested AND it'd add value (not active,
+		// stale snapshot, have a magnet to add).
+		refreshing := c.Query("probe") == "1" && !active && stale && magnet != ""
 		if refreshing {
 			s.ProbeHealthAsync(h, magnet)
 		}

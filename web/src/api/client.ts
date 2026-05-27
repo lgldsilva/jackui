@@ -514,10 +514,14 @@ export interface StreamHealth {
 // streamHealth returns the last-known swarm health for a torrent (and kicks a
 // background re-probe server-side when stale). `magnet` lets the server probe an
 // inactive torrent. Best-effort: returns an "unknown" shape on error.
-export const streamHealth = async (hash: string, magnet?: string): Promise<StreamHealth> => {
+// streamHealth peeks the last-known swarm health (cheap, no swarm activity).
+// Pass probe=true ONLY on an explicit user action — that adds the torrent to the
+// swarm to count peers (expensive). Auto-calling with probe=true bogs the app.
+export const streamHealth = async (hash: string, magnet?: string, probe = false): Promise<StreamHealth> => {
   try {
     const params = new URLSearchParams()
     if (magnet) params.set('magnet', magnet)
+    if (probe) params.set('probe', '1')
     const { data } = await api.get<StreamHealth>(`/stream/health/${hash}?${params.toString()}`)
     return data
   } catch {

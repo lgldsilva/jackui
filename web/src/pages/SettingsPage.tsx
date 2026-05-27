@@ -13,6 +13,7 @@ import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
 import AccountCard from '../components/AccountCard'
 import UsersAdminCard from '../components/UsersAdminCard'
+import ErrorBoundary from '../components/ErrorBoundary'
 
 const DEFAULT_CLIENT: DownloadClientFull = {
   id: '',
@@ -342,9 +343,10 @@ export default function SettingsPage() {
         {/* Hardware transcoding capabilities */}
         <TranscodeCapabilitiesCard />
 
-        {/* Account (change password) + admin user management */}
-        <AccountCard />
-        <UsersAdminCard />
+        {/* Account (change password) + admin user management. Wrapped so a crash
+            in one card can't blank the whole Settings page (and surfaces the error). */}
+        <ErrorBoundary title="Erro no card Conta"><AccountCard /></ErrorBoundary>
+        <ErrorBoundary title="Erro no card Usuários"><UsersAdminCard /></ErrorBoundary>
 
         {/* AI title identification + benchmark */}
         <AIBenchmarkCard />

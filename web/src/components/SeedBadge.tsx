@@ -28,37 +28,29 @@ interface Props {
 export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
   const ref = useRef<HTMLSpanElement>(null)
   const [health, setHealth] = useState<StreamHealth | null>(null)
+  const [probing, setProbing] = useState(false)
   const fetchedRef = useRef(false)
 
+  // On view: PEEK only (persisted/live — never touches the swarm). The probe is
+  // strictly on click (verify()), so scrolling a list costs nothing on the swarm.
   useEffect(() => {
     if (!infoHash) return
     const el = ref.current
     if (!el) return
     let cancelled = false
-
-    const fetchOnce = async () => {
-      const h = await streamHealth(infoHash, magnet)
-      if (cancelled) return
-      setHealth(h)
-      // If the server kicked a background re-probe, grab the fresh result shortly.
-      if (h.refreshing) {
-        setTimeout(async () => {
-          if (cancelled) return
-          const h2 = await streamHealth(infoHash, magnet)
-          if (!cancelled) setHealth(h2)
-        }, 9000)
-      }
+    const peek = async () => {
+      const h = await streamHealth(infoHash, magnet, false)
+      if (!cancelled) setHealth(h)
     }
-
     if (typeof IntersectionObserver === 'undefined') {
-      if (!fetchedRef.current) { fetchedRef.current = true; fetchOnce() }
+      if (!fetchedRef.current) { fetchedRef.current = true; peek() }
       return () => { cancelled = true }
     }
     const obs = new IntersectionObserver((entries, observer) => {
       for (const e of entries) {
         if (!e.isIntersecting) continue
         observer.disconnect()
-        if (!fetchedRef.current) { fetchedRef.current = true; fetchOnce() }
+        if (!fetchedRef.current) { fetchedRef.current = true; peek() }
         return
       }
     }, { rootMargin: '120px' })
@@ -68,32 +60,47 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
 
   if (!infoHash) return null
 
-  // States: loading/checking (amber), known available (green), known none (gray).
-  const checking = health === null || (!health.known && health.refreshing)
+  // Explicit, user-triggered swarm probe (adds the torrent briefly to count peers).
+  const verify = async (e: React.MouseEvent) => {
+    e.stopPropagation(); e.preventDefault()
+    if (probing) return
+    setProbing(true)
+    const h = await streamHealth(infoHash, magnet, true)
+    setHealth(h)
+    if (h.refreshing) {
+      setTimeout(async () => { setHealth(await streamHealth(infoHash, magnet, false)); setProbing(false) }, 9000)
+    } else {
+      setProbing(false)
+    }
+  }
+
+  const known = !!health?.known
   const seeders = health?.seeders ?? 0
   const available = !!health?.available
-  const dot = checking ? 'bg-amber-400' : available ? 'bg-green-500' : 'bg-gray-600'
-  const title = checking
-    ? 'Verificando seeds no swarm...'
-    : health?.known
+  const dot = probing ? 'bg-amber-400' : known ? (available ? 'bg-green-500' : 'bg-gray-600') : 'bg-gray-700'
+  const title = probing
+    ? 'Verificando seeds no swarm…'
+    : known
       ? `${seeders} seeds / ${health?.peers ?? 0} peers · verificado ${relTime(health?.checkedAt)}${health?.active ? ' (ao vivo)' : ''}`
-      : 'Disponibilidade desconhecida'
+      : 'Clique para verificar seeds'
 
   return (
     <span
       ref={ref}
+      onClick={verify}
       title={title}
-      className={`inline-flex items-center gap-1 text-[10px] text-gray-400 ${className}`}
+      role="button"
+      className={`inline-flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-200 ${className}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot} ${checking ? 'animate-pulse' : ''}`} />
-      {checking ? (
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot} ${probing ? 'animate-pulse' : ''}`} />
+      {probing ? (
         <Loader2 className="w-3 h-3 animate-spin text-gray-500" />
-      ) : health?.known ? (
+      ) : known ? (
         <span className="flex items-center gap-0.5 tabular-nums">
           <ArrowUp className="w-3 h-3 text-green-500" />{seeders}
         </span>
       ) : (
-        <span className="text-gray-600">—</span>
+        <span className="text-gray-500">seeds?</span>
       )}
     </span>
   )
