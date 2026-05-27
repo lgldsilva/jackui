@@ -32,6 +32,7 @@ const (
 // Match is the simplified view we expose to the frontend.
 type Match struct {
 	TmdbID      int     `json:"tmdbId"`
+	ImdbID      string  `json:"imdbId,omitempty"` // resolved via external_ids; persisted so we never reprocess
 	Title       string  `json:"title"`
 	Year        int     `json:"year"`
 	PosterURL   string  `json:"posterUrl"`
@@ -78,25 +79,30 @@ func (c *Client) Close() error { return c.cache.Close() }
 // gracefully instead of returning a 500.
 var ErrDisabled = errors.New("tmdb: api key not configured")
 
-// titleParser strips common release tags so the TMDB search has a better shot
-// at matching the actual title. Order matters: parse year before stripping it.
+// Release-name parsing for the TMDB search. Strategy: TRUNCATE at the first
+// release marker (year / resolution / source / codec / SxxExx / bracket) rather
+// than removing markers in place. Removing-in-place left the trailing scene
+// group leaking into the query ("Inception.2010...x264-SPARKS" → "Inception
+// SPARKS"), which hurt matches. Everything meaningful sits before the first
+// marker, so cutting there yields a clean title.
 var (
-	yearRe      = regexp.MustCompile(`\b(19|20)\d{2}\b`)
-	junkRe      = regexp.MustCompile(`(?i)\b(1080p|2160p|720p|480p|bluray|brrip|webrip|web-dl|hdtv|x264|x265|h264|h265|hevc|aac|ac3|dts|atmos|truehd|amzn|nf|hmax|repack|proper|extended|imax|hdr|sdr|10bit|remux|multi|dual|dublado|legendado|nacional|complete|season|s\d{1,2}e\d{1,3}|s\d{1,2}|e\d{1,3})\b`)
-	bracketsRe  = regexp.MustCompile(`\[[^\]]*\]|\([^)]*\)`)
+	yearRe = regexp.MustCompile(`\b(19|20)\d{2}\b`)
+	// markerRe finds the first release token preceded by a separator/bracket (or
+	// the start) — the cut point. Order tokens longest-first inside alternation.
+	markerRe    = regexp.MustCompile(`(?i)([._\s\-([]|^)((19|20)\d{2}|2160p|1080p|720p|480p|bluray|brrip|bdrip|webrip|web-dl|web|hdtv|hdrip|dvdrip|x264|x265|h\.?264|h\.?265|hevc|av1|aac|ac3|dts|atmos|truehd|ddp?5\.1|amzn|nf|hmax|repack|proper|extended|imax|hdr|sdr|10bit|remux|multi|dual|dublado|legendado|nacional|complete|season|s\d{1,2}e\d{1,3}|s\d{1,2}|e\d{1,3})([._\s\-)\]]|$)`)
 	separatorRe = regexp.MustCompile(`[\._\-]+`)
 	spacesRe    = regexp.MustCompile(`\s+`)
 )
 
 func cleanQuery(raw string) (title string, year int) {
-	t := raw
-	if m := yearRe.FindString(t); m != "" {
+	if m := yearRe.FindString(raw); m != "" {
 		year, _ = strconv.Atoi(m)
 	}
-	t = bracketsRe.ReplaceAllString(t, " ")
+	t := raw
+	if loc := markerRe.FindStringIndex(raw); loc != nil {
+		t = raw[:loc[0]] // keep only the title before the first marker
+	}
 	t = separatorRe.ReplaceAllString(t, " ")
-	t = junkRe.ReplaceAllString(t, " ")
-	t = yearRe.ReplaceAllString(t, " ")
 	t = spacesRe.ReplaceAllString(t, " ")
 	return strings.TrimSpace(t), year
 }
@@ -184,6 +190,31 @@ type multiSearchResp struct {
 	} `json:"results"`
 }
 
+// fetchImdbID resolves the IMDb id for a TMDB movie/tv via the external_ids
+// endpoint. Returns "" on any error — the caller treats it as "not available".
+func (c *Client) fetchImdbID(ctx context.Context, kind string, tmdbID int) string {
+	if kind != "movie" && kind != "tv" {
+		return ""
+	}
+	u := fmt.Sprintf("%s/%s/%d/external_ids?api_key=%s", apiBase, kind, tmdbID, url.QueryEscape(c.apiKey))
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var out struct {
+		ImdbID string `json:"imdb_id"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&out) != nil {
+		return ""
+	}
+	return out.ImdbID
+}
+
 func (c *Client) searchMulti(ctx context.Context, title string, year int) (*Match, error) {
 	q := url.Values{}
 	q.Set("api_key", c.apiKey)
@@ -233,6 +264,11 @@ func (c *Client) searchMulti(ctx context.Context, title string, year int) (*Matc
 		}
 		if r.PosterPath != "" {
 			m.PosterURL = imageBase + r.PosterPath
+		}
+		// Resolve the IMDb id once (best-effort) so callers can persist it and
+		// never reprocess. A failure here must not lose the otherwise-good match.
+		if imdb := c.fetchImdbID(ctx, r.MediaType, r.ID); imdb != "" {
+			m.ImdbID = imdb
 		}
 		return m, nil
 	}

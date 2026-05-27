@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -74,6 +75,9 @@ var frameCaptureSeconds = []int{120, 60, 30, 5}
 // Chain (highest trust first): embedded torrent image → TMDB poster (by cached
 // name) → captured video frame.
 func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain) gin.HandlerFunc {
+	// Tracks in-flight frame-capture jobs (the one slow step) per info_hash so a
+	// repeated resolve doesn't spawn duplicate ffmpeg runs for the same torrent.
+	var frameJobs sync.Map
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -144,8 +148,9 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 					Source:    "tmdb",
 					PosterURL: m.PosterURL,
 					TmdbID:    m.TmdbID,
+					ImdbID:    m.ImdbID,
 				})
-				c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID})
+				c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
 				return
 			}
 		}
@@ -163,23 +168,36 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 			}
 		}
 
-		// 4) Captured video frame — always available once playing.
+		// 4) Captured video frame — the one slow step (ffmpeg can block up to ~25s
+		// waiting on pieces). Run it OFF the request: return 202 immediately and
+		// extract in the background, persisting when done. The caller (player, on
+		// play) is fire-and-forget, and cards re-fetch the art on their next
+		// render — so nothing needs to block on this. Deduped per info_hash.
 		if fileIdx >= 0 && existingRank < streamer.ArtSourceRank("frame") {
-			for _, at := range frameCaptureSeconds {
-				data, _, ferr := s.ExtractThumbnail(ctx, h, fileIdx, at)
-				if ferr != nil {
-					break // torrent gone / index bad — stop trying timestamps
-				}
-				if len(data) == 0 {
-					continue // couldn't decode at this point; try earlier
-				}
-				if rel, serr := s.SaveArtBytes(h, data); serr == nil {
-					_ = cache.SetArt(hash, &streamer.CachedArt{Source: "frame", Path: rel})
-					c.JSON(http.StatusOK, gin.H{"source": "frame"})
+			if _, busy := frameJobs.LoadOrStore(hash, true); busy {
+				c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+				return
+			}
+			go func() {
+				defer frameJobs.Delete(hash)
+				bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				for _, at := range frameCaptureSeconds {
+					data, _, ferr := s.ExtractThumbnail(bg, h, fileIdx, at)
+					if ferr != nil {
+						return // torrent gone / index bad
+					}
+					if len(data) == 0 {
+						continue // couldn't decode here; try earlier
+					}
+					if rel, serr := s.SaveArtBytes(h, data); serr == nil {
+						_ = cache.SetArt(hash, &streamer.CachedArt{Source: "frame", Path: rel})
+					}
 					return
 				}
-				break
-			}
+			}()
+			c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+			return
 		}
 
 		c.Status(http.StatusNoContent)
