@@ -16,6 +16,55 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestBootstrapAdminIsActiveVerified(t *testing.T) {
+	// The bootstrap admin must come out usable: active + email_verified (the
+	// new columns default that way so existing installs aren't locked out).
+	s := newTestStore(t)
+	if err := s.Bootstrap("admin", "secret123"); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	u, err := s.VerifyPassword("admin", "secret123")
+	if err != nil {
+		t.Fatalf("VerifyPassword: %v", err)
+	}
+	if u.Status != StatusActive || !u.EmailVerified {
+		t.Fatalf("admin should be active+verified, got status=%q verified=%v", u.Status, u.EmailVerified)
+	}
+}
+
+func TestAuthTokenSingleUse(t *testing.T) {
+	s := newTestStore(t)
+
+	plain, err := s.CreateToken(TokenResetPassword, 0, "a@b.com", time.Hour)
+	if err != nil {
+		t.Fatalf("CreateToken: %v", err)
+	}
+	// Wrong purpose → invalid.
+	if _, err := s.ConsumeToken(plain, TokenInvite); err == nil {
+		t.Fatal("expected purpose mismatch to fail")
+	}
+	// Right purpose → ok, carries email.
+	ti, err := s.ConsumeToken(plain, TokenResetPassword)
+	if err != nil {
+		t.Fatalf("ConsumeToken: %v", err)
+	}
+	if ti.Email != "a@b.com" {
+		t.Fatalf("email = %q", ti.Email)
+	}
+	// Single-use: second consume fails.
+	if _, err := s.ConsumeToken(plain, TokenResetPassword); err == nil {
+		t.Fatal("expected second consume to fail (single-use)")
+	}
+}
+
+func TestAuthTokenExpired(t *testing.T) {
+	s := newTestStore(t)
+	plain, _ := s.CreateToken(TokenVerifyEmail, 1, "", -time.Minute) // already expired
+	if _, err := s.ConsumeToken(plain, TokenVerifyEmail); err == nil {
+		t.Fatal("expected expired token to fail")
+	}
+}
+
 func TestBootstrapAdmin(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.Bootstrap("admin", "secret123"); err != nil {

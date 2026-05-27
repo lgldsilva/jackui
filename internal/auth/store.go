@@ -29,12 +29,31 @@ const (
 	RoleUser  Role = "user"
 )
 
+// Status is the account lifecycle state. Only "active" users may log in.
+type Status string
+
+const (
+	StatusActive   Status = "active"   // can log in
+	StatusPending  Status = "pending"  // self-registered, awaiting admin approval
+	StatusDisabled Status = "disabled" // blocked by an admin
+)
+
+// Token purposes — single-use, TTL'd links sent by email (or copied by an admin).
+const (
+	TokenInvite        = "invite"         // authorizes a registration (no user yet)
+	TokenVerifyEmail   = "verify_email"   // confirms a user's email address
+	TokenResetPassword = "reset_password" // password recovery
+)
+
 // User is the public, password-less representation.
 type User struct {
-	ID        int       `json:"id"`
-	Username  string    `json:"username"`
-	Role      Role      `json:"role"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID            int       `json:"id"`
+	Username      string    `json:"username"`
+	Email         string    `json:"email"`
+	Role          Role      `json:"role"`
+	Status        Status    `json:"status"`
+	EmailVerified bool      `json:"emailVerified"`
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 // Store wraps the SQLite-backed user + refresh token persistence.
@@ -87,6 +106,39 @@ func (s *Store) migrate() error {
 		if _, err := s.db.Exec(`ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
+	}
+	// Account-lifecycle columns. Default status 'active' so EXISTING users (incl.
+	// the bootstrap admin) keep logging in untouched; new self-registrations are
+	// inserted as 'pending' explicitly. email_verified defaults 1 for the same
+	// reason — pre-existing accounts aren't retroactively locked out.
+	for col, ddl := range map[string]string{
+		"email":          `ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
+		"status":         `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+		"email_verified": `ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1`,
+	} {
+		if !s.hasColumn("users", col) {
+			if _, err := s.db.Exec(ddl); err != nil {
+				return err
+			}
+		}
+	}
+	// Generic single-use tokens for invite / email-verify / password-reset. Only
+	// the SHA-256 of the token is stored. user_id is NULL for invites (no account
+	// exists yet); email carries an optional pre-set address for invites.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS auth_tokens (
+			token_hash TEXT PRIMARY KEY,
+			user_id    INTEGER,
+			purpose    TEXT NOT NULL,
+			email      TEXT NOT NULL DEFAULT '',
+			expires_at DATETIME NOT NULL,
+			used_at    DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_authtok_exp ON auth_tokens(expires_at);
+	`); err != nil {
+		return err
 	}
 	return nil
 }
@@ -153,9 +205,9 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	var hash string
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?",
+		"SELECT id, username, password_hash, role, email, status, email_verified, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &ts)
+	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("usuário ou senha inválidos")
 	}
@@ -174,8 +226,8 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 	var u User
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, role, created_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Username, &u.Role, &ts)
+		"SELECT id, username, role, email, status, email_verified, created_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
@@ -188,7 +240,7 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 
 // ListUsers returns all users (admin only).
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, username, role, created_at FROM users ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, created_at FROM users ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -197,13 +249,74 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var ts string
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &ts); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts); err != nil {
 			continue
 		}
 		u.CreatedAt, _ = parseTime(ts)
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+// TokenInfo is the resolved payload of a consumed single-use token.
+type TokenInfo struct {
+	UserID  int    // 0 when the token isn't tied to a user (invites)
+	Email   string // optional pre-set email (invites)
+	Purpose string
+}
+
+// CreateToken issues a single-use token for a purpose (invite/verify/reset) and
+// returns the PLAINTEXT (only its SHA-256 is stored). userID 0 → NULL row.
+func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.Duration) (string, error) {
+	plain, err := randomToken(32)
+	if err != nil {
+		return "", err
+	}
+	var uid any
+	if userID > 0 {
+		uid = userID
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO auth_tokens(token_hash, user_id, purpose, email, expires_at) VALUES(?, ?, ?, ?, ?)`,
+		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC().Format("2006-01-02 15:04:05"),
+	)
+	if err != nil {
+		return "", err
+	}
+	return plain, nil
+}
+
+// ConsumeToken validates a token for the given purpose (exists, right purpose,
+// not used, not expired) and marks it used (single-use). Returns its payload.
+func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
+	hash := sha256Hex(plain)
+	var uid sql.NullInt64
+	var email, expStr string
+	var used sql.NullString
+	err := s.db.QueryRow(
+		`SELECT user_id, email, expires_at, used_at FROM auth_tokens WHERE token_hash = ? AND purpose = ?`,
+		hash, purpose,
+	).Scan(&uid, &email, &expStr, &used)
+	if err == sql.ErrNoRows {
+		return nil, errors.New("token inválido")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if used.Valid && used.String != "" {
+		return nil, errors.New("token já utilizado")
+	}
+	if exp, perr := parseTime(expStr); perr == nil && time.Now().After(exp) {
+		return nil, errors.New("token expirado")
+	}
+	if _, err := s.db.Exec(`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash); err != nil {
+		return nil, err
+	}
+	ti := &TokenInfo{Email: email, Purpose: purpose}
+	if uid.Valid {
+		ti.UserID = int(uid.Int64)
+	}
+	return ti, nil
 }
 
 // DeleteUser removes a user (and cascades refresh tokens via FK).
