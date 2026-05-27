@@ -22,6 +22,7 @@ import (
 	"github.com/luizg/jackui/internal/library"
 	"github.com/luizg/jackui/internal/playlists"
 	"github.com/luizg/jackui/internal/ai"
+	"github.com/luizg/jackui/internal/imagesearch"
 	"github.com/luizg/jackui/internal/tmdb"
 	"github.com/luizg/jackui/internal/watchlist"
 	"github.com/luizg/jackui/internal/streamer"
@@ -212,6 +213,11 @@ func main() {
 	} else {
 		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
 	}
+
+	// Web image search — keyless fallback for art when TMDB has no match (adult /
+	// obscure titles). Only fires after a failed TMDB lookup. Routes through the
+	// same egress as everything else (the VPN, in prod).
+	webSearch := imagesearch.Default()
 
 	// Watchlist store + background worker — polls Jackett periodically for saved
 	// queries and pushes new matches to ntfy.sh. Worker starts only when both the
@@ -429,7 +435,7 @@ func main() {
 			// Per-torrent resolved thumbnail (poster/cover/frame, persisted by info_hash).
 			// GET is cheap (cards); POST runs the resolution chain on play.
 			api.GET("/stream/art/:hash", handlers.StreamArt(streamSrv))
-			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient, aiClient))
+			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient, aiClient, webSearch))
 			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv))
 			api.DELETE("/stream/:hash", handlers.StreamDrop(streamSrv))
 

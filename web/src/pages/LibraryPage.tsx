@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
-import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL } from '../api/client'
+import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt } from '../api/client'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
@@ -149,7 +149,28 @@ interface LibraryCardProps {
 function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: LibraryCardProps) {
   const { ref, match } = useThumbnail<HTMLDivElement>(entry.name)
   const [artFailed, setArtFailed] = useState(false)
+  // bust forces the art <img> to refetch after a proactive resolve persists one.
+  const [bust, setBust] = useState(0)
+  const resolvedRef = useRef(false)
   const showArt = !!entry.infoHash && !artFailed
+
+  // When the persisted art is missing (the <img> 204s → onError), proactively
+  // run the resolution chain once (TMDB → web search; no frame, torrent's idle)
+  // using the entry's name as the query. If it persists something, refetch;
+  // otherwise fall through to the title-based poster / icon.
+  const onArtError = () => {
+    if (resolvedRef.current) { setArtFailed(true); return }
+    resolvedRef.current = true
+    resolveArt(entry.infoHash, -1, entry.name).then(src => {
+      if (src) setBust(b => b + 1)
+      else setArtFailed(true)
+    })
+  }
+  const artURL = (() => {
+    const base = streamArtURL(entry.infoHash)
+    return bust > 0 ? `${base}${base.includes('?') ? '&' : '?'}_=${bust}` : base
+  })()
+
   return (
     <div
       className="card flex flex-col gap-2 hover:bg-gray-800/80 transition-colors text-left p-3 relative group cursor-pointer"
@@ -193,11 +214,11 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: Libr
             below the play overlay; a 204/404 reveals the poster underneath. */}
         {showArt && (
           <img
-            src={streamArtURL(entry.infoHash)}
+            src={artURL}
             alt={entry.name}
             loading="lazy"
             className="absolute inset-0 w-full h-full object-cover z-[15]"
-            onError={() => setArtFailed(true)}
+            onError={onArtError}
           />
         )}
         <div className="absolute inset-0 flex items-center justify-center max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 z-20">
