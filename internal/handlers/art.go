@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/luizg/jackui/internal/ai"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/tmdb"
 )
@@ -71,7 +72,7 @@ var frameCaptureSeconds = []int{120, 60, 30, 5}
 //
 // Chain (highest trust first): embedded torrent image → TMDB poster (by cached
 // name) → captured video frame.
-func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client) gin.HandlerFunc {
+func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -115,10 +116,19 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client) gin.HandlerFunc {
 			}
 		}
 
-		// 2) TMDB poster by cached torrent name.
+		// 2) TMDB poster by cached torrent name. When an AI chain is configured,
+		// let it clean the messy release name into a real title first — it beats
+		// TMDB's regex stripping on tricky multi-file / non-English names. Falls
+		// back to the raw name when AI is off or can't identify it.
 		if existingRank < streamer.ArtSourceRank("tmdb") && tmdbClient != nil {
 			if meta := cache.Get(hash); meta != nil && meta.Name != "" {
-				if m, merr := tmdbClient.Match(ctx, meta.Name); merr == nil && m != nil && m.PosterURL != "" {
+				query := meta.Name
+				if aiClient != nil {
+					if res, _, aerr := aiClient.IdentifyTitle(ctx, meta.Name); aerr == nil && res.Query() != "" {
+						query = res.Query()
+					}
+				}
+				if m, merr := tmdbClient.Match(ctx, query); merr == nil && m != nil && m.PosterURL != "" {
 					_ = cache.SetArt(hash, &streamer.CachedArt{
 						Source:    "tmdb",
 						PosterURL: m.PosterURL,

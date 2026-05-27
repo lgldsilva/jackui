@@ -26,6 +26,8 @@ make dev-backend       # go run ./cmd/server em :8989
 - **Transcode sob demanda**: HEVC/AV1/x265 → H.264 via GPU. Safari recebe **HLS** (`.m3u8` + segmentos `.ts`) — único caminho que o `<video>` do Safari aceita.
 - **Legendas**: embutidas (probe ffmpeg), sidecar `.srt`/`.vtt` no torrent, e externas (OpenSubtitles). Escolha persiste por arquivo (localStorage).
 - **TMDB**: enriquece resultados/biblioteca com pôster + metadados (cache SQLite, TTL 30d).
+- **Thumbnails por torrent**: arte resolvida e persistida por `info_hash` (colunas no metadata cache). Cadeia fail-safe no play (`POST /api/stream/art/:hash/resolve`): imagem embutida no torrent (poster/cover) → pôster TMDB → frame capturado. `GET /api/stream/art/:hash` serve a arte (bytes/302/204). Cards preferem a arte por infoHash, caindo no pôster TMDB-por-título.
+- **IA p/ identificar título** (opcional): chain OpenAI-compatible (`internal/ai`) com fallback + circuit breaker, limpa o nome cru do release antes do TMDB. Liga sozinha via `GROQ_API_KEY`/`OPENROUTER_API_KEY`/`OLLAMA_BASE_URL`. Benchmark modificável (Settings → admin) mede acurácia+latência, calcula score composto (acurácia ÷ √latência) e reordena a chain (persistido em `.ai-benchmark.db`).
 - **Playlists**, **Watchlists** (cron + push ntfy), **Continue Watching** (library com resume position), **Downloads em background** (qBittorrent/Transmission), **browser de arquivos locais** (mounts).
 - **Auth** JWT opcional (`JACKUI_AUTH_ENABLED=1`), com refresh token rotacionado e `AdminOnly` para rotas sensíveis.
 

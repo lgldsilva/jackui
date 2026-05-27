@@ -21,6 +21,7 @@ import (
 	"github.com/luizg/jackui/internal/jackett"
 	"github.com/luizg/jackui/internal/library"
 	"github.com/luizg/jackui/internal/playlists"
+	"github.com/luizg/jackui/internal/ai"
 	"github.com/luizg/jackui/internal/tmdb"
 	"github.com/luizg/jackui/internal/watchlist"
 	"github.com/luizg/jackui/internal/streamer"
@@ -187,6 +188,31 @@ func main() {
 		}
 	}
 
+	// AI title-identification chain — optional; nil falls back to TMDB's regex
+	// title cleaning. Lights up automatically from GROQ_API_KEY/OPENROUTER_API_KEY/
+	// OLLAMA_BASE_URL (see config.applyAIEnv).
+	aiClient := ai.New(cfg.AI)
+	var aiBench *ai.BenchmarkStore
+	if aiClient != nil {
+		if bs, berr := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(streamCfg.DataDir)); berr == nil {
+			aiBench = bs
+			defer bs.Close()
+			// Boot the chain in its best-known order from the last benchmark.
+			if order := bs.Order(); len(order) > 0 {
+				aiClient.ApplyOrder(order)
+			}
+		} else {
+			log.Printf("Warning: ai benchmark store init failed: %v", berr)
+		}
+		ids := make([]string, 0, len(aiClient.Slots()))
+		for _, s := range aiClient.Slots() {
+			ids = append(ids, s.ID)
+		}
+		log.Printf("AI title identification: enabled — chain: %s", strings.Join(ids, " → "))
+	} else {
+		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
+	}
+
 	// Watchlist store + background worker — polls Jackett periodically for saved
 	// queries and pushes new matches to ntfy.sh. Worker starts only when both the
 	// store and jackett client are healthy; partial init is OK.
@@ -344,6 +370,12 @@ func main() {
 		adminAPI.PUT("/config", handlers.UpdateConfig(cfg, configPath))
 		adminAPI.POST("/config/test", handlers.TestJackett(cfg))
 
+		// AI title-identification benchmark — admin-only (it spends external LLM
+		// calls and re-orders the live chain).
+		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(aiClient, aiBench))
+		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(aiClient, aiBench))
+		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(aiBench))
+
 		api.GET("/status", handlers.Status(jackettClient, historyStore))
 
 		if historyStore != nil {
@@ -397,7 +429,7 @@ func main() {
 			// Per-torrent resolved thumbnail (poster/cover/frame, persisted by info_hash).
 			// GET is cheap (cards); POST runs the resolution chain on play.
 			api.GET("/stream/art/:hash", handlers.StreamArt(streamSrv))
-			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient))
+			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient, aiClient))
 			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv))
 			api.DELETE("/stream/:hash", handlers.StreamDrop(streamSrv))
 
