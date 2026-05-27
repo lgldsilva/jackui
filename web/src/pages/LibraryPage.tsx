@@ -196,13 +196,14 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      {/* Details — files + torrent info without resuming playback. */}
+      {/* Files/details — always visible (clicking the card resumes playback, so
+          this is the only way to reach the file list without committing to play). */}
       <button
         onClick={(ev) => { ev.stopPropagation(); onDetails() }}
-        title="Ver conteúdo e detalhes"
-        className="absolute top-1.5 left-1.5 z-10 p-1 rounded-full bg-gray-900/80 text-gray-400 hover:text-gray-100 hover:bg-gray-900 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
+        title="Ver arquivos e detalhes"
+        className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-900/85 text-gray-200 hover:bg-gray-900 text-[10px] transition-colors"
       >
-        <Info className="w-3.5 h-3.5" />
+        <Info className="w-3.5 h-3.5" /> Arquivos
       </button>
       <div
         ref={ref}
