@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luizg/jackui/internal/dbutil"
@@ -45,7 +46,15 @@ type Client struct {
 	apiKey string
 	http   *http.Client
 	cache  *sql.DB
+
+	// Trending is refreshed at most every trendingTTL (it changes slowly and is
+	// shared by all users), cached in memory rather than the on-disk match cache.
+	trendingMu    sync.Mutex
+	trendingCache []Match
+	trendingAt    time.Time
 }
+
+const trendingTTL = 6 * time.Hour
 
 // New returns a TMDB client. If apiKey is empty the client returns ErrDisabled
 // from every call — handlers should surface that as "no enrichment available"
@@ -213,6 +222,67 @@ func (c *Client) fetchImdbID(ctx context.Context, kind string, tmdbID int) strin
 		return ""
 	}
 	return out.ImdbID
+}
+
+// Trending returns this week's trending movies + TV shows for the Discover page.
+// Cached in memory for trendingTTL since it's the same for everyone and changes
+// slowly. Does NOT resolve IMDb ids (not needed for a browse grid).
+func (c *Client) Trending(ctx context.Context) ([]Match, error) {
+	if c.apiKey == "" {
+		return nil, ErrDisabled
+	}
+	c.trendingMu.Lock()
+	if c.trendingCache != nil && time.Since(c.trendingAt) < trendingTTL {
+		cached := c.trendingCache
+		c.trendingMu.Unlock()
+		return cached, nil
+	}
+	c.trendingMu.Unlock()
+
+	q := url.Values{}
+	q.Set("api_key", c.apiKey)
+	q.Set("language", "pt-BR")
+	req, _ := http.NewRequestWithContext(ctx, "GET", apiBase+"/trending/all/week?"+q.Encode(), nil)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("tmdb trending returned %d", resp.StatusCode)
+	}
+	var out multiSearchResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	items := make([]Match, 0, len(out.Results))
+	for _, r := range out.Results {
+		if r.MediaType != "movie" && r.MediaType != "tv" {
+			continue
+		}
+		if r.PosterPath == "" {
+			continue // a browse grid without a poster is just noise
+		}
+		m := Match{TmdbID: r.ID, Kind: r.MediaType, Overview: r.Overview, VoteAverage: r.VoteAverage, PosterURL: imageBase + r.PosterPath}
+		if r.MediaType == "movie" {
+			m.Title = r.Title
+			if y, _ := strconv.Atoi(safePrefix(r.ReleaseDate, 4)); y > 0 {
+				m.Year = y
+			}
+		} else {
+			m.Title = r.Name
+			if y, _ := strconv.Atoi(safePrefix(r.FirstAirDate, 4)); y > 0 {
+				m.Year = y
+			}
+		}
+		items = append(items, m)
+	}
+
+	c.trendingMu.Lock()
+	c.trendingCache = items
+	c.trendingAt = time.Now()
+	c.trendingMu.Unlock()
+	return items, nil
 }
 
 func (c *Client) searchMulti(ctx context.Context, title string, year int) (*Match, error) {

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
-  Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen,
+  Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
 } from 'lucide-react'
 import UserBadge from './UserBadge'
 import RateWidget from './RateWidget'
@@ -19,6 +19,7 @@ const STORAGE_KEY = 'jackui.sidebar.collapsed'
 // accent colour the old header used.
 const LINKS = [
   { to: '/', icon: Search, label: 'Buscar', hover: 'hover:!text-gray-100' },
+  { to: '/discover', icon: Flame, label: 'Em alta', hover: 'hover:!text-orange-400' },
   { to: '/playlists', icon: ListMusic, label: 'Playlists', hover: 'hover:!text-blue-400' },
   { to: '/library', icon: LibraryIcon, label: 'Continuar', hover: 'hover:!text-purple-400' },
   { to: '/local', icon: HardDrive, label: 'Local', hover: 'hover:!text-cyan-400' },

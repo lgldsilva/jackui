@@ -9,6 +9,7 @@ import FavoritesPage from './pages/FavoritesPage'
 import PlaylistsPage from './pages/PlaylistsPage'
 import PlaylistDetailPage from './pages/PlaylistDetailPage'
 import LibraryPage from './pages/LibraryPage'
+import DiscoverPage from './pages/DiscoverPage'
 import WatchlistPage from './pages/WatchlistPage'
 import LocalPage from './pages/LocalPage'
 import DownloadsPage from './pages/DownloadsPage'
@@ -84,6 +85,7 @@ function AppRoutes() {
       <Route path="/playlists" element={<ProtectedRoute><PlaylistsPage /></ProtectedRoute>} />
       <Route path="/playlists/:id" element={<ProtectedRoute><PlaylistDetailPage /></ProtectedRoute>} />
       <Route path="/library" element={<ProtectedRoute><LibraryPage /></ProtectedRoute>} />
+      <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
       <Route path="/watchlist" element={<ProtectedRoute><WatchlistPage /></ProtectedRoute>} />
       <Route path="/local" element={<ProtectedRoute><LocalPage /></ProtectedRoute>} />
       <Route path="/downloads" element={<ProtectedRoute><DownloadsPage /></ProtectedRoute>} />

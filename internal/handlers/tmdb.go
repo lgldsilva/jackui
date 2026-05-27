@@ -37,3 +37,24 @@ func TmdbMatch(c *tmdb.Client) gin.HandlerFunc {
 		ctx.JSON(http.StatusOK, m)
 	}
 }
+
+// TmdbTrending — GET /api/tmdb/trending. This week's trending movies + shows for
+// the Discover page. 200+list, 503 (no key), or 502 on upstream error.
+func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		if c == nil {
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "tmdb disabled"})
+			return
+		}
+		items, err := c.Trending(ctx.Request.Context())
+		if err != nil {
+			if errors.Is(err, tmdb.ErrDisabled) {
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "tmdb disabled"})
+				return
+			}
+			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, items)
+	}
+}
