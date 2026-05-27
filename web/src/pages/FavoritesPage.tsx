@@ -3,11 +3,12 @@ import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, Fol
 import {
   favoritesList, favoriteRemove, StreamFavorite,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, favoriteSetFolder,
-  streamImport,
+  streamImport, SearchResult,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import Thumbnail from '../components/Thumbnail'
+import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
@@ -151,19 +152,38 @@ export default function FavoritesPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [editingId, setEditingId] = useState<number | null>(null)
   const [dropOnRoot, setDropOnRoot] = useState(false) // visual flag for drop indicator on "root" zone
+  const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const newFolderInput = useRef<HTMLInputElement>(null)
   const [creatingRoot, setCreatingRoot] = useState(false)
 
+  // favToResult builds the SearchResult shape the player/contents modal expect.
+  // Favorites only persist name/magnet/infoHash, so tracker/category stay empty
+  // (the details modal hides the rows it has no data for).
+  const favToResult = (f: StreamFavorite): SearchResult => ({
+    title: f.name, tracker: '', categoryId: 0, category: '', size: 0, seeders: 0, leechers: 0,
+    age: '', magnetUri: f.magnet, link: '', infoHash: f.infoHash, publishDate: '',
+  })
+
+  const favHasValidMagnet = (f: StreamFavorite) =>
+    !!f.magnet && (f.magnet.startsWith('magnet:') || f.magnet.startsWith('http'))
+
   const playFavorite = (f: StreamFavorite) => {
-    const looksValid = f.magnet && (f.magnet.startsWith('magnet:') || f.magnet.startsWith('http'))
-    if (!looksValid) {
+    if (!favHasValidMagnet(f)) {
       alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
       return
     }
-    playSingle({
-      title: f.name, tracker: '', categoryId: 0, category: '', size: 0, seeders: 0, leechers: 0,
-      age: '', magnetUri: f.magnet, link: '', infoHash: f.infoHash, publishDate: '',
-    })
+    playSingle(favToResult(f))
+  }
+
+  // Card click opens the contents/details modal (files + torrent details)
+  // WITHOUT playing — matching the search/history flow. The Play button stays
+  // the quick direct path.
+  const openContents = (f: StreamFavorite) => {
+    if (!favHasValidMagnet(f)) {
+      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
+      return
+    }
+    setContentsTarget(favToResult(f))
   }
 
   const load = async () => {
@@ -521,6 +541,20 @@ export default function FavoritesPage() {
                       <Play className="w-3.5 h-3.5" />
                       Play
                     </button>
+                    {/* Details/contents — view files + torrent details without
+                        committing to play (consistent with search/history). */}
+                    <button
+                      onClick={() => openContents(fav)}
+                      disabled={!fav.magnet}
+                      title="Ver conteúdo e detalhes"
+                      className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
+                        fav.magnet
+                          ? 'bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 border border-gray-700'
+                          : 'bg-gray-700/30 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                    </button>
                     {/* Move to folder — touch-friendly alternative to drag-and-drop
                         (HTML5 DnD doesn't work on touch). Native <select> is fully
                         usable on iOS. Only shown when folders exist. */}
@@ -627,6 +661,13 @@ export default function FavoritesPage() {
           </div>
         </div>
       )}
+
+      {/* Contents/details modal — files + torrent details without playing. */}
+      <TorrentContentsModal
+        result={contentsTarget}
+        onClose={() => setContentsTarget(null)}
+        onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
+      />
     </div>
   )
 }
