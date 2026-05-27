@@ -1,7 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Download, Loader2, Clock } from 'lucide-react'
-import { SearchResult, DownloadClient, getClients, downloadTorrent } from '../api/client'
+import { X, Download, Loader2, Clock, Server } from 'lucide-react'
+import { SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate } from '../api/client'
 import { load, save, pushMRU } from '../lib/storage'
+
+// Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
+// as opposed to handing the torrent to an external qBittorrent/Transmission.
+const INTERNAL_ID = '__internal__'
+
+// Pull the 40-hex btih out of a magnet URI. The internal download queue keys
+// on info hash; search results sometimes only carry the magnet.
+function hashFromMagnet(magnet: string): string {
+  const m = magnet.match(/btih:([a-fA-F0-9]{40})/i)
+  return m ? m[1].toLowerCase() : ''
+}
 
 interface DownloadModalProps {
   result: SearchResult | null
@@ -34,14 +45,17 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
     getClients()
       .then((data) => {
         setClients(data)
-        // Priority: last-used > default > first
+        // Priority: last-used > default external > internal (always available)
         const lastId = load<string>(KEY_CLIENT, '')
-        const lastClient = data.find((c) => c.id === lastId)
-        const fallback = data.find((c) => c.default) || data[0]
-        const chosen = lastClient || fallback
-        if (chosen) setSelectedClientId(chosen.id)
+        const lastValid = lastId === INTERNAL_ID || data.some((c) => c.id === lastId)
+        const fallback = data.find((c) => c.default)?.id || INTERNAL_ID
+        setSelectedClientId(lastValid ? lastId : fallback)
       })
-      .catch(() => setError('Falha ao carregar clientes'))
+      .catch(() => {
+        // Even with no external clients, internal download is always possible.
+        setClients([])
+        setSelectedClientId(INTERNAL_ID)
+      })
   }, [result])
 
   const handleDownload = async () => {
@@ -51,12 +65,23 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
     setError('')
 
     try {
-      await downloadTorrent(
-        selectedClientId,
-        result.magnetUri || '',
-        result.link || '',
-        savePath || undefined,
-      )
+      if (selectedClientId === INTERNAL_ID) {
+        // Download inside JackUI: enqueue on the background worker. It resolves
+        // file path/size from metadata; we just need a hash + magnet.
+        const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
+        const infoHash = result.infoHash || hashFromMagnet(magnet)
+        if (!infoHash || !magnet) {
+          throw new Error('Sem magnet/infoHash — não dá pra baixar internamente')
+        }
+        await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0 })
+      } else {
+        await downloadTorrent(
+          selectedClientId,
+          result.magnetUri || '',
+          result.link || '',
+          savePath || undefined,
+        )
+      }
       // Persist what worked for next time
       save(KEY_CLIENT, selectedClientId)
       if (savePath.trim()) {
@@ -105,26 +130,29 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Cliente de Download
+              Destino do download
             </label>
-            {clients.length === 0 ? (
-              <p className="text-sm text-gray-400">Nenhum cliente configurado</p>
-            ) : (
-              <select
-                value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
-                className="input-field"
-              >
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.type})
-                  </option>
-                ))}
-              </select>
+            <select
+              value={selectedClientId}
+              onChange={(e) => setSelectedClientId(e.target.value)}
+              className="input-field"
+            >
+              <option value={INTERNAL_ID}>JackUI (servidor — assistir aqui)</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.type})
+                </option>
+              ))}
+            </select>
+            {selectedClientId === INTERNAL_ID && (
+              <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1">
+                <Server className="w-3 h-3" />
+                Baixa no servidor e aparece em Downloads — pronto pra assistir sem re-baixar.
+              </p>
             )}
           </div>
 
-          <div className="relative">
+          <div className={`relative ${selectedClientId === INTERNAL_ID ? 'hidden' : ''}`}>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
               Pasta de Destino{' '}
               <span className="text-gray-500 font-normal">(opcional)</span>
