@@ -441,6 +441,34 @@ export const saveAICases = async (cases: AIBenchmarkCase[]): Promise<AIBenchmark
   return data.cases || []
 }
 
+// ── Auth: account + admin user management ────────────────────────────────────
+export interface AdminUser {
+  id: number
+  username: string
+  email: string
+  role: 'admin' | 'user'
+  status: 'active' | 'pending' | 'disabled'
+  emailVerified: boolean
+  createdAt: string
+}
+
+export const changePassword = async (current: string, next: string): Promise<void> => {
+  await api.post('/auth/password', { current, new: next })
+}
+export const adminListUsers = async (): Promise<AdminUser[]> => {
+  const { data } = await api.get<AdminUser[]>('/auth/users')
+  return data || []
+}
+export const adminCreateUser = async (username: string, password: string, role: 'admin' | 'user'): Promise<void> => {
+  await api.post('/auth/users', { username, password, role })
+}
+export const adminDeleteUser = async (id: number): Promise<void> => {
+  await api.delete(`/auth/users/${id}`)
+}
+export const adminSetUserStatus = async (id: number, status: 'active' | 'pending' | 'disabled'): Promise<void> => {
+  await api.patch(`/auth/users/${id}/status`, { status })
+}
+
 // ── Swarm health (seeds / availability for cards) ────────────────────────────
 export interface StreamHealth {
   known: boolean

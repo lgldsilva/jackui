@@ -533,11 +533,13 @@ func main() {
 		// Authenticated user endpoints
 		if authStore != nil {
 			api.GET("/auth/me", handlers.Me(authStore))
+			api.POST("/auth/password", handlers.ChangePassword(authStore))
 			adminGroup := api.Group("/auth/users")
 			adminGroup.Use(auth.AdminOnly())
 			adminGroup.GET("", handlers.ListUsers(authStore))
 			adminGroup.POST("", handlers.CreateUser(authStore))
 			adminGroup.DELETE("/:id", handlers.DeleteUser(authStore))
+			adminGroup.PATCH("/:id/status", handlers.SetUserStatus(authStore))
 		}
 		if streamSrv != nil {
 			// Live transcode: remux/transcode torrent file → browser-friendly stream

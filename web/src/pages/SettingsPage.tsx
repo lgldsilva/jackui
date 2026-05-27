@@ -11,6 +11,8 @@ import {
 import StreamCacheCard from '../components/StreamCacheCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
+import AccountCard from '../components/AccountCard'
+import UsersAdminCard from '../components/UsersAdminCard'
 
 const DEFAULT_CLIENT: DownloadClientFull = {
   id: '',
@@ -339,6 +341,10 @@ export default function SettingsPage() {
 
         {/* Hardware transcoding capabilities */}
         <TranscodeCapabilitiesCard />
+
+        {/* Account (change password) + admin user management */}
+        <AccountCard />
+        <UsersAdminCard />
 
         {/* AI title identification + benchmark */}
         <AIBenchmarkCard />

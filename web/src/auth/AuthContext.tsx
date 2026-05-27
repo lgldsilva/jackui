@@ -7,7 +7,10 @@ export type Role = 'admin' | 'user'
 export interface AuthUser {
   id: number
   username: string
+  email?: string
   role: Role
+  status?: 'active' | 'pending' | 'disabled'
+  emailVerified?: boolean
   createdAt: string
 }
 
