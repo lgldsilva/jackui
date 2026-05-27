@@ -94,16 +94,18 @@ func extractToken(c *gin.Context) string {
 	return ""
 }
 
-// isMediaPath matches the routes loaded directly by media elements (<video>/
-// <track>/<img>), which genuinely need the ?token= fallback since they can't
-// set an Authorization header:
-//   - /api/stream/*            direct file, HLS, subtrack, playlist, thumb, artwork
+// isMediaPath matches the routes loaded by browser primitives that CAN'T set an
+// Authorization header, so they genuinely need the ?token= fallback:
+//   - /api/stream/*            <video>/<track>/<img>: file, HLS, subtrack, thumb, art
 //   - /api/subtitles/download/* external (OpenSubtitles) VTT loaded via <track>
 //   - /api/local/file          local-filesystem file served to <video>
 //   - /api/local/thumb         local-file frame preview loaded via <img>
+//   - /api/search/stream       EventSource (SSE) search — EventSource has no way
+//                              to set headers, so the token must ride the query.
 func isMediaPath(path string) bool {
 	return strings.HasPrefix(path, "/api/stream/") ||
 		strings.HasPrefix(path, "/api/subtitles/download/") ||
 		strings.HasPrefix(path, "/api/local/file") ||
-		strings.HasPrefix(path, "/api/local/thumb")
+		strings.HasPrefix(path, "/api/local/thumb") ||
+		strings.HasPrefix(path, "/api/search/stream")
 }
