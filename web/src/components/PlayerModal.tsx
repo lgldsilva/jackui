@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minus, Plus, RotateCcw, SkipBack, SkipForward, Rewind, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, SkipBack, SkipForward, Rewind, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -15,6 +15,7 @@ import {
   streamDrop,
   streamFileURL,
   streamHLSMasterURL,
+  streamArtworkURL,
   isSafariBrowser,
   streamProbe,
   streamSubtrackURL,
@@ -70,6 +71,12 @@ interface PlayerModalProps {
   onPrefetchNextPlaylist?: () => void
   /** Called once when the current item passes ~85% — warms up the item after the next. */
   onPrefetchNextNextPlaylist?: () => void
+  /** Open in minimized (compact floating card) mode. Used for audio, which
+   *  replaces the old bottom AudioBar — the player opens as a small dock. */
+  startMinimized?: boolean
+  /** Audio content: in minimized mode we show cover art over the (black)
+   *  video element since there's nothing to display. */
+  audioMode?: boolean
 }
 
 function formatSize(bytes: number): string {
@@ -94,12 +101,21 @@ export default function PlayerModal({
   onToggleShuffle,
   onPrefetchNextPlaylist,
   onPrefetchNextNextPlaylist,
+  startMinimized = false,
+  audioMode = false,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedFile, setSelectedFile] = useState<number>(-1)
   const [videoError, setVideoError] = useState(false)
+  // Minimized (picture-in-picture-style) mode. The <video> element stays
+  // mounted in the same DOM position — only the surrounding container shrinks
+  // to a floating card and the heavy panels hide. This unifies the modal and
+  // the old AudioBar into one player: audio opens minimized, video opens full,
+  // and either can toggle. Since PlayerProvider lives above the router, the
+  // player keeps playing across page navigation in both modes.
+  const [minimized, setMinimized] = useState(startMinimized)
   // Subtitles
   const [subEnabled, setSubEnabled] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
@@ -892,8 +908,10 @@ export default function PlayerModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 sm:p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      className={minimized
+        ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]'
+        : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 sm:p-4'}
+      onClick={minimized ? undefined : (e) => e.target === e.currentTarget && onClose()}
     >
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
           modal. Laptops bump to ~1280px so the file list + side panels stop fighting
@@ -903,7 +921,9 @@ export default function PlayerModal({
           Mobile-fullscreen: `h-[100dvh]` on phones makes the modal occupy the full
           dynamic viewport (handles iOS URL-bar collapse). Border/rounding stripped
           on phones so the modal becomes edge-to-edge. Returns to bounded card on sm+. */}
-      <div className="bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col">
+      <div className={minimized
+        ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
+        : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl h-[100dvh] sm:h-auto sm:max-h-[90vh] flex flex-col'}>
         {/* Header — safe-top on mobile so the title + close button clear the iOS
             notch in PWA standalone mode. Bounded to mobile (sm:pt-0 via inline
             class) because on sm+ the modal sits inside the page with margins
@@ -928,6 +948,13 @@ export default function PlayerModal({
                 <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
               </button>
             )}
+            <button
+              onClick={() => setMinimized(m => !m)}
+              title={minimized ? 'Expandir player' : 'Minimizar (continua tocando ao navegar)'}
+              className="text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              {minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}
+            </button>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors">
               <X className="w-5 h-5" />
             </button>
@@ -1032,6 +1059,23 @@ export default function PlayerModal({
                   centering + `mx-auto` keeps the <video> centered with letterbox
                   bars when the source aspect doesn't match the available area. */}
               <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
+                {/* Audio cover art — the <video> element below plays the audio
+                    but shows a black frame, so for audio content we overlay the
+                    embedded cover (or a music glyph fallback). Pointer-events
+                    off so the native video controls underneath stay clickable. */}
+                {audioMode && info && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+                    {/* Glyph sits behind; the cover <img> covers it when it loads,
+                        and is hidden on error so the glyph shows through. */}
+                    <Volume2 className="absolute w-12 h-12 text-gray-600" />
+                    <img
+                      src={streamArtworkURL(info.infoHash, selectedFile)}
+                      alt=""
+                      className="relative max-h-full max-w-full object-contain"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                    />
+                  </div>
+                )}
                 {/* Buffering overlay — visible while either (a) the streamer
                     hasn't activated the torrent yet (serverReady=false) or
                     (b) pieces haven't reached the playhead yet. */}
@@ -1203,6 +1247,12 @@ export default function PlayerModal({
                   )
                 })()}
               </div>
+
+              {/* Everything below the video (transport, status, subtitle panel)
+                  is hidden in minimized mode — the native <video> controls cover
+                  play/pause/seek in the compact card. The <video> element itself
+                  stays mounted above, so all the HEVC/HLS/buffer logic is intact. */}
+              {!minimized && (<>
 
               {/* Skip controls + time display + series navigation.
                   Mobile: min-h-[44px] satisfies the iOS 44pt touch target HIG —
@@ -1746,6 +1796,7 @@ export default function PlayerModal({
                   )}
                 </div>
               )}
+              </>)}{/* end !minimized transport/status/subtitle block */}
               </div>{/* end main column */}
 
               {/* File picker — right sidebar on lg+, stacked panel below on mobile.
@@ -1753,7 +1804,7 @@ export default function PlayerModal({
                   matches both the path AND the parsed S/E tag so "s04e03" finds
                   the episode without typing the show name. Extras (featurettes,
                   bonus, behind-the-scenes) sort to the bottom with an EXTRA badge. */}
-              {info.files.length > 1 && sidebarOpen && (() => {
+              {!minimized && info.files.length > 1 && sidebarOpen && (() => {
                 const filterLower = fileFilter.trim().toLowerCase()
                 const matches = (path: string, ep: string | null) =>
                   !filterLower ||
