@@ -40,6 +40,12 @@ services:
       # Pick any unique topic, then subscribe on the ntfy app: ntfy.sh/<your-topic>
       - JACKUI_NTFY_TOPIC=${JACKUI_NTFY_TOPIC:-}
       - JACKUI_NTFY_URL=${JACKUI_NTFY_URL:-https://ntfy.sh}
+      # Optional AI title-identification chain (improves TMDB matching). Values
+      # live in the LOCAL .env (gitignored); leave blank to disable. Lights up
+      # automatically when at least one key/base-url is present.
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
     networks:
       - media
 
