@@ -179,7 +179,11 @@ func (f *FavoritesStore) IsFavorite(name string) bool {
 		return false
 	}
 	var n int
-	f.db.QueryRow("SELECT COUNT(*) FROM favorites WHERE name = ?", name).Scan(&n)
+	if err := f.db.QueryRow("SELECT COUNT(*) FROM favorites WHERE name = ?", name).Scan(&n); err != nil {
+		// Fail-closed: on a transient DB error (e.g. SQLITE_BUSY) assume favorite,
+		// so eviction / ClearAll don't delete protected content on a fluke.
+		return true
+	}
 	return n > 0
 }
 
@@ -189,7 +193,9 @@ func (f *FavoritesStore) IsFavoriteOf(name string, userID int) bool {
 		return false
 	}
 	var n int
-	f.db.QueryRow("SELECT COUNT(*) FROM favorites WHERE name = ? AND user_id = ?", name, userID).Scan(&n)
+	if err := f.db.QueryRow("SELECT COUNT(*) FROM favorites WHERE name = ? AND user_id = ?", name, userID).Scan(&n); err != nil {
+		return true // fail-closed (see IsFavorite)
+	}
 	return n > 0
 }
 
@@ -199,7 +205,9 @@ func (f *FavoritesStore) IsFavoriteByHash(infoHash string) bool {
 		return false
 	}
 	var n int
-	f.db.QueryRow("SELECT COUNT(*) FROM favorites WHERE info_hash = ?", infoHash).Scan(&n)
+	if err := f.db.QueryRow("SELECT COUNT(*) FROM favorites WHERE info_hash = ?", infoHash).Scan(&n); err != nil {
+		return true // fail-closed (see IsFavorite)
+	}
 	return n > 0
 }
 

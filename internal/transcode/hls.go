@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,8 +50,23 @@ type HLSSession struct {
 	Cancel     context.CancelFunc
 	StartedAt  time.Time
 	LastAccess time.Time
-	mu         sync.Mutex
-	closed     bool
+	// DurationSec is the total media duration, probed (seekably) once at
+	// startup. 0 means "unknown" — the source's moov/Cues weren't reachable
+	// in time, so callers must fall back to the live/EVENT playlist instead
+	// of generating a finite VOD playlist.
+	DurationSec float64
+	// VOD mode (DurationSec > 0) bookkeeping for seek-restart. `spec` holds
+	// everything needed to relaunch ffmpeg at an arbitrary segment offset;
+	// `startSeg` is the -start_number of the CURRENT invocation; `gen` is a
+	// generation counter so a relaunch's exit watcher doesn't mark a session
+	// closed after a newer invocation replaced it.
+	spec        *encodeSpec
+	startSeg    int
+	gen         int
+	lastRestart time.Time // debounces seek-restart against bursty parallel requests
+	restartMu   sync.Mutex
+	mu          sync.Mutex
+	closed      bool
 	// sourceSrv is an ephemeral HTTP loopback server that exposes the input
 	// source (an io.ReadSeeker over the torrent file) so ffmpeg can fetch it
 	// via Range requests. Without this, ffmpeg consumes stdin as a non-
@@ -78,9 +94,17 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 	return m, nil
 }
 
-// gcLoop reaps sessions idle for more than 60s. Real users keep the segment
-// loop hot (every 4s a new segment fetched); 60s of silence means tab closed
-// / network gone / user moved on. Ffmpeg keeps writing forever if we let it.
+// hlsIdleReapAfter is how long a session may go without a segment request
+// before it's reaped. Was 60s, but in VOD mode Safari pre-buffers aggressively
+// (it knows the total duration), then STOPS requesting for a while once its
+// buffer is full — at 60s the session was killed mid-playback and the next
+// request (resume or seek) hit "session not active" → playback died. 5 min
+// tolerates a full buffer / a paused tab without leaking ffmpeg for long.
+const hlsIdleReapAfter = 5 * time.Minute
+
+// gcLoop reaps sessions idle for more than hlsIdleReapAfter. Real users keep
+// the segment loop warm; prolonged silence means tab closed / moved on. Ffmpeg
+// keeps writing forever if we let it.
 func (m *HLSSessionManager) gcLoop() {
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
@@ -92,7 +116,7 @@ func (m *HLSSessionManager) gcLoop() {
 			idle := now.Sub(s.LastAccess)
 			closed := s.closed
 			s.mu.Unlock()
-			if closed || idle > 60*time.Second {
+			if closed || idle > hlsIdleReapAfter {
 				log.Printf("hls: reaping idle session %s (idle=%s)", k, idle)
 				s.stop()
 				delete(m.sess, k)
@@ -287,6 +311,299 @@ func parseRange(header string, totalSize int64) (int64, int64, bool) {
 	return start, end, true
 }
 
+// hlsVODEnabled gates the #61 finite-VOD playlist (synthetic playlist + forced
+// keyframes + seek-restart). It gives a full seekbar BUT regressed HLS-transcode
+// playback (HEVC sources that fall back to H.264): Safari buffers only ~1
+// segment per position and stalls. Until that's debugged with a real Safari in
+// hand, keep it OFF — every source plays via the proven EVENT/live path (which
+// reliably played those HEVC sources before #61). Direct-play sources (H.264)
+// are unaffected either way; they never use HLS. Flip to true to resume the
+// seek work.
+const hlsVODEnabled = true
+
+// ffprobePathFrom derives the ffprobe binary path from the ffmpeg path so a
+// custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
+// back to "ffprobe" on PATH when the ffmpeg path doesn't end in "ffmpeg".
+func ffprobePathFrom(ffmpegPath string) string {
+	if strings.HasSuffix(ffmpegPath, "ffmpeg") {
+		return ffmpegPath[:len(ffmpegPath)-len("ffmpeg")] + "ffprobe"
+	}
+	return "ffprobe"
+}
+
+// probeDurationSeekable reads the total media duration via ffprobe against the
+// loopback source URL. Going through the Range-capable source server means
+// ffprobe can seek to a `moov` atom at the END of an MP4 — the anacrolix
+// reader blocks until that piece downloads, so this call also "pulls the tail"
+// before we commit to a finite VOD playlist (the user's "require the end before
+// allowing play" idea, done automatically). Returns 0 (not an error) when the
+// duration can't be determined within the timeout; callers treat 0 as
+// "unknown" and fall back to the EVENT/live playlist.
+func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) float64 {
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, ffprobePathFrom(ffmpegPath),
+		"-hide_banner", "-loglevel", "error",
+		"-seekable", "1", "-multiple_requests", "1",
+		"-probesize", "10M", "-analyzeduration", "3M",
+		"-of", "json", "-show_format",
+		"-i", inputURL,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	var parsed struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return 0
+	}
+	d, perr := strconv.ParseFloat(parsed.Format.Duration, 64)
+	if perr != nil || d <= 0 {
+		return 0
+	}
+	return d
+}
+
+// hlsSegDur is the fixed segment length in seconds. With forced keyframes
+// every hlsSegDur seconds (VOD mode), segment N maps exactly to media time
+// [N*hlsSegDur, (N+1)*hlsSegDur) — the invariant seek-restart relies on.
+const hlsSegDur = 4
+
+// encodeSpec captures everything needed to (re)launch ffmpeg for a session,
+// possibly at a non-zero segment offset for seek-restart. Stored on the
+// session so RestartAt can rebuild the command without the original handler.
+type encodeSpec struct {
+	dir        string
+	inputURL   string
+	encoder    string
+	ffmpegPath string
+	vod        bool // duration known → finite VOD: forced keyframes + seekable restart
+}
+
+// args builds the ffmpeg argv to encode starting at segment `startSeg`. For
+// VOD (seekable) sessions a non-zero startSeg adds input `-ss` plus `-copyts`
+// so the emitted segments keep PTS aligned to the GLOBAL timeline — segments
+// produced by different ffmpeg runs then splice without a PTS jump, which is
+// what makes Safari accept the spliced stream (a PTS discontinuity, or an
+// explicit EXT-X-DISCONTINUITY, makes it abort with SRC_NOT_SUPPORTED).
+func (e *encodeSpec) args(startSeg int) []string {
+	args := []string{
+		"-hide_banner", "-loglevel", "warning",
+		"-seekable", "1", "-multiple_requests", "1",
+		"-probesize", "10M", "-analyzeduration", "3M",
+	}
+	if e.vod && startSeg > 0 {
+		// Input seek (before -i) so ffmpeg jumps via Range to the keyframe at
+		// or before the requested time instead of decoding from byte 0.
+		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
+	}
+	args = append(args,
+		"-i", e.inputURL,
+		"-map", "0:v:0", "-map", "0:a:0?",
+		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",
+		"-c:v", e.encoder,
+	)
+	args = append(args, encoderPresetArgs(e.encoder)...)
+	args = append(args,
+		"-pix_fmt", "yuv420p",
+		"-profile:v", "main", "-level:v", "5.2",
+	)
+	if e.vod {
+		// Keyframe EXACTLY every hlsSegDur seconds so each segment starts on a
+		// clean IDR — required for both standalone-decodable segments and for
+		// seek-restart to land on a boundary. Replaces the fixed -g 60.
+		args = append(args,
+			"-force_key_frames", fmt.Sprintf("expr:gte(t,n_forced*%d)", hlsSegDur),
+			"-bf", "0",
+		)
+		// h264_nvenc IGNORES -force_key_frames on its own — it keeps using its
+		// internal GOP, producing ~10s segments instead of hlsSegDur (verified
+		// on the GTX 1070: seg dur 10.45s). -forced-idr 1 makes nvenc actually
+		// emit an IDR at each forced point. libx264 honours -force_key_frames
+		// natively, so this is nvenc-specific.
+		if strings.HasSuffix(e.encoder, "_nvenc") {
+			args = append(args, "-forced-idr", "1")
+		}
+		// Force the first emitted frame to PTS 0. Some HEVC/MKV containers start
+		// at a non-zero PTS (observed: 1.4s); the encoder preserves it, leaving a
+		// [0, offset] hole with no media so Safari stalls at currentTime 0 and
+		// playback never starts (only the first segment buffers). `-copyts
+		// -start_at_zero` did NOT fix it (start_at_zero only acts together with
+		// an input -ss). The setpts/asetpts filters zero each stream's first
+		// timestamp unconditionally. For a seek-restart they reset the -ss point
+		// to 0 and -output_ts_offset then places it at the segment's slot.
+		args = append(args, "-vf", "setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS")
+		if startSeg > 0 {
+			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
+		}
+	} else {
+		args = append(args, "-g", "60", "-bf", "0")
+	}
+	args = append(args,
+		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
+		"-f", "hls",
+		"-hls_time", strconv.Itoa(hlsSegDur),
+		"-hls_list_size", "0",
+		"-hls_flags", "temp_file+independent_segments",
+		// ffmpeg's own playlist stays EVENT/incremental; in VOD mode the
+		// handler IGNORES it and synthesises a finite playlist from DurationSec.
+		"-hls_playlist_type", "event",
+		"-hls_segment_filename", filepath.Join(e.dir, "seg_%05d.ts"),
+		"-start_number", strconv.Itoa(startSeg),
+		"-y",
+		filepath.Join(e.dir, "index.m3u8"),
+	)
+	return args
+}
+
+// launch starts (or restarts) ffmpeg at segment `startSeg` and wires the exit
+// watcher. Caller must hold no session lock. The watcher only marks the
+// session closed if no newer launch superseded it (generation check), so a
+// seek-restart doesn't look like the encoder dying for good.
+func (s *HLSSession) launch(startSeg int) error {
+	ffctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
+	cmd.Stderr = newLogWriter("hls/" + s.Key + " ")
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return fmt.Errorf("ffmpeg start: %w", err)
+	}
+	s.mu.Lock()
+	s.Cmd = cmd
+	s.Cancel = cancel
+	s.startSeg = startSeg
+	s.gen++
+	myGen := s.gen
+	s.mu.Unlock()
+
+	go func() {
+		err := cmd.Wait()
+		s.mu.Lock()
+		// Only this launch's natural exit closes the session — a later restart
+		// (higher gen) means this exit was an intentional kill, not the end.
+		superseded := s.gen != myGen
+		if !superseded {
+			s.closed = true
+		}
+		s.mu.Unlock()
+		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) && !superseded {
+			log.Printf("hls: ffmpeg exited for session %s: %v", s.Key, err)
+		}
+	}()
+	return nil
+}
+
+// hlsForwardSeekThreshold is how many segments PAST the highest one on disk a
+// request must be before we treat it as a real forward seek (and restart the
+// encoder) instead of the player's normal read-ahead buffering. The sequential
+// encoder reaches anything within this window on its own, so restarting for it
+// just thrashes ffmpeg — killing the run that was about to produce the segment.
+// Generous (~2 min) so Safari's aggressive VOD buffering never trips it.
+// (Was a tiny aheadWindow=2, which made every buffer-ahead request restart the
+// encoder, producing a cascade where NO segment ever finished — playback froze
+// and the player bailed.)
+const hlsForwardSeekThreshold = 30
+
+// hlsRestartCooldown debounces restarts so the burst of parallel segment
+// requests a seek fires (around the target) doesn't spawn competing encoders.
+const hlsRestartCooldown = 3 * time.Second
+
+// EnsureSegment makes sure an encoder is (or will soon be) producing segment
+// `idx`. The segment handler calls this when `idx` isn't on disk yet. It only
+// restarts the encoder for a real seek: backward (idx < startSeg — the encoder
+// already passed it and won't return) or a far-forward jump (beyond the
+// read-ahead window). Everything in between is normal buffering — the running
+// sequential encoder will reach it, so we let the caller wait.
+func (s *HLSSession) EnsureSegment(idx int) {
+	if s.spec == nil || !s.spec.vod {
+		return
+	}
+	s.mu.Lock()
+	start := s.startSeg
+	s.mu.Unlock()
+	if idx < start || idx > s.highestSeg()+hlsForwardSeekThreshold {
+		_ = s.RestartAt(idx)
+	}
+}
+
+// highestSeg returns the largest seg_NNNNN.ts index currently on disk, or -1
+// when none exist. Cheap readdir; only called when a requested segment is
+// missing, not on the hot path.
+func (s *HLSSession) highestSeg() int {
+	entries, _ := os.ReadDir(s.Dir)
+	hi := -1
+	for _, e := range entries {
+		if n, ok := parseSegName(e.Name()); ok && n > hi {
+			hi = n
+		}
+	}
+	return hi
+}
+
+// IsVOD reports whether this session serves a finite VOD playlist (full
+// seekbar) vs the incremental EVENT/live playlist. Tied to hlsVODEnabled so the
+// handler and encoder agree on a single source of truth.
+func (s *HLSSession) IsVOD() bool { return s.spec != nil && s.spec.vod }
+
+// ParseSegIndex is the exported form of parseSegName for handlers that need to
+// map a requested segment filename back to its index.
+func ParseSegIndex(name string) (int, bool) { return parseSegName(name) }
+
+// parseSegName extracts N from "seg_00042.ts". Returns ok=false for anything
+// else (index.m3u8, temp files, etc.).
+func parseSegName(name string) (int, bool) {
+	if !strings.HasPrefix(name, "seg_") || !strings.HasSuffix(name, ".ts") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(name[len("seg_") : len(name)-len(".ts")])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// RestartAt relaunches ffmpeg to begin producing at segment `seg`. Only
+// meaningful in VOD mode. The decision of WHETHER to restart lives in
+// EnsureSegment; this just performs it, serialised so concurrent segment
+// requests can't spawn duplicate encoders. No-op when already encoding from
+// `seg`. Older segments on disk are kept so backward seeks reuse them.
+func (s *HLSSession) RestartAt(seg int) error {
+	if s.spec == nil || !s.spec.vod {
+		return nil
+	}
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+
+	s.mu.Lock()
+	cur := s.startSeg
+	cancel := s.Cancel
+	since := time.Since(s.lastRestart)
+	s.mu.Unlock()
+	if seg == cur {
+		return nil // already encoding from here
+	}
+	// Debounce: a single seek fires several segment requests near the target.
+	// The first restart wins; the rest (different seg numbers) are absorbed so
+	// they don't kill the just-launched encoder. A genuine later seek (after the
+	// cooldown) still restarts.
+	if since < hlsRestartCooldown {
+		return nil
+	}
+
+	log.Printf("hls: seek-restart session %s from seg %d → %d", s.Key, cur, seg)
+	if cancel != nil {
+		cancel() // kill the current ffmpeg; gen bump in launch() guards the watcher
+	}
+	s.mu.Lock()
+	s.lastRestart = time.Now()
+	s.mu.Unlock()
+	return s.launch(seg)
+}
+
 // GetOrStart returns an existing session keyed by opts.Key or starts a new one.
 // On new-session, ffmpeg begins encoding immediately; the caller should poll
 // for index.m3u8 to appear via WaitForMaster.
@@ -311,33 +628,6 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		return nil, fmt.Errorf("mkdir hls dir: %w", err)
 	}
 
-	// ffmpeg arguments — H.264 Main 4.0 + AAC 2ch, HLS event-stream output.
-	// Notes per flag:
-	//   -re                — don't read input faster than realtime (matches
-	//                        encoder pace, avoids buffer overrun on the pipe)
-	//                        DISABLED for torrent input since anacrolix throttles naturally.
-	//   -hls_time 4        — 4-second segments. Smaller = lower start latency
-	//                        but more files; 4s is the sweet spot most CDNs use.
-	//   -hls_list_size 0   — keep all segments in the playlist (we serve VOD)
-	//   -hls_flags delete_segments+temp_file
-	//                      — delete stale segments only when EXPLICITLY rotated
-	//                        (we don't rotate); temp_file means write `.ts.tmp`
-	//                        then rename to `.ts` so the handler never serves
-	//                        a half-written file.
-	//   -hls_playlist_type vod — Safari/iOS prefer VOD over EVENT for finite content
-	//   -c:v h264_*        — NVENC/VAAPI/QSV/libx264, picked by caps
-	//   -pix_fmt yuv420p   — force 8-bit (NVENC h264 can't do 10-bit)
-	//   -profile:v main -level:v 5.2 — Safari-friendly codec string. Level 5.2
-	//                        covers up to 4K@60fps. Previously we hardcoded 4.0
-	//                        which capped at 1080p@30 and caused NVENC to error
-	//                        "Invalid Level" on any 2160p source. Safari iOS 11+,
-	//                        macOS Safari and modern Edge all accept up to L5.2.
-	//                        The cost of overshoot on a 720p source is zero —
-	//                        the level field is metadata only, not encode work.
-	//   -g 60 -bf 0        — keyframe every 2s, no B-frames (HLS demands keyframe
-	//                        at segment boundary; aligning -g with segment length
-	//                        avoids "key frame may not be reached" warnings)
-	//   -sn -dn -map_chapters -1 -map_metadata -1 — strip extra tracks Safari rejects
 	encoder := caps.Preferred
 	if opts.VideoCodec != "" {
 		encoder = opts.VideoCodec
@@ -374,105 +664,38 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	go func() { _ = srv.Serve(listener) }()
 	inputURL := fmt.Sprintf("http://%s/source", listener.Addr().String())
 
-	args := []string{
-		"-hide_banner", "-loglevel", "warning",
-		// `-seekable 1` + `-multiple_requests 1` let ffmpeg issue Range GETs —
-		// the MP4 demuxer seeks DIRECTLY to `moov` at end of file via these,
-		// independent of probesize.
-		//
-		// `-probesize 10M -analyzeduration 3M`: deliberately MODEST. A large
-		// probesize makes ffmpeg hunt for stream parameters across the whole
-		// file — and MKVs with PGS (image) subtitles have subtitle samples
-		// scattered deep into the movie. ffmpeg then seeks into not-yet-
-		// downloaded regions chasing "unspecified size" PGS params and blocks
-		// on the torrent reader forever (production hang on Breaking Bad x265).
-		// 10M is plenty to detect the video+audio (which sit at the start) and
-		// stops ffmpeg from chasing scattered subtitle samples it'll discard
-		// anyway (`-sn`). Verified: video+audio still detected at 2M probe.
-		"-seekable", "1",
-		"-multiple_requests", "1",
-		"-probesize", "10M",
-		"-analyzeduration", "3M",
-		"-i", inputURL,
-		"-map", "0:v:0", "-map", "0:a:0?",
-		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",
-		"-c:v", encoder,
+	// Probe the total duration BEFORE starting ffmpeg, using the same Range-
+	// capable source. This also pulls the moov/Cues tail into the torrent cache
+	// (anacrolix blocks until the piece arrives). A non-zero result unlocks the
+	// finite VOD playlist (full seekbar); 0 keeps us on the EVENT/live path.
+	durationSec := probeDurationSeekable(ctx, caps.FFmpegPath, inputURL)
+	log.Printf("hls: probed duration=%.1fs for session %s (0 = unknown → EVENT fallback)", durationSec, opts.Key)
+
+	// Encoding flags live in encodeSpec.args so seek-restart can rebuild them.
+	// vod=true (duration known) switches on forced 4s keyframes + the handler's
+	// synthesised finite playlist; vod=false keeps the proven EVENT/live path.
+	s := &HLSSession{
+		Key:         opts.Key,
+		Dir:         dir,
+		StartedAt:   time.Now(),
+		LastAccess:  time.Now(),
+		DurationSec: durationSec,
+		sourceSrv:   srv,
+		spec: &encodeSpec{
+			dir:        dir,
+			inputURL:   inputURL,
+			encoder:    encoder,
+			ffmpegPath: caps.FFmpegPath,
+			vod:        durationSec > 0 && hlsVODEnabled,
+		},
 	}
-	args = append(args, encoderPresetArgs(encoder)...)
-	args = append(args,
-		"-pix_fmt", "yuv420p",
-		"-profile:v", "main", "-level:v", "5.2",
-		"-g", "60", "-bf", "0",
-		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
-		"-f", "hls",
-		"-hls_time", "4",
-		"-hls_list_size", "0",
-		// `temp_file` makes ffmpeg write to `.ts.tmp` then atomic-rename to
-		// `.ts` so the segment handler never serves a half-written file.
-		// `independent_segments` declares every segment starts with a
-		// keyframe — required for HLS over fragmented MP4 transcode and
-		// for Safari's "can decode this segment standalone" check.
-		// NOTE: NO `append_list`. It makes ffmpeg emit a stray
-		// `#EXT-X-DISCONTINUITY` before the very first segment (verified on the
-		// 1070: 1 with the flag, 0 without). Safari chokes on that leading
-		// discontinuity — loadedmetadata reports videoWidth/Height 0 and the
-		// element errors with SRC_NOT_SUPPORTED, even though the .ts segments
-		// are perfectly valid H.264 Main 1080p. We never restart ffmpeg into an
-		// existing playlist, so append_list bought us nothing but the bug.
-		"-hls_flags", "temp_file+independent_segments",
-		// `-hls_playlist_type event` (NOT vod). This was the killer bug: with
-		// `vod`, ffmpeg DEFERS writing index.m3u8 until the entire transcode
-		// finishes (vod = "final, complete playlist"). For a movie streamed
-		// over a torrent the transcode never ends in time, so the playlist
-		// NEVER appeared and WaitForMaster always timed out — even though
-		// hundreds of .ts segments were on disk. Proven on the GTX 1070: with
-		// real-time input, `vod` had 0 m3u8 after 15s while `event` had it.
-		// `event` writes the playlist incrementally (appended as segments land)
-		// and signals a growing, seekable stream — Safari shows a seekbar over
-		// the transcoded buffer instead of treating it as headless LIVE.
-		"-hls_playlist_type", "event",
-		"-hls_segment_filename", filepath.Join(dir, "seg_%05d.ts"),
-		"-y",
-		filepath.Join(dir, "index.m3u8"),
-	)
 
-	ffctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ffctx, caps.FFmpegPath, args...)
-	cmd.Stderr = newLogWriter("hls/" + opts.Key + " ")
-
-	log.Printf("hls: starting session %s\nffmpeg %s", opts.Key, strings.Join(args, " "))
-
-	if err := cmd.Start(); err != nil {
-		cancel()
+	log.Printf("hls: starting session %s (vod=%v)", opts.Key, s.spec.vod)
+	if err := s.launch(0); err != nil {
 		_ = srv.Close()
 		os.RemoveAll(dir)
-		return nil, fmt.Errorf("ffmpeg start: %w", err)
+		return nil, err
 	}
-
-	s := &HLSSession{
-		Key:        opts.Key,
-		Dir:        dir,
-		Cmd:        cmd,
-		Cancel:     cancel,
-		StartedAt:  time.Now(),
-		LastAccess: time.Now(),
-		sourceSrv:  srv,
-	}
-
-	// Watch ffmpeg exit to mark session closed and tear down the loopback
-	// HTTP server (otherwise it leaks a listening socket per finished session).
-	go func() {
-		err := cmd.Wait()
-		s.mu.Lock()
-		s.closed = true
-		s.mu.Unlock()
-		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = srv.Shutdown(shutdownCtx)
-		cancelShutdown()
-		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) {
-			log.Printf("hls: ffmpeg exited for session %s: %v", opts.Key, err)
-		}
-	}()
 
 	m.mu.Lock()
 	m.sess[opts.Key] = s

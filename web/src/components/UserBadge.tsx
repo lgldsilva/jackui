@@ -31,11 +31,13 @@ export default function UserBadge() {
     <div ref={containerRef} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 text-sm text-gray-300 hover:text-gray-100 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 transition-colors"
+        className="flex items-center gap-1.5 max-w-full min-w-0 text-sm text-gray-300 hover:text-gray-100 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 transition-colors"
       >
-        {isAdmin ? <Shield className="w-3.5 h-3.5 text-yellow-400" /> : <User className="w-3.5 h-3.5" />}
-        <span className="hidden sm:inline">{user.username}</span>
-        <ChevronDown className={`w-3 h-3 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+        {isAdmin ? <Shield className="w-3.5 h-3.5 flex-shrink-0 text-yellow-400" /> : <User className="w-3.5 h-3.5 flex-shrink-0" />}
+        {/* truncate + min-w-0 so a narrow container (collapsed sidebar rail)
+            shrinks the name to nothing instead of overflowing the rail. */}
+        <span className="hidden sm:inline truncate min-w-0">{user.username}</span>
+        <ChevronDown className={`w-3 h-3 flex-shrink-0 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (

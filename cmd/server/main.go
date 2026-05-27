@@ -87,18 +87,22 @@ func main() {
 		// Favorites store — preserved across cache evictions
 		if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(streamCfg.DataDir)); ferr == nil {
 			streamSrv.SetFavorites(favs)
-		// Metadata cache — persists TorrentInfo snapshots so reopening a hash is instant.
+			defer favs.Close()
+			log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(streamCfg.DataDir))
+		} else {
+			log.Printf("Warning: favorites store init failed: %v", ferr)
+		}
+
+		// Metadata cache — INDEPENDENT of favorites; persists TorrentInfo
+		// snapshots so reopening a hash is instant. (Was nested inside the
+		// favorites success branch, so a favorites-store failure silently took
+		// the metadata cache + the RefreshStalePrimary migration down with it.)
 		if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(streamCfg.DataDir)); mcerr == nil {
 			streamSrv.SetMetadataCache(mc)
 			defer mc.Close()
 			log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(streamCfg.DataDir))
 		} else {
 			log.Printf("Warning: metadata cache init failed: %v", mcerr)
-		}
-			defer favs.Close()
-			log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(streamCfg.DataDir))
-		} else {
-			log.Printf("Warning: favorites store init failed: %v", ferr)
 		}
 	}
 
@@ -328,9 +332,18 @@ func main() {
 		api.GET("/indexers", handlers.GetIndexers(jackettClient))
 		api.POST("/download", handlers.Download(cfg))
 		api.GET("/clients", handlers.GetClients(cfg))
-		api.GET("/config", handlers.GetConfig(cfg, configPath))
-		api.PUT("/config", handlers.UpdateConfig(cfg, configPath))
-		api.POST("/config/test", handlers.TestJackett(cfg))
+
+		// Server config carries the Jackett API key and lets a caller rewrite
+		// URLs/clients — admin-only. With auth OFF this degrades to public (same
+		// as everything else); with auth ON, AdminOnly blocks non-admin users.
+		adminAPI := api.Group("")
+		if tokenMgr != nil {
+			adminAPI.Use(auth.AdminOnly())
+		}
+		adminAPI.GET("/config", handlers.GetConfig(cfg, configPath))
+		adminAPI.PUT("/config", handlers.UpdateConfig(cfg, configPath))
+		adminAPI.POST("/config/test", handlers.TestJackett(cfg))
+
 		api.GET("/status", handlers.Status(jackettClient, historyStore))
 
 		if historyStore != nil {

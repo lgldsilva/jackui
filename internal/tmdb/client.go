@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/luizg/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -136,7 +137,11 @@ func (c *Client) getCached(key string) (*Match, bool) {
 	if err != nil {
 		return nil, false
 	}
-	ts, _ := time.Parse("2006-01-02 15:04:05", cachedAt)
+	// Use the shared parser: modernc.org/sqlite sometimes returns DATETIME as
+	// RFC3339, which the bare "2006-01-02 15:04:05" layout dropped to zero time
+	// → every entry looked expired → every lookup hit the TMDB API, defeating
+	// the 30-day cache. (Same class of bug already fixed in the other stores.)
+	ts := dbutil.ParseTime(cachedAt)
 	if time.Since(ts) > cacheTTL {
 		return nil, false
 	}

@@ -1,95 +1,59 @@
 # JackUI — Claude Code Instructions
 
-Interface visual moderna para busca de torrents via Jackett.
+Servidor de **streaming de torrents** com transcode por hardware e UI web. Começou como um buscador visual para o Jackett e evoluiu para um media server completo: busca → stream BitTorrent→HTTP (sem esperar download completo) → transcode sob demanda → playback no navegador (incl. Safari via HLS).
 
 ## Stack
 
-- **Backend**: Go 1.22 + Gin — API REST que proxifica o Jackett
-- **Frontend**: React 18 + TypeScript + Vite + TailwindCSS (dark theme)
-- **Deploy**: single binary Go com frontend embutido via `//go:embed all:dist`
-- **Infra**: Docker no Raspberry Pi (context `homeserver`, IP `192.168.0.100`)
+- **Backend**: Go 1.22 + Gin. Streaming via `anacrolix/torrent` (BitTorrent → HTTP com Range). Transcode via ffmpeg (NVENC/VAAPI/QSV/libx264).
+- **Frontend**: React 18 + TypeScript + Vite + TailwindCSS (dark theme), embutido no binário (`//go:embed all:dist`).
+- **Infra**: Docker no Raspberry Pi (context `raspberrypisrv`, `192.168.0.100`). **Deploy roteia pela VPN (gluetun)** — ver abaixo.
 
 ## Comandos essenciais
 
 ```bash
-make test          # roda os 60 testes (Go)
-make build         # npm build → go build → binário ./jackui
-make deploy        # build da imagem no raspberrypisrv + docker compose up -d
-make logs          # docker logs -f
-make dev-frontend  # Vite em :5173 com proxy para :8989
-make dev-backend   # go run ./cmd/server em :8989
+make test              # go test ./... (184 testes, 19 pacotes)
+make deploy-auto-vpn   # ✅ DEPLOY PADRÃO: auto-detecta GPU + roteia pela VPN (gluetun)
+make deploy-auto       # ⚠️ SEM VPN — torrents saem pelo IP real; use só p/ teste local
+make dev-frontend      # Vite :5173 com proxy p/ :8989
+make dev-backend       # go run ./cmd/server em :8989
 ```
+
+**SEMPRE deployar com `deploy-auto-vpn`.** O alvo `-vpn` adiciona `docker-compose.gluetun.yml` (`network_mode: container:gluetun`), roteando todo o tráfego de saída pela VPN. Deploy leech-only (não seeda → não precisa publicar porta de peer). A UI é alcançada pelo NPM via `gluetun:8989` (o NPM já está na rede `vpn-gateway_vpn-net`); nenhuma porta é publicada no host.
+
+## Funcionalidades
+
+- **Streaming**: torrent → HTTP com Range; toca antes de baixar tudo. Cache em disco com eviction LRU (favoritos protegidos).
+- **Transcode sob demanda**: HEVC/AV1/x265 → H.264 via GPU. Safari recebe **HLS** (`.m3u8` + segmentos `.ts`) — único caminho que o `<video>` do Safari aceita.
+- **Legendas**: embutidas (probe ffmpeg), sidecar `.srt`/`.vtt` no torrent, e externas (OpenSubtitles). Escolha persiste por arquivo (localStorage).
+- **TMDB**: enriquece resultados/biblioteca com pôster + metadados (cache SQLite, TTL 30d).
+- **Playlists**, **Watchlists** (cron + push ntfy), **Continue Watching** (library com resume position), **Downloads em background** (qBittorrent/Transmission), **browser de arquivos locais** (mounts).
+- **Auth** JWT opcional (`JACKUI_AUTH_ENABLED=1`), com refresh token rotacionado e `AdminOnly` para rotas sensíveis.
 
 ## Arquitetura
 
 ```
-web/src/          → frontend React (dev: :5173, prod: embutido no binário)
-ui/embed.go       → //go:embed all:dist  (Vite compila para ui/dist/)
-cmd/server/main.go → Gin: /api/* + SPA fallback
+web/src/            → React (dev :5173, prod embutido); PlayerProvider mantém o player acima do router
+ui/embed.go         → //go:embed all:dist
+cmd/server/main.go  → wiring Gin: /api/* + SPA fallback + workers (downloads, watchlist)
 internal/
-  config/         → load YAML + override por env vars
-  jackett/        → HTTP client para API Jackett (/api/v2.0/indexers/...)
-  downloader/     → interface Client + qBittorrent + Transmission
-  handlers/       → search, download, config, clients
+  config/   jackett/   downloader/   handlers/      → base (busca, download, config)
+  streamer/                                         → anacrolix: Add/FileReader/probe/cache/favorites
+  transcode/                                        → ffmpeg pipeline + HLS (sessões, seek-restart)
+  auth/  history/  library/  playlists/  watchlist/ → SQLite stores (modernc.org/sqlite)
+  subtitles/  tmdb/  local/  parser/  dbutil/  downloads/
 ```
 
-## Configuração
+## Notas críticas (gotchas que já morderam)
 
-Dois níveis (env sobrescreve YAML):
-
-| Variável env      | YAML equivalente         | Descrição              |
-|-------------------|--------------------------|------------------------|
-| `JACKETT_URL`     | `jackett.url`            | URL do Jackett         |
-| `JACKETT_API_KEY` | `jackett.api_key`        | API key do Jackett     |
-| `JACKUI_PORT`     | `port`                   | Porta do servidor      |
-
-Clientes de download (qBittorrent e Transmission) só via `config.yaml` — usar múltiplas instâncias local/remoto conforme necessidade.
-
-## Jackett no homelab
-
-- Container: `jackett` no Raspberry Pi (`192.168.0.100`)
-- Config em: `/portainer/Files/AppData/Config/Jackett/Jackett/ServerConfig.json`
-- API key atual em: `.env` (não versionado)
-
-## Clientes de download
-
-Ambos implementam a interface `downloader.Client`:
-
-```go
-type Client interface {
-    AddMagnet(magnetURI, savePath string) error
-    AddTorrentURL(url, savePath string) error
-    Name() string
-    Type() string
-}
-```
-
-- **qBittorrent**: Web API v2, login com cookie jar, session reuse
-- **Transmission**: RPC JSON, retry 409 para session-id, basic auth
-
-## Testes (60 testes, 4 pacotes)
-
-```
-internal/config/      → 5  (load/save/roundtrip/defaults)
-internal/jackett/     → 22 (formatAge, parse, params, erros HTTP)
-internal/downloader/  → 16 (qbit: login/sessão/savepath; transmission: 409 retry/auth)
-internal/handlers/    → 17 (search/indexers 400/502; download: default client, pick by ID)
-```
-
-Mocks usam `net/http/httptest` — sem dependências externas de teste.
+- **HLS para Safari**: progressive MP4 via chunked é rejeitado (`SRC_NOT_SUPPORTED`). Use HLS. Sem `append_list` (gera `EXT-X-DISCONTINUITY` que o Safari recusa). `-hls_playlist_type event` (não `vod` — o ffmpeg adia o m3u8 até o fim do transcode).
+- **Source seekável obrigatório**: ffmpeg lê o torrent via servidor HTTP loopback com Range (`serveSource`), não via pipe — senão MP4 com `moov` no fim quebra. Seek+Read são atômicos sob mutex (corrida STSC/STCO).
+- **Token de mídia**: `<video>/<track>` não mandam header → usam `?token=`. O middleware só aceita `?token=` em rotas de mídia (`/api/stream/*`, `/api/subtitles/download/*`, `/api/local/file`).
+- **VOD/seek (#61)** está atrás da flag `hlsVODEnabled` em `internal/transcode/hls.go` — instável no Safari (em avaliação); quando off, cai no EVENT/live estável.
+- **`dbutil.ParseTime`** para ler timestamps SQLite (modernc emite RFC3339 às vezes) — não usar `time.Parse` com layout único.
 
 ## Convenções
 
-- Sem comentários exceto onde o WHY não é óbvio
-- Erros sempre retornam JSON: `{"error": "mensagem"}`
-- Nova feature de download client: implementar `downloader.Client`, registrar em `downloader.New()`
-- Nova feature de UI: componente em `web/src/components/`, página em `web/src/pages/`
-
-## Próximas features possíveis
-
-- Histórico de buscas (localStorage ou SQLite)
-- Filtros por seeders mínimos / tamanho
-- Preview de capa via TMDB/TVDB para filmes e séries
-- Integração com Sonarr/Radarr para adicionar diretamente
-- Notificação quando torrent terminar de baixar
-- Dark/light mode toggle
+- Comentários só onde o WHY não é óbvio. Erros retornam JSON `{"error": "..."}`.
+- Stores SQLite: `MaxOpenConns(1)`, migrations com `IF NOT EXISTS` / `hasColumn`.
+- Teste com `net/http/httptest` — sem deps externas. `make test` deve ficar verde (184/19).
+- Deploy: **sempre `make deploy-auto-vpn`**.

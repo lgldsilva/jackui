@@ -82,9 +82,26 @@ func extractToken(c *gin.Context) string {
 	if strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimPrefix(auth, "Bearer ")
 	}
-	// Fallback: ?token=... in query (useful for `<video src>` requests where setting headers is impossible)
-	if t := c.Query("token"); t != "" {
+	// Fallback: ?token=... in query — ONLY for media routes, where the element
+	// loading the URL (<video src>/<track src>/<img>) can't set an Authorization
+	// header. Everywhere else the JS client sends the header, so accepting the
+	// token in the query there only widened the leak surface (it lands in the
+	// gin access log and in downloaded .m3u files for sensitive endpoints like
+	// /api/config and /api/download). Restrict it to /api/stream/*.
+	if t := c.Query("token"); t != "" && isMediaPath(c.Request.URL.Path) {
 		return t
 	}
 	return ""
+}
+
+// isMediaPath matches the routes loaded directly by media elements (<video>/
+// <track>/<img>), which genuinely need the ?token= fallback since they can't
+// set an Authorization header:
+//   - /api/stream/*            direct file, HLS, subtrack, playlist, thumb, artwork
+//   - /api/subtitles/download/* external (OpenSubtitles) VTT loaded via <track>
+//   - /api/local/file          local-filesystem file served to <video>
+func isMediaPath(path string) bool {
+	return strings.HasPrefix(path, "/api/stream/") ||
+		strings.HasPrefix(path, "/api/subtitles/download/") ||
+		strings.HasPrefix(path, "/api/local/file")
 }

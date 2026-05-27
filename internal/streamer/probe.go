@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -31,6 +32,10 @@ type Track struct {
 type ProbeResult struct {
 	Audio     []Track `json:"audio"`
 	Subtitles []Track `json:"subtitles"`
+	// DurationSec is the total media duration in seconds, 0 when ffprobe
+	// couldn't determine it (e.g. MP4 with moov-at-end whose tail isn't
+	// downloaded yet). Callers must treat 0 as "unknown" and fall back.
+	DurationSec float64 `json:"durationSec"`
 }
 
 var (
@@ -75,6 +80,7 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 		"-hide_banner", "-loglevel", "error",
 		"-of", "json",
 		"-show_streams",
+		"-show_format",
 		"-i", "pipe:",
 	)
 	cmd.Stdin = limited
@@ -98,6 +104,9 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 				Forced  int `json:"forced"`
 			} `json:"disposition"`
 		} `json:"streams"`
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		return ProbeResult{}, fmt.Errorf("decode ffprobe: %w", err)
@@ -131,6 +140,14 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 				t.Image = true
 			}
 			result.Subtitles = append(result.Subtitles, t)
+		}
+	}
+
+	// Total duration (0 when ffprobe couldn't read it — e.g. moov-at-end MP4
+	// whose tail isn't on disk). strconv handles the "N/A" / "" cases as 0.
+	if parsed.Format.Duration != "" {
+		if d, perr := strconv.ParseFloat(parsed.Format.Duration, 64); perr == nil {
+			result.DurationSec = d
 		}
 	}
 

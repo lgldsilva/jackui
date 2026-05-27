@@ -1,5 +1,7 @@
 // Tiny localStorage wrapper. All keys live under "jackui:" namespace.
 
+import { useState, useEffect, type Dispatch, type SetStateAction } from 'react'
+
 const PREFIX = 'jackui:'
 
 export function load<T>(key: string, fallback: T): T {
@@ -24,6 +26,17 @@ export function remove(key: string): void {
   try {
     localStorage.removeItem(PREFIX + key)
   } catch { /* ignore */ }
+}
+
+// useState that mirrors to localStorage — filters/sorts/view-modes survive
+// reloads. Same signature as useState so it's a drop-in replacement. The
+// initial value is read once from storage (lazy), then every change persists.
+export function usePersistedState<T>(key: string, fallback: T): [T, Dispatch<SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => load(key, fallback))
+  useEffect(() => {
+    save(key, value)
+  }, [key, value])
+  return [value, setValue]
 }
 
 // Append to a bounded MRU list (most-recent-first, deduped, capped).

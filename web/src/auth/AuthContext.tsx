@@ -54,7 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (res) => res,
       async (error) => {
         const original = error.config
-        if (error.response?.status === 401 && !original._retry) {
+        // Don't try to refresh when the refresh call ITSELF 401s — that would
+        // recurse into another refresh (request storm). Let it fall through to
+        // logout instead.
+        const isRefreshCall = typeof original?.url === 'string' && original.url.includes('/auth/refresh')
+        if (error.response?.status === 401 && !original._retry && !isRefreshCall) {
           original._retry = true
           try {
             await refreshTokens()
@@ -153,12 +157,27 @@ export function getAccessToken(): string {
   return load<string>(ACCESS_KEY, '')
 }
 
+// Single-flight refresh: concurrent 401s must share ONE refresh call. The
+// backend ROTATES the refresh token on every /auth/refresh (consumes the old,
+// issues a new one), so if N parallel requests each refresh, the 2nd+ send an
+// already-consumed token → 401 → spurious logout. Sharing one in-flight promise
+// makes all callers await the same rotation.
+let refreshInFlight: Promise<void> | null = null
+
 async function refreshTokens(): Promise<void> {
-  const refresh = load<string>(REFRESH_KEY, '')
-  if (!refresh) throw new Error('no refresh token')
-  const { data } = await api.post<TokenBundle>('/auth/refresh', { refresh })
-  save(ACCESS_KEY, data.access)
-  save(REFRESH_KEY, data.refresh)
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = (async () => {
+    try {
+      const refresh = load<string>(REFRESH_KEY, '')
+      if (!refresh) throw new Error('no refresh token')
+      const { data } = await api.post<TokenBundle>('/auth/refresh', { refresh })
+      save(ACCESS_KEY, data.access)
+      save(REFRESH_KEY, data.refresh)
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+  return refreshInFlight
 }
 
 function clearTokens() {

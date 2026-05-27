@@ -88,7 +88,10 @@ export interface DownloadClientFull extends DownloadClient {
 
 export interface JackettConfig {
   url: string
+  // GET never returns the real key (secret); it comes back empty with
+  // apiKeySet=true when one is stored. Sending empty on PUT keeps the current.
   apiKey: string
+  apiKeySet?: boolean
 }
 
 export interface AppConfig {

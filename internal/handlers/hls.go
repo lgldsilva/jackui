@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,48 @@ import (
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/transcode"
 )
+
+// hlsVODSegDur must match transcode.hlsSegDur — the segment length the encoder
+// targets with forced keyframes. The synthesised playlist declares each
+// segment as this long so Safari's timeline (sum of EXTINF) matches the media.
+const hlsVODSegDur = 4
+
+// buildVODPlaylist synthesises a finite HLS playlist covering the whole media
+// duration: every segment is declared up front (with a token on each line) and
+// EXT-X-ENDLIST marks it complete, so Safari renders a full seekbar instead of
+// treating the stream as headless LIVE. Segments the encoder hasn't produced
+// yet are generated on demand (seek-restart) when the player requests them.
+func buildVODPlaylist(durationSec float64, token string) []byte {
+	n := int(math.Ceil(durationSec / hlsVODSegDur))
+	if n < 1 {
+		n = 1
+	}
+	q := ""
+	if token != "" {
+		q = "?token=" + token
+	}
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n")
+	b.WriteString("#EXT-X-VERSION:6\n")
+	// TARGETDURATION must be >= the longest EXTINF; segments are ~4s but allow
+	// slack for the trailing partial segment and minor keyframe rounding.
+	b.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", hlsVODSegDur+1))
+	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
+	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
+	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
+	for i := 0; i < n; i++ {
+		d := float64(hlsVODSegDur)
+		if i == n-1 {
+			if last := durationSec - float64(i*hlsVODSegDur); last > 0 && last < d {
+				d = last
+			}
+		}
+		b.WriteString(fmt.Sprintf("#EXTINF:%.3f,\n", d))
+		b.WriteString(fmt.Sprintf("seg_%05d.ts%s\n", i, q))
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+	return []byte(b.String())
+}
 
 // StreamHLSMaster handles GET /api/stream/hls/:hash/:file/index.m3u8 —
 // kicks off (or attaches to) the HLS transcoding session and returns the
@@ -101,12 +144,22 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin
 			return
 		}
 
-		// Safari resolves relative segment names against the playlist URL
-		// but DROPS the query string in the process — so `?token=...` from
-		// `/api/stream/hls/HASH/IDX/index.m3u8?token=XXX` does NOT reach
-		// `/api/stream/hls/HASH/IDX/seg_00000.ts`, and the JWT middleware
-		// returns 401. We read the playlist and append `?token=XXX` to each
-		// segment line so segment requests authenticate independently.
+		// VOD mode (gated by hlsVODEnabled): serve a synthesised finite playlist
+		// (full seekbar) instead of ffmpeg's incremental EVENT one. When VOD is
+		// off, fall through to the EVENT path — the proven, reliable transcode
+		// playback for HEVC/fallback sources.
+		if sess.IsVOD() {
+			c.Header("Cache-Control", "no-store")
+			c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
+				buildVODPlaylist(sess.DurationSec, c.Query("token")))
+			return
+		}
+
+		// EVENT fallback (duration unknown): Safari resolves relative segment
+		// names against the playlist URL but DROPS the query string — so
+		// `?token=...` from the master URL does NOT reach the segment request
+		// and the JWT middleware returns 401. We read ffmpeg's playlist and
+		// append `?token=XXX` to each segment line so they authenticate.
 		data, err := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
@@ -153,6 +206,17 @@ func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
 			return
+		}
+
+		// VOD seek: if the requested segment isn't encoded yet, make sure an
+		// encoder is producing it (backward seek or a forward jump beyond the
+		// look-ahead window triggers a seek-restart). No-op in EVENT mode.
+		if sess.IsVOD() {
+			if idx, ok := transcode.ParseSegIndex(segName); ok {
+				if _, statErr := os.Stat(filepath.Join(sess.Dir, segName)); statErr != nil {
+					sess.EnsureSegment(idx)
+				}
+			}
 		}
 
 		path, err := sess.WaitForSegment(segName, 30*time.Second)

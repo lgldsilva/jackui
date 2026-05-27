@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Download, Loader2, Clock, Server } from 'lucide-react'
 import { SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate } from '../api/client'
+import { useScrollLock } from '../lib/useScrollLock'
 import { load, save, pushMRU } from '../lib/storage'
 
 // Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
@@ -24,6 +25,7 @@ const KEY_PATH = 'lastSavePath'
 const KEY_RECENT_PATHS = 'recentSavePaths'
 
 export default function DownloadModal({ result, onClose }: DownloadModalProps) {
+  useScrollLock(!!result)
   const [clients, setClients] = useState<DownloadClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
   const [savePath, setSavePath] = useState('')

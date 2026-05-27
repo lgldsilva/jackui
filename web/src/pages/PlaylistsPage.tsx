@@ -116,7 +116,7 @@ export default function PlaylistsPage() {
                   <h3 className="text-base font-medium text-gray-100 line-clamp-1 flex-1">{p.name}</h3>
                   <button
                     onClick={(e) => { e.preventDefault(); remove(p) }}
-                    className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                    className="text-gray-600 hover:text-red-400 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-all"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

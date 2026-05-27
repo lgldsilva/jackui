@@ -161,6 +161,30 @@ func TestResolvePath_TraversalRejected(t *testing.T) {
 	}
 }
 
+// TestResolvePath_SymlinkEscapeRejected guards S4: a symlink INSIDE the mount
+// pointing OUTSIDE it passes the lexical checks (no "..", stays under the
+// prefix as a string) but must be rejected after symlink resolution — otherwise
+// os.Stat/ServeFile would follow it and serve a host file.
+func TestResolvePath_SymlinkEscapeRejected(t *testing.T) {
+	root, b := setupTestMount(t)
+
+	// A directory outside the mount with a secret file.
+	outside := t.TempDir()
+	mustWrite(t, filepath.Join(outside, "secret.txt"), "host secret")
+
+	// A symlink inside the mount pointing to that outside directory.
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	// "escape/secret.txt" has no ".." and stays under the prefix lexically, but
+	// resolves outside the mount → must be rejected.
+	if _, err := b.ResolvePath("test", "escape/secret.txt"); err == nil {
+		t.Error("expected symlink escape to be rejected, got nil error")
+	}
+}
+
 func TestResolvePath_Valid(t *testing.T) {
 	root, b := setupTestMount(t)
 

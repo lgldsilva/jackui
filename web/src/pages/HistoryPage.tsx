@@ -4,6 +4,7 @@ import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, So
 import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, historyRefresh, searchTorrents, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
 import ResultCard from '../components/ResultCard'
 import DownloadModal from '../components/DownloadModal'
+import { usePersistedState } from '../lib/storage'
 import { usePlayer } from '../components/PlayerProvider'
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
@@ -43,16 +44,18 @@ export default function HistoryPage() {
   const [playlistTarget, setPlaylistTarget] = useState<SearchResult | null>(null)
   const [playlistTargetFile, setPlaylistTargetFile] = useState<{ index: number; title: string } | null>(null)
 
-  // Filters for the query list
+  // Filters for the query list. Sort persists; the text filter is transient
+  // (reopening with a stale text filter would be confusing).
   const [queryFilter, setQueryFilter] = useState('')
-  const [entrySort, setEntrySort] = useState<EntrySortKey>('recent')
+  const [entrySort, setEntrySort] = usePersistedState<EntrySortKey>('history.entrySort', 'recent')
 
-  // Filters for the results panel
+  // Filters for the results panel — sort/threshold/tracker persist across
+  // sessions (e.g. "always hide < 10 seeders"); the text filter stays transient.
   const [resultFilter, setResultFilter] = useState('')
-  const [resultSort, setResultSort] = useState<ResultSortKey>('seeders')
-  const [resultSortAsc, setResultSortAsc] = useState(false)
-  const [minSeeders, setMinSeeders] = useState(0)
-  const [trackerFilter, setTrackerFilter] = useState('all')
+  const [resultSort, setResultSort] = usePersistedState<ResultSortKey>('history.resultSort', 'seeders')
+  const [resultSortAsc, setResultSortAsc] = usePersistedState('history.resultSortAsc', false)
+  const [minSeeders, setMinSeeders] = usePersistedState('history.minSeeders', 0)
+  const [trackerFilter, setTrackerFilter] = usePersistedState('history.trackerFilter', 'all')
 
   // Pagination — render incrementally to avoid blocking on 1000s of cards
   const PAGE_SIZE = 60

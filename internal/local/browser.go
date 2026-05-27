@@ -90,9 +90,30 @@ func (b *Browser) ResolvePath(mountName, relPath string) (string, error) {
 
 	abs := filepath.Join(mountAbs, clean)
 
-	// Defense in depth: verify the resolved path is still inside the mount.
+	// Defense in depth: verify the lexical path is still inside the mount.
 	if abs != mountAbs && !strings.HasPrefix(abs, mountAbs+string(os.PathSeparator)) {
 		return "", fmt.Errorf("path traversal rejected")
+	}
+
+	// The lexical check above does NOT catch a symlink INSIDE the mount that
+	// points OUTSIDE it (e.g. mount/x -> /etc): the string "x/passwd" has no
+	// ".." and stays under the prefix, but os.Stat/ServeFile would follow the
+	// link and serve a host file. Resolve symlinks and re-validate against the
+	// REAL mount path. EvalSymlinks needs the target to exist; if it doesn't yet
+	// (a path that will 404 anyway), keep the lexical abs — it's already
+	// prefix-validated and a missing path fails downstream.
+	mountReal, err := filepath.EvalSymlinks(mountAbs)
+	if err != nil {
+		mountReal = mountAbs
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		if resolved != mountReal && !strings.HasPrefix(resolved, mountReal+string(os.PathSeparator)) {
+			return "", fmt.Errorf("path traversal rejected (symlink escape)")
+		}
+		// Validate with the resolved path, but RETURN the lexical abs — resolving
+		// would also rewrite benign system symlinks (e.g. macOS /var→/private/var),
+		// changing the path for no security benefit. Since the escape check above
+		// passed, the lexical path points safely inside the mount.
 	}
 
 	return abs, nil
