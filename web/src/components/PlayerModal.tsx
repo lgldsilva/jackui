@@ -1076,7 +1076,7 @@ export default function PlayerModal({
               {/* Main column: video + transport + status + panels. On lg+ the
                   file picker moves to a sidebar on the right — frees this
                   column to grow without forcing the page into outer scroll. */}
-              <div className="flex flex-col flex-1 min-w-0 lg:overflow-y-auto lg:overflow-x-hidden">
+              <div className="flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
               {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
                   status bar, file picker, and panels below all fit inside the modal's
                   90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
@@ -1868,7 +1868,7 @@ export default function PlayerModal({
                     return a.index - b.index
                   })
                 return (
-                  <aside className="flex flex-col flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
+                  <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
                     <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0">
                       <p className="text-xs text-gray-400 flex items-center gap-2 min-w-0">
                         <FileVideo className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
@@ -1896,7 +1896,7 @@ export default function PlayerModal({
                         />
                       </div>
                     )}
-                    <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 max-h-[55vh] lg:max-h-none">
+                    <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-none">
                       {filteredFiles.length === 0 && (
                         <p className="text-xs text-gray-500 text-center py-3">Nenhum arquivo bate com "{fileFilter}"</p>
                       )}
