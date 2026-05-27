@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"math"
 	"net/http"
 	"regexp"
@@ -273,6 +274,128 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey})
 	}
 	return out
+}
+
+// listModels returns the model ids currently advertised by a provider (Ollama:
+// /api/tags; others: OpenAI-compatible /models). Used by self-heal to verify a
+// failing model really is gone and to pick a replacement. Empty on any error.
+func (c *Client) listModels(ctx context.Context, provider string, p config.AIProvider) []string {
+	base := strings.TrimRight(p.BaseURL, "/")
+	if provider == "ollama" {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(base, "/v1")+"/api/tags", nil)
+		resp, err := c.http.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return nil
+		}
+		defer resp.Body.Close()
+		var tags struct {
+			Models []struct {
+				Name string `json:"name"`
+			} `json:"models"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&tags) != nil {
+			return nil
+		}
+		var out []string
+		for _, m := range tags.Models {
+			if m.Name != "" {
+				out = append(out, m.Name)
+			}
+		}
+		return out
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
+	if p.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil
+	}
+	defer resp.Body.Close()
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return nil
+	}
+	var out []string
+	for _, m := range body.Data {
+		if m.ID != "" {
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+// healProvider self-heals a provider whose chain model returned "doesn't exist":
+// it re-lists the provider's models, drops any chain slot whose model is gone,
+// and — if that left the provider unrepresented — adds a still-valid model
+// (OpenRouter prefers a free one) so the chain keeps a working slot. Cheap
+// (one /models or /api/tags call, no scoring), deduped per provider, runtime-only
+// (a manual benchmark re-optimizes + persists).
+func (c *Client) healProvider(provider string) {
+	if _, busy := c.healing.LoadOrStore(provider, true); busy {
+		return
+	}
+	defer c.healing.Delete(provider)
+	p, ok := c.providers[provider]
+	if !ok || p.BaseURL == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	ids := c.listModels(ctx, provider, p)
+	if len(ids) == 0 {
+		return // couldn't verify — leave the chain untouched
+	}
+	avail := map[string]bool{}
+	for _, id := range ids {
+		avail[id] = true
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var kept []Slot
+	dropped := false
+	providerHas := false
+	for _, s := range c.slots {
+		if s.Provider == provider && !avail[s.Model] {
+			dropped = true
+			log.Printf("ai: self-heal — %s model %q no longer exists; removing from chain", provider, s.Model)
+			continue
+		}
+		kept = append(kept, s)
+		if s.Provider == provider {
+			providerHas = true
+		}
+	}
+	if !dropped {
+		return
+	}
+	if !providerHas {
+		repl := ids[0]
+		if provider == "openrouter" { // prefer a free replacement
+			for _, id := range ids {
+				if strings.HasSuffix(id, ":free") {
+					repl = id
+					break
+				}
+			}
+		}
+		base := strings.TrimRight(p.BaseURL, "/")
+		kept = append(kept, Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey})
+		log.Printf("ai: self-heal — added %s replacement %q (untested; run the benchmark to re-optimize)", provider, repl)
+	}
+	c.slots = kept
 }
 
 // AdoptBenchmark rebuilds the live chain from benchmark scores: every model that

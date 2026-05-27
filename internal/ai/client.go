@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luizg/jackui/internal/config"
@@ -48,10 +49,22 @@ func (r *TitleResult) Query() string {
 }
 
 type Client struct {
+	mu        sync.RWMutex // guards slots (self-heal mutates while requests read)
 	slots     []Slot
 	providers map[string]config.AIProvider // kept so ApplyChain can resolve new slots
 	breaker   *breaker
 	http      *http.Client
+	healing   sync.Map // provider -> in-flight, dedupes self-heal
+}
+
+// slotList returns a snapshot of the live chain (safe to iterate without holding
+// the lock while making slow network calls).
+func (c *Client) slotList() []Slot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]Slot, len(c.slots))
+	copy(out, c.slots)
+	return out
 }
 
 // New builds a Client from config. Returns nil when AI is disabled or no usable
@@ -107,16 +120,14 @@ func (c *Client) ApplyChain(defs []config.AIChainSlot) {
 		}
 	}
 	if len(next) > 0 {
+		c.mu.Lock()
 		c.slots = next
+		c.mu.Unlock()
 	}
 }
 
 // Slots returns a copy of the resolved chain (for the benchmark + status UI).
-func (c *Client) Slots() []Slot {
-	out := make([]Slot, len(c.slots))
-	copy(out, c.slots)
-	return out
-}
+func (c *Client) Slots() []Slot { return c.slotList() }
 
 const identifySystem = `You extract the canonical movie or TV show title from a raw torrent/release name.
 Strip resolution, codec, release group, language and season/episode tags.
@@ -128,14 +139,21 @@ Reply with ONLY a JSON object, no prose, no code fences:
 // slot could parse a title (caller falls back to regex cleaning).
 func (c *Client) IdentifyTitle(ctx context.Context, rawName string) (*TitleResult, string, error) {
 	var lastErr error
-	for _, s := range c.slots {
+	for _, s := range c.slotList() {
 		if !c.breaker.available(s.ID) {
 			continue
 		}
 		res, _, err := c.identifyWithSlot(ctx, s, rawName)
 		if err != nil {
 			lastErr = err
-			c.breaker.recordFailure(s.ID, isRateLimit(err))
+			// A model that no longer exists (vendor removed/renamed it) means the
+			// chain is stale — self-heal that provider in the background (cheap
+			// discovery, no scoring). Otherwise just back off via the breaker.
+			if errors.Is(err, errModelNotFound) {
+				go c.healProvider(s.Provider)
+			} else {
+				c.breaker.recordFailure(s.ID, isRateLimit(err))
+			}
 			continue
 		}
 		c.breaker.recordSuccess(s.ID)
@@ -153,13 +171,17 @@ Output ONLY the query text (no quotes, no prose), ideally "<artist> <album>" —
 // release name (e.g. "Disturbed - Discography 2000-2019 [FLAC]" → "Disturbed").
 // Walks the chain like IdentifyTitle; returns "" if nothing usable came back.
 func (c *Client) MusicQuery(ctx context.Context, rawName string) string {
-	for _, s := range c.slots {
+	for _, s := range c.slotList() {
 		if !c.breaker.available(s.ID) {
 			continue
 		}
 		content, _, err := c.chat(ctx, s, musicSystem, rawName, false)
 		if err != nil {
-			c.breaker.recordFailure(s.ID, isRateLimit(err))
+			if errors.Is(err, errModelNotFound) {
+				go c.healProvider(s.Provider)
+			} else {
+				c.breaker.recordFailure(s.ID, isRateLimit(err))
+			}
 			continue
 		}
 		c.breaker.recordSuccess(s.ID)
@@ -232,8 +254,31 @@ type chatResp struct {
 }
 
 var errRateLimited = errors.New("ai: rate limited")
+var errModelNotFound = errors.New("ai: model not found")
 
 func isRateLimit(err error) bool { return errors.Is(err, errRateLimited) }
+
+// looksModelNotFound maps the "this model doesn't exist" responses across the
+// vendors we use — each phrases it differently:
+//   - Groq:       404, code "model_not_found", "... does not exist"
+//   - OpenRouter: 400/404, "is not a valid model", "No endpoints found for model"
+//   - Ollama:     404, "model '...' not found" / "try pulling it"
+func looksModelNotFound(status int, body string) bool {
+	if status == http.StatusNotFound {
+		return true
+	}
+	b := strings.ToLower(body)
+	for _, p := range []string{
+		"model_not_found", "does not exist", "is not a valid model",
+		"not a valid model id", "no endpoints found for model", "model not found",
+		"no such model", "try pulling", "decommissioned", "has been deprecated",
+	} {
+		if strings.Contains(b, p) {
+			return true
+		}
+	}
+	return false
+}
 
 func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode bool) (string, time.Duration, error) {
 	reqBody := chatReq{
@@ -271,6 +316,9 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 		return "", latency, fmt.Errorf("%w: %s", errRateLimited, s.ID)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if looksModelNotFound(resp.StatusCode, string(raw)) {
+			return "", latency, fmt.Errorf("%w: %s/%s", errModelNotFound, s.Provider, s.Model)
+		}
 		return "", latency, fmt.Errorf("ai: %s returned %d: %s", s.ID, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 
