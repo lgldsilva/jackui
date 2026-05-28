@@ -5,7 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/luizg/jackui/internal/config"
 )
 
 func TestTitleAccuracy(t *testing.T) {
@@ -65,6 +68,39 @@ func TestApplyOrder(t *testing.T) {
 	}
 	if c.slots[2].ID != "p1" {
 		t.Fatalf("unranked slot should fall to the end, got %q", c.slots[2].ID)
+	}
+}
+
+func TestHealProviderReplacesDeadModel(t *testing.T) {
+	// Provider whose /models lists only "goodmodel" — the chain's "deadmodel"
+	// must be dropped and replaced.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/models" || strings.HasSuffix(r.URL.Path, "/models") {
+			w.Write([]byte(`{"data":[{"id":"goodmodel"}]}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"groq": {BaseURL: srv.URL, APIKey: "k"},
+	}, Chain: []config.AIChainSlot{{ID: "groq:deadmodel", Provider: "groq", Model: "deadmodel"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+
+	c.healProvider("groq")
+
+	slots := c.Slots()
+	for _, s := range slots {
+		if s.Model == "deadmodel" {
+			t.Fatal("dead model should have been removed")
+		}
+	}
+	if len(slots) != 1 || slots[0].Model != "goodmodel" {
+		t.Fatalf("expected goodmodel replacement, got %+v", slots)
 	}
 }
 

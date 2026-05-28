@@ -113,6 +113,27 @@ func TestBreakerOpensAfterThreshold(t *testing.T) {
 	}
 }
 
+func TestLooksModelNotFound(t *testing.T) {
+	// Per-vendor "model doesn't exist" signals must all be recognized.
+	cases := []struct {
+		status int
+		body   string
+		want   bool
+	}{
+		{404, `{"error":{"code":"model_not_found","message":"The model x does not exist"}}`, true}, // groq
+		{400, `{"error":{"message":"x is not a valid model ID"}}`, true},                          // openrouter
+		{404, `{"error":{"message":"No endpoints found for model x"}}`, true},                     // openrouter
+		{404, `{"error":"model 'x' not found, try pulling it first"}`, true},                      // ollama
+		{500, `{"error":"internal"}`, false},                                                      // transient, NOT model-not-found
+		{200, `ok`, false},
+	}
+	for _, tc := range cases {
+		if got := looksModelNotFound(tc.status, tc.body); got != tc.want {
+			t.Errorf("looksModelNotFound(%d, %q) = %v, want %v", tc.status, tc.body, got, tc.want)
+		}
+	}
+}
+
 func TestRateLimitDetected(t *testing.T) {
 	srv := httptest.NewServer(jsonChat("", http.StatusTooManyRequests))
 	defer srv.Close()
