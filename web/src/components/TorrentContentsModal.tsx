@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle } from 'lucide-react'
+import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
@@ -45,12 +45,34 @@ function isPlayableFile(f: StreamFile): boolean {
  * Lets the user pick a specific file (an episode, a single song) and either
  * play it OR add it as a single playlist item.
  */
+// DetailRow renders one labelled fact in the details grid, only when it has a
+// value — so synthetic results (favorites/library, which lack tracker/category)
+// simply show fewer rows instead of a wall of "—".
+function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: React.ReactNode }) {
+  if (value === undefined || value === null || value === '' || value === 0) return null
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <span className="text-gray-500 flex-shrink-0">{icon}</span>
+      <span className="text-gray-500 flex-shrink-0">{label}:</span>
+      <span className="text-gray-300 truncate min-w-0">{value}</span>
+    </div>
+  )
+}
+
 export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist }: Props) {
   useScrollLock(!!result)
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const copyHash = (hash: string) => {
+    navigator.clipboard?.writeText(hash).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
+  }
 
   useEffect(() => {
     if (!result || !pickTorrentSource(result)) {
@@ -110,6 +132,37 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               {info.seeders > 0 && ` · ${info.seeders} seeders`}
             </p>
           )}
+
+          {/* Details — visible without playing. Only rows with data render, so
+              synthetic results (favorites/library) just show fewer. */}
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <DetailRow icon={<Tag className="w-3.5 h-3.5" />} label="Categoria" value={result.category} />
+            <DetailRow icon={<Server className="w-3.5 h-3.5" />} label="Tracker" value={result.tracker} />
+            <DetailRow
+              icon={<Users className="w-3.5 h-3.5" />}
+              label="Seeds/Leech"
+              value={(result.seeders || info?.seeders) ? `${info?.seeders ?? result.seeders} / ${result.leechers ?? 0}` : undefined}
+            />
+            <DetailRow
+              icon={<Calendar className="w-3.5 h-3.5" />}
+              label="Publicado"
+              value={result.publishDate ? new Date(result.publishDate).toLocaleDateString() : result.age}
+            />
+            {result.infoHash && (
+              <div className="flex items-center gap-2 min-w-0 sm:col-span-2">
+                <span className="text-gray-500 flex-shrink-0"><Hash className="w-3.5 h-3.5" /></span>
+                <span className="text-gray-500 flex-shrink-0">Hash:</span>
+                <span className="text-gray-400 font-mono truncate min-w-0" title={result.infoHash}>{result.infoHash}</span>
+                <button
+                  onClick={() => copyHash(result.infoHash)}
+                  title="Copiar info hash"
+                  className="flex-shrink-0 text-gray-500 hover:text-gray-200 transition-colors"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Body */}

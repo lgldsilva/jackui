@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2 } from 'lucide-react'
+import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
-import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt } from '../api/client'
+import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult } from '../api/client'
+import TorrentContentsModal from '../components/TorrentContentsModal'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
@@ -13,6 +14,7 @@ export default function LibraryPage() {
   const [entries, setEntries] = useState<LibraryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
+  const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
 
   const reload = () => {
@@ -42,22 +44,24 @@ export default function LibraryPage() {
     return ratio < 0.95 && e.resumeSeconds > 0
   })
 
+  const entryToResult = (e: LibraryEntry): SearchResult => ({
+    title: e.name,
+    tracker: '',
+    categoryId: 0,
+    category: '',
+    size: 0,
+    seeders: 0,
+    leechers: 0,
+    age: '',
+    magnetUri: e.magnet,
+    link: '',
+    infoHash: e.infoHash,
+    publishDate: '',
+  })
+
   const handlePlay = (e: LibraryEntry) => {
     playSingle(
-      {
-        title: e.name,
-        tracker: '',
-        categoryId: 0,
-        category: '',
-        size: 0,
-        seeders: 0,
-        leechers: 0,
-        age: '',
-        magnetUri: e.magnet,
-        link: '',
-        infoHash: e.infoHash,
-        publishDate: '',
-      },
+      entryToResult(e),
       // 0 in the DB is ambiguous — it can be either "user explicitly chose file 0" OR
       // the column default (NOT NULL DEFAULT 0) from an older session where pickPrimaryFile
       // hadn't been computed yet. Treating > 0 as "real choice" pushes the decision to
@@ -124,12 +128,19 @@ export default function LibraryPage() {
                   isDone={isDone}
                   onPlay={() => handlePlay(e)}
                   onRemove={() => handleRemoveOne(e)}
+                  onDetails={() => setContentsTarget(entryToResult(e))}
                 />
               )
             })}
           </div>
         )}
       </main>
+
+      <TorrentContentsModal
+        result={contentsTarget}
+        onClose={() => setContentsTarget(null)}
+        onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
+      />
     </div>
   )
 }
@@ -144,9 +155,10 @@ interface LibraryCardProps {
   isDone: boolean
   onPlay: () => void
   onRemove: () => void
+  onDetails: () => void
 }
 
-function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: LibraryCardProps) {
+function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDetails }: LibraryCardProps) {
   const { ref, match } = useThumbnail<HTMLDivElement>(entry.name)
   const [artFailed, setArtFailed] = useState(false)
   // bust forces the art <img> to refetch after a proactive resolve persists one.
@@ -183,6 +195,14 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: Libr
         className="absolute top-1.5 right-1.5 z-10 p-1 rounded-full bg-gray-900/80 text-gray-400 hover:text-red-400 hover:bg-gray-900 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <X className="w-3.5 h-3.5" />
+      </button>
+      {/* Details — files + torrent info without resuming playback. */}
+      <button
+        onClick={(ev) => { ev.stopPropagation(); onDetails() }}
+        title="Ver conteúdo e detalhes"
+        className="absolute top-1.5 left-1.5 z-10 p-1 rounded-full bg-gray-900/80 text-gray-400 hover:text-gray-100 hover:bg-gray-900 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <Info className="w-3.5 h-3.5" />
       </button>
       <div
         ref={ref}

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Bell, Loader2, Plus, Trash2, Save, Copy, Clock } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import Thumbnail from '../components/Thumbnail'
+import TorrentContentsModal from '../components/TorrentContentsModal'
 import {
-  Watchlist, WatchlistHit,
+  Watchlist, WatchlistHit, SearchResult,
   watchlistsList, watchlistsCreate, watchlistsUpdate, watchlistsDelete, watchlistsHits,
 } from '../api/client'
 import { formatBytes } from '../lib/format'
@@ -27,6 +28,7 @@ export default function WatchlistPage() {
   const [editing, setEditing] = useState<DraftWatchlist>(EMPTY_DRAFT)
   const [hitsFor, setHitsFor] = useState<number | null>(null)
   const [hits, setHits] = useState<WatchlistHit[]>([])
+  const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
 
   const load = async () => {
@@ -69,14 +71,13 @@ export default function WatchlistPage() {
     setHits(await watchlistsHits(id))
   }
 
-  const playHit = (h: WatchlistHit) => {
-    playSingle({
-      title: h.title,
-      tracker: '', categoryId: 0, category: '', size: h.size,
-      seeders: h.seeders, leechers: 0, age: '', magnetUri: h.magnet,
-      link: '', infoHash: h.infoHash, publishDate: '',
-    })
-  }
+  const hitToResult = (h: WatchlistHit): SearchResult => ({
+    title: h.title,
+    tracker: '', categoryId: 0, category: '', size: h.size,
+    seeders: h.seeders, leechers: 0, age: '', magnetUri: h.magnet,
+    link: '', infoHash: h.infoHash, publishDate: '',
+  })
+  const playHit = (h: WatchlistHit) => playSingle(hitToResult(h))
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -184,7 +185,13 @@ export default function WatchlistPage() {
                             {/* Lazy poster — shared session cache prevents N hits triggering N requests. */}
                             <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
                             <div className="flex-1 min-w-0">
-                              <p className="text-gray-200 truncate" title={h.title}>{h.title}</p>
+                              <button
+                                onClick={() => setContentsTarget(hitToResult(h))}
+                                className="text-gray-200 truncate block w-full text-left hover:text-green-400 transition-colors"
+                                title="Ver conteúdo e detalhes"
+                              >
+                                {h.title}
+                              </button>
                               <p className="text-gray-500">
                                 {h.seeders} seeders · {formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}
                               </p>
@@ -207,6 +214,12 @@ export default function WatchlistPage() {
           </div>
         )}
       </main>
+
+      <TorrentContentsModal
+        result={contentsTarget}
+        onClose={() => setContentsTarget(null)}
+        onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
+      />
     </div>
   )
 }
