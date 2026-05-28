@@ -606,6 +606,10 @@ func main() {
 				// dedupes by session key so concurrent viewers share one ffmpeg.
 				api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(localBrowser, hlsMgr))
 				api.GET("/local/hls/seg", handlers.LocalHLSSegment(localBrowser, hlsMgr))
+
+				adminAPI.GET("/transcode/active", handlers.TranscodeActive(hlsMgr))
+				adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(hlsMgr))
+
 				log.Printf("HLS sessions: %s/hls", streamCfg.DataDir)
 			}
 		}

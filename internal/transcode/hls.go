@@ -852,3 +852,61 @@ func (w *logWriter) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// HLSSessionSnapshot is a read-only representation of an active transcode session.
+type HLSSessionSnapshot struct {
+	Key           string    `json:"key"`
+	Codec         string    `json:"codec"`
+	SegmentsReady int       `json:"segmentsReady"`
+	StartedAt     time.Time `json:"startedAt"`
+	LastActivity  time.Time `json:"lastActivity"`
+	Pid           int       `json:"pid"`
+}
+
+// Sessions returns all currently active transcode sessions in the manager.
+func (m *HLSSessionManager) Sessions() []HLSSessionSnapshot {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var snapshots []HLSSessionSnapshot
+	for key, s := range m.sess {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			continue
+		}
+		pid := 0
+		if s.Cmd != nil && s.Cmd.Process != nil {
+			pid = s.Cmd.Process.Pid
+		}
+		encoder := "cpu"
+		if s.spec != nil {
+			encoder = s.spec.encoder
+		}
+
+		segmentsReady := 0
+		if s.Dir != "" {
+			if entries, err := os.ReadDir(s.Dir); err == nil {
+				for _, e := range entries {
+					if !e.IsDir() && strings.HasSuffix(e.Name(), ".ts") {
+						segmentsReady++
+					}
+				}
+			}
+		}
+
+		snapshots = append(snapshots, HLSSessionSnapshot{
+			Key:           key,
+			Codec:         encoder,
+			StartedAt:     s.StartedAt,
+			LastActivity:  s.LastAccess,
+			Pid:           pid,
+			SegmentsReady: segmentsReady,
+		})
+		s.mu.Unlock()
+	}
+	return snapshots
+}
