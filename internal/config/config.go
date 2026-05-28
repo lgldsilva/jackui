@@ -1,10 +1,13 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -290,6 +293,10 @@ func applyEnvOverrides(cfg *Config) {
 // providers have credentials. This lets the same env vars the box already
 // exports (GROQ_API_KEY / OPENROUTER_API_KEY / OLLAMA_BASE_URL) light up the AI
 // title-identification without hand-editing config.yaml.
+//
+// Model discovery is dynamic: buildDefaultChain queries each provider's
+// /v1/models endpoint and picks the best free/fast model available, so no
+// model names are hardcoded and it adapts as providers add/rename models.
 func applyAIEnv(cfg *Config) {
 	if cfg.AI.Providers == nil {
 		cfg.AI.Providers = map[string]AIProvider{}
@@ -333,26 +340,7 @@ func applyAIEnv(cfg *Config) {
 
 	// Auto-seed a default chain only when the user hasn't configured one.
 	if len(cfg.AI.Chain) == 0 {
-		var chain []AIChainSlot
-		if cfg.AI.Providers["opencode"].APIKey != "" {
-			chain = append(chain, AIChainSlot{ID: "opencode-pickle", Provider: "opencode", Model: "opencode/big-pickle"})
-		}
-		if cfg.AI.Providers["groq"].APIKey != "" {
-			chain = append(chain, AIChainSlot{ID: "groq-8b", Provider: "groq", Model: "llama-3.1-8b-instant"})
-		}
-		if cfg.AI.Providers["openrouter"].APIKey != "" {
-			// A stronger free model that reliably follows the JSON format (the
-			// nano model often replied without JSON).
-			chain = append(chain, AIChainSlot{ID: "openrouter-llama70b", Provider: "openrouter", Model: "meta-llama/llama-3.3-70b-instruct:free"})
-		}
-		if cfg.AI.Providers["ollama"].BaseURL != "" {
-			// Local model + a cloud model (both via the local Ollama endpoint; the
-			// "-cloud" suffix proxies to Ollama Cloud using its configured key).
-			chain = append(chain,
-				AIChainSlot{ID: "ollama-qwen", Provider: "ollama", Model: "qwen2.5:7b"},
-				AIChainSlot{ID: "ollama-cloud-gptoss", Provider: "ollama", Model: "gpt-oss:120b-cloud"},
-			)
-		}
+		chain := cfg.buildDefaultChain()
 		if len(chain) > 0 {
 			cfg.AI.Chain = chain
 			cfg.AI.Enabled = true
@@ -361,6 +349,50 @@ func applyAIEnv(cfg *Config) {
 		// Explicit chain present → enable unless the user turned it off above.
 		cfg.AI.Enabled = true
 	}
+}
+
+// buildDefaultChain queries each configured provider's /v1/models endpoint
+// to discover available models and auto-picks the best one for the rename
+// task. Falls back to sensible defaults on failure.
+func (cfg *Config) buildDefaultChain() []AIChainSlot {
+	var chain []AIChainSlot
+
+	if p, ok := cfg.AI.Providers["opencode"]; ok && p.APIKey != "" {
+		models := fetchModels(p.BaseURL, p.APIKey)
+		m := pickModel(models, "deepseek-v4-flash-free", "big-pickle")
+		if m != "" {
+			chain = append(chain, AIChainSlot{ID: "zen-" + m, Provider: "opencode", Model: m})
+		}
+	}
+	if p, ok := cfg.AI.Providers["groq"]; ok && p.APIKey != "" {
+		models := fetchModels(p.BaseURL, p.APIKey)
+		m := pickModel(models, "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768")
+		if m != "" {
+			chain = append(chain, AIChainSlot{ID: "groq-" + m, Provider: "groq", Model: m})
+		}
+	}
+	if p, ok := cfg.AI.Providers["openrouter"]; ok && p.APIKey != "" {
+		models := fetchModels(p.BaseURL, p.APIKey)
+		m := pickModel(models, "meta-llama/llama-3.3-70b-instruct:free")
+		if m != "" {
+			chain = append(chain, AIChainSlot{ID: "or-" + m, Provider: "openrouter", Model: m})
+		}
+	}
+	if p, ok := cfg.AI.Providers["ollama"]; ok && p.BaseURL != "" {
+		models := fetchModels(p.BaseURL, "")
+		// Local model
+		if m := pickModel(models, "qwen2.5:7b", "llama3.2:3b", "llama3.1:8b", "mistral:7b"); m != "" {
+			chain = append(chain, AIChainSlot{ID: "ollama-" + m, Provider: "ollama", Model: m})
+		}
+		// Cloud model (via Ollama Cloud proxy, model names ending in -cloud)
+		for _, m := range models {
+			if strings.HasSuffix(m, "-cloud") {
+				chain = append(chain, AIChainSlot{ID: "ollama-cloud-" + m, Provider: "ollama", Model: m})
+				break
+			}
+		}
+	}
+	return chain
 }
 
 func defaultConfig() *Config {
@@ -380,4 +412,80 @@ func defaultConfig() *Config {
 		},
 	}
 	return cfg
+}
+
+// fetchModels queries an OpenAI-compatible /v1/models endpoint and returns
+// the list of model IDs. Returns nil on any failure (timeout, network error,
+// non-200) so callers fall back to defaults transparently.
+func fetchModels(baseURL, apiKey string) []string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	url := strings.TrimRight(baseURL, "/") + "/models"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(result.Data))
+	for _, m := range result.Data {
+		if m.ID != "" {
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+// pickModel picks the best model for title-renaming from a list. Preference:
+// 1. Free models with "free" suffix
+// 2. Fast/cheap models (flash, mini, nano, small)
+// 3. The first available model
+func pickModel(models []string, preferred ...string) string {
+	// First: explicit preference
+	for _, p := range preferred {
+		for _, m := range models {
+			if m == p {
+				return p
+			}
+		}
+	}
+	// Second: free models
+	for _, m := range models {
+		if strings.HasSuffix(m, "-free") {
+			return m
+		}
+	}
+	// Third: cheap/small models
+	for _, m := range models {
+		low := strings.ToLower(m)
+		if strings.Contains(low, "flash") || strings.Contains(low, "mini") || strings.Contains(low, "nano") {
+			return m
+		}
+	}
+	// Last: first non-embedding model
+	for _, m := range models {
+		if !strings.Contains(strings.ToLower(m), "embedding") {
+			return m
+		}
+	}
+	if len(models) > 0 {
+		return models[0]
+	}
+	return ""
 }
