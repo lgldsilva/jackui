@@ -24,9 +24,9 @@ func TestTitleAccuracy(t *testing.T) {
 }
 
 func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
-	fastAccurate := compositeScore(0.9, 400)
-	slowAccurate := compositeScore(0.9, 4000)
-	fastSloppy := compositeScore(0.4, 400)
+	fastAccurate := compositeScore(0.9, 400, false)
+	slowAccurate := compositeScore(0.9, 4000, false)
+	fastSloppy := compositeScore(0.4, 400, false)
 	if !(fastAccurate > slowAccurate) {
 		t.Fatalf("faster should score higher at equal accuracy: %v vs %v", fastAccurate, slowAccurate)
 	}

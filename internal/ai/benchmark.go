@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"math"
 	"net/http"
@@ -33,6 +34,7 @@ type SlotScore struct {
 	AvgLatencyMs  int64   `json:"avgLatencyMs"` // mean wall-clock per call
 	Composite     float64 `json:"composite"`    // accuracy / sqrt(latencySeconds)
 	Samples       int     `json:"samples"`      // cases that produced a usable reply
+	Free          bool    `json:"free"`          // true when model is free (no billing cost)
 	FailureReason string  `json:"failureReason,omitempty"`
 }
 
@@ -52,9 +54,17 @@ var DefaultBenchmarkCases = []BenchmarkCase{
 // of latency in seconds. The sqrt softens the latency penalty so a slightly
 // slower but more accurate model can still win. A 0.3s floor stops a sub-300ms
 // call from inflating the score to nonsense.
-func compositeScore(accuracy float64, avgLatencyMs int64) float64 {
+//
+// Free models get a 1.3x multiplier on their composite score so they rank
+// above paid models with similar accuracy/latency — the whole point is that
+// free models are preferred when they work well enough.
+func compositeScore(accuracy float64, avgLatencyMs int64, free bool) float64 {
 	seconds := math.Max(0.3, float64(avgLatencyMs)/1000.0)
-	return accuracy / math.Sqrt(seconds)
+	score := accuracy / math.Sqrt(seconds)
+	if free {
+		score *= 1.3
+	}
+	return score
 }
 
 var alnumRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -112,16 +122,23 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 	if len(cases) == 0 {
 		cases = DefaultBenchmarkCases
 	}
-	// Local (Ollama) and remote slots are benchmarked differently:
-	//   - Local: SEQUENTIAL. Each needs a VRAM warmup, and Ollama serves one model
-	//     at a time — running several at once would thrash models in/out of memory,
-	//     wrecking both the warmup and the latency measurement.
-	//   - Remote: PARALLEL. Independent HTTP endpoints with no shared-memory
-	//     constraint, so we fan out to cut wall-clock (one slow vendor no longer
-	//     blocks the rest). Their free tiers are rate-limited, so no warmup.
-	var local, remote []Slot
+	// Slots are benchmarked in three groups:
+	//   1. Local Ollama:  SEQUENTIAL + WARMUP. Each local model needs a VRAM warmup
+	//      (model loaded into GPU memory before timed calls), and Ollama serves one
+	//      at a time — running several in parallel would thrash models in/out of
+	//      memory, wrecking both the warmup and the latency measurement.
+	//   2. Ollama Cloud:  SEQUENTIAL, NO warmup. Cloud models (identified by the
+	//      "-cloud" suffix on the Ollama provider) run remotely — no VRAM to warm,
+	//      but they share the same Ollama endpoint so still sequential to avoid
+	//      queue contention.
+	//   3. Remote:        PARALLEL, NO warmup. Independent HTTP endpoints with no
+	//      shared-memory constraint, so we fan out to cut wall-clock (one slow
+	//      vendor no longer blocks the rest). Their free tiers are rate-limited.
+	var local, cloud, remote []Slot
 	for _, s := range slots {
-		if s.Provider == "ollama" {
+		if s.Provider == "ollama" && strings.HasSuffix(s.Model, "-cloud") {
+			cloud = append(cloud, s)
+		} else if s.Provider == "ollama" {
 			local = append(local, s)
 		} else {
 			remote = append(remote, s)
@@ -144,6 +161,10 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 		scores = append(scores, results...)
 	}
 
+	for _, s := range cloud {
+		scores = append(scores, c.scoreSlot(ctx, s, cases, false))
+	}
+
 	for _, s := range local {
 		scores = append(scores, c.scoreSlot(ctx, s, cases, true))
 	}
@@ -156,7 +177,7 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 // When warmup is true (local Ollama) it issues one untimed priming call first so
 // the model is resident in VRAM before the timed cases run.
 func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, warmup bool) SlotScore {
-	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model}
+	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model, Free: s.Free}
 	if warmup {
 		warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
 		_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
@@ -164,9 +185,17 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	}
 	var accSum float64
 	var latSum time.Duration
+	paymentFail := false
 	for _, tc := range cases {
 		res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
 		if err != nil {
+			if errors.Is(err, errInsufficientBalance) {
+				paymentFail = true
+				if score.FailureReason == "" {
+					score.FailureReason = "pago — sem saldo"
+				}
+				break // skip remaining cases, no point testing more
+			}
 			if score.FailureReason == "" {
 				score.FailureReason = err.Error()
 			}
@@ -181,7 +210,9 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	if score.Samples > 0 {
 		score.Accuracy = accSum / float64(score.Samples)
 		score.AvgLatencyMs = (latSum / time.Duration(score.Samples)).Milliseconds()
-		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs)
+		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.Free)
+	} else if paymentFail {
+		score.Composite = -1 // paid models with no balance get negative score
 	}
 	return score
 }
@@ -237,13 +268,13 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 }
 
 // DiscoverModels lists candidate models across ALL providers so the benchmark
-// can test more than the one model wired per provider in the chain:
-//   - ollama:     every locally-installed model (/api/tags)
-//   - openrouter: only FREE models (":free"/price 0), capped (huge catalog + the
-//     free tier is rate-limited — don't blow the daily quota)
-//   - groq + others: all advertised models, capped (Groq free is generous)
+// can test every available model, not just one per provider from the chain:
+//   - ollama:  every locally-installed model (/api/tags)
+//   - others:  ALL models from /v1/models (up to 100 per provider), with free
+//     status tracked via pricing info or naming convention (:free suffix).
 //
-// Skips models already in the chain.
+// Skips models already in the chain. Caps at 100 per provider so the benchmark
+// doesn't take hours on OpenRouter's 300+ model catalog.
 func (c *Client) DiscoverModels(ctx context.Context) []Slot {
 	existing := map[string]bool{}
 	for _, s := range c.slots {
@@ -258,18 +289,13 @@ func (c *Client) DiscoverModels(ctx context.Context) []Slot {
 		if name == "ollama" || p.BaseURL == "" {
 			continue // ollama handled above; skip provider-less
 		}
-		freeOnly := name == "openrouter"
-		capN := 20
-		if freeOnly {
-			capN = 10
-		}
-		out = append(out, c.discoverViaModelsAPI(ctx, name, p, freeOnly, capN, existing)...)
+		out = append(out, c.discoverViaModelsAPI(ctx, name, p, 100, existing)...)
 	}
 	return out
 }
 
 // discoverViaModelsAPI hits the OpenAI-compatible GET /models on a provider.
-func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config.AIProvider, freeOnly bool, capN int, existing map[string]bool) []Slot {
+func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config.AIProvider, capN int, existing map[string]bool) []Slot {
 	base := strings.TrimRight(p.BaseURL, "/")
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
 	if p.APIKey != "" {
@@ -300,15 +326,10 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 		if m.ID == "" || existing[name+"|"+m.ID] || len(out) >= capN {
 			continue
 		}
-		if freeOnly {
-			isFree := strings.HasSuffix(m.ID, ":free") ||
-				((m.Pricing.Prompt == "" || m.Pricing.Prompt == "0") && (m.Pricing.Completion == "" || m.Pricing.Completion == "0"))
-			if !isFree {
-				continue
-			}
-		}
+		isFree := strings.HasSuffix(m.ID, ":free") ||
+			((m.Pricing.Prompt == "" || m.Pricing.Prompt == "0") && (m.Pricing.Completion == "" || m.Pricing.Completion == "0"))
 		existing[name+"|"+m.ID] = true
-		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey})
+		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey, Free: isFree})
 	}
 	return out
 }

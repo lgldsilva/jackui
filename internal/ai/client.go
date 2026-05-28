@@ -28,6 +28,7 @@ type Slot struct {
 	Model    string
 	BaseURL  string
 	apiKey   string
+	Free     bool // true when the model is free (no billing cost)
 }
 
 // TitleResult is what IdentifyTitle extracts from a raw torrent name.
@@ -255,8 +256,32 @@ type chatResp struct {
 
 var errRateLimited = errors.New("ai: rate limited")
 var errModelNotFound = errors.New("ai: model not found")
+var errInsufficientBalance = errors.New("ai: saldo insuficiente")
 
 func isRateLimit(err error) bool { return errors.Is(err, errRateLimited) }
+
+// looksPaymentError checks if a failed response is due to insufficient balance
+// (paid model with no credits) vs a genuine error. These should be recorded
+// as "pago — sem saldo" rather than a hard failure, so the benchmark knows the
+// model exists but couldn't be tested.
+func looksPaymentError(status int, body string) bool {
+	if status == http.StatusPaymentRequired || status == http.StatusForbidden {
+		return true
+	}
+	b := strings.ToLower(body)
+	for _, p := range []string{
+		"insufficient", "insufficient_quota", "quota exceeded", "quota_exceeded",
+		"payment required", "payment_required", "insufficient balance",
+		"exceeded your current quota", "rate limit exceeded", "billing",
+		"insufficient_credits", "not enough credits", "credit limit",
+		"user_rate_limit_exceeded", "forbidden",
+	} {
+		if strings.Contains(b, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // looksModelNotFound maps the "this model doesn't exist" responses across the
 // vendors we use — each phrases it differently:
@@ -318,6 +343,9 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if looksModelNotFound(resp.StatusCode, string(raw)) {
 			return "", latency, fmt.Errorf("%w: %s/%s", errModelNotFound, s.Provider, s.Model)
+		}
+		if looksPaymentError(resp.StatusCode, string(raw)) {
+			return "", latency, fmt.Errorf("%w: %s/%s — sem saldo", errInsufficientBalance, s.Provider, s.Model)
 		}
 		return "", latency, fmt.Errorf("ai: %s returned %d: %s", s.ID, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
