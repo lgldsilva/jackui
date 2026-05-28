@@ -42,9 +42,13 @@ func GetAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 	}
 }
 
-// RunAIBenchmark — POST /api/ai/benchmark. Runs every chain slot against the
-// stored case set, persists the scores, and re-orders the live chain best-first.
-// Synchronous: the caller waits (it hits external LLMs once per case×slot).
+// RunAIBenchmark — POST /api/ai/benchmark. Benchmarks the chain PLUS every model
+// installed on the local Ollama (auto-discovered) — each warmed up first — then
+// persists the scores and re-orders the live chain best-first.
+//
+// Runs on a DETACHED context (not the request's) so a slow run with many local
+// models isn't aborted if the browser/proxy times out the HTTP call; results are
+// persisted regardless and show up on the next GET.
 func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
@@ -55,17 +59,22 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		if store != nil {
 			cases = store.Cases()
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 
-		scores := client.Run(ctx, cases)
+		// Chain slots + every local Ollama model not already in the chain.
+		slots := client.Slots()
+		slots = append(slots, client.DiscoverOllamaModels(ctx)...)
+
+		scores := client.RunSlots(ctx, slots, cases)
 		if store != nil {
 			if err := store.SaveResults(scores); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 		}
-		// Apply the new ranking to the live chain so resolves use it immediately.
+		// Re-order the live chain by score (ApplyOrder ignores discovered ids that
+		// aren't in the chain — those are informational until adopted in config).
 		order := make([]string, len(scores))
 		for i, s := range scores {
 			order[i] = s.SlotID

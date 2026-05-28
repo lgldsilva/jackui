@@ -2,7 +2,9 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"math"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -93,27 +95,33 @@ func tokenSet(s string) map[string]bool {
 	return set
 }
 
-// Run benchmarks every chain slot against the case set and returns scores sorted
-// by composite (best first). It calls each slot directly (bypassing the breaker)
-// so a parked model still gets measured. Caller persists + applies the order.
+// Run benchmarks the configured chain. See RunSlots.
 func (c *Client) Run(ctx context.Context, cases []BenchmarkCase) []SlotScore {
+	return c.RunSlots(ctx, c.slots, cases)
+}
+
+// RunSlots benchmarks the given slots against the case set and returns scores
+// sorted by composite (best first). Each slot is called directly (bypassing the
+// breaker) so a parked model still gets measured. Used with the configured chain
+// AND with discovered local Ollama models.
+func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCase) []SlotScore {
 	if len(cases) == 0 {
 		cases = DefaultBenchmarkCases
 	}
 	var scores []SlotScore
-	for _, s := range c.slots {
+	for _, s := range slots {
 		score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model}
 		// Warmup: an untimed throwaway call so local/cold models load into memory
 		// (VRAM) before we measure — otherwise the first timed call eats the load
 		// time (or times out) and the model looks slow/broken. Generous timeout.
 		warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
-		_, _, _ = c.IdentifyWithSlot(warmCtx, s.ID, "warmup")
+		_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
 		warmCancel()
 
 		var accSum float64
 		var latSum time.Duration
 		for _, tc := range cases {
-			res, latency, err := c.IdentifyWithSlot(ctx, s.ID, tc.Raw)
+			res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
 			if err != nil {
 				if score.FailureReason == "" {
 					score.FailureReason = err.Error()
@@ -135,6 +143,56 @@ func (c *Client) Run(ctx context.Context, cases []BenchmarkCase) []SlotScore {
 	}
 	sort.SliceStable(scores, func(i, j int) bool { return scores[i].Composite > scores[j].Composite })
 	return scores
+}
+
+// DiscoverOllamaModels queries the local Ollama (/api/tags) for installed models
+// and returns a Slot per model that isn't already in the chain — so the benchmark
+// can test EVERY local model, not just the one wired into the chain. Cloud models
+// aren't listed by /api/tags (they're remote), so they stay explicit in config.
+func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
+	// Find the ollama provider's base URL from the chain.
+	var base, key string
+	for _, s := range c.slots {
+		if s.Provider == "ollama" {
+			base, key = s.BaseURL, s.apiKey
+			break
+		}
+	}
+	if base == "" {
+		return nil
+	}
+	existing := map[string]bool{}
+	for _, s := range c.slots {
+		existing[s.Provider+"|"+s.Model] = true
+	}
+	// /api/tags lives at the server root, not under the OpenAI-compat /v1.
+	tagsURL := strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1") + "/api/tags"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, tagsURL, nil)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var tags struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&tags) != nil {
+		return nil
+	}
+	var out []Slot
+	for _, m := range tags.Models {
+		if m.Name == "" || existing["ollama|"+m.Name] {
+			continue
+		}
+		existing["ollama|"+m.Name] = true
+		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key})
+	}
+	return out
 }
 
 // ApplyOrder re-sorts the live chain to the given slot-id order (best first).
