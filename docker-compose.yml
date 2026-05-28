@@ -46,6 +46,14 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      # SMTP p/ reset de senha / confirmação de e-mail / convites (valores no .env
+      # local, gitignored). Vazio = fluxos viram links copiáveis pelo admin.
+      - JACKUI_SMTP_HOST=${JACKUI_SMTP_HOST:-}
+      - JACKUI_SMTP_PORT=${JACKUI_SMTP_PORT:-}
+      - JACKUI_SMTP_USER=${JACKUI_SMTP_USER:-}
+      - JACKUI_SMTP_PASS=${JACKUI_SMTP_PASS:-}
+      - JACKUI_SMTP_FROM=${JACKUI_SMTP_FROM:-}
+      - JACKUI_BASE_URL=${JACKUI_BASE_URL:-https://jackui.example.com}
     networks:
       - media
 
