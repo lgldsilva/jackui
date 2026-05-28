@@ -119,6 +119,9 @@ export default function PlayerModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedFile, setSelectedFile] = useState<number>(-1)
+  // Scrolls the file list to the currently-playing file when the picker opens —
+  // a season pack reopened at episode 20 lands on it instead of at the top.
+  const selectedFileRef = useRef<HTMLButtonElement>(null)
   const [videoError, setVideoError] = useState(false)
   // Minimized (picture-in-picture-style) mode. The <video> element stays
   // mounted in the same DOM position — only the surrounding container shrinks
@@ -450,19 +453,21 @@ export default function PlayerModal({
   // re-ran the cleanup the moment the library entry loaded mid-playback,
   // calling streamDrop() and KILLING the torrent we were actively streaming
   // (ffmpeg then died with "torrent closed" → "Sem seeds").
-  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null }>({ infoHash: '', libraryEntryID: null })
+  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null; fileIndex: number }>({ infoHash: '', libraryEntryID: null, fileIndex: -1 })
   useEffect(() => {
-    cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID }
+    cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID, fileIndex: selectedFile }
   })
 
   // Drop the torrent + persist final resume position — ONLY when the modal
   // truly unmounts (user closes/navigates), never on intra-playback state changes.
   useEffect(() => {
     return () => {
-      const { infoHash, libraryEntryID: libID } = cleanupRef.current
+      const { infoHash, libraryEntryID: libID, fileIndex } = cleanupRef.current
       const v = videoRef.current
       if (libID !== null && v && v.currentTime > 1) {
-        libraryUpdateResume(libID, v.currentTime, v.duration || 0).catch(() => {})
+        // Persist which file was watched so reopening a season pack resumes the
+        // same episode (not the torrent's primary file).
+        libraryUpdateResume(libID, v.currentTime, v.duration || 0, fileIndex >= 0 ? fileIndex : undefined).catch(() => {})
       }
       if (infoHash) {
         streamDrop(infoHash).catch(() => {})
@@ -747,6 +752,16 @@ export default function PlayerModal({
     if (!info?.infoHash || selectedFile < 0 || !serverReady) return
     resolveArt(info.infoHash, selectedFile)
   }, [info?.infoHash, selectedFile, serverReady])
+
+  // Scroll the file picker to the selected file (after it renders). Runs on
+  // open and whenever the selection changes — a tiny delay lets the list mount.
+  useEffect(() => {
+    if (!sidebarOpen || selectedFile < 0) return
+    const t = setTimeout(() => {
+      selectedFileRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' })
+    }, 60)
+    return () => clearTimeout(t)
+  }, [sidebarOpen, selectedFile, info?.infoHash])
 
   // Note: auto-search of OpenSubtitles intentionally NOT triggered here — it would burn quota.
   // Embedded subtitles auto-load (free), external ones require explicit click via "Legendas" button.
@@ -2009,6 +2024,7 @@ export default function PlayerModal({
                         return (
                           <button
                             key={f.index}
+                            ref={selectedFile === f.index ? selectedFileRef : null}
                             onClick={() => {
                               if (isPlayable) playFile(f.index)
                               else if (canPreview) setPreviewFileIdx(f.index)

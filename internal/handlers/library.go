@@ -65,13 +65,19 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 		var req struct {
 			ResumeSeconds   float64 `json:"resumeSeconds"`
 			DurationSeconds float64 `json:"durationSeconds"`
+			FileIndex       *int    `json:"fileIndex"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// Pointer so an omitted fileIndex stays -1 (don't touch the column).
+		fileIndex := -1
+		if req.FileIndex != nil {
+			fileIndex = *req.FileIndex
+		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := lib.UpdateResume(id, userID, req.ResumeSeconds, req.DurationSeconds, isAdmin); err != nil {
+		if err := lib.UpdateResume(id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

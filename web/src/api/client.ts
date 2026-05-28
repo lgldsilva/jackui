@@ -547,6 +547,8 @@ export interface LibraryEntry {
   magnet: string
   name: string
   primaryFileIndex: number
+  // The file the user actually last watched (multi-file torrents). -1 = unknown.
+  lastFileIndex: number
   totalSize: number
   resumeSeconds: number
   durationSeconds: number
@@ -568,8 +570,8 @@ export const libraryGet = async (id: number): Promise<LibraryEntry> => {
   return data
 }
 
-export const libraryUpdateResume = async (id: number, resumeSeconds: number, durationSeconds = 0): Promise<void> => {
-  await api.patch(`/library/${id}`, { resumeSeconds, durationSeconds })
+export const libraryUpdateResume = async (id: number, resumeSeconds: number, durationSeconds = 0, fileIndex?: number): Promise<void> => {
+  await api.patch(`/library/${id}`, { resumeSeconds, durationSeconds, fileIndex })
 }
 
 export const libraryDelete = async (id: number): Promise<void> => {

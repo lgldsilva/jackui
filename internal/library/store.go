@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/luizg/jackui/internal/dbutil"
@@ -21,8 +22,11 @@ type Entry struct {
 	Magnet           string    `json:"magnet"`
 	Name             string    `json:"name"`
 	PrimaryFileIndex int       `json:"primaryFileIndex"`
-	TotalSize        int64     `json:"totalSize"`
-	ResumeSeconds    float64   `json:"resumeSeconds"`
+	// LastFileIndex is the file the user actually last watched (for multi-file
+	// torrents / season packs). -1 = never tracked → fall back to primary.
+	LastFileIndex int       `json:"lastFileIndex"`
+	TotalSize     int64     `json:"totalSize"`
+	ResumeSeconds float64   `json:"resumeSeconds"`
 	DurationSeconds  float64   `json:"durationSeconds"`
 	Kind             string    `json:"kind"` // "video" | "audio" | ""
 	LastPlayedAt     time.Time `json:"lastPlayedAt"`
@@ -69,7 +73,16 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_lib_user_played ON library(user_id, last_played_at DESC);
 		CREATE INDEX IF NOT EXISTS idx_lib_hash        ON library(info_hash);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	// Added later: track the actually-watched file (-1 = unknown). Idempotent —
+	// SQLite has no "ADD COLUMN IF NOT EXISTS", so ignore the duplicate error.
+	if _, aerr := s.db.Exec(`ALTER TABLE library ADD COLUMN last_file_index INTEGER NOT NULL DEFAULT -1`); aerr != nil &&
+		!strings.Contains(aerr.Error(), "duplicate column") {
+		return aerr
+	}
+	return nil
 }
 
 // Upsert inserts a fresh row OR updates an existing (user, info_hash) tuple,
@@ -98,7 +111,7 @@ func (s *Store) Upsert(userID int, infoHash, magnet, name string, primaryFile in
 // GetByHash returns the user's library entry for a given info_hash (if any).
 func (s *Store) GetByHash(userID int, infoHash string) (*Entry, error) {
 	row := s.db.QueryRow(`
-		SELECT id, user_id, info_hash, magnet, name, primary_file_index, total_size,
+		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
 		FROM library WHERE user_id = ? AND info_hash = ?
 	`, userID, infoHash)
@@ -108,7 +121,7 @@ func (s *Store) GetByHash(userID int, infoHash string) (*Entry, error) {
 // GetByID returns one entry, optionally bypassing user check (admin).
 func (s *Store) GetByID(id int, userID int, includeAll bool) (*Entry, error) {
 	q := `
-		SELECT id, user_id, info_hash, magnet, name, primary_file_index, total_size,
+		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
 		FROM library WHERE id = ?`
 	args := []any{id}
@@ -123,7 +136,7 @@ func (s *Store) GetByID(id int, userID int, includeAll bool) (*Entry, error) {
 // includeAll lets admin see everyone.
 func (s *Store) List(userID int, includeAll bool, limit int) ([]Entry, error) {
 	q := `
-		SELECT id, user_id, info_hash, magnet, name, primary_file_index, total_size,
+		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
 		FROM library`
 	args := []any{}
@@ -207,12 +220,18 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 
 // UpdateResume saves the current playback position. Called periodically by the player.
 // Optionally updates duration if not yet known.
-func (s *Store) UpdateResume(id, userID int, resumeSeconds, durationSeconds float64, includeAll bool) error {
+func (s *Store) UpdateResume(id, userID int, resumeSeconds, durationSeconds float64, fileIndex int, includeAll bool) error {
 	q := `UPDATE library SET resume_seconds = ?, last_played_at = CURRENT_TIMESTAMP`
 	args := []any{resumeSeconds}
 	if durationSeconds > 0 {
 		q += `, duration_seconds = ?`
 		args = append(args, durationSeconds)
+	}
+	// Track the actually-watched file so reopening a multi-file torrent resumes
+	// the same episode. -1 means the caller didn't know it — leave it untouched.
+	if fileIndex >= 0 {
+		q += `, last_file_index = ?`
+		args = append(args, fileIndex)
 	}
 	q += " WHERE id = ?"
 	args = append(args, id)
@@ -266,7 +285,7 @@ func scanEntry(row interface{ Scan(...any) error }) (*Entry, error) {
 	var lastPlayed, added string
 	err := row.Scan(
 		&e.ID, &e.UserID, &e.InfoHash, &e.Magnet, &e.Name,
-		&e.PrimaryFileIndex, &e.TotalSize,
+		&e.PrimaryFileIndex, &e.LastFileIndex, &e.TotalSize,
 		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind,
 		&lastPlayed, &added,
 	)
@@ -287,7 +306,7 @@ func scanEntryRows(rows *sql.Rows) (*Entry, error) {
 	var lastPlayed, added string
 	err := rows.Scan(
 		&e.ID, &e.UserID, &e.InfoHash, &e.Magnet, &e.Name,
-		&e.PrimaryFileIndex, &e.TotalSize,
+		&e.PrimaryFileIndex, &e.LastFileIndex, &e.TotalSize,
 		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind,
 		&lastPlayed, &added,
 	)
