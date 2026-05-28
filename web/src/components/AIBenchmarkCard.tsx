@@ -80,13 +80,15 @@ export default function AIBenchmarkCard() {
   }
 
   const run = async () => {
+    // Intentional: each run spends free-tier quota (remote models are rate-limited).
+    if (!confirm('Rodar o benchmark consome cota dos modelos free (testa cada modelo várias vezes). Continuar?')) return
     setRunning(true); setMsg('')
     try {
       const results = await runAIBenchmark()
       setStatus(s => s ? { ...s, results } : s)
-      setMsg('Benchmark concluído — chain reordenada pelo melhor score.')
+      setMsg('Benchmark concluído — chain adotada pelo melhor score.')
     } catch (e: any) {
-      setMsg(e?.response?.data?.error || 'Falha ao rodar o benchmark.')
+      setMsg(e?.response?.data?.error || 'Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
     } finally { setRunning(false) }
   }
 
