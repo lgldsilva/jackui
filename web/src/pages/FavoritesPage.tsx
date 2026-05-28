@@ -325,6 +325,23 @@ export default function FavoritesPage() {
     setFavs(favs.map(f => f.name === favoriteName ? { ...f, folderId } : f))
   }
 
+  // ─── Multi-select (move several favorites to a folder at once) ─────────────
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const toggleSelected = (name: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
+    })
+  }
+  const clearSelection = () => setSelected(new Set())
+  const moveSelectedToFolder = async (folderId: number | null) => {
+    const names = [...selected]
+    await Promise.all(names.map(n => favoriteSetFolder(n, folderId).catch(() => {})))
+    setFavs(favs.map(f => selected.has(f.name) ? { ...f, folderId } : f))
+    clearSelection()
+  }
+
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
@@ -490,9 +507,24 @@ export default function FavoritesPage() {
                     e.dataTransfer.setDragImage(ghost, 12, 12)
                     setTimeout(() => ghost.remove(), 0)
                   }}
-                  className="card flex flex-col gap-2 group cursor-grab active:cursor-grabbing"
+                  className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
+                    selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
+                  }`}
                 >
-                  <div className="flex items-start gap-2">
+                  {/* Multi-select checkbox — pick several, then move all to a
+                      folder via the action bar. Stops propagation so it doesn't
+                      start a drag/play. */}
+                  <input
+                    type="checkbox"
+                    checked={selected.has(fav.name)}
+                    onChange={() => toggleSelected(fav.name)}
+                    onClick={e => e.stopPropagation()}
+                    title="Selecionar"
+                    className={`absolute top-2 left-2 z-10 w-4 h-4 accent-green-500 cursor-pointer ${
+                      selected.size > 0 ? 'opacity-100' : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100'
+                    }`}
+                  />
+                  <div className="flex items-start gap-2 pl-6">
                     {/* Lazy TMDB poster — falls back to a Film/Music icon when no match. */}
                     <Thumbnail title={fav.name} size="md" infoHash={fav.infoHash} />
                     <h3 className="text-sm font-medium text-gray-100 line-clamp-2 flex-1" title={fav.name}>
@@ -661,6 +693,27 @@ export default function FavoritesPage() {
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-full shadow-2xl px-4 py-2 safe-bottom">
+          <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <select
+            defaultValue=""
+            onChange={e => { moveSelectedToFolder(e.target.value === '' ? null : Number(e.target.value)); e.target.value = '' }}
+            className="bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-200 px-2 py-1 focus:outline-none focus:border-green-500"
+          >
+            <option value="" disabled>Mover para…</option>
+            <option value="">Raiz (sem pasta)</option>
+            {folders.map(f => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+          <button onClick={clearSelection} title="Limpar seleção" className="text-gray-400 hover:text-gray-100">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
