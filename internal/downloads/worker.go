@@ -155,26 +155,26 @@ func (w *Worker) reconcile(d Download) {
 		hash, err := w.streamer.EnsureActive(ctx, d.Magnet)
 		if err != nil {
 			log.Printf("downloads: ensure active for #%d (%s) failed: %v", d.ID, d.InfoHash, err)
-			_ = w.store.SetError(d.ID, "load torrent: "+err.Error())
+			_ = w.store.SetError(d.UserID, d.ID,"load torrent: "+err.Error())
 			return
 		}
 
 		t, ok := w.streamer.Client().Torrent(hash)
 		if !ok {
-			_ = w.store.SetError(d.ID, "torrent gone after EnsureActive")
+			_ = w.store.SetError(d.UserID, d.ID,"torrent gone after EnsureActive")
 			return
 		}
 		// Block briefly waiting for metadata so file slice is populated.
 		select {
 		case <-t.GotInfo():
 		case <-time.After(60 * time.Second):
-			_ = w.store.SetError(d.ID, "timeout aguardando metadados")
+			_ = w.store.SetError(d.UserID, d.ID,"timeout aguardando metadados")
 			return
 		}
 
 		files := t.Files()
 		if d.FileIndex < 0 || d.FileIndex >= len(files) {
-			_ = w.store.SetError(d.ID, "file index fora do intervalo")
+			_ = w.store.SetError(d.UserID, d.ID,"file index fora do intervalo")
 			return
 		}
 		f := files[d.FileIndex]
@@ -209,11 +209,11 @@ func (w *Worker) reconcile(d Download) {
 	}
 	completed := td.file.BytesCompleted()
 	if completed != d.BytesDownloaded {
-		_ = w.store.UpdateProgress(d.ID, completed)
+		_ = w.store.UpdateProgress(d.UserID, d.ID, completed)
 	}
 	// Completion check — file.Length() is the logical total bytes.
 	if completed >= td.file.Length() && td.file.Length() > 0 {
-		_ = w.store.SetStatus(d.ID, StatusCompleted)
+		_ = w.store.SetStatus(d.UserID, d.ID, StatusCompleted)
 		// Keep RegisterDownload on (the file should not be evicted just because
 		// it finished — the user explicitly wanted to retain it). Drop the in-
 		// memory tracking so the next tick won't keep updating progress.

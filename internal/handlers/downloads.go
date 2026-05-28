@@ -93,7 +93,7 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		if err := store.SetStatus(id, downloads.StatusPaused); err != nil {
+		if err := store.SetStatus(userID, id, downloads.StatusPaused); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -115,7 +115,7 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		if err := store.SetStatus(id, downloads.StatusDownloading); err != nil {
+		if err := store.SetStatus(userID, id, downloads.StatusDownloading); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
