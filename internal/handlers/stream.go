@@ -13,6 +13,7 @@ import (
 
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/library"
+	"github.com/luizg/jackui/internal/middleware"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/subtitles"
 )
@@ -44,7 +45,9 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 		}
 		// Persist into the user's library (idempotent upsert).
 		// Kind is left empty here — set later by probe/play hints.
-		if lib != nil {
+		// Incógnito: skip the upsert; the player still gets its TorrentInfo so
+		// playback is unaffected, but Continuar Assistindo stays untouched.
+		if lib != nil && !middleware.IsIncognito(c) {
 			userID, _, _ := auth.UserIDFromCtx(c)
 			lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "")
 		}

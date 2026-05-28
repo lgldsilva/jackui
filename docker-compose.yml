@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "8989:8989"
-      - "42069:42069/tcp"   # BitTorrent peer port (TCP)
-      - "42069:42069/udp"   # BitTorrent peer port (UDP / DHT)
+      - "51469:51469/tcp"   # BitTorrent peer port (TCP)
+      - "51469:51469/udp"   # BitTorrent peer port (UDP / DHT)
     volumes:
       # App config + all SQLite DBs in Portainer's standard AppData location.
       # Separated from the LVM streaming cache to avoid I/O contention with
@@ -25,6 +25,10 @@ services:
       - JACKUI_PORT=8989
       - JACKUI_DB_PATH=/data/jackui.db
       - JACKUI_STREAM_DIR=/data/streams
+      # State DBs (favorites, library, downloads, tmdb-cache, etc.) live on the
+      # Portainer SSD instead of the LVM piece cache — alivia contenção de I/O
+      # com Jackett/Ollama. Cache de pieces (DataDir) fica no LVM.
+      - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
       - JACKUI_DOWNLOAD_DIR=/mnt/jacktrack-download
       # Browsable mounts on the "Local" page (Name:/container/path,...).
@@ -59,8 +63,8 @@ services:
       - JACKUI_SMTP_FROM=${JACKUI_SMTP_FROM:-}
       - JACKUI_BASE_URL=${JACKUI_BASE_URL:-https://jackui.raspberrypi.lan}
     networks:
-      - media
+      - vpn-gateway_vpn-net
 
 networks:
-  media:
+  vpn-gateway_vpn-net:
     external: true

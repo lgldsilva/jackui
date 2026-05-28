@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { isIncognito } from '../lib/incognito'
 
 // Exported so diagnostic shippers (lib/diag.ts) can post without re-wiring
 // auth interceptors. Don't reach into this directly from feature code — keep
@@ -8,6 +9,16 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+})
+
+// Tag every request with X-JackUI-Incognito when the user has the toggle on.
+// Backend middleware reads this and instructs history/library handlers to skip
+// the write while still returning 200 — UX stays fluid, just nothing persists.
+api.interceptors.request.use((config) => {
+  if (isIncognito()) {
+    config.headers['X-JackUI-Incognito'] = '1'
+  }
+  return config
 })
 
 // withToken appends the current access token as a query param.
@@ -302,11 +313,13 @@ export const streamSetLimits = async (limits: StreamLimits): Promise<StreamLimit
 
 export interface TmdbMatch {
   tmdbId: number
+  imdbId?: string
   title: string
   year: number
   posterUrl: string
   overview: string
   voteAverage: number
+  imdbRating?: number
   kind: 'movie' | 'tv'
 }
 
@@ -459,11 +472,20 @@ export const mfaEnroll = async (): Promise<{ secret: string; uri: string }> => {
   const { data } = await api.post<{ secret: string; uri: string }>('/auth/mfa/enroll')
   return data
 }
-export const mfaVerify = async (code: string): Promise<void> => {
-  await api.post('/auth/mfa/verify', { code })
+export const mfaVerify = async (code: string): Promise<string[]> => {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/mfa/verify', { code })
+  return data.backupCodes || []
 }
 export const mfaDisable = async (password: string): Promise<void> => {
   await api.post('/auth/mfa/disable', { password })
+}
+export const mfaBackupCodesRemaining = async (): Promise<number> => {
+  const { data } = await api.get<{ remaining: number }>('/auth/mfa/backup-codes')
+  return data.remaining ?? 0
+}
+export const mfaRegenerateBackupCodes = async (password: string): Promise<string[]> => {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/mfa/backup-codes/regenerate', { password })
+  return data.backupCodes || []
 }
 export const adminListUsers = async (): Promise<AdminUser[]> => {
   const { data } = await api.get<AdminUser[]>('/auth/users')
@@ -483,6 +505,26 @@ export const adminInvite = async (email?: string): Promise<string> => {
   return data.link
 }
 
+// ── Active sessions ──────────────────────────────────────────────────────────
+export interface SessionInfo {
+  id: string
+  createdAt: string
+  expiresAt: string
+  remember: boolean
+  current: boolean
+}
+export const listSessions = async (currentRefresh: string): Promise<SessionInfo[]> => {
+  const { data } = await api.post<{ sessions: SessionInfo[] }>('/auth/sessions', { refresh: currentRefresh })
+  return data.sessions || []
+}
+export const revokeSession = async (id: string): Promise<void> => {
+  await api.delete(`/auth/sessions/${encodeURIComponent(id)}`)
+}
+export const revokeOtherSessions = async (currentRefresh: string): Promise<number> => {
+  const { data } = await api.post<{ revoked: number }>('/auth/sessions/revoke-others', { refresh: currentRefresh })
+  return data.revoked ?? 0
+}
+
 // Public auth flows (no token needed). These bypass the axios auth interceptor
 // concerns since they're called from unauthenticated pages.
 export const registerAccount = async (username: string, email: string, password: string, invite?: string) => {
@@ -498,6 +540,100 @@ export const forgotPassword = async (email: string): Promise<string> => {
 }
 export const resetPassword = async (token: string, password: string): Promise<void> => {
   await api.post('/auth/reset', { token, password })
+}
+
+// ── Passkey (WebAuthn) ───────────────────────────────────────────────────────
+// WebAuthn moves binary blobs (challenge, credential ids, signatures) over JSON
+// as base64url. The browser API works with ArrayBuffers, so every "begin" reply
+// is decoded into buffers before navigator.credentials.{create,get}, and the
+// authenticator's response is re-encoded to base64url before posting "finish".
+
+const b64urlToBuf = (s: string): ArrayBuffer => {
+  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
+  const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'))
+  const buf = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
+  return buf.buffer
+}
+const bufToB64url = (buf: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buf)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export function isPasskeySupported(): boolean {
+  return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials?.create
+}
+
+export interface PasskeyInfo { id: string }
+export const passkeyList = async (): Promise<PasskeyInfo[]> => {
+  const { data } = await api.get<{ passkeys: PasskeyInfo[] }>('/auth/passkey')
+  return data.passkeys || []
+}
+export const passkeyDelete = async (id: string): Promise<void> => {
+  await api.delete(`/auth/passkey/${encodeURIComponent(id)}`)
+}
+
+// passkeyRegister runs the full enrollment ceremony (authenticated). Throws on
+// user cancellation or authenticator error — caller surfaces the message.
+export const passkeyRegister = async (): Promise<void> => {
+  const { data } = await api.post<{ options: any; session: string }>('/auth/passkey/register/begin')
+  const pk = data.options.publicKey
+  pk.challenge = b64urlToBuf(pk.challenge)
+  pk.user.id = b64urlToBuf(pk.user.id)
+  if (Array.isArray(pk.excludeCredentials)) {
+    pk.excludeCredentials = pk.excludeCredentials.map((c: any) => ({ ...c, id: b64urlToBuf(c.id) }))
+  }
+  const cred = (await navigator.credentials.create({ publicKey: pk })) as PublicKeyCredential | null
+  if (!cred) throw new Error('passkey cancelada')
+  const att = cred.response as AuthenticatorAttestationResponse
+  const body = {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: {
+      attestationObject: bufToB64url(att.attestationObject),
+      clientDataJSON: bufToB64url(att.clientDataJSON),
+    },
+  }
+  await api.post('/auth/passkey/register/finish', body, { params: { session: data.session } })
+}
+
+export interface PasskeyTokenBundle {
+  access: string
+  refresh: string
+  expiresAt: string
+  user: any
+}
+
+// passkeyAuthenticate runs the login assertion ceremony (public) and returns the
+// token bundle. The caller (AuthContext) persists the tokens + sets the user.
+export const passkeyAuthenticate = async (username: string, remember: boolean): Promise<PasskeyTokenBundle> => {
+  const { data } = await api.post<{ options: any; session: string }>('/auth/passkey/login/begin', { username })
+  const pk = data.options.publicKey
+  pk.challenge = b64urlToBuf(pk.challenge)
+  if (Array.isArray(pk.allowCredentials)) {
+    pk.allowCredentials = pk.allowCredentials.map((c: any) => ({ ...c, id: b64urlToBuf(c.id) }))
+  }
+  const assertion = (await navigator.credentials.get({ publicKey: pk })) as PublicKeyCredential | null
+  if (!assertion) throw new Error('passkey cancelada')
+  const r = assertion.response as AuthenticatorAssertionResponse
+  const body = {
+    id: assertion.id,
+    rawId: bufToB64url(assertion.rawId),
+    type: assertion.type,
+    response: {
+      authenticatorData: bufToB64url(r.authenticatorData),
+      clientDataJSON: bufToB64url(r.clientDataJSON),
+      signature: bufToB64url(r.signature),
+      userHandle: r.userHandle ? bufToB64url(r.userHandle) : '',
+    },
+  }
+  const { data: bundle } = await api.post<PasskeyTokenBundle>('/auth/passkey/login/finish', body, {
+    params: { username, session: data.session, remember: remember ? '1' : '' },
+  })
+  return bundle
 }
 
 // ── Swarm health (seeds / availability for cards) ────────────────────────────
@@ -1011,12 +1147,52 @@ export const localFileURL = (mount: string, path: string): string => {
   return withToken(`/api/local/file?${params}`)
 }
 
+// Formats browsers can play natively without transcoding.
+const NATIVE_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm', '.mov'])
+
+// localTranscodeURL returns a server-side transcode URL for formats browsers
+// can't decode natively (MKV, AVI, WMV, etc.).
+export const localTranscodeURL = (mount: string, path: string): string => {
+  const params = new URLSearchParams({ mount, path })
+  return withToken(`/api/local/transcode?${params}`)
+}
+
+// localVideoURL returns the best URL to play a local file: direct for
+// native formats, transcoded for everything else.
+export const localVideoURL = (mount: string, path: string): string => {
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase()
+  return NATIVE_VIDEO_EXTS.has(ext) ? localFileURL(mount, path) : localTranscodeURL(mount, path)
+}
+
 // localThumbURL returns an early-frame JPEG preview for a local video file
 // (204 server-side for non-videos / undecodable files; <img> onError falls back
 // to the generic icon).
 export const localThumbURL = (mount: string, path: string): string => {
   const params = new URLSearchParams({ mount, path })
   return withToken(`/api/local/thumb?${params}`)
+}
+
+// LocalPlaySource describes how the frontend should load a local file. The
+// backend probes the file (ffprobe) and either tells us to direct-play it
+// (browser-compatible container + codecs) or to load an HLS playlist that the
+// transcode pipeline produces on demand. Mirrors the torrent-side decision so
+// the player can stay codec-agnostic — it just sets <video src> to `url`.
+export interface LocalPlaySource {
+  kind: 'direct' | 'hls'
+  url: string         // ready to drop into <video src>, token already appended
+  reason?: string     // when kind=hls, why (e.g. "container=matroska", "vcodec=hevc")
+  vcodec?: string
+  acodec?: string
+  container?: string
+}
+
+// localPlay asks the server how to play a local file. The URL it returns is
+// ready to use — it already carries `?token=` so it works in <video src>
+// without the JS axios interceptor (which can't set headers on the element).
+export const localPlay = async (mount: string, path: string): Promise<LocalPlaySource> => {
+  const params = new URLSearchParams({ mount, path })
+  const { data } = await api.get<LocalPlaySource>(`/local/play?${params}`)
+  return data
 }
 
 // ─── Background downloads ──────────────────────────────────────────────────

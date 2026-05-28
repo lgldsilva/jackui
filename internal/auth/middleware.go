@@ -100,6 +100,7 @@ func extractToken(c *gin.Context) string {
 //   - /api/subtitles/download/* external (OpenSubtitles) VTT loaded via <track>
 //   - /api/local/file          local-filesystem file served to <video>
 //   - /api/local/thumb         local-file frame preview loaded via <img>
+//   - /api/local/hls/*         local-file HLS playlist + segments served to <video>
 //   - /api/search/stream       EventSource (SSE) search — EventSource has no way
 //                              to set headers, so the token must ride the query.
 func isMediaPath(path string) bool {
@@ -107,5 +108,6 @@ func isMediaPath(path string) bool {
 		strings.HasPrefix(path, "/api/subtitles/download/") ||
 		strings.HasPrefix(path, "/api/local/file") ||
 		strings.HasPrefix(path, "/api/local/thumb") ||
+		strings.HasPrefix(path, "/api/local/hls/") ||
 		strings.HasPrefix(path, "/api/search/stream")
 }

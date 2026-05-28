@@ -16,7 +16,9 @@ import { usePersistedState } from '../lib/storage'
 import {
   LocalEntry,
   LocalMount,
+  LocalPlaySource,
   localFileURL,
+  localPlay,
   localThumbURL,
   localList,
   localMounts,
@@ -132,8 +134,30 @@ function PlayerModal({
   path: string
   onClose: () => void
 }) {
-  const src = localFileURL(mount, path)
   const audio = isAudio(path)
+  // Ask the server whether the file is direct-playable (MP4/H.264/AAC) or
+  // needs HLS (MKV / HEVC / AC3 / etc.). Until the probe returns we render a
+  // small loader instead of pointing <video> at a URL that might 404 / refuse.
+  const [source, setSource] = useState<LocalPlaySource | null>(null)
+  const [probeErr, setProbeErr] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    if (audio) {
+      setSource({ kind: 'direct', url: localFileURL(mount, path) })
+      return
+    }
+    setSource(null)
+    setProbeErr('')
+    localPlay(mount, path)
+      .then((s) => { if (!cancelled) setSource(s) })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        const msg = e instanceof Error ? e.message : 'Erro ao preparar reprodução'
+        setProbeErr(msg)
+        setSource({ kind: 'direct', url: localFileURL(mount, path) })
+      })
+    return () => { cancelled = true }
+  }, [mount, path, audio])
 
   return (
     <div
@@ -154,12 +178,14 @@ function PlayerModal({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="bg-black flex items-center justify-center">
-          {audio ? (
-            <audio src={src} controls autoPlay className="w-full p-6" />
+        <div className="bg-black flex items-center justify-center min-h-[200px]">
+          {!source ? (
+            <div className="text-gray-400 text-sm p-6">Preparando reprodução…</div>
+          ) : audio ? (
+            <audio src={source.url} controls autoPlay className="w-full p-6" />
           ) : (
             <video
-              src={src}
+              src={source.url}
               controls
               autoPlay
               className="w-full max-h-[75vh]"
@@ -167,6 +193,11 @@ function PlayerModal({
             />
           )}
         </div>
+        {probeErr && (
+          <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-t border-amber-500/30">
+            {probeErr} — tentando direto.
+          </div>
+        )}
       </div>
     </div>
   )

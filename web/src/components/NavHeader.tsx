@@ -3,9 +3,11 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
   Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
+  Eye, EyeOff,
 } from 'lucide-react'
 import UserBadge from './UserBadge'
 import RateWidget from './RateWidget'
+import { useIncognito } from '../lib/incognito'
 
 interface Props {
   /** Optional custom element (e.g., a page-specific "back" button). Rendered in
@@ -44,6 +46,7 @@ const LINKS = [
 export default function NavHeader({ rightExtra }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [incognito, setIncognito] = useIncognito()
   const location = useLocation()
 
   useEffect(() => {
@@ -79,6 +82,26 @@ export default function NavHeader({ rightExtra }: Props) {
   // the desktop rail.
   const railWidth = collapsed ? 'md:w-16' : 'md:w-60'
   const drawerTransform = drawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+
+  const incognitoToggle = (variant: 'sidebar' | 'mobile') => {
+    const base = 'flex items-center justify-center rounded-lg transition-colors'
+    const cls = incognito
+      ? 'text-amber-300 bg-amber-500/10 ring-1 ring-amber-400/40 hover:bg-amber-500/20'
+      : 'text-gray-400 hover:text-gray-100 hover:bg-gray-700/40'
+    const size = variant === 'mobile' ? 'w-10 h-10' : 'w-9 h-9'
+    return (
+      <button
+        type="button"
+        onClick={() => setIncognito(!incognito)}
+        className={`${base} ${size} ${cls}`}
+        title={incognito ? 'Modo incógnito ATIVO — clique para sair' : 'Ativar modo incógnito (não grava histórico nem biblioteca)'}
+        aria-pressed={incognito}
+        aria-label="Modo incógnito"
+      >
+        {incognito ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+      </button>
+    )
+  }
 
   const panel = (
     <aside
@@ -138,6 +161,14 @@ export default function NavHeader({ rightExtra }: Props) {
           its icon. md:hidden only affects desktop, so the mobile drawer (always
           expanded) still shows everything. */}
       <div className={`flex-shrink-0 border-t border-gray-700/60 p-2 flex flex-col gap-2 safe-bottom overflow-hidden ${collapsed ? 'md:items-center' : ''}`}>
+        <div className={`flex items-center gap-2 ${collapsed ? 'md:justify-center' : ''}`}>
+          {incognitoToggle('sidebar')}
+          {incognito && !collapsed && (
+            <span className="text-[10px] font-semibold tracking-wider text-amber-300/90 uppercase">
+              Incógnito
+            </span>
+          )}
+        </div>
         <div className={collapsed ? 'md:hidden' : ''}><RateWidget /></div>
         {rightExtra && <div className={collapsed ? 'md:hidden' : ''}>{rightExtra}</div>}
         <UserBadge />
@@ -163,8 +194,16 @@ export default function NavHeader({ rightExtra }: Props) {
           <Link to="/" className="flex items-center gap-1 flex-1 min-w-0" title="Início">
             <span className="text-xl font-bold text-green-500">Jack</span>
             <span className="text-xl font-bold text-gray-100">UI</span>
+            {incognito && (
+              <span className="ml-2 text-[9px] font-semibold tracking-wider text-amber-300/90 uppercase">
+                Incógnito
+              </span>
+            )}
           </Link>
-          <div className="flex items-center gap-1 flex-shrink-0">{rightExtra}</div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {incognitoToggle('mobile')}
+            {rightExtra}
+          </div>
         </div>
       </header>
 
