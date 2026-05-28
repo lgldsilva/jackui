@@ -31,6 +31,7 @@ const (
 type Download struct {
 	ID              int        `json:"id"`
 	UserID          int        `json:"userId"`
+	Username        string     `json:"username,omitempty"` // populated only for admin listing
 	InfoHash        string     `json:"infoHash"`
 	FileIndex       int        `json:"fileIndex"`
 	FilePath        string     `json:"filePath"`
@@ -305,6 +306,78 @@ func (s *Store) ListAll() ([]Download, error) {
 	}
 	defer rows.Close()
 	return scanSlice(rows)
+}
+
+// ListFilteredAll returns downloads across ALL users, filtered by optional
+// criteria. Used by admin listing. Empty filters are ignored.
+func (s *Store) ListFilteredAll(status, tracker, category, search, userIDFilter, sortCol, sortDir string) ([]Download, error) {
+	q := "WHERE 1=1"
+	args := []any{}
+	if status != "" {
+		q += " AND status=?"
+		args = append(args, status)
+	}
+	if tracker != "" {
+		q += " AND tracker=?"
+		args = append(args, tracker)
+	}
+	if category != "" {
+		q += " AND category=?"
+		args = append(args, category)
+	}
+	if userIDFilter != "" {
+		q += " AND user_id=?"
+		args = append(args, userIDFilter)
+	}
+	if search != "" {
+		q += " AND (name LIKE ? OR file_path LIKE ?)"
+		s := "%" + search + "%"
+		args = append(args, s, s)
+	}
+	order := "created_at"
+	switch sortCol {
+	case "name":
+		order = "name"
+	case "size":
+		order = "file_size"
+	case "progress":
+		order = "bytes_downloaded"
+	case "status":
+		order = "status"
+	case "user_id", "username":
+		order = "user_id"
+	case "tracker":
+		order = "tracker"
+	case "category":
+		order = "category"
+	}
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
+}
+
+// DistinctUsers returns all distinct user_ids that have downloads.
+func (s *Store) DistinctUsers() ([]int, error) {
+	rows, err := s.db.Query("SELECT DISTINCT user_id FROM downloads ORDER BY user_id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int
+	for rows.Next() {
+		var uid int
+		if rows.Scan(&uid) == nil {
+			out = append(out, uid)
+		}
+	}
+	return out, rows.Err()
 }
 
 // DistinctTrackers returns all distinct tracker values for the user.

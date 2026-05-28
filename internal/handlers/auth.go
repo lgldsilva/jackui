@@ -1,12 +1,17 @@
 package handlers
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/config"
 )
 
 const (
@@ -498,6 +503,71 @@ func ListUsers(store *auth.Store) gin.HandlerFunc {
 			users = []auth.User{}
 		}
 		c.JSON(http.StatusOK, users)
+	}
+}
+
+// SetNtfyTopic handles POST /api/user/ntfy-topic — updates the logged-in
+// user's ntfy.sh notification topic. Body: { topic: string }.
+func SetNtfyTopic(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Topic string `json:"topic"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "topic required"})
+			return
+		}
+		claims, _ := auth.ClaimsFromCtx(c)
+		if err := store.SetNtfyTopic(claims.UserID, req.Topic); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "tópico atualizado"})
+	}
+}
+
+// NotifyTest handles POST /api/user/notify-test — sends a test push
+// notification to the user's ntfy topic (or the global default). Useful for
+// verifying that ntfy is configured correctly from the Settings UI.
+func NotifyTest(cfg *config.Config, store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		baseURL := cfg.Notifications.NtfyBaseURL
+		if baseURL == "" {
+			baseURL = "https://ntfy.sh"
+		}
+		topic := cfg.Notifications.NtfyDefaultTopic
+		if store != nil {
+			if claims, ok := auth.ClaimsFromCtx(c); ok {
+				if user, err := store.GetUserByID(claims.UserID); err == nil && user.NtfyTopic != "" {
+					topic = user.NtfyTopic
+				}
+			}
+		}
+		if topic == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum tópico ntfy configurado"})
+			return
+		}
+		url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), topic)
+		host, _ := os.Hostname()
+		body := fmt.Sprintf("Notificação de teste do JackUI (%s)", host)
+		req, err := http.NewRequestWithContext(c.Request.Context(), "POST", url, bytes.NewBufferString(body))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		req.Header.Set("Title", "JackUI — Teste de Notificação")
+		req.Header.Set("Tags", "test,rocket")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("ntfy retornou %d", resp.StatusCode)})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "notificação de teste enviada"})
 	}
 }
 
