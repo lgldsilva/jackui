@@ -191,6 +191,28 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("TMDB_API_KEY"); v != "" {
 		cfg.TMDB.APIKey = v
 	}
+	// JACKUI_EXTERNAL_MOUNTS lets the deploy declare browsable mounts without
+	// editing config.yaml — format: "Name:/abs/path,Other:/abs/path2". Merged
+	// into external.mounts, skipping paths already present.
+	if v := os.Getenv("JACKUI_EXTERNAL_MOUNTS"); v != "" {
+		seen := map[string]bool{}
+		for _, m := range cfg.External.Mounts {
+			seen[m.Path] = true
+		}
+		for _, spec := range strings.Split(v, ",") {
+			spec = strings.TrimSpace(spec)
+			i := strings.Index(spec, ":")
+			if i <= 0 || i == len(spec)-1 {
+				continue // need "Name:/path"
+			}
+			name, path := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+			if name == "" || path == "" || seen[path] {
+				continue
+			}
+			cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path})
+			seen[path] = true
+		}
+	}
 
 	applyAIEnv(cfg)
 

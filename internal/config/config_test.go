@@ -6,6 +6,27 @@ import (
 	"testing"
 )
 
+func TestExternalMountsEnv(t *testing.T) {
+	cfg := &Config{}
+	cfg.External.Mounts = []ExternalMount{{Name: "Existing", Path: "/mnt/existing"}}
+	t.Setenv("JACKUI_EXTERNAL_MOUNTS", "Downloads:/mnt/downloads, JackTrack:/mnt/jacktrack,/mnt/existing,bad")
+
+	applyEnvOverrides(cfg)
+
+	// Expect: existing kept + 2 new (the /mnt/existing dup and the malformed
+	// "bad" entry are skipped).
+	if len(cfg.External.Mounts) != 3 {
+		t.Fatalf("got %d mounts, want 3: %+v", len(cfg.External.Mounts), cfg.External.Mounts)
+	}
+	byName := map[string]string{}
+	for _, m := range cfg.External.Mounts {
+		byName[m.Name] = m.Path
+	}
+	if byName["Downloads"] != "/mnt/downloads" || byName["JackTrack"] != "/mnt/jacktrack" {
+		t.Fatalf("env mounts not merged correctly: %+v", cfg.External.Mounts)
+	}
+}
+
 func TestLoad_CreatesDefaultWhenMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 
