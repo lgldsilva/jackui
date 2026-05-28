@@ -273,7 +273,9 @@ func (w *Worker) reconcile(d Download) {
 		w.mu.Unlock()
 		log.Printf("downloads: completed #%d %q", d.ID, td.name)
 		body := fmt.Sprintf("%s · %.2f MB", td.name, float64(td.file.Length())/1048576)
-		w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
+		// Fire-and-forget: sendNtfy has its own retry backoff (up to 7 min
+		// total) — must not block the tick loop or delay Worker.Stop().
+		go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
 	}
 }
 
@@ -402,7 +404,7 @@ func (w *Worker) failOrRetry(d Download, msg string) {
 		if name == "" {
 			name = d.InfoHash
 		}
-		w.sendNtfy(context.Background(), "Download falhou: "+name, msg, "x,torrent")
+		go w.sendNtfy(context.Background(), "Download falhou: "+name, msg, "x,torrent")
 		return
 	}
 	log.Printf("downloads: init #%d (%s) transient failure %d/%d: %s", d.ID, d.InfoHash, n, maxInitRetries, msg)
@@ -467,18 +469,18 @@ func moveFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(dst)
+		_ = out.Close()
+		_ = os.Remove(dst)
 		return err
 	}
 	if err := out.Close(); err != nil {
-		os.Remove(dst)
+		_ = os.Remove(dst)
 		return err
 	}
 	return os.Remove(src)

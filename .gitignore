@@ -24,6 +24,7 @@ config.yaml
 # Go
 *.test
 coverage.out
+*.cov
 
 # IDE / editor metadata
 .idea/

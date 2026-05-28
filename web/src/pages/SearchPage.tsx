@@ -420,8 +420,8 @@ export default function SearchPage() {
     setTimeout(() => searchInputRef.current?.focus(), 50)
   }
 
-  const closeTab = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const closeTab = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
     const existing = esMap.current.get(id)
     if (existing) { existing.close(); esMap.current.delete(id) }
     setTabs(prev => {
@@ -441,7 +441,7 @@ export default function SearchPage() {
   // All trackers seen in current tab results
   const trackers = useMemo(() => {
     const set = new Set(activeTab.results.map(r => r.tracker).filter(Boolean))
-    return ['all', ...Array.from(set).sort()]
+    return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
   }, [activeTab.results])
 
   // Filtered + sorted results (after dedup-grouping by infoHash)
@@ -487,6 +487,8 @@ export default function SearchPage() {
               {tabs.length > 1 && (
                 <span
                   onClick={e => closeTab(tab.id, e)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeTab(tab.id) } }}
+                  role="button" tabIndex={0}
                   className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0 cursor-pointer p-0.5"
                 >
                   <X className="w-3.5 h-3.5" />

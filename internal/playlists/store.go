@@ -50,13 +50,13 @@ func New(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Store) Close() { s.db.Close() }
+func (s *Store) Close() { _ = s.db.Close() }
 
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`
@@ -121,7 +121,7 @@ func (s *Store) List(userID int, includeAll bool) ([]Playlist, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []Playlist{}
 	for rows.Next() {
 		var p Playlist
@@ -208,7 +208,7 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 	}
 	// Determine next position
 	var maxPos sql.NullInt64
-	s.db.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos)
+	_ = s.db.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos)
 	nextPos := 0
 	if maxPos.Valid {
 		nextPos = int(maxPos.Int64) + 1
@@ -218,7 +218,7 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var libraryIDArg any
 	if item.LibraryID != nil {
@@ -255,7 +255,7 @@ func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []Item{}
 	for rows.Next() {
 		var it Item
@@ -284,7 +284,7 @@ func (s *Store) RemoveItem(playlistID, itemID, userID int, includeAll bool) erro
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var pos int
 	if err := tx.QueryRow(`SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
@@ -314,7 +314,7 @@ func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var curPos int
 	if err := tx.QueryRow(`SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
@@ -326,15 +326,15 @@ func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool)
 	}
 	if newPos > curPos {
 		// Shift items between (curPos, newPos] down by 1
-		tx.Exec(`UPDATE playlist_items SET position = position - 1
+		_, _ = tx.Exec(`UPDATE playlist_items SET position = position - 1
 		         WHERE playlist_id = ? AND position > ? AND position <= ?`, playlistID, curPos, newPos)
 	} else {
 		// Shift items between [newPos, curPos) up by 1
-		tx.Exec(`UPDATE playlist_items SET position = position + 1
+		_, _ = tx.Exec(`UPDATE playlist_items SET position = position + 1
 		         WHERE playlist_id = ? AND position >= ? AND position < ?`, playlistID, newPos, curPos)
 	}
-	tx.Exec(`UPDATE playlist_items SET position = ? WHERE id = ?`, newPos, itemID)
-	tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID)
+	_, _ = tx.Exec(`UPDATE playlist_items SET position = ? WHERE id = ?`, newPos, itemID)
+	_, _ = tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID)
 	return tx.Commit()
 }
 
@@ -343,11 +343,11 @@ func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool)
 func (s *Store) ownsPlaylist(playlistID, userID int, includeAll bool) bool {
 	if includeAll {
 		var n int
-		s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ?`, playlistID).Scan(&n)
+		_ = s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ?`, playlistID).Scan(&n)
 		return n > 0
 	}
 	var n int
-	s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ? AND user_id = ?`, playlistID, userID).Scan(&n)
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ? AND user_id = ?`, playlistID, userID).Scan(&n)
 	return n > 0
 }
 

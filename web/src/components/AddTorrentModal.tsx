@@ -390,6 +390,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
+      role="dialog" aria-modal="true" tabIndex={-1}
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         <header className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-850">
@@ -426,6 +428,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
+                role="button" tabIndex={0}
                 className={`
                   border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
                   ${dragActive 
@@ -642,6 +646,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                                   key={f.index} 
                                   className="px-2.5 py-1.5 flex items-center gap-2 hover:bg-gray-800/40 cursor-pointer text-xs"
                                   onClick={toggle}
+                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
+                                  role="button" tabIndex={0}
                                 >
                                   <input
                                     type="checkbox"

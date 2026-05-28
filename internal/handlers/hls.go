@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/streamer"
@@ -41,7 +42,7 @@ func buildVODPlaylist(durationSec float64, token string) []byte {
 	b.WriteString("#EXT-X-VERSION:6\n")
 	// TARGETDURATION must be >= the longest EXTINF; segments are ~4s but allow
 	// slack for the trailing partial segment and minor keyframe rounding.
-	b.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", hlsVODSegDur+1))
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsVODSegDur+1)
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
 	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
@@ -52,8 +53,8 @@ func buildVODPlaylist(durationSec float64, token string) []byte {
 				d = last
 			}
 		}
-		b.WriteString(fmt.Sprintf("#EXTINF:%.3f,\n", d))
-		b.WriteString(fmt.Sprintf("seg_%05d.ts%s\n", i, q))
+		fmt.Fprintf(&b, "#EXTINF:%.3f,\n", d)
+		fmt.Fprintf(&b, "seg_%05d.ts%s\n", i, q)
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
 	return []byte(b.String())
@@ -82,44 +83,10 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 			return
 		}
 
-		var transcodeSource io.ReadSeekCloser
-		var transcodeSourceSize int64
-
-		if store != nil {
-			if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
-				if stat, err := os.Stat(path); err == nil {
-					f, err := os.Open(path)
-					if err == nil {
-						transcodeSource = f
-						transcodeSourceSize = stat.Size()
-					}
-				}
-			}
-		}
-
+		transcodeSource, transcodeSourceSize := resolveTranscodeSource(c, s, store, h, fileIdx)
 		if transcodeSource == nil {
-			// Make sure the torrent is active; auto-add via bare magnet if it
-			// got dropped after a deploy or idle GC (mirrors the M3U handler).
-			if _, err := s.Get(h); err != nil {
-				bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
-				if _, addErr := s.Add(c.Request.Context(), bareMagnet); addErr != nil {
-					c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-					return
-				}
-			}
-
-			reader, file, err := s.FileReader(h, fileIdx)
-			if err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-				return
-			}
-			transcodeSource = reader
-			transcodeSourceSize = file.Length()
+			return
 		}
-
-		// IMPORTANT: don't `defer reader.Close()` here — the reader is
-		// handed to ffmpeg which lives across this request's lifetime. We
-		// rely on ffmpeg exit to release the underlying anacrolix Reader.
 
 		key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
 		sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
@@ -132,37 +99,7 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 			return
 		}
 
-		// First segment appears ~4s after ffmpeg starts on 1080p. Large HEVC
-		// MKVs over a torrent need much longer: the demuxer reads the header,
-		// seeks to the Cues at EOF, then has to pull enough video clusters to
-		// fill a 4s segment — all gated on piece arrival. 5 min is generous but
-		// "slow to download" must NOT be treated as failure (user's call). The
-		// session stays alive the whole time (WaitForMaster bumps LastAccess so
-		// the gcLoop won't reap it), and the buffering overlay shows live
-		// progress so the wait is legible rather than a frozen spinner.
-		if err := sess.WaitForMaster(2 * time.Minute); err != nil {
-			// Classify WHY it failed so the UI can show an honest message
-			// instead of the misleading "codec/container não compatível".
-			// A healthy swarm delivers enough for the first segment within 90s;
-			// if barely anything downloaded, the bottleneck is the swarm, not
-			// the codec. Surface real metrics (rate, %, peers) either way.
-			resp := gin.H{"error": err.Error(), "code": "transcode_failed"}
-			if info, gerr := s.Get(h); gerr == nil {
-				resp["downRate"] = info.DownRate
-				resp["peers"] = info.Peers
-				var fileDownloaded int64
-				if fileIdx >= 0 && fileIdx < len(info.Files) {
-					resp["fileProgress"] = info.Files[fileIdx].Progress
-					fileDownloaded = info.Files[fileIdx].Downloaded
-				}
-				switch {
-				case info.Peers == 0:
-					resp["code"] = "no_seeds"
-				case fileDownloaded < 30<<20: // < 30 MB after 90s ⇒ starving
-					resp["code"] = "slow_download"
-				}
-			}
-			c.JSON(http.StatusServiceUnavailable, resp)
+		if !waitForMasterPlaylist(c, s, sess, h, fileIdx) {
 			return
 		}
 
@@ -265,4 +202,56 @@ func getSession(mgr *transcode.HLSSessionManager, key string) (*transcode.HLSSes
 	// For simplicity, return an error here when the session isn't already
 	// tracked — clients refetch the playlist which respawns properly.
 	return mgr.Peek(key)
+}
+
+// resolveTranscodeSource tries the completed-download store first, then falls
+// back to activating the torrent and opening a streaming reader.
+func resolveTranscodeSource(c *gin.Context, s *streamer.Streamer, store *downloads.Store, h metainfo.Hash, fileIdx int) (io.ReadSeekCloser, int64) {
+	if store != nil {
+		if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
+			if stat, err := os.Stat(path); err == nil {
+				if f, err := os.Open(path); err == nil {
+					return f, stat.Size()
+				}
+			}
+		}
+	}
+	if _, err := s.Get(h); err != nil {
+		bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
+		if _, addErr := s.Add(c.Request.Context(), bareMagnet); addErr != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return nil, 0
+		}
+	}
+	reader, file, err := s.FileReader(h, fileIdx)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return nil, 0
+	}
+	return reader, file.Length()
+}
+
+// waitForMasterPlaylist blocks until the first HLS segment is ready. On failure
+// it classifies the reason (no_seeds, slow_download) and responds with 503.
+func waitForMasterPlaylist(c *gin.Context, s *streamer.Streamer, sess *transcode.HLSSession, h metainfo.Hash, fileIdx int) bool {
+	if err := sess.WaitForMaster(2 * time.Minute); err != nil {
+		resp := gin.H{"error": err.Error(), "code": "transcode_failed"}
+		if info, gerr := s.Get(h); gerr == nil {
+			resp["downRate"] = info.DownRate
+			resp["peers"] = info.Peers
+			if fileIdx >= 0 && fileIdx < len(info.Files) {
+				resp["fileProgress"] = info.Files[fileIdx].Progress
+				downloaded := info.Files[fileIdx].Downloaded
+				switch {
+				case info.Peers == 0:
+					resp["code"] = "no_seeds"
+				case downloaded < 30<<20:
+					resp["code"] = "slow_download"
+				}
+			}
+		}
+		c.JSON(http.StatusServiceUnavailable, resp)
+		return false
+	}
+	return true
 }

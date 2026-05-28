@@ -22,42 +22,55 @@ type clientResponse struct {
 	Default bool   `json:"default"`
 }
 
+func parseDownloadRequest(c *gin.Context) (*downloadRequest, bool) {
+	var req downloadRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return nil, false
+	}
+	if req.MagnetURI == "" && req.TorrentURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "magnetUri or torrentUrl is required"})
+		return nil, false
+	}
+	return &req, true
+}
+
+func resolveDownloadClient(cfg *config.Config, clientID string) *config.DownloadClient {
+	if clientID == "" {
+		for i := range cfg.DownloadClients {
+			if cfg.DownloadClients[i].Default {
+				return &cfg.DownloadClients[i]
+			}
+		}
+		if len(cfg.DownloadClients) > 0 {
+			return &cfg.DownloadClients[0]
+		}
+		return nil
+	}
+	for i := range cfg.DownloadClients {
+		if cfg.DownloadClients[i].ID == clientID {
+			return &cfg.DownloadClients[i]
+		}
+	}
+	return nil
+}
+
+func addToDownloadClient(client downloader.Client, req *downloadRequest) error {
+	if req.MagnetURI != "" {
+		return client.AddMagnet(req.MagnetURI, req.SavePath)
+	}
+	return client.AddTorrentURL(req.TorrentURL, req.SavePath)
+}
+
 // Download handles POST /api/download
 func Download(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req downloadRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		req, ok := parseDownloadRequest(c)
+		if !ok {
 			return
 		}
 
-		if req.MagnetURI == "" && req.TorrentURL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "magnetUri or torrentUrl is required"})
-			return
-		}
-
-		// Find the download client
-		var selectedClient *config.DownloadClient
-		if req.ClientID == "" {
-			// Use default client
-			for i := range cfg.DownloadClients {
-				if cfg.DownloadClients[i].Default {
-					selectedClient = &cfg.DownloadClients[i]
-					break
-				}
-			}
-			if selectedClient == nil && len(cfg.DownloadClients) > 0 {
-				selectedClient = &cfg.DownloadClients[0]
-			}
-		} else {
-			for i := range cfg.DownloadClients {
-				if cfg.DownloadClients[i].ID == req.ClientID {
-					selectedClient = &cfg.DownloadClients[i]
-					break
-				}
-			}
-		}
-
+		selectedClient := resolveDownloadClient(cfg, req.ClientID)
 		if selectedClient == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no download client found"})
 			return
@@ -69,16 +82,9 @@ func Download(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if req.MagnetURI != "" {
-			if err := client.AddMagnet(req.MagnetURI, req.SavePath); err != nil {
-				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-				return
-			}
-		} else {
-			if err := client.AddTorrentURL(req.TorrentURL, req.SavePath); err != nil {
-				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-				return
-			}
+		if err := addToDownloadClient(client, req); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "torrent added successfully"})

@@ -177,12 +177,33 @@ func (c *Config) Save(path string) error {
 // applyEnvOverrides sobrescreve valores do YAML com variáveis de ambiente quando definidas.
 // JACKUI_PORT, JACKETT_URL, JACKETT_API_KEY são os mais comuns em Docker.
 func applyEnvOverrides(cfg *Config) {
+	applyJackettEnv(cfg)
+	applyStreamEnv(cfg)
+	applyAuthEnv(cfg)
+	applyNotificationsEnv(cfg)
+	applyTMDBEnv(cfg)
+	applyExternalMountsEnv(cfg)
+	applySMTPEnv(cfg)
+	applyAIEnv(cfg)
+
+	if cfg.Stream.IdleMinutes == 0 {
+		cfg.Stream.IdleMinutes = 30
+	}
+	if cfg.Stream.MetadataSeconds == 0 {
+		cfg.Stream.MetadataSeconds = 60
+	}
+}
+
+func applyJackettEnv(cfg *Config) {
 	if v := os.Getenv("JACKETT_URL"); v != "" {
 		cfg.Jackett.URL = v
 	}
 	if v := os.Getenv("JACKETT_API_KEY"); v != "" {
 		cfg.Jackett.APIKey = v
 	}
+}
+
+func applyStreamEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 0 {
 			cfg.Port = p
@@ -208,6 +229,9 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Stream.MaxCacheGB = n
 		}
 	}
+}
+
+func applyAuthEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_AUTH_ENABLED"); v == "1" || v == "true" {
 		cfg.Auth.Enabled = true
 	}
@@ -220,42 +244,51 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("JACKUI_JWT_SECRET"); v != "" {
 		cfg.Auth.JWTSecret = v
 	}
+}
+
+func applyNotificationsEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_NTFY_TOPIC"); v != "" {
 		cfg.Notifications.NtfyDefaultTopic = v
 	}
 	if v := os.Getenv("JACKUI_NTFY_URL"); v != "" {
 		cfg.Notifications.NtfyBaseURL = v
 	}
+}
+
+func applyTMDBEnv(cfg *Config) {
 	if v := os.Getenv("TMDB_API_KEY"); v != "" {
 		cfg.TMDB.APIKey = v
 	}
 	if v := os.Getenv("OMDB_API_KEY"); v != "" {
 		cfg.TMDB.OMDbAPIKey = v
 	}
-	// JACKUI_EXTERNAL_MOUNTS lets the deploy declare browsable mounts without
-	// editing config.yaml — format: "Name:/abs/path,Other:/abs/path2". Merged
-	// into external.mounts, skipping paths already present.
-	if v := os.Getenv("JACKUI_EXTERNAL_MOUNTS"); v != "" {
-		seen := map[string]bool{}
-		for _, m := range cfg.External.Mounts {
-			seen[m.Path] = true
-		}
-		for _, spec := range strings.Split(v, ",") {
-			spec = strings.TrimSpace(spec)
-			i := strings.Index(spec, ":")
-			if i <= 0 || i == len(spec)-1 {
-				continue // need "Name:/path"
-			}
-			name, path := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
-			if name == "" || path == "" || seen[path] {
-				continue
-			}
-			cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path})
-			seen[path] = true
-		}
-	}
+}
 
-	// SMTP + base URL — credentials live in env (gitignored), not committed yaml.
+func applyExternalMountsEnv(cfg *Config) {
+	v := os.Getenv("JACKUI_EXTERNAL_MOUNTS")
+	if v == "" {
+		return
+	}
+	seen := map[string]bool{}
+	for _, m := range cfg.External.Mounts {
+		seen[m.Path] = true
+	}
+	for _, spec := range strings.Split(v, ",") {
+		spec = strings.TrimSpace(spec)
+		i := strings.Index(spec, ":")
+		if i <= 0 || i == len(spec)-1 {
+			continue
+		}
+		name, path := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+		if name == "" || path == "" || seen[path] {
+			continue
+		}
+		cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path})
+		seen[path] = true
+	}
+}
+
+func applySMTPEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_SMTP_HOST"); v != "" {
 		cfg.SMTP.Host = v
 	}
@@ -275,16 +308,6 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("JACKUI_BASE_URL"); v != "" {
 		cfg.BaseURL = v
-	}
-
-	applyAIEnv(cfg)
-
-	// Sensible defaults if not set anywhere
-	if cfg.Stream.IdleMinutes == 0 {
-		cfg.Stream.IdleMinutes = 30
-	}
-	if cfg.Stream.MetadataSeconds == 0 {
-		cfg.Stream.MetadataSeconds = 60
 	}
 }
 
@@ -431,7 +454,7 @@ func fetchModels(baseURL, apiKey string) []string {
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return nil
 	}

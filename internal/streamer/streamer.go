@@ -546,38 +546,16 @@ func isBlockedFetchIP(ip net.IP) bool {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*torrent.Torrent, error) {
-	var capturedMagnet string
-
-	// Trust the configured Jackett host (its /dl/ links are legit private LAN
-	// addresses) and inject the apikey here so it never rides through the
-	// browser. Other private targets stay blocked — a Jackett redirect to an
-	// internal address is still refused.
-	if s.cfg.JackettHost != "" {
-		if u, err := url.Parse(torrentURL); err == nil && u.Hostname() == s.cfg.JackettHost {
-			if s.cfg.JackettAPIKey != "" && u.Query().Get("apikey") == "" {
-				q := u.Query()
-				q.Set("apikey", s.cfg.JackettAPIKey)
-				u.RawQuery = q.Encode()
-				torrentURL = u.String()
-			}
-		}
-	}
-
-	httpClient := &http.Client{
+func newSSRFGuardedClient(jackettHost string, capturedMagnet *string) *http.Client {
+	return &http.Client{
 		Timeout: 30 * time.Second,
-		// SSRF guard: resolve the host and refuse private/loopback/link-local
-		// targets BEFORE connecting, then dial the exact IP we vetted (so DNS
-		// can't rebind between the check and the dial). Applies to the initial
-		// URL and every redirect, since they share this transport. The configured
-		// Jackett host is exempt (trusted homelab indexer on a private IP).
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
 				if err != nil {
 					return nil, err
 				}
-				trusted := s.cfg.JackettHost != "" && host == s.cfg.JackettHost
+				trusted := jackettHost != "" && host == jackettHost
 				ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 				if err != nil {
 					return nil, err
@@ -595,8 +573,8 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*t
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if strings.HasPrefix(strings.ToLower(req.URL.String()), "magnet:") {
-				capturedMagnet = req.URL.String()
-				return http.ErrUseLastResponse // stop following, return the previous response
+				*capturedMagnet = req.URL.String()
+				return http.ErrUseLastResponse
 			}
 			if len(via) >= 10 {
 				return fmt.Errorf("too many redirects")
@@ -604,27 +582,34 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*t
 			return nil
 		},
 	}
+}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", torrentURL, nil)
+func (s *Streamer) injectJackettAPIKey(torrentURL string) string {
+	if s.cfg.JackettHost == "" {
+		return torrentURL
+	}
+	u, err := url.Parse(torrentURL)
+	if err != nil || u.Hostname() != s.cfg.JackettHost {
+		return torrentURL
+	}
+	if s.cfg.JackettAPIKey == "" || u.Query().Get("apikey") != "" {
+		return torrentURL
+	}
+	q := u.Query()
+	q.Set("apikey", s.cfg.JackettAPIKey)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func (s *Streamer) addFromCapturedMagnet(magnet string) (*torrent.Torrent, error) {
+	t, err := s.client.AddMagnet(magnet)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("add magnet from redirect: %w", err)
 	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch torrent URL: %w", err)
-	}
-	defer resp.Body.Close()
+	return t, nil
+}
 
-	// Case 1: server redirected to a magnet URI → add as magnet
-	if capturedMagnet != "" {
-		t, merr := s.client.AddMagnet(capturedMagnet)
-		if merr != nil {
-			return nil, fmt.Errorf("add magnet from redirect: %w", merr)
-		}
-		return t, nil
-	}
-
-	// Case 2: direct .torrent file response
+func (s *Streamer) addFromTorrentResponse(resp *http.Response) (*torrent.Torrent, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf(".torrent URL returned %d", resp.StatusCode)
 	}
@@ -638,6 +623,28 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*t
 	}
 	t, _, err := s.client.AddTorrentSpec(spec)
 	return t, err
+}
+
+func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*torrent.Torrent, error) {
+	var capturedMagnet string
+
+	torrentURL = s.injectJackettAPIKey(torrentURL)
+	httpClient := newSSRFGuardedClient(s.cfg.JackettHost, &capturedMagnet)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", torrentURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch torrent URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if capturedMagnet != "" {
+		return s.addFromCapturedMagnet(capturedMagnet)
+	}
+	return s.addFromTorrentResponse(resp)
 }
 
 // Get returns the current TorrentInfo for an active torrent.
@@ -980,9 +987,7 @@ func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
 	// Populate announce trackers list
 	mi := t.Metainfo()
 	for _, tier := range mi.UpvertedAnnounceList() {
-		for _, tr := range tier {
-			info.Trackers = append(info.Trackers, tr)
-		}
+		info.Trackers = append(info.Trackers, tier...)
 	}
 
 	files := t.Files()
@@ -1138,45 +1143,10 @@ func (s *Streamer) Stats() (*CacheStats, error) {
 		MaxSize: s.cfg.MaxCacheSize,
 	}
 
-	// Build (a) a set of active torrent names so we can flag entries and
-	// (b) a name → hex-hash map so callers can re-activate Drop'd torrents
-	// (the Play button on the cache list uses this to feed a bare magnet
-	// back through /api/stream/add when the torrent is no longer loaded).
-	s.mu.Lock()
-	activeNames := make(map[string]bool, len(s.active))
-	nameToHash := make(map[string]string, len(s.active))
-	for h, e := range s.active {
-		name := e.t.Name()
-		activeNames[name] = true
-		nameToHash[name] = h.HexString()
-	}
-	st.NumActive = len(s.active)
-	s.mu.Unlock()
+	activeNames, nameToHash, numActive := s.buildActiveMaps()
+	st.NumActive = numActive
 
-	// Augment the name → hash map with persisted .torrent files. This covers
-	// the common case: torrent was Drop'd by GC, files remain on disk, and the
-	// UI still wants to offer Play. Best-effort — parse failures are skipped.
-	if s.metainfoDir != "" {
-		if mEnts, err := os.ReadDir(s.metainfoDir); err == nil {
-			for _, m := range mEnts {
-				if m.IsDir() || !strings.HasSuffix(m.Name(), ".torrent") {
-					continue
-				}
-				mi, err := metainfo.LoadFromFile(filepath.Join(s.metainfoDir, m.Name()))
-				if err != nil {
-					continue
-				}
-				info, err := mi.UnmarshalInfo()
-				if err != nil || info.Name == "" {
-					continue
-				}
-				// Active torrents already filled this slot — don't overwrite.
-				if _, ok := nameToHash[info.Name]; !ok {
-					nameToHash[info.Name] = mi.HashInfoBytes().HexString()
-				}
-			}
-		}
-	}
+	s.augmentNameToHashFromMetainfo(nameToHash)
 
 	entries, err := os.ReadDir(s.cfg.DataDir)
 	if err != nil {
@@ -1203,12 +1173,50 @@ func (s *Streamer) Stats() (*CacheStats, error) {
 		st.TotalSize += size
 	}
 
-	// Sort newest first
 	sort.Slice(st.Entries, func(i, j int) bool {
 		return st.Entries[i].ModTime.After(st.Entries[j].ModTime)
 	})
 
 	return st, nil
+}
+
+func (s *Streamer) buildActiveMaps() (map[string]bool, map[string]string, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	activeNames := make(map[string]bool, len(s.active))
+	nameToHash := make(map[string]string, len(s.active))
+	for h, e := range s.active {
+		name := e.t.Name()
+		activeNames[name] = true
+		nameToHash[name] = h.HexString()
+	}
+	return activeNames, nameToHash, len(s.active)
+}
+
+func (s *Streamer) augmentNameToHashFromMetainfo(nameToHash map[string]string) {
+	if s.metainfoDir == "" {
+		return
+	}
+	mEnts, err := os.ReadDir(s.metainfoDir)
+	if err != nil {
+		return
+	}
+	for _, m := range mEnts {
+		if m.IsDir() || !strings.HasSuffix(m.Name(), ".torrent") {
+			continue
+		}
+		mi, err := metainfo.LoadFromFile(filepath.Join(s.metainfoDir, m.Name()))
+		if err != nil {
+			continue
+		}
+		info, err := mi.UnmarshalInfo()
+		if err != nil || info.Name == "" {
+			continue
+		}
+		if _, ok := nameToHash[info.Name]; !ok {
+			nameToHash[info.Name] = mi.HashInfoBytes().HexString()
+		}
+	}
 }
 
 // ClearAll drops every active torrent and wipes the DataDir, *except* favorites.

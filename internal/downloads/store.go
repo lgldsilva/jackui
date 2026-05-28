@@ -63,13 +63,13 @@ func New(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Store) Close() { s.db.Close() }
+func (s *Store) Close() { _ = s.db.Close() }
 
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`

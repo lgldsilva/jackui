@@ -49,7 +49,7 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "falha ao contactar Jackett"})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			c.JSON(resp.StatusCode, gin.H{"error": "Jackett retornou erro"})

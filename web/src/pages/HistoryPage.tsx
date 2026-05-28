@@ -237,7 +237,7 @@ export default function HistoryPage() {
   // All trackers in current result set
   const trackers = useMemo(() => {
     const set = new Set(results.map(r => r.tracker).filter(Boolean))
-    return ['all', ...Array.from(set).sort()]
+    return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
   }, [results])
 
   // Filtered + sorted results (with infoHash grouping)
@@ -262,7 +262,7 @@ export default function HistoryPage() {
 
   const globalTrackers = useMemo(() => {
     const set = new Set(globalResults.map(r => r.tracker).filter(Boolean))
-    return ['all', ...Array.from(set).sort()]
+    return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
   }, [globalResults])
 
   return (

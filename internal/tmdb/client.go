@@ -79,7 +79,7 @@ func New(apiKey, omdbKey, cachePath string) (*Client, error) {
 			cached_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)
 	`); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return &Client{
@@ -201,7 +201,7 @@ func (c *Client) backfillRating(key string, m Match) {
 	m.ImdbRating = rating
 	b, _ := json.Marshal(&m)
 	// Preserve cached_at so the backfill doesn't extend the TTL of a stale match.
-	c.cache.Exec(`UPDATE tmdb_match SET payload=? WHERE cache_key=?`, string(b), key)
+	_, _ = c.cache.Exec(`UPDATE tmdb_match SET payload=? WHERE cache_key=?`, string(b), key)
 }
 
 func (c *Client) setCached(key string, m *Match) {
@@ -210,7 +210,7 @@ func (c *Client) setCached(key string, m *Match) {
 		b, _ := json.Marshal(m)
 		payload = string(b)
 	}
-	c.cache.Exec(`
+	_, _ = c.cache.Exec(`
 		INSERT INTO tmdb_match(cache_key, payload, cached_at)
 		VALUES(?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload, cached_at=CURRENT_TIMESTAMP
@@ -244,7 +244,7 @@ func (c *Client) fetchImdbID(ctx context.Context, kind string, tmdbID int) strin
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
@@ -270,7 +270,7 @@ func (c *Client) fetchImdbRating(ctx context.Context, imdbID string) float64 {
 	if err != nil {
 		return 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return 0
 	}

@@ -76,13 +76,13 @@ func New(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *Store) Close() { s.db.Close() }
+func (s *Store) Close() { _ = s.db.Close() }
 
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`
@@ -186,7 +186,7 @@ func (s *Store) hasColumn(table, col string) bool {
 	if err != nil {
 		return false
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err == nil && n == col {
@@ -315,7 +315,7 @@ func (s *Store) GenerateBackupCodes(userID, n int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.Exec("DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
 		return nil, err
 	}
@@ -358,7 +358,7 @@ func (s *Store) ConsumeBackupCode(userID int, code string) bool {
 // CountBackupCodes returns how many unused backup codes a user has left.
 func (s *Store) CountBackupCodes(userID int) int {
 	var n int
-	s.db.QueryRow("SELECT COUNT(*) FROM mfa_backup_codes WHERE user_id = ? AND used_at IS NULL", userID).Scan(&n)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM mfa_backup_codes WHERE user_id = ? AND used_at IS NULL", userID).Scan(&n)
 	return n
 }
 
@@ -509,7 +509,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []User
 	for rows.Next() {
 		var u User
@@ -613,7 +613,7 @@ func (s *Store) Credentials(userID int) ([]webauthn.Credential, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []webauthn.Credential{}
 	for rows.Next() {
 		var blob string
@@ -642,7 +642,7 @@ func (s *Store) UpdateCredential(cred *webauthn.Credential) error {
 // HasPasskey reports whether a user has at least one registered passkey.
 func (s *Store) HasPasskey(userID int) bool {
 	var n int
-	s.db.QueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&n)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&n)
 	return n > 0
 }
 
@@ -742,7 +742,7 @@ func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	curHash := ""
 	if currentPlain != "" {
 		curHash = sha256Hex(currentPlain)

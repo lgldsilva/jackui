@@ -2,7 +2,7 @@
         deploy-vpn deploy-auto-vpn deploy-nvidia-vpn deploy-vaapi-vpn \
         detect-gpu \
         restart logs down build test test-verbose clean \
-        dev-frontend dev-backend probe-gpu
+        dev-frontend dev-backend probe-gpu sonar-scan
 
 # ─────────────────────────────────────────
 # Deploy variants — combine GPU vendor × VPN
@@ -250,3 +250,80 @@ test:
 
 test-verbose:
 	@go test -v ./internal/...
+
+# ─────────────────────────────────────────
+# análise SonarQube + thresholds
+# ─────────────────────────────────────────
+
+# Thresholds (override via env var)
+SONAR_HOST_URL  ?= https://sonar.raspberrypi.lan
+SONAR_TOKEN     ?= $(shell grep SONAR_TOKEN .env 2>/dev/null | head -1 | cut -d= -f2-)
+SONAR_PROJECT   ?= jackui
+BUGS_MAX        ?= 0
+VULNS_MAX       ?= 0
+SMELLS_MAX      ?= 500
+HOTSPOTS_MAX    ?= 10
+COVERAGE_MIN    ?= 20
+DUPLICATION_MAX ?= 5
+
+sonar-scan:
+	$(call step,Gerando cobertura de testes...)
+	@go test -coverprofile=coverage.out ./internal/... > /dev/null 2>&1 || echo "  ⚠ testes com falha, continuando..."
+	$(call ok,Cobertura salva em coverage.out)
+
+	$(call step,Verificando sonar-scanner...)
+	@command -v sonar-scanner >/dev/null 2>&1 || { echo "  Erro: sonar-scanner não encontrado. Instale: brew install sonar-scanner"; exit 1; }
+	$(call ok,sonar-scanner encontrado)
+
+	$(call step,Executando análise SonarQube...)
+	-@sonar-scanner \
+		-Dsonar.host.url=$(SONAR_HOST_URL) \
+		-Dsonar.token=$(SONAR_TOKEN) \
+		-Dsonar.projectKey=$(SONAR_PROJECT) \
+		-Dsonar.projectName=JackUI \
+		-Dsonar.sources=. \
+		-Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/*.cov,**/vendor/**' \
+		-Dsonar.go.coverage.reportPaths=coverage.out \
+		-Dsonar.tests=. \
+		-Dsonar.test.inclusions='**/*_test.go' \
+		-Dsonar.qualitygate.wait=true \
+		2>&1 | tail -5
+	$(call ok,Análise enviada)
+
+	$(call step,Verificando thresholds...)
+	@curl -s -u "$(SONAR_TOKEN):" "$(SONAR_HOST_URL)/api/measures/component?component=$(SONAR_PROJECT)&metricKeys=bugs,vulnerabilities,code_smells,security_hotspots,coverage,duplicated_lines_density" \
+		> /tmp/sonar-measures-$(SONAR_PROJECT).json; \
+	FAIL=0; \
+	extract() { python3 -c "import json,sys; d=json.load(sys.stdin); m=[x for x in d.get('component',{}).get('measures',[]) if x['metric']=='$$1']; print(m[0]['value'] if m else 'N/A')" < /tmp/sonar-measures-$(SONAR_PROJECT).json; }; \
+	check_lt() { v=$$1 limit=$$2; if [ "$$(echo "$$v <= $$limit" | bc -l 2>/dev/null)" = "1" ]; then printf "  $(GREEN)✓"; else printf "  $(YELLOW)✗"; FAIL=1; fi; printf " %s: %s (limite: %s)$(RESET)\n" "$$3" "$$v" "$$limit"; }; \
+	check_gt() { v=$$1 limit=$$2; if [ "$$(echo "$$v >= $$limit" | bc -l 2>/dev/null)" = "1" ]; then printf "  $(GREEN)✓"; else printf "  $(YELLOW)✗"; FAIL=1; fi; printf " %s: %s (limite: %s)$(RESET)\n" "$$3" "$$v" "$$limit"; }; \
+	BUGS=$$(extract bugs); \
+	VULNS=$$(extract vulnerabilities); \
+	SMELLS=$$(extract code_smells); \
+	HOTSPOTS=$$(extract security_hotspots); \
+	COV=$$(extract coverage); \
+	DUP=$$(extract duplicated_lines_density); \
+	printf "\n  $(CYAN)Resultados da análise:$(RESET)\n"; \
+	printf "  Bugs:                %s\n" "$$BUGS"; \
+	printf "  Vulnerabilidades:    %s\n" "$$VULNS"; \
+	printf "  Code Smells:         %s\n" "$$SMELLS"; \
+	printf "  Security Hotspots:   %s\n" "$$HOTSPOTS"; \
+	printf "  Cobertura:           %s%%\n" "$$COV"; \
+	printf "  Duplicação:          %s%%\n" "$$DUP"; \
+	printf "\n"; \
+	check_lt "$$BUGS" "$(BUGS_MAX)" "Bugs"; \
+	check_lt "$$VULNS" "$(VULNS_MAX)" "Vulnerabilidades"; \
+	check_lt "$$SMELLS" "$(SMELLS_MAX)" "Code Smells"; \
+	check_lt "$$HOTSPOTS" "$(HOTSPOTS_MAX)" "Security Hotspots"; \
+	if [ "$$COV" != "N/A" ]; then \
+		check_gt "$$COV" "$(COVERAGE_MIN)" "Cobertura"; \
+	else \
+		printf "  $(YELLOW)⚠ Cobertura: N/A (rode go test -coverprofile primeiro)$(RESET)\n"; \
+	fi; \
+	check_lt "$$DUP" "$(DUPLICATION_MAX)" "Duplicação"; \
+	rm -f /tmp/sonar-measures-$(SONAR_PROJECT).json coverage.out; \
+	if [ "$$FAIL" = "1" ]; then \
+		printf "\n  $(YELLOW)✗ Thresholds não atingidos — verifique $(SONAR_HOST_URL)/dashboard?id=$(SONAR_PROJECT)$(RESET)\n"; \
+		exit 1; \
+	fi; \
+	printf "\n$(GREEN)✓ Todos os thresholds OK$(RESET)\n"

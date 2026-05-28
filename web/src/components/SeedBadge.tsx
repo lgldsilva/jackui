@@ -61,8 +61,8 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
   if (!infoHash) return null
 
   // Explicit, user-triggered swarm probe (adds the torrent briefly to count peers).
-  const verify = async (e: React.MouseEvent) => {
-    e.stopPropagation(); e.preventDefault()
+  const verify = async (e?: React.MouseEvent) => {
+    e?.stopPropagation(); e?.preventDefault()
     if (probing) return
     setProbing(true)
     const h = await streamHealth(infoHash, magnet, true)
@@ -88,8 +88,10 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
     <span
       ref={ref}
       onClick={verify}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); verify() } }}
       title={title}
       role="button"
+      tabIndex={0}
       className={`inline-flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-200 ${className}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot} ${probing ? 'animate-pulse' : ''}`} />

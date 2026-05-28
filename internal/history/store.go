@@ -34,7 +34,7 @@ func New(path string) (*Store, error) {
 }
 
 func (s *Store) Close() {
-	s.db.Close()
+	_ = s.db.Close()
 }
 
 func (s *Store) migrate() error {
@@ -104,8 +104,8 @@ func (s *Store) migrate() error {
 
 	// Backfill FTS if it's empty but results has rows (e.g., upgrading from a pre-FTS DB)
 	var ftsCount, resultsCount int
-	s.db.QueryRow("SELECT count(*) FROM results_fts").Scan(&ftsCount)
-	s.db.QueryRow("SELECT count(*) FROM results").Scan(&resultsCount)
+	_ = s.db.QueryRow("SELECT count(*) FROM results_fts").Scan(&ftsCount)
+	_ = s.db.QueryRow("SELECT count(*) FROM results").Scan(&resultsCount)
 	if ftsCount == 0 && resultsCount > 0 {
 		if _, err := s.db.Exec("INSERT INTO results_fts(results_fts) VALUES('rebuild')"); err != nil {
 			return err

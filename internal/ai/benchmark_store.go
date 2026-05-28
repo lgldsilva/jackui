@@ -39,7 +39,7 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 			expect TEXT NOT NULL
 		);
 	`); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return &BenchmarkStore{db: db}, nil

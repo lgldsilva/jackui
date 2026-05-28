@@ -131,7 +131,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Jackett API returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("jackett API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var jackResp jackettResponse
@@ -206,7 +206,7 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Jackett API returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("jackett API returned %d: %s", resp.StatusCode, string(body))
 	}
 
 	var rawIndexers []jackettIndexer
@@ -217,14 +217,7 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 	indexers := make([]Indexer, 0, len(rawIndexers))
 	for _, ri := range rawIndexers {
 		if ri.Configured {
-			indexers = append(indexers, Indexer{
-				ID:          ri.ID,
-				Name:        ri.Name,
-				Description: ri.Description,
-				Language:    ri.Language,
-				Type:        ri.Type,
-				Configured:  ri.Configured,
-			})
+			indexers = append(indexers, Indexer(ri))
 		}
 	}
 
@@ -264,13 +257,12 @@ func (c *Client) TestConnection() error {
 	}
 	defer resp.Body.Close()
 
-	switch {
-	case resp.StatusCode == http.StatusOK:
+	switch resp.StatusCode {
+	case http.StatusOK:
 		return nil
-	case resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently:
-		// Redirect → login page → API key likely wrong (or Jackett requires admin pwd)
+	case http.StatusFound, http.StatusMovedPermanently:
 		return fmt.Errorf("API key inválida (Jackett redirecionou para login)")
-	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized:
+	case http.StatusForbidden, http.StatusUnauthorized:
 		return fmt.Errorf("invalid API key")
 	default:
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
