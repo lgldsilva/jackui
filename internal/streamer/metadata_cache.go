@@ -101,11 +101,14 @@ func NewMetadataCache(path string) (*MetadataCache, error) {
 	// Art columns added in a later version — migrate idempotently so existing
 	// caches keep working. Each is a no-op once the column exists.
 	for col, ddl := range map[string]string{
-		"art_source": `ALTER TABLE metadata ADD COLUMN art_source TEXT NOT NULL DEFAULT ''`,
-		"art_path":   `ALTER TABLE metadata ADD COLUMN art_path TEXT NOT NULL DEFAULT ''`,
-		"poster_url": `ALTER TABLE metadata ADD COLUMN poster_url TEXT NOT NULL DEFAULT ''`,
-		"tmdb_id":    `ALTER TABLE metadata ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0`,
-		"imdb_id":    `ALTER TABLE metadata ADD COLUMN imdb_id TEXT NOT NULL DEFAULT ''`,
+		"art_source":        `ALTER TABLE metadata ADD COLUMN art_source TEXT NOT NULL DEFAULT ''`,
+		"art_path":          `ALTER TABLE metadata ADD COLUMN art_path TEXT NOT NULL DEFAULT ''`,
+		"poster_url":        `ALTER TABLE metadata ADD COLUMN poster_url TEXT NOT NULL DEFAULT ''`,
+		"tmdb_id":           `ALTER TABLE metadata ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0`,
+		"imdb_id":           `ALTER TABLE metadata ADD COLUMN imdb_id TEXT NOT NULL DEFAULT ''`,
+		"health_seeders":    `ALTER TABLE metadata ADD COLUMN health_seeders INTEGER NOT NULL DEFAULT -1`,
+		"health_peers":      `ALTER TABLE metadata ADD COLUMN health_peers INTEGER NOT NULL DEFAULT -1`,
+		"health_checked_at": `ALTER TABLE metadata ADD COLUMN health_checked_at DATETIME`,
 	} {
 		if !columnExists(db, "metadata", col) {
 			if _, err := db.Exec(ddl); err != nil {
@@ -223,6 +226,54 @@ func (m *MetadataCache) SetArt(infoHash string, art *CachedArt) error {
 			tmdb_id    = excluded.tmdb_id,
 			imdb_id    = excluded.imdb_id
 	`, infoHash, art.Source, art.Path, art.PosterURL, art.TmdbID, art.ImdbID)
+	return err
+}
+
+// CachedHealth is the last-known swarm health for a torrent, persisted so a card
+// can show a prior estimate (with its age) instantly while a fresh probe runs.
+type CachedHealth struct {
+	Seeders   int       `json:"seeders"`
+	Peers     int       `json:"peers"`
+	Available bool      `json:"available"` // seeders>0 || peers>0
+	CheckedAt time.Time `json:"checkedAt"`
+}
+
+// GetHealth returns the persisted swarm health, or nil if never probed.
+func (m *MetadataCache) GetHealth(infoHash string) *CachedHealth {
+	if m == nil {
+		return nil
+	}
+	row := m.db.QueryRow(`SELECT health_seeders, health_peers, health_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
+	var seeders, peers int
+	var checkedAt sql.NullString
+	if err := row.Scan(&seeders, &peers, &checkedAt); err != nil {
+		return nil
+	}
+	if !checkedAt.Valid || checkedAt.String == "" {
+		return nil // row exists but health never probed
+	}
+	return &CachedHealth{
+		Seeders:   seeders,
+		Peers:     peers,
+		Available: seeders > 0 || peers > 0,
+		CheckedAt: dbutil.ParseTime(checkedAt.String),
+	}
+}
+
+// SetHealth persists a swarm-health probe result (disjoint columns — creates an
+// health-only row if the torrent's metadata isn't cached yet).
+func (m *MetadataCache) SetHealth(infoHash string, seeders, peers int) error {
+	if m == nil {
+		return nil
+	}
+	_, err := m.db.Exec(`
+		INSERT INTO metadata(info_hash, name, health_seeders, health_peers, health_checked_at)
+		VALUES(?, '', ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(info_hash) DO UPDATE SET
+			health_seeders    = excluded.health_seeders,
+			health_peers      = excluded.health_peers,
+			health_checked_at = CURRENT_TIMESTAMP
+	`, infoHash, seeders, peers)
 	return err
 }
 

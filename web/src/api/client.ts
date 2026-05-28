@@ -441,6 +441,31 @@ export const saveAICases = async (cases: AIBenchmarkCase[]): Promise<AIBenchmark
   return data.cases || []
 }
 
+// ── Swarm health (seeds / availability for cards) ────────────────────────────
+export interface StreamHealth {
+  known: boolean
+  active: boolean
+  refreshing: boolean
+  seeders?: number
+  peers?: number
+  available?: boolean
+  checkedAt?: string
+}
+
+// streamHealth returns the last-known swarm health for a torrent (and kicks a
+// background re-probe server-side when stale). `magnet` lets the server probe an
+// inactive torrent. Best-effort: returns an "unknown" shape on error.
+export const streamHealth = async (hash: string, magnet?: string): Promise<StreamHealth> => {
+  try {
+    const params = new URLSearchParams()
+    if (magnet) params.set('magnet', magnet)
+    const { data } = await api.get<StreamHealth>(`/stream/health/${hash}?${params.toString()}`)
+    return data
+  } catch {
+    return { known: false, active: false, refreshing: false }
+  }
+}
+
 // streamArtURL returns the persisted per-torrent thumbnail (poster/cover/frame).
 // Serves bytes, 302s to a TMDB poster, or 204s when nothing is resolved yet —
 // so an <img> using it should fall back to the title-based poster on error.

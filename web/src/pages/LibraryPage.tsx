@@ -4,6 +4,7 @@ import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
 import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult } from '../api/client'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import SeedBadge from '../components/SeedBadge'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
@@ -248,6 +249,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
         )}
       </div>
       <p className="text-xs text-gray-200 line-clamp-2" title={entry.name}>{entry.name}</p>
+      <SeedBadge infoHash={entry.infoHash} magnet={entry.magnet} />
       {entry.durationSeconds > 0 && (
         <>
           <div className="h-1 bg-gray-700 rounded-full overflow-hidden">

@@ -8,6 +8,7 @@ import {
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import Thumbnail from '../components/Thumbnail'
+import SeedBadge from '../components/SeedBadge'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
@@ -512,6 +513,7 @@ export default function FavoritesPage() {
                       <Clock className="w-3 h-3" />
                       {formatDate(fav.favoritedAt)}
                     </span>
+                    <SeedBadge infoHash={fav.infoHash} magnet={fav.magnet} />
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                       fav.reason === 'auto-5min'
                         ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'

@@ -23,6 +23,7 @@ make dev-backend       # go run ./cmd/server em :8989
 ## Funcionalidades
 
 - **Streaming**: torrent → HTTP com Range; toca antes de baixar tudo. Cache em disco com eviction LRU (favoritos protegidos).
+- **Saúde do swarm nos cards**: `SeedBadge` mostra seeds + disponibilidade. `GET /api/stream/health/:hash?magnet=` devolve o último snapshot (persistido no metadata cache com timestamp) na hora e dispara re-sonda em background se stale; sonda inativa = add~6s → conta → drop (semáforo de 3, dedupe, guarda de ponteiro pra não derrubar play concorrente).
 - **Transcode sob demanda**: HEVC/AV1/x265 → H.264 via GPU. Safari recebe **HLS** (`.m3u8` + segmentos `.ts`) — único caminho que o `<video>` do Safari aceita.
 - **Legendas**: embutidas (probe ffmpeg), sidecar `.srt`/`.vtt` no torrent, e externas (OpenSubtitles). Escolha persiste por arquivo (localStorage).
 - **TMDB**: enriquece resultados/biblioteca com pôster + metadados (cache SQLite, TTL 30d). Resolve o `imdb_id` (external_ids) e persiste junto da arte. **Discover** (`/discover`): grade de "Em alta" (trending semanal, cache em memória 6h) → clicar semeia a busca via `?q=`.
