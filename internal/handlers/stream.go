@@ -55,6 +55,50 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 	}
 }
 
+// StreamAddTorrentFile handles POST /api/stream/add-file — adds a torrent from uploaded .torrent file.
+func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+			return
+		}
+		src, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer src.Close()
+
+		mi, err := metainfo.Load(src)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid torrent file: " + err.Error()})
+			return
+		}
+
+		t, err := s.Client().AddTorrent(mi)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add torrent: " + err.Error()})
+			return
+		}
+
+		// Wait for metadata
+		select {
+		case <-t.GotInfo():
+		default:
+		}
+
+		magnet := mi.Magnet(nil, nil).String()
+		info, err := s.Add(c.Request.Context(), magnet)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, info)
+	}
+}
+
 // StreamInfo handles GET /api/stream/info/:hash — current torrent state + progress.
 func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -661,6 +705,38 @@ func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		if err := s.SetPriority(h, req.Priority); err != nil {
+			code := http.StatusBadRequest
+			if strings.Contains(err.Error(), "não está ativo") {
+				code = http.StatusNotFound
+			}
+			c.JSON(code, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"priority": strings.ToLower(req.Priority)})
+	}
+}
+
+// StreamSetFilePriority handles POST /api/stream/:hash/files/:idx/priority — body {priority}.
+func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		idx, err := strconv.Atoi(c.Param("idx"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			return
+		}
+		var req struct {
+			Priority string `json:"priority"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := s.SetFilePriority(h, idx, req.Priority); err != nil {
 			code := http.StatusBadRequest
 			if strings.Contains(err.Error(), "não está ativo") {
 				code = http.StatusNotFound

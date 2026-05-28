@@ -199,6 +199,35 @@ func (f *FavoritesStore) IsFavoriteOf(name string, userID int) bool {
 	return n > 0
 }
 
+// HashSetForUser returns all info_hashes the user has favorited as a set. Used
+// pelo handler de busca pra enriquecer SearchResult com isFavorited via uma
+// query só, em vez de IsFavoriteByHash N vezes. includeAll=true devolve hashes
+// de todos os usuários (admin "all=1"). Hashes vazios são pulados.
+func (f *FavoritesStore) HashSetForUser(userID int, includeAll bool) (map[string]bool, error) {
+	if f == nil {
+		return map[string]bool{}, nil
+	}
+	q := `SELECT info_hash FROM favorites WHERE info_hash != ''`
+	args := []any{}
+	if !includeAll {
+		q += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	rows, err := f.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	set := map[string]bool{}
+	for rows.Next() {
+		var h string
+		if rows.Scan(&h) == nil && h != "" {
+			set[h] = true
+		}
+	}
+	return set, rows.Err()
+}
+
 // IsFavoriteByHash reports whether any favorite row references this infoHash.
 func (f *FavoritesStore) IsFavoriteByHash(infoHash string) bool {
 	if f == nil || infoHash == "" {

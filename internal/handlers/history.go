@@ -5,20 +5,39 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/history"
 	"github.com/luizg/jackui/internal/parser"
+	"github.com/luizg/jackui/internal/streamer"
 )
 
-// enrichedCached is a cached result with parsed quality + origin query exposed.
+// enrichedCached is a cached result enriched with parsed quality, playable
+// heuristic, media kind, and user-specific flags (favorited/downloaded).
+// Origin query is preserved via embedded CachedResult.Query for UI badges.
 type enrichedCached struct {
 	history.CachedResult
-	Quality parser.Quality `json:"quality"`
+	Quality      parser.Quality   `json:"quality"`
+	Playable     bool             `json:"playable"`
+	MediaKind    parser.MediaKind `json:"mediaKind"`
+	IsFavorited  bool             `json:"isFavorited"`
+	IsDownloaded bool             `json:"isDownloaded"`
 }
 
-func enrichCached(items []history.CachedResult) []enrichedCached {
+func enrichCached(items []history.CachedResult, e *resultEnricher) []enrichedCached {
 	out := make([]enrichedCached, len(items))
 	for i, r := range items {
-		out[i] = enrichedCached{CachedResult: r, Quality: parser.Parse(r.Title)}
+		q := parser.Parse(r.Title)
+		row := enrichedCached{
+			CachedResult: r,
+			Quality:      q,
+			Playable:     parser.IsPlayable(r.Title, r.CategoryID, r.MagnetURI, q.Resolution),
+			MediaKind:    parser.DetectKind(r.Title, r.CategoryID),
+		}
+		if e != nil && r.InfoHash != "" {
+			row.IsFavorited = e.favHashes[r.InfoHash]
+			row.IsDownloaded = e.dlHashes[r.InfoHash]
+		}
+		out[i] = row
 	}
 	return out
 }
@@ -42,7 +61,7 @@ func GetHistory(store *history.Store) gin.HandlerFunc {
 }
 
 // GetHistoryResults handles GET /api/history/results?q= — returns cached results for a query.
-func GetHistoryResults(store *history.Store) gin.HandlerFunc {
+func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
@@ -57,12 +76,13 @@ func GetHistoryResults(store *history.Store) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, enrichCached(results))
+		e := buildEnricher(favs, dls, userID, includeAll)
+		c.JSON(http.StatusOK, enrichCached(results, e))
 	}
 }
 
 // SearchCache handles GET /api/history/cache?q=&limit= — FTS5 search across all cached results.
-func SearchCache(store *history.Store) gin.HandlerFunc {
+func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
@@ -77,7 +97,8 @@ func SearchCache(store *history.Store) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, enrichCached(results))
+		e := buildEnricher(favs, dls, userID, includeAll)
+		c.JSON(http.StatusOK, enrichCached(results, e))
 	}
 }
 

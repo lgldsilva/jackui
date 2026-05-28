@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"crypto/rand"
@@ -419,12 +421,15 @@ func main() {
 		// instead of asking the user for browser console output.
 		api.POST("/diag/log", handlers.ClientLog())
 
-		api.GET("/search", handlers.Search(jackettClient, historyStore))
-		api.GET("/search/stream", handlers.SearchSSE(jackettClient, historyStore))
+		api.GET("/search", handlers.Search(jackettClient, historyStore, streamSrv.Favorites(), downloadsStore))
+		api.GET("/search/stream", handlers.SearchSSE(jackettClient, historyStore, streamSrv.Favorites(), downloadsStore))
 		api.GET("/indexers", handlers.GetIndexers(jackettClient))
 		api.POST("/download", handlers.Download(cfg))
 		api.GET("/clients", handlers.GetClients(cfg))
 		api.GET("/proxy/torrent", handlers.ProxyTorrentDownload(jackettClient))
+		api.GET("/convert/torrent-to-magnet", handlers.ConvertTorrentToMagnet())
+		api.GET("/convert/magnet-to-torrent", handlers.ConvertMagnetToTorrent(streamSrv))
+
 
 		// Server config carries the Jackett API key and lets a caller rewrite
 		// URLs/clients — admin-only. With auth OFF this degrades to public (same
@@ -447,8 +452,8 @@ func main() {
 
 		if historyStore != nil {
 			api.GET("/history", handlers.GetHistory(historyStore))
-			api.GET("/history/results", handlers.GetHistoryResults(historyStore))
-			api.GET("/history/cache", handlers.SearchCache(historyStore))
+			api.GET("/history/results", handlers.GetHistoryResults(historyStore, streamSrv.Favorites(), downloadsStore))
+			api.GET("/history/cache", handlers.SearchCache(historyStore, streamSrv.Favorites(), downloadsStore))
 			api.DELETE("/history", handlers.DeleteHistory(historyStore))
 			// Per-row swarm refresh — re-polls Jackett for current seeders/leechers.
 			// 5min TTL cache per row keeps Jackett happy under spam-clicks.
@@ -469,6 +474,7 @@ func main() {
 			api.POST("/stream/:hash/pause", handlers.StreamPause(streamSrv))
 			api.POST("/stream/:hash/resume", handlers.StreamResume(streamSrv))
 			api.POST("/stream/:hash/priority", handlers.StreamSetPriority(streamSrv))
+			api.POST("/stream/:hash/files/:idx/priority", handlers.StreamSetFilePriority(streamSrv))
 			api.GET("/stream/favorites", handlers.StreamFavorites(streamSrv))
 			api.POST("/stream/favorite", handlers.StreamFavorite(streamSrv))
 			api.DELETE("/stream/favorite/:name", handlers.StreamUnfavorite(streamSrv))
@@ -483,6 +489,7 @@ func main() {
 			// bypassing search. Resolves hash+name locally; caches metainfo.
 			api.POST("/stream/import", handlers.StreamImport(streamSrv))
 			api.POST("/stream/add", handlers.StreamAdd(streamSrv, libraryStore))
+			api.POST("/stream/add-file", handlers.StreamAddTorrentFile(streamSrv))
 			api.GET("/stream/info/:hash", handlers.StreamInfo(streamSrv))
 			api.GET("/stream/probe/:hash/:file", handlers.StreamProbe(streamSrv))
 			// Subtrack and the raw stream file endpoint are hit by <video src>/<track src>
@@ -501,6 +508,12 @@ func main() {
 			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv))
 			api.DELETE("/stream/:hash", handlers.StreamDrop(streamSrv))
 
+			// Converte []config.PromoteDir → []handlers.PromoteDest (mesma
+			// estrutura, pacotes diferentes).
+			promoteDests := make([]handlers.PromoteDest, 0, len(cfg.Stream.PromoteDirs))
+			for _, pd := range cfg.Stream.PromoteDirs {
+				promoteDests = append(promoteDests, handlers.PromoteDest{Name: pd.Name, Path: pd.Path})
+			}
 			// External filesystem mounts — browse + stream files already on
 			// disk (HD externo, NAS, OneDrive sync). Independent from torrents.
 			api.GET("/local/mounts", handlers.LocalMounts(localBrowser))
@@ -508,19 +521,55 @@ func main() {
 			api.GET("/local/file", handlers.LocalFile(localBrowser))
 			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
 			api.GET("/local/transcode", handlers.LocalTranscode(localBrowser))
+			api.DELETE("/local/file", handlers.LocalDelete(localBrowser))
+			api.POST("/local/promote", handlers.LocalPromote(localBrowser, cfg.Stream.SharedDir, promoteDests))
 			// /local/play probes the file and tells the client whether to direct-play
 			// or fetch the HLS master (for MKV / HEVC / AC3 / etc. that browsers
 			// can't decode natively). Mirrors the torrent-side codec routing.
 			api.GET("/local/play", handlers.LocalPlay(localBrowser))
 
+			// Local subtitle pipeline — equivalentes às rotas /stream/{probe,
+			// sidecars,sidecar,subtrack} + /subtitles/auto, mas keyed por
+			// mount+path. Permite reusar o PlayerModal completo pra arquivos
+			// locais (embedded, sidecar, OpenSubtitles, persistência por arquivo).
+			api.GET("/local/probe", handlers.LocalProbe(localBrowser))
+			api.GET("/local/sidecars", handlers.LocalSidecars(localBrowser))
+			api.GET("/local/sidecar", handlers.LocalSidecarRead(localBrowser))
+			api.GET("/local/subtrack", handlers.LocalSubtitleExtract(localBrowser))
+			if subtitleClient != nil {
+				api.GET("/local/subtitles/auto", handlers.LocalSubtitlesAuto(localBrowser, subtitleClient))
+			}
+
 			// Background full-file downloads (anacrolix Download API);
 			// worker tick keeps the DB queue in sync with active torrents.
 			if downloadsStore != nil {
 				api.GET("/downloads", handlers.DownloadsList(downloadsStore))
+				api.GET("/downloads/filtered", handlers.DownloadsListFiltered(downloadsStore))
+				api.GET("/downloads/trackers", handlers.DownloadsTrackers(downloadsStore))
+				api.GET("/downloads/categories", handlers.DownloadsCategories(downloadsStore))
 				api.POST("/downloads", handlers.DownloadsCreate(downloadsStore))
 				api.DELETE("/downloads/:id", handlers.DownloadsDelete(downloadsStore))
+			api.GET("/downloads/:id/details", handlers.DownloadsDetails(downloadsStore, streamSrv))
+			api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(downloadsStore, streamSrv))
 				api.PATCH("/downloads/:id/pause", handlers.DownloadsPause(downloadsStore))
 				api.PATCH("/downloads/:id/resume", handlers.DownloadsResume(downloadsStore))
+				api.PATCH("/downloads/pause-all", handlers.DownloadsPauseAll(downloadsStore))
+				api.PATCH("/downloads/resume-all", handlers.DownloadsResumeAll(downloadsStore))
+				api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(downloadsStore))
+				api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(downloadsStore))
+				api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(downloadsStore))
+				// Promove um download concluído pro diretório compartilhado
+				// (JACKUI_SHARED_DIR), opcionalmente em uma subpasta. Body:
+				// { keepSeeding, targetSubdir, targetBase }.
+				api.POST("/downloads/:id/promote", handlers.DownloadsPromote(downloadsStore, streamSrv, cfg.Stream.SharedDir, promoteDests))
+				// Batch: promove N downloads pra mesma subpasta de destino.
+				api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(downloadsStore, streamSrv, cfg.Stream.SharedDir, promoteDests))
+				// Lista subpastas do destino pra alimentar o navegador da UI.
+				api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(cfg.Stream.SharedDir, promoteDests))
+				// Lista destinos de promoção disponíveis (GET /api/promote/destinations).
+				api.GET("/promote/destinations", handlers.DownloadsPromoteDests(cfg.Stream.SharedDir, promoteDests))
+				// Para de seedar sem mover o arquivo.
+				api.POST("/downloads/:id/stop-seed", handlers.DownloadsStopSeed(downloadsStore, streamSrv))
 			}
 
 			// HLS — Safari-friendly playback path. Apple's MSE pipeline
@@ -605,6 +654,9 @@ func main() {
 			api.POST("/auth/mfa/disable", handlers.MFADisable(authStore))
 			api.GET("/auth/mfa/backup-codes", handlers.MFABackupCodesStatus(authStore))
 			api.POST("/auth/mfa/backup-codes/regenerate", handlers.MFABackupCodesRegenerate(authStore))
+			// Media token: emite JWT scope="media" com TTL longo pra <video src>
+			// não resetar quando o access token regular fizer refresh em background.
+			api.POST("/auth/media-token", handlers.MediaToken(authStore, tokenMgr))
 			// Active session management (list / revoke).
 			api.POST("/auth/sessions", handlers.ListSessions(authStore))
 			api.POST("/auth/sessions/revoke-others", handlers.RevokeOtherSessions(authStore))
@@ -672,7 +724,41 @@ func main() {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("JackUI starting on http://localhost%s", addr)
 
-	if err := router.Run(addr); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	// Graceful shutdown: SEM isto, o SIGTERM do Docker matava o processo
+	// imediatamente e os `defer ...Close()` NUNCA rodavam — especialmente
+	// `streamSrv.Close()` que comita o estado dos pieces do anacrolix no
+	// `.torrent.bolt.db`. Resultado: bytes ficavam no disco mas o bolt DB
+	// não sabia, e a cada restart o anacrolix re-baixava pieces que já estavam
+	// completos. Esse é o motivo real do "download recomeçou do início" que
+	// o usuário relatou ao longo do dia.
+	srv := &http.Server{Addr: addr, Handler: router}
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErr <- err
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		log.Fatalf("HTTP server failed: %v", err)
+	case sig := <-quit:
+		log.Printf("Signal %s recebido — graceful shutdown iniciado...", sig)
 	}
+
+	// Para o HTTP server primeiro (para de aceitar requests novos + drena os
+	// em curso) e DEPOIS deixa os defers rodarem. Timeout de 25s cabe dentro
+	// dos 30s default de stop-timeout do Docker.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP shutdown error: %v", err)
+	}
+	log.Printf("HTTP server encerrado — rodando cleanups (anacrolix, stores, worker)...")
+	// O return de main() agora dispara todos os `defer` (streamSrv.Close,
+	// libraryStore.Close, worker.Stop, ...) que antes eram puladados pelo
+	// SIGKILL após o grace period de 10s.
 }

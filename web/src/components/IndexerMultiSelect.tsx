@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Filter, Search as SearchIcon } from 'lucide-react'
+import { Check, ChevronDown, Filter, Search as SearchIcon, Plus } from 'lucide-react'
 import { Indexer } from '../api/client'
+
 
 interface Props {
   /** Empty array = "search all indexers". The backend treats that as the default. */
@@ -87,18 +88,37 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
 
           <div className="overflow-y-auto flex-1">
             {filtered.length === 0 ? (
-              <div className="px-3 py-3 text-xs text-gray-500 text-center space-y-2">
+              <div className="px-3 py-4 text-xs text-gray-500 text-center space-y-3">
                 {query ? (
-                  <p>Nenhum indexer bate com esse filtro</p>
+                  <>
+                    <p>Nenhum indexer bate com "{query}"</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newId = query.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                        if (newId) {
+                          toggle(newId)
+                          setQuery('')
+                        }
+                      }}
+                      className="mx-auto flex items-center gap-1 bg-green-500/25 hover:bg-green-500/35 text-green-300 border border-green-500/40 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Adicionar "{query.trim()}"
+                    </button>
+                  </>
                 ) : indexers.length === 0 ? (
                   <>
-                    <p className="text-gray-400">Jackett não expôs a lista de indexers.</p>
-                    <p className="text-[11px]">A busca continuará usando <span className="text-green-400">todos</span> os indexers configurados. Pra ter filtro fino, habilite admin password no Jackett.</p>
+                    <p className="text-gray-400 font-medium">Jackett não expôs a lista de indexers.</p>
+                    <p className="text-[11px] leading-relaxed text-gray-500">
+                      A busca continuará usando <span className="text-green-400">todos</span> os indexers configurados.
+                      Para filtrar, digite o nome do indexer acima para adicioná-lo ou faça uma busca comum para que o JackUI autodescubra seus indexadores a partir dos resultados!
+                    </p>
                   </>
                 ) : (
                   <p>Nenhum indexer configurado no Jackett</p>
                 )}
               </div>
+
             ) : (
               filtered.map(idx => {
                 const checked = selected.includes(idx.id)

@@ -13,8 +13,7 @@ import TorrentContentsModal from '../components/TorrentContentsModal'
 import NavHeader from '../components/NavHeader'
 import { SearchResult, Indexer, getIndexers, favoritesList, withToken } from '../api/client'
 import { load, save } from '../lib/storage'
-import { groupByInfoHash } from '../lib/group'
-import { isPlayable } from '../lib/playable'
+import { useFilteredResults } from '../lib/useFilteredResults'
 import { isIncognito } from '../lib/incognito'
 
 const TABS_KEY = 'searchTabs'
@@ -169,6 +168,52 @@ export default function SearchPage() {
   const [tabs, setTabs] = useState<TabState[]>(initial.tabs)
   const [activeId, setActiveId] = useState(initial.activeId)
   const [indexers, setIndexers] = useState<Indexer[]>([])
+  const [discoveredIndexers, setDiscoveredIndexers] = useState<Indexer[]>([])
+
+  // Carrega indexadores autodescobertos persistidos
+  useEffect(() => {
+    setDiscoveredIndexers(load<Indexer[]>('discoveredIndexers', []))
+  }, [])
+
+  // Coleta novos indexadores a partir dos resultados de busca
+  useEffect(() => {
+    if (tabs.length === 0) return
+    const allResults = tabs.flatMap(t => t.results)
+    if (allResults.length === 0) return
+
+    const discoveredMap = new Map<string, Indexer>()
+    discoveredIndexers.forEach(idx => discoveredMap.set(idx.id, idx))
+
+    let mutated = false
+    allResults.forEach(r => {
+      const id = r.trackerId || r.tracker.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      if (id && !discoveredMap.has(id)) {
+        discoveredMap.set(id, {
+          id,
+          name: r.tracker,
+          description: `Descoberto via busca (${r.tracker})`,
+          configured: true,
+          language: '',
+          type: ''
+        })
+        mutated = true
+      }
+    })
+
+    if (mutated) {
+      const nextList = Array.from(discoveredMap.values())
+      setDiscoveredIndexers(nextList)
+      save('discoveredIndexers', nextList)
+    }
+  }, [tabs, discoveredIndexers])
+
+  const allIndexers = useMemo(() => {
+    const map = new Map<string, Indexer>()
+    indexers.forEach(i => map.set(i.id, i))
+    discoveredIndexers.forEach(i => map.set(i.id, i))
+    return Array.from(map.values())
+  }, [indexers, discoveredIndexers])
+
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
   const [playlistTarget, setPlaylistTarget] = useState<SearchResult | null>(null)
@@ -400,34 +445,23 @@ export default function SearchPage() {
   }, [activeTab.results])
 
   // Filtered + sorted results (after dedup-grouping by infoHash)
-  const filteredResults = useMemo(() => {
-    const maxBytes = activeTab.maxSizeGb ? parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity
-    const grouped = groupByInfoHash(activeTab.results)
-    let r = grouped.filter(res => {
-      if (res.seeders < activeTab.minSeeders) return false
-      if (res.leechers < activeTab.minLeechers) return false
-      if (res.size > maxBytes) return false
-      if (activeTab.trackerFilter !== 'all' && res.tracker !== activeTab.trackerFilter) return false
-      if (activeTab.titleFilter && !res.title.toLowerCase().includes(activeTab.titleFilter.toLowerCase())) return false
-      if (activeTab.onlyPlayable && !isPlayable(res)) return false
-      return true
-    })
-    r = [...r].sort((a, b) => {
-      let diff = 0
-      switch (activeTab.resultSort) {
-        case 'seeders':  diff = b.seeders - a.seeders; break
-        case 'leechers': diff = b.leechers - a.leechers; break
-        case 'size':     diff = b.size - a.size; break
-        case 'title':    diff = a.title.localeCompare(b.title); break
-        case 'age':      diff = b.publishDate.localeCompare(a.publishDate); break
-      }
-      return activeTab.resultSortAsc ? -diff : diff
-    })
-    return r
-  }, [activeTab])
+  const { filteredResults, groupedCount } = useFilteredResults(activeTab.results, {
+    minSeeders: activeTab.minSeeders,
+    minLeechers: activeTab.minLeechers,
+    maxBytes: activeTab.maxSizeGb ? parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity,
+    trackerFilter: activeTab.trackerFilter,
+    titleFilter: activeTab.titleFilter,
+    onlyPlayable: activeTab.onlyPlayable,
+    sortKey: activeTab.resultSort,
+    sortAsc: activeTab.resultSortAsc,
+  })
 
   const hasResults = activeTab.results.length > 0
-  const isFiltered = filteredResults.length !== activeTab.results.length
+  // `isFiltered` agora reflete só REDUÇÃO POR FILTRO do usuário, NÃO por
+  // deduplicação. groupedCount é o universo já agrupado (mesmo torrent em
+  // múltiplos trackers vira 1) — a contagem que faz sentido pro usuário.
+  const isFiltered = filteredResults.length !== groupedCount
+  const hasDuplicates = groupedCount !== activeTab.results.length
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -480,7 +514,7 @@ export default function SearchPage() {
           onIndexersChange={sel => updateTab(activeTab.id, { selectedIndexers: sel })}
           selectedCategory={activeTab.selectedCategory}
           onCategoryChange={cat => updateTab(activeTab.id, { selectedCategory: cat })}
-          indexers={indexers}
+          indexers={allIndexers}
           onSearch={() => handleSearch(activeTab.id)}
           loading={isSearching}
         />
@@ -501,10 +535,22 @@ export default function SearchPage() {
             {activeTab.phase === 'done' && activeTab.summary && (
               <span className="flex items-center gap-2 text-green-400">
                 <Wifi className="w-3.5 h-3.5" />
-                {isFiltered
-                  ? <><span className="text-gray-200 font-medium">{filteredResults.length}</span> de {activeTab.results.length} resultados</>
-                  : <><span className="text-gray-200 font-medium">{activeTab.results.length}</span> resultados</>
-                }{' '}para <span className="text-gray-200 font-medium">"{activeTab.query}"</span>
+                {isFiltered ? (
+                  <><span className="text-gray-200 font-medium">{filteredResults.length}</span> de {groupedCount} únicos</>
+                ) : (
+                  <>
+                    <span className="text-gray-200 font-medium">{groupedCount}</span>
+                    {' '}{groupedCount === 1 ? 'único' : 'únicos'}
+                    {hasDuplicates && (
+                      <span
+                        className="text-gray-500"
+                        title={`${activeTab.results.length} resultados brutos antes de agrupar duplicatas por hash/título`}
+                      >
+                        {' '}(de {activeTab.results.length} brutos)
+                      </span>
+                    )}
+                  </>
+                )}{' '}para <span className="text-gray-200 font-medium">"{activeTab.query}"</span>
                 <span className="text-gray-500">
                   ({activeTab.summary.live} ao vivo, {activeTab.summary.cached} cache)
                 </span>
@@ -532,7 +578,7 @@ export default function SearchPage() {
               placeholder="Filtrar título..."
               value={activeTab.titleFilter}
               onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-44"
+              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-full sm:w-44"
             />
 
             {/* Tracker dropdown */}

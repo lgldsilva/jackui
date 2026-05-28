@@ -23,3 +23,34 @@ export function formatDuration(totalSeconds: number): string {
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
   return `${m}:${sec.toString().padStart(2, '0')}`
 }
+
+// Compact ETA-style duration: "45s" | "12m" | "2h 13m" | "5h". Used in card
+// chips where space is tight. Ceils to avoid showing "0s remaining".
+export function formatDurationShort(totalSeconds: number): string {
+  if (!isFinite(totalSeconds) || totalSeconds <= 0) return ''
+  if (totalSeconds < 60) return `${Math.ceil(totalSeconds)}s`
+  if (totalSeconds < 3600) return `${Math.ceil(totalSeconds / 60)}m`
+  const hours = Math.floor(totalSeconds / 3600)
+  const mins = Math.floor((totalSeconds % 3600) / 60)
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
+}
+
+// Relative date in pt-BR: "5m atrás" | "3h atrás" | "ontem" | "4d atrás" |
+// "12 mai" (fallback to short locale date for >7d). Used in History/Favorites
+// cards. Granularity drops to minutes under 1h so freshly-added items don't
+// all read "agora".
+export function formatDate(iso: string): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  const diffMs = Date.now() - d.getTime()
+  const diffH = diffMs / 3_600_000
+  if (diffH < 1) {
+    const m = Math.floor(diffH * 60)
+    return m <= 0 ? 'agora' : `${m}m atrás`
+  }
+  if (diffH < 24) return `${Math.floor(diffH)}h atrás`
+  if (diffH < 48) return 'ontem'
+  if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}

@@ -8,25 +8,17 @@
   }
 
   /* iOS PWA safe areas — pure env() values, fully dynamic.
-     With apple-mobile-web-app-status-bar-style="default", iOS keeps the status
-     bar in a separate strip above the page, so env() correctly returns 0 — no
-     wasted space. On notched devices in black-translucent mode, env() reports
-     the real inset (~44px). Adapts naturally to each context.
-     If you've installed the PWA before May/2026, REMOVE and RE-ADD to refresh
-     the cached status-bar-style metadata. */
+     With apple-mobile-web-app-status-bar-style="default" (our setting),
+     iOS reserva a status bar numa faixa SEPARADA acima do webview, então
+     env(safe-area-inset-top) corretamente retorna 0 e o topo do app cola
+     no status-bar sem espaço morto. Em black-translucent o env() reporta
+     a altura real do notch (~44-59px). Adapta automaticamente.
+     IMPORTANTE: se você instalou o PWA antes desta mudança, REMOVA e
+     REINSTALE pra atualizar o cache do status-bar-style. */
   .safe-top    { padding-top:    env(safe-area-inset-top, 0px); }
   .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
   .safe-left   { padding-left:   env(safe-area-inset-left, 0px); }
   .safe-right  { padding-right:  env(safe-area-inset-right, 0px); }
-
-  /* In an installed iOS PWA (standalone) the webview spans the whole screen
-     under the status bar, but env(safe-area-inset-top) frequently resolves to
-     0 there — so the clock/signal/battery overlap the top bar. Force a floor
-     of 44px (status-bar height) in standalone, taking the larger of the real
-     inset (notched devices ~47px) and 44px. Browser tabs keep the plain env(). */
-  @media all and (display-mode: standalone) {
-    .safe-top { padding-top: max(env(safe-area-inset-top), 44px); }
-  }
 
   /* Top padding that clears the iOS status bar inside a standalone PWA but
      stays compact (1rem) in a browser tab. Used by overlays that go

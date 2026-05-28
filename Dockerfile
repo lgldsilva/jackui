@@ -42,9 +42,17 @@ FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata ffmpeg
 
-WORKDIR /app
+# Create a non-privileged group and user (UID/GID 1000 matches standard first host user)
+RUN addgroup -g 1000 jackui && \
+    adduser -u 1000 -G jackui -h /app -s /bin/sh -D jackui
 
+WORKDIR /app
 COPY --from=backend /app/jackui .
+
+# Transfer ownership of execution folder to the unprivileged user
+RUN chown -R jackui:jackui /app
+
+USER jackui
 
 EXPOSE 8989
 

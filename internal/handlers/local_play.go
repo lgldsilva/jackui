@@ -155,6 +155,9 @@ func LocalPlay(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
 			return
 		}
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
 		abs, err := b.ResolvePath(mount, path)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -284,6 +287,9 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Hand
 		path := c.Query("path")
 		if mount == "" || path == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
 			return
 		}
 		abs, err := b.ResolvePath(mount, path)
@@ -416,6 +422,9 @@ func LocalHLSSegment(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Han
 		segName := c.Query("seg")
 		if mount == "" || path == "" || segName == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount, path or seg parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
 			return
 		}
 		// Defensive: reject anything with separators in the segment name.

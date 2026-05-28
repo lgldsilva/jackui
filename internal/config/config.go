@@ -68,15 +68,15 @@ type AIChainSlot struct {
 
 // ExternalConfig declares filesystem mounts the user wants browsable from
 // the web UI — typical setups: bind-mount an external HDD or NAS share so
-// the Local Files page lists what's already on disk. Per-user is NOT
-// enforced here; admin curates the mount list in config.yaml.
+// the Local Files page lists what's already on disk.
 type ExternalConfig struct {
 	Mounts []ExternalMount `yaml:"mounts"`
 }
 
 type ExternalMount struct {
-	Name string `yaml:"name"` // Display name shown in the UI ("HD Externo", "NAS")
-	Path string `yaml:"path"` // Absolute path inside the container
+	Name         string   `yaml:"name"`         // Display name shown in the UI ("HD Externo", "NAS")
+	Path         string   `yaml:"path"`         // Absolute path inside the container
+	AllowedUsers []string `yaml:"allowed_users"` // Empty = visible to all; otherwise only these usernames
 }
 
 type NotificationsConfig struct {
@@ -99,12 +99,19 @@ type AuthConfig struct {
 }
 
 type StreamConfig struct {
-	DataDir         string `yaml:"data_dir"`         // where torrent pieces are stored
-	DownloadDir     string `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
-	StateDir        string `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
-	IdleMinutes     int    `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
-	MetadataSeconds int    `yaml:"metadata_seconds"` // metadata fetch timeout
-	MaxCacheGB      int    `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
+	DataDir         string       `yaml:"data_dir"`         // where torrent pieces are stored
+	DownloadDir     string       `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
+	SharedDir       string       `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
+	StateDir        string       `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
+	IdleMinutes     int          `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
+	MetadataSeconds int          `yaml:"metadata_seconds"` // metadata fetch timeout
+	MaxCacheGB      int          `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
+	PromoteDirs     []PromoteDir `yaml:"promote_dirs"`     // additional promote destinations (name + path)
+}
+
+type PromoteDir struct {
+	Name string `yaml:"name"`
+	Path string `yaml:"path"`
 }
 
 type SubtitlesConfig struct {
@@ -189,6 +196,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("JACKUI_STATE_DIR"); v != "" {
 		cfg.Stream.StateDir = v
+	}
+	if v := os.Getenv("JACKUI_SHARED_DIR"); v != "" {
+		cfg.Stream.SharedDir = v
 	}
 	if v := os.Getenv("JACKUI_STREAM_MAX_GB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {

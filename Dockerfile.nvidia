@@ -56,8 +56,17 @@ RUN apt-get update && \
       ffmpeg ca-certificates tzdata && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Create a non-privileged group and user (UID/GID 1000 matches standard first host user)
+RUN groupadd -g 1000 jackui && \
+    useradd -u 1000 -g jackui -d /app -s /bin/bash -m jackui
+
 WORKDIR /app
 COPY --from=backend /app/jackui .
+
+# Transfer ownership of execution folder to the unprivileged user
+RUN chown -R jackui:jackui /app
+
+USER jackui
 
 EXPOSE 8989
 

@@ -436,7 +436,13 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// an input -ss). The setpts/asetpts filters zero each stream's first
 		// timestamp unconditionally. For a seek-restart they reset the -ss point
 		// to 0 and -output_ts_offset then places it at the segment's slot.
-		args = append(args, "-vf", "setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS")
+		// Cap output at 1080p. Source 4K (2160p) MKVs would otherwise emit
+		// H.264 Main @ 2160p — browsers' built-in H.264 decoders typically max
+		// out at 1080p and silently refuse the stream (segments load but
+		// nothing renders; user-visible symptom: "aparece tudo mas não toca").
+		// scale=-2:min(1080,ih) preserves aspect ratio (width auto, multiple of
+		// 2 required by yuv420p) and is a near no-op for sub-1080p sources.
+		args = append(args, "-vf", "scale=-2:'min(1080,ih)',setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS")
 		if startSeg > 0 {
 			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
 		}

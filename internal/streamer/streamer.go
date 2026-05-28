@@ -148,11 +148,26 @@ func (s *Streamer) UnregisterDownload(name string) {
 
 // IsDownloadProtected reports whether `name` is currently in the download
 // protection set. Used by tests + the cache eviction code.
+//
+// anacrolix grava arquivos SINGLE-FILE como "<name>.part" enquanto o download
+// não terminou — ao mesmo tempo `t.Name()` (que o worker registra) NÃO inclui
+// o sufixo. Sem essa tolerância o enforceCacheLimit passa "<name>.part" e
+// consulta um set que só tem "<name>", então conclui que o arquivo NÃO está
+// protegido e o LRU deleta o .part — anacrolix perde os pieces no disco e
+// recomeça do zero. (Multi-file torrents não sofrem porque o entry é o
+// diretório, cujo nome casa com t.Name() exatamente.)
 func (s *Streamer) IsDownloadProtected(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.downloads[name]
-	return ok
+	if _, ok := s.downloads[name]; ok {
+		return true
+	}
+	if stripped := strings.TrimSuffix(name, ".part"); stripped != name {
+		if _, ok := s.downloads[stripped]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Client exposes the underlying anacrolix torrent client so external packages
@@ -176,8 +191,15 @@ func (s *Streamer) EnsureActive(ctx context.Context, magnet string) (metainfo.Ha
 	return h, nil
 }
 
-// Favorites returns the attached store (may be nil).
-func (s *Streamer) Favorites() *FavoritesStore { return s.favs }
+// Favorites returns the attached store (may be nil). Nil-safe receiver — when
+// the streamer itself failed to init (some tests / degraded boots), handlers
+// can still call s.Favorites() without panicking.
+func (s *Streamer) Favorites() *FavoritesStore {
+	if s == nil {
+		return nil
+	}
+	return s.favs
+}
 
 // SetMetadataCache attaches the metadata snapshot cache. Optional — when set,
 // every successful Add() persists the file list so the UI can render it
@@ -211,6 +233,7 @@ type FileInfo struct {
 	IsVideo    bool    `json:"isVideo"`
 	Downloaded int64   `json:"downloaded"`
 	Progress   float64 `json:"progress"` // 0..1
+	Priority   string  `json:"priority"` // none|low|normal|high
 }
 
 // TorrentInfo is the JSON-friendly view returned to the frontend.
@@ -230,7 +253,8 @@ type TorrentInfo struct {
 	Status string `json:"status,omitempty"`
 	// Priority is the user-set piece priority ("low" | "normal" | "high"); empty
 	// when the user has not changed it from the anacrolix default.
-	Priority string `json:"priority,omitempty"`
+	Priority string   `json:"priority,omitempty"`
+	Trackers []string `json:"trackers,omitempty"`
 }
 
 // GlobalRate aggregates download/upload rates across all active torrents.
@@ -298,11 +322,14 @@ func New(cfg Config) (*Streamer, error) {
 	return s, nil
 }
 
-// metainfoPath returns the on-disk location for a torrent's serialized
-// .torrent (its `metainfo.MetaInfo`). One file per info hash.
 func (s *Streamer) metainfoPath(h metainfo.Hash) string {
 	return filepath.Join(s.metainfoDir, h.HexString()+".torrent")
 }
+
+func (s *Streamer) MetainfoPath(h metainfo.Hash) string {
+	return s.metainfoPath(h)
+}
+
 
 // ParseMagnet validates a magnet URI and extracts its info hash + display
 // name without touching the network. Used by the import flow to preview what
@@ -717,6 +744,76 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	return &trackingReader{Reader: r, streamer: s, hash: hash}, f, nil
 }
 
+// VerifyFile is the exported entrypoint para o worker de downloads disparar a
+// reconciliação de pieces no disco antes de pedir mais dados ao swarm. Reusa
+// o mesmo dedupe set (`verifiedFiles`) que o caminho de streaming, então a
+// verificação acontece NO MÁXIMO uma vez por (hash, file) por processo —
+// não importa se foi streaming ou download que disparou primeiro.
+//
+// Background: anacrolix tradicionalmente não re-verifica em startup; confia no
+// bolt DB. Se o shutdown anterior foi ungraceful (SIGKILL, container OOM), o
+// bolt fica desatualizado e anacrolix "esquece" pieces que estão no disco.
+// Sem essa chamada, o worker pede ao swarm bytes que já temos.
+func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	s.mu.Unlock()
+	if !ok {
+		return errors.New("torrent not active")
+	}
+	files := e.t.Files()
+	if fileIdx < 0 || fileIdx >= len(files) {
+		return fmt.Errorf("file index %d out of range", fileIdx)
+	}
+	s.verifyFilePieces(hash, fileIdx, files[fileIdx])
+	return nil
+}
+
+// RecheckFile força uma re-verificação completa dos pieces de um arquivo,
+// IGNORANDO o dedup do verifiedFiles e re-hashando até pieces marcados como
+// "complete" no momento. Caso de uso: ação manual do user via UI ("recheck")
+// quando ele suspeita que os bytes no disco estão corrompidos (BitErrors)
+// ou quando o tamanho/contagem do downloads.db não bate com o real.
+// Diferente do VerifyFile, que pula pieces já completos e dedupa por processo,
+// aqui valida tudo de novo — semantics equivalente ao "Force Recheck" do
+// qBittorrent. Roda em goroutine porque um filme grande leva minutos.
+func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	s.mu.Unlock()
+	if !ok {
+		return errors.New("torrent not active")
+	}
+	files := e.t.Files()
+	if fileIdx < 0 || fileIdx >= len(files) {
+		return fmt.Errorf("file index %d out of range", fileIdx)
+	}
+	// Libera o claim do dedup antes de re-hashar — assim a verificação roda
+	// de verdade. Mantém a guarda: se outro recheck já está em voo no mesmo
+	// (hash,fileIdx), LoadOrStore retorna loaded=true e a 2ª chamada vira no-op.
+	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
+	s.verifiedFiles.Delete(key)
+	f := files[fileIdx]
+	go func() {
+		// Marca como em-progresso antes da hashagem pra concorrent calls não
+		// dispararem 2ª pass.
+		if _, loaded := s.verifiedFiles.LoadOrStore(key, true); loaded {
+			return
+		}
+		completed := false
+		defer func() {
+			if !completed {
+				s.verifiedFiles.Delete(key)
+			}
+		}()
+		for p := range f.Pieces() {
+			_ = p.VerifyData() // todos os pieces, sem o skip-complete do VerifyFile
+		}
+		completed = true
+	}()
+	return nil
+}
+
 // verifyFilePieces hash-checks the on-disk pieces backing a single file so the
 // scheduler reuses the cache instead of re-downloading. Runs once per
 // (hash,fileIdx) per process. Verifying only this file's piece range keeps the
@@ -870,6 +967,14 @@ func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
 		info.Progress = float64(t.BytesCompleted()) / float64(t.Length())
 	}
 
+	// Populate announce trackers list
+	mi := t.Metainfo()
+	for _, tier := range mi.UpvertedAnnounceList() {
+		for _, tr := range tier {
+			info.Trackers = append(info.Trackers, tr)
+		}
+	}
+
 	files := t.Files()
 	info.Files = make([]FileInfo, 0, len(files))
 	for i, f := range files {
@@ -881,6 +986,7 @@ func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
 			Size:       f.Length(),
 			IsVideo:    isVideo,
 			Downloaded: f.BytesCompleted(),
+			Priority:   labelFromPriority(f.Priority()),
 		}
 		if f.Length() > 0 {
 			fi.Progress = float64(f.BytesCompleted()) / float64(f.Length())
@@ -1413,15 +1519,10 @@ func statusForLocked(e *entry) string {
 }
 
 // priorityFromLabel parses the user-facing string into an anacrolix priority.
-// We deliberately map "low" to Normal (still wanted) instead of None — None
-// means "do not download" which is not what a Transmission user expects from
-// "low priority". The mapping below biases the scheduler within the wanted band:
-//
-//	low    -> Normal    (default "wanted")
-//	normal -> High      (elevated above other torrents at Normal)
-//	high   -> Now       (reader-level urgency)
 func priorityFromLabel(label string) (types.PiecePriority, bool) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "none":
+		return types.PiecePriorityNone, true
 	case "low":
 		return types.PiecePriorityNormal, true
 	case "", "normal":
@@ -1430,6 +1531,41 @@ func priorityFromLabel(label string) (types.PiecePriority, bool) {
 		return types.PiecePriorityNow, true
 	}
 	return 0, false
+}
+
+func labelFromPriority(prio types.PiecePriority) string {
+	switch prio {
+	case types.PiecePriorityNone:
+		return "none"
+	case types.PiecePriorityNormal:
+		return "low"
+	case types.PiecePriorityHigh:
+		return "normal"
+	case types.PiecePriorityNow:
+		return "high"
+	default:
+		return "normal"
+	}
+}
+
+// SetFilePriority changes the priority of a single file in the active torrent.
+func (s *Streamer) SetFilePriority(hash metainfo.Hash, fileIdx int, label string) error {
+	prio, ok := priorityFromLabel(label)
+	if !ok {
+		return fmt.Errorf("invalid priority %q (want none|low|normal|high)", label)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, found := s.active[hash]
+	if !found {
+		return errors.New("torrent não está ativo")
+	}
+	files := e.t.Files()
+	if fileIdx < 0 || fileIdx >= len(files) {
+		return fmt.Errorf("file index %d out of range", fileIdx)
+	}
+	files[fileIdx].SetPriority(prio)
+	return nil
 }
 
 // rateFromBytes converts a bytes/sec setting into a rate.Limit suitable for

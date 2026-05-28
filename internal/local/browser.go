@@ -34,11 +34,44 @@ func NewBrowser(mounts []config.ExternalMount) *Browser {
 }
 
 func (b *Browser) Mounts() []Mount {
+	return b.MountsFor("")
+}
+
+// MountsFor returns mounts visible to the given username.
+// Empty username = only public mounts (AllowedUsers empty).
+func (b *Browser) MountsFor(username string) []Mount {
 	out := make([]Mount, 0, len(b.mounts))
 	for _, m := range b.mounts {
-		out = append(out, Mount{Name: m.Name, Path: m.Path})
+		if len(m.AllowedUsers) == 0 {
+			out = append(out, Mount{Name: m.Name, Path: m.Path})
+		} else if username != "" {
+			for _, u := range m.AllowedUsers {
+				if u == username {
+					out = append(out, Mount{Name: m.Name, Path: m.Path})
+					break
+				}
+			}
+		}
 	}
 	return out
+}
+
+// UserCanAccess checks if a username is allowed to access a given mount name.
+func (b *Browser) UserCanAccess(username, mountName string) bool {
+	for _, m := range b.mounts {
+		if m.Name == mountName {
+			if len(m.AllowedUsers) == 0 {
+				return true
+			}
+			for _, u := range m.AllowedUsers {
+				if u == username {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
 }
 
 func (b *Browser) findMount(name string) (config.ExternalMount, bool) {

@@ -139,11 +139,21 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
 
   const goTo = useCallback((delta: number) => {
     const pl = playlistRef.current
+    // Diagnostic: helps debug "player fechou mid-playlist" reports — captures
+    // the exact state at the advance decision point. Inspect via DevTools when
+    // reproducing.
+    console.debug('[player] goTo', {
+      delta,
+      hasPlaylist: !!pl,
+      position: pl?.position,
+      total: pl?.order.length,
+      repeat: repeatRef.current,
+    })
     if (!pl) {
-      // Single-item playback — just close
-      if (delta > 0) {
-        setCurrent(null)
-      }
+      // Single-item playback — stop without closing. Closing the modal here
+      // was hostile for audio (the minimized dock would disappear right when
+      // the user might want to replay). Caller (X button / explicit close)
+      // still works.
       return
     }
     let next = pl.position + delta
@@ -158,8 +168,9 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     if (next >= len) {
       if (repeatRef.current === 'all') next = 0
       else {
-        // Past the end — stop playback
-        setCurrent(null)
+        // End of playlist. Don't close — keep the modal visible so the user
+        // can replay, switch to repeat-all, or pick another song. The X
+        // button is the only path to close.
         return
       }
     }
@@ -356,6 +367,12 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
       const anyVideo = playlist.items.some(it => detectKind(it.title) === 'video')
       return anyVideo ? 'video' : 'audio'
     }
+    // Prefer backend-resolved mediaKind quando presente; cai na heurística
+    // local pra syntheticResult/deep-links que constroem SearchResult sem
+    // o campo. 'other' do backend coalesce em 'video' (default seguro: o
+    // PlayerModal toca áudio também, AudioBar não toca vídeo).
+    if (current.result.mediaKind === 'audio') return 'audio'
+    if (current.result.mediaKind === 'video') return 'video'
     return detectKind(current.result.title, current.result.categoryId)
   })()
 

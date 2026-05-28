@@ -1,0 +1,68 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Makefile.gdrive — Integra Google Drive mounts ao deploy do JackUI
+# Uso: include no Makefile principal ou copie as tasks manualmente
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Remote do rclone para Google Drive separados por vírgula
+# Ex: GDRIVE_REMOTES := gdrive-pessoal,gdrive-trabalho,gdrive-familia
+GDRIVE_REMOTES ?=
+
+# Diretório base das montagens no HOST
+GDRIVE_MOUNT_BASE := /mnt/rclone/gdrive
+
+# Gera os binds volumes para o docker-compose
+define gdrive_volumes
+$(foreach r,$(subst $(comma), ,$(GDRIVE_REMOTES)),- $(GDRIVE_MOUNT_BASE)/$(strip $(r)):$(GDRIVE_MOUNT_BASE)/$(strip $(r)):ro)
+endef
+
+# Gera as env vars JACKUI_EXTERNAL_MOUNTS adicionais
+define gdrive_mounts_env
+$(foreach r,$(subst $(comma), ,$(GDRIVE_REMOTES)),GDrive-$(strip $(r)):$(GDRIVE_MOUNT_BASE)/$(strip $(r))$(comma))
+endef
+
+# ── Comandos ─────────────────────────────────────────────────────────────────
+
+# setup-gdrive: Configura rclone + monta todos os GDrives no HOST
+.PHONY: setup-gdrive
+setup-gdrive:
+	@echo "=== Configurando Google Drives ==="
+	@echo ""
+	@echo "Passo 1: Configure cada conta no rclone"
+	@echo "  rclone config"
+	@echo "  -> New remote -> drive -> (nome: gdrive-pessoal, gdrive2, ...)"
+	@echo ""
+	@echo "Passo 2: Monte manualmente pra testar:"
+	@echo "  rclone mount gdrive-pessoal: /mnt/rclone/gdrive/gdrive-pessoal \\"
+	@echo "    --daemon --vfs-cache-mode full --allow-other"
+	@echo ""
+	@echo "Passo 3: Copie o script pro Pi e execute:"
+	@echo "  scp scripts/setup-rclone-mounts.sh raspberrypi-srv:/home/lgldsilva/bin/"
+	@echo "  ssh raspberrypi-srv /home/lgldsilva/bin/setup-rclone-mounts.sh"
+	@echo ""
+
+# apply-gdrive-config: Atualiza o docker-compose.yml com os binds
+.PHONY: apply-gdrive-config
+apply-gdrive-config:
+	@if [ -z "$(GDRIVE_REMOTES)" ]; then \
+		echo "⚠ Define GDRIVE_REMOTES (ex: make apply-gdrive-config GDRIVE_REMOTES=gdrive1,gdrive2)"; \
+		exit 1; \
+	fi
+	@echo "=== Aplicando config GDrive ==="
+	@echo ""
+	@echo "Adicione no docker-compose.yml, dentro de volumes:"
+	@echo ""
+	@for r in $(subst $(comma), ,$(GDRIVE_REMOTES)); do \
+		echo "      - /mnt/rclone/gdrive/$$r:/mnt/rclone/gdrive/$$r:ro"; \
+	done
+	@echo ""
+	@echo "Adicione no JACKUI_EXTERNAL_MOUNTS (ou crie segunda linha):"
+	@echo ""
+	@echo -n "      - JACKUI_EXTERNAL_MOUNTS="
+	@first=1; \
+	for r in $(subst $(comma), ,$(GDRIVE_REMOTES)); do \
+		if [ $$first -eq 1 ]; then first=0; else echo -n ","; fi; \
+		echo -n "GDrive-$$r:/mnt/rclone/gdrive/$$r"; \
+	done; \
+	echo ",\$${JACKUI_EXTERNAL_MOUNTS}"
+	@echo ""
+	@echo "Depois rode: make deploy-auto"
