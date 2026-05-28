@@ -199,6 +199,82 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 	return out
 }
 
+// DiscoverModels lists candidate models across ALL providers so the benchmark
+// can test more than the one model wired per provider in the chain:
+//   - ollama:     every locally-installed model (/api/tags)
+//   - openrouter: only FREE models (":free"/price 0), capped (huge catalog + the
+//                 free tier is rate-limited — don't blow the daily quota)
+//   - groq + others: all advertised models, capped (Groq free is generous)
+// Skips models already in the chain.
+func (c *Client) DiscoverModels(ctx context.Context) []Slot {
+	existing := map[string]bool{}
+	for _, s := range c.slots {
+		existing[s.Provider+"|"+s.Model] = true
+	}
+	var out []Slot
+	out = append(out, c.DiscoverOllamaModels(ctx)...)
+	for _, s := range out {
+		existing[s.Provider+"|"+s.Model] = true
+	}
+	for name, p := range c.providers {
+		if name == "ollama" || p.BaseURL == "" {
+			continue // ollama handled above; skip provider-less
+		}
+		freeOnly := name == "openrouter"
+		capN := 20
+		if freeOnly {
+			capN = 10
+		}
+		out = append(out, c.discoverViaModelsAPI(ctx, name, p, freeOnly, capN, existing)...)
+	}
+	return out
+}
+
+// discoverViaModelsAPI hits the OpenAI-compatible GET /models on a provider.
+func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config.AIProvider, freeOnly bool, capN int, existing map[string]bool) []Slot {
+	base := strings.TrimRight(p.BaseURL, "/")
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
+	if p.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var body struct {
+		Data []struct {
+			ID      string `json:"id"`
+			Pricing struct {
+				Prompt     string `json:"prompt"`
+				Completion string `json:"completion"`
+			} `json:"pricing"`
+		} `json:"data"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return nil
+	}
+	var out []Slot
+	for _, m := range body.Data {
+		if m.ID == "" || existing[name+"|"+m.ID] || len(out) >= capN {
+			continue
+		}
+		if freeOnly {
+			isFree := strings.HasSuffix(m.ID, ":free") ||
+				((m.Pricing.Prompt == "" || m.Pricing.Prompt == "0") && (m.Pricing.Completion == "" || m.Pricing.Completion == "0"))
+			if !isFree {
+				continue
+			}
+		}
+		existing[name+"|"+m.ID] = true
+		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey})
+	}
+	return out
+}
+
 // AdoptBenchmark rebuilds the live chain from benchmark scores: every model that
 // produced a usable reply (Samples>0), ordered best-first by composite. This is
 // what the user wants — "use the best benchmark" — while keeping the free local

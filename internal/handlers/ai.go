@@ -62,9 +62,10 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 
-		// Chain slots + every local Ollama model not already in the chain.
+		// Chain slots + discovered models across all providers (local Ollama +
+		// Groq's models + OpenRouter free models), deduped against the chain.
 		slots := client.Slots()
-		slots = append(slots, client.DiscoverOllamaModels(ctx)...)
+		slots = append(slots, client.DiscoverModels(ctx)...)
 
 		scores := client.RunSlots(ctx, slots, cases)
 		if store != nil {
