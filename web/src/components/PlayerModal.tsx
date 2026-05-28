@@ -500,6 +500,17 @@ export default function PlayerModal({
     }
   }
 
+  // Seek by delta seconds. Still needed because the HLS stream is EVENT-mode
+  // ("Transmissão ao Vivo") and Safari hides the native seek bar for live
+  // streams — these buttons are the ONLY way to navigate until #61 (VOD +
+  // on-demand transcode) lands and the native seek bar works.
+  const seekBy = (delta: number) => {
+    const v = videoRef.current
+    if (!v) return
+    const dur = v.duration && isFinite(v.duration) ? v.duration : Infinity
+    v.currentTime = Math.max(0, Math.min(dur, v.currentTime + delta))
+  }
+
   // Update offset and reapply to all cues
   const adjustSubOffset = (delta: number) => {
     setSubOffset((prev) => Math.round((prev + delta) * 10) / 10)
@@ -1335,8 +1346,22 @@ export default function PlayerModal({
                     <span className="font-mono text-[10px] sm:hidden">{formatTime(resumePosition)}</span>
                   </button>
                 )}
-                {/* Skip-by-seconds buttons removed — the native <video> controls
-                    already provide a seek bar. Episode nav + resume stay. */}
+                {/* Skip buttons — needed while the stream is EVENT/live (Safari
+                    hides the native seek bar). Compact set: -10s / +10s / +30s. */}
+                <button
+                  onClick={() => seekBy(-10)}
+                  title="-10s"
+                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
+                >
+                  <SkipBack className="w-4 h-4 sm:w-3.5 sm:h-3.5" />10s
+                </button>
+                <button
+                  onClick={() => seekBy(10)}
+                  title="+10s"
+                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
+                >
+                  10s<FastForward className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                </button>
                 <span className="text-xs text-gray-400 ml-2 font-mono tabular-nums">
                   {formatTime(currentTime)} <span className="text-gray-600">/</span> {formatTime(duration)}
                 </span>
