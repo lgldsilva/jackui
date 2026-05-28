@@ -24,6 +24,7 @@ import {
   streamSidecarURL,
   streamPlaylistM3UURL,
   streamPrefetch,
+  resolveArt,
   subtitlesEnabled,
   subtitlesSearch,
   subtitlesAuto,
@@ -736,6 +737,15 @@ export default function PlayerModal({
       })
       .catch(() => setSidecars([]))
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.infoHash, selectedFile, serverReady])
+
+  // Resolve + persist a per-torrent thumbnail once playback is live. Gated by
+  // serverReady so the torrent is active (embedded image / frame capture need a
+  // live Reader). Idempotent server-side: skips re-processing if good art was
+  // already persisted. Best-effort — never touches playback.
+  useEffect(() => {
+    if (!info?.infoHash || selectedFile < 0 || !serverReady) return
+    resolveArt(info.infoHash, selectedFile)
   }, [info?.infoHash, selectedFile, serverReady])
 
   // Note: auto-search of OpenSubtitles intentionally NOT triggered here — it would burn quota.

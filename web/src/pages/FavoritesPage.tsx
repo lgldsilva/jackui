@@ -464,7 +464,7 @@ export default function FavoritesPage() {
                 >
                   <div className="flex items-start gap-2">
                     {/* Lazy TMDB poster — falls back to a Film/Music icon when no match. */}
-                    <Thumbnail title={fav.name} size="md" />
+                    <Thumbnail title={fav.name} size="md" infoHash={fav.infoHash} />
                     <h3 className="text-sm font-medium text-gray-100 line-clamp-2 flex-1" title={fav.name}>
                       <FileVideo className="w-3.5 h-3.5 inline mr-1.5 text-gray-500" />
                       {fav.name}

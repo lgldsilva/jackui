@@ -394,6 +394,10 @@ func main() {
 			api.GET("/stream/artwork/:hash/:file", handlers.StreamArtwork(streamSrv))
 			api.GET("/stream/metadata/:hash", handlers.StreamMetadata(streamSrv))
 			api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(streamSrv))
+			// Per-torrent resolved thumbnail (poster/cover/frame, persisted by info_hash).
+			// GET is cheap (cards); POST runs the resolution chain on play.
+			api.GET("/stream/art/:hash", handlers.StreamArt(streamSrv))
+			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient))
 			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv))
 			api.DELETE("/stream/:hash", handlers.StreamDrop(streamSrv))
 

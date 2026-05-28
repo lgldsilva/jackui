@@ -187,7 +187,7 @@ export default function PlaylistDetailPage() {
                       </button>
                     </div>
                     {/* Lazy TMDB poster — falls back to Film/Music icon. */}
-                    <Thumbnail title={it.title} size="sm" />
+                    <Thumbnail title={it.title} size="sm" infoHash={it.infoHash} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-200 truncate" title={it.title}>{it.title}</p>
                       {it.infoHash && (

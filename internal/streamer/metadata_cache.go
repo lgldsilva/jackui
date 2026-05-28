@@ -42,6 +42,39 @@ type CachedFile struct {
 	IsVideo bool   `json:"isVideo"`
 }
 
+// CachedArt is the resolved thumbnail for a torrent, persisted per info_hash so
+// we never re-run the (expensive) resolution chain — embedded torrent image,
+// TMDB lookup, or a captured video frame. Stored alongside the metadata row but
+// updated via SetArt() with a disjoint column set, so caching metadata never
+// clobbers the art and vice-versa.
+type CachedArt struct {
+	// Source is "torrent" | "tmdb" | "frame" — the chain step that produced it.
+	Source string `json:"source"`
+	// Path is the DataDir-relative file for byte-backed sources (torrent/frame).
+	// Empty for tmdb (the image lives on the remote CDN at PosterURL).
+	Path string `json:"path,omitempty"`
+	// PosterURL is the remote image for source=="tmdb"; the handler 302s to it.
+	PosterURL string `json:"posterUrl,omitempty"`
+	TmdbID    int    `json:"tmdbId,omitempty"`
+	ImdbID    string `json:"imdbId,omitempty"`
+}
+
+// ArtSourceRank orders art sources by trustworthiness so resolution only ever
+// *upgrades* a persisted thumbnail (uploader-curated image > matched poster >
+// raw frame). Exported so the resolver in the handlers layer shares the order.
+func ArtSourceRank(source string) int {
+	switch source {
+	case "torrent":
+		return 3
+	case "tmdb":
+		return 2
+	case "frame":
+		return 1
+	default:
+		return 0
+	}
+}
+
 func NewMetadataCache(path string) (*MetadataCache, error) {
 	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
 	if err != nil {
@@ -61,7 +94,40 @@ func NewMetadataCache(path string) (*MetadataCache, error) {
 		db.Close()
 		return nil, err
 	}
+	// Art columns added in a later version — migrate idempotently so existing
+	// caches keep working. Each is a no-op once the column exists.
+	for col, ddl := range map[string]string{
+		"art_source": `ALTER TABLE metadata ADD COLUMN art_source TEXT NOT NULL DEFAULT ''`,
+		"art_path":   `ALTER TABLE metadata ADD COLUMN art_path TEXT NOT NULL DEFAULT ''`,
+		"poster_url": `ALTER TABLE metadata ADD COLUMN poster_url TEXT NOT NULL DEFAULT ''`,
+		"tmdb_id":    `ALTER TABLE metadata ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0`,
+		"imdb_id":    `ALTER TABLE metadata ADD COLUMN imdb_id TEXT NOT NULL DEFAULT ''`,
+	} {
+		if !columnExists(db, "metadata", col) {
+			if _, err := db.Exec(ddl); err != nil {
+				db.Close()
+				return nil, err
+			}
+		}
+	}
 	return &MetadataCache{db: db}, nil
+}
+
+// columnExists reports whether a table already has a column, so ADD COLUMN
+// migrations stay idempotent (SQLite has no "ADD COLUMN IF NOT EXISTS").
+func columnExists(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil && name == column {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MetadataCache) Close() error {
@@ -116,6 +182,43 @@ func (m *MetadataCache) Set(info *TorrentInfo) error {
 			primary_file = excluded.primary_file,
 			cached_at = CURRENT_TIMESTAMP
 	`, info.InfoHash, info.Name, info.TotalSize, string(filesJSON), info.PrimaryFile)
+	return err
+}
+
+// GetArt returns the persisted thumbnail for an info_hash, or nil when none has
+// been resolved yet. Never errors on "not found" — callers treat nil as "no art".
+func (m *MetadataCache) GetArt(infoHash string) *CachedArt {
+	if m == nil {
+		return nil
+	}
+	row := m.db.QueryRow(`SELECT art_source, art_path, poster_url, tmdb_id, imdb_id FROM metadata WHERE info_hash = ?`, infoHash)
+	var ca CachedArt
+	if err := row.Scan(&ca.Source, &ca.Path, &ca.PosterURL, &ca.TmdbID, &ca.ImdbID); err != nil {
+		return nil
+	}
+	if ca.Source == "" {
+		return nil // row exists (metadata cached) but art never resolved
+	}
+	return &ca
+}
+
+// SetArt persists a resolved thumbnail. Uses a column set disjoint from Set()
+// so it neither requires nor clobbers the metadata snapshot — an art-only row
+// (name='') is created if the torrent's metadata hasn't been cached yet.
+func (m *MetadataCache) SetArt(infoHash string, art *CachedArt) error {
+	if m == nil || art == nil {
+		return nil
+	}
+	_, err := m.db.Exec(`
+		INSERT INTO metadata(info_hash, name, art_source, art_path, poster_url, tmdb_id, imdb_id)
+		VALUES(?, '', ?, ?, ?, ?, ?)
+		ON CONFLICT(info_hash) DO UPDATE SET
+			art_source = excluded.art_source,
+			art_path   = excluded.art_path,
+			poster_url = excluded.poster_url,
+			tmdb_id    = excluded.tmdb_id,
+			imdb_id    = excluded.imdb_id
+	`, infoHash, art.Source, art.Path, art.PosterURL, art.TmdbID, art.ImdbID)
 	return err
 }
 
