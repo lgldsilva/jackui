@@ -1922,7 +1922,7 @@ export default function PlayerModal({
                               // else: dead row, click does nothing (download via long-press / context menu still available)
                             }}
                             title={f.path}
-                            className={`flex flex-col gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${
+                            className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${
                               selectedFile === f.index
                                 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                                 : isPlayable
