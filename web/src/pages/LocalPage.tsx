@@ -8,8 +8,11 @@ import {
   HardDrive,
   Home,
   X,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
+import { usePersistedState } from '../lib/storage'
 import {
   LocalEntry,
   LocalMount,
@@ -17,6 +20,9 @@ import {
   localList,
   localMounts,
 } from '../api/client'
+
+type SortKey = 'name' | 'size' | 'date'
+type KindFilter = 'all' | 'video' | 'audio' | 'other'
 
 const VIDEO_EXTS = ['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts']
 const AUDIO_EXTS = ['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus']
@@ -159,6 +165,33 @@ export default function LocalPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [playing, setPlaying] = useState<LocalEntry | null>(null)
+  const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
+  const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
+  const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
+
+  // Folders always show (so navigation never gets filtered away); the kind
+  // filter + sort apply within each group, folders kept on top.
+  const visible = useMemo(() => {
+    const dirs = entries.filter((e) => e.isDir)
+    let files = entries.filter((e) => !e.isDir)
+    if (kind === 'video') files = files.filter((e) => isVideo(e.name))
+    else if (kind === 'audio') files = files.filter((e) => isAudio(e.name))
+    else if (kind === 'other') files = files.filter((e) => !isVideo(e.name) && !isAudio(e.name))
+
+    const cmp = (a: LocalEntry, b: LocalEntry) => {
+      let r = 0
+      if (sortKey === 'name') r = a.name.localeCompare(b.name, undefined, { numeric: true })
+      else if (sortKey === 'size') r = a.size - b.size
+      else r = new Date(a.modTime).getTime() - new Date(b.modTime).getTime()
+      return sortDir === 'asc' ? r : -r
+    }
+    return [...dirs.sort(cmp), ...files.sort(cmp)]
+  }, [entries, kind, sortKey, sortDir])
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir(key === 'name' ? 'asc' : 'desc') }
+  }
 
   useEffect(() => {
     localMounts()
@@ -205,11 +238,11 @@ export default function LocalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
       <NavHeader />
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex gap-6">
+      <main className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex gap-6">
         {/* Sidebar */}
-        <aside className="w-56 flex-shrink-0">
+        <aside className="w-56 flex-shrink-0 overflow-y-auto">
           <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-3">
             Mounts
           </h2>
@@ -245,9 +278,45 @@ export default function LocalPage() {
         </aside>
 
         {/* Content */}
-        <section className="flex-1 min-w-0 flex flex-col gap-4">
+        <section className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {activeMount && (
             <Breadcrumbs mountName={activeMount} path={path} onNavigate={setPath} />
+          )}
+
+          {/* Toolbar: kind filter chips + sort controls (flex-shrink-0 so it
+              stays put while the list below scrolls). */}
+          {activeMount && entries.length > 0 && (
+            <div className="flex-shrink-0 flex flex-wrap items-center gap-2 text-xs">
+              {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setKind(k)}
+                  className={`px-2.5 py-1 rounded-full border transition-colors ${
+                    kind === k
+                      ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                      : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
+                </button>
+              ))}
+              <span className="mx-1 h-4 w-px bg-gray-700" />
+              <span className="text-gray-500">Ordenar:</span>
+              {(['name', 'size', 'date'] as SortKey[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => toggleSort(k)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
+                    sortKey === k
+                      ? 'bg-gray-700 text-gray-100 border-gray-600'
+                      : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
+                  {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                </button>
+              ))}
+            </div>
           )}
 
           {error && (
@@ -260,13 +329,15 @@ export default function LocalPage() {
             <div className="text-gray-500 text-sm">Carregando...</div>
           )}
 
-          {!loading && !error && activeMount && entries.length === 0 && (
-            <div className="text-gray-500 text-sm">Pasta vazia</div>
+          {!loading && !error && activeMount && visible.length === 0 && (
+            <div className="text-gray-500 text-sm">
+              {entries.length === 0 ? 'Pasta vazia' : 'Nenhum arquivo com esse filtro'}
+            </div>
           )}
 
-          {!loading && entries.length > 0 && (
-            <ul className="divide-y divide-gray-800 bg-gray-800/50 rounded-xl border border-gray-700">
-              {entries.map((e) => {
+          {!loading && visible.length > 0 && (
+            <ul className="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-800 bg-gray-800/50 rounded-xl border border-gray-700">
+              {visible.map((e) => {
                 const clickable = e.isDir || e.isPlayable
                 return (
                   <li key={e.path}>
