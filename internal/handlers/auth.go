@@ -18,6 +18,7 @@ type loginReq struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Remember bool   `json:"remember"`
+	Totp     string `json:"totp"` // 2nd factor when the account has MFA enabled
 }
 
 type tokenResp struct {
@@ -49,6 +50,19 @@ func Login(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		case auth.StatusDisabled:
 			c.JSON(http.StatusForbidden, gin.H{"error": "conta desabilitada", "status": "disabled"})
 			return
+		}
+		// Second factor: if the account has TOTP enabled, require a valid code.
+		// Password is already verified here, so revealing mfaRequired is safe.
+		if user.MfaEnabled {
+			if req.Totp == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA obrigatório", "mfaRequired": true})
+				return
+			}
+			secret, _, _ := store.GetTOTPSecret(user.ID)
+			if !auth.ValidateTOTP(secret, req.Totp) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA inválido", "mfaRequired": true})
+				return
+			}
 		}
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
@@ -159,6 +173,87 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "senha alterada"})
+	}
+}
+
+// ─── MFA (TOTP) — opt-in per user ───────────────────────────────────────────
+
+// MFAEnrollStart handles POST /api/auth/mfa/enroll — generates a fresh TOTP
+// secret (stored as not-yet-enabled) and returns the otpauth URI + secret for
+// the user to add to their authenticator app. Confirmed via MFAEnrollVerify.
+func MFAEnrollStart(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		secret, err := auth.GenerateTOTPSecret()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := store.SetTOTPSecret(claims.UserID, secret); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		uri := auth.TOTPURI(secret, "JackUI", claims.Username)
+		c.JSON(http.StatusOK, gin.H{"secret": secret, "uri": uri})
+	}
+}
+
+// MFAEnrollVerify handles POST /api/auth/mfa/verify — confirms a code against
+// the pending secret and enables MFA.
+func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		var req struct {
+			Code string `json:"code"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Code == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "código obrigatório"})
+			return
+		}
+		secret, _, _ := store.GetTOTPSecret(claims.UserID)
+		if !auth.ValidateTOTP(secret, req.Code) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "código inválido"})
+			return
+		}
+		if err := store.EnableTOTP(claims.UserID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "MFA ativado"})
+	}
+}
+
+// MFADisable handles POST /api/auth/mfa/disable — turns MFA off (requires the
+// current password to prevent a hijacked session from removing it).
+func MFADisable(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		var req struct {
+			Password string `json:"password"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		// Re-verify the password by username (we have it in claims).
+		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "senha incorreta"})
+			return
+		}
+		if err := store.DisableTOTP(claims.UserID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "MFA desativado"})
 	}
 }
 

@@ -548,6 +548,9 @@ func main() {
 		if authStore != nil {
 			api.GET("/auth/me", handlers.Me(authStore))
 			api.POST("/auth/password", handlers.ChangePassword(authStore))
+			api.POST("/auth/mfa/enroll", handlers.MFAEnrollStart(authStore))
+			api.POST("/auth/mfa/verify", handlers.MFAEnrollVerify(authStore))
+			api.POST("/auth/mfa/disable", handlers.MFADisable(authStore))
 			adminGroup := api.Group("/auth/users")
 			adminGroup.Use(auth.AdminOnly())
 			adminGroup.GET("", handlers.ListUsers(authStore))

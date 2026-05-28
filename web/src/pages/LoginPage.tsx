@@ -12,6 +12,8 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
+  const [totp, setTotp] = useState('')
+  const [mfaStep, setMfaStep] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -20,10 +22,16 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      await login(username, password, remember)
+      await login(username, password, remember, totp)
       nav(from, { replace: true })
     } catch (err: any) {
-      setError(err?.response?.data?.error || err.message || 'Falha no login')
+      // Account has MFA → ask for the 6-digit code and resubmit.
+      if (err?.response?.data?.mfaRequired) {
+        setMfaStep(true)
+        setError(totp ? 'Código inválido, tente de novo.' : '')
+      } else {
+        setError(err?.response?.data?.error || err.message || 'Falha no login')
+      }
     } finally {
       setLoading(false)
     }
@@ -67,6 +75,22 @@ export default function LoginPage() {
               className="input-field"
             />
           </div>
+
+          {mfaStep && (
+            <div>
+              <label className="block text-sm text-gray-400 mb-1.5">Código MFA (app autenticador)</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoFocus
+                autoComplete="one-time-code"
+                value={totp}
+                onChange={e => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                className="input-field tracking-widest text-center font-mono"
+              />
+            </div>
+          )}
 
           <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
             <input

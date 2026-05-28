@@ -53,6 +53,7 @@ type User struct {
 	Role          Role      `json:"role"`
 	Status        Status    `json:"status"`
 	EmailVerified bool      `json:"emailVerified"`
+	MfaEnabled    bool      `json:"mfaEnabled"`
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
@@ -115,6 +116,8 @@ func (s *Store) migrate() error {
 		"email":          `ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
 		"status":         `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
 		"email_verified": `ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1`,
+		"totp_secret":    `ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
+		"totp_enabled":   `ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if !s.hasColumn("users", col) {
 			if _, err := s.db.Exec(ddl); err != nil {
@@ -224,6 +227,31 @@ func (s *Store) SetPassword(userID int, password string) error {
 	return err
 }
 
+// SetTOTPSecret stores a (not-yet-enabled) TOTP secret during enrollment.
+func (s *Store) SetTOTPSecret(userID int, secret string) error {
+	_, err := s.db.Exec("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?", secret, userID)
+	return err
+}
+
+// GetTOTPSecret returns the stored secret + whether MFA is enabled.
+func (s *Store) GetTOTPSecret(userID int) (secret string, enabled bool, err error) {
+	var en int
+	err = s.db.QueryRow("SELECT totp_secret, totp_enabled FROM users WHERE id = ?", userID).Scan(&secret, &en)
+	return secret, en == 1, err
+}
+
+// EnableTOTP marks MFA active (after the user confirms a code during enrollment).
+func (s *Store) EnableTOTP(userID int) error {
+	_, err := s.db.Exec("UPDATE users SET totp_enabled = 1 WHERE id = ?", userID)
+	return err
+}
+
+// DisableTOTP clears the secret + disables MFA.
+func (s *Store) DisableTOTP(userID int) error {
+	_, err := s.db.Exec("UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE id = ?", userID)
+	return err
+}
+
 // SetStatus changes an account's lifecycle state (approve/disable/re-enable).
 func (s *Store) SetStatus(userID int, status Status) error {
 	_, err := s.db.Exec("UPDATE users SET status = ? WHERE id = ?", string(status), userID)
@@ -303,9 +331,9 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	var hash string
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, password_hash, role, email, status, email_verified, created_at FROM users WHERE username = ?",
+		"SELECT id, username, password_hash, role, email, status, email_verified, totp_enabled, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts)
+	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("usuário ou senha inválidos")
 	}
@@ -324,8 +352,8 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 	var u User
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, role, email, status, email_verified, created_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts)
+		"SELECT id, username, role, email, status, email_verified, totp_enabled, created_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
@@ -338,7 +366,7 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 
 // ListUsers returns all users (admin only).
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, created_at FROM users ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, totp_enabled, created_at FROM users ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +375,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var ts string
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts); err != nil {
 			continue
 		}
 		u.CreatedAt, _ = parseTime(ts)
