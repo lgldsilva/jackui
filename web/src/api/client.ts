@@ -397,6 +397,38 @@ export const streamPrefetch = async (hash: string, fileIdx: number): Promise<voi
   }
 }
 
+// ── AI title-identification benchmark (admin) ────────────────────────────────
+export interface AISlotScore {
+  slotId: string
+  provider: string
+  model: string
+  accuracy: number      // 0..1
+  avgLatencyMs: number
+  composite: number
+  samples: number
+  failureReason?: string
+}
+export interface AIBenchmarkCase { raw: string; expect: string }
+export interface AIStatus {
+  enabled: boolean
+  chain: { id: string; provider: string; model: string }[]
+  results: AISlotScore[]
+  cases: AIBenchmarkCase[]
+}
+
+export const aiBenchmarkStatus = async (): Promise<AIStatus> => {
+  const { data } = await api.get<AIStatus>('/ai/benchmark')
+  return data
+}
+export const runAIBenchmark = async (): Promise<AISlotScore[]> => {
+  const { data } = await api.post<{ results: AISlotScore[] }>('/ai/benchmark')
+  return data.results || []
+}
+export const saveAICases = async (cases: AIBenchmarkCase[]): Promise<AIBenchmarkCase[]> => {
+  const { data } = await api.put<{ cases: AIBenchmarkCase[] }>('/ai/benchmark/cases', { cases })
+  return data.cases || []
+}
+
 // streamArtURL returns the persisted per-torrent thumbnail (poster/cover/frame).
 // Serves bytes, 302s to a TMDB poster, or 204s when nothing is resolved yet —
 // so an <img> using it should fall back to the title-based poster on error.

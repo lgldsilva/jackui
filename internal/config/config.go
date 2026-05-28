@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +23,31 @@ type Config struct {
 	Notifications   NotificationsConfig `yaml:"notifications"`
 	TMDB            TMDBConfig          `yaml:"tmdb"`
 	External        ExternalConfig      `yaml:"external"`
+	AI              AIConfig            `yaml:"ai"`
+}
+
+// AIConfig declares an OpenAI-compatible LLM fallback chain used to turn a messy
+// torrent name into a clean title before the TMDB lookup. Entirely optional:
+// with no providers/chain (or enabled:false) the resolver falls back to TMDB's
+// own regex title cleaning. Providers are keyed by name; the chain references
+// them by `provider` and is walked in order until one returns a usable title.
+type AIConfig struct {
+	Enabled   bool                  `yaml:"enabled"`
+	Providers map[string]AIProvider `yaml:"providers"`
+	Chain     []AIChainSlot         `yaml:"chain"`
+}
+
+type AIProvider struct {
+	BaseURL string `yaml:"base_url"` // OpenAI-compatible base, e.g. https://api.groq.com/openai/v1
+	APIKey  string `yaml:"api_key"`  // bearer token; empty for keyless backends (ollama)
+}
+
+type AIChainSlot struct {
+	ID       string `yaml:"id"`       // unique label (used by the benchmark + logs)
+	Provider string `yaml:"provider"` // key into Providers
+	Model    string `yaml:"model"`    // model id sent to /chat/completions
+	// Disabled lets the benchmark (Fase 3) park a model without deleting it.
+	Disabled bool `yaml:"disabled"`
 }
 
 // ExternalConfig declares filesystem mounts the user wants browsable from
@@ -166,12 +192,74 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.TMDB.APIKey = v
 	}
 
+	applyAIEnv(cfg)
+
 	// Sensible defaults if not set anywhere
 	if cfg.Stream.IdleMinutes == 0 {
 		cfg.Stream.IdleMinutes = 30
 	}
 	if cfg.Stream.MetadataSeconds == 0 {
 		cfg.Stream.MetadataSeconds = 60
+	}
+}
+
+// applyAIEnv fills provider credentials from the standard env vars and, when no
+// explicit chain is configured, auto-seeds a sensible default from whatever
+// providers have credentials. This lets the same env vars the box already
+// exports (GROQ_API_KEY / OPENROUTER_API_KEY / OLLAMA_BASE_URL) light up the AI
+// title-identification without hand-editing config.yaml.
+func applyAIEnv(cfg *Config) {
+	if cfg.AI.Providers == nil {
+		cfg.AI.Providers = map[string]AIProvider{}
+	}
+	setKey := func(name, baseURL, key string) {
+		p := cfg.AI.Providers[name]
+		if p.BaseURL == "" {
+			p.BaseURL = baseURL
+		}
+		if key != "" {
+			p.APIKey = key
+		}
+		cfg.AI.Providers[name] = p
+	}
+	if v := os.Getenv("GROQ_API_KEY"); v != "" {
+		setKey("groq", "https://api.groq.com/openai/v1", v)
+	}
+	if v := os.Getenv("OPENROUTER_API_KEY"); v != "" {
+		setKey("openrouter", "https://openrouter.ai/api/v1", v)
+	}
+	if v := os.Getenv("OLLAMA_BASE_URL"); v != "" {
+		// Ollama exposes the OpenAI-compatible API under /v1.
+		base := v
+		if !strings.HasSuffix(base, "/v1") {
+			base = strings.TrimRight(base, "/") + "/v1"
+		}
+		setKey("ollama", base, "")
+	}
+	if v := os.Getenv("JACKUI_AI_ENABLED"); v == "0" || v == "false" {
+		cfg.AI.Enabled = false
+		return
+	}
+
+	// Auto-seed a default chain only when the user hasn't configured one.
+	if len(cfg.AI.Chain) == 0 {
+		var chain []AIChainSlot
+		if cfg.AI.Providers["groq"].APIKey != "" {
+			chain = append(chain, AIChainSlot{ID: "groq-8b", Provider: "groq", Model: "llama-3.1-8b-instant"})
+		}
+		if cfg.AI.Providers["openrouter"].APIKey != "" {
+			chain = append(chain, AIChainSlot{ID: "openrouter-nemotron", Provider: "openrouter", Model: "nvidia/nemotron-nano-9b-v2:free"})
+		}
+		if cfg.AI.Providers["ollama"].BaseURL != "" {
+			chain = append(chain, AIChainSlot{ID: "ollama-qwen", Provider: "ollama", Model: "qwen2.5:7b"})
+		}
+		if len(chain) > 0 {
+			cfg.AI.Chain = chain
+			cfg.AI.Enabled = true
+		}
+	} else if !cfg.AI.Enabled {
+		// Explicit chain present → enable unless the user turned it off above.
+		cfg.AI.Enabled = true
 	}
 }
 

@@ -10,6 +10,7 @@ import {
 } from '../api/client'
 import StreamCacheCard from '../components/StreamCacheCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
+import AIBenchmarkCard from '../components/AIBenchmarkCard'
 
 const DEFAULT_CLIENT: DownloadClientFull = {
   id: '',
@@ -338,6 +339,9 @@ export default function SettingsPage() {
 
         {/* Hardware transcoding capabilities */}
         <TranscodeCapabilitiesCard />
+
+        {/* AI title identification + benchmark */}
+        <AIBenchmarkCard />
 
         {/* Streaming cache */}
         <StreamCacheCard />
