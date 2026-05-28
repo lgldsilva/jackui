@@ -275,6 +275,12 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     const hash = playUrlParam
     if (hash === lastSyncedHashRef.current) return
     if (!hash) {
+      // Double check window.location.search to prevent React Router race conditions on tab resume/hydration
+      const realHash = new URLSearchParams(window.location.search).get('play')
+      if (realHash) {
+        // The URL actually has the hash! It's just a router sync lag. Ignore it.
+        return
+      }
       // URL cleared externally (user removed ?play) — close any active playback
       if (current) close()
       lastSyncedHashRef.current = null

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { LogIn, Loader2, AlertCircle } from 'lucide-react'
+import { LogIn, Loader2, AlertCircle, KeyRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
+import { isPasskeySupported } from '../api/client'
 
 export default function LoginPage() {
-  const { login } = useAuth()
+  const { login, loginWithPasskey } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
   const from = (location.state as any)?.from?.pathname || '/'
@@ -31,6 +32,28 @@ export default function LoginPage() {
         setError(totp ? 'Código inválido, tente de novo.' : '')
       } else {
         setError(err?.response?.data?.error || err.message || 'Falha no login')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const passkeyLogin = async () => {
+    if (!username) {
+      setError('Informe o usuário para entrar com passkey.')
+      return
+    }
+    setLoading(true)
+    setError('')
+    try {
+      await loginWithPasskey(username, remember)
+      nav(from, { replace: true })
+    } catch (err: any) {
+      // A user cancelling the browser prompt throws NotAllowedError — treat as silent.
+      if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
+        setError('Autenticação por passkey cancelada.')
+      } else {
+        setError(err?.response?.data?.error || err.message || 'Falha na passkey')
       }
     } finally {
       setLoading(false)
@@ -78,17 +101,17 @@ export default function LoginPage() {
 
           {mfaStep && (
             <div>
-              <label className="block text-sm text-gray-400 mb-1.5">Código MFA (app autenticador)</label>
+              <label className="block text-sm text-gray-400 mb-1.5">Código MFA ou de recuperação</label>
               <input
                 type="text"
-                inputMode="numeric"
                 autoFocus
                 autoComplete="one-time-code"
                 value={totp}
-                onChange={e => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="000000"
+                onChange={e => setTotp(e.target.value.slice(0, 14))}
+                placeholder="000000 ou xxxx-xxxx"
                 className="input-field tracking-widest text-center font-mono"
               />
+              <p className="text-[11px] text-gray-500 mt-1">Use o código do app autenticador ou um código de recuperação.</p>
             </div>
           )}
 
@@ -117,6 +140,19 @@ export default function LoginPage() {
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
             Entrar
           </button>
+
+          {isPasskeySupported() && (
+            <button
+              type="button"
+              onClick={passkeyLogin}
+              disabled={loading || !username}
+              className="btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <KeyRound className="w-4 h-4" />
+              Entrar com passkey
+            </button>
+          )}
+
           <div className="flex items-center justify-between text-xs">
             <button type="button" onClick={() => nav('/register')} className="text-gray-400 hover:text-green-400">Criar conta</button>
             <button type="button" onClick={() => nav('/forgot-password')} className="text-gray-400 hover:text-green-400">Esqueci a senha</button>

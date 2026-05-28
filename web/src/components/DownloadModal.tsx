@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Download, Loader2, Clock, Server } from 'lucide-react'
-import { SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate } from '../api/client'
+import { SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate, streamAdd } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 import { load, save, pushMRU } from '../lib/storage'
 
@@ -69,9 +69,18 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
     try {
       if (selectedClientId === INTERNAL_ID) {
         // Download inside JackUI: enqueue on the background worker. It resolves
-        // file path/size from metadata; we just need a hash + magnet.
-        const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-        const infoHash = result.infoHash || hashFromMagnet(magnet)
+        // file path/size from metadata; we just need a hash + a source the
+        // streamer can add (magnet OR a .torrent URL).
+        let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
+        let infoHash = result.infoHash || hashFromMagnet(magnet)
+        // Some indexers only expose a .torrent link (no magnet/hash). The streamer
+        // can resolve that URL — add it once to learn the infoHash, then enqueue
+        // with the link as the source (the worker's EnsureActive handles URLs).
+        if ((!infoHash || !magnet) && result.link) {
+          const info = await streamAdd(result.link)
+          infoHash = info.infoHash
+          magnet = result.link
+        }
         if (!infoHash || !magnet) {
           throw new Error('Sem magnet/infoHash — não dá pra baixar internamente')
         }

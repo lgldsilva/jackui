@@ -13,12 +13,15 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 // Role identifies a user's authorization level.
@@ -143,6 +146,35 @@ func (s *Store) migrate() error {
 	`); err != nil {
 		return err
 	}
+	// WebAuthn (passkey) credentials. cred_id is the base64url credential id
+	// (stable PK); data is the full webauthn.Credential JSON (public key, sign
+	// count, transports, flags). One user may register several authenticators.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS webauthn_credentials (
+			cred_id    TEXT PRIMARY KEY,
+			user_id    INTEGER NOT NULL,
+			data       TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_wacred_user ON webauthn_credentials(user_id);
+	`); err != nil {
+		return err
+	}
+	// MFA backup codes — single-use recovery codes shown once when TOTP is
+	// enabled. Only the SHA-256 of each code is stored; used_at marks redemption.
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+			code_hash  TEXT PRIMARY KEY,
+			user_id    INTEGER NOT NULL,
+			used_at    DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_backupcode_user ON mfa_backup_codes(user_id);
+	`); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -246,10 +278,85 @@ func (s *Store) EnableTOTP(userID int) error {
 	return err
 }
 
-// DisableTOTP clears the secret + disables MFA.
+// DisableTOTP clears the secret + disables MFA, and drops any backup codes
+// (they're meaningless once MFA is off).
 func (s *Store) DisableTOTP(userID int) error {
-	_, err := s.db.Exec("UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE id = ?", userID)
+	if _, err := s.db.Exec("UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE id = ?", userID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec("DELETE FROM mfa_backup_codes WHERE user_id = ?", userID)
 	return err
+}
+
+// ─── MFA backup codes ───────────────────────────────────────────────────────
+
+// backupCodeAlphabet excludes visually ambiguous characters (0/o, 1/l/i).
+const backupCodeAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"
+
+// normalizeBackupCode lowercases and strips separators so "ABCD-EFGH" and
+// "abcdefgh" hash identically — users mistype dashes/case.
+func normalizeBackupCode(s string) string {
+	var b []byte
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b = append(b, byte(r))
+		}
+	}
+	return string(b)
+}
+
+// GenerateBackupCodes replaces a user's backup codes with n fresh ones and
+// returns the PLAINTEXT (formatted "xxxx-xxxx") — shown once, never recoverable.
+func (s *Store) GenerateBackupCodes(userID, n int) ([]string, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		raw, err := randomFromAlphabet(8, backupCodeAlphabet)
+		if err != nil {
+			return nil, err
+		}
+		formatted := raw[:4] + "-" + raw[4:]
+		if _, err := tx.Exec(
+			"INSERT INTO mfa_backup_codes(code_hash, user_id) VALUES(?, ?)",
+			sha256Hex(normalizeBackupCode(raw)), userID,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, formatted)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ConsumeBackupCode validates a code for a user and marks it used (single-use).
+// Returns true on a successful redemption.
+func (s *Store) ConsumeBackupCode(userID int, code string) bool {
+	hash := sha256Hex(normalizeBackupCode(code))
+	res, err := s.db.Exec(
+		"UPDATE mfa_backup_codes SET used_at = CURRENT_TIMESTAMP WHERE code_hash = ? AND user_id = ? AND used_at IS NULL",
+		hash, userID,
+	)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+// CountBackupCodes returns how many unused backup codes a user has left.
+func (s *Store) CountBackupCodes(userID int) int {
+	var n int
+	s.db.QueryRow("SELECT COUNT(*) FROM mfa_backup_codes WHERE user_id = ? AND used_at IS NULL", userID).Scan(&n)
+	return n
 }
 
 // SetStatus changes an account's lifecycle state (approve/disable/re-enable).
@@ -342,6 +449,29 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
 		return nil, errors.New("usuário ou senha inválidos")
+	}
+	u.CreatedAt, _ = parseTime(ts)
+	return &u, nil
+}
+
+// GetUserByUsername loads a user by login name (no password check). Used by the
+// passkey login flow, which authenticates via the authenticator assertion rather
+// than a password. Returns nil when no such user.
+func (s *Store) GetUserByUsername(username string) (*User, error) {
+	if username == "" {
+		return nil, nil
+	}
+	var u User
+	var ts string
+	err := s.db.QueryRow(
+		"SELECT id, username, role, email, status, email_verified, totp_enabled, created_at FROM users WHERE username = ?",
+		username,
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	u.CreatedAt, _ = parseTime(ts)
 	return &u, nil
@@ -451,6 +581,68 @@ func (s *Store) DeleteUser(id int) error {
 	return err
 }
 
+// ─── WebAuthn credentials ───────────────────────────────────────────────────
+
+func credKey(id []byte) string { return base64.RawURLEncoding.EncodeToString(id) }
+
+// AddCredential persists a newly-registered passkey for a user.
+func (s *Store) AddCredential(userID int, cred *webauthn.Credential) error {
+	blob, err := json.Marshal(cred)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(
+		"INSERT OR REPLACE INTO webauthn_credentials(cred_id, user_id, data) VALUES(?, ?, ?)",
+		credKey(cred.ID), userID, string(blob),
+	)
+	return err
+}
+
+// Credentials returns all passkeys registered by a user (empty slice if none).
+func (s *Store) Credentials(userID int) ([]webauthn.Credential, error) {
+	rows, err := s.db.Query("SELECT data FROM webauthn_credentials WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []webauthn.Credential{}
+	for rows.Next() {
+		var blob string
+		if err := rows.Scan(&blob); err != nil {
+			continue
+		}
+		var c webauthn.Credential
+		if json.Unmarshal([]byte(blob), &c) == nil {
+			out = append(out, c)
+		}
+	}
+	return out, rows.Err()
+}
+
+// UpdateCredential rewrites a credential after a successful login (the sign
+// counter advances and must be persisted to detect cloned authenticators).
+func (s *Store) UpdateCredential(cred *webauthn.Credential) error {
+	blob, err := json.Marshal(cred)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec("UPDATE webauthn_credentials SET data = ? WHERE cred_id = ?", string(blob), credKey(cred.ID))
+	return err
+}
+
+// HasPasskey reports whether a user has at least one registered passkey.
+func (s *Store) HasPasskey(userID int) bool {
+	var n int
+	s.db.QueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&n)
+	return n > 0
+}
+
+// DeleteCredential removes one passkey (by base64url id) owned by a user.
+func (s *Store) DeleteCredential(userID int, credIDB64 string) error {
+	_, err := s.db.Exec("DELETE FROM webauthn_credentials WHERE cred_id = ? AND user_id = ?", credIDB64, userID)
+	return err
+}
+
 // ─── Refresh tokens ────────────────────────────────────────────────────────
 
 // CreateRefreshToken generates a fresh random token, stores its hash, returns the plain string.
@@ -518,6 +710,77 @@ func (s *Store) CleanupExpired() error {
 	return err
 }
 
+// ─── Session management ──────────────────────────────────────────────────────
+
+// SessionInfo is one active refresh-token session, safe to show its owner. ID is
+// the token_hash — exposing the HASH to the authenticated owner is harmless (it
+// can't be used to authenticate, only to revoke that same session).
+type SessionInfo struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Remember  bool      `json:"remember"`
+	Current   bool      `json:"current"`
+}
+
+// ListSessions returns a user's active sessions, newest first. currentPlain (the
+// caller's own refresh token, may be empty) flags which row is "this device".
+func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, error) {
+	rows, err := s.db.Query(
+		"SELECT token_hash, created_at, expires_at, remember_me FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC",
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	curHash := ""
+	if currentPlain != "" {
+		curHash = sha256Hex(currentPlain)
+	}
+	out := []SessionInfo{}
+	for rows.Next() {
+		var hash, created, expires string
+		var remember int
+		if err := rows.Scan(&hash, &created, &expires, &remember); err != nil {
+			continue
+		}
+		si := SessionInfo{ID: hash, Remember: remember == 1, Current: hash == curHash}
+		si.CreatedAt, _ = parseTime(created)
+		si.ExpiresAt, _ = parseTime(expires)
+		out = append(out, si)
+	}
+	return out, rows.Err()
+}
+
+// RevokeSession deletes one session by its id (token_hash), scoped to the owner
+// so a user can't revoke another account's session.
+func (s *Store) RevokeSession(userID int, id string) error {
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token_hash = ? AND user_id = ?", id, userID)
+	return err
+}
+
+// RevokeOtherSessions deletes every session for a user EXCEPT the caller's own
+// (identified by currentPlain). Returns how many were dropped.
+func (s *Store) RevokeOtherSessions(userID int, currentPlain string) (int, error) {
+	res, err := s.db.Exec(
+		"DELETE FROM refresh_tokens WHERE user_id = ? AND token_hash != ?",
+		userID, sha256Hex(currentPlain),
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// RevokeAllSessions deletes every session for a user (used when an admin disables
+// the account so existing logins can't keep refreshing).
+func (s *Store) RevokeAllSessions(userID int) error {
+	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE user_id = ?", userID)
+	return err
+}
+
 // ─── helpers ───────────────────────────────────────────────────────────────
 
 func randomToken(byteLen int) (string, error) {
@@ -531,6 +794,26 @@ func randomToken(byteLen int) (string, error) {
 func sha256Hex(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
+}
+
+// randomFromAlphabet returns n characters drawn uniformly from alphabet using
+// crypto/rand. Rejection sampling keeps the distribution unbiased.
+func randomFromAlphabet(n int, alphabet string) (string, error) {
+	out := make([]byte, n)
+	size := len(alphabet)
+	limit := 256 - (256 % size) // largest multiple of size that fits in a byte
+	buf := make([]byte, 1)
+	for i := 0; i < n; {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		if int(buf[0]) >= limit { // reject the biased tail
+			continue
+		}
+		out[i] = alphabet[int(buf[0])%size]
+		i++
+	}
+	return string(out), nil
 }
 
 // parseTime accepts the formats SQLite may emit for DATETIME columns:

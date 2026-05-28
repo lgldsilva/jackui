@@ -33,6 +33,9 @@ coverage.out
 # Claude Code worktrees + agent transcripts
 .claude/
 
+# Antigravity (Gemini CLI) — symlinks to external user config, não vai pro repo
+.antigravitycli/
+
 # Runtime data — SQLite DBs, stream cache, HLS sessions, thumbnails
 /data/
 data/

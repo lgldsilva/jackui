@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luizg/jackui/internal/config"
@@ -111,43 +112,78 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 	if len(cases) == 0 {
 		cases = DefaultBenchmarkCases
 	}
-	var scores []SlotScore
+	// Local (Ollama) and remote slots are benchmarked differently:
+	//   - Local: SEQUENTIAL. Each needs a VRAM warmup, and Ollama serves one model
+	//     at a time — running several at once would thrash models in/out of memory,
+	//     wrecking both the warmup and the latency measurement.
+	//   - Remote: PARALLEL. Independent HTTP endpoints with no shared-memory
+	//     constraint, so we fan out to cut wall-clock (one slow vendor no longer
+	//     blocks the rest). Their free tiers are rate-limited, so no warmup.
+	var local, remote []Slot
 	for _, s := range slots {
-		score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model}
-		// Warmup ONLY for local Ollama (loads the model into VRAM so the first
-		// timed call isn't penalized/timed-out). For remote vendors a warmup is a
-		// wasted quota call — their free tiers are rate-limited — so we skip it.
 		if s.Provider == "ollama" {
-			warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
-			_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
-			warmCancel()
+			local = append(local, s)
+		} else {
+			remote = append(remote, s)
 		}
-
-		var accSum float64
-		var latSum time.Duration
-		for _, tc := range cases {
-			res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
-			if err != nil {
-				if score.FailureReason == "" {
-					score.FailureReason = err.Error()
-				}
-				continue
-			}
-			score.Samples++
-			latSum += latency
-			if res != nil {
-				accSum += titleAccuracy(res.Title, tc.Expect)
-			}
-		}
-		if score.Samples > 0 {
-			score.Accuracy = accSum / float64(score.Samples)
-			score.AvgLatencyMs = (latSum / time.Duration(score.Samples)).Milliseconds()
-			score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs)
-		}
-		scores = append(scores, score)
 	}
+
+	scores := make([]SlotScore, 0, len(slots))
+
+	if len(remote) > 0 {
+		results := make([]SlotScore, len(remote))
+		var wg sync.WaitGroup
+		for i, s := range remote {
+			wg.Add(1)
+			go func(i int, s Slot) {
+				defer wg.Done()
+				results[i] = c.scoreSlot(ctx, s, cases, false)
+			}(i, s)
+		}
+		wg.Wait()
+		scores = append(scores, results...)
+	}
+
+	for _, s := range local {
+		scores = append(scores, c.scoreSlot(ctx, s, cases, true))
+	}
+
 	sort.SliceStable(scores, func(i, j int) bool { return scores[i].Composite > scores[j].Composite })
 	return scores
+}
+
+// scoreSlot runs the full case set against one slot and aggregates the result.
+// When warmup is true (local Ollama) it issues one untimed priming call first so
+// the model is resident in VRAM before the timed cases run.
+func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, warmup bool) SlotScore {
+	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model}
+	if warmup {
+		warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
+		_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
+		warmCancel()
+	}
+	var accSum float64
+	var latSum time.Duration
+	for _, tc := range cases {
+		res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
+		if err != nil {
+			if score.FailureReason == "" {
+				score.FailureReason = err.Error()
+			}
+			continue
+		}
+		score.Samples++
+		latSum += latency
+		if res != nil {
+			accSum += titleAccuracy(res.Title, tc.Expect)
+		}
+	}
+	if score.Samples > 0 {
+		score.Accuracy = accSum / float64(score.Samples)
+		score.AvgLatencyMs = (latSum / time.Duration(score.Samples)).Milliseconds()
+		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs)
+	}
+	return score
 }
 
 // DiscoverOllamaModels queries the local Ollama (/api/tags) for installed models
@@ -204,8 +240,9 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 // can test more than the one model wired per provider in the chain:
 //   - ollama:     every locally-installed model (/api/tags)
 //   - openrouter: only FREE models (":free"/price 0), capped (huge catalog + the
-//                 free tier is rate-limited — don't blow the daily quota)
+//     free tier is rate-limited — don't blow the daily quota)
 //   - groq + others: all advertised models, capped (Groq free is generous)
+//
 // Skips models already in the chain.
 func (c *Client) DiscoverModels(ctx context.Context) []Slot {
 	existing := map[string]bool{}

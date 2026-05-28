@@ -35,6 +35,7 @@ import {
   favoritesList,
   libraryGet,
   libraryUpdateResume,
+  downloadCreate,
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
@@ -202,6 +203,33 @@ export default function PlayerModal({
   // Storing the file index lets us look up path + size from `info.files`
   // on render without duplicating state when the user reopens the player.
   const [previewFileIdx, setPreviewFileIdx] = useState<number | null>(null)
+
+  // Server-side background download state
+  const [serverDownloadLoading, setServerDownloadLoading] = useState(false)
+  const [serverDownloadSuccess, setServerDownloadSuccess] = useState(false)
+
+  const handleServerDownload = async () => {
+    if (!info || selectedFile < 0) return
+    setServerDownloadLoading(true)
+    try {
+      const magnet = result?.magnetUri || `magnet:?xt=urn:btih:${info.infoHash}`
+      const file = info.files[selectedFile]
+      await downloadCreate({
+        infoHash: info.infoHash,
+        fileIndex: selectedFile,
+        magnet,
+        name: file.path.split('/').pop() || info.name,
+        filePath: file.path,
+        fileSize: file.size,
+      })
+      setServerDownloadSuccess(true)
+      setTimeout(() => setServerDownloadSuccess(false), 3000)
+    } catch (err: any) {
+      alert(err.message || 'Erro ao iniciar download no servidor')
+    } finally {
+      setServerDownloadLoading(false)
+    }
+  }
   // Transcoding options — any non-null value triggers `/api/stream/transcode` instead of raw stream
   const [transcodeAudio, setTranscodeAudio] = useState<number | null>(null)
   const [forceH264, setForceH264] = useState(false)
@@ -1056,7 +1084,7 @@ export default function PlayerModal({
       className={minimized
         ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]'
         : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
-      onClick={minimized ? undefined : (e) => e.target === e.currentTarget && onClose()}
+      onClick={minimized ? undefined : (e) => e.target === e.currentTarget && setMinimized(true)}
     >
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
           modal. Laptops bump to ~1280px so the file list + side panels stop fighting
@@ -1861,6 +1889,27 @@ export default function PlayerModal({
                   <ExternalLink className="w-3.5 h-3.5" />
                   VLC
                 </a>
+                <button
+                  onClick={handleServerDownload}
+                  disabled={serverDownloadLoading || serverDownloadSuccess}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
+                    serverDownloadSuccess
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
+                  }`}
+                  title="Salvar download completo no servidor (Background Download)"
+                >
+                  {serverDownloadLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : serverDownloadSuccess ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-green-400" />
+                  )}
+                  <span>
+                    {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
+                  </span>
+                </button>
                 <a
                   href={streamURL}
                   download

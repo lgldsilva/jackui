@@ -29,15 +29,24 @@ type tokenResp struct {
 }
 
 // Login handles POST /api/auth/login
-func Login(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
+func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req loginReq
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username + password required"})
 			return
 		}
+		// Brute-force guard: refuse while the account is locked from prior failures.
+		if locked, rem := lockout.Locked(req.Username); locked {
+			c.Header("Retry-After", strconv.Itoa(int(rem.Seconds())+1))
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": "muitas tentativas — tente novamente em " + rem.Round(time.Second).String(),
+			})
+			return
+		}
 		user, err := store.VerifyPassword(req.Username, req.Password)
 		if err != nil {
+			lockout.Fail(req.Username)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
@@ -58,12 +67,18 @@ func Login(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA obrigatório", "mfaRequired": true})
 				return
 			}
+			// Accept either a TOTP code OR a single-use backup code. The backup code
+			// is only consumed when the TOTP check fails, so a valid TOTP never burns
+			// a recovery code.
 			secret, _, _ := store.GetTOTPSecret(user.ID)
-			if !auth.ValidateTOTP(secret, req.Totp) {
+			if !auth.ValidateTOTP(secret, req.Totp) && !store.ConsumeBackupCode(user.ID, req.Totp) {
+				lockout.Fail(req.Username)
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA inválido", "mfaRequired": true})
 				return
 			}
 		}
+		// Full success — clear the failure counter for this account.
+		lockout.Reset(req.Username)
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
@@ -86,7 +101,9 @@ func Login(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 // Rolling rotation: the old refresh is consumed and a fresh pair is issued.
 func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct{ Refresh string `json:"refresh"` }
+		var req struct {
+			Refresh string `json:"refresh"`
+		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Refresh == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "refresh token required"})
 			return
@@ -94,6 +111,13 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		user, remember, err := store.ValidateRefreshToken(req.Refresh)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			return
+		}
+		// A disabled/pending account must not be able to keep renewing access — an
+		// admin disabling someone takes effect within one access-token TTL.
+		if user.Status != auth.StatusActive && user.Status != "" {
+			_ = store.RevokeAllSessions(user.ID)
+			c.JSON(http.StatusForbidden, gin.H{"error": "conta inativa", "status": string(user.Status)})
 			return
 		}
 		// Rotate: invalidate the old refresh token first to prevent re-use
@@ -121,12 +145,78 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 // Logout handles POST /api/auth/logout — body: {refresh}
 func Logout(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct{ Refresh string `json:"refresh"` }
+		var req struct {
+			Refresh string `json:"refresh"`
+		}
 		_ = c.ShouldBindJSON(&req)
 		if req.Refresh != "" {
 			_ = store.ConsumeRefreshToken(req.Refresh)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+	}
+}
+
+// ListSessions handles POST /api/auth/sessions — body {refresh} (the caller's
+// own token, used only to flag the current session). Returns the user's active
+// sessions. POST (not GET) so the refresh token rides in the body, never a URL.
+func ListSessions(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		var req struct {
+			Refresh string `json:"refresh"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		sessions, err := store.ListSessions(claims.UserID, req.Refresh)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"sessions": sessions})
+	}
+}
+
+// RevokeSession handles DELETE /api/auth/sessions/:id — drops one session.
+func RevokeSession(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		if err := store.RevokeSession(claims.UserID, c.Param("id")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "sessão encerrada"})
+	}
+}
+
+// RevokeOtherSessions handles POST /api/auth/sessions/revoke-others — body
+// {refresh} (the session to KEEP). Logs out every other device.
+func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		var req struct {
+			Refresh string `json:"refresh"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Refresh == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "refresh token required"})
+			return
+		}
+		n, err := store.RevokeOtherSessions(claims.UserID, req.Refresh)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "outras sessões encerradas", "revoked": n})
 	}
 }
 
@@ -227,7 +317,56 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "MFA ativado"})
+		// Issue recovery codes immediately so the user can't lock themselves out by
+		// losing the authenticator. Shown exactly once.
+		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "MFA ativado", "backupCodes": codes})
+	}
+}
+
+const backupCodeCount = 10
+
+// MFABackupCodesStatus handles GET /api/auth/mfa/backup-codes — how many unused
+// recovery codes remain.
+func MFABackupCodesStatus(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"remaining": store.CountBackupCodes(claims.UserID)})
+	}
+}
+
+// MFABackupCodesRegenerate handles POST /api/auth/mfa/backup-codes/regenerate —
+// replaces all codes with a fresh set (invalidating the old ones). Requires the
+// current password so a hijacked session can't silently rotate recovery codes.
+func MFABackupCodesRegenerate(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		var req struct {
+			Password string `json:"password"`
+		}
+		_ = c.ShouldBindJSON(&req)
+		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "senha incorreta"})
+			return
+		}
+		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"backupCodes": codes})
 	}
 }
 
@@ -287,6 +426,11 @@ func SetUserStatus(store *auth.Store) gin.HandlerFunc {
 		if err := store.SetStatus(id, req.Status); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		// Disabling kills active sessions so the block takes effect within one
+		// access-token TTL instead of waiting for the refresh token to expire.
+		if req.Status == auth.StatusDisabled {
+			_ = store.RevokeAllSessions(id)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "status atualizado"})
 	}

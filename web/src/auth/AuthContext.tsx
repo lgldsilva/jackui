@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import api from '../api/client'
+import api, { passkeyAuthenticate } from '../api/client'
 import { load, save, remove } from '../lib/storage'
 
 export type Role = 'admin' | 'user'
@@ -29,6 +29,7 @@ interface AuthContextValue {
   isAdmin: boolean
   isAuthenticated: boolean
   login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
+  loginWithPasskey: (username: string, remember: boolean) => Promise<void>
   logout: () => Promise<void>
   refresh: () => Promise<void>
 }
@@ -124,6 +125,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user)
   }, [])
 
+  const loginWithPasskey = useCallback(async (username: string, remember: boolean) => {
+    const data = await passkeyAuthenticate(username, remember)
+    save(ACCESS_KEY, data.access)
+    save(REFRESH_KEY, data.refresh)
+    setUser(data.user)
+  }, [])
+
   const logout = useCallback(async () => {
     const refresh = load<string>(REFRESH_KEY, '')
     try { if (refresh) await api.post('/auth/logout', { refresh }) } catch { /* ignore */ }
@@ -141,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin: !enabled || user?.role === 'admin', // when auth disabled, treat as admin
       isAuthenticated: !enabled || user !== null,
       login,
+      loginWithPasskey,
       logout,
       refresh,
     }}>
@@ -159,6 +168,10 @@ export function useAuth() {
 
 export function getAccessToken(): string {
   return load<string>(ACCESS_KEY, '')
+}
+
+export function getRefreshToken(): string {
+  return load<string>(REFRESH_KEY, '')
 }
 
 // Single-flight refresh: concurrent 401s must share ONE refresh call. The
