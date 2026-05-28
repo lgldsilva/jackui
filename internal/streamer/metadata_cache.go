@@ -61,12 +61,16 @@ type CachedArt struct {
 
 // ArtSourceRank orders art sources by trustworthiness so resolution only ever
 // *upgrades* a persisted thumbnail (uploader-curated image > matched poster >
-// raw frame). Exported so the resolver in the handlers layer shares the order.
+// web search > raw frame). The web search is a fallback for content TMDB can't
+// match (adult/obscure) and ranks above a raw frame but below a real poster.
+// Exported so the resolver in the handlers layer shares the order.
 func ArtSourceRank(source string) int {
 	switch source {
 	case "torrent":
-		return 3
+		return 4
 	case "tmdb":
+		return 3
+	case "web":
 		return 2
 	case "frame":
 		return 1

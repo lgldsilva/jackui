@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/luizg/jackui/internal/ai"
+	"github.com/luizg/jackui/internal/imagesearch"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/tmdb"
 )
@@ -72,7 +73,7 @@ var frameCaptureSeconds = []int{120, 60, 30, 5}
 //
 // Chain (highest trust first): embedded torrent image → TMDB poster (by cached
 // name) → captured video frame.
-func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client) gin.HandlerFunc {
+func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -116,31 +117,53 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 			}
 		}
 
-		// 2) TMDB poster by cached torrent name. When an AI chain is configured,
-		// let it clean the messy release name into a real title first — it beats
-		// TMDB's regex stripping on tricky multi-file / non-English names. Falls
-		// back to the raw name when AI is off or can't identify it.
-		if existingRank < streamer.ArtSourceRank("tmdb") && tmdbClient != nil {
-			if meta := cache.Get(hash); meta != nil && meta.Name != "" {
-				query := meta.Name
-				if aiClient != nil {
-					if res, _, aerr := aiClient.IdentifyTitle(ctx, meta.Name); aerr == nil && res.Query() != "" {
-						query = res.Query()
-					}
-				}
-				if m, merr := tmdbClient.Match(ctx, query); merr == nil && m != nil && m.PosterURL != "" {
-					_ = cache.SetArt(hash, &streamer.CachedArt{
-						Source:    "tmdb",
-						PosterURL: m.PosterURL,
-						TmdbID:    m.TmdbID,
-					})
-					c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID})
+		// Build the search query once (shared by TMDB + web). Prefer the cached
+		// torrent name; fall back to ?name= so a proactive resolve from a card
+		// (where the torrent isn't active and metadata may not be cached) still
+		// has something to search. An AI chain cleans the messy release name into
+		// a real title first — it beats regex stripping on tricky / non-English
+		// names and gives the web search a cleaner query too.
+		rawName := ""
+		if meta := cache.Get(hash); meta != nil {
+			rawName = meta.Name
+		}
+		if rawName == "" {
+			rawName = c.Query("name")
+		}
+		query := rawName
+		if aiClient != nil && rawName != "" {
+			if res, _, aerr := aiClient.IdentifyTitle(ctx, rawName); aerr == nil && res.Query() != "" {
+				query = res.Query()
+			}
+		}
+
+		// 2) TMDB poster by title.
+		if existingRank < streamer.ArtSourceRank("tmdb") && tmdbClient != nil && query != "" {
+			if m, merr := tmdbClient.Match(ctx, query); merr == nil && m != nil && m.PosterURL != "" {
+				_ = cache.SetArt(hash, &streamer.CachedArt{
+					Source:    "tmdb",
+					PosterURL: m.PosterURL,
+					TmdbID:    m.TmdbID,
+				})
+				c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID})
+				return
+			}
+		}
+
+		// 3) Web image search — only reached when TMDB didn't match (adult /
+		// obscure / non-catalogued). Downloads the found image and caches it
+		// like a frame so the card serves bytes without re-fetching.
+		if existingRank < streamer.ArtSourceRank("web") && webSearch != nil && query != "" {
+			if data, _, src, werr := webSearch.Find(ctx, query); werr == nil && len(data) > 0 {
+				if rel, serr := s.SaveArtBytes(h, data); serr == nil {
+					_ = cache.SetArt(hash, &streamer.CachedArt{Source: "web", Path: rel})
+					c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
 					return
 				}
 			}
 		}
 
-		// 3) Captured video frame — always available once playing.
+		// 4) Captured video frame — always available once playing.
 		if fileIdx >= 0 && existingRank < streamer.ArtSourceRank("frame") {
 			for _, at := range frameCaptureSeconds {
 				data, _, ferr := s.ExtractThumbnail(ctx, h, fileIdx, at)

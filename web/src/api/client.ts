@@ -436,13 +436,20 @@ export const streamArtURL = (hash: string): string =>
   withToken(`/api/stream/art/${hash}`)
 
 // resolveArt kicks off the server-side art resolution chain (embedded torrent
-// image → TMDB → captured frame) and persists the result by info_hash. Called
-// once on play; best-effort and idempotent (the server skips re-processing).
-export const resolveArt = async (hash: string, fileIdx: number): Promise<void> => {
+// image → TMDB → web search → captured frame) and persists the result by
+// info_hash. Idempotent + best-effort. `name` lets a card trigger resolution
+// when the torrent isn't active (so the server has a title to search even
+// without cached metadata); pass fileIdx=-1 there (no frame without playback).
+// Returns the resolved source ("torrent"|"tmdb"|"web"|"frame") or null.
+export const resolveArt = async (hash: string, fileIdx = -1, name?: string): Promise<string | null> => {
   try {
-    await api.post(`/stream/art/${hash}/resolve?file=${fileIdx}`)
+    const params = new URLSearchParams({ file: String(fileIdx) })
+    if (name) params.set('name', name)
+    const { data, status } = await api.post(`/stream/art/${hash}/resolve?${params.toString()}`)
+    return status === 200 ? (data?.source ?? null) : null
   } catch {
-    // Silent: thumbnail resolution must never affect playback.
+    // Silent: thumbnail resolution must never affect playback or browsing.
+    return null
   }
 }
 
