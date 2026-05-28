@@ -24,6 +24,22 @@ type Config struct {
 	TMDB            TMDBConfig          `yaml:"tmdb"`
 	External        ExternalConfig      `yaml:"external"`
 	AI              AIConfig            `yaml:"ai"`
+	SMTP            SMTPConfig          `yaml:"smtp"`
+	// BaseURL is the public URL of the app (e.g. https://jackui.example.com),
+	// used to build links in emails (reset/verify/invite). Falls back to the
+	// request's Origin when empty.
+	BaseURL string `yaml:"base_url"`
+}
+
+// SMTPConfig configures outbound email (password reset, email verification,
+// invites). Empty Host disables email — the relevant flows then expose a
+// copyable link to the admin instead of sending mail.
+type SMTPConfig struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	From     string `yaml:"from"` // From: address; defaults to Username when empty
 }
 
 // AIConfig declares an OpenAI-compatible LLM fallback chain used to turn a messy
@@ -212,6 +228,28 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path})
 			seen[path] = true
 		}
+	}
+
+	// SMTP + base URL — credentials live in env (gitignored), not committed yaml.
+	if v := os.Getenv("JACKUI_SMTP_HOST"); v != "" {
+		cfg.SMTP.Host = v
+	}
+	if v := os.Getenv("JACKUI_SMTP_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			cfg.SMTP.Port = p
+		}
+	}
+	if v := os.Getenv("JACKUI_SMTP_USER"); v != "" {
+		cfg.SMTP.Username = v
+	}
+	if v := os.Getenv("JACKUI_SMTP_PASS"); v != "" {
+		cfg.SMTP.Password = v
+	}
+	if v := os.Getenv("JACKUI_SMTP_FROM"); v != "" {
+		cfg.SMTP.From = v
+	}
+	if v := os.Getenv("JACKUI_BASE_URL"); v != "" {
+		cfg.BaseURL = v
 	}
 
 	applyAIEnv(cfg)
