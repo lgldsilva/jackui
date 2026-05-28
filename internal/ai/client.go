@@ -48,9 +48,10 @@ func (r *TitleResult) Query() string {
 }
 
 type Client struct {
-	slots   []Slot
-	breaker *breaker
-	http    *http.Client
+	slots     []Slot
+	providers map[string]config.AIProvider // kept so ApplyChain can resolve new slots
+	breaker   *breaker
+	http      *http.Client
 }
 
 // New builds a Client from config. Returns nil when AI is disabled or no usable
@@ -59,33 +60,54 @@ func New(cfg config.AIConfig) *Client {
 	if !cfg.Enabled {
 		return nil
 	}
-	var slots []Slot
+	c := &Client{
+		providers: cfg.Providers,
+		breaker:   newBreaker(),
+		// Generous backstop only — real per-call limits come from the ctx the
+		// caller passes (resolve ~25s, benchmark ~90s, warmup ~120s for cold
+		// local models loading into VRAM).
+		http: &http.Client{Timeout: 130 * time.Second},
+	}
 	for _, s := range cfg.Chain {
 		if s.Disabled {
 			continue
 		}
-		p, ok := cfg.Providers[s.Provider]
-		if !ok || p.BaseURL == "" {
-			continue
+		if slot, ok := c.resolveSlot(s.ID, s.Provider, s.Model); ok {
+			c.slots = append(c.slots, slot)
 		}
-		slots = append(slots, Slot{
-			ID:       s.ID,
-			Provider: s.Provider,
-			Model:    s.Model,
-			BaseURL:  strings.TrimRight(p.BaseURL, "/"),
-			apiKey:   p.APIKey,
-		})
 	}
-	if len(slots) == 0 {
+	if len(c.slots) == 0 {
 		return nil
 	}
-	return &Client{
-		slots:   slots,
-		breaker: newBreaker(),
-		// Generous backstop only — real per-call limits come from the ctx the
-		// caller passes (resolve ~25s, benchmark ~90s, warmup ~120s for cold
-		// local models loading into VRAM).
-		http:    &http.Client{Timeout: 130 * time.Second},
+	return c
+}
+
+// resolveSlot binds a provider+model to a usable Slot (base URL + key). Returns
+// ok=false when the provider is unknown / has no base URL.
+func (c *Client) resolveSlot(id, provider, model string) (Slot, bool) {
+	p, ok := c.providers[provider]
+	if !ok || p.BaseURL == "" {
+		return Slot{}, false
+	}
+	if id == "" {
+		id = provider + ":" + model
+	}
+	return Slot{ID: id, Provider: provider, Model: model, BaseURL: strings.TrimRight(p.BaseURL, "/"), apiKey: p.APIKey}, true
+}
+
+// ApplyChain replaces the live chain with the given (provider, model) defs in
+// order — used to adopt a benchmark ranking as the working chain (best first,
+// free local models retained as low-ranked fallbacks). Unresolvable defs are
+// skipped; an empty result leaves the chain unchanged.
+func (c *Client) ApplyChain(defs []config.AIChainSlot) {
+	var next []Slot
+	for _, d := range defs {
+		if slot, ok := c.resolveSlot(d.ID, d.Provider, d.Model); ok {
+			next = append(next, slot)
+		}
+	}
+	if len(next) > 0 {
+		c.slots = next
 	}
 }
 
