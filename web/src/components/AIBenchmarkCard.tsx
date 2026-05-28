@@ -52,7 +52,9 @@ export default function AIBenchmarkCard() {
 
   useEffect(() => {
     aiBenchmarkStatus()
-      .then(s => { setStatus(s); setCasesText(casesToText(s.cases || [])) })
+      // Normalize: the Go backend marshals empty slices as null, which would
+      // crash status.chain.map / status.results.length downstream.
+      .then(s => { s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [] }; setStatus(s); setCasesText(casesToText(s.cases)) })
       .catch(() => setStatus({ enabled: false, chain: [], results: [], cases: [] }))
   }, [])
 
