@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/transcode"
 )
@@ -67,7 +69,7 @@ func buildVODPlaylist(durationSec float64, token string) []byte {
 // HLS (.m3u8 + .ts) and `<video src="...m3u8">` is the only thing Safari
 // treats as a seekable / progressive video source. Jellyfin, Plex, Emby all
 // use HLS for browser playback for the same reason.
-func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin.HandlerFunc {
+func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -80,21 +82,41 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin
 			return
 		}
 
-		// Make sure the torrent is active; auto-add via bare magnet if it
-		// got dropped after a deploy or idle GC (mirrors the M3U handler).
-		if _, err := s.Get(h); err != nil {
-			bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
-			if _, addErr := s.Add(c.Request.Context(), bareMagnet); addErr != nil {
-				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-				return
+		var transcodeSource io.ReadSeekCloser
+		var transcodeSourceSize int64
+
+		if store != nil {
+			if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
+				if stat, err := os.Stat(path); err == nil {
+					f, err := os.Open(path)
+					if err == nil {
+						transcodeSource = f
+						transcodeSourceSize = stat.Size()
+					}
+				}
 			}
 		}
 
-		reader, file, err := s.FileReader(h, fileIdx)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
+		if transcodeSource == nil {
+			// Make sure the torrent is active; auto-add via bare magnet if it
+			// got dropped after a deploy or idle GC (mirrors the M3U handler).
+			if _, err := s.Get(h); err != nil {
+				bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
+				if _, addErr := s.Add(c.Request.Context(), bareMagnet); addErr != nil {
+					c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+					return
+				}
+			}
+
+			reader, file, err := s.FileReader(h, fileIdx)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				return
+			}
+			transcodeSource = reader
+			transcodeSourceSize = file.Length()
 		}
+
 		// IMPORTANT: don't `defer reader.Close()` here — the reader is
 		// handed to ffmpeg which lives across this request's lifetime. We
 		// rely on ffmpeg exit to release the underlying anacrolix Reader.
@@ -102,8 +124,8 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager) gin
 		key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
 		sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
 			Key:        key,
-			Source:     reader,
-			SourceSize: file.Length(),
+			Source:     transcodeSource,
+			SourceSize: transcodeSourceSize,
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

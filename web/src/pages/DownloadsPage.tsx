@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
-  Plus, UploadCloud, Search, X, SlidersHorizontal
+  Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import {
@@ -731,6 +731,7 @@ export default function DownloadsPage() {
           setInspectTarget(null)
         }}
         onPromote={onPromote}
+        onPlay={onPlay}
       />
 
       {/* Modal para adicionar torrents por arquivo drag & drop ou link magnet */}
@@ -1369,6 +1370,11 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <KindBadge kind="server" />
+          {d.status === 'completed' && (
+            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+              <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
+            </span>
+          )}
           <DownloadStatusBadge status={d.status} />
         </div>
       </div>

@@ -55,35 +55,53 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 	}
 	probeCacheMu.Unlock()
 
-	s.mu.Lock()
-	e, ok := s.active[hash]
-	if !ok {
+	var input string
+	var stdin io.Reader
+	var closeFn func() error
+
+	if s.filePathResolver != nil {
+		if path, ok := s.filePathResolver(hash, fileIdx); ok {
+			input = path
+		}
+	}
+
+	if input == "" {
+		s.mu.Lock()
+		e, ok := s.active[hash]
+		if !ok {
+			s.mu.Unlock()
+			return ProbeResult{}, errors.New("torrent not active")
+		}
+		files := e.t.Files()
 		s.mu.Unlock()
-		return ProbeResult{}, errors.New("torrent not active")
-	}
-	files := e.t.Files()
-	s.mu.Unlock()
-	if fileIdx < 0 || fileIdx >= len(files) {
-		return ProbeResult{}, fmt.Errorf("file index out of range")
-	}
-	f := files[fileIdx]
+		if fileIdx < 0 || fileIdx >= len(files) {
+			return ProbeResult{}, fmt.Errorf("file index out of range")
+		}
+		f := files[fileIdx]
 
-	r := f.NewReader()
-	r.SetReadahead(2 * 1024 * 1024)
-	r.SetResponsive()
-	defer r.Close()
+		r := f.NewReader()
+		r.SetReadahead(2 * 1024 * 1024)
+		r.SetResponsive()
+		closeFn = r.Close
 
-	// Limit ffprobe input — for MKV/MP4, headers + first cluster are within ~16MB
-	limited := io.LimitReader(r, 16*1024*1024)
+		input = "pipe:"
+		stdin = io.LimitReader(r, 16*1024*1024)
+	}
+
+	if closeFn != nil {
+		defer closeFn()
+	}
 
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		"-hide_banner", "-loglevel", "error",
 		"-of", "json",
 		"-show_streams",
 		"-show_format",
-		"-i", "pipe:",
+		"-i", input,
 	)
-	cmd.Stdin = limited
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		// ffprobe might return early-EOF errors but still emit valid JSON; try parsing anyway
@@ -180,29 +198,48 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		return data, true, nil
 	}
 
-	s.mu.Lock()
-	e, ok := s.active[hash]
-	if !ok {
+	var input string
+	var stdin io.Reader
+	var closeFn func() error
+
+	if s.filePathResolver != nil {
+		if path, ok := s.filePathResolver(hash, fileIdx); ok {
+			input = path
+		}
+	}
+
+	if input == "" {
+		s.mu.Lock()
+		e, ok := s.active[hash]
+		if !ok {
+			s.mu.Unlock()
+			return nil, false, errors.New("torrent not active")
+		}
+		files := e.t.Files()
 		s.mu.Unlock()
-		return nil, false, errors.New("torrent not active")
+		if fileIdx < 0 || fileIdx >= len(files) {
+			return nil, false, fmt.Errorf("file index out of range")
+		}
+		f := files[fileIdx]
+		r := f.NewReader()
+		r.SetReadahead(8 * 1024 * 1024)
+		r.SetResponsive()
+		closeFn = r.Close
+
+		input = "pipe:0"
+		stdin = r
 	}
-	files := e.t.Files()
-	s.mu.Unlock()
-	if fileIdx < 0 || fileIdx >= len(files) {
-		return nil, false, fmt.Errorf("file index out of range")
+
+	if closeFn != nil {
+		defer closeFn()
 	}
-	f := files[fileIdx]
-	r := f.NewReader()
-	r.SetReadahead(8 * 1024 * 1024)
-	r.SetResponsive()
-	defer r.Close()
 
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
 	// We're only producing a preview tooltip image — pixel-accuracy is overkill.
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-hide_banner", "-loglevel", "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
-		"-i", "pipe:0",
+		"-i", input,
 		"-frames:v", "1",
 		"-vf", "scale=240:-2", // 240 wide preserving aspect — height auto-computed
 		"-q:v", "5",            // 1-31, lower=better; 5 is sweet spot for previews
@@ -210,7 +247,9 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		"-y",
 		"pipe:1",
 	)
-	cmd.Stdin = r
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		return nil, false, nil
@@ -239,30 +278,49 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		return data, true, nil
 	}
 
-	s.mu.Lock()
-	e, ok := s.active[hash]
-	if !ok {
+	var input string
+	var stdin io.Reader
+	var closeFn func() error
+
+	if s.filePathResolver != nil {
+		if path, ok := s.filePathResolver(hash, fileIdx); ok {
+			input = path
+		}
+	}
+
+	if input == "" {
+		s.mu.Lock()
+		e, ok := s.active[hash]
+		if !ok {
+			s.mu.Unlock()
+			return nil, false, errors.New("torrent not active")
+		}
+		files := e.t.Files()
 		s.mu.Unlock()
-		return nil, false, errors.New("torrent not active")
+		if fileIdx < 0 || fileIdx >= len(files) {
+			return nil, false, fmt.Errorf("file index out of range")
+		}
+		f := files[fileIdx]
+		r := f.NewReader()
+		// Cover art typically sits in the header for MP3/FLAC, so a smaller readahead
+		// is enough — we don't need to wait for the whole audio file.
+		r.SetReadahead(2 * 1024 * 1024)
+		r.SetResponsive()
+		closeFn = r.Close
+
+		input = "pipe:0"
+		stdin = r
 	}
-	files := e.t.Files()
-	s.mu.Unlock()
-	if fileIdx < 0 || fileIdx >= len(files) {
-		return nil, false, fmt.Errorf("file index out of range")
+
+	if closeFn != nil {
+		defer closeFn()
 	}
-	f := files[fileIdx]
-	r := f.NewReader()
-	// Cover art typically sits in the header for MP3/FLAC, so a smaller readahead
-	// is enough — we don't need to wait for the whole audio file.
-	r.SetReadahead(2 * 1024 * 1024)
-	r.SetResponsive()
-	defer r.Close()
 
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-hide_banner", "-loglevel", "error",
-		"-i", "pipe:0",
+		"-i", input,
 		"-map", "0:v",
 		"-map", "-0:V",
 		"-c", "copy",
@@ -271,7 +329,9 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		"-y",
 		"pipe:1",
 	)
-	cmd.Stdin = r
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		// Negative-cache so we don't burn ffmpeg again next time.
@@ -286,33 +346,54 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 }
 
 func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, fileIdx, trackIdx int) ([]byte, error) {
-	s.mu.Lock()
-	e, ok := s.active[hash]
-	if !ok {
+	var input string
+	var stdin io.Reader
+	var closeFn func() error
+
+	if s.filePathResolver != nil {
+		if path, ok := s.filePathResolver(hash, fileIdx); ok {
+			input = path
+		}
+	}
+
+	if input == "" {
+		s.mu.Lock()
+		e, ok := s.active[hash]
+		if !ok {
+			s.mu.Unlock()
+			return nil, errors.New("torrent not active")
+		}
+		files := e.t.Files()
 		s.mu.Unlock()
-		return nil, errors.New("torrent not active")
+		if fileIdx < 0 || fileIdx >= len(files) {
+			return nil, fmt.Errorf("file index out of range")
+		}
+		f := files[fileIdx]
+		r := f.NewReader()
+		r.SetReadahead(4 * 1024 * 1024)
+		r.SetResponsive()
+		closeFn = r.Close
+
+		input = "pipe:0"
+		stdin = r
 	}
-	files := e.t.Files()
-	s.mu.Unlock()
-	if fileIdx < 0 || fileIdx >= len(files) {
-		return nil, fmt.Errorf("file index out of range")
+
+	if closeFn != nil {
+		defer closeFn()
 	}
-	f := files[fileIdx]
-	r := f.NewReader()
-	r.SetReadahead(4 * 1024 * 1024)
-	r.SetResponsive()
-	defer r.Close()
 
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		"-hide_banner", "-loglevel", "error",
-		"-i", "pipe:0",
+		"-i", input,
 		"-map", fmt.Sprintf("0:%d", trackIdx),
 		"-c:s", "webvtt",
 		"-f", "webvtt",
 		"-y",
 		"pipe:1",
 	)
-	cmd.Stdin = r
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
 
 	out, err := cmd.Output()
 	if err != nil {

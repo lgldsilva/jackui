@@ -91,14 +91,19 @@ type Config struct {
 	JackettAPIKey string
 }
 
+// FilePathResolver resolves an info_hash and file index to a local physical file path.
+// Returns the file path and true if the file is completed and exists on disk.
+type FilePathResolver func(hash metainfo.Hash, fileIdx int) (string, bool)
+
 type Streamer struct {
-	cfg    Config
-	client *torrent.Client
-	mu     sync.Mutex
-	active map[metainfo.Hash]*entry
-	favs   *FavoritesStore // optional — nil disables favorites protection
-	cache  *MetadataCache  // optional — nil disables instant-open snapshots
-	stop   chan struct{}
+	cfg              Config
+	client           *torrent.Client
+	mu               sync.Mutex
+	active           map[metainfo.Hash]*entry
+	favs             *FavoritesStore // optional — nil disables favorites protection
+	cache            *MetadataCache  // optional — nil disables instant-open snapshots
+	stop             chan struct{}
+	filePathResolver FilePathResolver
 	// downloads holds torrent names that are part of a background-download
 	// queue. They must NOT be evicted by enforceCacheLimit even when idle —
 	// the user is waiting for the file to finish. The downloads worker
@@ -117,6 +122,11 @@ type Streamer struct {
 	// chunk read/write.
 	dlLimiter *rate.Limiter
 	upLimiter *rate.Limiter
+}
+
+// SetFilePathResolver registers the custom file path resolver function (typically querying the downloads DB).
+func (s *Streamer) SetFilePathResolver(r FilePathResolver) {
+	s.filePathResolver = r
 }
 
 // SetFavorites attaches the favorites store. Must be called before any GC tick.

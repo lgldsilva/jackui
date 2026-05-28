@@ -172,6 +172,24 @@ func (s *Store) GetByKey(userID int, infoHash string, fileIndex int) (*Download,
 	return scanRow(row)
 }
 
+func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error) {
+	if s == nil {
+		return "", nil
+	}
+	var filePath string
+	err := s.db.QueryRow(`
+		SELECT file_path FROM downloads 
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != '' 
+		LIMIT 1`, infoHash, fileIndex).Scan(&filePath)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return filePath, nil
+}
+
 const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
 	tracker, category, status, bytes_downloaded,
 	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at FROM downloads `
