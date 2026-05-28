@@ -40,6 +40,16 @@ func Login(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
+		// Only active accounts may log in. pending = awaiting admin approval /
+		// email confirmation; disabled = blocked by an admin.
+		switch user.Status {
+		case auth.StatusPending:
+			c.JSON(http.StatusForbidden, gin.H{"error": "conta aguardando aprovação ou confirmação de e-mail", "status": "pending"})
+			return
+		case auth.StatusDisabled:
+			c.JSON(http.StatusForbidden, gin.H{"error": "conta desabilitada", "status": "disabled"})
+			return
+		}
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
@@ -123,7 +133,69 @@ func Me(store *auth.Store) gin.HandlerFunc {
 	}
 }
 
+// ChangePassword handles POST /api/auth/password — the logged-in user changes
+// their own password (must supply the current one).
+func ChangePassword(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		var req struct {
+			Current string `json:"current"`
+			New     string `json:"new"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.New == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "senha atual e nova são obrigatórias"})
+			return
+		}
+		if len(req.New) < 6 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "a nova senha precisa ter ao menos 6 caracteres"})
+			return
+		}
+		if err := store.ChangePassword(claims.UserID, req.Current, req.New); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "senha alterada"})
+	}
+}
+
 // ─── Admin-only user management ─────────────────────────────────────────────
+
+// SetUserStatus handles PATCH /api/auth/users/:id/status (admin only) — approve
+// (active), disable, or re-enable an account.
+func SetUserStatus(store *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		var req struct {
+			Status auth.Status `json:"status"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status required"})
+			return
+		}
+		if req.Status != auth.StatusActive && req.Status != auth.StatusPending && req.Status != auth.StatusDisabled {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status inválido"})
+			return
+		}
+		claims, _ := auth.ClaimsFromCtx(c)
+		if claims != nil && claims.UserID == id && req.Status != auth.StatusActive {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "não pode desabilitar a si mesmo"})
+			return
+		}
+		if err := store.SetStatus(id, req.Status); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "status atualizado"})
+	}
+}
 
 type createUserReq struct {
 	Username string    `json:"username"`

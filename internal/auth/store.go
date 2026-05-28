@@ -198,6 +198,38 @@ func (s *Store) CreateUser(username, password string, role Role) (int, error) {
 	return int(id), nil
 }
 
+// ChangePassword verifies the current password and sets a new one (self-service).
+func (s *Store) ChangePassword(userID int, current, new string) error {
+	var hash string
+	err := s.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&hash)
+	if err == sql.ErrNoRows {
+		return errors.New("usuário não encontrado")
+	}
+	if err != nil {
+		return err
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(current)) != nil {
+		return errors.New("senha atual incorreta")
+	}
+	return s.SetPassword(userID, new)
+}
+
+// SetPassword overwrites a user's password hash (used by ChangePassword + reset).
+func (s *Store) SetPassword(userID int, password string) error {
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	_, err = s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", string(h), userID)
+	return err
+}
+
+// SetStatus changes an account's lifecycle state (approve/disable/re-enable).
+func (s *Store) SetStatus(userID int, status Status) error {
+	_, err := s.db.Exec("UPDATE users SET status = ? WHERE id = ?", string(status), userID)
+	return err
+}
+
 // VerifyPassword loads a user by username and checks bcrypt against the supplied password.
 // Returns the User on match.
 func (s *Store) VerifyPassword(username, password string) (*User, error) {

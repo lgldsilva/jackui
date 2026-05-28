@@ -57,6 +57,37 @@ func TestAuthTokenSingleUse(t *testing.T) {
 	}
 }
 
+func TestChangePassword(t *testing.T) {
+	s := newTestStore(t)
+	id, _ := s.CreateUser("bob", "oldpass", RoleUser)
+	// Wrong current → rejected.
+	if err := s.ChangePassword(id, "WRONG", "newpass"); err == nil {
+		t.Fatal("expected wrong current password to fail")
+	}
+	// Correct current → changed; old no longer works, new does.
+	if err := s.ChangePassword(id, "oldpass", "newpass"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if _, err := s.VerifyPassword("bob", "oldpass"); err == nil {
+		t.Fatal("old password should no longer work")
+	}
+	if _, err := s.VerifyPassword("bob", "newpass"); err != nil {
+		t.Fatalf("new password should work: %v", err)
+	}
+}
+
+func TestSetStatus(t *testing.T) {
+	s := newTestStore(t)
+	id, _ := s.CreateUser("carol", "pw", RoleUser)
+	if err := s.SetStatus(id, StatusDisabled); err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	u, _ := s.GetUserByID(id)
+	if u.Status != StatusDisabled {
+		t.Fatalf("status = %q, want disabled", u.Status)
+	}
+}
+
 func TestAuthTokenExpired(t *testing.T) {
 	s := newTestStore(t)
 	plain, _ := s.CreateToken(TokenVerifyEmail, 1, "", -time.Minute) // already expired
