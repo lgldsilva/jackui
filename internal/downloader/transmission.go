@@ -47,7 +47,15 @@ func NewTransmission(dc config.DownloadClient) *Transmission {
 func (t *Transmission) Name() string { return t.name }
 func (t *Transmission) Type() string { return "transmission" }
 
+// do issues an RPC call, transparently refreshing the session id on a single
+// 409. The retry is bounded (doN) so a server that keeps returning 409 — e.g.
+// a session id that rotates every request — can't recurse into a stack
+// overflow.
 func (t *Transmission) do(method string, args map[string]interface{}) (*transmissionResponse, error) {
+	return t.doN(method, args, 1)
+}
+
+func (t *Transmission) doN(method string, args map[string]interface{}, retriesLeft int) (*transmissionResponse, error) {
 	reqBody := transmissionRequest{
 		Method:    method,
 		Arguments: args,
@@ -83,7 +91,10 @@ func (t *Transmission) do(method string, args map[string]interface{}) (*transmis
 		if t.sessionID == "" {
 			return nil, fmt.Errorf("transmission returned 409 but no session ID")
 		}
-		return t.do(method, args)
+		if retriesLeft <= 0 {
+			return nil, fmt.Errorf("transmission kept returning 409 after session refresh")
+		}
+		return t.doN(method, args, retriesLeft-1)
 	}
 
 	if resp.StatusCode != http.StatusOK {

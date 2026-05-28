@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -472,11 +473,44 @@ func (s *Streamer) Add(ctx context.Context, magnetOrURL string) (*TorrentInfo, e
 //
 // We detect the magnet redirect via CheckRedirect, capture the magnet URL, and
 // add via AddMagnet instead of trying to fetch.
+// isBlockedFetchIP reports whether an IP is off-limits for server-side fetches
+// (SSRF protection): loopback, private RFC1918/ULA, link-local, and the
+// unspecified address. .torrent URLs from indexers are public, so blocking
+// these doesn't hurt legitimate use but stops a caller from making the server
+// probe the internal homelab network or metadata endpoints.
+func isBlockedFetchIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
 func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*torrent.Torrent, error) {
 	var capturedMagnet string
 
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
+		// SSRF guard: resolve the host and refuse private/loopback/link-local
+		// targets BEFORE connecting, then dial the exact IP we vetted (so DNS
+		// can't rebind between the check and the dial). Applies to the initial
+		// URL and every redirect, since they share this transport.
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, err
+				}
+				ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+				if err != nil {
+					return nil, err
+				}
+				for _, ip := range ips {
+					if isBlockedFetchIP(ip.IP) {
+						return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
+					}
+				}
+				d := net.Dialer{}
+				return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+			},
+		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if strings.HasPrefix(strings.ToLower(req.URL.String()), "magnet:") {
 				capturedMagnet = req.URL.String()
@@ -645,9 +679,20 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 // torrent. Pieces missing from disk fail their hash quickly (sparse reads).
 func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.File) {
 	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
+	// Claim the file so two concurrent readers don't both hash it.
 	if _, loaded := s.verifiedFiles.LoadOrStore(key, true); loaded {
-		return // already reconciled this file
+		return // already reconciled (or in progress) for this file
 	}
+	// If we bail before finishing (panic, or the torrent gets dropped mid-loop),
+	// drop the claim so a later read can retry. Marking "verified" up front and
+	// never clearing it meant an interrupted pass disabled reconciliation for
+	// the whole process lifetime → re-downloading pieces already on disk.
+	completed := false
+	defer func() {
+		if !completed {
+			s.verifiedFiles.Delete(key)
+		}
+	}()
 	for p := range f.Pieces() {
 		// Only verify pieces that have bytes on disk; fully-missing pieces have
 		// nothing to reconcile and verifying them just wastes a hash pass.
@@ -656,6 +701,7 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 		}
 		_ = p.VerifyData()
 	}
+	completed = true
 }
 
 // warmTail prioritizes the last few MB of a file so the container index

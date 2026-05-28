@@ -219,7 +219,7 @@ export default function SettingsPage() {
               onChange={(e) =>
                 setConfig({ ...config, jackett: { ...config.jackett, apiKey: e.target.value } })
               }
-              placeholder="Sua API key do Jackett"
+              placeholder={config.jackett.apiKeySet ? 'API key configurada — deixe vazio para manter' : 'Sua API key do Jackett'}
               className="input-field font-mono"
             />
           </div>

@@ -5,13 +5,14 @@ import { usePlayer } from '../components/PlayerProvider'
 import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry } from '../api/client'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
+import { usePersistedState } from '../lib/storage'
 
 type Filter = 'recent' | 'unfinished' | 'finished'
 
 export default function LibraryPage() {
   const [entries, setEntries] = useState<LibraryEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<Filter>('recent')
+  const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
   const { playSingle } = usePlayer()
 
   const reload = () => {
@@ -156,7 +157,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: Libr
       <button
         onClick={(ev) => { ev.stopPropagation(); onRemove() }}
         title="Remover do Continuar Assistindo"
-        className="absolute top-1.5 right-1.5 z-10 p-1 rounded-full bg-gray-900/80 text-gray-400 hover:text-red-400 hover:bg-gray-900 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1.5 right-1.5 z-10 p-1 rounded-full bg-gray-900/80 text-gray-400 hover:text-red-400 hover:bg-gray-900 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <X className="w-3.5 h-3.5" />
       </button>
@@ -185,7 +186,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove }: Libr
         ) : (
           <LibraryIcon className="w-10 h-10 text-gray-700" />
         )}
-        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 z-20">
+        <div className="absolute inset-0 flex items-center justify-center max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 z-20">
           <Play className="w-10 h-10 text-green-400" />
         </div>
         {isDone && (

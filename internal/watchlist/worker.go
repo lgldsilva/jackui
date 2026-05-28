@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luizg/jackui/internal/jackett"
@@ -26,12 +27,14 @@ type Notifier interface {
 
 // Worker polls every watchlist on a fixed interval. Stateless; safe to stop+restart.
 type Worker struct {
-	store       *Store
-	searcher    Searcher
-	notifier    Notifier
+	store        *Store
+	searcher     Searcher
+	notifier     Notifier
 	defaultTopic string
-	interval    time.Duration
-	stop        chan struct{}
+	interval     time.Duration
+	stop         chan struct{}
+	stopOnce     sync.Once      // guards close(stop) against a double Stop() panic
+	wg           sync.WaitGroup // Stop() waits for the goroutine to actually exit
 }
 
 func NewWorker(store *Store, searcher Searcher, notifier Notifier, defaultTopic string, interval time.Duration) *Worker {
@@ -49,10 +52,18 @@ func NewWorker(store *Store, searcher Searcher, notifier Notifier, defaultTopic 
 }
 
 func (w *Worker) Start() {
+	w.wg.Add(1)
 	go func() {
-		// Don't fire instantly on startup — give jackett a beat to come up
-		// after a container restart and avoid racing with library/auth migrations.
-		time.Sleep(30 * time.Second)
+		defer w.wg.Done()
+		// Don't fire instantly on startup — give jackett a beat to come up after
+		// a container restart and avoid racing with library/auth migrations. But
+		// make the wait INTERRUPTIBLE: a fast shutdown shouldn't block ~30s, nor
+		// run a full poll against stores that are already closing.
+		select {
+		case <-w.stop:
+			return
+		case <-time.After(30 * time.Second):
+		}
 		w.runOnce()
 		t := time.NewTicker(w.interval)
 		defer t.Stop()
@@ -67,7 +78,13 @@ func (w *Worker) Start() {
 	}()
 }
 
-func (w *Worker) Stop() { close(w.stop) }
+// Stop signals the worker and waits for its goroutine to exit. sync.Once makes
+// a second call safe (double close(stop) would otherwise panic); WaitGroup
+// ensures no runOnce is still touching the stores after Stop returns.
+func (w *Worker) Stop() {
+	w.stopOnce.Do(func() { close(w.stop) })
+	w.wg.Wait()
+}
 
 // RunOnce is exposed for tests / manual triggers.
 func (w *Worker) RunOnce() { w.runOnce() }

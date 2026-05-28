@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile } from '../api/client'
+import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
   /** When non-null, the modal opens and fetches contents. */
@@ -45,6 +46,7 @@ function isPlayableFile(f: StreamFile): boolean {
  * play it OR add it as a single playlist item.
  */
 export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist }: Props) {
+  useScrollLock(!!result)
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -180,7 +182,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                               <button
                                 onClick={() => onAddFileToPlaylist(result, f.index, f.path)}
                                 title="Adicionar esse arquivo a uma playlist"
-                                className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-500/15 transition-colors opacity-0 group-hover:opacity-100"
+                                className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-500/15 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100"
                               >
                                 <ListPlus className="w-4 h-4" />
                               </button>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, SkipBack, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -24,7 +24,6 @@ import {
   streamSidecarURL,
   streamPlaylistM3UURL,
   streamPrefetch,
-  streamThumbnailURL,
   subtitlesEnabled,
   subtitlesSearch,
   subtitlesAuto,
@@ -38,12 +37,23 @@ import {
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
+import { useScrollLock } from '../lib/useScrollLock'
+import { load, save } from '../lib/storage'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 
 interface PlaylistMeta {
   name: string
   items: { title: string }[]
   currentIndex: number
+}
+
+// Per-file subtitle choice, persisted in localStorage so a video reopens with
+// the same subtitle the user picked. The three sources are mutually exclusive.
+interface SubChoice {
+  external: string | null // OpenSubtitles file id
+  embedded: number | null // embedded track index
+  sidecar: number | null  // sidecar .srt file index
+  offset: number          // sync offset in seconds
 }
 
 interface PlayerModalProps {
@@ -116,6 +126,9 @@ export default function PlayerModal({
   // and either can toggle. Since PlayerProvider lives above the router, the
   // player keeps playing across page navigation in both modes.
   const [minimized, setMinimized] = useState(startMinimized)
+  // Lock background scroll while the player is full-screen; allow it when
+  // minimized (PiP) so the user can still browse the page behind the card.
+  useScrollLock(!minimized)
   // Mobile: secondary controls (status, transcode, subtitle, VLC/download) are
   // collapsed behind an "Opções" toggle so the video + file list get the space
   // — the Plex/Stremio pattern. Desktop (sm+) always shows them inline.
@@ -128,6 +141,10 @@ export default function PlayerModal({
   const [subError, setSubError] = useState('')
   const [subActive, setSubActive] = useState<string | null>(null)
   const [subOffset, setSubOffset] = useState(0) // seconds; +/-0.1s steps
+  // True once we've restored (or decided there's nothing to restore) the saved
+  // subtitle choice for the current file. Gates the save effect so the reset on
+  // file-switch doesn't persist an empty choice before restore runs.
+  const [subRestored, setSubRestored] = useState(false)
   const [autoSource, setAutoSource] = useState<'hash' | 'title' | 'embedded' | null>(null)
   // Embedded tracks discovered via ffprobe
   const [probe, setProbe] = useState<StreamProbe | null>(null)
@@ -140,6 +157,10 @@ export default function PlayerModal({
   // Library entry for this torrent — used for resume seek + saving position
   const [libraryEntryID, setLibraryEntryID] = useState<number | null>(null)
   const [resumePosition, setResumePosition] = useState<number | null>(null)
+  // When a saved resume point exists, ask on play whether to continue or
+  // restart (instead of auto-seeking silently / a permanent "back to start"
+  // button). Shown as an overlay over the video.
+  const [showResumePrompt, setShowResumePrompt] = useState(false)
   const lastResumeSaveRef = useRef(0)
   const lastUrlSyncRef = useRef(0)  // throttle for writing ?t= into the URL
   const bufferRetryRef = useRef(0)  // bounded auto-retries while swarm still delivers
@@ -190,9 +211,6 @@ export default function PlayerModal({
   // File list filter — for series packs with 30+ episodes the list pushes the
   // settings off-screen. The filter keeps the list short so settings stay reachable.
   const [fileFilter, setFileFilter] = useState('')
-  // Hover preview state for the seek bar. `seekHover` is the time (s) the user
-  // is pointing at; nullable so we don't render the bubble while idle.
-  const [seekHover, setSeekHover] = useState<{ time: number; x: number } | null>(null)
 
   // Favorites — auto-mark after 5min of actual playback (currentTime accumulates)
   const [isFavorite, setIsFavorite] = useState(false)
@@ -203,6 +221,11 @@ export default function PlayerModal({
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [bufferedEnd, setBufferedEnd] = useState(0)
+  // All buffered TimeRanges as [start, end] pairs (seconds). With #61 seek-
+  // restart the player holds several disjoint islands (one around each visited
+  // position), so the bar renders each as its own "loaded" segment rather than
+  // a single left-anchored fill.
+  const [bufferedRanges, setBufferedRanges] = useState<Array<[number, number]>>([])
   const videoRef = useRef<HTMLVideoElement>(null)
   const pollRef = useRef<number | null>(null)
   // Prefetch fire-once flags. Reset whenever the underlying selected file
@@ -231,6 +254,7 @@ export default function PlayerModal({
     setProbe(null)
     setEmbeddedSub(null)
     setSidecars([])
+    setSubRestored(false)
     setSidecarIdx(null)
     setLibraryEntryID(null)
     setResumePosition(null)
@@ -249,6 +273,7 @@ export default function PlayerModal({
     setCurrentTime(0)
     setDuration(0)
     setBufferedEnd(0)
+    setBufferedRanges([])
 
     // Try the cached metadata first — if the server has seen this hash before,
     // the file list + name appear instantly. streamAdd still kicks off in
@@ -483,8 +508,10 @@ export default function PlayerModal({
   }
 
   const pickSubtitle = (s: Subtitle) => {
+    // Apply but keep the panel open so the active subtitle shows its ✓/highlight
+    // and the user can switch or remove it without reopening. They close it via
+    // the ✕ (or the "Legendas" toggle) when done.
     setSubActive(s.id)
-    setSubOpen(false)
   }
 
   const requestFullscreen = () => {
@@ -500,16 +527,63 @@ export default function PlayerModal({
     }
   }
 
-  // Seek by delta seconds. Still needed because the HLS stream is EVENT-mode
-  // ("Transmissão ao Vivo") and Safari hides the native seek bar for live
-  // streams — these buttons are the ONLY way to navigate until #61 (VOD +
-  // on-demand transcode) lands and the native seek bar works.
-  const seekBy = (delta: number) => {
-    const v = videoRef.current
-    if (!v) return
-    const dur = v.duration && isFinite(v.duration) ? v.duration : Infinity
-    v.currentTime = Math.max(0, Math.min(dur, v.currentTime + delta))
-  }
+  // Desktop keyboard shortcuts (part of #63). Touch gestures are intentionally
+  // NOT added — the native <video controls> owns touch on iOS and custom
+  // overlays fought its gestures. Skipped while minimized, while typing in an
+  // input/select, and when the <video> itself has focus (let the browser's
+  // native handler act, so we don't double-seek).
+  useEffect(() => {
+    if (minimized) return
+    const onKey = (e: KeyboardEvent) => {
+      const v = videoRef.current
+      if (!v) return
+      const tgt = e.target as HTMLElement | null
+      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v)) return
+      const dur = isFinite(v.duration) ? v.duration : Infinity
+      switch (e.key) {
+        case ' ': e.preventDefault(); if (v.paused) v.play().catch(() => {}); else v.pause(); break
+        case 'ArrowRight': e.preventDefault(); v.currentTime = Math.min(dur, v.currentTime + 10); break
+        case 'ArrowLeft': e.preventDefault(); v.currentTime = Math.max(0, v.currentTime - 10); break
+        case 'ArrowUp': e.preventDefault(); v.volume = Math.min(1, v.volume + 0.1); break
+        case 'ArrowDown': e.preventDefault(); v.volume = Math.max(0, v.volume - 0.1); break
+        case 'm': case 'M': v.muted = !v.muted; break
+        case 'f': case 'F': requestFullscreen(); break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minimized])
+
+  // iPhone landscape → native iOS fullscreen. The custom modal layout isn't
+  // built to reflow for a short, wide phone viewport (it got cramped/garbled),
+  // and the native player is the chosen behaviour there. We trigger on
+  // orientation change for phone-sized viewports only — `max-height: 600px` in
+  // landscape rules out tablets (iPad landscape is ~768px+ tall). iOS only
+  // honours fullscreen on the <video> via webkitEnterFullscreen, and may refuse
+  // it outside a user gesture, so this is best-effort (rotate again if it
+  // didn't catch, or tap the fullscreen button).
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: landscape) and (max-height: 600px)')
+    const onOrient = () => {
+      const v = videoRef.current as any
+      if (!v || !mq.matches || v.readyState < 1) return
+      try {
+        if (typeof v.webkitEnterFullscreen === 'function') v.webkitEnterFullscreen()
+        else if (v.requestFullscreen) v.requestFullscreen()
+        else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen()
+      } catch {
+        /* iOS may block fullscreen outside a user gesture — ignore */
+      }
+    }
+    mq.addEventListener?.('change', onOrient)
+    window.addEventListener('orientationchange', onOrient)
+    return () => {
+      mq.removeEventListener?.('change', onOrient)
+      window.removeEventListener('orientationchange', onOrient)
+    }
+  }, [])
+
 
   // Update offset and reapply to all cues
   const adjustSubOffset = (delta: number) => {
@@ -596,6 +670,7 @@ export default function PlayerModal({
     // remembering "already done" from the previous file.
     appliedInitialSeekRef.current = false
     appliedAutoResumeRef.current = false
+    setShowResumePrompt(false)
   }, [selectedFile, info?.infoHash])
 
   // Seek once the video can play. Priority:
@@ -615,11 +690,10 @@ export default function PlayerModal({
     }
     if (resumePosition === null) return
     if (v.currentTime < 1 && resumePosition > 30 && !appliedAutoResumeRef.current) {
-      v.currentTime = resumePosition
       appliedAutoResumeRef.current = true
-      // Intentionally NOT clearing resumePosition — keep it around so the
-      // "Continuar de onde parou" button can jump back if the user goes to
-      // the start or scrubs elsewhere.
+      // Ask instead of silently jumping: the user picks "continue" or "restart"
+      // via the overlay (see resume prompt). Mark applied so it only asks once.
+      setShowResumePrompt(true)
     }
   }
 
@@ -628,12 +702,19 @@ export default function PlayerModal({
   // ffprobe needs a live Reader from the streamer's active map.
   useEffect(() => {
     if (!info?.infoHash || selectedFile < 0 || !serverReady) return
+    // If the user previously chose a subtitle for THIS file, skip auto-load —
+    // the restore effect applies that choice and it must win over pt auto-pick.
+    // Read storage directly (not state) to avoid stale-closure races with the
+    // async probe callback.
+    const savedChoice = load<SubChoice | null>(`sub.${info.infoHash}.${selectedFile}`, null)
+    const hasSavedChoice = !!savedChoice && (savedChoice.external !== null || savedChoice.embedded !== null || savedChoice.sidecar !== null)
+
     streamProbe(info.infoHash, selectedFile)
       .then(p => {
         const safe = { audio: p.audio ?? [], subtitles: p.subtitles ?? [] }
         setProbe(safe)
         const ptSub = safe.subtitles.find(t => !t.image && /^pt|por/i.test(t.language || ''))
-        if (ptSub && !subActive) {
+        if (ptSub && !hasSavedChoice && !subActive) {
           setEmbeddedSub(ptSub.index)
           setAutoSource('embedded')
         }
@@ -644,8 +725,8 @@ export default function PlayerModal({
     streamSidecars(info.infoHash, selectedFile)
       .then(list => {
         setSidecars(list ?? [])
-        // Auto-pick pt sidecar if no embedded already chosen
-        if (!subActive && embeddedSub === null && list && list.length > 0) {
+        // Auto-pick pt sidecar if no embedded already chosen and no saved choice
+        if (!hasSavedChoice && !subActive && embeddedSub === null && list && list.length > 0) {
           const pt = list.find(s => /^pt|por/i.test(s.language || ''))
           if (pt) {
             setSidecarIdx(pt.index)
@@ -660,6 +741,37 @@ export default function PlayerModal({
   // Note: auto-search of OpenSubtitles intentionally NOT triggered here — it would burn quota.
   // Embedded subtitles auto-load (free), external ones require explicit click via "Legendas" button.
   // The hash-based search runs only on first open of the panel.
+
+  // Restore the saved subtitle choice for this file (external/embedded/sidecar
+  // + offset). Runs before the pt auto-load gets a chance (which is gated by
+  // hasSavedChoice in the probe effect), so the user's pick wins. subRestored
+  // gates the save effect below so the file-switch reset can't persist an empty
+  // choice before this runs.
+  useEffect(() => {
+    if (!info?.infoHash || selectedFile < 0 || subRestored) return
+    const saved = load<SubChoice | null>(`sub.${info.infoHash}.${selectedFile}`, null)
+    if (saved) {
+      setSubActive(saved.external)
+      setEmbeddedSub(saved.embedded)
+      setSidecarIdx(saved.sidecar)
+      setSubOffset(saved.offset || 0)
+      if (saved.external !== null || saved.embedded !== null || saved.sidecar !== null) {
+        setAutoSource(null)
+      }
+    }
+    setSubRestored(true)
+  }, [info?.infoHash, selectedFile, subRestored])
+
+  // Persist the active subtitle choice per file so it comes back on reopen.
+  useEffect(() => {
+    if (!subRestored || !info?.infoHash || selectedFile < 0) return
+    save<SubChoice>(`sub.${info.infoHash}.${selectedFile}`, {
+      external: subActive,
+      embedded: embeddedSub,
+      sidecar: sidecarIdx,
+      offset: subOffset,
+    })
+  }, [subActive, embeddedSub, sidecarIdx, subOffset, subRestored, info?.infoHash, selectedFile])
 
   // Track playback state + accumulate watch time for auto-favorite
   const onTimeUpdate = () => {
@@ -676,15 +788,22 @@ export default function PlayerModal({
     setCurrentTime(now)
     setDuration(v.duration || 0)
     if (v.buffered.length > 0) {
+      const ranges: Array<[number, number]> = []
       for (let i = 0; i < v.buffered.length; i++) {
-        if (v.currentTime >= v.buffered.start(i) && v.currentTime <= v.buffered.end(i)) {
-          setBufferedEnd(v.buffered.end(i))
+        ranges.push([v.buffered.start(i), v.buffered.end(i)])
+      }
+      setBufferedRanges(ranges)
+      // bufferedEnd = end of the island containing the playhead (for the
+      // "X à frente" label); fall back to the last island when the playhead
+      // sits in an as-yet-unbuffered gap (just after a seek).
+      let be = ranges[ranges.length - 1][1]
+      for (const [s, e] of ranges) {
+        if (now >= s && now <= e) {
+          be = e
           break
         }
       }
-      if (v.buffered.length > 0 && v.currentTime > v.buffered.end(v.buffered.length - 1)) {
-        setBufferedEnd(v.buffered.end(v.buffered.length - 1))
-      }
+      setBufferedEnd(be)
     }
 
     // Auto-favorite once threshold passed
@@ -863,11 +982,27 @@ export default function PlayerModal({
     setSubActive(null)
     setProbe(null)
     setSidecars([])
+    setSubRestored(false)
     watchedRef.current = 0
     lastTickRef.current = 0
     setCurrentTime(0)
     setBufferedEnd(0)
+    setBufferedRanges([])
   }
+
+  // Apply a changed initialFileIndex when the player is ALREADY open for the
+  // same torrent (e.g. the user picks a different file in the contents modal).
+  // `result` keeps its reference across that pick, so the main [result] effect
+  // doesn't re-run — without this the user had to click play twice (first click
+  // changed the prop, second finally switched). Guards: only when metadata is
+  // loaded and the index actually differs from what's selected.
+  useEffect(() => {
+    if (initialFileIndex === undefined || initialFileIndex < 0) return
+    if (!info || initialFileIndex >= info.files.length) return
+    if (initialFileIndex === selectedFile) return
+    playFile(initialFileIndex)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFileIndex])
 
   // URL builder: raw direct play unless any transcoding option is active.
   // Safari + HEVC/x265/AV1 short-circuits to transcode (which is HLS for Safari)
@@ -1104,6 +1239,38 @@ export default function PlayerModal({
                     />
                   </div>
                 )}
+                {/* Resume prompt — when a saved position exists, ask whether to
+                    continue or restart instead of auto-seeking. Replaces both the
+                    silent auto-resume and the permanent "back to start" button. */}
+                {showResumePrompt && resumePosition !== null && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                    <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
+                      <p className="text-gray-300 text-sm text-center">Você parou em</p>
+                      <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
+                      <button
+                        onClick={() => {
+                          const v = videoRef.current
+                          if (v) { v.currentTime = resumePosition; v.play().catch(() => {}) }
+                          setShowResumePrompt(false)
+                        }}
+                        className="btn-primary w-full justify-center"
+                      >
+                        Continuar
+                      </button>
+                      <button
+                        onClick={() => {
+                          const v = videoRef.current
+                          if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+                          setShowResumePrompt(false)
+                          setResumePosition(null)
+                        }}
+                        className="btn-secondary w-full justify-center"
+                      >
+                        Começar do início
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {/* Buffering overlay — visible while either (a) the streamer
                     hasn't activated the torrent yet (serverReady=false) or
                     (b) pieces haven't reached the playhead yet. */}
@@ -1286,83 +1453,43 @@ export default function PlayerModal({
                   stays mounted above, so all the HEVC/HLS/buffer logic is intact. */}
               {!minimized && (<>
 
-              {/* Skip controls + time display + series navigation.
-                  Mobile: min-h-[44px] satisfies the iOS 44pt touch target HIG —
-                  the previous py-1.5 dropped to ~28px which is below the
-                  thumb-friendly threshold. Desktop keeps the compact version. */}
-              <div className="px-3 sm:px-4 py-2 bg-gray-900 border-b border-gray-700 flex items-center gap-2 sm:gap-1.5 flex-wrap">
+              {/* Transport row — ONE line. The native <video controls> already
+                  provides the seek bar, play/pause and ±skip, so we keep only
+                  what it lacks: series navigation (prev/next episode) and a time
+                  readout. "Back to start" / "resume" are now offered as a prompt
+                  on play (see resume overlay); ±10s removed (native bar seeks). */}
+              <div className="px-3 sm:px-4 py-2 bg-gray-900 border-b border-gray-700 flex items-center gap-2 min-w-0">
                 {videoFileIndices.length > 1 && (
                   <>
                     <button
                       onClick={() => playFile(prevVideoIdx)}
                       disabled={prevVideoIdx < 0}
                       title="Episódio anterior"
-                      className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30"
+                      className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
                     >
                       <ChevronLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                      Ep ant.
+                      <span className="hidden xs:inline">Ep ant.</span>
                     </button>
                     <button
                       onClick={() => playFile(nextVideoIdx)}
                       disabled={nextVideoIdx < 0}
                       title="Próximo episódio"
-                      className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30"
+                      className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
                     >
-                      Próx.
+                      <span className="hidden xs:inline">Próx.</span>
                       <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                     </button>
                     {currentEp && (
-                      <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono">
+                      <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
                         {currentEp}
                       </span>
                     )}
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 flex-shrink-0">
                       {videoCursor + 1}/{videoFileIndices.length}
                     </span>
-                    <span className="w-px h-5 bg-gray-700 mx-1" />
                   </>
                 )}
-                {/* Voltar ao início — sempre visível, útil pra re-assistir do zero */}
-                <button
-                  onClick={() => { const v = videoRef.current; if (v) v.currentTime = 0 }}
-                  title="Voltar ao início (0:00)"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  <SkipBack className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                  <span className="font-mono text-[10px] sm:text-[9px]">|◀</span>
-                </button>
-                {/* Continuar de onde parou — só aparece se houver resume guardado
-                    do library E o usuário não está perto desse ponto (>5s de gap).
-                    Permite voltar pro ponto salvo após o usuário ir pro início ou
-                    scrubar pra outro lugar. */}
-                {resumePosition !== null && Math.abs(currentTime - resumePosition) > 5 && (
-                  <button
-                    onClick={() => { const v = videoRef.current; if (v) v.currentTime = resumePosition }}
-                    title={`Continuar de ${formatTime(resumePosition)}`}
-                    className="flex items-center gap-1 text-sm sm:text-xs bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                  >
-                    <RotateCcw className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                    <span className="hidden sm:inline">Continuar</span>
-                    <span className="font-mono text-[10px] sm:hidden">{formatTime(resumePosition)}</span>
-                  </button>
-                )}
-                {/* Skip buttons — needed while the stream is EVENT/live (Safari
-                    hides the native seek bar). Compact set: -10s / +10s / +30s. */}
-                <button
-                  onClick={() => seekBy(-10)}
-                  title="-10s"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  <SkipBack className="w-4 h-4 sm:w-3.5 sm:h-3.5" />10s
-                </button>
-                <button
-                  onClick={() => seekBy(10)}
-                  title="+10s"
-                  className="flex items-center gap-1 text-sm sm:text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors"
-                >
-                  10s<FastForward className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                </button>
-                <span className="text-xs text-gray-400 ml-2 font-mono tabular-nums">
+                <span className="text-xs text-gray-400 ml-auto font-mono tabular-nums flex-shrink-0">
                   {formatTime(currentTime)} <span className="text-gray-600">/</span> {formatTime(duration)}
                 </span>
 
@@ -1454,71 +1581,35 @@ export default function PlayerModal({
                     </span>
                   )}
                 </div>
-                {/* Layered + interactive progress bar. Click to seek, drag to scrub,
-                    hover to preview a thumbnail at that position. The bar is 6px tall
-                    on hover so it's easy to click; it shrinks back to 1.5px when idle. */}
-                <div
-                  className="relative bg-gray-700 rounded-full h-1.5 hover:h-2 transition-[height] cursor-pointer group"
-                  onMouseMove={(e) => {
-                    if (!duration) return
-                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
-                    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-                    setSeekHover({ time: ratio * duration, x: e.clientX - rect.left })
-                  }}
-                  onMouseLeave={() => setSeekHover(null)}
-                  onClick={(e) => {
-                    if (!duration || !videoRef.current) return
-                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
-                    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-                    videoRef.current.currentTime = ratio * duration
-                  }}
-                  title={duration ? 'Clique para pular para essa posição' : ''}
-                >
-                  {/* Torrent download (gray) — only matters for raw stream, transcoded has full random access */}
+                {/* Load/buffer indicator — PRESENTATION ONLY (not clickable).
+                    The native <video controls> bar owns seeking; this strip just
+                    visualises state so it doesn't compete with it: gray = torrent
+                    downloaded, blue islands = buffered/ready (disjoint after a #61
+                    seek-restart, gaps = not loaded yet), green = play progress. */}
+                <div className="relative bg-gray-700 rounded-full h-1.5">
                   <div
-                    className="absolute inset-y-0 left-0 bg-gray-500 rounded-full pointer-events-none"
+                    className="absolute inset-y-0 left-0 bg-gray-500 rounded-full"
                     style={{ width: `${(currentFile?.progress || 0) * 100}%` }}
                   />
                   {duration > 0 && (
                     <>
+                      {bufferedRanges.map(([start, end], i) => (
+                        <div
+                          key={i}
+                          className="absolute inset-y-0 bg-blue-500/50 rounded-full"
+                          style={{
+                            left: `${(start / duration) * 100}%`,
+                            width: `${(Math.max(0, end - start) / duration) * 100}%`,
+                          }}
+                        />
+                      ))}
                       <div
-                        className="absolute inset-y-0 left-0 bg-blue-500/60 rounded-full pointer-events-none"
-                        style={{ width: `${(bufferedEnd / duration) * 100}%` }}
-                      />
-                      <div
-                        className="absolute inset-y-0 left-0 bg-green-500 rounded-full pointer-events-none"
+                        className="absolute inset-y-0 left-0 bg-green-500 rounded-full"
                         style={{ width: `${(currentTime / duration) * 100}%` }}
-                      />
-                      {/* Scrubber handle — visible on hover only */}
-                      <div
-                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-green-400 rounded-full shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none"
-                        style={{ left: `${(currentTime / duration) * 100}%` }}
                       />
                     </>
                   )}
                 </div>
-                {/* Hover bubble — preview thumbnail + timecode at the hovered position.
-                    Positioned absolute over the bar; clamped so it doesn't overflow viewport. */}
-                {seekHover && duration > 0 && info && selectedFile >= 0 && !isTranscoded && (
-                  <div
-                    className="absolute z-50 pointer-events-none flex flex-col items-center gap-1"
-                    style={{
-                      left: `calc(${(seekHover.time / duration) * 100}% - 70px)`,
-                      bottom: '32px',
-                    }}
-                  >
-                    <img
-                      src={streamThumbnailURL(info.infoHash, selectedFile, Math.floor(seekHover.time))}
-                      alt=""
-                      loading="lazy"
-                      className="w-[140px] h-[78px] object-cover bg-black border border-gray-600 rounded shadow-xl"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                    />
-                    <span className="text-[11px] bg-gray-900/95 text-gray-100 px-1.5 py-0.5 rounded font-mono tabular-nums">
-                      {formatTime(seekHover.time)}
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* (file picker moved to right sidebar — see end of active-stream block) */}

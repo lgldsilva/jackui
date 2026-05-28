@@ -4,6 +4,7 @@ import {
   playlistsList, playlistsCreate, playlistsAddItem, pickTorrentSource,
   Playlist, SearchResult,
 } from '../api/client'
+import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
   /** When non-null, the picker opens and adds this result on confirm. */
@@ -20,6 +21,7 @@ interface Props {
  * Lists existing playlists + lets create a new one inline.
  */
 export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTitle }: Props) {
+  useScrollLock(!!result)
   const [lists, setLists] = useState<Playlist[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)

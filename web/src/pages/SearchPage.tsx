@@ -17,6 +17,24 @@ import { isPlayable } from '../lib/playable'
 
 const TABS_KEY = 'searchTabs'
 const ACTIVE_KEY = 'activeTabId'
+// Last-used filter preferences, applied to every NEW tab/search so a setting
+// like "min 10 seeders" sticks instead of resetting to 0 on each fresh search.
+const FILTER_DEFAULTS_KEY = 'searchFilterDefaults'
+
+interface FilterDefaults {
+  trackerFilter: string
+  minSeeders: number
+  minLeechers: number
+  maxSizeGb: string
+  resultSort: ResultSortKey
+  resultSortAsc: boolean
+  onlyPlayable: boolean
+}
+
+const FALLBACK_FILTERS: FilterDefaults = {
+  trackerFilter: 'all', minSeeders: 0, minLeechers: 0, maxSizeGb: '',
+  resultSort: 'seeders', resultSortAsc: false, onlyPlayable: false,
+}
 
 // What we persist (NOT the live SSE results — those re-fetch when the user re-searches)
 interface PersistedTab {
@@ -58,13 +76,17 @@ interface TabState {
 }
 
 function newTab(id: string): TabState {
+  // Seed filters from the user's last-used preferences so a new search keeps
+  // e.g. the "min 10 seeders" threshold instead of starting at zero.
+  const d = load<FilterDefaults>(FILTER_DEFAULTS_KEY, FALLBACK_FILTERS)
   return {
     id, query: '', results: [], phase: 'idle', error: '', summary: null,
     selectedIndexers: [], selectedCategory: 'all',
-    titleFilter: '', trackerFilter: 'all',
-    minSeeders: 0, minLeechers: 0, maxSizeGb: '',
-    resultSort: 'seeders', resultSortAsc: false,
-    onlyPlayable: false,
+    titleFilter: '',
+    trackerFilter: d.trackerFilter,
+    minSeeders: d.minSeeders, minLeechers: d.minLeechers, maxSizeGb: d.maxSizeGb,
+    resultSort: d.resultSort, resultSortAsc: d.resultSortAsc,
+    onlyPlayable: d.onlyPlayable,
   }
 }
 
@@ -172,6 +194,20 @@ export default function SearchPage() {
   // Persist tabs whenever they change (debounced via React batching)
   useEffect(() => {
     persistTabs(tabs, activeId)
+    // Remember the active tab's filter prefs as the global default so the next
+    // new search inherits them (the "min 10 seeders sticks" behaviour).
+    const a = tabs.find(t => t.id === activeId)
+    if (a) {
+      save<FilterDefaults>(FILTER_DEFAULTS_KEY, {
+        trackerFilter: a.trackerFilter,
+        minSeeders: a.minSeeders,
+        minLeechers: a.minLeechers,
+        maxSizeGb: a.maxSizeGb,
+        resultSort: a.resultSort,
+        resultSortAsc: a.resultSortAsc,
+        onlyPlayable: a.onlyPlayable,
+      })
+    }
   }, [tabs, activeId])
 
   // Reset visible count when active tab or its filters change
@@ -261,26 +297,36 @@ export default function SearchPage() {
     const es = new EventSource(withToken(`/api/search/stream?${params}`))
     esMap.current.set(tabId, es)
 
+    // SSE payloads come from the network — a malformed/empty frame must not
+    // throw out of the listener (an uncaught exception there would leave the tab
+    // stuck "searching" forever). Parse defensively; the generic `error` event
+    // isn't even a MessageEvent (no .data), so guard that too.
+    const parseSSE = (raw: unknown): any | null => {
+      if (typeof raw !== 'string' || raw === '') return null
+      try { return JSON.parse(raw) } catch { return null }
+    }
+
     es.addEventListener('result', (e) => {
-      const result = JSON.parse(e.data) as SearchResult
+      const result = parseSSE(e.data) as SearchResult | null
+      if (!result) return
       setTabs(prev => prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t))
     })
 
     es.addEventListener('progress', (e) => {
-      const data = JSON.parse(e.data)
-      if (data.phase === 'live') updateTab(tabId, { phase: 'live' })
+      const data = parseSSE(e.data)
+      if (data?.phase === 'live') updateTab(tabId, { phase: 'live' })
     })
 
     es.addEventListener('done', (e) => {
-      const data = JSON.parse(e.data)
+      const data = parseSSE(e.data)
       updateTab(tabId, { summary: data, phase: 'done' })
       es.close()
       esMap.current.delete(tabId)
     })
 
     es.addEventListener('error', (e) => {
-      if ((e as MessageEvent).data) {
-        const data = JSON.parse((e as MessageEvent).data)
+      const data = parseSSE((e as MessageEvent).data)
+      if (data) {
         setTabs(prev => prev.map(t => t.id === tabId ? { ...t, error: data.message || 'Erro na busca' } : t))
       }
     })

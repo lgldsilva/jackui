@@ -219,7 +219,7 @@ export default function StreamCacheCard() {
                   className={`transition-all ${
                     e.isFavorite
                       ? 'opacity-0 cursor-not-allowed'
-                      : 'opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 disabled:opacity-50'
+                      : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 disabled:opacity-50'
                   }`}
                   title={e.isFavorite ? 'Favoritos não podem ser removidos — desfavorite primeiro no player' : 'Remover esta entrada'}
                 >

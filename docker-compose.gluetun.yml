@@ -5,16 +5,20 @@
 # Requires:
 #   1. The 'gluetun' container is already running on the same Docker host
 #      (managed by another compose project — the VPN gateway)
-#   2. Gluetun's compose file MUST expose the JackUI port + BitTorrent ports.
-#      Add these lines to gluetun's `ports:` section and recreate it:
+#   2. Gluetun's compose file MUST expose the JackUI web UI port. Add this line
+#      to gluetun's `ports:` section and recreate it:
 #
 #        ports:
 #          - "8989:8989/tcp"     # JackUI web UI
-#          - "42069:42069/tcp"   # BitTorrent peer (TCP)
-#          - "42069:42069/udp"   # BitTorrent peer (UDP / DHT)
 #
-#   3. Once gluetun re-exposes the ports, traffic to those ports on the host
-#      goes through the VPN tunnel before reaching JackUI.
+#      NOTE: leech-only deployment (consume through the VPN, not seed). We do NOT
+#      publish a BitTorrent peer port — inbound peer connections aren't needed to
+#      download. Only the UI port needs exposing; all of JackUI's OUTBOUND
+#      traffic (peers, trackers, DHT) already rides the VPN by sharing gluetun's
+#      network namespace.
+#
+#   3. Once gluetun re-exposes the UI port, the web UI is reachable on the host
+#      while every outbound connection from JackUI goes through the VPN tunnel.
 
 services:
   jackui:

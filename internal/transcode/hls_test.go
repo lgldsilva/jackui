@@ -303,6 +303,125 @@ func TestHLSStartRejectsNilSource(t *testing.T) {
 	}
 }
 
+// TestProbeDurationSeekableReadsMoovAtEnd is the decisive guard for #61: the
+// finite VOD playlist (full seekbar) hinges on knowing the total duration, and
+// for MP4 with moov-at-end that duration is ONLY readable when ffprobe can seek
+// to the END of the file. This test feeds a real moov-at-end MP4 through the
+// production serveSource (Range-capable) and asserts probeDurationSeekable
+// recovers ~3s. Without the seekable path (e.g. a truncated pipe), ffprobe
+// returns no duration — the regression this test exists to catch.
+func TestProbeDurationSeekableReadsMoovAtEnd(t *testing.T) {
+	fixture := makeSmallMoovAtEndMP4(t) // testsrc duration=3, no faststart
+	f, err := os.Open(fixture)
+	if err != nil {
+		t.Fatalf("open fixture: %v", err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatalf("stat fixture: %v", err)
+	}
+
+	url, shutdown := startSourceServerForTest(t, f, fi.Size())
+	defer shutdown()
+
+	dur := probeDurationSeekable(context.Background(), "ffmpeg", url)
+	if dur < 2.5 || dur > 3.5 {
+		t.Fatalf("expected duration ~3s for moov-at-end MP4 via seekable source, got %.3f", dur)
+	}
+}
+
+// TestEncodeSpecArgsVODForcesKeyframes guards the #61 invariant: in VOD mode
+// the encoder must force a keyframe every hlsSegDur seconds so segment N maps
+// to media time [N*hlsSegDur, …). Without this, segments land on arbitrary
+// keyframes and seek-restart can't align to a boundary.
+func TestEncodeSpecArgsVODForcesKeyframes(t *testing.T) {
+	spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: true}
+	joined := strings.Join(spec.args(0), " ")
+	if !strings.Contains(joined, "-force_key_frames expr:gte(t,n_forced*4)") {
+		t.Errorf("VOD args must force 4s keyframes; got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "-start_number 0") {
+		t.Errorf("expected -start_number 0 for initial launch; got:\n%s", joined)
+	}
+	// Initial launch (startSeg 0) must NOT input-seek nor offset, but DOES
+	// zero the source start (setpts/asetpts) so a non-zero source PTS doesn't
+	// leave a [0, offset] hole that stalls Safari.
+	if strings.Contains(joined, "-ss ") || strings.Contains(joined, "-output_ts_offset") {
+		t.Errorf("startSeg 0 must not seek/offset; got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "setpts=PTS-STARTPTS") || !strings.Contains(joined, "asetpts=PTS-STARTPTS") {
+		t.Errorf("VOD must zero timestamps (setpts/asetpts); got:\n%s", joined)
+	}
+}
+
+// TestEncodeSpecArgsRestartSeeksWithOffset guards the seek-restart timestamp
+// alignment: a non-zero start segment must input-seek (-ss), zero the PTS at
+// the seek point (setpts/asetpts) and shift it to the segment's slot
+// (-output_ts_offset) so seg N's PTS starts at N*hlsSegDur, matching the
+// synthesised VOD playlist. start_number must equal the seek segment so
+// filenames line up.
+func TestEncodeSpecArgsRestartSeeksWithOffset(t *testing.T) {
+	spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: true}
+	joined := strings.Join(spec.args(100), " ")
+	// Restart: input-seek + zero the PTS + shift to the segment's slot.
+	for _, want := range []string{"-ss 400", "setpts=PTS-STARTPTS", "-output_ts_offset 400", "-start_number 100"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("restart args missing %q; got:\n%s", want, joined)
+		}
+	}
+}
+
+// TestEncodeSpecArgsNvencForcesIDR guards the GTX 1070 fix: h264_nvenc ignores
+// -force_key_frames unless -forced-idr 1 is set, which made segments come out
+// ~10s instead of 4s. libx264 honours it natively so must NOT get the flag.
+func TestEncodeSpecArgsNvencForcesIDR(t *testing.T) {
+	nv := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "h264_nvenc", ffmpegPath: "ffmpeg", vod: true}
+	if !strings.Contains(strings.Join(nv.args(0), " "), "-forced-idr 1") {
+		t.Error("h264_nvenc VOD args must set -forced-idr 1")
+	}
+	x264 := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: true}
+	if strings.Contains(strings.Join(x264.args(0), " "), "-forced-idr") {
+		t.Error("libx264 honours -force_key_frames natively; must not set -forced-idr")
+	}
+}
+
+// TestEncodeSpecArgsEventUnchanged ensures the non-VOD path keeps the proven
+// EVENT flags (-g 60, no forced keyframes, no setpts) so a duration-unknown
+// source behaves EXACTLY as before #61 — none of the VOD timestamp surgery
+// must leak into the stable live path.
+func TestEncodeSpecArgsEventUnchanged(t *testing.T) {
+	spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: false}
+	joined := strings.Join(spec.args(0), " ")
+	if !strings.Contains(joined, "-g 60") {
+		t.Errorf("EVENT mode must keep -g 60; got:\n%s", joined)
+	}
+	for _, forbidden := range []string{"-force_key_frames", "setpts", "-output_ts_offset", "-forced-idr"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("EVENT mode must not contain %q (VOD-only); got:\n%s", forbidden, joined)
+		}
+	}
+}
+
+func TestParseSegName(t *testing.T) {
+	cases := map[string]struct {
+		n  int
+		ok bool
+	}{
+		"seg_00000.ts":     {0, true},
+		"seg_00042.ts":     {42, true},
+		"index.m3u8":       {0, false},
+		"seg_00007.ts.tmp": {0, false},
+		"foo.ts":           {0, false},
+	}
+	for name, want := range cases {
+		n, ok := parseSegName(name)
+		if ok != want.ok || (ok && n != want.n) {
+			t.Errorf("parseSegName(%q) = (%d,%v), want (%d,%v)", name, n, ok, want.n, want.ok)
+		}
+	}
+}
+
 // Compile-time check that *bytes.Reader satisfies io.ReadSeeker — guards the
 // HLSStartOpts.Source field type.
 var _ io.ReadSeeker = (*bytes.Reader)(nil)

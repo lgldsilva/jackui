@@ -112,7 +112,7 @@ function FolderTree(p: TreeProps) {
                   {node.folder.name}
                 </button>
               )}
-              <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
+              <div className="max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
                 <button onClick={() => p.onCreateSub(node.folder.id)} title="Subpasta" className="p-0.5 text-gray-500 hover:text-gray-200">
                   <FolderPlus className="w-3 h-3" />
                 </button>
@@ -472,7 +472,7 @@ export default function FavoritesPage() {
                     <button
                       onClick={() => handleRemove(fav.name)}
                       title="Remover dos favoritos"
-                      className="text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0"
+                      className="text-gray-600 hover:text-red-400 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex-shrink-0"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -512,6 +512,22 @@ export default function FavoritesPage() {
                       <Play className="w-3.5 h-3.5" />
                       Play
                     </button>
+                    {/* Move to folder — touch-friendly alternative to drag-and-drop
+                        (HTML5 DnD doesn't work on touch). Native <select> is fully
+                        usable on iOS. Only shown when folders exist. */}
+                    {folders.length > 0 && (
+                      <select
+                        value={fav.folderId ?? ''}
+                        onChange={e => handleDropOnFolder(e.target.value === '' ? null : Number(e.target.value), fav.name)}
+                        title="Mover para pasta"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-gray-700/40 text-gray-300 border border-gray-700 focus:outline-none focus:border-green-500 cursor-pointer max-w-[45%]"
+                      >
+                        <option value="">Raiz (sem pasta)</option>
+                        {folders.map(f => (
+                          <option key={f.id} value={f.id}>{f.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 </div>
               ))}

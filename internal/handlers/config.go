@@ -15,8 +15,13 @@ type configResponse struct {
 }
 
 type jackettConfigResponse struct {
-	URL    string `json:"url"`
-	APIKey string `json:"apiKey"`
+	URL string `json:"url"`
+	// APIKey is omitted from GET responses (never echo the secret back, same as
+	// download-client passwords). On PUT, an empty APIKey means "keep current".
+	APIKey string `json:"apiKey,omitempty"`
+	// APIKeySet tells the UI a key is stored without revealing it, so it can
+	// show a "configured — leave blank to keep" hint instead of an empty field.
+	APIKeySet bool `json:"apiKeySet,omitempty"`
 }
 
 type downloadClientResponse struct {
@@ -54,8 +59,9 @@ func GetConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 		c.JSON(http.StatusOK, configResponse{
 			Port: cfg.Port,
 			Jackett: jackettConfigResponse{
-				URL:    cfg.Jackett.URL,
-				APIKey: cfg.Jackett.APIKey,
+				URL: cfg.Jackett.URL,
+				// Never echo the key back; just signal whether one is set.
+				APIKeySet: cfg.Jackett.APIKey != "",
 			},
 			Clients: clients,
 		})
@@ -74,7 +80,11 @@ func UpdateConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 		// Update config
 		cfg.Port = req.Port
 		cfg.Jackett.URL = req.Jackett.URL
-		cfg.Jackett.APIKey = req.Jackett.APIKey
+		// Empty API key means "keep current" — the GET never returns the key, so
+		// the UI sends blank unless the admin is explicitly changing it.
+		if req.Jackett.APIKey != "" {
+			cfg.Jackett.APIKey = req.Jackett.APIKey
+		}
 
 		newClients := make([]config.DownloadClient, 0, len(req.Clients))
 		for _, dc := range req.Clients {

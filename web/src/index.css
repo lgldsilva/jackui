@@ -62,3 +62,21 @@
            hover:bg-gray-700/40;
   }
 }
+
+/* Subtitle cues — letters only, no opaque black box. The native <track>
+   renderer paints a black background behind each line by default; we drop it
+   and lean on a multi-layer text-shadow so the text stays readable over bright
+   frames. Note: iOS Safari may override this when the user has set a system
+   subtitle style (Settings ▸ Accessibility ▸ Subtitles & Captioning). */
+video::cue {
+  background-color: transparent;
+  color: #fff;
+  text-shadow:
+    0 0 4px #000,
+    0 0 8px #000,
+    0 1px 2px #000;
+}
+video::-webkit-media-text-track-display {
+  /* Webkit: nudge the cue box up a touch from the very bottom edge */
+  overflow: visible;
+}
