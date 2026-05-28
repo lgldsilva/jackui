@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -64,6 +65,12 @@ type Config struct {
 	MaxDownloadRate int64
 	// MaxUploadRate caps outbound peer bandwidth in bytes/sec; 0 = unlimited.
 	MaxUploadRate int64
+	// JackettHost is the host (no port) of the configured Jackett instance. The
+	// SSRF guard trusts it (Jackett lives on the private LAN, so its download
+	// links are legitimately private addresses) and the apikey below is injected
+	// server-side so it never has to travel through the browser.
+	JackettHost   string
+	JackettAPIKey string
 }
 
 type Streamer struct {
@@ -486,25 +493,44 @@ func isBlockedFetchIP(ip net.IP) bool {
 func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*torrent.Torrent, error) {
 	var capturedMagnet string
 
+	// Trust the configured Jackett host (its /dl/ links are legit private LAN
+	// addresses) and inject the apikey here so it never rides through the
+	// browser. Other private targets stay blocked — a Jackett redirect to an
+	// internal address is still refused.
+	if s.cfg.JackettHost != "" {
+		if u, err := url.Parse(torrentURL); err == nil && u.Hostname() == s.cfg.JackettHost {
+			if s.cfg.JackettAPIKey != "" && u.Query().Get("apikey") == "" {
+				q := u.Query()
+				q.Set("apikey", s.cfg.JackettAPIKey)
+				u.RawQuery = q.Encode()
+				torrentURL = u.String()
+			}
+		}
+	}
+
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 		// SSRF guard: resolve the host and refuse private/loopback/link-local
 		// targets BEFORE connecting, then dial the exact IP we vetted (so DNS
 		// can't rebind between the check and the dial). Applies to the initial
-		// URL and every redirect, since they share this transport.
+		// URL and every redirect, since they share this transport. The configured
+		// Jackett host is exempt (trusted homelab indexer on a private IP).
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				host, port, err := net.SplitHostPort(addr)
 				if err != nil {
 					return nil, err
 				}
+				trusted := s.cfg.JackettHost != "" && host == s.cfg.JackettHost
 				ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 				if err != nil {
 					return nil, err
 				}
-				for _, ip := range ips {
-					if isBlockedFetchIP(ip.IP) {
-						return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
+				if !trusted {
+					for _, ip := range ips {
+						if isBlockedFetchIP(ip.IP) {
+							return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
+						}
 					}
 				}
 				d := net.Dialer{}

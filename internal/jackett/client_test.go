@@ -9,6 +9,26 @@ import (
 	"time"
 )
 
+func TestStripAPIKey(t *testing.T) {
+	in := "http://127.0.0.1:9117/dl/idx/?jackett_apikey=keep&apikey=SECRET&path=abc&file=x"
+	out := stripAPIKey(in)
+	if strings.Contains(out, "apikey=SECRET") {
+		t.Fatalf("apikey leaked: %q", out)
+	}
+	// Path + other params (incl. the differently-named jackett_apikey) survive.
+	for _, keep := range []string{"path=abc", "file=x", "jackett_apikey=keep"} {
+		if !strings.Contains(out, keep) {
+			t.Fatalf("dropped %q from %q", keep, out)
+		}
+	}
+	if got := stripAPIKey("http://x/dl?path=1"); got != "http://x/dl?path=1" {
+		t.Fatalf("unexpected change: %q", got)
+	}
+	if stripAPIKey("") != "" {
+		t.Fatal("empty should stay empty")
+	}
+}
+
 // --- formatAge ---
 
 func TestFormatAge_EmptyString(t *testing.T) {

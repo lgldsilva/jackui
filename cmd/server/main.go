@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -70,10 +71,15 @@ func main() {
 
 	// Stream server (BitTorrent → HTTP video stream)
 	streamCfg := streamer.Config{
-		DataDir:      cfg.Stream.DataDir,
-		IdleTimeout:  time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
-		MetadataWait: time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
-		MaxCacheSize: int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
+		DataDir:       cfg.Stream.DataDir,
+		IdleTimeout:   time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
+		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
+		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
+		JackettAPIKey: cfg.Jackett.APIKey,
+	}
+	// Trust the Jackett host in the SSRF guard + inject its apikey server-side.
+	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
+		streamCfg.JackettHost = u.Hostname()
 	}
 	if streamCfg.DataDir == "" {
 		streamCfg.DataDir = "/data/streams"
