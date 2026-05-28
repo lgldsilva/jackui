@@ -289,13 +289,18 @@ func applyAIEnv(cfg *Config) {
 		setKey("openrouter", "https://openrouter.ai/api/v1", v)
 	}
 	if v := os.Getenv("OLLAMA_BASE_URL"); v != "" {
-		// Ollama exposes the OpenAI-compatible API under /v1.
+		// Local Ollama, OpenAI-compatible under /v1. Behind the VPN, use the LAN
+		// IP (e.g. http://127.0.0.1:11434) — the `.lan` hostname won't resolve
+		// through the VPN DNS.
 		base := v
 		if !strings.HasSuffix(base, "/v1") {
 			base = strings.TrimRight(base, "/") + "/v1"
 		}
 		setKey("ollama", base, "")
 	}
+	// Ollama Cloud models are reached THROUGH the local Ollama (which already has
+	// the cloud API key configured) — they're just model names with a "-cloud"
+	// suffix on the same endpoint. So no separate provider/key is needed here.
 	if v := os.Getenv("JACKUI_AI_ENABLED"); v == "0" || v == "false" {
 		cfg.AI.Enabled = false
 		return
@@ -308,10 +313,17 @@ func applyAIEnv(cfg *Config) {
 			chain = append(chain, AIChainSlot{ID: "groq-8b", Provider: "groq", Model: "llama-3.1-8b-instant"})
 		}
 		if cfg.AI.Providers["openrouter"].APIKey != "" {
-			chain = append(chain, AIChainSlot{ID: "openrouter-nemotron", Provider: "openrouter", Model: "nvidia/nemotron-nano-9b-v2:free"})
+			// A stronger free model that reliably follows the JSON format (the
+			// nano model often replied without JSON).
+			chain = append(chain, AIChainSlot{ID: "openrouter-llama70b", Provider: "openrouter", Model: "meta-llama/llama-3.3-70b-instruct:free"})
 		}
 		if cfg.AI.Providers["ollama"].BaseURL != "" {
-			chain = append(chain, AIChainSlot{ID: "ollama-qwen", Provider: "ollama", Model: "qwen2.5:7b"})
+			// Local model + a cloud model (both via the local Ollama endpoint; the
+			// "-cloud" suffix proxies to Ollama Cloud using its configured key).
+			chain = append(chain,
+				AIChainSlot{ID: "ollama-qwen", Provider: "ollama", Model: "qwen2.5:7b"},
+				AIChainSlot{ID: "ollama-cloud-gptoss", Provider: "ollama", Model: "gpt-oss:120b-cloud"},
+			)
 		}
 		if len(chain) > 0 {
 			cfg.AI.Chain = chain
