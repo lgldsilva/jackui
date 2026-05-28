@@ -93,6 +93,10 @@ export default function LoginPage() {
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
             Entrar
           </button>
+          <div className="flex items-center justify-between text-xs">
+            <button type="button" onClick={() => nav('/register')} className="text-gray-400 hover:text-green-400">Criar conta</button>
+            <button type="button" onClick={() => nav('/forgot-password')} className="text-gray-400 hover:text-green-400">Esqueci a senha</button>
+          </div>
         </form>
 
         <p className="text-center text-xs text-gray-600 mt-4">

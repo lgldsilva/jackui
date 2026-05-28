@@ -14,6 +14,7 @@ import WatchlistPage from './pages/WatchlistPage'
 import LocalPage from './pages/LocalPage'
 import DownloadsPage from './pages/DownloadsPage'
 import LoginPage from './pages/LoginPage'
+import { RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from './pages/AuthFlows'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 
@@ -78,6 +79,10 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />

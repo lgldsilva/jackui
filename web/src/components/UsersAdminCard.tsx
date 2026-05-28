@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Users, Check, Ban, Trash2, UserPlus, RotateCcw } from 'lucide-react'
-import { adminListUsers, adminCreateUser, adminDeleteUser, adminSetUserStatus, AdminUser } from '../api/client'
+import { Loader2, Users, Check, Ban, Trash2, UserPlus, RotateCcw, Link2, Copy } from 'lucide-react'
+import { adminListUsers, adminCreateUser, adminDeleteUser, adminSetUserStatus, adminInvite, AdminUser } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
 // UsersAdminCard — admin-only user management: see everyone (with status/email),
@@ -10,6 +10,9 @@ export default function UsersAdminCard() {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [err, setErr] = useState('')
   const [creating, setCreating] = useState({ username: '', password: '', role: 'user' as 'user' | 'admin' })
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteLink, setInviteLink] = useState('')
+  const [copied, setCopied] = useState(false)
 
   const load = () => {
     adminListUsers().then(setUsers).catch(e => setErr(e?.response?.data?.error || 'Falha ao listar'))
@@ -70,6 +73,26 @@ export default function UsersAdminCard() {
           ))}
         </div>
       )}
+
+      {/* Invite link generator */}
+      <div className="flex flex-col gap-2 pt-2 border-t border-gray-700/60">
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="e-mail do convidado (opcional)"
+            className="bg-gray-900 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-200 flex-1 min-w-[12rem]" />
+          <button
+            onClick={() => act(async () => { const l = await adminInvite(inviteEmail); setInviteLink(l); setCopied(false) })}
+            className="flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-1">
+            <Link2 className="w-4 h-4" /> Gerar convite
+          </button>
+        </div>
+        {inviteLink && (
+          <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
+            <span className="text-xs text-gray-300 font-mono truncate flex-1" title={inviteLink}>{inviteLink}</span>
+            <button onClick={() => { navigator.clipboard?.writeText(inviteLink); setCopied(true) }} title="Copiar"
+              className="text-gray-400 hover:text-gray-100 flex-shrink-0">{copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</button>
+          </div>
+        )}
+      </div>
 
       {/* Create user inline */}
       <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-700/60">
