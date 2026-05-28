@@ -7,46 +7,46 @@ import { formatRate } from '../lib/format'
 /**
  * Global download-rate widget for the header. Hidden when no torrents are active.
  *
- * Polling cadence: 2s while the tab is visible, paused while hidden — avoids
- * pointless background requests on mobile.
+ * Adaptive polling: 2s while something is actually downloading/seeding, but only
+ * every 20s when idle (the common case — nothing to show). Paused while the tab
+ * is hidden. This kills the constant /api/stream/rate chatter on idle screens
+ * while still updating quickly during playback.
  */
 export default function RateWidget() {
   const [rate, setRate] = useState({ downRate: 0, upRate: 0, activeTorrents: 0 })
-  const intervalRef = useRef<number | null>(null)
+  const timerRef = useRef<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
+    const clear = () => {
+      if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null }
+    }
+    const schedule = (ms: number) => {
+      if (cancelled || document.hidden) return
+      timerRef.current = window.setTimeout(tick, ms)
+    }
     const tick = async () => {
       try {
         const r = await streamRate()
-        if (!cancelled) setRate(r)
+        if (cancelled) return
+        setRate(r)
+        schedule(r.activeTorrents > 0 ? 2000 : 20000)
       } catch {
-        // 401 / network error — silently keep last value (likely not logged in)
-      }
-    }
-
-    const start = () => {
-      if (intervalRef.current) return
-      tick()
-      intervalRef.current = window.setInterval(tick, 2000)
-    }
-    const stop = () => {
-      if (intervalRef.current) {
-        window.clearInterval(intervalRef.current)
-        intervalRef.current = null
+        // 401 / network error — keep last value, retry slowly.
+        if (!cancelled) schedule(20000)
       }
     }
 
     const onVisibility = () => {
-      if (document.hidden) stop()
-      else start()
+      if (document.hidden) clear()
+      else if (!timerRef.current) tick() // resume immediately on focus
     }
     document.addEventListener('visibilitychange', onVisibility)
-    start()
+    tick()
     return () => {
       cancelled = true
-      stop()
+      clear()
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])
