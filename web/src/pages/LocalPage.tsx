@@ -15,6 +15,7 @@ import {
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
 import { usePlayer } from '../components/PlayerProvider'
+import { useAuth } from '../auth/AuthContext'
 import LocalPromoteModal from '../components/LocalPromoteModal'
 import {
   LocalEntry,
@@ -145,7 +146,8 @@ export default function LocalPage() {
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<LocalEntry | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const canManipulate = activeMount.toLowerCase() === 'meus downloads'
+  const { isGuest } = useAuth()
+  const canManipulate = !isGuest && activeMount.toLowerCase() === 'meus downloads'
 
   // Folders always show (so navigation never gets filtered away); the kind
   // filter + sort apply within each group, folders kept on top.

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import api, { passkeyAuthenticate } from '../api/client'
 import { load, save, remove } from '../lib/storage'
 
-export type Role = 'admin' | 'user'
+export type Role = 'admin' | 'user' | 'guest'
 
 export interface AuthUser {
   id: number
@@ -27,6 +27,7 @@ interface AuthContextValue {
   loading: boolean
   enabled: boolean // server has auth turned on
   isAdmin: boolean
+  isGuest: boolean
   isAuthenticated: boolean
   login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
   loginWithPasskey: (username: string, remember: boolean) => Promise<void>
@@ -147,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       enabled,
       isAdmin: !enabled || user?.role === 'admin', // when auth disabled, treat as admin
+      isGuest: enabled && user?.role === 'guest',
       isAuthenticated: !enabled || user !== null,
       login,
       loginWithPasskey,

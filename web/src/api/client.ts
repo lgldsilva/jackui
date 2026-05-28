@@ -1467,6 +1467,8 @@ export interface DownloadEntry {
   status: 'queued' | 'downloading' | 'completed' | 'failed' | 'paused'
   bytesDownloaded: number
   progress: number
+  downRate?: number
+  eta?: number
   startedAt?: string | null
   completedAt?: string | null
   error?: string

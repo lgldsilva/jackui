@@ -31,7 +31,7 @@ const (
 type Download struct {
 	ID              int        `json:"id"`
 	UserID          int        `json:"userId"`
-	Username        string     `json:"username,omitempty"` // populated only for admin listing
+	Username        string     `json:"username,omitempty"`   // populated only for admin listing
 	InfoHash        string     `json:"infoHash"`
 	FileIndex       int        `json:"fileIndex"`
 	FilePath        string     `json:"filePath"`
@@ -43,6 +43,8 @@ type Download struct {
 	Status          string     `json:"status"`
 	BytesDownloaded int64      `json:"bytesDownloaded"`
 	Progress        float64    `json:"progress"`
+	DownRate        int64      `json:"downRate,omitempty"`   // bytes/sec, populated by handler
+	ETA             int        `json:"eta,omitempty"`         // remaining seconds, populated by handler
 	StartedAt       *time.Time `json:"startedAt"`
 	CompletedAt     *time.Time `json:"completedAt"`
 	Error           string     `json:"error"`

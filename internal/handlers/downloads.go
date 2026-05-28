@@ -33,8 +33,41 @@ func (uc userCache) get(store *auth.Store, userID int) string {
 	return u.Username
 }
 
+// enrichETA populates DownRate and ETA for a download by looking up the
+// active torrent info from the streamer. No-op when streamer is nil.
+func enrichETA(d *downloads.Download, s *streamer.Streamer) {
+	if s == nil || d.InfoHash == "" || d.FileSize <= 0 {
+		return
+	}
+	var h metainfo.Hash
+	if err := h.FromHexString(d.InfoHash); err != nil {
+		return
+	}
+	info, err := s.Get(h)
+	if err != nil || info == nil {
+		return
+	}
+	d.DownRate = info.DownRate
+	if info.DownRate > 0 {
+		remaining := d.FileSize - d.BytesDownloaded
+		if remaining > 0 {
+			d.ETA = int(remaining / info.DownRate)
+		}
+	}
+}
+
+// enrichETAList calls enrichETA for each download in the slice.
+func enrichETAList(list []downloads.Download, s *streamer.Streamer) {
+	if s == nil {
+		return
+	}
+	for i := range list {
+		enrichETA(&list[i], s)
+	}
+}
+
 // DownloadsList handles GET /api/downloads — current user's queue.
-func DownloadsList(store *downloads.Store) gin.HandlerFunc {
+func DownloadsList(store *downloads.Store, streamer *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		list, err := store.List(userID)
@@ -42,6 +75,30 @@ func DownloadsList(store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		enrichETAList(list, streamer)
+		c.JSON(http.StatusOK, list)
+	}
+}
+
+// DownloadsListFiltered handles GET /api/downloads/filtered — returns
+// downloads filtered by query params: status, tracker, category, search,
+// sort, order. Also returns available trackers/categories for filter UI.
+func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, _, _ := auth.UserIDFromCtx(c)
+		status := c.Query("status")
+		tracker := c.Query("tracker")
+		category := c.Query("category")
+		search := c.Query("search")
+		sortCol := c.DefaultQuery("sort", "created_at")
+		sortDir := c.DefaultQuery("order", "desc")
+
+		list, err := store.ListFiltered(userID, status, tracker, category, search, sortCol, sortDir)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		enrichETAList(list, streamer)
 		c.JSON(http.StatusOK, list)
 	}
 }
@@ -49,7 +106,7 @@ func DownloadsList(store *downloads.Store) gin.HandlerFunc {
 // DownloadsListAll handles GET /api/downloads/all — admin-only: returns
 // downloads from ALL users, enriched with usernames. Supports the same
 // filtering params as DownloadsListFiltered, plus userId filter.
-func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store) gin.HandlerFunc {
+func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := c.Query("status")
 		tracker := c.Query("tracker")
@@ -69,6 +126,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store) gin.Handl
 		for i := range list {
 			list[i].Username = uc.get(authStore, list[i].UserID)
 		}
+		enrichETAList(list, streamer)
 
 		c.JSON(http.StatusOK, list)
 	}
@@ -198,28 +256,6 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		c.Status(http.StatusNoContent)
-	}
-}
-
-// DownloadsListFiltered handles GET /api/downloads/filtered — returns
-// downloads filtered by query params: status, tracker, category, search,
-// sort, order. Also returns available trackers/categories for filter UI.
-func DownloadsListFiltered(store *downloads.Store) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userID, _, _ := auth.UserIDFromCtx(c)
-		status := c.Query("status")
-		tracker := c.Query("tracker")
-		category := c.Query("category")
-		search := c.Query("search")
-		sortCol := c.DefaultQuery("sort", "created_at")
-		sortDir := c.DefaultQuery("order", "desc")
-
-		list, err := store.ListFiltered(userID, status, tracker, category, search, sortCol, sortDir)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, list)
 	}
 }
 

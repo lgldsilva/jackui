@@ -71,7 +71,7 @@ export default function DownloadsPage() {
   const [showFilters, setShowFilters] = useState(false)
   const filterTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
   // Admin mode: toggle between own downloads and all users' downloads
-  const { isAdmin } = useAuth()
+  const { isAdmin, isGuest } = useAuth()
   const [showAllUsers, setShowAllUsers] = useState(false)
   const [availableUsers, setAvailableUsers] = useState<DownloadUserEntry[]>([])
   const [filterUserId, setFilterUserId] = useState('')
@@ -665,15 +665,17 @@ export default function DownloadsPage() {
                 {showAllUsers ? 'Todos usuários' : 'Meus downloads'}
               </button>
             )}
-            <button
-              onClick={() => {
-                setPreloadFiles(null)
-                setShowAddModal(true)
-              }}
-              className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-gray-900 px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
-            >
-              <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
-            </button>
+            {!isGuest && (
+              <button
+                onClick={() => {
+                  setPreloadFiles(null)
+                  setShowAddModal(true)
+                }}
+                className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-gray-900 px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
+              >
+                <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
+              </button>
+            )}
           </div>
         </div>
 
@@ -1365,6 +1367,7 @@ interface DownloadCardProps {
 }
 
 function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect }: DownloadCardProps) {
+  const { isGuest } = useAuth()
   const pct = Math.max(0, Math.min(1, d.progress || 0)) * 100
   const isCompleted = d.status === 'completed'
   const isFailed = d.status === 'failed'
@@ -1508,13 +1511,13 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
             label="Tocar"
           />
         )}
-        {isActive && (
+        {!isGuest && isActive && (
           <ActionButton onClick={onPause} disabled={busy} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" />
         )}
-        {(isPaused || isFailed) && (
+        {!isGuest && (isPaused || isFailed) && (
           <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? 'Tentar novamente' : 'Resumir'} />
         )}
-        {isCompleted && onPromote && (
+        {!isGuest && isCompleted && onPromote && (
           <ActionButton
             onClick={onPromote}
             disabled={busy}
@@ -1523,7 +1526,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
             label="Promover"
           />
         )}
-        {isCompleted && onStopSeed && (
+        {!isGuest && isCompleted && onStopSeed && (
           <ActionButton
             onClick={onStopSeed}
             disabled={busy}
@@ -1541,14 +1544,16 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
             label="Detalhes"
           />
         )}
-        <ActionButton
-          onClick={onDelete}
-          disabled={busy}
-          variant="danger"
-          icon={<Trash2 className="w-3.5 h-3.5" />}
-          label={isCompleted ? 'Remover da lista' : 'Cancelar'}
-          className="ml-auto"
-        />
+        {!isGuest && (
+          <ActionButton
+            onClick={onDelete}
+            disabled={busy}
+            variant="danger"
+            icon={<Trash2 className="w-3.5 h-3.5" />}
+            label={isCompleted ? 'Remover da lista' : 'Cancelar'}
+            className="ml-auto"
+          />
+        )}
       </div>
     </div>
   )
@@ -1650,6 +1655,10 @@ function computeTorrentETA(t: TorrentInfo): string {
 }
 
 function computeETA(d: DownloadEntry): string {
+  // Prefer backend-computed ETA (more accurate — uses live swarm rate)
+  if (d.eta && d.eta > 0) {
+    return `~${formatDurationShort(d.eta)} restantes`
+  }
   if (!d.startedAt || d.fileSize <= 0 || d.bytesDownloaded <= 0) return ''
   if (d.bytesDownloaded >= d.fileSize) return ''
   const startMs = new Date(d.startedAt).getTime()
