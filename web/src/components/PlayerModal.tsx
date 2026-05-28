@@ -41,6 +41,7 @@ import { clientLog } from '../lib/diag'
 import { useScrollLock } from '../lib/useScrollLock'
 import { load, save } from '../lib/storage'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
+import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
 
 interface PlaylistMeta {
   name: string
@@ -538,28 +539,7 @@ export default function PlayerModal({
   // overlays fought its gestures. Skipped while minimized, while typing in an
   // input/select, and when the <video> itself has focus (let the browser's
   // native handler act, so we don't double-seek).
-  useEffect(() => {
-    if (minimized) return
-    const onKey = (e: KeyboardEvent) => {
-      const v = videoRef.current
-      if (!v) return
-      const tgt = e.target as HTMLElement | null
-      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v)) return
-      const dur = isFinite(v.duration) ? v.duration : Infinity
-      switch (e.key) {
-        case ' ': e.preventDefault(); if (v.paused) v.play().catch(() => {}); else v.pause(); break
-        case 'ArrowRight': e.preventDefault(); v.currentTime = Math.min(dur, v.currentTime + 10); break
-        case 'ArrowLeft': e.preventDefault(); v.currentTime = Math.max(0, v.currentTime - 10); break
-        case 'ArrowUp': e.preventDefault(); v.volume = Math.min(1, v.volume + 0.1); break
-        case 'ArrowDown': e.preventDefault(); v.volume = Math.max(0, v.volume - 0.1); break
-        case 'm': case 'M': v.muted = !v.muted; break
-        case 'f': case 'F': requestFullscreen(); break
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minimized])
+  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen })
 
   // iPhone landscape → native iOS fullscreen. The custom modal layout isn't
   // built to reflow for a short, wide phone viewport (it got cramped/garbled),
@@ -901,37 +881,7 @@ export default function PlayerModal({
   // Media Session API — exposes "what's playing" + media keys / lock-screen
   // controls to the OS. Without this, iOS shows "JackUI" with no metadata and
   // AirPods/bluetooth controls don't fire next/previous on the playlist.
-  useEffect(() => {
-    if (!info || selectedFile < 0) return
-    if (!('mediaSession' in navigator)) return
-    const file = info.files[selectedFile]
-    const title = file?.path?.split('/').pop() || info.name
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title,
-      album: playlist?.name || info.name,
-      artist: 'JackUI',
-    })
-    const v = () => videoRef.current
-    navigator.mediaSession.setActionHandler('play', () => { v()?.play().catch(() => {}) })
-    navigator.mediaSession.setActionHandler('pause', () => { v()?.pause() })
-    navigator.mediaSession.setActionHandler('previoustrack', () => onPlaylistPrevious?.())
-    navigator.mediaSession.setActionHandler('nexttrack', () => onPlaylistAdvance?.())
-    navigator.mediaSession.setActionHandler('seekto', (d) => {
-      const el = v()
-      if (el && d.seekTime != null) el.currentTime = d.seekTime
-    })
-    return () => {
-      // Best-effort cleanup — clearing handlers stops stale bindings firing
-      // after the modal closes (the OS could still hold the previous metadata).
-      try {
-        navigator.mediaSession.setActionHandler('play', null)
-        navigator.mediaSession.setActionHandler('pause', null)
-        navigator.mediaSession.setActionHandler('previoustrack', null)
-        navigator.mediaSession.setActionHandler('nexttrack', null)
-        navigator.mediaSession.setActionHandler('seekto', null)
-      } catch {}
-    }
-  }, [info?.infoHash, selectedFile, playlist?.name, onPlaylistAdvance, onPlaylistPrevious])
+  useMediaSession({ videoRef, info, selectedFile, playlistName: playlist?.name, onNext: onPlaylistAdvance, onPrev: onPlaylistPrevious })
 
   // Load initial favorite state when torrent info arrives. Match by infoHash
   // first (precise — same content always returns same hash) and fall back to
