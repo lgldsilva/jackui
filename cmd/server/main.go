@@ -15,23 +15,23 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/ai"
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/config"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/handlers"
 	"github.com/luizg/jackui/internal/history"
+	"github.com/luizg/jackui/internal/imagesearch"
 	"github.com/luizg/jackui/internal/jackett"
 	"github.com/luizg/jackui/internal/library"
-	"github.com/luizg/jackui/internal/playlists"
-	"github.com/luizg/jackui/internal/ai"
-	"github.com/luizg/jackui/internal/imagesearch"
+	"github.com/luizg/jackui/internal/local"
 	"github.com/luizg/jackui/internal/mailer"
-	"github.com/luizg/jackui/internal/tmdb"
-	"github.com/luizg/jackui/internal/watchlist"
+	"github.com/luizg/jackui/internal/playlists"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/subtitles"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/local"
+	"github.com/luizg/jackui/internal/tmdb"
 	"github.com/luizg/jackui/internal/transcode"
+	"github.com/luizg/jackui/internal/watchlist"
 	"github.com/luizg/jackui/ui"
 )
 
@@ -170,7 +170,7 @@ func main() {
 			downloadsStore = d
 			defer d.Close()
 			log.Printf("Downloads: %s", dlPath)
-			worker := downloads.NewWorker(downloadsStore, streamSrv, 2*time.Second)
+			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second)
 			worker.Start()
 			defer worker.Stop()
 			log.Printf("Downloads worker started (tick=2s)")
@@ -183,7 +183,7 @@ func main() {
 	var tmdbClient *tmdb.Client
 	if streamSrv != nil {
 		tmdbPath := streamCfg.DataDir + "/.tmdb-cache.db"
-		if tc, terr := tmdb.New(cfg.TMDB.APIKey, tmdbPath); terr == nil {
+		if tc, terr := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.OMDbAPIKey, tmdbPath); terr == nil {
 			tmdbClient = tc
 			defer tc.Close()
 			if cfg.TMDB.APIKey != "" {
@@ -281,6 +281,9 @@ func main() {
 	// Auth — initialized only if enabled in config
 	var authStore *auth.Store
 	var tokenMgr *auth.TokenManager
+	var waManager *auth.WAManager // passkeys; nil when BaseURL is unset
+	// Brute-force guard: 5 consecutive failed logins lock the account for 15 min.
+	loginLockout := auth.NewLockout(5, 15*time.Minute)
 	if cfg.Auth.Enabled {
 		authDB := cfg.Auth.DBPath
 		if authDB == "" {
@@ -303,6 +306,26 @@ func main() {
 			log.Printf("Auth: generated random JWT secret (set jwt_secret in config to persist across restarts)")
 		}
 		tokenMgr = auth.NewTokenManager(secret, 15*time.Minute)
+
+		// Passkeys (WebAuthn) need the public origin to bind the RP ID. We derive
+		// both from BaseURL (e.g. https://jackui.raspberrypi.lan → RPID host +
+		// origin). Without it, passkey endpoints return 503 but the rest of auth
+		// keeps working — TOTP/password are unaffected.
+		if cfg.BaseURL != "" {
+			if u, perr := url.Parse(cfg.BaseURL); perr == nil && u.Host != "" {
+				origin := u.Scheme + "://" + u.Host
+				wm, werr := auth.NewWAManager(u.Hostname(), "JackUI", origin)
+				if werr != nil {
+					log.Printf("Passkeys: disabled — %v", werr)
+				} else {
+					waManager = wm
+					log.Printf("Passkeys (WebAuthn): enabled for %s (RPID=%s)", origin, u.Hostname())
+				}
+			}
+		}
+		if waManager == nil {
+			log.Printf("Passkeys (WebAuthn): disabled — set JACKUI_BASE_URL to the public https origin to enable")
+		}
 
 		adminUser := cfg.Auth.AdminUsername
 		if adminUser == "" {
@@ -361,13 +384,16 @@ func main() {
 	// Public auth endpoints (no existing token needed).
 	if authStore != nil && tokenMgr != nil {
 		pub := router.Group("/api/auth")
-		pub.POST("/login", handlers.Login(authStore, tokenMgr))
+		pub.POST("/login", handlers.Login(authStore, tokenMgr, loginLockout))
 		pub.POST("/refresh", handlers.Refresh(authStore, tokenMgr))
 		pub.POST("/logout", handlers.Logout(authStore))
 		pub.POST("/register", handlers.Register(authStore, mlr, cfg.BaseURL))
 		pub.POST("/verify-email", handlers.VerifyEmail(authStore))
 		pub.POST("/forgot", handlers.Forgot(authStore, mlr, cfg.BaseURL))
 		pub.POST("/reset", handlers.Reset(authStore))
+		// Passkey login is public (it's an authentication method).
+		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(authStore, waManager))
+		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(authStore, tokenMgr, waManager))
 	}
 
 	api := router.Group("/api")
@@ -386,6 +412,7 @@ func main() {
 		api.GET("/indexers", handlers.GetIndexers(jackettClient))
 		api.POST("/download", handlers.Download(cfg))
 		api.GET("/clients", handlers.GetClients(cfg))
+		api.GET("/proxy/torrent", handlers.ProxyTorrentDownload(jackettClient))
 
 		// Server config carries the Jackett API key and lets a caller rewrite
 		// URLs/clients — admin-only. With auth OFF this degrades to public (same
@@ -468,6 +495,7 @@ func main() {
 			api.GET("/local/list", handlers.LocalList(localBrowser))
 			api.GET("/local/file", handlers.LocalFile(localBrowser))
 			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
+			api.GET("/local/transcode", handlers.LocalTranscode(localBrowser))
 
 			// Background full-file downloads (anacrolix Download API);
 			// worker tick keeps the DB queue in sync with active torrents.
@@ -553,6 +581,17 @@ func main() {
 			api.POST("/auth/mfa/enroll", handlers.MFAEnrollStart(authStore))
 			api.POST("/auth/mfa/verify", handlers.MFAEnrollVerify(authStore))
 			api.POST("/auth/mfa/disable", handlers.MFADisable(authStore))
+			api.GET("/auth/mfa/backup-codes", handlers.MFABackupCodesStatus(authStore))
+			api.POST("/auth/mfa/backup-codes/regenerate", handlers.MFABackupCodesRegenerate(authStore))
+			// Active session management (list / revoke).
+			api.POST("/auth/sessions", handlers.ListSessions(authStore))
+			api.POST("/auth/sessions/revoke-others", handlers.RevokeOtherSessions(authStore))
+			api.DELETE("/auth/sessions/:id", handlers.RevokeSession(authStore))
+			// Passkey enrollment + management (authenticated).
+			api.GET("/auth/passkey", handlers.PasskeyList(authStore))
+			api.POST("/auth/passkey/register/begin", handlers.PasskeyRegisterBegin(authStore, waManager))
+			api.POST("/auth/passkey/register/finish", handlers.PasskeyRegisterFinish(authStore, waManager))
+			api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(authStore))
 			adminGroup := api.Group("/auth/users")
 			adminGroup.Use(auth.AdminOnly())
 			adminGroup.GET("", handlers.ListUsers(authStore))

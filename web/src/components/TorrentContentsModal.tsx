@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash } from 'lucide-react'
+import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile } from '../api/client'
+import { formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
@@ -123,14 +124,44 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
         {/* Title bar */}
         <div className="px-4 py-3 border-b border-gray-700 bg-gray-900/50">
-          <p className="text-sm text-gray-200 line-clamp-2" title={info?.name || result.title}>
-            {info?.name || result.title}
+          {/* Tracker's release title (matches the search result card) */}
+          <p className="text-sm text-gray-200 line-clamp-2" title={result.title}>
+            {result.title}
           </p>
+          {/* Real torrent name from metadata, only when it actually differs from
+              the tracker title. Trackers often translate/rename releases
+              (e.g. cyrillic title for a US film), so showing both makes it
+              obvious that the underlying content is what the user expects. */}
+          {info && info.name && info.name !== result.title && (
+            <p className="text-[11px] text-gray-500 mt-0.5 truncate font-mono" title={info.name}>
+              {info.name}
+            </p>
+          )}
           {info && (
             <p className="text-xs text-gray-500 mt-1">
               {info.files.length} arquivo{info.files.length !== 1 ? 's' : ''} · {formatSize(info.totalSize)}
-              {info.seeders > 0 && ` · ${info.seeders} seeders`}
             </p>
+          )}
+
+          {/* Live activity row — only when the torrent is actively downloading */}
+          {info && (info.downRate > 0 || info.peers > 0) && (
+            <div className="mt-1.5 flex items-center gap-3 text-xs flex-wrap">
+              {info.downRate > 0 && (
+                <span className="flex items-center gap-1 text-emerald-400">
+                  <Zap className="w-3 h-3" />
+                  {formatRate(info.downRate)}
+                </span>
+              )}
+              {info.peers > 0 && (
+                <span className="flex items-center gap-1 text-blue-400">
+                  <Activity className="w-3 h-3" />
+                  {info.peers} peer{info.peers !== 1 ? 's' : ''} · {info.seeders ?? 0} seed{(info.seeders ?? 0) !== 1 ? 'ers' : 'er'}
+                </span>
+              )}
+              {(info.progress ?? 0) > 0 && (info.progress ?? 0) < 1 && (
+                <span className="text-gray-400">{((info.progress ?? 0) * 100).toFixed(1)}% baixado</span>
+              )}
+            </div>
           )}
 
           {/* Details — visible without playing. Only rows with data render, so
@@ -204,23 +235,27 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                   sortedFiles.map(f => {
                     const ep = parseEpisode(f.path)
                     const playable = isPlayableFile(f)
+                    const filePct = f.size > 0 && (f.downloaded ?? 0) > 0
+                      ? Math.min(100, ((f.downloaded ?? 0) / f.size) * 100)
+                      : null
                     return (
                       <div
                         key={f.index}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg group transition-colors ${
+                        className={`flex flex-col px-3 py-2 rounded-lg group transition-colors ${
                           playable ? 'hover:bg-gray-900/70' : 'opacity-50 hover:opacity-75'
                         }`}
                       >
-                        {fileTypeIcon(f)}
-                        {ep && (
-                          <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
-                            {ep}
+                        <div className="flex items-center gap-2">
+                          {fileTypeIcon(f)}
+                          {ep && (
+                            <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                              {ep}
+                            </span>
+                          )}
+                          <span className="text-sm text-gray-200 truncate flex-1" title={f.path}>
+                            {f.path}
                           </span>
-                        )}
-                        <span className="text-sm text-gray-200 truncate flex-1" title={f.path}>
-                          {f.path}
-                        </span>
-                        <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatSize(f.size)}</span>
+                          <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatSize(f.size)}</span>
 
                         {playable && (
                           <div className="flex items-center gap-1 ml-2 flex-shrink-0">
@@ -240,6 +275,17 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                                 <ListPlus className="w-4 h-4" />
                               </button>
                             )}
+                          </div>
+                          )}
+                        </div>
+                        {filePct !== null && (
+                          <div className="mt-1 ml-6">
+                            <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${filePct >= 100 ? 'bg-green-500' : 'bg-emerald-500'}`}
+                                style={{ width: `${filePct.toFixed(1)}%` }}
+                              />
+                            </div>
                           </div>
                         )}
                       </div>

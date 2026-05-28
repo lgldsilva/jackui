@@ -89,8 +89,9 @@ setup:
 # ─────────────────────────────────────────
 _sync-config:
 	$(call step,Sincronizando config.yaml no servidor...)
-	@ssh $(DEPLOY_HOST) "mkdir -p /home/lgldsilva/jackui"
-	@scp config.yaml $(DEPLOY_HOST):/home/lgldsilva/jackui/config.yaml
+	@ssh $(DEPLOY_HOST) "sudo mkdir -p /portainer/Files/AppData/Config/jackui"
+	@scp config.yaml $(DEPLOY_HOST):/tmp/jackui-config.yaml
+	@ssh $(DEPLOY_HOST) "sudo mv /tmp/jackui-config.yaml /portainer/Files/AppData/Config/jackui/config.yaml"
 	$(call ok,config.yaml sincronizado)
 
 # ─────────────────────────────────────────
