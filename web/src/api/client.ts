@@ -909,6 +909,14 @@ export const localFileURL = (mount: string, path: string): string => {
   return withToken(`/api/local/file?${params}`)
 }
 
+// localThumbURL returns an early-frame JPEG preview for a local video file
+// (204 server-side for non-videos / undecodable files; <img> onError falls back
+// to the generic icon).
+export const localThumbURL = (mount: string, path: string): string => {
+  const params = new URLSearchParams({ mount, path })
+  return withToken(`/api/local/thumb?${params}`)
+}
+
 // ─── Background downloads ──────────────────────────────────────────────────
 // Full-file (not streaming) download queue. Backed by anacrolix file.Download
 // which prioritises all pieces; protected from cache eviction until removed.
