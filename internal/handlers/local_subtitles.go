@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,9 +46,7 @@ type localProbeKey struct {
 	mtime int64
 }
 
-var (
-	localProbeCache = make(map[localProbeKey]streamer.ProbeResult)
-)
+var localProbeCache sync.Map // localProbeKey → streamer.ProbeResult
 
 // LocalProbe handles GET /api/local/probe?mount=&path=
 // Runs ffprobe directly on the local file (no piece-download gating, no head
@@ -75,8 +74,8 @@ func LocalProbe(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 		key := localProbeKey{abs, st.ModTime().UnixNano()}
-		if r, ok := localProbeCache[key]; ok {
-			c.JSON(http.StatusOK, r)
+		if v, ok := localProbeCache.Load(key); ok {
+			c.JSON(http.StatusOK, v.(streamer.ProbeResult))
 			return
 		}
 
@@ -99,7 +98,7 @@ func LocalProbe(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": perr.Error()})
 			return
 		}
-		localProbeCache[key] = result
+		localProbeCache.Store(key, result)
 		c.JSON(http.StatusOK, result)
 	}
 }
