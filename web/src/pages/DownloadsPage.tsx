@@ -7,7 +7,7 @@ import NavHeader from '../components/NavHeader'
 import {
   DownloadEntry, downloadsList, downloadDelete, downloadPause, downloadResume,
   TorrentInfo, streamActive, streamPause, streamResume, streamSetPriority,
-  streamPauseAll, streamResumeAll, streamGetLimits, streamSetLimits, StreamPriority,
+  streamPauseAll, streamResumeAll, streamGetLimits, streamSetLimits, StreamPriority, streamDrop,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
 
@@ -22,6 +22,9 @@ export default function DownloadsPage() {
   const [loading, setLoading] = useState(true)
   const [busyID, setBusyID] = useState<number | null>(null)
   const mountedRef = useRef(true)
+
+  type TorrentFilter = 'all' | 'downloading' | 'paused' | 'done'
+  const [torrentFilter, setTorrentFilter] = useState<TorrentFilter>('all')
 
   // Streamer-active torrents (Transmission-style). Separate state from the
   // background-download queue above so a slow `/stream/active` call never
@@ -113,6 +116,11 @@ export default function DownloadsPage() {
     setBusyHash(hash)
     try { await streamSetPriority(hash, priority); await loadTorrents() } finally { setBusyHash(null) }
   }
+  const onTorrentDelete = async (hash: string) => {
+    if (!confirm('Parar e remover este torrent da fila de streaming?')) return
+    setBusyHash(hash)
+    try { await streamDrop(hash); await loadTorrents() } finally { setBusyHash(null) }
+  }
   const onPauseAll = async () => {
     setBulkBusy(true)
     try { await streamPauseAll(); await loadTorrents() } finally { setBulkBusy(false) }
@@ -145,6 +153,22 @@ export default function DownloadsPage() {
     }
   }
 
+  // Torrents being background-downloaded are shown in the Downloads section;
+  // exclude them from "Torrents ativos" to avoid showing the same item twice.
+  const bgHashes = new Set(
+    items.filter(d => d.status === 'downloading' || d.status === 'queued').map(d => d.infoHash)
+  )
+  const displayTorrents = torrents.filter(t => !bgHashes.has(t.infoHash))
+
+  const filteredTorrents = displayTorrents.filter(t => {
+    if (torrentFilter === 'all') return true
+    const status = t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
+    if (torrentFilter === 'downloading') return status === 'downloading' || status === 'seeding'
+    if (torrentFilter === 'paused') return status === 'paused'
+    if (torrentFilter === 'done') return status === 'complete'
+    return true
+  })
+
   return (
     <div className="min-h-screen bg-gray-900">
       <NavHeader />
@@ -155,13 +179,24 @@ export default function DownloadsPage() {
             <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-2">
               <Activity className="w-6 h-6 text-emerald-400" />
               Torrents ativos
-              {torrents.length > 0 && (
+              {displayTorrents.length > 0 && (
                 <span className="text-sm font-normal text-gray-400">
-                  ({torrents.length})
+                  ({filteredTorrents.length}{torrentFilter !== 'all' ? `/${displayTorrents.length}` : ''})
                 </span>
               )}
             </h1>
-            <span className="text-xs text-gray-500">Atualiza a cada 2s</span>
+            <div className="flex items-center gap-1 text-xs flex-wrap">
+              {(['all', 'downloading', 'paused', 'done'] as const).map(f => {
+                const labels: Record<typeof f, string> = { all: 'Todos', downloading: 'Em andamento', paused: 'Pausados', done: 'Concluídos' }
+                return (
+                  <button
+                    key={f}
+                    onClick={() => setTorrentFilter(f)}
+                    className={torrentFilter === f ? 'btn-primary' : 'btn-secondary'}
+                  >{labels[f]}</button>
+                )
+              })}
+            </div>
           </header>
 
           {/* Bandwidth caps row */}
@@ -229,7 +264,7 @@ export default function DownloadsPage() {
               <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-sm">Carregando torrents ativos...</span>
             </div>
-          ) : torrents.length === 0 ? (
+          ) : displayTorrents.length === 0 ? (
             <div className="text-center py-10 text-gray-500 bg-gray-800/40 border border-gray-700/50 rounded-lg">
               <Activity className="w-10 h-10 mx-auto mb-2 opacity-30" />
               <p className="text-sm">Nenhum torrent ativo no momento</p>
@@ -237,9 +272,14 @@ export default function DownloadsPage() {
                 Inicie um streaming na busca para ver os controles aqui.
               </p>
             </div>
+          ) : filteredTorrents.length === 0 ? (
+            <div className="text-center py-10 text-gray-500 bg-gray-800/40 border border-gray-700/50 rounded-lg">
+              <Activity className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Nenhum torrent nesse filtro</p>
+            </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {torrents.map(t => (
+              {filteredTorrents.map(t => (
                 <TorrentCard
                   key={t.infoHash}
                   t={t}
@@ -247,6 +287,7 @@ export default function DownloadsPage() {
                   onPause={() => onTorrentPause(t.infoHash)}
                   onResume={() => onTorrentResume(t.infoHash)}
                   onPriority={(p) => onTorrentPriority(t.infoHash, p)}
+                  onDelete={() => onTorrentDelete(t.infoHash)}
                 />
               ))}
             </div>
@@ -306,9 +347,10 @@ interface TorrentCardProps {
   onPause: () => void
   onResume: () => void
   onPriority: (p: StreamPriority) => void
+  onDelete: () => void
 }
 
-function TorrentCard({ t, busy, onPause, onResume, onPriority }: TorrentCardProps) {
+function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: TorrentCardProps) {
   const pct = Math.max(0, Math.min(1, t.progress || 0)) * 100
   // Status defaults to "downloading" when the server hasn't set it explicitly.
   // The four states map to distinct colors so the user reads state at a glance.
@@ -412,6 +454,14 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority }: TorrentCardProp
         </label>
 
         {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
+        <button
+          onClick={onDelete}
+          disabled={busy}
+          className="flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded transition-colors ml-auto"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Parar
+        </button>
       </div>
     </div>
   )

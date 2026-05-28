@@ -8,16 +8,16 @@ services:
       - "42069:42069/tcp"   # BitTorrent peer port (TCP)
       - "42069:42069/udp"   # BitTorrent peer port (UDP / DHT)
     volumes:
-      - /home/lgldsilva/jackui/config.yaml:/app/config.yaml
-      - /home/lgldsilva/jackui/data:/data
-      # /mnt/lvm1-storage/jacktrack holds: cache/ (streaming cache + the app's
-      # SQLite state) and download/ (the app's own downloads). The sibling
-      # Downloads/ is the SHARED area everyone sees — the user "promotes" a file
-      # by moving it from jacktrack/download into Downloads.
+      # App config + all SQLite DBs in Portainer's standard AppData location.
+      # Separated from the LVM streaming cache to avoid I/O contention with
+      # Jackett/Ollama (which also live on the LVM volume).
+      - /Files/AppData/Config/jackui/config.yaml:/app/config.yaml
+      - /Files/AppData/Config/jackui:/data
+      # Large streaming piece cache stays on the LVM (sequential writes, LRU-managed).
       - /mnt/lvm1-storage/jacktrack/cache:/data/streams
       # Browsable/playable libraries (read-only) — surfaced on the "Local" page
       # via JACKUI_EXTERNAL_MOUNTS below.
-      - /mnt/lvm1-storage/jacktrack/download:/mnt/jacktrack-download:ro
+      - /mnt/lvm1-storage/jacktrack/download:/mnt/jacktrack-download
       - /mnt/lvm1-storage/Downloads:/mnt/downloads:ro
     environment:
       - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
@@ -26,6 +26,7 @@ services:
       - JACKUI_DB_PATH=/data/jackui.db
       - JACKUI_STREAM_DIR=/data/streams
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
+      - JACKUI_DOWNLOAD_DIR=/mnt/jacktrack-download
       # Browsable mounts on the "Local" page (Name:/container/path,...).
       # "Downloads" = shared (todos veem); "Meus downloads" = app's own area.
       - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/downloads,Meus downloads:/mnt/jacktrack-download
@@ -36,6 +37,9 @@ services:
       # Optional TMDB enrichment — posters + overview in result cards.
       # Get a free key at https://www.themoviedb.org/settings/api
       - TMDB_API_KEY=${TMDB_API_KEY:-}
+      # Optional OMDb key for the REAL IMDb rating on cards (falls back to the
+      # TMDB vote when unset). Free key: https://www.omdbapi.com/apikey.aspx
+      - OMDB_API_KEY=${OMDB_API_KEY:-}
       # Optional ntfy.sh push for the Watchlist worker.
       # Pick any unique topic, then subscribe on the ntfy app: ntfy.sh/<your-topic>
       - JACKUI_NTFY_TOPIC=${JACKUI_NTFY_TOPIC:-}

@@ -248,6 +248,23 @@ func (s *Store) SetError(userID, id int, msg string) error {
 	return err
 }
 
+// SetFilePath updates the on-disk path after the worker moves a completed file
+// to the download directory. Scoped by user_id (worker passes the row's own UserID).
+func (s *Store) SetFilePath(userID, id int, path string) error {
+	_, err := s.db.Exec(`UPDATE downloads SET file_path=? WHERE id=? AND user_id=?`, path, id, userID)
+	return err
+}
+
+// UpdateName records the actual torrent folder name resolved from metadata.
+// The row is created with the search-result title, but the real torrent name
+// (t.Name()) is what the streamer registers for eviction protection — they
+// often differ. Persisting the real name keeps the boot-time RegisterDownload
+// in NewWorker consistent so a restart doesn't protect the wrong path.
+func (s *Store) UpdateName(userID, id int, name string) error {
+	_, err := s.db.Exec(`UPDATE downloads SET name=? WHERE id=? AND user_id=?`, name, id, userID)
+	return err
+}
+
 // UpdateProgress records the latest bytes_downloaded — called periodically
 // by the worker. Errors are non-fatal; the next tick will retry. Scoped by
 // user_id (worker passes the row's own UserID).

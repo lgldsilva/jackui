@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info } from 'lucide-react'
+import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info, Download as DownloadIcon } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
-import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult } from '../api/client'
+import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult, downloadCreate } from '../api/client'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import SeedBadge from '../components/SeedBadge'
 import { formatDuration } from '../lib/format'
@@ -59,6 +59,24 @@ export default function LibraryPage() {
     infoHash: e.infoHash,
     publishDate: '',
   })
+
+  const handleDownload = async (e: LibraryEntry) => {
+    const fileIndex = e.lastFileIndex >= 0 ? e.lastFileIndex : e.primaryFileIndex
+    try {
+      await downloadCreate({
+        infoHash: e.infoHash,
+        fileIndex,
+        magnet: e.magnet,
+        name: e.name,
+        filePath: e.name,
+        fileSize: e.totalSize,
+      })
+      // Navigate to downloads page so the user sees the queue
+      window.location.href = '/downloads'
+    } catch {
+      alert('Falha ao enfileirar o download')
+    }
+  }
 
   const handlePlay = (e: LibraryEntry) => {
     // Prefer the actually-watched file (tracked per resume) so reopening a
@@ -129,6 +147,7 @@ export default function LibraryPage() {
                   onPlay={() => handlePlay(e)}
                   onRemove={() => handleRemoveOne(e)}
                   onDetails={() => setContentsTarget(entryToResult(e))}
+                  onDownload={() => handleDownload(e)}
                 />
               )
             })}
@@ -156,9 +175,10 @@ interface LibraryCardProps {
   onPlay: () => void
   onRemove: () => void
   onDetails: () => void
+  onDownload: () => void
 }
 
-function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDetails }: LibraryCardProps) {
+function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDetails, onDownload }: LibraryCardProps) {
   const { ref, match } = useThumbnail<HTMLDivElement>(entry.name)
   const [artFailed, setArtFailed] = useState(false)
   // bust forces the art <img> to refetch after a proactive resolve persists one.
@@ -192,19 +212,28 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
       <button
         onClick={(ev) => { ev.stopPropagation(); onRemove() }}
         title="Remover do Continuar Assistindo"
-        className="absolute top-1.5 right-1.5 z-10 p-1 rounded-full bg-gray-900/80 text-gray-400 hover:text-red-400 hover:bg-gray-900 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute -top-2.5 -right-2.5 z-20 p-1 rounded-full bg-gray-700 text-gray-400 hover:text-red-400 hover:bg-gray-800 border border-gray-600 shadow transition-colors"
       >
         <X className="w-3.5 h-3.5" />
       </button>
       {/* Files/details — always visible (clicking the card resumes playback, so
           this is the only way to reach the file list without committing to play). */}
-      <button
-        onClick={(ev) => { ev.stopPropagation(); onDetails() }}
-        title="Ver arquivos e detalhes"
-        className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-900/85 text-gray-200 hover:bg-gray-900 text-[10px] transition-colors"
-      >
-        <Info className="w-3.5 h-3.5" /> Arquivos
-      </button>
+      <div className="absolute top-1.5 left-1.5 z-10 flex items-center gap-1">
+        <button
+          onClick={(ev) => { ev.stopPropagation(); onDetails() }}
+          title="Ver arquivos e detalhes"
+          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-900/85 text-gray-200 hover:bg-gray-900 text-[10px] transition-colors"
+        >
+          <Info className="w-3.5 h-3.5" /> Arquivos
+        </button>
+        <button
+          onClick={(ev) => { ev.stopPropagation(); onDownload() }}
+          title="Baixar arquivo completo em background"
+          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-900/85 text-cyan-300 hover:bg-gray-900 text-[10px] transition-colors"
+        >
+          <DownloadIcon className="w-3.5 h-3.5" />
+        </button>
+      </div>
       <div
         ref={ref}
         className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center relative overflow-hidden"

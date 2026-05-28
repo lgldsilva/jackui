@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -180,6 +180,12 @@ export default function PlayerModal({
   useEffect(() => {
     localStorage.setItem('jackui.playerSidebar', sidebarOpen ? '1' : '0')
   }, [sidebarOpen])
+  // Incognito mode: don't save watch history or resume position for this session.
+  // Persisted per-session only (sessionStorage) so it resets on tab close.
+  const [incognito, setIncognito] = useState(() => sessionStorage.getItem('jackui.incognito') === '1')
+  useEffect(() => {
+    sessionStorage.setItem('jackui.incognito', incognito ? '1' : '0')
+  }, [incognito])
 
   // serverReady — flips true the moment streamAdd resolves and the streamer has
   // actually loaded the torrent. The metadata cache lets us populate `info`
@@ -413,7 +419,8 @@ export default function PlayerModal({
   useEffect(() => {
     if (!info?.infoHash || selectedFile < 0) return
     const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
-    if (transcodingActive || transcodeFallbackAttempted || videoError) return
+    // Audio files don't need H264 transcoding — skip backstop entirely.
+    if (audioMode || transcodingActive || transcodeFallbackAttempted || videoError) return
     const timer = window.setTimeout(() => {
       const v = videoRef.current
       if (!v) return
@@ -454,18 +461,18 @@ export default function PlayerModal({
   // re-ran the cleanup the moment the library entry loaded mid-playback,
   // calling streamDrop() and KILLING the torrent we were actively streaming
   // (ffmpeg then died with "torrent closed" → "Sem seeds").
-  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null; fileIndex: number }>({ infoHash: '', libraryEntryID: null, fileIndex: -1 })
+  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null; fileIndex: number; incognito: boolean }>({ infoHash: '', libraryEntryID: null, fileIndex: -1, incognito: false })
   useEffect(() => {
-    cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID, fileIndex: selectedFile }
+    cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID, fileIndex: selectedFile, incognito }
   })
 
   // Drop the torrent + persist final resume position — ONLY when the modal
   // truly unmounts (user closes/navigates), never on intra-playback state changes.
   useEffect(() => {
     return () => {
-      const { infoHash, libraryEntryID: libID, fileIndex } = cleanupRef.current
+      const { infoHash, libraryEntryID: libID, fileIndex, incognito: wasIncognito } = cleanupRef.current
       const v = videoRef.current
-      if (libID !== null && v && v.currentTime > 1) {
+      if (!wasIncognito && libID !== null && v && v.currentTime > 1) {
         // Persist which file was watched so reopening a season pack resumes the
         // same episode (not the torrent's primary file).
         libraryUpdateResume(libID, v.currentTime, v.duration || 0, fileIndex >= 0 ? fileIndex : undefined).catch(() => {})
@@ -624,7 +631,7 @@ export default function PlayerModal({
 
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
-    if (!info?.infoHash) return
+    if (!info?.infoHash || incognito) return
     libraryGet(0).catch(() => {}) // warmup (no-op)
     // We don't know the library row ID upfront; the upsert happens in StreamAdd response chain.
     // Instead, fetch the user's library and find the entry by info_hash.
@@ -817,8 +824,8 @@ export default function PlayerModal({
       favoriteAdd(info.name, info.infoHash, info?.infoHash ? `magnet:?xt=urn:btih:${info.infoHash}` : '', 'auto-5min').catch(() => setIsFavorite(false))
     }
 
-    // Persist resume position every 15s, plus best-effort on close (cleanup effect)
-    if (libraryEntryID !== null && now > 1) {
+    // Persist resume position every 15s (skipped in incognito mode)
+    if (!incognito && libraryEntryID !== null && now > 1) {
       const elapsed = now - lastResumeSaveRef.current
       if (elapsed > 15 || elapsed < -1 /* seek backwards forces save too */) {
         lastResumeSaveRef.current = now
@@ -1070,7 +1077,16 @@ export default function PlayerModal({
           <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
             <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
             <span className="truncate">{info?.name || result.title}</span>
-            {isTranscoded && (
+            {isTranscoded && caps?.preferred && (
+              <span
+                className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"
+                title={`Encoder: ${caps.preferred}`}
+              >
+                <Cpu className="w-2.5 h-2.5" />
+                {caps.hasNvidia ? 'NVENC' : caps.hasVaapi ? 'VAAPI' : caps.hasQsv ? 'QSV' : 'CPU'}
+              </span>
+            )}
+            {isTranscoded && !caps?.preferred && (
               <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0">
                 <Cpu className="w-2.5 h-2.5" />GPU
               </span>
@@ -1086,6 +1102,13 @@ export default function PlayerModal({
                 <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
               </button>
             )}
+            <button
+              onClick={() => setIncognito(v => !v)}
+              title={incognito ? 'Modo incógnito ativo — histórico e progresso não são salvos' : 'Ativar modo incógnito — não salva no Continuar Assistindo nem no histórico'}
+              className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              {incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
             <button
               onClick={() => setMinimized(m => !m)}
               title={minimized ? 'Expandir player' : 'Minimizar (continua tocando ao navegar)'}
@@ -1202,7 +1225,7 @@ export default function PlayerModal({
                     embedded cover (or a music glyph fallback). Pointer-events
                     off so the native video controls underneath stay clickable. */}
                 {audioMode && info && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+                  <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
                     {/* Glyph sits behind; the cover <img> covers it when it loads,
                         and is hidden on error so the glyph shows through. */}
                     <Volume2 className="absolute w-12 h-12 text-gray-600" />
@@ -1316,7 +1339,11 @@ export default function PlayerModal({
                     playsInline
                     /* iOS-legacy attribute for inline playback before fullscreen */
                     {...{ 'webkit-playsinline': 'true' } as any}
-                    className="max-h-full max-w-full"
+                    /* Audio-only streams have 0 intrinsic video dimensions — Chrome
+                       collapses the element to 0×0 and the native controls vanish.
+                       w-full h-full forces the element to fill the 16:9 container so
+                       controls appear in the bottom 48px left by the audio overlay. */
+                    className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
                     onError={onVideoError}
                     onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
                     onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
@@ -1421,6 +1448,23 @@ export default function PlayerModal({
                   )
                 })()}
               </div>
+
+              {/* Minimized audio: show a slim time readout below the cover-art box
+                  so the user knows where they are in the track without expanding.
+                  Native <video controls> handle play/pause/seek (visible once the
+                  video element is sized — see audioMode w-full h-full above). */}
+              {minimized && audioMode && duration > 0 && (
+                <div className="px-3 py-1.5 bg-gray-900 border-t border-gray-700 flex items-center gap-2 text-xs text-gray-400">
+                  <span className="font-mono tabular-nums">{formatTime(currentTime)}</span>
+                  <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-purple-500 rounded-full transition-all"
+                      style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
+                    />
+                  </div>
+                  <span className="font-mono tabular-nums">{formatTime(duration)}</span>
+                </div>
+              )}
 
               {/* Everything below the video (transport, status, subtitle panel)
                   is hidden in minimized mode — the native <video> controls cover

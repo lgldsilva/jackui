@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw } from 'lucide-react'
-import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch } from '../api/client'
+import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload } from 'lucide-react'
+import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, downloadsList } from '../api/client'
 import QualityBadges from './QualityBadges'
 import { isPlayable } from '../lib/playable'
 
@@ -16,6 +16,29 @@ import { isPlayable } from '../lib/playable'
 const favoriteSet = new Set<string>()      // names (legacy + fallback)
 const favoriteHashSet = new Set<string>()  // info hashes (preferred)
 const listeners = new Set<() => void>()
+
+// Module-scoped cache of downloaded file hashes. Populated lazily on first
+// ResultCard mount and refreshable by callers (e.g. DownloadsPage).
+const downloadedHashSet = new Set<string>()
+const downloadedListeners = new Set<() => void>()
+let downloadsFetched = false
+
+export function refreshDownloadedCache(hashes: string[]) {
+  downloadedHashSet.clear()
+  for (const h of hashes) if (h) downloadedHashSet.add(h)
+  downloadedListeners.forEach(fn => fn())
+}
+
+async function ensureDownloadedCache() {
+  if (downloadsFetched) return
+  downloadsFetched = true
+  try {
+    const list = await downloadsList()
+    refreshDownloadedCache(
+      list.filter(d => d.status === 'completed').map(d => d.infoHash),
+    )
+  } catch {}
+}
 
 export interface FavoriteEntry {
   name: string
@@ -106,11 +129,13 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
     return () => obs.disconnect()
   }, [result.title])
 
-  // Subscribe to global favorites cache changes (so a heart click elsewhere updates this card)
+  // Subscribe to global favorites + downloaded cache changes
   useEffect(() => {
     const listener = () => force(v => v + 1)
     listeners.add(listener)
-    return () => { listeners.delete(listener) }
+    downloadedListeners.add(listener)
+    void ensureDownloadedCache()
+    return () => { listeners.delete(listener); downloadedListeners.delete(listener) }
   }, [])
 
   // Match by infoHash first (precise — same hash means same content); fall back
@@ -161,7 +186,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
 
   const handleTorrentDownload = () => {
     if (result.link) {
-      window.open(result.link, '_blank')
+      window.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
     }
   }
 
@@ -213,7 +238,22 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           {tmdb && (
             <span className="block text-[11px] font-normal text-gray-400 mt-0.5 line-clamp-2">
               {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
-              {tmdb.voteAverage > 0 && <span className="text-amber-400 ml-1">★ {tmdb.voteAverage.toFixed(1)}</span>}
+              {tmdb.imdbRating && tmdb.imdbRating > 0 ? (
+                tmdb.imdbId ? (
+                  <a
+                    href={`https://www.imdb.com/title/${tmdb.imdbId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    className="text-amber-400 ml-1 hover:underline"
+                    title="Abrir no IMDb"
+                  >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
+                ) : (
+                  <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
+                )
+              ) : tmdb.voteAverage > 0 ? (
+                <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
+              ) : null}
             </span>
           )}
         </h3>
@@ -236,6 +276,12 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           {result.cached && (
             <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">
               cache
+            </span>
+          )}
+          {result.infoHash && downloadedHashSet.has(result.infoHash) && (
+            <span className="text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full whitespace-nowrap flex items-center gap-1">
+              <HardDriveDownload className="w-3 h-3" />
+              Baixado
             </span>
           )}
         </div>

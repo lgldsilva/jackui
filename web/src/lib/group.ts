@@ -1,9 +1,53 @@
 import { SearchResult } from '../api/client'
 
 /**
+ * Pulls every `tr=` (announce URL) out of a magnet URI. Returns the URLs
+ * URL-decoded so the merge step can dedupe on the canonical form.
+ */
+function extractTrackers(magnet: string | undefined): string[] {
+  if (!magnet) return []
+  const q = magnet.split('?')[1]
+  if (!q) return []
+  try {
+    return new URLSearchParams(q).getAll('tr').filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Returns `magnet` with `extraTrackers` appended as additional `tr=` params,
+ * skipping any that are already present. anacrolix's AddMagnet honors the full
+ * announce list, so a "fattened" magnet from one tracker's listing can pull
+ * peers from every other tracker that indexed the same infoHash.
+ */
+function mergeTrackersIntoMagnet(magnet: string, extraTrackers: string[]): string {
+  if (!magnet || extraTrackers.length === 0) return magnet
+  const qIdx = magnet.indexOf('?')
+  if (qIdx < 0) return magnet
+  try {
+    const params = new URLSearchParams(magnet.slice(qIdx + 1))
+    const existing = new Set(params.getAll('tr'))
+    let appended = 0
+    for (const t of extraTrackers) {
+      if (!t || existing.has(t)) continue
+      params.append('tr', t)
+      existing.add(t)
+      appended++
+    }
+    if (appended === 0) return magnet
+    return `${magnet.slice(0, qIdx + 1)}${params.toString()}`
+  } catch {
+    return magnet
+  }
+}
+
+/**
  * Groups results by infoHash. When the same infoHash appears on multiple trackers,
  * keeps the entry with the most seeders (and prefers entries with magnetUri) as
- * primary and lists the other trackers in `alsoIn`.
+ * primary and lists the other trackers in `alsoIn`. Also folds every secondary
+ * magnet's `tr=` announce URLs into the primary's magnet so Play/Download can
+ * reach peers indexed only by the runners-up.
  *
  * Secondary dedup: entries without infoHash AND entries whose infoHash doesn't
  * collide get a `name|size` fallback bucket. Many trackers don't expose the
@@ -37,7 +81,17 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     })
     const primary = arr[0]
     const others = arr.slice(1).map(r => r.tracker).filter(Boolean)
-    hashOut.push({ ...primary, alsoIn: others.length > 0 ? others : undefined })
+    // Fold every secondary magnet's tr= URLs into the primary so Play/Download
+    // pulls peers from every tracker that indexed this infoHash.
+    const extraTrackers: string[] = []
+    for (const r of arr.slice(1)) {
+      for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
+    }
+    hashOut.push({
+      ...primary,
+      magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
+      alsoIn: others.length > 0 ? others : undefined,
+    })
   }
 
   // Secondary pass: dedup hash-grouped + noHash entries by a NORMALIZED
@@ -85,6 +139,7 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     })
     const primary = arr[0]
     const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
+    const extraTrackers: string[] = []
     // Aggregate seeders/leechers across the bucket. The trackers don't
     // necessarily expose the same swarm size — taking MAX is conservative
     // (avoids double-counting peers seen by both) while still surfacing the
@@ -94,12 +149,14 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     for (const r of arr.slice(1)) {
       if (r.tracker) mergedAlsoIn.add(r.tracker)
       ;(r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
+      for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
       if (r.seeders > bestSeeders) bestSeeders = r.seeders
       if (r.leechers > bestLeechers) bestLeechers = r.leechers
     }
     if (primary.tracker) mergedAlsoIn.delete(primary.tracker) // primary tracker is shown separately
     out.push({
       ...primary,
+      magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
       seeders: bestSeeders,
       leechers: bestLeechers,
       alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
