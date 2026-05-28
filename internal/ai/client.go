@@ -121,6 +121,36 @@ func (c *Client) IdentifyTitle(ctx context.Context, rawName string) (*TitleResul
 	return nil, "", lastErr
 }
 
+const musicSystem = `You turn a raw music torrent/release name into a concise query to find the ALBUM COVER on an image search.
+Output ONLY the query text (no quotes, no prose), ideally "<artist> <album>" — drop years, formats (FLAC/MP3/320), scene tags and bracketed noise. If you can't tell, return the cleaned name.`
+
+// MusicQuery asks the chain to build a cover-art search query from a messy music
+// release name (e.g. "Disturbed - Discography 2000-2019 [FLAC]" → "Disturbed").
+// Walks the chain like IdentifyTitle; returns "" if nothing usable came back.
+func (c *Client) MusicQuery(ctx context.Context, rawName string) string {
+	for _, s := range c.slots {
+		if !c.breaker.available(s.ID) {
+			continue
+		}
+		content, _, err := c.chat(ctx, s, musicSystem, rawName)
+		if err != nil {
+			c.breaker.recordFailure(s.ID, isRateLimit(err))
+			continue
+		}
+		c.breaker.recordSuccess(s.ID)
+		// Plain text reply (no JSON) — take the first non-empty line, strip quotes.
+		q := strings.TrimSpace(content)
+		if i := strings.IndexByte(q, '\n'); i >= 0 {
+			q = strings.TrimSpace(q[:i])
+		}
+		q = strings.Trim(q, `"'`)
+		if q != "" {
+			return q
+		}
+	}
+	return ""
+}
+
 // IdentifyWithSlot runs a single named slot, bypassing the breaker. Used by the
 // benchmark to measure each model independently.
 func (c *Client) IdentifyWithSlot(ctx context.Context, slotID, rawName string) (*TitleResult, time.Duration, error) {

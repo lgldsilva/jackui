@@ -128,8 +128,20 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 		// a real title first — it beats regex stripping on tricky / non-English
 		// names and gives the web search a cleaner query too.
 		rawName := ""
+		isAudio := false
 		if meta := cache.Get(hash); meta != nil {
 			rawName = meta.Name
+			// Music = has files and none are video (a season pack has videos; an
+			// album/discography is all audio). Drives the cover-art path below.
+			if len(meta.Files) > 0 {
+				isAudio = true
+				for _, f := range meta.Files {
+					if f.IsVideo {
+						isAudio = false
+						break
+					}
+				}
+			}
 		}
 		if rawName == "" {
 			rawName = c.Query("name")
@@ -156,10 +168,17 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 		}
 
 		// 3) Web image search — only reached when TMDB didn't match (adult /
-		// obscure / non-catalogued). Downloads the found image and caches it
-		// like a frame so the card serves bytes without re-fetching.
-		if existingRank < streamer.ArtSourceRank("web") && webSearch != nil && query != "" {
-			if data, _, src, werr := webSearch.Find(ctx, query); werr == nil && len(data) > 0 {
+		// obscure / music / non-catalogued). For audio, ask the AI to build an
+		// album-cover query ("artist album") since the movie-title path doesn't
+		// fit music. Downloads the found image and caches it like a frame.
+		webQuery := query
+		if isAudio && aiClient != nil && rawName != "" {
+			if mq := aiClient.MusicQuery(ctx, rawName); mq != "" {
+				webQuery = mq
+			}
+		}
+		if existingRank < streamer.ArtSourceRank("web") && webSearch != nil && webQuery != "" {
+			if data, _, src, werr := webSearch.Find(ctx, webQuery); werr == nil && len(data) > 0 {
 				if rel, serr := s.SaveArtBytes(h, data); serr == nil {
 					_ = cache.SetArt(hash, &streamer.CachedArt{Source: "web", Path: rel})
 					c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
