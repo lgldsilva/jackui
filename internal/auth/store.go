@@ -30,6 +30,7 @@ type Role string
 const (
 	RoleAdmin Role = "admin"
 	RoleUser  Role = "user"
+	RoleGuest Role = "guest"
 )
 
 // Status is the account lifecycle state. Only "active" users may log in.
@@ -219,7 +220,7 @@ func (s *Store) CreateUser(username, password string, role Role) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("hash password: %w", err)
 	}
-	if role != RoleAdmin && role != RoleUser {
+	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
 	}
 	res, err := s.db.Exec(
@@ -373,7 +374,7 @@ func (s *Store) CreateUserFull(username, email, password string, role Role, stat
 	if err != nil {
 		return 0, fmt.Errorf("hash password: %w", err)
 	}
-	if role != RoleAdmin && role != RoleUser {
+	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
 	}
 	res, err := s.db.Exec(

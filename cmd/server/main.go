@@ -425,6 +425,7 @@ func main() {
 	// If auth enabled, all /api/* routes (except /api/auth/* already mounted above) require a valid token.
 	if tokenMgr != nil {
 		api.Use(auth.Required(tokenMgr))
+		api.Use(auth.GuestRestrict())
 	}
 	// Incognito flag — tags the request when the client sent
 	// X-JackUI-Incognito: 1 so history/library handlers can skip persistence.
