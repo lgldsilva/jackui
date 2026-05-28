@@ -482,6 +482,7 @@ func main() {
 
 		// TMDB enrichment — optional poster + overview per torrent title
 		api.GET("/tmdb/match", handlers.TmdbMatch(tmdbClient))
+		api.GET("/tmdb/trending", handlers.TmdbTrending(tmdbClient))
 
 		// Watchlists — saved searches + ntfy push notifications
 		if watchlistStore != nil {

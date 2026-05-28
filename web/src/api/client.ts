@@ -339,6 +339,18 @@ export const tmdbMatch = async (title: string): Promise<TmdbMatch | null> => {
   return p
 }
 
+// tmdbTrending returns this week's trending movies + shows for the Discover page.
+// Empty array when TMDB is disabled (no key) or on error — the page degrades to
+// an "enable TMDB" hint rather than failing.
+export const tmdbTrending = async (): Promise<TmdbMatch[]> => {
+  try {
+    const { data } = await api.get<TmdbMatch[]>('/tmdb/trending', { validateStatus: () => true })
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
 // ─── Watchlists ────────────────────────────────────────────────────────────
 
 export interface Watchlist {

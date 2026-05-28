@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   SearchX, Wifi, WifiOff, Loader2,
   Plus, X, Filter, SortAsc, SortDesc, Play,
@@ -277,16 +278,19 @@ export default function SearchPage() {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
   }, [])
 
-  const handleSearch = useCallback((tabId: string) => {
+  const handleSearch = useCallback((tabId: string, queryOverride?: string) => {
     const tab = tabs.find(t => t.id === tabId)
-    if (!tab || !tab.query.trim()) return
+    // queryOverride lets a caller (e.g. the Discover page seeding via ?q=) run a
+    // search before the tab's query state has propagated through a re-render.
+    const q = (queryOverride ?? tab?.query ?? '').trim()
+    if (!tab || !q) return
 
     const existing = esMap.current.get(tabId)
     if (existing) { existing.close(); esMap.current.delete(tabId) }
 
     updateTab(tabId, { results: [], error: '', summary: null, phase: 'cache' })
 
-    const params = new URLSearchParams({ q: tab.query })
+    const params = new URLSearchParams({ q })
     if (tab.selectedIndexers.length > 0 && tab.selectedIndexers[0] !== 'all')
       params.set('indexers', tab.selectedIndexers.join(','))
     if (tab.selectedCategory && tab.selectedCategory !== 'all')
@@ -340,6 +344,23 @@ export default function SearchPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, updateTab])
+
+  // Seed a search from ?q= (e.g. clicking a poster on the Discover page). Runs
+  // once: fills the active tab's query, fires the search via the override (so it
+  // doesn't wait for state to propagate), then clears the param so a refresh
+  // doesn't re-trigger.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const seededRef = useRef(false)
+  useEffect(() => {
+    if (seededRef.current) return
+    const q = searchParams.get('q')
+    if (!q) return
+    seededRef.current = true
+    updateTab(activeId, { query: q })
+    handleSearch(activeId, q)
+    setSearchParams({}, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const addTab = () => {
     const id = String(tabCounter++)
