@@ -6,10 +6,10 @@
 //         auto-redeploya o container (sem SSH de deploy, sem mudar env).
 //
 // Pré-requisitos no Jenkins (ver docs/CICD.md):
-//   - Plugins: Docker Pipeline, HashiCorp Vault, Gitea.
+//   - Plugins: Docker Pipeline, Credentials Binding, Git.
 //   - Agent com /var/run/docker.sock (o controller no oracle-desktop já tem).
-//   - Secrets no Vault em `secret/jackui` (KV v2): gitea_user, gitea_token,
-//     sonar_token, dt_user, dt_pass.
+//   - Credenciais no Jenkins: 'jackui-sonar-token' (secret text),
+//     'jackui-dt' (user/pass), 'jackui-gitea' (user/pass, com write:package).
 //   - Watchtower no raspberrypi-srv observando a imagem do registry (label
 //     com.centurylinklabs.watchtower.enable=true no compose do jackui).
 
@@ -57,8 +57,7 @@ pipeline {
     stage('SonarQube') {
       agent { docker { image 'sonarsource/sonar-scanner-cli:latest'; reuseNode true } }
       steps {
-        withVault(vaultSecrets: [[path: 'secret/jackui', secretValues: [
-          [envVar: 'SONAR_TOKEN', vaultKey: 'sonar_token']]]]) {
+        withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
             sonar-scanner \
               -Dsonar.host.url=$SONAR_HOST \
@@ -77,9 +76,7 @@ pipeline {
 
     stage('SBOM → Dependency-Track') {
       steps {
-        withVault(vaultSecrets: [[path: 'secret/jackui', secretValues: [
-          [envVar: 'DT_USER', vaultKey: 'dt_user'],
-          [envVar: 'DT_PASS', vaultKey: 'dt_pass']]]]) {
+        withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
             docker run --rm -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o bom.json . || true
@@ -116,9 +113,7 @@ pipeline {
     stage('Push (Gitea registry)') {
       when { branch 'main' }
       steps {
-        withVault(vaultSecrets: [[path: 'secret/jackui', secretValues: [
-          [envVar: 'GITEA_USER', vaultKey: 'gitea_user'],
-          [envVar: 'GITEA_TOKEN', vaultKey: 'gitea_token']]]]) {
+        withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')]) {
           sh '''
             echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
             docker push $IMAGE:$TAG
