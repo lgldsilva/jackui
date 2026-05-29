@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend
+FROM node:22-alpine AS frontend
 
 # ImageMagick renders SVG → PNG for PWA icons (iOS requires PNG for apple-touch-icon)
 RUN apk add --no-cache imagemagick imagemagick-svg
@@ -22,7 +22,7 @@ RUN echo "Build at $BUILD_TIMESTAMP" && npm run build
 # Output goes to /app/ui/dist (configured in vite.config.ts)
 
 # Stage 2: Build backend
-FROM golang:1.24-alpine AS backend
+FROM golang:1.26-alpine AS backend
 ENV GOTOOLCHAIN=auto
 
 WORKDIR /app
