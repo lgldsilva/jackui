@@ -57,46 +57,58 @@ func FolderCreate(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
+type folderPatchBody struct {
+	Name         *string `json:"name"`
+	ParentID     *int    `json:"parentId"`
+	ParentToRoot bool    `json:"parentToRoot"`
+}
+
 func FolderPatch(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		fs := s.Favorites()
-		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
-			return
-		}
-		id, err := strconv.Atoi(c.Param("id"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
-			return
-		}
-		var body struct {
-			Name           *string `json:"name"`
-			ParentID       *int    `json:"parentId"`
-			ParentToRoot   bool    `json:"parentToRoot"` // explicit "set parent to null" — distinguished from "leave alone"
-		}
-		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		userID, _, _ := auth.UserIDFromCtx(c)
-		if body.Name != nil && *body.Name != "" {
-			if err := fs.RenameFolder(userID, id, *body.Name); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-		}
-		if body.ParentID != nil || body.ParentToRoot {
-			var newParent *int
-			if !body.ParentToRoot {
-				newParent = body.ParentID
-			}
-			if err := fs.MoveFolder(userID, id, newParent); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-		}
-		c.Status(http.StatusNoContent)
+		folderPatchHandler(c, s)
 	}
+}
+
+func folderPatchHandler(c *gin.Context, s *streamer.Streamer) {
+	fs := s.Favorites()
+	if fs == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+		return
+	}
+	var body folderPatchBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	userID, _, _ := auth.UserIDFromCtx(c)
+	if err := applyFolderPatch(fs, userID, id, &body); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func applyFolderPatch(fs *streamer.FavoritesStore, userID, id int, body *folderPatchBody) error {
+	if body.Name != nil && *body.Name != "" {
+		if err := fs.RenameFolder(userID, id, *body.Name); err != nil {
+			return err
+		}
+	}
+	if body.ParentID != nil || body.ParentToRoot {
+		var newParent *int
+		if !body.ParentToRoot {
+			newParent = body.ParentID
+		}
+		if err := fs.MoveFolder(userID, id, newParent); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func FolderDelete(s *streamer.Streamer) gin.HandlerFunc {

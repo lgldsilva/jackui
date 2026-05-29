@@ -208,34 +208,7 @@ func serveSource(w http.ResponseWriter, r *http.Request, src *readSeekerContent,
 
 	rangeHeader := r.Header.Get("Range")
 	if rangeHeader == "" {
-		// Whole-file request. ffmpeg issues this for the initial probe.
-		w.Header().Set("Content-Length", strconv.FormatInt(totalSize, 10))
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
-		if r.Method == http.MethodHead {
-			return
-		}
-		// Stream in chunks to avoid materialising the whole file in memory.
-		// Each chunk is an atomic readAt — concurrent Range handlers stay
-		// correct because we hold the lock per chunk, not per byte.
-		buf := make([]byte, 256<<10)
-		var off int64
-		for off < totalSize {
-			toRead := int64(len(buf))
-			if remaining := totalSize - off; remaining < toRead {
-				toRead = remaining
-			}
-			n, err := src.readAt(buf[:toRead], off)
-			if n > 0 {
-				if _, werr := w.Write(buf[:n]); werr != nil {
-					return
-				}
-				off += int64(n)
-			}
-			if err != nil {
-				return
-			}
-		}
+		serveWholeFile(w, r, src, totalSize)
 		return
 	}
 
@@ -245,6 +218,37 @@ func serveSource(w http.ResponseWriter, r *http.Request, src *readSeekerContent,
 		http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
+	serveRangeFile(w, r, src, totalSize, start, end)
+}
+
+func serveWholeFile(w http.ResponseWriter, r *http.Request, src *readSeekerContent, totalSize int64) {
+	w.Header().Set("Content-Length", strconv.FormatInt(totalSize, 10))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	buf := make([]byte, 256<<10)
+	var off int64
+	for off < totalSize {
+		toRead := int64(len(buf))
+		if remaining := totalSize - off; remaining < toRead {
+			toRead = remaining
+		}
+		n, err := src.readAt(buf[:toRead], off)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			off += int64(n)
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func serveRangeFile(w http.ResponseWriter, r *http.Request, src *readSeekerContent, totalSize, start, end int64) {
 	length := end - start + 1
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
 	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
@@ -873,40 +877,55 @@ func (m *HLSSessionManager) Sessions() []HLSSessionSnapshot {
 
 	var snapshots []HLSSessionSnapshot
 	for key, s := range m.sess {
-		s.mu.Lock()
-		if s.closed {
-			s.mu.Unlock()
-			continue
-		}
-		pid := 0
-		if s.Cmd != nil && s.Cmd.Process != nil {
-			pid = s.Cmd.Process.Pid
-		}
-		encoder := "cpu"
-		if s.spec != nil {
-			encoder = s.spec.encoder
-		}
-
-		segmentsReady := 0
-		if s.Dir != "" {
-			if entries, err := os.ReadDir(s.Dir); err == nil {
-				for _, e := range entries {
-					if !e.IsDir() && strings.HasSuffix(e.Name(), ".ts") {
-						segmentsReady++
-					}
-				}
-			}
-		}
-
-		snapshots = append(snapshots, HLSSessionSnapshot{
-			Key:           key,
-			Codec:         encoder,
-			StartedAt:     s.StartedAt,
-			LastActivity:  s.LastAccess,
-			Pid:           pid,
-			SegmentsReady: segmentsReady,
-		})
-		s.mu.Unlock()
+		snapshots = appendSnapshotIfActive(snapshots, key, s)
 	}
 	return snapshots
+}
+
+func appendSnapshotIfActive(snapshots []HLSSessionSnapshot, key string, s *HLSSession) []HLSSessionSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return snapshots
+	}
+	snapshots = append(snapshots, HLSSessionSnapshot{
+		Key:           key,
+		Codec:         sessionEncoder(s),
+		StartedAt:     s.StartedAt,
+		LastActivity:  s.LastAccess,
+		Pid:           sessionPid(s),
+		SegmentsReady: sessionSegmentsReady(s),
+	})
+	return snapshots
+}
+
+func sessionPid(s *HLSSession) int {
+	if s.Cmd != nil && s.Cmd.Process != nil {
+		return s.Cmd.Process.Pid
+	}
+	return 0
+}
+
+func sessionEncoder(s *HLSSession) string {
+	if s.spec != nil {
+		return s.spec.encoder
+	}
+	return "cpu"
+}
+
+func sessionSegmentsReady(s *HLSSession) int {
+	if s.Dir == "" {
+		return 0
+	}
+	entries, err := os.ReadDir(s.Dir)
+	if err != nil {
+		return 0
+	}
+	var n int
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".ts") {
+			n++
+		}
+	}
+	return n
 }

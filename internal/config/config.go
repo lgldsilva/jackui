@@ -77,9 +77,10 @@ type ExternalConfig struct {
 }
 
 type ExternalMount struct {
-	Name         string   `yaml:"name"`         // Display name shown in the UI ("HD Externo", "NAS")
-	Path         string   `yaml:"path"`         // Absolute path inside the container
+	Name         string   `yaml:"name"`          // Display name shown in the UI ("HD Externo", "NAS")
+	Path         string   `yaml:"path"`          // Absolute path inside the container
 	AllowedUsers []string `yaml:"allowed_users"` // Empty = visible to all; otherwise only these usernames
+	UserSubpath  bool     `yaml:"user_subpath"`  // When true, each user sees/writes only their own subdir
 }
 
 type NotificationsConfig struct {

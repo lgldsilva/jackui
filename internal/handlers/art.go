@@ -97,88 +97,102 @@ type artResolveCtx struct {
 func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain) gin.HandlerFunc {
 	var frameJobs sync.Map
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		cache := s.MetadataCache()
-		if cache == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
-			return
-		}
-		hash := h.HexString()
-		fileIdx, _ := strconv.Atoi(c.DefaultQuery("file", "-1"))
-
-		existing := cache.GetArt(hash)
-		existingRank := 0
-		if existing != nil {
-			existingRank = streamer.ArtSourceRank(existing.Source)
-		}
-		if existingRank >= streamer.ArtSourceRank("torrent") {
-			c.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
-		defer cancel()
-
-		a := &artResolveCtx{
-			c:            c,
-			s:            s,
-			cache:        cache,
-			tmdbClient:   tmdbClient,
-			h:            h,
-			hash:         hash,
-			existing:     existing,
-			existingRank: existingRank,
-			ctx:          ctx,
-			aiClient:     aiClient,
-			webSearch:    webSearch,
-			frameJobs:    &frameJobs,
-			fileIdx:      fileIdx,
-		}
-		buildArtQuery(a)
-
-		if resolveTorrentArt(a) {
-			return
-		}
-		if resolveTMDBArt(a) {
-			return
-		}
-		if resolveWebArt(a) {
-			return
-		}
-		if resolveFrameCapture(a) {
-			return
-		}
-
-		c.Status(http.StatusNoContent)
+		resolveArtHandler(c, s, tmdbClient, aiClient, webSearch, &frameJobs)
 	}
+}
+
+func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain, frameJobs *sync.Map) {
+	h, err := parseHash(c.Param("hash"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cache := s.MetadataCache()
+	if cache == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+		return
+	}
+	hash := h.HexString()
+	fileIdx, _ := strconv.Atoi(c.DefaultQuery("file", "-1"))
+
+	existing := cache.GetArt(hash)
+	existingRank := 0
+	if existing != nil {
+		existingRank = streamer.ArtSourceRank(existing.Source)
+	}
+	if existingRank >= streamer.ArtSourceRank("torrent") {
+		c.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	defer cancel()
+
+	a := &artResolveCtx{
+		c:            c,
+		s:            s,
+		cache:        cache,
+		tmdbClient:   tmdbClient,
+		h:            h,
+		hash:         hash,
+		existing:     existing,
+		existingRank: existingRank,
+		ctx:          ctx,
+		aiClient:     aiClient,
+		webSearch:    webSearch,
+		frameJobs:    frameJobs,
+		fileIdx:      fileIdx,
+	}
+	buildArtQuery(a)
+
+	if resolveTorrentArt(a) {
+		return
+	}
+	if resolveTMDBArt(a) {
+		return
+	}
+	if resolveWebArt(a) {
+		return
+	}
+	if resolveFrameCapture(a) {
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 func buildArtQuery(a *artResolveCtx) {
 	if meta := a.cache.Get(a.hash); meta != nil {
 		a.rawName = meta.Name
-		if len(meta.Files) > 0 {
-			a.isAudio = true
-			for _, f := range meta.Files {
-				if f.IsVideo {
-					a.isAudio = false
-					break
-				}
-			}
-		}
+		a.isAudio = isAudioOnlyMeta(meta)
 	}
 	if a.rawName == "" {
 		a.rawName = a.c.Query("name")
 	}
 	a.query = a.rawName
 	if a.aiClient != nil && a.rawName != "" {
-		if res, _, aerr := a.aiClient.IdentifyTitle(a.ctx, a.rawName); aerr == nil && res.Query() != "" {
-			a.query = res.Query()
+		a.query = queryAIIdentify(a.ctx, a.aiClient, a.rawName)
+	}
+}
+
+func isAudioOnlyMeta(meta *streamer.CachedMeta) bool {
+	if len(meta.Files) == 0 {
+		return false
+	}
+	for _, f := range meta.Files {
+		if f.IsVideo {
+			return false
 		}
 	}
+	return true
+}
+
+func queryAIIdentify(ctx context.Context, aiClient *ai.Client, rawName string) string {
+	res, _, aerr := aiClient.IdentifyTitle(ctx, rawName)
+	if aerr == nil && res.Query() != "" {
+		return res.Query()
+	}
+	return rawName
 }
 
 func resolveTorrentArt(a *artResolveCtx) bool {

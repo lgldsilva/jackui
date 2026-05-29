@@ -43,16 +43,19 @@ func (b *Browser) Mounts() []Mount {
 func (b *Browser) MountsFor(username string) []Mount {
 	out := make([]Mount, 0, len(b.mounts))
 	for _, m := range b.mounts {
-		if len(m.AllowedUsers) == 0 {
-			out = append(out, Mount{Name: m.Name, Path: m.Path})
-		} else if username != "" {
+		visible := len(m.AllowedUsers) == 0
+		if !visible && username != "" {
 			for _, u := range m.AllowedUsers {
 				if u == username {
-					out = append(out, Mount{Name: m.Name, Path: m.Path})
+					visible = true
 					break
 				}
 			}
 		}
+		if !visible {
+			continue
+		}
+		out = append(out, Mount{Name: m.Name, Path: m.Path})
 	}
 	return out
 }
@@ -84,39 +87,41 @@ func (b *Browser) findMount(name string) (config.ExternalMount, bool) {
 	return config.ExternalMount{}, false
 }
 
+// effectivePath returns the effective root path for a mount + username combination.
+// For UserSubpath mounts, this is m.Path/{username}; otherwise m.Path.
+func effectivePath(m config.ExternalMount, username string) string {
+	if m.UserSubpath && username != "" {
+		return filepath.Join(m.Path, username)
+	}
+	return m.Path
+}
+
 // ResolvePath joins mount.Path with relPath safely, rejecting any attempt
 // to escape the mount root via "..", absolute paths, or symlink-like trickery.
 // Returns the absolute path on disk.
 func (b *Browser) ResolvePath(mountName, relPath string) (string, error) {
+	return b.ResolvePathFor(mountName, relPath, "")
+}
+
+// ResolvePathFor is like ResolvePath but respects UserSubpath mounts for the given user.
+func (b *Browser) ResolvePathFor(mountName, relPath, username string) (string, error) {
 	mount, ok := b.findMount(mountName)
 	if !ok {
 		return "", fmt.Errorf("mount %q not found", mountName)
 	}
+	mount.Path = effectivePath(mount, username)
 
-	// Reject absolute relPath outright.
 	if filepath.IsAbs(relPath) {
 		return "", fmt.Errorf("path must be relative to mount root")
 	}
 
-	// Reject any ".." segment up front — even segments that would Clean back
-	// inside (e.g. "movies/../movies") are rejected to keep the rule simple
-	// and unambiguous.
-	if relPath != "" {
-		// Normalize separators to forward slash for inspection (URL-style),
-		// since callers will typically pass slash-separated paths from the UI.
-		normalized := strings.ReplaceAll(relPath, "\\", "/")
-		for _, segment := range strings.Split(normalized, "/") {
-			if segment == ".." {
-				return "", fmt.Errorf("path traversal rejected")
-			}
-		}
+	if hasPathTraversal(relPath) {
+		return "", fmt.Errorf("path traversal rejected")
 	}
 
-	// Clean & normalize (collapse "." and double slashes).
 	clean := filepath.Clean("/" + relPath)
 	clean = strings.TrimPrefix(clean, "/")
 
-	// Build absolute candidate.
 	mountAbs, err := filepath.Abs(mount.Path)
 	if err != nil {
 		return "", fmt.Errorf("invalid mount path: %w", err)
@@ -124,33 +129,75 @@ func (b *Browser) ResolvePath(mountName, relPath string) (string, error) {
 
 	abs := filepath.Join(mountAbs, clean)
 
-	// Defense in depth: verify the lexical path is still inside the mount.
-	if abs != mountAbs && !strings.HasPrefix(abs, mountAbs+string(os.PathSeparator)) {
+	if !isUnderDir(abs, mountAbs) {
 		return "", fmt.Errorf("path traversal rejected")
 	}
 
-	// The lexical check above does NOT catch a symlink INSIDE the mount that
-	// points OUTSIDE it (e.g. mount/x -> /etc): the string "x/passwd" has no
-	// ".." and stays under the prefix, but os.Stat/ServeFile would follow the
-	// link and serve a host file. Resolve symlinks and re-validate against the
-	// REAL mount path. EvalSymlinks needs the target to exist; if it doesn't yet
-	// (a path that will 404 anyway), keep the lexical abs — it's already
-	// prefix-validated and a missing path fails downstream.
-	mountReal, err := filepath.EvalSymlinks(mountAbs)
-	if err != nil {
-		mountReal = mountAbs
-	}
+	mountReal := symlinkOrSelf(mountAbs)
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		if resolved != mountReal && !strings.HasPrefix(resolved, mountReal+string(os.PathSeparator)) {
+		if !isUnderDir(resolved, mountReal) {
 			return "", fmt.Errorf("path traversal rejected (symlink escape)")
 		}
-		// Validate with the resolved path, but RETURN the lexical abs — resolving
-		// would also rewrite benign system symlinks (e.g. macOS /var→/private/var),
-		// changing the path for no security benefit. Since the escape check above
-		// passed, the lexical path points safely inside the mount.
 	}
 
 	return abs, nil
+}
+
+// IsUserSubpath reports whether the named mount uses per-user subdirectories.
+func (b *Browser) IsUserSubpath(mountName string) bool {
+	m, ok := b.findMount(mountName)
+	return ok && m.UserSubpath
+}
+
+// UserScopedPath prepends the username to relPath for UserSubpath mounts.
+// For regular mounts, returns relPath unchanged. Safe to use on all mounts.
+func (b *Browser) UserScopedPath(mountName, relPath, username string) string {
+	if !b.IsUserSubpath(mountName) || username == "" {
+		return relPath
+	}
+	if relPath == "" || relPath == "." {
+		return username
+	}
+	return username + "/" + relPath
+}
+
+// StripUserScope removes the leading username prefix from Entry paths for
+// UserSubpath mounts, so the frontend sees paths as if the mount root were
+// the user's personal subdir.
+func (b *Browser) StripUserScope(mountName, username string, entries []Entry) []Entry {
+	if !b.IsUserSubpath(mountName) || username == "" {
+		return entries
+	}
+	prefix := username + "/"
+	for i := range entries {
+		entries[i].Path = strings.TrimPrefix(entries[i].Path, prefix)
+	}
+	return entries
+}
+
+func hasPathTraversal(relPath string) bool {
+	if relPath == "" {
+		return false
+	}
+	normalized := strings.ReplaceAll(relPath, "\\", "/")
+	for _, segment := range strings.Split(normalized, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func isUnderDir(abs, dir string) bool {
+	return abs == dir || strings.HasPrefix(abs, dir+string(os.PathSeparator))
+}
+
+func symlinkOrSelf(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
 }
 
 // Walk recursively lists all files (not dirs) under relPath inside the given mount.
@@ -176,42 +223,44 @@ func (b *Browser) Walk(mountName, relPath string, mediaOnly bool) ([]Entry, erro
 
 	var out []Entry
 	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil // skip unreadable entries
-		}
-		if d.IsDir() {
-			// Skip hidden dirs
-			if strings.HasPrefix(d.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasPrefix(d.Name(), ".") {
-			return nil
-		}
-		if mediaOnly && !IsPlayable(d.Name()) {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		// Build path relative to mount root
-		rel, err := filepath.Rel(mountAbs, path)
-		if err != nil {
-			rel = path
-		}
-		out = append(out, Entry{
-			Name:       d.Name(),
-			Path:       filepath.ToSlash(rel),
-			IsDir:      false,
-			Size:       info.Size(),
-			ModTime:    info.ModTime(),
-			IsPlayable: IsPlayable(d.Name()),
-		})
-		return nil
+		return collectWalkEntry(&out, mountAbs, path, d, walkErr, mediaOnly)
 	})
 	return out, err
+}
+
+func collectWalkEntry(out *[]Entry, mountAbs, path string, d fs.DirEntry, walkErr error, mediaOnly bool) error {
+	if walkErr != nil {
+		return nil
+	}
+	if d.IsDir() {
+		if strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+	if strings.HasPrefix(d.Name(), ".") {
+		return nil
+	}
+	if mediaOnly && !IsPlayable(d.Name()) {
+		return nil
+	}
+	info, err := d.Info()
+	if err != nil {
+		return nil
+	}
+	rel, err := filepath.Rel(mountAbs, path)
+	if err != nil {
+		rel = path
+	}
+	*out = append(*out, Entry{
+		Name:       d.Name(),
+		Path:       filepath.ToSlash(rel),
+		IsDir:      false,
+		Size:       info.Size(),
+		ModTime:    info.ModTime(),
+		IsPlayable: IsPlayable(d.Name()),
+	})
+	return nil
 }
 
 // findMountPath returns the root path of a named mount (or empty string).

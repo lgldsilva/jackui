@@ -65,56 +65,67 @@ type registerReq struct {
 // confirmation email is sent. Username/email must be free.
 func Register(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req registerReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
-			return
-		}
-		req.Username = strings.TrimSpace(req.Username)
-		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-		if req.Username == "" || req.Email == "" || len(req.Password) < 6 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "usuário, e-mail e senha (≥6) são obrigatórios"})
-			return
-		}
-		taken, err := store.Exists(req.Username, req.Email)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if taken {
-			c.JSON(http.StatusConflict, gin.H{"error": "usuário ou e-mail já cadastrado"})
-			return
-		}
+		registerHandler(c, store, mlr, cfgBaseURL)
+	}
+}
 
-		// Invite → trusted → active immediately. Self-register → pending approval.
-		status := auth.StatusPending
-		invited := false
-		if req.Invite != "" {
-			if _, terr := store.ConsumeToken(req.Invite, auth.TokenInvite); terr != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "convite inválido ou expirado"})
-				return
-			}
-			status = auth.StatusActive
-			invited = true
-		}
+func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) {
+	var req registerReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Username == "" || req.Email == "" || len(req.Password) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário, e-mail e senha (≥6) são obrigatórios"})
+		return
+	}
+	taken, err := store.Exists(req.Username, req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if taken {
+		c.JSON(http.StatusConflict, gin.H{"error": "usuário ou e-mail já cadastrado"})
+		return
+	}
 
-		id, err := store.CreateUserFull(req.Username, req.Email, req.Password, auth.RoleUser, status)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+	status, invited, ierr := resolveInviteStatus(store, req.Invite)
+	if ierr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ierr.Error()})
+		return
+	}
 
-		// Send the email-confirmation link (best-effort).
-		if tok, terr := store.CreateToken(auth.TokenVerifyEmail, id, req.Email, verifyTTL); terr == nil {
-			link := baseURL(c, cfgBaseURL) + "/verify-email?token=" + tok
-			notify(mlr, req.Email, "JackUI — confirme seu e-mail", "Confirme seu e-mail para concluir o cadastro:", link)
-		}
+	uid, err := store.CreateUserFull(req.Username, req.Email, req.Password, auth.RoleUser, status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-		msg := "Cadastro criado. Confirme seu e-mail e aguarde a aprovação de um admin."
-		if invited {
-			msg = "Cadastro criado. Confirme seu e-mail — você já pode entrar."
-		}
-		c.JSON(http.StatusOK, gin.H{"status": string(status), "invited": invited, "message": msg})
+	sendVerifyEmail(store, mlr, c, cfgBaseURL, uid, req.Email)
+
+	msg := "Cadastro criado. Confirme seu e-mail e aguarde a aprovação de um admin."
+	if invited {
+		msg = "Cadastro criado. Confirme seu e-mail — você já pode entrar."
+	}
+	c.JSON(http.StatusOK, gin.H{"status": string(status), "invited": invited, "message": msg})
+}
+
+func resolveInviteStatus(store *auth.Store, inviteToken string) (auth.Status, bool, error) {
+	if inviteToken == "" {
+		return auth.StatusPending, false, nil
+	}
+	if _, terr := store.ConsumeToken(inviteToken, auth.TokenInvite); terr != nil {
+		return auth.StatusPending, false, fmt.Errorf("convite inválido ou expirado")
+	}
+	return auth.StatusActive, true, nil
+}
+
+func sendVerifyEmail(store *auth.Store, mlr *mailer.Mailer, c *gin.Context, cfgBaseURL string, id int, email string) {
+	if tok, terr := store.CreateToken(auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
+		link := baseURL(c, cfgBaseURL) + "/verify-email?token=" + tok
+		notify(mlr, email, "JackUI — confirme seu e-mail", "Confirme seu e-mail para concluir o cadastro:", link)
 	}
 }
 

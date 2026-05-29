@@ -77,39 +77,8 @@ func UpdateConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 			return
 		}
 
-		// Update config
-		cfg.Port = req.Port
-		cfg.Jackett.URL = req.Jackett.URL
-		// Empty API key means "keep current" — the GET never returns the key, so
-		// the UI sends blank unless the admin is explicitly changing it.
-		if req.Jackett.APIKey != "" {
-			cfg.Jackett.APIKey = req.Jackett.APIKey
-		}
-
-		newClients := make([]config.DownloadClient, 0, len(req.Clients))
-		for _, dc := range req.Clients {
-			// Preserve existing password if not provided
-			password := dc.Password
-			if password == "" {
-				for _, existing := range cfg.DownloadClients {
-					if existing.ID == dc.ID {
-						password = existing.Password
-						break
-					}
-				}
-			}
-
-			newClients = append(newClients, config.DownloadClient{
-				ID:       dc.ID,
-				Name:     dc.Name,
-				Type:     dc.Type,
-				URL:      dc.URL,
-				Username: dc.Username,
-				Password: password,
-				Default:  dc.Default,
-			})
-		}
-		cfg.DownloadClients = newClients
+		applyConfigUpdates(cfg, &req)
+		cfg.DownloadClients = mergeDownloadClients(cfg.DownloadClients, req.Clients)
 
 		if err := cfg.Save(configPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
@@ -118,6 +87,43 @@ func UpdateConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{"message": "config saved successfully"})
 	}
+}
+
+func applyConfigUpdates(cfg *config.Config, req *configUpdateRequest) {
+	cfg.Port = req.Port
+	cfg.Jackett.URL = req.Jackett.URL
+	if req.Jackett.APIKey != "" {
+		cfg.Jackett.APIKey = req.Jackett.APIKey
+	}
+}
+
+func mergeDownloadClients(existing []config.DownloadClient, reqClients []downloadClientResponse) []config.DownloadClient {
+	out := make([]config.DownloadClient, 0, len(reqClients))
+	for _, dc := range reqClients {
+		password := resolveClientPassword(dc.Password, dc.ID, existing)
+		out = append(out, config.DownloadClient{
+			ID:       dc.ID,
+			Name:     dc.Name,
+			Type:     dc.Type,
+			URL:      dc.URL,
+			Username: dc.Username,
+			Password: password,
+			Default:  dc.Default,
+		})
+	}
+	return out
+}
+
+func resolveClientPassword(password, id string, existing []config.DownloadClient) string {
+	if password != "" {
+		return password
+	}
+	for _, e := range existing {
+		if e.ID == id {
+			return e.Password
+		}
+	}
+	return ""
 }
 
 // TestJackett handles POST /api/config/test

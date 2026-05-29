@@ -55,6 +55,10 @@ type Worker struct {
 	ntfyBaseURL  string // default https://ntfy.sh
 	ntfyTopic    string // global default topic; per-user override via store
 	ntfyClient   *http.Client
+
+	// resolveUsername returns the username for a given userID (for per-user subdir).
+	// nil or returning "" disables per-user isolation (legacy flat dir).
+	resolveUsername func(userID int) string
 }
 
 type trackedDL struct {
@@ -72,7 +76,7 @@ type trackedDL struct {
 // where completed files are moved (empty string keeps the legacy behaviour of
 // leaving files in DataDir protected from eviction). ntfyBaseURL and ntfyTopic
 // configure push notifications; pass empty strings to disable.
-func NewWorker(store *Store, s *streamer.Streamer, dataDir, downloadDir string, interval time.Duration, ntfyBaseURL, ntfyTopic string) *Worker {
+func NewWorker(store *Store, s *streamer.Streamer, dataDir, downloadDir string, interval time.Duration, ntfyBaseURL, ntfyTopic string, resolveUsername ...func(int) string) *Worker {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
@@ -92,6 +96,9 @@ func NewWorker(store *Store, s *streamer.Streamer, dataDir, downloadDir string, 
 		ntfyBaseURL:  ntfyBaseURL,
 		ntfyTopic:    ntfyTopic,
 		ntfyClient:   &http.Client{Timeout: 10 * time.Second},
+	}
+	if len(resolveUsername) > 0 && resolveUsername[0] != nil {
+		w.resolveUsername = resolveUsername[0]
 	}
 	// Pre-register eviction protection for active downloads. Completed
 	// downloads are only protected when no dedicated downloadDir is configured
@@ -272,10 +279,17 @@ func (w *Worker) moveCompletedFile(d Download, td *trackedDL) {
 	if w.downloadDir == "" {
 		return
 	}
+	// Per-user isolation: move to downloadDir/{username}/ when a resolver is set.
+	destDir := w.downloadDir
+	if w.resolveUsername != nil {
+		if username := w.resolveUsername(d.UserID); username != "" {
+			destDir = filepath.Join(w.downloadDir, username)
+		}
+	}
 	src := filepath.Join(w.dataDir, td.file.Path())
-	dst := filepath.Join(w.downloadDir, filepath.Base(td.file.Path()))
-	if mkErr := os.MkdirAll(w.downloadDir, 0755); mkErr != nil {
-		log.Printf("downloads: mkdir %s: %v", w.downloadDir, mkErr)
+	dst := filepath.Join(destDir, filepath.Base(td.file.Path()))
+	if mkErr := os.MkdirAll(destDir, 0755); mkErr != nil {
+		log.Printf("downloads: mkdir %s: %v", destDir, mkErr)
 		return
 	}
 	if mvErr := moveFile(src, dst); mvErr != nil {
