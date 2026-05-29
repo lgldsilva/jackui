@@ -1,45 +1,45 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import api, { passkeyAuthenticate } from '../api/client'
 import { load, save, remove } from '../lib/storage'
 
 export type Role = 'admin' | 'user' | 'guest'
 
 export type AuthUser = {
-  id: number
-  username: string
-  email?: string
-  role: Role
-  status?: 'active' | 'pending' | 'disabled'
-  emailVerified?: boolean
-  mfaEnabled?: boolean
-  createdAt: string
+  readonly id: number
+  readonly username: string
+  readonly email?: string
+  readonly role: Role
+  readonly status?: 'active' | 'pending' | 'disabled'
+  readonly emailVerified?: boolean
+  readonly mfaEnabled?: boolean
+  readonly createdAt: string
 }
 
 type TokenBundle = {
-  access: string
-  refresh: string
-  expiresAt: string
-  user: AuthUser
+  readonly access: string
+  readonly refresh: string
+  readonly expiresAt: string
+  readonly user: AuthUser
 }
 
 type AuthContextValue = {
-  user: AuthUser | null
-  loading: boolean
-  enabled: boolean // server has auth turned on
-  isAdmin: boolean
-  isGuest: boolean
-  isAuthenticated: boolean
-  login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
-  loginWithPasskey: (username: string, remember: boolean) => Promise<void>
-  logout: () => Promise<void>
-  refresh: () => Promise<void>
+  readonly user: AuthUser | null
+  readonly loading: boolean
+  readonly enabled: boolean // server has auth turned on
+  readonly isAdmin: boolean
+  readonly isGuest: boolean
+  readonly isAuthenticated: boolean
+  readonly login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
+  readonly loginWithPasskey: (username: string, remember: boolean) => Promise<void>
+  readonly logout: () => Promise<void>
+  readonly refresh: () => Promise<void>
 }
 
 const Ctx = createContext<AuthContextValue | null>(null)
 const ACCESS_KEY = 'auth.access'
 const REFRESH_KEY = 'auth.refresh'
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [enabled, setEnabled] = useState(true) // assume enabled until config arrives
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await logout()
           }
         }
-        return Promise.reject(error)
+        throw error
       },
     )
     return () => api.interceptors.response.eject(respInt)
@@ -142,19 +142,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => { await refreshTokens() }, [])
 
+  const ctx = useMemo(() => ({
+    user,
+    loading,
+    enabled,
+    isAdmin: !enabled || user?.role === 'admin', // when auth disabled, treat as admin
+    isGuest: enabled && user?.role === 'guest',
+    isAuthenticated: !enabled || user !== null,
+    login,
+    loginWithPasskey,
+    logout,
+    refresh,
+  }), [user, loading, enabled, login, loginWithPasskey, logout, refresh])
+
   return (
-    <Ctx.Provider value={{
-      user,
-      loading,
-      enabled,
-      isAdmin: !enabled || user?.role === 'admin', // when auth disabled, treat as admin
-      isGuest: enabled && user?.role === 'guest',
-      isAuthenticated: !enabled || user !== null,
-      login,
-      loginWithPasskey,
-      logout,
-      refresh,
-    }}>
+    <Ctx.Provider value={ctx}>
       {children}
     </Ctx.Provider>
   )

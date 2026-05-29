@@ -55,7 +55,7 @@ export default function NavHeader({ rightExtra }: Props) {
   // each page's existing layout shifts right without per-page edits. Mobile
   // uses the drawer (overlay), so no padding there.
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 768px)')
+    const mq = globalThis.matchMedia('(min-width: 768px)')
     const apply = () => {
       let padding = ''
       if (mq.matches) {

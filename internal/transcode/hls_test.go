@@ -791,3 +791,11 @@ func TestSourceServerHonoursOffsetUnderConcurrentRanges(t *testing.T) {
 		}
 	}
 }
+
+func TestPeek_NilManager(t *testing.T) {
+	var m *HLSSessionManager
+	_, err := m.Peek("key")
+	if err == nil {
+		t.Error("expected error for nil manager")
+	}
+}

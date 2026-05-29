@@ -54,7 +54,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 		// deleted when the user ends their incognito session.
 		if lib != nil {
 			userID, _, _ := auth.UserIDFromCtx(c)
-			_, _ = lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "", middleware.IsIncognito(c))
+			_, _ = lib.Upsert(library.UpsertInput{UserID: userID, InfoHash: info.InfoHash, Magnet: req.Magnet, Name: info.Name, PrimaryFile: info.PrimaryFile, TotalSize: info.TotalSize, Incognito: middleware.IsIncognito(c)})
 		}
 		c.JSON(http.StatusOK, info)
 	}
@@ -221,7 +221,7 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 func resolveTorrentInfo(s *streamer.Streamer, ctx context.Context, h metainfo.Hash) (*streamer.TorrentInfo, error) {
 	info, err := s.Get(h)
 	if err != nil {
-		bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
+		bareMagnet := MagnetPrefix + h.HexString()
 		got, addErr := s.Add(ctx, bareMagnet)
 		if addErr != nil {
 			return nil, err

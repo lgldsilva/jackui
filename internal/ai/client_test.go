@@ -142,6 +142,14 @@ func TestLooksModelNotFound(t *testing.T) {
 // ── Property-based tests for error detection ──────────────────────────────────
 
 func TestLooksPaymentErrorProperties(t *testing.T) {
+	testPaymentError402or403(t)
+	testPaymentErrorNot2xx5xx(t)
+	testPaymentErrorKnownMessages(t)
+	testPaymentErrorNormalMessages(t)
+}
+
+func testPaymentError402or403(t *testing.T) {
+	t.Helper()
 	t.Run("402 e 403 sempre sao pagamento", func(t *testing.T) {
 		bodies := []string{"", "ok", "forbidden", "payment required", "{}", "random text"}
 		for _, b := range bodies {
@@ -153,7 +161,10 @@ func TestLooksPaymentErrorProperties(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPaymentErrorNot2xx5xx(t *testing.T) {
+	t.Helper()
 	t.Run("2xx e 5xx (exceto 402/403) nunca sao pagamento", func(t *testing.T) {
 		for code := 200; code < 600; code++ {
 			if code == 402 || code == 403 {
@@ -164,7 +175,10 @@ func TestLooksPaymentErrorProperties(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPaymentErrorKnownMessages(t *testing.T) {
+	t.Helper()
 	t.Run("mensagens de erro conhecidas", func(t *testing.T) {
 		cases := []string{
 			`{"error":"insufficient_quota"}`,
@@ -184,7 +198,10 @@ func TestLooksPaymentErrorProperties(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPaymentErrorNormalMessages(t *testing.T) {
+	t.Helper()
 	t.Run("mensagens normais nao sao pagamento", func(t *testing.T) {
 		cases := []string{
 			`{"choices":[{"message":{"content":"ok"}}]}`,
@@ -204,6 +221,13 @@ func TestLooksPaymentErrorProperties(t *testing.T) {
 }
 
 func TestLooksModelNotFoundProperties(t *testing.T) {
+	testModelNotFound404(t)
+	testModelNotFound2xx(t)
+	testModelNotFoundMessages(t)
+}
+
+func testModelNotFound404(t *testing.T) {
+	t.Helper()
 	t.Run("404 sempre e model-not-found", func(t *testing.T) {
 		bodies := []string{"", "not found", "{}", "anything", "model xyz not found"}
 		for _, b := range bodies {
@@ -212,7 +236,10 @@ func TestLooksModelNotFoundProperties(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testModelNotFound2xx(t *testing.T) {
+	t.Helper()
 	t.Run("2xx nunca e model-not-found", func(t *testing.T) {
 		bodies := []string{"", "ok", `{"choices":[{"message":{"content":"hello"}}]}`, "200 OK success"}
 		for code := 200; code < 300; code++ {
@@ -223,7 +250,10 @@ func TestLooksModelNotFoundProperties(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testModelNotFoundMessages(t *testing.T) {
+	t.Helper()
 	t.Run("mensagens de modelo inexistente", func(t *testing.T) {
 		cases := []string{
 			`model_not_found`,
@@ -373,6 +403,17 @@ func TestExtractRenameMetadata(t *testing.T) {
 }
 
 func TestParseRenameJSON(t *testing.T) {
+	testParseRenameJSONFullMovie(t)
+	testParseRenameJSONTVEpisode(t)
+	testParseRenameJSONCodeFences(t)
+	testParseRenameJSONUnknownKind(t)
+	testParseRenameJSONEmptyTitle(t)
+	testParseRenameJSONFallback(t)
+	testParseRenameJSONGarbage(t)
+}
+
+func testParseRenameJSONFullMovie(t *testing.T) {
+	t.Helper()
 	t.Run("full movie metadata", func(t *testing.T) {
 		res, err := parseRenameJSON(`{"title":"Inception","year":2010,"kind":"movie","season":0,"episode":0,"episode_title":""}`)
 		if err != nil {
@@ -382,7 +423,10 @@ func TestParseRenameJSON(t *testing.T) {
 			t.Fatalf("bad result: %+v", res)
 		}
 	})
+}
 
+func testParseRenameJSONTVEpisode(t *testing.T) {
+	t.Helper()
 	t.Run("tv episode metadata", func(t *testing.T) {
 		res, err := parseRenameJSON(`{"title":"Breaking Bad","year":2008,"kind":"tv","season":3,"episode":7}`)
 		if err != nil {
@@ -392,7 +436,10 @@ func TestParseRenameJSON(t *testing.T) {
 			t.Fatalf("bad result: %+v", res)
 		}
 	})
+}
 
+func testParseRenameJSONCodeFences(t *testing.T) {
+	t.Helper()
 	t.Run("code fences stripped", func(t *testing.T) {
 		res, err := parseRenameJSON("```\n{\"title\":\"Dune\",\"year\":2021}\n```")
 		if err != nil {
@@ -402,7 +449,10 @@ func TestParseRenameJSON(t *testing.T) {
 			t.Fatalf("title = %q", res.Title)
 		}
 	})
+}
 
+func testParseRenameJSONUnknownKind(t *testing.T) {
+	t.Helper()
 	t.Run("unknown kind falls back to movie", func(t *testing.T) {
 		res, err := parseRenameJSON(`{"title":"Test","year":0,"kind":"weird"}`)
 		if err != nil {
@@ -412,7 +462,10 @@ func TestParseRenameJSON(t *testing.T) {
 			t.Fatalf("expected movie fallback, got %q", res.Kind)
 		}
 	})
+}
 
+func testParseRenameJSONEmptyTitle(t *testing.T) {
+	t.Helper()
 	t.Run("empty title falls back to generic parse", func(t *testing.T) {
 		res, err := parseRenameJSON(`{"title":"","year":0}`)
 		if err != nil {
@@ -422,7 +475,10 @@ func TestParseRenameJSON(t *testing.T) {
 			t.Fatal("expected non-empty title via fallback")
 		}
 	})
+}
 
+func testParseRenameJSONFallback(t *testing.T) {
+	t.Helper()
 	t.Run("fallback to generic parse", func(t *testing.T) {
 		res, err := parseRenameJSON(`The Matrix`)
 		if err != nil {
@@ -432,7 +488,10 @@ func TestParseRenameJSON(t *testing.T) {
 			t.Fatalf("title = %q", res.Title)
 		}
 	})
+}
 
+func testParseRenameJSONGarbage(t *testing.T) {
+	t.Helper()
 	t.Run("garbage text returns error", func(t *testing.T) {
 		_, err := parseRenameJSON("this is not a title at all and is far too long to be one and contains no useful information whatsoever for the parser to use as a fallback")
 		if err == nil {

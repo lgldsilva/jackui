@@ -18,6 +18,7 @@ import (
 const (
 	pipe0        = "pipe:0"
 	pipe1        = "pipe:1"
+	ffBinary     = "ffmpeg"
 	ffHideBanner = "-hide_banner"
 	ffLogLevel   = "-loglevel"
 )
@@ -244,7 +245,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
 	// We're only producing a preview tooltip image — pixel-accuracy is overkill.
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
 		"-i", pi.input,
@@ -298,7 +299,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", pi.input,
 		"-map", "0:v",
@@ -362,7 +363,7 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		defer closeFn()
 	}
 
-	cmd := exec.CommandContext(ctx, "ffmpeg",
+	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", input,
 		"-map", fmt.Sprintf("0:%d", trackIdx),

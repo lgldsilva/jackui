@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 export function useScrollLock(active: boolean) {
   useEffect(() => {
     if (!active) return
-    const scrollY = window.scrollY
+    const scrollY = globalThis.scrollY
     const body = document.body
     const saved = {
       position: body.style.position,
@@ -25,7 +25,7 @@ export function useScrollLock(active: boolean) {
       body.style.top = saved.top
       body.style.width = saved.width
       body.style.overflow = saved.overflow
-      window.scrollTo(0, scrollY)
+      globalThis.scrollTo(0, scrollY)
     }
   }, [active])
 }

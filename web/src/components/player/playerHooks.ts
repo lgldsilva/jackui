@@ -17,12 +17,12 @@ type KeyboardShortcutsOpts = {
 export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }: KeyboardShortcutsOpts) {
   useEffect(() => {
     if (minimized) return
-    const onKey = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       const v = videoRef.current
       if (!v) return
       const tgt = e.target as HTMLElement | null
       if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v)) return
-      const dur = isFinite(v.duration) ? v.duration : Infinity
+      const dur = Number.isFinite(v.duration) ? v.duration : Infinity
       switch (e.key) {
         case ' ': e.preventDefault(); if (v.paused) v.play().catch(() => {}); else v.pause(); break
         case 'ArrowRight': e.preventDefault(); v.currentTime = Math.min(dur, v.currentTime + 10); break
@@ -33,8 +33,8 @@ export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }:
         case 'f': case 'F': requestFullscreen(); break
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', handleKeyDown)
+    return () => globalThis.removeEventListener('keydown', handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minimized])
 }

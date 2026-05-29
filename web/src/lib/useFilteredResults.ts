@@ -14,12 +14,12 @@ import { isPlayable } from './playable'
 export type SortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'date' | 'age'
 
 export type ResultFilters = {
-  minSeeders?: number
-  minLeechers?: number
-  maxBytes?: number
-  trackerFilter?: string
-  titleFilter?: string
-  onlyPlayable?: boolean
+  readonly minSeeders?: number
+  readonly minLeechers?: number
+  readonly maxBytes?: number
+  readonly trackerFilter?: string
+  readonly titleFilter?: string
+  readonly onlyPlayable?: boolean
 }
 
 export type UseFilteredResultsOpts = ResultFilters & {
@@ -28,8 +28,7 @@ export type UseFilteredResultsOpts = ResultFilters & {
 }
 
 // Aplica groupByInfoHash + filtros + sort. Retorna também groupedCount pra
-// distinguir "reduzido por filtro" de "reduzido por dedup". TODO(onda 6):
-// quando o backend agrupar no SSE, remover o groupByInfoHash daqui.
+// distinguir "reduzido por filtro" de "reduzido por dedup".
 export function useFilteredResults<T extends SearchResult>(
   input: T[],
   opts: UseFilteredResultsOpts,

@@ -22,17 +22,17 @@ type Props = {
 
 
 type TorrentItem = {
-  id: string
-  name: string
-  file?: File
-  magnet?: string
-  infoHash?: string
-  loading: boolean
-  error?: string
-  totalSize?: number
-  files?: StreamFile[]
-  selectedFiles: Set<number>
-  expanded?: boolean
+  readonly id: string
+  readonly name: string
+  readonly file?: File
+  readonly magnet?: string
+  readonly infoHash?: string
+  readonly loading: boolean
+  readonly error?: string
+  readonly totalSize?: number
+  readonly files?: StreamFile[]
+  readonly selectedFiles: Set<number>
+  readonly expanded?: boolean
 }
 
 const KEY_CLIENT = 'lastClientId'
@@ -60,6 +60,63 @@ function fileIcon(f: StreamFile) {
     return <FileAudio className="w-4 h-4 text-purple-400 flex-shrink-0" />
   }
   return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+}
+
+function renderItemStatus(item: TorrentItem) {
+  if (item.loading) {
+    return <span className="text-xs text-gray-500 flex items-center gap-1.5">
+      <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+      Buscando metadados...
+    </span>
+  }
+  if (item.error) {
+    return <span className="text-xs text-red-400 flex items-center gap-1.5">
+      <AlertCircle className="w-3.5 h-3.5" />
+      {item.error}
+    </span>
+  }
+  return <span className="text-xs text-gray-400 flex items-center gap-1.5">
+    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+    {formatBytes(item.totalSize || 0)}
+    {item.files && <>
+      <span className="text-gray-600">•</span>
+      <span>{item.files.length} arquivos ({item.selectedFiles.size} selecionados)</span>
+    </>}
+  </span>
+}
+
+async function confirmDownloads(
+  readyItems: TorrentItem[],
+  selectedClientId: string,
+  savePath: string,
+): Promise<number> {
+  let successCount = 0
+  for (const item of readyItems) {
+    const infoHash = item.infoHash
+    const magnet = item.magnet || (infoHash ? `magnet:?xt=urn:btih:${infoHash}` : '')
+    if (!infoHash || !magnet) continue
+    if (selectedClientId === INTERNAL_ID) {
+      if ((item.files?.length ?? 0) > 0) {
+        const picks = (item.files ?? []).filter(f => item.selectedFiles.has(f.index))
+        await Promise.all(picks.map(f => downloadCreate({ infoHash, fileIndex: f.index, magnet, name: item.name, filePath: f.path, fileSize: f.size })))
+      } else {
+        await downloadCreate({ infoHash, fileIndex: 0, magnet, name: item.name, filePath: '', fileSize: 0 })
+      }
+    } else {
+      await downloadTorrent(selectedClientId, magnet, '', savePath || undefined)
+    }
+    successCount++
+  }
+  return successCount
+}
+
+function notifyAdded(readyItems: TorrentItem[], onAdded: (r: SearchResult) => void, onClose: () => void) {
+  if (readyItems.length === 1) {
+    const first = readyItems[0]
+    onAdded({ title: first.name, tracker: '', categoryId: 0, category: '', size: first.totalSize || 0, seeders: 0, leechers: 0, age: '', magnetUri: first.magnet || `magnet:?xt=urn:btih:${first.infoHash}`, link: '', infoHash: first.infoHash || '', publishDate: '' })
+  } else {
+    setTimeout(() => onClose(), 1200)
+  }
 }
 
 export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles }: Props) {
@@ -217,10 +274,10 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     setView('configure')
     const newItems: TorrentItem[] = lines.map(line => {
       // Tenta extrair um hash ou nome amigável do magnet
-      const btihMatch = /btih:([a-fA-F0-9]{40})/i.exec(line)
+      const btihMatch = /btih:([a-f0-9]{40})/i.exec(line)
       const nameMatch = /dn=([^&]+)/i.exec(line)
       const hash = btihMatch ? btihMatch[1].toLowerCase() : ''
-      const name = nameMatch ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' ')) : `Magnet (hash: ${hash || '?'})`
+      const name = nameMatch ? decodeURIComponent(nameMatch[1].replaceAll('+', ' ')) : `Magnet (hash: ${hash || '?'})`
 
       return {
         id: crypto.randomUUID(),
@@ -279,100 +336,19 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       setError('Nenhum torrent válido para baixar.')
       return
     }
-
-    // Valida arquivos selecionados para JackUI
-    if (selectedClientId === INTERNAL_ID) {
-      const anyEmpty = readyItems.some(item => (item.files?.length ?? 0) > 0 && item.selectedFiles.size === 0)
-      if (anyEmpty) {
-        setError('Por favor, selecione ao menos um arquivo para cada torrent ou remova-o da lista.')
-        return
-      }
+    if (selectedClientId === INTERNAL_ID && readyItems.some(item => (item.files?.length ?? 0) > 0 && item.selectedFiles.size === 0)) {
+      setError('Por favor, selecione ao menos um arquivo para cada torrent ou remova-o da lista.')
+      return
     }
 
     setLoading(true)
     setError('')
-    
     try {
-      let successCount = 0
-      
-      for (const item of readyItems) {
-        const infoHash = item.infoHash
-        const magnet = item.magnet || (infoHash ? `magnet:?xt=urn:btih:${infoHash}` : '')
-        
-        if (!infoHash || !magnet) continue
-
-        if (selectedClientId === INTERNAL_ID) {
-          // Destino interno: cria rows na fila
-          if ((item.files?.length ?? 0) > 0) {
-            const picks = (item.files ?? []).filter(f => item.selectedFiles.has(f.index))
-            await Promise.all(picks.map(f =>
-              downloadCreate({
-                infoHash,
-                fileIndex: f.index,
-                magnet,
-                name: item.name,
-                filePath: f.path,
-                fileSize: f.size,
-              })
-            ))
-            successCount++
-          } else {
-            // Fallback se não resolveu arquivos ainda
-            await downloadCreate({
-              infoHash,
-              fileIndex: 0,
-              magnet,
-              name: item.name,
-              filePath: '',
-              fileSize: 0
-            })
-            successCount++
-          }
-        } else {
-          // Cliente externo
-          await downloadTorrent(
-            selectedClientId,
-            magnet,
-            '', // torrentUrl
-            savePath || undefined
-          )
-          successCount++
-        }
-      }
-
-      // Salva preferências
+      await confirmDownloads(readyItems, selectedClientId, savePath)
       save(KEY_CLIENT, selectedClientId)
-      if (savePath.trim()) {
-        save(KEY_PATH, savePath.trim())
-        pushMRU(KEY_RECENT_PATHS, savePath.trim())
-      }
-
+      if (savePath.trim()) { save(KEY_PATH, savePath.trim()); pushMRU(KEY_RECENT_PATHS, savePath.trim()) }
       setSuccess(true)
-      
-      // Cria um SearchResult sintético para notificar a página inicial (compatibilidade)
-      if (readyItems.length === 1) {
-        const first = readyItems[0]
-        onAdded({
-          title: first.name,
-          tracker: '',
-          categoryId: 0,
-          category: '',
-          size: first.totalSize || 0,
-          seeders: 0,
-          leechers: 0,
-          age: '',
-          magnetUri: first.magnet || `magnet:?xt=urn:btih:${first.infoHash}`,
-          link: '',
-          infoHash: first.infoHash || '',
-          publishDate: ''
-        })
-      } else {
-        // Para múltiplos, apenas fecha e atualiza
-        setTimeout(() => {
-          onClose()
-        }, 1200)
-      }
-
+      notifyAdded(readyItems, onAdded, onClose)
     } catch (err: any) {
       setError(err.message || 'Erro ao iniciar os downloads.')
     } finally {
@@ -390,9 +366,9 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     <dialog
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onFocus={() => {}}
+      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
       onClose={onClose}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -424,14 +400,14 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
           {view === 'drop_paste' ? (
             <>
               {/* Drag & Drop Area */}
-              <div
+              <button
+                type="button"
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
-                role="button" tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
                 className={`
                   border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
                   ${dragActive 
@@ -453,7 +429,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   <p className="text-sm font-medium text-gray-200">Arraste e solte um ou mais arquivos .torrent aqui</p>
                   <p className="text-xs text-gray-500 mt-1">ou clique para navegar no seu computador</p>
                 </div>
-              </div>
+              </button>
 
               <div className="relative flex py-2 items-center">
                 <div className="flex-grow border-t border-gray-700"></div>
@@ -480,10 +456,11 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               {/* Destination inputs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-900/60 p-4 rounded-xl border border-gray-700/50">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
+                  <label htmlFor="download-dest" className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
                     Destino do download
                   </label>
                   <select
+                    id="download-dest"
                     value={selectedClientId}
                     onChange={(e) => setSelectedClientId(e.target.value)}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
@@ -505,11 +482,12 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 </div>
 
                 <div className={`relative ${selectedClientId === INTERNAL_ID ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
+                  <label htmlFor="save-path" className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
                     Pasta de Destino <span className="text-gray-500 font-normal">(opcional)</span>
                   </label>
                   <div className="relative">
                     <input
+                      id="save-path"
                       ref={pathInputRef}
                       type="text"
                       value={savePath}
@@ -570,28 +548,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                             {item.name}
                           </h4>
                           <div className="flex items-center gap-2.5 mt-1">
-                            {item.loading ? (
-                              <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                                <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
-                                Buscando metadados...
-                              </span>
-                            ) : item.error ? (
-                              <span className="text-xs text-red-400 flex items-center gap-1.5">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {item.error}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400 flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                                {formatBytes(item.totalSize || 0)}
-                                {item.files && (
-                                  <>
-                                    <span className="text-gray-600">•</span>
-                                    <span>{item.files.length} arquivos ({item.selectedFiles.size} selecionados)</span>
-                                  </>
-                                )}
-                              </span>
-                            )}
+                            {renderItemStatus(item)}
                           </div>
                         </div>
 

@@ -25,10 +25,14 @@ const (
 	backendAppleVT  = "apple-vt"
 	backendCPU      = "cpu"
 	hwDeviceVAAPI   = "vaapi=va:/dev/dri/renderD128"
-	ffHideBanner    = "-hide_banner"
-	ffLogLevel      = "-loglevel"
-	pipe0           = "pipe:0"
-	pipe1           = "pipe:1"
+	ffBinary           = "ffmpeg"
+	ffHideBanner       = "-hide_banner"
+	ffLogLevel         = "-loglevel"
+	ffHWAccel          = "-hwaccel"
+	ffHWAccelOutFormat = "-hwaccel_output_format"
+	ffPreset           = "-preset"
+	pipe0              = "pipe:0"
+	pipe1              = "pipe:1"
 )
 
 // Encoder identifies one transcoding backend.

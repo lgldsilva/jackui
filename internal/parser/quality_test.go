@@ -30,30 +30,34 @@ func TestParse(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		got := Parse(tc.title)
-		if got.Resolution != tc.want.Resolution {
-			t.Errorf("[%s] resolution: got %q, want %q", tc.title, got.Resolution, tc.want.Resolution)
-		}
-		if got.Codec != tc.want.Codec {
-			t.Errorf("[%s] codec: got %q, want %q", tc.title, got.Codec, tc.want.Codec)
-		}
-		if got.Source != tc.want.Source {
-			t.Errorf("[%s] source: got %q, want %q", tc.title, got.Source, tc.want.Source)
-		}
-		if got.Group != tc.want.Group {
-			t.Errorf("[%s] group: got %q, want %q", tc.title, got.Group, tc.want.Group)
-		}
-		if got.Year != tc.want.Year {
-			t.Errorf("[%s] year: got %d, want %d", tc.title, got.Year, tc.want.Year)
-		}
-		if got.Season != tc.want.Season || got.Episode != tc.want.Episode {
-			t.Errorf("[%s] S/E: got S%dE%d, want S%dE%d", tc.title, got.Season, got.Episode, tc.want.Season, tc.want.Episode)
-		}
-		if got.HDR != tc.want.HDR {
-			t.Errorf("[%s] HDR: got %v, want %v", tc.title, got.HDR, tc.want.HDR)
-		}
-		if got.DolbyVis != tc.want.DolbyVis {
-			t.Errorf("[%s] DolbyVis: got %v, want %v", tc.title, got.DolbyVis, tc.want.DolbyVis)
-		}
+		assertQualityEqual(t, tc.title, Parse(tc.title), tc.want)
+	}
+}
+
+func assertQualityEqual(t *testing.T, title string, got, want Quality) {
+	t.Helper()
+	if got.Resolution != want.Resolution {
+		t.Errorf("[%s] resolution: got %q, want %q", title, got.Resolution, want.Resolution)
+	}
+	if got.Codec != want.Codec {
+		t.Errorf("[%s] codec: got %q, want %q", title, got.Codec, want.Codec)
+	}
+	if got.Source != want.Source {
+		t.Errorf("[%s] source: got %q, want %q", title, got.Source, want.Source)
+	}
+	if got.Group != want.Group {
+		t.Errorf("[%s] group: got %q, want %q", title, got.Group, want.Group)
+	}
+	if got.Year != want.Year {
+		t.Errorf("[%s] year: got %d, want %d", title, got.Year, want.Year)
+	}
+	if got.Season != want.Season || got.Episode != want.Episode {
+		t.Errorf("[%s] S/E: got S%dE%d, want S%dE%d", title, got.Season, got.Episode, want.Season, want.Episode)
+	}
+	if got.HDR != want.HDR {
+		t.Errorf("[%s] HDR: got %v, want %v", title, got.HDR, want.HDR)
+	}
+	if got.DolbyVis != want.DolbyVis {
+		t.Errorf("[%s] DolbyVis: got %v, want %v", title, got.DolbyVis, want.DolbyVis)
 	}
 }

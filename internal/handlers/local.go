@@ -104,25 +104,29 @@ func LocalList(b *local.Browser) gin.HandlerFunc {
 
 		entries, err := b.List(mount, scopedPath)
 		if err != nil {
-			if isTraversalErr(err) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			if os.IsNotExist(err) {
-				// UserSubpath dir doesn't exist yet → return empty list (not 404)
-				if b.IsUserSubpath(mount) {
-					c.JSON(http.StatusOK, []local.Entry{})
-					return
-				}
-				c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			listHandleError(b, c, err)
 			return
 		}
 		entries = b.StripUserScope(mount, username, entries)
 		c.JSON(http.StatusOK, entries)
 	}
+}
+
+func listHandleError(b *local.Browser, c *gin.Context, err error) {
+	if isTraversalErr(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !os.IsNotExist(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// UserSubpath dir doesn't exist yet → return empty list (not 404)
+	if b.IsUserSubpath(c.Query("mount")) {
+		c.JSON(http.StatusOK, []local.Entry{})
+		return
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
 }
 
 // LocalFile handles GET /api/local/file?mount=NAME&path=REL/FILE
@@ -255,7 +259,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	}
 	var out []byte
 	for _, s := range seeks {
-		cmd := exec.CommandContext(ctx, "ffmpeg",
+		cmd := exec.CommandContext(ctx, ffBinary,
 			ffHideBanner, ffLogLevel, "error",
 			"-ss", strconv.Itoa(s),
 			"-i", abs,
@@ -436,46 +440,52 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
-		// Same validation path as the preview (extractLocalPromoteReq +
-		// resolveLocalPaths) so what's previewed is exactly what's moved.
 		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
 		if !ok {
 			return
 		}
-		subdir, err := sanitizeSubdir(req.TargetSubdir)
+		targetDir, err := localPromoteTargetDir(base, req.TargetSubdir)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		targetDir := base
-		if subdir != "" {
-			targetDir = filepath.Join(base, subdir)
-		}
-		// Batch (req.Paths) or single (req.Path) — resolveLocalPaths handles both
-		// and applies the user scope. Move every entry; a failure on one doesn't
-		// abort the rest. The response carries the real moved/failed counts so the
-		// UI can't report N moved when only some succeeded.
 		paths := resolveLocalPaths(b, req, scopeUser(c))
 		if len(paths) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
 		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base}
-		moved := 0
-		errs := make([]gin.H, 0)
-		for _, scopedRel := range paths {
-			if e := promoteOnePath(b, deps, req.Mount, scopedRel, targetDir); e != nil {
-				errs = append(errs, e)
-			} else {
-				moved++
-			}
-		}
+		moved, errs := execPromoteMoves(b, deps, req.Mount, paths, targetDir)
 		if moved == 0 {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"moved": 0, "failed": len(errs), "errors": errs})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"moved": moved, "failed": len(errs), "errors": errs})
 	}
+}
+
+func localPromoteTargetDir(base, subdirStr string) (string, error) {
+	subdir, err := sanitizeSubdir(subdirStr)
+	if err != nil {
+		return "", err
+	}
+	if subdir == "" {
+		return base, nil
+	}
+	return filepath.Join(base, subdir), nil
+}
+
+func execPromoteMoves(b *local.Browser, deps *promoteDstDeps, mount string, paths []string, targetDir string) (int, []gin.H) {
+	moved := 0
+	errs := make([]gin.H, 0)
+	for _, scopedRel := range paths {
+		if e := promoteOnePath(b, deps, mount, scopedRel, targetDir); e != nil {
+			errs = append(errs, e)
+		} else {
+			moved++
+		}
+	}
+	return moved, errs
 }
 
 // promoteOnePath moves one already-scoped relative path into targetDir, applying
