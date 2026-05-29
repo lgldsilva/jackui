@@ -2,6 +2,7 @@ package local
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -150,6 +151,76 @@ func (b *Browser) ResolvePath(mountName, relPath string) (string, error) {
 	}
 
 	return abs, nil
+}
+
+// Walk recursively lists all files (not dirs) under relPath inside the given mount.
+// If mediaOnly is true, only files with a playable extension are returned.
+// Paths in each Entry are relative to the mount root — same format as List.
+func (b *Browser) Walk(mountName, relPath string, mediaOnly bool) ([]Entry, error) {
+	abs, err := b.ResolvePath(mountName, relPath)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if !stat.IsDir() {
+		return nil, fmt.Errorf("not a directory")
+	}
+
+	mountAbs, err := filepath.Abs(b.findMountPath(mountName))
+	if err != nil {
+		mountAbs = abs
+	}
+
+	var out []Entry
+	err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			// Skip hidden dirs
+			if strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		if mediaOnly && !IsPlayable(d.Name()) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		// Build path relative to mount root
+		rel, err := filepath.Rel(mountAbs, path)
+		if err != nil {
+			rel = path
+		}
+		out = append(out, Entry{
+			Name:       d.Name(),
+			Path:       filepath.ToSlash(rel),
+			IsDir:      false,
+			Size:       info.Size(),
+			ModTime:    info.ModTime(),
+			IsPlayable: IsPlayable(d.Name()),
+		})
+		return nil
+	})
+	return out, err
+}
+
+// findMountPath returns the root path of a named mount (or empty string).
+func (b *Browser) findMountPath(name string) string {
+	m, ok := b.findMount(name)
+	if !ok {
+		return ""
+	}
+	return m.Path
 }
 
 // List returns directory entries at relPath inside the given mount.

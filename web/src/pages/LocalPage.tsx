@@ -11,12 +11,16 @@ import {
   ArrowUp,
   Trash2,
   ArrowUpCircle,
+  FolderSync,
+  FolderInput,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
 import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import LocalPromoteModal from '../components/LocalPromoteModal'
+import ReclassifyFolderModal from '../components/ReclassifyFolderModal'
+import MoveFolderModal from '../components/MoveFolderModal'
 import {
   LocalEntry,
   LocalMount,
@@ -145,8 +149,10 @@ export default function LocalPage() {
   const [promoteItem, setPromoteItem] = useState<LocalEntry | null>(null)
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<LocalEntry | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
+  const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
 
-  const { isGuest } = useAuth()
+  const { isGuest, isAdmin } = useAuth()
   const canManipulate = !isGuest && activeMount.toLowerCase() === 'meus downloads'
 
   // Folders always show (so navigation never gets filtered away); the kind
@@ -384,29 +390,45 @@ export default function LocalPage() {
                       </span>
                     </button>
 
-                    {/* Ações rápidas restritas ao mount de downloads pessoais */}
-                    {canManipulate && (
+                    {/* Ações rápidas */}
+                    {(canManipulate || isAdmin) && (
                       <div className="flex items-center gap-1.5 px-4 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        <button
-                          onClick={(evt) => {
-                            evt.stopPropagation()
-                            setPromoteItem(e)
-                          }}
-                          title="Promover para biblioteca compartilhada"
-                          className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
-                        >
-                          <ArrowUpCircle className="w-4.5 h-4.5" />
-                        </button>
-                        <button
-                          onClick={(evt) => {
-                            evt.stopPropagation()
-                            setDeleteConfirmItem(e)
-                          }}
-                          title="Apagar permanentemente"
-                          className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
-                        >
-                          <Trash2 className="w-4.5 h-4.5" />
-                        </button>
+                        {canManipulate && (
+                          <>
+                            <button
+                              onClick={(evt) => { evt.stopPropagation(); setPromoteItem(e) }}
+                              title="Promover para biblioteca compartilhada"
+                              className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
+                            >
+                              <ArrowUpCircle className="w-4.5 h-4.5" />
+                            </button>
+                            <button
+                              onClick={(evt) => { evt.stopPropagation(); setDeleteConfirmItem(e) }}
+                              title="Apagar permanentemente"
+                              className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
+                            >
+                              <Trash2 className="w-4.5 h-4.5" />
+                            </button>
+                          </>
+                        )}
+                        {isAdmin && e.isDir && (
+                          <button
+                            onClick={(evt) => { evt.stopPropagation(); setReclassifyItem(e) }}
+                            title="Reclassificar pasta via IA (Plex)"
+                            className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all"
+                          >
+                            <FolderSync className="w-4.5 h-4.5" />
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            onClick={(evt) => { evt.stopPropagation(); setMoveItem(e) }}
+                            title="Mover para outro mount"
+                            className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
+                          >
+                            <FolderInput className="w-4.5 h-4.5" />
+                          </button>
+                        )}
                       </div>
                     )}
                   </li>
@@ -452,6 +474,22 @@ export default function LocalPage() {
             entry={promoteItem}
             onClose={() => setPromoteItem(null)}
             onPromoted={refresh}
+          />
+
+          {/* Modal de Reclassificação em lote via IA */}
+          <ReclassifyFolderModal
+            mount={activeMount}
+            entry={reclassifyItem}
+            onClose={() => setReclassifyItem(null)}
+            onDone={() => { setReclassifyItem(null); refresh() }}
+          />
+
+          {/* Modal de Mover entre mounts */}
+          <MoveFolderModal
+            mount={activeMount}
+            entry={moveItem}
+            onClose={() => setMoveItem(null)}
+            onMoved={() => { setMoveItem(null); refresh() }}
           />
         </section>
       </main>

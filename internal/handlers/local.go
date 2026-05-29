@@ -527,6 +527,109 @@ func previewItem(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClie
 	}
 }
 
+// LocalWalk handles GET /api/local/walk?mount=&path=&media_only=
+// Recursively lists all files under a directory in a mount.
+func LocalWalk(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		path := c.Query("path")
+		if mount == "" || path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
+		mediaOnly := c.Query("media_only") == "true" || c.Query("media_only") == "1"
+		entries, err := b.Walk(mount, path, mediaOnly)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if entries == nil {
+			entries = []local.Entry{}
+		}
+		c.JSON(http.StatusOK, gin.H{"entries": entries, "total": len(entries)})
+	}
+}
+
+// LocalMoveEntry handles POST /api/local/move — moves a file or directory
+// from one mount to another (or within the same mount). Admin only.
+// Body: { srcMount, srcPath, dstMount, dstPath (target directory) }
+func LocalMoveEntry(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			SrcMount string `json:"srcMount"`
+			SrcPath  string `json:"srcPath"`
+			DstMount string `json:"dstMount"`
+			DstPath  string `json:"dstPath"` // target directory (entry name preserved)
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.SrcMount == "" || req.SrcPath == "" || req.DstMount == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "srcMount, srcPath and dstMount are required"})
+			return
+		}
+
+		claims, _ := auth.ClaimsFromCtx(c)
+		if claims == nil || claims.Role != auth.RoleAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "apenas admins podem mover entre mounts"})
+			return
+		}
+		if !checkMountAccess(b, c, req.SrcMount) {
+			return
+		}
+		if !checkMountAccess(b, c, req.DstMount) {
+			return
+		}
+
+		srcAbs, err := b.ResolvePath(req.SrcMount, req.SrcPath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "origem: " + err.Error()})
+			return
+		}
+		srcStat, err := os.Stat(srcAbs)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "origem não encontrada"})
+			return
+		}
+
+		// Destination: resolve target directory, then append the source basename.
+		dstDirRel := req.DstPath
+		if dstDirRel == "" {
+			dstDirRel = "."
+		}
+		dstDirAbs, err := b.ResolvePath(req.DstMount, dstDirRel)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "destino: " + err.Error()})
+			return
+		}
+		dstAbs := filepath.Join(dstDirAbs, filepath.Base(srcAbs))
+
+		// Refuse to move a directory into itself.
+		if srcStat.IsDir() && strings.HasPrefix(dstAbs+string(filepath.Separator), srcAbs+string(filepath.Separator)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "não é possível mover uma pasta para dentro de si mesma"})
+			return
+		}
+
+		if err := os.MkdirAll(dstDirAbs, 0o755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "criar diretório destino: " + err.Error()})
+			return
+		}
+		if err := movePath(srcAbs, dstAbs, srcStat); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "mover: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"moved": filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath))})
+	}
+}
+
 // movePath handles moving files and directories, even across different filesystems/mounts.
 func movePath(src, dst string, stat os.FileInfo) error {
 	// First try renaming. It works if on the same volume/filesystem.

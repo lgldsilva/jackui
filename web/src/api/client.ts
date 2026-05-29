@@ -1393,6 +1393,29 @@ export const localPromotePreview = async (
   return data
 }
 
+// localWalk recursively lists all files under a directory in a mount.
+// Returns entries with paths relative to the mount root (same format as localList).
+export const localWalk = async (
+  mount: string,
+  path: string,
+  mediaOnly = false,
+): Promise<{ entries: LocalEntry[]; total: number }> => {
+  const params = new URLSearchParams({ mount, path, media_only: mediaOnly ? '1' : '0' })
+  const { data } = await api.get<{ entries: LocalEntry[]; total: number }>(`/local/walk?${params}`)
+  return data
+}
+
+// localMove moves a file or directory from one mount to another (admin only).
+// dstPath is the target directory; the source name is preserved.
+export const localMove = async (
+  srcMount: string,
+  srcPath: string,
+  dstMount: string,
+  dstPath: string,
+): Promise<void> => {
+  await api.post('/local/move', { srcMount, srcPath, dstMount, dstPath })
+}
+
 // Direct file URL with auth token in query string (http.ServeFile handles Range
 // natively; <video src> can hit this directly).
 export const localFileURL = (mount: string, path: string): string => {
