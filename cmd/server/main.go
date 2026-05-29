@@ -277,13 +277,6 @@ func initStreamer(deps *appDeps) {
 	} else {
 		log.Printf("Warning: metadata cache init failed: %v", mcerr)
 	}
-	if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(deps.stateDir)); mcerr == nil {
-		s.SetMetadataCache(mc)
-		deps.addCleanup(func() { _ = mc.Close() })
-		log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(deps.stateDir))
-	} else {
-		log.Printf("Warning: metadata cache init failed: %v", mcerr)
-	}
 }
 
 func initLibraryStore(deps *appDeps) {
