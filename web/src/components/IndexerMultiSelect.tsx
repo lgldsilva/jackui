@@ -48,12 +48,77 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
     ? indexers.filter(i => i.name.toLowerCase().includes(query.toLowerCase()))
     : indexers
 
-  const label =
-    selected.length === 0
-      ? `Todos (${indexers.length || 0})`
-      : selected.length === 1
-        ? indexers.find(i => i.id === selected[0])?.name || selected[0]
-        : `${selected.length} indexers`
+  let label: string
+  if (selected.length === 0) {
+    label = `Todos (${indexers.length || 0})`
+  } else if (selected.length === 1) {
+    label = indexers.find(i => i.id === selected[0])?.name || selected[0]
+  } else {
+    label = `${selected.length} indexers`
+  }
+
+  let dropdownContent: React.ReactNode
+  if (filtered.length === 0) {
+    let emptyContent: React.ReactNode
+    if (query) {
+      emptyContent = (
+        <>
+          <p>Nenhum indexer bate com &quot;{query}&quot;</p>
+          <button
+            type="button"
+            onClick={() => {
+              const newId = query.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+              if (newId) {
+                toggle(newId)
+                setQuery('')
+              }
+            }}
+            className="mx-auto flex items-center gap-1 bg-green-500/25 hover:bg-green-500/35 text-green-300 border border-green-500/40 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" /> Adicionar &quot;{query.trim()}&quot;
+          </button>
+        </>
+      )
+    } else if (indexers.length === 0) {
+      emptyContent = (
+        <>
+          <p className="text-gray-400 font-medium">Jackett não expôs a lista de indexers.</p>
+          <p className="text-[11px] leading-relaxed text-gray-500">
+            A busca continuará usando <span className="text-green-400">todos</span> os indexers configurados.
+            Para filtrar, digite o nome do indexer acima para adicioná-lo ou faça uma busca comum para que o JackUI autodescubra seus indexadores a partir dos resultados!
+          </p>
+        </>
+      )
+    } else {
+      emptyContent = (
+        <p>Nenhum indexer configurado no Jackett</p>
+      )
+    }
+    dropdownContent = (
+      <div className="px-3 py-4 text-xs text-gray-500 text-center space-y-3">
+        {emptyContent}
+      </div>
+    )
+  } else {
+    dropdownContent = filtered.map(idx => {
+      const checked = selected.includes(idx.id)
+      return (
+        <button
+          key={idx.id}
+          onClick={() => toggle(idx.id)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 text-left"
+        >
+          <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${checked ? 'bg-green-500 border-green-400' : 'border-gray-600'}`}>
+            {checked && <Check className="w-3 h-3 text-gray-900" />}
+          </span>
+          <span className="truncate">{idx.name}</span>
+          {idx.language && (
+            <span className="text-[10px] text-gray-500 ml-auto flex-shrink-0">{idx.language}</span>
+          )}
+        </button>
+      )
+    })
+  }
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -87,58 +152,7 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
           </div>
 
           <div className="overflow-y-auto flex-1">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-gray-500 text-center space-y-3">
-                {query ? (
-                  <>
-                    <p>Nenhum indexer bate com "{query}"</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newId = query.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
-                        if (newId) {
-                          toggle(newId)
-                          setQuery('')
-                        }
-                      }}
-                      className="mx-auto flex items-center gap-1 bg-green-500/25 hover:bg-green-500/35 text-green-300 border border-green-500/40 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Adicionar "{query.trim()}"
-                    </button>
-                  </>
-                ) : indexers.length === 0 ? (
-                  <>
-                    <p className="text-gray-400 font-medium">Jackett não expôs a lista de indexers.</p>
-                    <p className="text-[11px] leading-relaxed text-gray-500">
-                      A busca continuará usando <span className="text-green-400">todos</span> os indexers configurados.
-                      Para filtrar, digite o nome do indexer acima para adicioná-lo ou faça uma busca comum para que o JackUI autodescubra seus indexadores a partir dos resultados!
-                    </p>
-                  </>
-                ) : (
-                  <p>Nenhum indexer configurado no Jackett</p>
-                )}
-              </div>
-
-            ) : (
-              filtered.map(idx => {
-                const checked = selected.includes(idx.id)
-                return (
-                  <button
-                    key={idx.id}
-                    onClick={() => toggle(idx.id)}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 text-left"
-                  >
-                    <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${checked ? 'bg-green-500 border-green-400' : 'border-gray-600'}`}>
-                      {checked && <Check className="w-3 h-3 text-gray-900" />}
-                    </span>
-                    <span className="truncate">{idx.name}</span>
-                    {idx.language && (
-                      <span className="text-[10px] text-gray-500 ml-auto flex-shrink-0">{idx.language}</span>
-                    )}
-                  </button>
-                )
-              })
-            )}
+            {dropdownContent}
           </div>
           <div className="p-2 border-t border-gray-700 flex justify-between items-center text-[11px] text-gray-500">
             <span>{selected.length === 0 ? 'Buscando em todos' : `${selected.length} selecionado(s)`}</span>

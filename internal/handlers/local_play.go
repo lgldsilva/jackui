@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/local"
 	"github.com/luizg/jackui/internal/transcode"
 )
@@ -159,22 +160,22 @@ func resolveLocalFile(b *local.Browser, c *gin.Context, mount, path string) (str
 	stat, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
 			return "", false
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return "", false
 	}
 	if stat.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path is a directory"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrPathIsDir})
 		return "", false
 	}
 	return abs, true
 }
 
 func localPlayToken(c *gin.Context) string {
-	if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		return strings.TrimPrefix(h, "Bearer ")
+	if h := c.Request.Header.Get(HeaderAuthorization); strings.HasPrefix(h, auth.BearerPrefix) {
+		return strings.TrimPrefix(h, auth.BearerPrefix)
 	}
 	return c.Query("token")
 }
@@ -314,7 +315,7 @@ func resolveLocalFileStat(b *local.Browser, mount, path string) (string, os.File
 		return "", nil, err
 	}
 	if stat.IsDir() {
-		return "", nil, fmt.Errorf("path is a directory")
+		return "", nil, fmt.Errorf(ErrPathIsDir)
 	}
 	return abs, stat, nil
 }
@@ -362,8 +363,8 @@ func segURLBuilder(mount, path, token string) func(name string) string {
 
 func serveLocalPlaylist(c *gin.Context, sess *transcode.HLSSession, segURL func(string) string) {
 	if sess.IsVOD() {
-		c.Header(CacheControl, "no-store")
-		c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
+		c.Header(CacheControl, CacheNoStore)
+		c.Data(http.StatusOK, MIMEMPEGURL,
 			buildLocalVODPlaylist(sess.DurationSec, segURL))
 		return
 	}
@@ -380,8 +381,8 @@ func serveLocalPlaylist(c *gin.Context, sess *transcode.HLSSession, segURL func(
 		}
 		lines[i] = segURL(trim)
 	}
-	c.Header(CacheControl, "no-store")
-	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", []byte(strings.Join(lines, "\n")))
+	c.Header(CacheControl, CacheNoStore)
+	c.Data(http.StatusOK, MIMEMPEGURL, []byte(strings.Join(lines, "\n")))
 }
 
 // buildLocalVODPlaylist is the local-source analogue of buildVODPlaylist in

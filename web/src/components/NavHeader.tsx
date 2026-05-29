@@ -59,7 +59,11 @@ export default function NavHeader({ rightExtra }: Props) {
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)')
     const apply = () => {
-      document.body.style.paddingLeft = mq.matches ? (collapsed ? '4rem' : '15rem') : ''
+      let padding = ''
+      if (mq.matches) {
+        padding = collapsed ? '4rem' : '15rem'
+      }
+      document.body.style.paddingLeft = padding
     }
     apply()
     mq.addEventListener?.('change', apply)

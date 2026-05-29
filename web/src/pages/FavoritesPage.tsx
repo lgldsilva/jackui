@@ -218,9 +218,14 @@ export default function FavoritesPage() {
     }
     setImporting(false)
     setMagnetInput('')
-    setImportMsg(fails.length === 0
-      ? { kind: 'ok', text: `${ok} torrent${ok !== 1 ? 's' : ''} importado${ok !== 1 ? 's' : ''}` }
-      : { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}` })
+    let msg: { kind: 'ok' | 'err'; text: string }
+    if (fails.length === 0) {
+      const plural = ok !== 1 ? 's' : ''
+      msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}` }
+    } else {
+      msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}` }
+    }
+    setImportMsg(msg)
     await load()
   }
 
@@ -249,10 +254,19 @@ export default function FavoritesPage() {
       }
     }
     setImporting(false)
-    const suffix = skipped > 0 ? ` (${skipped} ignorado${skipped !== 1 ? 's' : ''} — não .torrent)` : ''
-    setImportMsg(fails.length === 0
-      ? { kind: 'ok', text: `${ok} torrent${ok !== 1 ? 's' : ''} importado${ok !== 1 ? 's' : ''}${suffix}` }
-      : { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}${suffix}` })
+    let suffix = ''
+    if (skipped > 0) {
+      const plural = skipped !== 1 ? 's' : ''
+      suffix = ` (${skipped} ignorado${plural} — não .torrent)`
+    }
+    let msg: { kind: 'ok' | 'err'; text: string }
+    if (fails.length === 0) {
+      const plural = ok !== 1 ? 's' : ''
+      msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
+    } else {
+      msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}${suffix}` }
+    }
+    setImportMsg(msg)
     await load()
   }
 

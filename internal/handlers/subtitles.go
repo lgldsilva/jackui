@@ -18,7 +18,7 @@ func SubtitlesSearch(c *subtitles.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		query := ctx.Query("q")
 		if query == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
 			return
 		}
 		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
@@ -47,7 +47,7 @@ func SubtitlesAuto(s *streamer.Streamer, c *subtitles.Client) gin.HandlerFunc {
 		hashStr := ctx.Param("hash")
 		fileIdx, err := strconv.Atoi(ctx.Param("file"))
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		var h metainfo.Hash
@@ -64,7 +64,7 @@ func SubtitlesAuto(s *streamer.Streamer, c *subtitles.Client) gin.HandlerFunc {
 			return
 		}
 		if fileIdx < 0 || fileIdx >= len(info.Files) {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "file index out of range"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": ErrFileIdxOutOfRange})
 			return
 		}
 		file := info.Files[fileIdx]
@@ -133,10 +133,10 @@ func SubtitlesDownload(c *subtitles.Client) gin.HandlerFunc {
 			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		ctx.Header("Content-Type", "text/vtt; charset=utf-8")
+		ctx.Header(ContentType, MIMEVTT)
 		ctx.Header("Access-Control-Allow-Origin", "*")
 		// VTT content for a given file_id is immutable — cache aggressively in the browser
-		ctx.Header("Cache-Control", "public, max-age=2592000, immutable")
+		ctx.Header(CacheControl, "public, max-age=2592000, immutable")
 		ctx.Header("ETag", `"sub-`+fileID+`"`)
 		_, _ = ctx.Writer.Write(vtt)
 	}

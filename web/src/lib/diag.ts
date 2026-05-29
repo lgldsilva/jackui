@@ -23,7 +23,14 @@ const DEDUP_WINDOW_MS = 200
 
 export function clientLog(level: Level, tag: string, msg: string, data?: Record<string, unknown>): void {
   // Console first — keep devtools experience exactly as before.
-  const consoleFn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info
+  let consoleFn: (...args: unknown[]) => void
+  if (level === 'error') {
+    consoleFn = console.error
+  } else if (level === 'warn') {
+    consoleFn = console.warn
+  } else {
+    consoleFn = console.info
+  }
   consoleFn(`[${tag}] ${msg}`, data ?? '')
 
   // Dedup window

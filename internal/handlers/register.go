@@ -67,7 +67,7 @@ func Register(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Hand
 	return func(c *gin.Context) {
 		var req registerReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
 			return
 		}
 		req.Username = strings.TrimSpace(req.Username)

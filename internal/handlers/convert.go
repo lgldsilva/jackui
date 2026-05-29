@@ -132,8 +132,8 @@ func serveTorrentFile(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, mi 
 	defer func() { _ = f.Close() }()
 
 	filename := resolveTorrentFilename(path, h, mi)
-	c.Header("Content-Type", "application/x-bittorrent")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", url.PathEscape(filename)))
+	c.Header(ContentType, "application/x-bittorrent")
+	c.Header(HeaderContentDisp, fmt.Sprintf("attachment; filename=%s", url.PathEscape(filename)))
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, f)
 }

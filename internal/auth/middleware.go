@@ -116,9 +116,9 @@ func UserIDFromCtx(c *gin.Context) (int, bool, bool) {
 }
 
 func extractToken(c *gin.Context) string {
-	auth := c.GetHeader("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
+	auth := c.GetHeader(HeaderAuthorization)
+	if strings.HasPrefix(auth, BearerPrefix) {
+		return strings.TrimPrefix(auth, BearerPrefix)
 	}
 	// Fallback: ?token=... in query — ONLY for media routes, where the element
 	// loading the URL (<video src>/<track src>/<img>) can't set an Authorization

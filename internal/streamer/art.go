@@ -50,7 +50,7 @@ func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, "", errors.New("torrent not active")
+		return nil, "", errors.New(ErrTorrentNotActive)
 	}
 
 	files := e.t.Files()

@@ -19,7 +19,7 @@ func ParseTime(s string) time.Time {
 		return time.Time{}
 	}
 	for _, layout := range []string{
-		"2006-01-02 15:04:05",
+		TimeFormat,
 		"2006-01-02 15:04:05.999999999",
 		time.RFC3339Nano,
 		time.RFC3339,

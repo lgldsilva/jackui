@@ -18,13 +18,13 @@ func TmdbMatch(c *tmdb.Client) gin.HandlerFunc {
 			return
 		}
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "tmdb disabled"})
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 			return
 		}
 		m, err := c.Match(ctx.Request.Context(), title)
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
-				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "tmdb disabled"})
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 				return
 			}
 			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
@@ -43,13 +43,13 @@ func TmdbMatch(c *tmdb.Client) gin.HandlerFunc {
 func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "tmdb disabled"})
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 			return
 		}
 		items, err := c.Trending(ctx.Request.Context())
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
-				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": "tmdb disabled"})
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 				return
 			}
 			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
