@@ -30,7 +30,7 @@ func TestSaveAndSearch(t *testing.T) {
 		{Title: "Ubuntu 20.04", Tracker: "RARBG", Seeders: 50, InfoHash: "def456", MagnetURI: "magnet:?xt=urn:btih:def456"},
 	}
 
-	if err := s.Save("ubuntu", results, 0); err != nil {
+	if err := s.Save("ubuntu", results, 0, false); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -55,8 +55,8 @@ func TestSaveDedupByInfoHash(t *testing.T) {
 
 	r := jackett.Result{Title: "Ubuntu 22.04", InfoHash: "abc123", MagnetURI: "magnet:?xt=urn:btih:abc123"}
 
-	s.Save("ubuntu", []jackett.Result{r}, 0)
-	s.Save("ubuntu", []jackett.Result{r}, 0) // duplicate
+	s.Save("ubuntu", []jackett.Result{r}, 0, false)
+	s.Save("ubuntu", []jackett.Result{r}, 0, false) // duplicate
 
 	cached, _ := s.Search("ubuntu", 0, true)
 	if len(cached) != 1 {
@@ -70,7 +70,7 @@ func TestSaveEmptyInfoHash(t *testing.T) {
 	r1 := jackett.Result{Title: "Ubuntu 22.04", Tracker: "A", InfoHash: ""}
 	r2 := jackett.Result{Title: "Ubuntu 22.04", Tracker: "B", InfoHash: ""}
 
-	s.Save("ubuntu", []jackett.Result{r1, r2}, 0)
+	s.Save("ubuntu", []jackett.Result{r1, r2}, 0, false)
 
 	cached, _ := s.Search("ubuntu", 0, true)
 	if len(cached) != 2 {
@@ -83,7 +83,7 @@ func TestSearchCaseInsensitive(t *testing.T) {
 
 	s.Save("Ubuntu", []jackett.Result{
 		{Title: "Ubuntu 22.04", InfoHash: "abc"},
-	}, 0)
+	}, 0, false)
 
 	cached, _ := s.Search("ubuntu", 0, true)
 	if len(cached) != 1 {
@@ -95,8 +95,8 @@ func TestSearchCaseInsensitive(t *testing.T) {
 func TestSearchPerUserIsolation(t *testing.T) {
 	s := newTestStore(t)
 
-	s.Save("ubuntu", []jackett.Result{{Title: "Ubuntu for A", InfoHash: "a1"}}, 1)
-	s.Save("ubuntu", []jackett.Result{{Title: "Ubuntu for B", InfoHash: "b1"}}, 2)
+	s.Save("ubuntu", []jackett.Result{{Title: "Ubuntu for A", InfoHash: "a1"}}, 1, false)
+	s.Save("ubuntu", []jackett.Result{{Title: "Ubuntu for B", InfoHash: "b1"}}, 2, false)
 
 	// User A sees only their result
 	rA, _ := s.Search("ubuntu", 1, false)
@@ -120,9 +120,9 @@ func TestSearchPerUserIsolation(t *testing.T) {
 func TestRecentEntries(t *testing.T) {
 	s := newTestStore(t)
 
-	s.Save("ubuntu", []jackett.Result{{Title: "Ubuntu", InfoHash: "a1"}}, 0)
-	s.Save("debian", []jackett.Result{{Title: "Debian", InfoHash: "b2"}}, 0)
-	s.Save("fedora", []jackett.Result{{Title: "Fedora", InfoHash: "c3"}}, 0)
+	s.Save("ubuntu", []jackett.Result{{Title: "Ubuntu", InfoHash: "a1"}}, 0, false)
+	s.Save("debian", []jackett.Result{{Title: "Debian", InfoHash: "b2"}}, 0, false)
+	s.Save("fedora", []jackett.Result{{Title: "Fedora", InfoHash: "c3"}}, 0, false)
 
 	entries, err := s.RecentEntries(10, 0, true)
 	if err != nil {
@@ -140,10 +140,10 @@ func TestSearchAll(t *testing.T) {
 	s.Save("breaking bad", []jackett.Result{
 		{Title: "Breaking.Bad.S01E01.1080p.BluRay", InfoHash: "bb1"},
 		{Title: "Breaking Bad S02 Complete 720p", InfoHash: "bb2"},
-	}, 0)
+	}, 0, false)
 	s.Save("better call saul", []jackett.Result{
 		{Title: "Better.Call.Saul.S04.1080p", InfoHash: "bcs1"},
-	}, 0)
+	}, 0, false)
 
 	results, err := s.SearchAll("1080p", 100, 0, true)
 	if err != nil {
@@ -174,12 +174,12 @@ func TestSearchAll(t *testing.T) {
 func TestCleanup(t *testing.T) {
 	s := newTestStore(t)
 
-	s.Save("ubuntu", []jackett.Result{{Title: "Old Ubuntu", InfoHash: "old1"}}, 0)
+	s.Save("ubuntu", []jackett.Result{{Title: "Old Ubuntu", InfoHash: "old1"}}, 0, false)
 
 	s.db.Exec("UPDATE results SET saved_at = ? WHERE info_hash = 'old1'",
 		time.Now().Add(-100*24*time.Hour).Format("2006-01-02 15:04:05"))
 
-	s.Save("ubuntu", []jackett.Result{{Title: "New Ubuntu", InfoHash: "new1"}}, 0)
+	s.Save("ubuntu", []jackett.Result{{Title: "New Ubuntu", InfoHash: "new1"}}, 0, false)
 
 	if err := s.Cleanup(30 * 24 * time.Hour); err != nil {
 		t.Fatalf("Cleanup: %v", err)
@@ -246,7 +246,7 @@ func TestMigrateLegacyDBWithoutUserID(t *testing.T) {
 	}
 
 	// Step 4: new inserts with user_id work
-	if err := s.Save("new", []jackett.Result{{Title: "Fresh", InfoHash: "newhash"}}, 5); err != nil {
+	if err := s.Save("new", []jackett.Result{{Title: "Fresh", InfoHash: "newhash"}}, 5, false); err != nil {
 		t.Fatalf("Save after migration: %v", err)
 	}
 	r, _ := s.Search("new", 5, false)

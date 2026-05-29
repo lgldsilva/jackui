@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -189,7 +190,65 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 }
 
 // Logout handles POST /api/auth/logout — body: {refresh}
-func Logout(store *auth.Store) gin.HandlerFunc {
+// incognitoCleanable is satisfied by history.Store and library.Store.
+type incognitoCleanable interface {
+	DeleteIncognito(userID int) error
+}
+
+// incognitoHeartbeats tracks the last heartbeat time per userID.
+// Entries expire after incognitoTTL of inactivity; a background goroutine
+// cleans up stale incognito data.
+var (
+	incognitoMu         sync.Mutex
+	incognitoHeartbeats = make(map[int]time.Time)
+	incognitoTTL        = time.Hour
+)
+
+// StartIncognitoReaper launches a background goroutine that checks for
+// incognito sessions that have gone quiet (tab closed / crash) and deletes
+// their data after incognitoTTL. Call once at startup.
+func StartIncognitoReaper(cleaners ...incognitoCleanable) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			incognitoMu.Lock()
+			expired := make([]int, 0)
+			for uid, last := range incognitoHeartbeats {
+				if time.Since(last) > incognitoTTL {
+					expired = append(expired, uid)
+				}
+			}
+			for _, uid := range expired {
+				delete(incognitoHeartbeats, uid)
+			}
+			incognitoMu.Unlock()
+			for _, uid := range expired {
+				for _, cl := range cleaners {
+					_ = cl.DeleteIncognito(uid)
+				}
+			}
+		}
+	}()
+}
+
+// IncognitoHeartbeat handles POST /api/user/incognito/heartbeat — the frontend
+// sends this periodically while incognito mode is active to prevent TTL expiry.
+func IncognitoHeartbeat() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.Status(http.StatusUnauthorized)
+			return
+		}
+		incognitoMu.Lock()
+		incognitoHeartbeats[claims.UserID] = time.Now()
+		incognitoMu.Unlock()
+		c.Status(http.StatusNoContent)
+	}
+}
+
+func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Refresh string `json:"refresh"`
@@ -198,7 +257,33 @@ func Logout(store *auth.Store) gin.HandlerFunc {
 		if req.Refresh != "" {
 			_ = store.ConsumeRefreshToken(req.Refresh)
 		}
+		// Clean up any incognito history/library entries for this user.
+		if claims, ok := auth.ClaimsFromCtx(c); ok {
+			for _, cl := range cleaners {
+				_ = cl.DeleteIncognito(claims.UserID)
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+	}
+}
+
+// ClearIncognito handles DELETE /api/user/incognito — deletes all incognito-flagged
+// history and library entries for the authenticated user. Called by the frontend
+// when the user disables incognito mode.
+func ClearIncognito(cleaners ...incognitoCleanable) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		for _, cl := range cleaners {
+			if err := cl.DeleteIncognito(claims.UserID); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "incognito data cleared"})
 	}
 }
 

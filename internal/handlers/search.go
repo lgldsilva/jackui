@@ -113,10 +113,11 @@ func parseIndexers(c *gin.Context) []string {
 }
 
 func saveHistory(store *history.Store, query string, liveResults []jackett.Result, userID int, liveErr error, c *gin.Context) {
-	if liveErr != nil || store == nil || len(liveResults) == 0 || middleware.IsIncognito(c) {
+	if liveErr != nil || store == nil || len(liveResults) == 0 {
 		return
 	}
-	go func() { _ = store.Save(query, liveResults, userID) }()
+	incognito := middleware.IsIncognito(c)
+	go func() { _ = store.Save(query, liveResults, userID, incognito) }()
 }
 
 func searchMerged(store *history.Store, query string, userID int, includeAll bool, liveResults []jackett.Result, enricher *resultEnricher) []searchResult {
