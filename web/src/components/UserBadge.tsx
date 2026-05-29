@@ -41,7 +41,9 @@ export default function UserBadge() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
+        // Opens UPWARD + anchored left: the badge sits at the bottom of the
+        // left sidebar, so a downward/right menu would fall off-screen.
+        <div className="absolute left-0 bottom-full mb-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
           <div className="px-3 py-2 border-b border-gray-700">
             <p className="text-sm text-gray-200 truncate">{user.username}</p>
             <p className="text-xs text-gray-500 flex items-center gap-1">

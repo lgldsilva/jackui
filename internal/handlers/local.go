@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/local"
+	"github.com/luizg/jackui/internal/transcode"
 )
 
 // LocalMounts handles GET /api/local/mounts -> []Mount
@@ -167,6 +168,47 @@ func LocalThumb(b *local.Browser) gin.HandlerFunc {
 		}
 		c.Header("Cache-Control", "public, max-age=86400")
 		c.Data(http.StatusOK, "image/jpeg", out)
+	}
+}
+
+// LocalTranscode handles GET /api/local/transcode?mount=NAME&path=REL
+// Transcodes a local file to H.264/AAC fragmented MP4 so browsers can play
+// formats like MKV, AVI or any container not natively supported.
+func LocalTranscode(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		path := c.Query("path")
+		if mount == "" || path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		abs, err := b.ResolvePath(mount, path)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		stat, err := os.Stat(abs)
+		if err != nil || stat.IsDir() {
+			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+			return
+		}
+		f, err := os.Open(abs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer f.Close()
+
+		opts := transcode.Options{
+			AudioTrack:  -1,
+			SubBurnTrack: -1,
+			VideoCodec:  "h264",
+			AudioCodec:  "aac",
+			Container:   "mp4",
+		}
+		if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 	}
 }
 

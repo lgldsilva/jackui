@@ -38,28 +38,35 @@ type Match struct {
 	Year        int     `json:"year"`
 	PosterURL   string  `json:"posterUrl"`
 	Overview    string  `json:"overview"`
-	VoteAverage float64 `json:"voteAverage"`
-	Kind        string  `json:"kind"` // "movie" | "tv"
+	VoteAverage float64 `json:"voteAverage"`          // TMDB community score (0-10)
+	ImdbRating  float64 `json:"imdbRating,omitempty"` // real IMDb rating via OMDb (0-10), when available
+	Kind        string  `json:"kind"`                 // "movie" | "tv"
 }
 
 type Client struct {
-	apiKey string
-	http   *http.Client
-	cache  *sql.DB
+	apiKey  string
+	omdbKey string
+	http    *http.Client
+	cache   *sql.DB
 
 	// Trending is refreshed at most every trendingTTL (it changes slowly and is
 	// shared by all users), cached in memory rather than the on-disk match cache.
 	trendingMu    sync.Mutex
 	trendingCache []Match
 	trendingAt    time.Time
+
+	// ratingTried dedupes OMDb backfill attempts (by IMDb id) within a process so
+	// a title with no IMDb rating isn't re-queried on every card render.
+	ratingTried sync.Map
 }
 
 const trendingTTL = 6 * time.Hour
 
 // New returns a TMDB client. If apiKey is empty the client returns ErrDisabled
 // from every call — handlers should surface that as "no enrichment available"
-// (404) without exploding.
-func New(apiKey, cachePath string) (*Client, error) {
+// (404) without exploding. omdbKey is optional: when set, matches are enriched
+// with the real IMDb rating (via OMDb) on top of TMDB's own vote average.
+func New(apiKey, omdbKey, cachePath string) (*Client, error) {
 	db, err := sql.Open("sqlite", cachePath+"?_pragma=journal_mode(WAL)")
 	if err != nil {
 		return nil, err
@@ -76,9 +83,10 @@ func New(apiKey, cachePath string) (*Client, error) {
 		return nil, err
 	}
 	return &Client{
-		apiKey: apiKey,
-		http:   &http.Client{Timeout: 8 * time.Second},
-		cache:  db,
+		apiKey:  apiKey,
+		omdbKey: omdbKey,
+		http:    &http.Client{Timeout: 8 * time.Second},
+		cache:   db,
 	}, nil
 }
 
@@ -168,7 +176,32 @@ func (c *Client) getCached(key string) (*Match, bool) {
 	if err := json.Unmarshal([]byte(payload), &m); err != nil {
 		return nil, false
 	}
+	// Lazy IMDb-rating backfill: entries cached before OMDb was configured (or
+	// before this feature) have ImdbID but no rating. Fetch it in the background
+	// and re-cache, so the rating appears on the next view without waiting for the
+	// 30-day TTL to expire. Deduped per IMDb id to avoid re-querying rating-less
+	// titles on every render.
+	if c.omdbKey != "" && m.ImdbID != "" && m.ImdbRating == 0 {
+		if _, tried := c.ratingTried.LoadOrStore(m.ImdbID, true); !tried {
+			go c.backfillRating(key, m)
+		}
+	}
 	return &m, true
+}
+
+// backfillRating fetches the IMDb rating for an already-cached match and, if
+// found, rewrites the cache entry in place (preserving everything else).
+func (c *Client) backfillRating(key string, m Match) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	rating := c.fetchImdbRating(ctx, m.ImdbID)
+	if rating == 0 {
+		return // nothing to persist; the dedupe guard stops further attempts this run
+	}
+	m.ImdbRating = rating
+	b, _ := json.Marshal(&m)
+	// Preserve cached_at so the backfill doesn't extend the TTL of a stale match.
+	c.cache.Exec(`UPDATE tmdb_match SET payload=? WHERE cache_key=?`, string(b), key)
 }
 
 func (c *Client) setCached(key string, m *Match) {
@@ -186,16 +219,16 @@ func (c *Client) setCached(key string, m *Match) {
 
 type multiSearchResp struct {
 	Results []struct {
-		ID          int     `json:"id"`
-		MediaType   string  `json:"media_type"`
-		Title       string  `json:"title"`
-		Name        string  `json:"name"`
-		Overview    string  `json:"overview"`
-		PosterPath  string  `json:"poster_path"`
-		ReleaseDate string  `json:"release_date"`
-		FirstAirDate string `json:"first_air_date"`
-		VoteAverage float64 `json:"vote_average"`
-		Popularity  float64 `json:"popularity"`
+		ID           int     `json:"id"`
+		MediaType    string  `json:"media_type"`
+		Title        string  `json:"title"`
+		Name         string  `json:"name"`
+		Overview     string  `json:"overview"`
+		PosterPath   string  `json:"poster_path"`
+		ReleaseDate  string  `json:"release_date"`
+		FirstAirDate string  `json:"first_air_date"`
+		VoteAverage  float64 `json:"vote_average"`
+		Popularity   float64 `json:"popularity"`
 	} `json:"results"`
 }
 
@@ -222,6 +255,37 @@ func (c *Client) fetchImdbID(ctx context.Context, kind string, tmdbID int) strin
 		return ""
 	}
 	return out.ImdbID
+}
+
+// fetchImdbRating resolves the real IMDb rating (0-10) for an IMDb id via the
+// OMDb API. Returns 0 on any error / "N/A" / no key — the caller treats 0 as
+// "no IMDb rating, fall back to the TMDB vote".
+func (c *Client) fetchImdbRating(ctx context.Context, imdbID string) float64 {
+	if c.omdbKey == "" || imdbID == "" {
+		return 0
+	}
+	u := fmt.Sprintf("https://www.omdbapi.com/?i=%s&apikey=%s", url.QueryEscape(imdbID), url.QueryEscape(c.omdbKey))
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0
+	}
+	var out struct {
+		ImdbRating string `json:"imdbRating"` // e.g. "8.8" or "N/A"
+		Response   string `json:"Response"`   // "True" | "False"
+	}
+	if json.NewDecoder(resp.Body).Decode(&out) != nil || out.Response != "True" {
+		return 0
+	}
+	r, err := strconv.ParseFloat(out.ImdbRating, 64)
+	if err != nil {
+		return 0
+	}
+	return r
 }
 
 // Trending returns this week's trending movies + TV shows for the Discover page.
@@ -339,6 +403,7 @@ func (c *Client) searchMulti(ctx context.Context, title string, year int) (*Matc
 		// never reprocess. A failure here must not lose the otherwise-good match.
 		if imdb := c.fetchImdbID(ctx, r.MediaType, r.ID); imdb != "" {
 			m.ImdbID = imdb
+			m.ImdbRating = c.fetchImdbRating(ctx, imdb) // real IMDb rating (0 when unavailable)
 		}
 		return m, nil
 	}

@@ -32,10 +32,14 @@ import (
 // this on Resume() after a Pause() temporarily zeroed it.
 const defaultMaxEstablishedConns = 80
 
-// publicTrackers is a small set of high-uptime public BitTorrent trackers
-// injected into every added torrent. DHT-only magnets often report 0 peers
-// during quiet DHT windows; announcing to these recovers peers when seeds
-// exist. Each tier is a single-element list (announce-list format).
+// publicTrackers is a curated set of high-uptime public BitTorrent trackers
+// injected into EVERY added torrent — including replays from the library /
+// favorites, whose stored magnet is often just a bare infoHash with no announce
+// list. DHT-only magnets report 0 peers during quiet DHT windows; announcing to
+// a broad tracker set recovers peers whenever seeds exist, regardless of where
+// the magnet came from. Each tier is a single-element list (announce-list format
+// — each gets its own tier so the client queries all of them in parallel rather
+// than failing over one-by-one). Curated from the ngosang/trackerslist "best".
 var publicTrackers = [][]string{
 	{"udp://tracker.opentrackr.org:1337/announce"},
 	{"udp://open.tracker.cl:1337/announce"},
@@ -43,6 +47,20 @@ var publicTrackers = [][]string{
 	{"udp://exodus.desync.com:6969/announce"},
 	{"udp://open.demonii.com:1337/announce"},
 	{"udp://tracker.torrent.eu.org:451/announce"},
+	{"udp://open.stealth.si:80/announce"},
+	{"udp://tracker.tiny-vps.com:6969/announce"},
+	{"udp://tracker.dler.org:6969/announce"},
+	{"udp://explodie.org:6969/announce"},
+	{"udp://opentracker.i2p.rocks:6969/announce"},
+	{"udp://tracker1.bt.moack.co.kr:80/announce"},
+	{"udp://tracker.bittor.pw:1337/announce"},
+	{"udp://tracker.dump.cl:6969/announce"},
+	{"udp://wepzone.net:6969/announce"},
+	{"udp://retracker01-msk-virt.corbina.net:80/announce"},
+	{"https://tracker.tamersunion.org:443/announce"},
+	{"https://tracker.gbitt.info:443/announce"},
+	{"http://tracker.openbittorrent.com:80/announce"},
+	{"udp://tracker.0x7c0.com:6969/announce"},
 }
 
 // videoExtensions are formats we expose as streamable via the player.
@@ -187,12 +205,12 @@ type entry struct {
 
 // FileInfo is the JSON-friendly view of a file inside a torrent.
 type FileInfo struct {
-	Index       int     `json:"index"`
-	Path        string  `json:"path"`
-	Size        int64   `json:"size"`
-	IsVideo     bool    `json:"isVideo"`
-	Downloaded  int64   `json:"downloaded"`
-	Progress    float64 `json:"progress"` // 0..1
+	Index      int     `json:"index"`
+	Path       string  `json:"path"`
+	Size       int64   `json:"size"`
+	IsVideo    bool    `json:"isVideo"`
+	Downloaded int64   `json:"downloaded"`
+	Progress   float64 `json:"progress"` // 0..1
 }
 
 // TorrentInfo is the JSON-friendly view returned to the frontend.
@@ -235,8 +253,9 @@ func New(cfg Config) (*Streamer, error) {
 
 	tcfg := torrent.NewDefaultClientConfig()
 	tcfg.DataDir = cfg.DataDir
-	tcfg.Seed = false
-	tcfg.NoUpload = true
+	tcfg.Seed = true
+	tcfg.NoUpload = false
+	tcfg.ListenPort = 51469
 	// Reduce log noise
 	tcfg.Logger = tcfg.Logger.WithFilterLevel(alog.Critical)
 
@@ -975,24 +994,24 @@ func (s *Streamer) gcLoop() {
 
 // CacheEntry describes one item on disk in the cache directory.
 type CacheEntry struct {
-	Path       string    `json:"path"`               // relative to DataDir
+	Path       string    `json:"path"` // relative to DataDir
 	Size       int64     `json:"size"`
 	ModTime    time.Time `json:"modTime"`
-	IsActive   bool      `json:"isActive"`           // currently being downloaded/seeded
-	IsFavorite bool      `json:"isFavorite"`         // protected from eviction
+	IsActive   bool      `json:"isActive"`   // currently being downloaded/seeded
+	IsFavorite bool      `json:"isFavorite"` // protected from eviction
 	// InfoHash is the torrent's hex-encoded SHA1 info hash. Populated when the
 	// torrent is either active or has a persisted .torrent in metainfoDir.
 	// Empty string when we can't resolve the hash — the UI hides Play in that case.
-	InfoHash   string    `json:"infoHash,omitempty"`
+	InfoHash string `json:"infoHash,omitempty"`
 }
 
 // CacheStats summarizes disk usage of the streaming cache.
 type CacheStats struct {
-	DataDir    string       `json:"dataDir"`
-	TotalSize  int64        `json:"totalSize"`
-	MaxSize    int64        `json:"maxSize"`    // 0 = unlimited
-	NumActive  int          `json:"numActive"`  // currently loaded torrents
-	Entries    []CacheEntry `json:"entries"`
+	DataDir   string       `json:"dataDir"`
+	TotalSize int64        `json:"totalSize"`
+	MaxSize   int64        `json:"maxSize"`   // 0 = unlimited
+	NumActive int          `json:"numActive"` // currently loaded torrents
+	Entries   []CacheEntry `json:"entries"`
 }
 
 // Stats walks the DataDir and returns disk usage stats.
@@ -1398,9 +1417,9 @@ func statusForLocked(e *entry) string {
 // means "do not download" which is not what a Transmission user expects from
 // "low priority". The mapping below biases the scheduler within the wanted band:
 //
-//   low    -> Normal    (default "wanted")
-//   normal -> High      (elevated above other torrents at Normal)
-//   high   -> Now       (reader-level urgency)
+//	low    -> Normal    (default "wanted")
+//	normal -> High      (elevated above other torrents at Normal)
+//	high   -> Now       (reader-level urgency)
 func priorityFromLabel(label string) (types.PiecePriority, bool) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
 	case "low":
