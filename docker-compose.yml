@@ -84,7 +84,11 @@ services:
       - JACKUI_BASE_URL=${JACKUI_BASE_URL:-https://jackui.example.com}
     networks:
       - vpn-gateway_vpn-net
+      - npm-network
 
 networks:
   vpn-gateway_vpn-net:
     external: true
+  npm-network:
+    external: true
+    name: nginx-proxy-manager-sqllite-goaccess_default
