@@ -392,6 +392,10 @@ func main() {
 		log.Printf("Auth disabled — all endpoints public (set JACKUI_AUTH_ENABLED=1 to enable)")
 	}
 
+	// Incognito reaper: delete stale incognito data after 1h of inactivity
+	// (tab closed / crash). Both stores are guaranteed to be initialized by here.
+	handlers.StartIncognitoReaper(historyStore, libraryStore)
+
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(gin.Logger())
@@ -428,7 +432,7 @@ func main() {
 		pub := router.Group("/api/auth")
 		pub.POST("/login", handlers.Login(authStore, tokenMgr, loginLockout))
 		pub.POST("/refresh", handlers.Refresh(authStore, tokenMgr))
-		pub.POST("/logout", handlers.Logout(authStore))
+		pub.POST("/logout", handlers.Logout(authStore, historyStore, libraryStore))
 		pub.POST("/register", handlers.Register(authStore, mlr, cfg.BaseURL))
 		pub.POST("/verify-email", handlers.VerifyEmail(authStore))
 		pub.POST("/forgot", handlers.Forgot(authStore, mlr, cfg.BaseURL))
@@ -716,6 +720,9 @@ func main() {
 			// Notification settings
 			api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(authStore))
 			api.POST("/user/notify-test", handlers.NotifyTest(cfg, authStore))
+			// Incognito session management
+			api.DELETE("/user/incognito", handlers.ClearIncognito(historyStore, libraryStore))
+			api.POST("/user/incognito/heartbeat", handlers.IncognitoHeartbeat())
 			adminGroup := api.Group("/auth/users")
 			adminGroup.Use(auth.AdminOnly())
 			adminGroup.GET("", handlers.ListUsers(authStore))

@@ -84,38 +84,72 @@ func (s *Store) migrate() error {
 		!strings.Contains(aerr.Error(), "duplicate column") {
 		return aerr
 	}
+	// Incognito flag — entries recorded during an incognito session.
+	if _, aerr := s.db.Exec(`ALTER TABLE library ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0`); aerr != nil &&
+		!strings.Contains(aerr.Error(), "duplicate column") {
+		return aerr
+	}
 	return nil
 }
 
 // Upsert inserts a fresh row OR updates an existing (user, info_hash) tuple,
 // refreshing last_played_at to now. Used on every /stream/add call.
-func (s *Store) Upsert(userID int, infoHash, magnet, name string, primaryFile int, totalSize int64, kind string) (*Entry, error) {
+// When incognito=true the row is written with incognito=1 so it is excluded from
+// normal queries and deleted when the user ends their incognito session.
+func (s *Store) Upsert(userID int, infoHash, magnet, name string, primaryFile int, totalSize int64, kind string, incognito bool) (*Entry, error) {
 	if infoHash == "" || magnet == "" {
 		return nil, errors.New("info_hash and magnet are required")
 	}
+	incognitoVal := 0
+	if incognito {
+		incognitoVal = 1
+	}
 	_, err := s.db.Exec(`
-		INSERT INTO library(user_id, info_hash, magnet, name, primary_file_index, total_size, kind, last_played_at)
-		VALUES(?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		INSERT INTO library(user_id, info_hash, magnet, name, primary_file_index, total_size, kind, incognito, last_played_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id, info_hash) DO UPDATE SET
 			magnet             = excluded.magnet,
 			name               = excluded.name,
 			primary_file_index = excluded.primary_file_index,
 			total_size         = excluded.total_size,
 			kind               = CASE WHEN excluded.kind != '' THEN excluded.kind ELSE library.kind END,
+			incognito          = excluded.incognito,
 			last_played_at     = CURRENT_TIMESTAMP
-	`, userID, infoHash, magnet, name, primaryFile, totalSize, kind)
+	`, userID, infoHash, magnet, name, primaryFile, totalSize, kind, incognitoVal)
 	if err != nil {
 		return nil, err
 	}
 	return s.GetByHash(userID, infoHash)
 }
 
+// DeleteIncognito removes all incognito-flagged entries for a user.
+// Called when the user ends their incognito session (logout or toggle-off).
+func (s *Store) DeleteIncognito(userID int) error {
+	if s == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM library WHERE user_id = ? AND incognito = 1`, userID)
+	return err
+}
+
 // GetByHash returns the user's library entry for a given info_hash (if any).
+// Incognito entries are returned regardless — callers need the entry ID for resume updates.
 func (s *Store) GetByHash(userID int, infoHash string) (*Entry, error) {
 	row := s.db.QueryRow(`
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
 		FROM library WHERE user_id = ? AND info_hash = ?
+	`, userID, infoHash)
+	return scanEntry(row)
+}
+
+// GetByHashPublic is like GetByHash but filters out incognito entries.
+// Used by endpoints that expose data to the user's UI.
+func (s *Store) GetByHashPublic(userID int, infoHash string) (*Entry, error) {
+	row := s.db.QueryRow(`
+		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
+		       resume_seconds, duration_seconds, kind, last_played_at, added_at
+		FROM library WHERE user_id = ? AND info_hash = ? AND incognito = 0
 	`, userID, infoHash)
 	return scanEntry(row)
 }
@@ -140,10 +174,11 @@ func (s *Store) List(userID int, includeAll bool, limit int) ([]Entry, error) {
 	q := `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
-		FROM library`
+		FROM library
+		WHERE incognito = 0`
 	args := []any{}
 	if !includeAll {
-		q += " WHERE user_id = ?"
+		q += " AND user_id = ?"
 		args = append(args, userID)
 	}
 	q += " ORDER BY last_played_at DESC"
