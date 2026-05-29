@@ -269,8 +269,10 @@ func LocalDelete(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 
-		// Enforce strict business logic rule: Only "Meus downloads" can be modified
-		if strings.ToLower(mount) != "meus downloads" {
+		// Admin pode modificar qualquer mount; não-admin só "Meus downloads"
+		claims, _ := auth.ClaimsFromCtx(c)
+		isAdmin := claims != nil && claims.Role == auth.RoleAdmin
+		if !isAdmin && strings.ToLower(mount) != "meus downloads" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
 			return
 		}
@@ -349,8 +351,10 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			return
 		}
 
-		// Enforce strict business logic rule: Only "Meus downloads" can be modified
-		if strings.ToLower(req.Mount) != "meus downloads" {
+		// Admin pode modificar qualquer mount; não-admin só "Meus downloads"
+		claims, _ := auth.ClaimsFromCtx(c)
+		isAdmin := claims != nil && claims.Role == auth.RoleAdmin
+		if !isAdmin && strings.ToLower(req.Mount) != "meus downloads" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
 			return
 		}
@@ -448,8 +452,10 @@ func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb
 			return
 		}
 
-		// Enforce strict business logic rule: Only "Meus downloads" can be modified
-		if strings.ToLower(req.Mount) != "meus downloads" {
+		// Admin pode modificar qualquer mount; não-admin só "Meus downloads"
+		claims, _ := auth.ClaimsFromCtx(c)
+		isAdmin := claims != nil && claims.Role == auth.RoleAdmin
+		if !isAdmin && strings.ToLower(req.Mount) != "meus downloads" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
 			return
 		}

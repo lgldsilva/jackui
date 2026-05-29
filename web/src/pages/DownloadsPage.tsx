@@ -6,9 +6,10 @@ import {
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import {
-  DownloadEntry, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
+  DownloadEntry, DownloadFilterParams, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
   downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
   downloadTrackers, downloadCategories,
+  downloadsListAll, downloadUsers, DownloadUserEntry,
   TorrentInfo, streamActive, streamPause, streamResume, streamSetPriority,
   streamPauseAll, streamResumeAll, streamGetLimits, streamSetLimits, StreamPriority, streamDrop,
   LocalMount, localMounts, buildLocalHash, SearchResult,
@@ -20,6 +21,7 @@ import { usePlayer } from '../components/PlayerProvider'
 import DownloadInspectModal from '../components/DownloadInspectModal'
 import DownloadModal from '../components/DownloadModal'
 import AddTorrentModal from '../components/AddTorrentModal'
+import { useAuth } from '../auth/AuthContext'
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -68,6 +70,11 @@ export default function DownloadsPage() {
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
   const filterTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  // Admin mode: toggle between own downloads and all users' downloads
+  const { isAdmin } = useAuth()
+  const [showAllUsers, setShowAllUsers] = useState(false)
+  const [availableUsers, setAvailableUsers] = useState<DownloadUserEntry[]>([])
+  const [filterUserId, setFilterUserId] = useState('')
 
   // Add Torrent & Magnet Modals State
   const [showAddModal, setShowAddModal] = useState(false)
@@ -180,7 +187,13 @@ export default function DownloadsPage() {
 
   const load = async () => {
     try {
-      const list = await downloadsList()
+      const list = showAllUsers
+        ? await downloadsListAll({
+            userId: filterUserId || undefined,
+            sort: sortCol,
+            order: sortDir,
+          })
+        : await downloadsList()
       if (mountedRef.current) setItems(list)
     } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
@@ -189,14 +202,18 @@ export default function DownloadsPage() {
 
   const loadFiltered = async () => {
     try {
-      const list = await downloadsListFiltered({
+      const params: DownloadFilterParams = {
         status: filterStatus || undefined,
         tracker: filterTracker || undefined,
         category: filterCategory || undefined,
         search: filterSearch || undefined,
         sort: sortCol,
         order: sortDir,
-      })
+      }
+      if (showAllUsers) params.userId = filterUserId || undefined
+      const list = showAllUsers
+        ? await downloadsListAll(params)
+        : await downloadsListFiltered(params)
       if (mountedRef.current) setItems(list)
     } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
@@ -257,7 +274,7 @@ export default function DownloadsPage() {
     }, filterSearch ? 300 : 0)
     return () => { if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus, filterTracker, filterCategory, filterSearch, sortCol, sortDir])
+  }, [filterStatus, filterTracker, filterCategory, filterSearch, sortCol, sortDir, filterUserId, showAllUsers])
 
   // Roteia play: se file_path está dentro de algum mount navegável → player
   // local (sem tocar no anacrolix); senão → player do torrent (cache em
@@ -578,8 +595,20 @@ export default function DownloadsPage() {
                   ))}
                 </select>
               )}
+              {showAllUsers && availableUsers.length > 0 && (
+                <select
+                  value={filterUserId}
+                  onChange={e => setFilterUserId(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="">Todos os usuários</option>
+                  {availableUsers.map(u => (
+                    <option key={u.id} value={String(u.id)}>{u.username}</option>
+                  ))}
+                </select>
+              )}
               <button
-                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch('') }}
+                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId('') }}
                 className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1"
               >
                 Limpar filtros
@@ -622,15 +651,30 @@ export default function DownloadsPage() {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => {
-              setPreloadFiles(null)
-              setShowAddModal(true)
-            }}
-            className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-gray-900 px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
-          >
-            <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
-          </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => { setShowAllUsers(!showAllUsers); if (!showAllUsers) downloadUsers().then(setAvailableUsers).catch(() => {}) }}
+                className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl font-semibold transition-all duration-200 mb-2 md:mb-0 ${
+                  showAllUsers
+                    ? 'bg-violet-500 hover:bg-violet-600 text-white shadow-lg shadow-violet-500/10'
+                    : 'bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                {showAllUsers ? 'Todos usuários' : 'Meus downloads'}
+              </button>
+            )}
+            <button
+              onClick={() => {
+                setPreloadFiles(null)
+                setShowAddModal(true)
+              }}
+              className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-gray-900 px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
+            >
+              <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
+            </button>
+          </div>
         </div>
 
         {/* ═══════════════ Tab Content ═══════════════ */}
@@ -1365,7 +1409,14 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
           />
         )}
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-gray-100 truncate text-sm" title={d.name}>{d.name || d.filePath}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-100 truncate text-sm" title={d.name}>{d.name || d.filePath}</h3>
+            {d.username && (
+              <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium">
+                {d.username}
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-gray-600 truncate mt-0.5" title={d.filePath}>{d.filePath}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">

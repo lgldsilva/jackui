@@ -58,6 +58,7 @@ type User struct {
 	Status        Status    `json:"status"`
 	EmailVerified bool      `json:"emailVerified"`
 	MfaEnabled    bool      `json:"mfaEnabled"`
+	NtfyTopic     string    `json:"ntfyTopic"`
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
@@ -122,6 +123,7 @@ func (s *Store) migrate() error {
 		"email_verified": `ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1`,
 		"totp_secret":    `ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
 		"totp_enabled":   `ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
+		"ntfy_topic":     `ALTER TABLE users ADD COLUMN ntfy_topic TEXT NOT NULL DEFAULT ''`,
 	} {
 		if !s.hasColumn("users", col) {
 			if _, err := s.db.Exec(ddl); err != nil {
@@ -388,6 +390,12 @@ func (s *Store) CreateUserFull(username, email, password string, role Role, stat
 	return int(id), nil
 }
 
+// SetNtfyTopic updates a user's ntfy.sh notification topic.
+func (s *Store) SetNtfyTopic(userID int, topic string) error {
+	_, err := s.db.Exec("UPDATE users SET ntfy_topic = ? WHERE id = ?", topic, userID)
+	return err
+}
+
 // SetEmailVerified flips a user's email_verified flag (after they click the
 // confirmation link). Optionally promotes the account to a new status (an
 // invited user becomes active on confirmation).
@@ -409,9 +417,9 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var u User
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, role, email, status, email_verified, created_at FROM users WHERE email = ? AND email != '' LIMIT 1",
+		"SELECT id, username, role, email, status, email_verified, ntfy_topic, created_at FROM users WHERE email = ? AND email != '' LIMIT 1",
 		email,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &ts)
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.NtfyTopic, &ts)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -439,9 +447,9 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	var hash string
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, password_hash, role, email, status, email_verified, totp_enabled, created_at FROM users WHERE username = ?",
+		"SELECT id, username, password_hash, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts)
+	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("usuário ou senha inválidos")
 	}
@@ -465,9 +473,9 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 	var u User
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, role, email, status, email_verified, totp_enabled, created_at FROM users WHERE username = ?",
+		"SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts)
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -483,8 +491,8 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 	var u User
 	var ts string
 	err := s.db.QueryRow(
-		"SELECT id, username, role, email, status, email_verified, totp_enabled, created_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts)
+		"SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE id = ?", id,
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
@@ -497,7 +505,7 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 
 // ListUsers returns all users (admin only).
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, totp_enabled, created_at FROM users ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +514,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var u User
 		var ts string
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &ts); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts); err != nil {
 			continue
 		}
 		u.CreatedAt, _ = parseTime(ts)

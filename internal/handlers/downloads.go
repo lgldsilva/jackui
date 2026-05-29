@@ -14,6 +14,25 @@ import (
 	"github.com/luizg/jackui/internal/streamer"
 )
 
+// userCache is a simple in-memory cache for username lookups during a single
+// request. Avoids N+1 queries to the auth store for each download row.
+type userCache map[int]string
+
+func (uc userCache) get(store *auth.Store, userID int) string {
+	if s, ok := uc[userID]; ok {
+		return s
+	}
+	if store == nil {
+		return ""
+	}
+	u, err := store.GetUserByID(userID)
+	if err != nil {
+		return ""
+	}
+	uc[userID] = u.Username
+	return u.Username
+}
+
 // DownloadsList handles GET /api/downloads — current user's queue.
 func DownloadsList(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -24,6 +43,56 @@ func DownloadsList(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, list)
+	}
+}
+
+// DownloadsListAll handles GET /api/downloads/all — admin-only: returns
+// downloads from ALL users, enriched with usernames. Supports the same
+// filtering params as DownloadsListFiltered, plus userId filter.
+func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		status := c.Query("status")
+		tracker := c.Query("tracker")
+		category := c.Query("category")
+		search := c.Query("search")
+		sortCol := c.DefaultQuery("sort", "created_at")
+		sortDir := c.DefaultQuery("order", "desc")
+		userIDFilter := c.Query("userId")
+
+		list, err := dlStore.ListFilteredAll(status, tracker, category, search, userIDFilter, sortCol, sortDir)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		uc := userCache{}
+		for i := range list {
+			list[i].Username = uc.get(authStore, list[i].UserID)
+		}
+
+		c.JSON(http.StatusOK, list)
+	}
+}
+
+// DownloadsUsers handles GET /api/downloads/users — admin-only: returns the
+// list of users that have downloads, for the filter dropdown.
+func DownloadsUsers(dlStore *downloads.Store, authStore *auth.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userIDs, err := dlStore.DistinctUsers()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		type userEntry struct {
+			ID       int    `json:"id"`
+			Username string `json:"username"`
+		}
+		uc := userCache{}
+		out := make([]userEntry, 0, len(userIDs))
+		for _, uid := range userIDs {
+			out = append(out, userEntry{ID: uid, Username: uc.get(authStore, uid)})
+		}
+		c.JSON(http.StatusOK, out)
 	}
 }
 

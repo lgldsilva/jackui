@@ -602,9 +602,10 @@ export interface AdminUser {
   id: number
   username: string
   email: string
-  role: 'admin' | 'user'
+  role: 'admin' | 'user' | 'guest'
   status: 'active' | 'pending' | 'disabled'
   emailVerified: boolean
+  ntfyTopic: string
   createdAt: string
 }
 
@@ -634,7 +635,7 @@ export const adminListUsers = async (): Promise<AdminUser[]> => {
   const { data } = await api.get<AdminUser[]>('/auth/users')
   return data || []
 }
-export const adminCreateUser = async (username: string, password: string, role: 'admin' | 'user'): Promise<void> => {
+export const adminCreateUser = async (username: string, password: string, role: 'admin' | 'user' | 'guest'): Promise<void> => {
   await api.post('/auth/users', { username, password, role })
 }
 export const adminDeleteUser = async (id: number): Promise<void> => {
@@ -646,6 +647,14 @@ export const adminSetUserStatus = async (id: number, status: 'active' | 'pending
 export const adminInvite = async (email?: string): Promise<string> => {
   const { data } = await api.post<{ link: string }>('/auth/users/invite', { email: email || '' })
   return data.link
+}
+
+// ── Notification settings ──────────────────────────────────────────────────────
+export const setNtfyTopic = async (topic: string): Promise<void> => {
+  await api.post('/user/ntfy-topic', { topic })
+}
+export const notifyTest = async (): Promise<void> => {
+  await api.post('/user/notify-test')
 }
 
 // ── Active sessions ──────────────────────────────────────────────────────────
@@ -1446,6 +1455,7 @@ export const localPlay = async (mount: string, path: string): Promise<LocalPlayS
 export interface DownloadEntry {
   id: number
   userId: number
+  username?: string
   infoHash: string
   fileIndex: number
   filePath: string
@@ -1481,6 +1491,30 @@ export interface DownloadFilterParams {
   search?: string
   sort?: string
   order?: string
+  userId?: string
+}
+
+export interface DownloadUserEntry {
+  id: number
+  username: string
+}
+
+export const downloadsListAll = async (params: DownloadFilterParams): Promise<DownloadEntry[]> => {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.tracker) query.set('tracker', params.tracker)
+  if (params.category) query.set('category', params.category)
+  if (params.search) query.set('search', params.search)
+  if (params.sort) query.set('sort', params.sort)
+  if (params.order) query.set('order', params.order)
+  if (params.userId) query.set('userId', params.userId)
+  const { data } = await api.get<DownloadEntry[]>(`/downloads/all?${query.toString()}`)
+  return data || []
+}
+
+export const downloadUsers = async (): Promise<DownloadUserEntry[]> => {
+  const { data } = await api.get<DownloadUserEntry[]>('/downloads/users')
+  return data || []
 }
 
 export const downloadsList = async (): Promise<DownloadEntry[]> => {

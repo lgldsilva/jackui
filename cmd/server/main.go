@@ -195,10 +195,10 @@ func main() {
 				return path, true
 			})
 
-			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second)
+			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second, cfg.Notifications.NtfyBaseURL, cfg.Notifications.NtfyDefaultTopic)
 			worker.Start()
 			defer worker.Stop()
-			log.Printf("Downloads worker started (tick=2s)")
+			log.Printf("Downloads worker started (tick=2s, ntfy=%q)", cfg.Notifications.NtfyDefaultTopic)
 		} else {
 			log.Printf("Warning: downloads store init failed: %v", derr)
 		}
@@ -463,6 +463,12 @@ func main() {
 		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(aiClient, aiBench))
 		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(aiBench))
 
+		// Admin-only: all users' downloads with username enrichment
+		if downloadsStore != nil && authStore != nil {
+			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(downloadsStore, authStore))
+			adminAPI.GET("/downloads/users", handlers.DownloadsUsers(downloadsStore, authStore))
+		}
+
 		api.GET("/status", handlers.Status(jackettClient, historyStore))
 
 		if historyStore != nil {
@@ -688,6 +694,9 @@ func main() {
 			api.POST("/auth/passkey/register/begin", handlers.PasskeyRegisterBegin(authStore, waManager))
 			api.POST("/auth/passkey/register/finish", handlers.PasskeyRegisterFinish(authStore, waManager))
 			api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(authStore))
+			// Notification settings
+			api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(authStore))
+			api.POST("/user/notify-test", handlers.NotifyTest(cfg, authStore))
 			adminGroup := api.Group("/auth/users")
 			adminGroup.Use(auth.AdminOnly())
 			adminGroup.GET("", handlers.ListUsers(authStore))

@@ -1,11 +1,15 @@
 package downloads
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +50,11 @@ type Worker struct {
 
 	stop   chan struct{}
 	doneWG sync.WaitGroup
+
+	// ntfy notification config
+	ntfyBaseURL  string // default https://ntfy.sh
+	ntfyTopic    string // global default topic; per-user override via store
+	ntfyClient   *http.Client
 }
 
 type trackedDL struct {
@@ -61,21 +70,28 @@ type trackedDL struct {
 // NewWorker constructs a worker. interval defaults to 2 seconds when zero or
 // negative. dataDir is the streamer's piece-storage directory; downloadDir is
 // where completed files are moved (empty string keeps the legacy behaviour of
-// leaving files in DataDir protected from eviction).
-func NewWorker(store *Store, s *streamer.Streamer, dataDir, downloadDir string, interval time.Duration) *Worker {
+// leaving files in DataDir protected from eviction). ntfyBaseURL and ntfyTopic
+// configure push notifications; pass empty strings to disable.
+func NewWorker(store *Store, s *streamer.Streamer, dataDir, downloadDir string, interval time.Duration, ntfyBaseURL, ntfyTopic string) *Worker {
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
+	if ntfyBaseURL == "" {
+		ntfyBaseURL = "https://ntfy.sh"
+	}
 	w := &Worker{
-		store:       store,
-		streamer:    s,
-		dataDir:     dataDir,
-		downloadDir: downloadDir,
-		interval:    interval,
-		tracked:     make(map[int]*trackedDL),
-		pending:     make(map[int]context.CancelFunc),
-		retries:     make(map[int]int),
-		stop:        make(chan struct{}),
+		store:        store,
+		streamer:     s,
+		dataDir:      dataDir,
+		downloadDir:  downloadDir,
+		interval:     interval,
+		tracked:      make(map[int]*trackedDL),
+		pending:      make(map[int]context.CancelFunc),
+		retries:      make(map[int]int),
+		stop:         make(chan struct{}),
+		ntfyBaseURL:  ntfyBaseURL,
+		ntfyTopic:    ntfyTopic,
+		ntfyClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 	// Pre-register eviction protection for active downloads. Completed
 	// downloads are only protected when no dedicated downloadDir is configured
@@ -256,6 +272,8 @@ func (w *Worker) reconcile(d Download) {
 		delete(w.tracked, d.ID)
 		w.mu.Unlock()
 		log.Printf("downloads: completed #%d %q", d.ID, td.name)
+		body := fmt.Sprintf("%s · %.2f MB", td.name, float64(td.file.Length())/1048576)
+		w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
 	}
 }
 
@@ -380,10 +398,53 @@ func (w *Worker) failOrRetry(d Download, msg string) {
 		w.mu.Unlock()
 		log.Printf("downloads: init #%d (%s) failed after %d tries: %s", d.ID, d.InfoHash, n, msg)
 		_ = w.store.SetError(d.UserID, d.ID, msg)
+		name := d.Name
+		if name == "" {
+			name = d.InfoHash
+		}
+		w.sendNtfy(context.Background(), "Download falhou: "+name, msg, "x,torrent")
 		return
 	}
 	log.Printf("downloads: init #%d (%s) transient failure %d/%d: %s", d.ID, d.InfoHash, n, maxInitRetries, msg)
 	// Leave status=downloading — next tick re-launches initDownload.
+}
+
+// sendNtfy posts a push notification to ntfy.sh (or a self-hosted instance)
+// for a download event. Uses the global default topic. Silently logs and drops
+// errors after configured retries — notification delivery is best-effort.
+func (w *Worker) sendNtfy(ctx context.Context, title, body, tags string) {
+	if w.ntfyTopic == "" {
+		return
+	}
+	backoff := []time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute}
+	for i := 0; i <= len(backoff); i++ {
+		url := fmt.Sprintf("%s/%s", strings.TrimRight(w.ntfyBaseURL, "/"), w.ntfyTopic)
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBufferString(body))
+		if err != nil {
+			log.Printf("downloads: ntfy request err: %v", err)
+			return
+		}
+		req.Header.Set("Title", title)
+		req.Header.Set("Tags", tags)
+		resp, err := w.ntfyClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode < 300 {
+				return
+			}
+			err = fmt.Errorf("ntfy returned %d", resp.StatusCode)
+		}
+		if i < len(backoff) {
+			log.Printf("downloads: ntfy notify failed (attempt %d/%d): %v — retrying in %v", i+1, len(backoff)+1, err, backoff[i])
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff[i]):
+			}
+		} else {
+			log.Printf("downloads: ntfy notify failed after %d attempts: %v", len(backoff)+1, err)
+		}
+	}
 }
 
 // SnapshotActiveCount is mostly diagnostic — returns the number of downloads
