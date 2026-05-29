@@ -78,25 +78,29 @@ func LocalList(b *local.Browser) gin.HandlerFunc {
 
 		entries, err := b.List(mount, scopedPath)
 		if err != nil {
-			if isTraversalErr(err) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-				return
-			}
-			if os.IsNotExist(err) {
-				// UserSubpath dir doesn't exist yet → return empty list (not 404)
-				if b.IsUserSubpath(mount) {
-					c.JSON(http.StatusOK, []local.Entry{})
-					return
-				}
-				c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			listHandleError(b, c, err)
 			return
 		}
 		entries = b.StripUserScope(mount, username, entries)
 		c.JSON(http.StatusOK, entries)
 	}
+}
+
+func listHandleError(b *local.Browser, c *gin.Context, err error) {
+	if isTraversalErr(err) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !os.IsNotExist(err) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// UserSubpath dir doesn't exist yet → return empty list (not 404)
+	if b.IsUserSubpath(c.Query("mount")) {
+		c.JSON(http.StatusOK, []local.Entry{})
+		return
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
 }
 
 // LocalFile handles GET /api/local/file?mount=NAME&path=REL/FILE

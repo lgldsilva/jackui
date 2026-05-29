@@ -111,35 +111,43 @@ func (w *Worker) processOne(ctx context.Context, wl *Watchlist) {
 		log.Printf("watchlist[%d]: jackett search failed: %v", wl.ID, err)
 		return
 	}
-	topic := wl.NtfyTopic
-	if topic == "" {
-		topic = w.defaultTopic
-	}
+	topic := w.resolveTopic(wl)
 	for _, r := range results {
-		if r.Seeders < wl.MinSeeders {
-			continue
-		}
-		if r.InfoHash == "" {
-			continue
-		}
-		isNew, err := w.store.MarkSeen(wl.ID, r.InfoHash, r.Title, pickMagnet(r), r.Seeders, r.Size)
-		if err != nil {
-			log.Printf("watchlist[%d]: MarkSeen failed: %v", wl.ID, err)
-			continue
-		}
-		if !isNew {
-			continue
-		}
-		if topic == "" || w.notifier == nil {
-			continue // no destination configured — still record but skip push
-		}
-		body := fmt.Sprintf("%d seeders · %s", r.Seeders, humanSize(r.Size))
-		if err := w.notifier.Notify(ctx, topic, r.Title, body, pickMagnet(r)); err != nil {
-			log.Printf("watchlist[%d]: notify failed: %v", wl.ID, err)
-		}
+		w.processOneResult(ctx, wl, topic, r)
 	}
 	if err := w.store.MarkChecked(wl.ID); err != nil {
 		log.Printf("watchlist[%d]: MarkChecked failed: %v", wl.ID, err)
+	}
+}
+
+func (w *Worker) resolveTopic(wl *Watchlist) string {
+	if wl.NtfyTopic != "" {
+		return wl.NtfyTopic
+	}
+	return w.defaultTopic
+}
+
+func (w *Worker) processOneResult(ctx context.Context, wl *Watchlist, topic string, r jackett.Result) {
+	if r.Seeders < wl.MinSeeders {
+		return
+	}
+	if r.InfoHash == "" {
+		return
+	}
+	isNew, err := w.store.MarkSeen(wl.ID, r.InfoHash, r.Title, pickMagnet(r), r.Seeders, r.Size)
+	if err != nil {
+		log.Printf("watchlist[%d]: MarkSeen failed: %v", wl.ID, err)
+		return
+	}
+	if !isNew {
+		return
+	}
+	if topic == "" || w.notifier == nil {
+		return
+	}
+	body := fmt.Sprintf("%d seeders · %s", r.Seeders, humanSize(r.Size))
+	if err := w.notifier.Notify(ctx, topic, r.Title, body, pickMagnet(r)); err != nil {
+		log.Printf("watchlist[%d]: notify failed: %v", wl.ID, err)
 	}
 }
 
