@@ -27,6 +27,8 @@ const (
 	StatusPaused      = "paused"
 )
 
+const errInvalidStatus = "invalid status: %s"
+
 // Download is one tracked background transfer.
 type Download struct {
 	ID              int        `json:"id"`
@@ -434,7 +436,7 @@ func scanSlice(rows *sql.Rows) ([]Download, error) {
 // worker passes the row's own UserID).
 func (s *Store) SetStatus(userID, id int, status string) error {
 	if !validStatus(status) {
-		return fmt.Errorf("invalid status: %s", status)
+		return fmt.Errorf(errInvalidStatus, status)
 	}
 	var err error
 	switch status {
@@ -457,7 +459,7 @@ func (s *Store) SetStatus(userID, id int, status string) error {
 // Terminal statuses (completed, failed) are left unchanged.
 func (s *Store) SetStatusForUser(userID int, status string) (int64, error) {
 	if !validStatus(status) {
-		return 0, fmt.Errorf("invalid status: %s", status)
+		return 0, fmt.Errorf(errInvalidStatus, status)
 	}
 	res, err := s.db.Exec(`UPDATE downloads SET status=? WHERE user_id=? AND status NOT IN (?, ?)`,
 		status, userID, StatusCompleted, StatusFailed)
@@ -470,7 +472,7 @@ func (s *Store) SetStatusForUser(userID int, status string) (int64, error) {
 // SetStatusByIDs updates status for specific download IDs owned by userID.
 func (s *Store) SetStatusByIDs(userID int, ids []int, status string) (int64, error) {
 	if !validStatus(status) {
-		return 0, fmt.Errorf("invalid status: %s", status)
+		return 0, fmt.Errorf(errInvalidStatus, status)
 	}
 	if len(ids) == 0 {
 		return 0, nil

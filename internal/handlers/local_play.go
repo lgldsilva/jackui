@@ -145,7 +145,7 @@ func localSessionKey(mount, relPath string) string {
 
 func resolveLocalFile(b *local.Browser, c *gin.Context, mount, path string) (string, bool) {
 	if mount == "" || path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 		return "", false
 	}
 	if !checkMountAccess(b, c, mount) {
@@ -277,112 +277,111 @@ func isAudioByExt(path string) bool {
 	return false
 }
 
-// LocalHLSMaster handles GET /api/local/hls/index.m3u8?mount=&path= — kicks off
-// (or attaches to) an HLS transcode session whose source is a local file. The
-// pipeline is the same transcode.HLSSessionManager that torrents use; the only
-// difference is the source reader (os.File instead of an anacrolix Reader).
-//
-// We deliberately put the segment key in query params instead of the URL path
-// so the file/mount can carry unicode/spaces without URL-encoding gymnastics in
-// the segment URLs — segments are addressed by name (e.g. seg_00001.ts) and
-// resolved against the same session.
 func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
+		abs, stat, err := resolveLocalFileStat(b, mount, path)
+		if err != nil || abs == "" {
+			return
+		}
+		_, sess, err := startLocalHLSSession(c, mgr, mount, path, abs, stat)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		stat, err := os.Stat(abs)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		if stat.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is a directory"})
-			return
-		}
-
-		key := localSessionKey(mount, path)
-
-		// Open the file as the source. os.File is io.ReadSeeker, exactly what
-		// HLSStartOpts wants. The session keeps the handle alive until ffmpeg
-		// exits (via context cancellation in stop()) — we don't Close() here.
-		f, oerr := os.Open(abs)
-		if oerr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
-			return
-		}
-
-		sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
-			Key:        key,
-			Source:     f,
-			SourceSize: stat.Size(),
-		})
-		if err != nil {
-			_ = f.Close()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		// First segment latency on a local file is fast (no piece download
-		// gating). 60s is plenty even for libx264 cold-start fallback.
-		if err := sess.WaitForMaster(60 * time.Second); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "code": "transcode_failed"})
-			return
-		}
-
-		token := c.Query("token")
-
-		// Segments are served from /api/local/hls/seg?name=...&mount=...&path=...
-		// — segments don't naturally appear in the playlist path because the
-		// playlist URL has query params (Safari resolves relative segment names
-		// against the playlist URL, stripping query). We rewrite the playlist so
-		// each segment line points at the segment endpoint with explicit params.
-		segURL := func(name string) string {
-			p := url.Values{}
-			p.Set("mount", mount)
-			p.Set("path", path)
-			p.Set("seg", name)
-			if token != "" {
-				p.Set("token", token)
-			}
-			return "/api/local/hls/seg?" + p.Encode()
-		}
-
-		if sess.IsVOD() {
-			c.Header("Cache-Control", "no-store")
-			c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
-				buildLocalVODPlaylist(sess.DurationSec, segURL))
-			return
-		}
-
-		// EVENT fallback: read ffmpeg's m3u8 and rewrite each segment line.
-		data, rerr := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
-		if rerr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
-			return
-		}
-		lines := strings.Split(string(data), "\n")
-		for i, line := range lines {
-			trim := strings.TrimSpace(line)
-			if trim == "" || strings.HasPrefix(trim, "#") {
-				continue
-			}
-			lines[i] = segURL(trim)
-		}
-		c.Header("Cache-Control", "no-store")
-		c.Data(http.StatusOK, "application/vnd.apple.mpegurl", []byte(strings.Join(lines, "\n")))
+		buildSegURL := segURLBuilder(mount, path, c.Query("token"))
+		serveLocalPlaylist(c, sess, buildSegURL)
 	}
+}
+
+func resolveLocalFileStat(b *local.Browser, mount, path string) (string, os.FileInfo, error) {
+	abs, err := b.ResolvePath(mount, path)
+	if err != nil {
+		return "", nil, err
+	}
+	stat, err := os.Stat(abs)
+	if err != nil {
+		return "", nil, err
+	}
+	if stat.IsDir() {
+		return "", nil, fmt.Errorf("path is a directory")
+	}
+	return abs, stat, nil
+}
+
+func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount, path, abs string, stat os.FileInfo) (*os.File, *transcode.HLSSession, error) {
+	key := localSessionKey(mount, path)
+	f, oerr := os.Open(abs)
+	if oerr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
+		return nil, nil, oerr
+	}
+	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
+		Key:        key,
+		Source:     f,
+		SourceSize: stat.Size(),
+	})
+	if err != nil {
+		_ = f.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return nil, nil, err
+	}
+	return f, sess, nil
+}
+
+func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
+	if err := sess.WaitForMaster(60 * time.Second); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "code": "transcode_failed"})
+		return false
+	}
+	return true
+}
+
+func segURLBuilder(mount, path, token string) func(name string) string {
+	return func(name string) string {
+		p := url.Values{}
+		p.Set("mount", mount)
+		p.Set("path", path)
+		p.Set("seg", name)
+		if token != "" {
+			p.Set("token", token)
+		}
+		return "/api/local/hls/seg?" + p.Encode()
+	}
+}
+
+func serveLocalPlaylist(c *gin.Context, sess *transcode.HLSSession, segURL func(string) string) {
+	if sess.IsVOD() {
+		c.Header(CacheControl, "no-store")
+		c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
+			buildLocalVODPlaylist(sess.DurationSec, segURL))
+		return
+	}
+	data, rerr := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
+	if rerr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		lines[i] = segURL(trim)
+	}
+	c.Header(CacheControl, "no-store")
+	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", []byte(strings.Join(lines, "\n")))
 }
 
 // buildLocalVODPlaylist is the local-source analogue of buildVODPlaylist in
@@ -417,9 +416,6 @@ func buildLocalVODPlaylist(durationSec float64, segURL func(name string) string)
 	return []byte(b.String())
 }
 
-// LocalHLSSegment handles GET /api/local/hls/seg?mount=&path=&seg=NAME — serves
-// a transcoded .ts segment from the disk cache, triggering a seek-restart when
-// the requested index is well beyond what's already on disk (VOD mode only).
 func LocalHLSSegment(b *local.Browser, mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
@@ -432,40 +428,37 @@ func LocalHLSSegment(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Han
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		// Defensive: reject anything with separators in the segment name.
-		if strings.ContainsAny(segName, "/\\") || strings.Contains(segName, "..") {
+		if !validSegName(segName) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid segment name"})
 			return
 		}
-		// Validate the mount/path resolves — defends against probing for
-		// segments of arbitrary keys without a valid file.
-		if _, err := b.ResolvePath(mount, path); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if !validLocalSegPath(b, mount, path) {
 			return
 		}
-
-		key := localSessionKey(mount, path)
-		sess, err := mgr.Peek(key)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
+		sess := resolveLocalSession(c, mgr, mount, path)
+		if sess == nil {
 			return
 		}
-
-		if sess.IsVOD() {
-			if idx, ok := transcode.ParseSegIndex(segName); ok {
-				if _, statErr := os.Stat(filepath.Join(sess.Dir, segName)); statErr != nil {
-					sess.EnsureSegment(idx)
-				}
-			}
-		}
-
-		segPath, werr := sess.WaitForSegment(segName, 30*time.Second)
-		if werr != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": werr.Error()})
-			return
-		}
-		c.Header("Content-Type", "video/mp2t")
-		c.Header("Cache-Control", "max-age=3600")
-		c.File(segPath)
+		ensureVODSegment(sess, segName)
+		serveSegment(c, sess, segName)
 	}
+}
+
+func validSegName(name string) bool {
+	return !strings.ContainsAny(name, "/\\") && !strings.Contains(name, "..")
+}
+
+func validLocalSegPath(b *local.Browser, mount, path string) bool {
+	_, err := b.ResolvePath(mount, path)
+	return err == nil
+}
+
+func resolveLocalSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount, path string) *transcode.HLSSession {
+	key := localSessionKey(mount, path)
+	sess, err := mgr.Peek(key)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
+		return nil
+	}
+	return sess
 }

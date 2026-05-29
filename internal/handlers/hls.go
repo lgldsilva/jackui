@@ -60,16 +60,6 @@ func buildVODPlaylist(durationSec float64, token string) []byte {
 	return []byte(b.String())
 }
 
-// StreamHLSMaster handles GET /api/stream/hls/:hash/:file/index.m3u8 —
-// kicks off (or attaches to) the HLS transcoding session and returns the
-// playlist. Safari fetches this first; segment requests follow.
-//
-// Why HLS for Safari specifically: progressive fragmented MP4 via chunked
-// transfer is rejected by Safari's MSE pipeline with MediaError.SRC_NOT_SUPPORTED
-// regardless of how we tune the encode. Apple's documented streaming path is
-// HLS (.m3u8 + .ts) and `<video src="...m3u8">` is the only thing Safari
-// treats as a seekable / progressive video source. Jellyfin, Plex, Emby all
-// use HLS for browser playback for the same reason.
 func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
@@ -82,67 +72,70 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
 			return
 		}
-
 		transcodeSource, transcodeSourceSize := resolveTranscodeSource(c, s, store, h, fileIdx)
 		if transcodeSource == nil {
 			return
 		}
-
-		key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
-		sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
-			Key:        key,
-			Source:     transcodeSource,
-			SourceSize: transcodeSourceSize,
-		})
+		sess, err := startHLSSession(c, mgr, h, fileIdx, transcodeSource, transcodeSourceSize)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
 		if !waitForMasterPlaylist(c, s, sess, h, fileIdx) {
 			return
 		}
-
-		// VOD mode (gated by hlsVODEnabled): serve a synthesised finite playlist
-		// (full seekbar) instead of ffmpeg's incremental EVENT one. When VOD is
-		// off, fall through to the EVENT path — the proven, reliable transcode
-		// playback for HEVC/fallback sources.
-		if sess.IsVOD() {
-			c.Header("Cache-Control", "no-store")
-			c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
-				buildVODPlaylist(sess.DurationSec, c.Query("token")))
-			return
-		}
-
-		// EVENT fallback (duration unknown): Safari resolves relative segment
-		// names against the playlist URL but DROPS the query string — so
-		// `?token=...` from the master URL does NOT reach the segment request
-		// and the JWT middleware returns 401. We read ffmpeg's playlist and
-		// append `?token=XXX` to each segment line so they authenticate.
-		data, err := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
-			return
-		}
-		if tok := c.Query("token"); tok != "" {
-			lines := strings.Split(string(data), "\n")
-			for i, line := range lines {
-				trim := strings.TrimSpace(line)
-				if trim == "" || strings.HasPrefix(trim, "#") {
-					continue
-				}
-				lines[i] = trim + "?token=" + tok
-			}
-			data = []byte(strings.Join(lines, "\n"))
-		}
-		c.Header("Cache-Control", "no-store")
-		c.Data(http.StatusOK, "application/vnd.apple.mpegurl", data)
+		serveHLSPlaylist(c, sess)
 	}
 }
 
-// StreamHLSSegment handles GET /api/stream/hls/:hash/:file/:seg — serves
-// one .ts segment from the per-session disk cache. Waits briefly if the
-// segment hasn't been encoded yet (typical at the playback edge).
+func startHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, h metainfo.Hash, fileIdx int, source io.ReadSeekCloser, sourceSize int64) (*transcode.HLSSession, error) {
+	key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
+	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
+		Key:        key,
+		Source:     source,
+		SourceSize: sourceSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return nil, err
+	}
+	return sess, nil
+}
+
+func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
+	if sess.IsVOD() {
+		c.Header(CacheControl, "no-store")
+		c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
+			buildVODPlaylist(sess.DurationSec, c.Query("token")))
+		return
+	}
+	data := readEventPlaylist(c, sess)
+	if data == nil {
+		return
+	}
+	c.Header(CacheControl, "no-store")
+	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", data)
+}
+
+func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
+	data, err := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
+		return nil
+	}
+	if tok := c.Query("token"); tok != "" {
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			trim := strings.TrimSpace(line)
+			if trim == "" || strings.HasPrefix(trim, "#") {
+				continue
+			}
+			lines[i] = trim + "?token=" + tok
+		}
+		data = []byte(strings.Join(lines, "\n"))
+	}
+	return data
+}
+
 func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
@@ -156,39 +149,47 @@ func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 			return
 		}
 		segName := c.Param("seg")
-
-		key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
-		// Re-attach to the existing session. If it's gone (cleanup ran
-		// during a network pause), the playlist request will respawn it
-		// when the client retries — segment lookups don't restart encode.
-		sess, err := getSession(mgr, key)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
+		sess := resolveHLSSession(c, mgr, h, fileIdx)
+		if sess == nil {
 			return
 		}
-
-		// VOD seek: if the requested segment isn't encoded yet, make sure an
-		// encoder is producing it (backward seek or a forward jump beyond the
-		// look-ahead window triggers a seek-restart). No-op in EVENT mode.
-		if sess.IsVOD() {
-			if idx, ok := transcode.ParseSegIndex(segName); ok {
-				if _, statErr := os.Stat(filepath.Join(sess.Dir, segName)); statErr != nil {
-					sess.EnsureSegment(idx)
-				}
-			}
-		}
-
-		path, err := sess.WaitForSegment(segName, 30*time.Second)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Long-lived cache header: segments don't change mid-session.
-		c.Header("Content-Type", "video/mp2t")
-		c.Header("Cache-Control", "max-age=3600")
-		c.File(path)
+		ensureVODSegment(sess, segName)
+		serveSegment(c, sess, segName)
 	}
+}
+
+func resolveHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, h metainfo.Hash, fileIdx int) *transcode.HLSSession {
+	key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
+	sess, err := getSession(mgr, key)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
+		return nil
+	}
+	return sess
+}
+
+func ensureVODSegment(sess *transcode.HLSSession, segName string) {
+	if !sess.IsVOD() {
+		return
+	}
+	idx, ok := transcode.ParseSegIndex(segName)
+	if !ok {
+		return
+	}
+	if _, statErr := os.Stat(filepath.Join(sess.Dir, segName)); statErr != nil {
+		sess.EnsureSegment(idx)
+	}
+}
+
+func serveSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
+	path, err := sess.WaitForSegment(segName, 30*time.Second)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.Header("Content-Type", "video/mp2t")
+	c.Header(CacheControl, "max-age=3600")
+	c.File(path)
 }
 
 // getSession is a small helper to look up an existing session without

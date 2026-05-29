@@ -288,21 +288,31 @@ func (c *Client) fetchImdbRating(ctx context.Context, imdbID string) float64 {
 	return r
 }
 
-// Trending returns this week's trending movies + TV shows for the Discover page.
-// Cached in memory for trendingTTL since it's the same for everyone and changes
-// slowly. Does NOT resolve IMDb ids (not needed for a browse grid).
 func (c *Client) Trending(ctx context.Context) ([]Match, error) {
 	if c.apiKey == "" {
 		return nil, ErrDisabled
 	}
-	c.trendingMu.Lock()
-	if c.trendingCache != nil && time.Since(c.trendingAt) < trendingTTL {
-		cached := c.trendingCache
-		c.trendingMu.Unlock()
-		return cached, nil
+	if items, ok := c.trendingCached(); ok {
+		return items, nil
 	}
-	c.trendingMu.Unlock()
+	items, err := c.fetchTrending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.setTrendingCache(items)
+	return items, nil
+}
 
+func (c *Client) trendingCached() ([]Match, bool) {
+	c.trendingMu.Lock()
+	defer c.trendingMu.Unlock()
+	if c.trendingCache != nil && time.Since(c.trendingAt) < trendingTTL {
+		return c.trendingCache, true
+	}
+	return nil, false
+}
+
+func (c *Client) fetchTrending(ctx context.Context) ([]Match, error) {
 	q := url.Values{}
 	q.Set("api_key", c.apiKey)
 	q.Set("language", "pt-BR")
@@ -319,37 +329,44 @@ func (c *Client) Trending(ctx context.Context) ([]Match, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
+	return buildTrendingItems(out), nil
+}
+
+func buildTrendingItems(out multiSearchResp) []Match {
 	items := make([]Match, 0, len(out.Results))
 	for _, r := range out.Results {
 		if r.MediaType != "movie" && r.MediaType != "tv" {
 			continue
 		}
 		if r.PosterPath == "" {
-			continue // a browse grid without a poster is just noise
+			continue
 		}
-		m := Match{TmdbID: r.ID, Kind: r.MediaType, Overview: r.Overview, VoteAverage: r.VoteAverage, PosterURL: imageBase + r.PosterPath}
-		if r.MediaType == "movie" {
-			m.Title = r.Title
-			if y, _ := strconv.Atoi(safePrefix(r.ReleaseDate, 4)); y > 0 {
-				m.Year = y
-			}
-		} else {
-			m.Title = r.Name
-			if y, _ := strconv.Atoi(safePrefix(r.FirstAirDate, 4)); y > 0 {
-				m.Year = y
-			}
-		}
-		items = append(items, m)
+		m := buildMatchFromResult(r)
+		m.PosterURL = imageBase + r.PosterPath
+		items = append(items, *m)
 	}
+	return items
+}
 
+func (c *Client) setTrendingCache(items []Match) {
 	c.trendingMu.Lock()
 	c.trendingCache = items
 	c.trendingAt = time.Now()
 	c.trendingMu.Unlock()
-	return items, nil
 }
 
 func (c *Client) searchMulti(ctx context.Context, title string, year int) (*Match, error) {
+	out, err := c.doSearchMulti(ctx, title, year)
+	if err != nil {
+		return nil, err
+	}
+	if len(out.Results) == 0 {
+		return nil, nil
+	}
+	return c.pickBestMatch(ctx, out), nil
+}
+
+func (c *Client) doSearchMulti(ctx context.Context, title string, year int) (*multiSearchResp, error) {
 	q := url.Values{}
 	q.Set("api_key", c.apiKey)
 	q.Set("query", title)
@@ -371,43 +388,57 @@ func (c *Client) searchMulti(ctx context.Context, title string, year int) (*Matc
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
-	if len(out.Results) == 0 {
-		return nil, nil
-	}
-	// Pick the most popular result that's a movie or TV show (skip people).
+	return &out, nil
+}
+
+func (c *Client) pickBestMatch(ctx context.Context, out *multiSearchResp) *Match {
 	for _, r := range out.Results {
 		if r.MediaType != "movie" && r.MediaType != "tv" {
 			continue
 		}
-		m := &Match{
-			TmdbID:      r.ID,
-			Kind:        r.MediaType,
-			Overview:    r.Overview,
-			VoteAverage: r.VoteAverage,
-		}
-		if r.MediaType == "movie" {
-			m.Title = r.Title
-			if y, _ := strconv.Atoi(safePrefix(r.ReleaseDate, 4)); y > 0 {
-				m.Year = y
-			}
-		} else {
-			m.Title = r.Name
-			if y, _ := strconv.Atoi(safePrefix(r.FirstAirDate, 4)); y > 0 {
-				m.Year = y
-			}
-		}
+		m := buildMatchFromResult(r)
 		if r.PosterPath != "" {
 			m.PosterURL = imageBase + r.PosterPath
 		}
-		// Resolve the IMDb id once (best-effort) so callers can persist it and
-		// never reprocess. A failure here must not lose the otherwise-good match.
 		if imdb := c.fetchImdbID(ctx, r.MediaType, r.ID); imdb != "" {
 			m.ImdbID = imdb
-			m.ImdbRating = c.fetchImdbRating(ctx, imdb) // real IMDb rating (0 when unavailable)
+			m.ImdbRating = c.fetchImdbRating(ctx, imdb)
 		}
-		return m, nil
+		return m
 	}
-	return nil, nil
+	return nil
+}
+
+func buildMatchFromResult(r struct {
+	ID           int     `json:"id"`
+	MediaType    string  `json:"media_type"`
+	Title        string  `json:"title"`
+	Name         string  `json:"name"`
+	Overview     string  `json:"overview"`
+	PosterPath   string  `json:"poster_path"`
+	ReleaseDate  string  `json:"release_date"`
+	FirstAirDate string  `json:"first_air_date"`
+	VoteAverage  float64 `json:"vote_average"`
+	Popularity   float64 `json:"popularity"`
+}) *Match {
+	m := &Match{
+		TmdbID:      r.ID,
+		Kind:        r.MediaType,
+		Overview:    r.Overview,
+		VoteAverage: r.VoteAverage,
+	}
+	if r.MediaType == "movie" {
+		m.Title = r.Title
+		if y, _ := strconv.Atoi(safePrefix(r.ReleaseDate, 4)); y > 0 {
+			m.Year = y
+		}
+	} else {
+		m.Title = r.Name
+		if y, _ := strconv.Atoi(safePrefix(r.FirstAirDate, 4)); y > 0 {
+			m.Year = y
+		}
+	}
+	return m
 }
 
 func safePrefix(s string, n int) string {
