@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronRight,
   Folder,
@@ -203,21 +203,34 @@ export default function LocalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // reqSeq guards against out-of-order responses: when the user navigates
+  // quickly (or the initial mount load is still in flight), two localList calls
+  // race and the slower one could overwrite the newer result — showing stale or
+  // empty content and a flash. Only the latest request is allowed to commit.
+  const reqSeq = useRef(0)
+
   const refresh = () => {
     if (!activeMount) return
     // Sync the client module's view-as state BEFORE any local call so list +
     // subsequent play/thumb/move/delete all hit the selected user's space.
     setLocalViewAsUser(viewAsUser)
+    const seq = ++reqSeq.current
     setLoading(true)
     setError('')
     localList(activeMount, path)
-      .then(setEntries)
+      .then((data) => {
+        if (seq !== reqSeq.current) return
+        setEntries(data)
+      })
       .catch((e: unknown) => {
+        if (seq !== reqSeq.current) return
         const msg = e instanceof Error ? e.message : 'Erro ao listar diretorio'
         setError(msg)
         setEntries([])
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (seq === reqSeq.current) setLoading(false)
+      })
   }
 
   useEffect(() => {
@@ -477,11 +490,13 @@ export default function LocalPage() {
                             <FolderInput className="w-4.5 h-4.5" />
                           </button>
                         )}
-                        {/* Apagar: só Meus downloads (segurança) */}
-                        {canManipulate && (
+                        {/* Apagar: usuário em Meus downloads OU admin em qualquer
+                            mount (pastas e arquivos). Alinha com o backend
+                            canModifyMount, que libera admin em todo mount. */}
+                        {(canManipulate || isAdmin) && (
                           <button
                             onClick={(evt) => { evt.stopPropagation(); setDeleteConfirmItem(e) }}
-                            title="Apagar permanentemente"
+                            title={e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente'}
                             className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
                           >
                             <Trash2 className="w-4.5 h-4.5" />
@@ -505,6 +520,9 @@ export default function LocalPage() {
                 </h3>
                 <p className="text-sm text-gray-300">
                   Tem certeza que deseja apagar <span className="text-red-400 font-medium">"{deleteConfirmItem.name}"</span>? Esta ação é irreversível e excluirá o arquivo de forma permanente no servidor.
+                </p>
+                <p className="text-xs text-amber-400/80">
+                  O torrent vinculado (se houver) também será removido: registro do download, pieces no cache e marcação de favorito.
                 </p>
                 <div className="flex items-center gap-2 justify-end mt-2">
                   <button

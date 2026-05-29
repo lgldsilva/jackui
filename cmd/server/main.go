@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/config"
 	"github.com/luizg/jackui/internal/downloads"
+	"github.com/luizg/jackui/internal/gluetun"
 	"github.com/luizg/jackui/internal/handlers"
 	"github.com/luizg/jackui/internal/history"
 	"github.com/luizg/jackui/internal/imagesearch"
@@ -38,6 +40,48 @@ import (
 	"github.com/luizg/jackui/internal/watchlist"
 	"github.com/luizg/jackui/ui"
 )
+
+// resolvePeerPort picks the inbound BitTorrent peer port. Behind a VPN the port
+// must be the provider's forwarded port (dynamic), so when
+// JACKUI_GLUETUN_CONTROL_URL is set we ask gluetun for it — it takes
+// precedence. Otherwise a fixed JACKUI_PEER_PORT override; else 0 (the streamer
+// falls back to its default 51469).
+func resolvePeerPort() int {
+	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		if p, err := gluetun.ForwardedPort(ctx, ctrl); err == nil {
+			log.Printf("peer port: using gluetun forwarded port %d", p)
+			return p
+		} else {
+			log.Printf("peer port: gluetun forwarded port unavailable (%v) — falling back", err)
+		}
+	}
+	if v := os.Getenv("JACKUI_PEER_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+			return p
+		}
+	}
+	return 0
+}
+
+// watchForwardedPort restarts the process when gluetun's forwarded port changes.
+// anacrolix binds the peer port at boot, so re-binding to a new forwarded port
+// needs a fresh client — a clean exit lets `restart: unless-stopped` recreate us
+// and repick the port. Port changes are rare (only on VPN reconnect), so the
+// occasional restart is acceptable.
+func watchForwardedPort(ctrl string, current int) {
+	for {
+		time.Sleep(2 * time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		p, err := gluetun.ForwardedPort(ctx, ctrl)
+		cancel()
+		if err == nil && p > 0 && p != current {
+			log.Printf("forwarded port changed %d→%d — exiting to rebind", current, p)
+			os.Exit(0)
+		}
+	}
+}
 
 func main() {
 	configPath := "config.yaml"
@@ -85,6 +129,13 @@ func main() {
 	// Trust the Jackett host in the SSRF guard + inject its apikey server-side.
 	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
 		streamCfg.JackettHost = u.Hostname()
+	}
+	// Inbound BitTorrent peer port. Behind a VPN it must be the provider's
+	// forwarded port (read from gluetun) so peers can reach us — seeds public
+	// torrents properly and improves leech. 0 → streamer default (51469).
+	streamCfg.ListenPort = resolvePeerPort()
+	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" && streamCfg.ListenPort > 0 {
+		go watchForwardedPort(ctrl, streamCfg.ListenPort)
 	}
 	if streamCfg.DataDir == "" {
 		streamCfg.DataDir = "/data/streams"
@@ -572,7 +623,7 @@ func main() {
 			api.GET("/local/file", handlers.LocalFile(localBrowser))
 			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
 			api.GET("/local/transcode", handlers.LocalTranscode(localBrowser))
-			api.DELETE("/local/file", handlers.LocalDelete(localBrowser))
+			api.DELETE("/local/file", handlers.LocalDelete(localBrowser, downloadsStore, streamSrv))
 			api.POST("/local/promote", handlers.LocalPromote(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
 			api.POST("/local/promote/preview", handlers.LocalPromotePreview(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
 			api.GET("/local/walk", handlers.LocalWalk(localBrowser))

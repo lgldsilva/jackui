@@ -378,6 +378,7 @@ func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category
 		results = append(results, Result{
 			Title:       r.Title,
 			Tracker:     r.Tracker,
+			TrackerID:   r.TrackerId,
 			CategoryID:  categoryID,
 			Category:    r.CategoryDesc,
 			Size:        r.Size,

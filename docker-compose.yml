@@ -8,10 +8,12 @@ services:
     # rodar os defers (anacrolix.Client.Close commita o estado de pieces no
     # bolt DB; sem isso, restart fazia anacrolix re-baixar pieces já gravados).
     stop_grace_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: ${JACKUI_MEM_LIMIT:-4G}
+    # Resource caps — 4-core/15G host shared with Jackett/Ollama/Jellyfin/*arr.
+    # Transcode is GPU (NVENC), so CPU/RAM stay modest; a runaway can't starve
+    # the host. Override via JACKUI_CPU_LIMIT / JACKUI_MEM_LIMIT.
+    mem_limit: ${JACKUI_MEM_LIMIT:-2g}
+    mem_reservation: 256m
+    cpus: ${JACKUI_CPU_LIMIT:-2.0}
     healthcheck:
       disable: true
     ports:
