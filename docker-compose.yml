@@ -27,27 +27,25 @@ services:
       - "51469:51469/tcp"   # BitTorrent peer port (TCP)
       - "51469:51469/udp"   # BitTorrent peer port (UDP / DHT)
     volumes:
-      # App config + all SQLite DBs in Portainer's standard AppData location.
-      # Separated from the LVM streaming cache to avoid I/O contention with
-      # Jackett/Ollama (which also live on the LVM volume).
-      - /portainer/Files/AppData/Config/jackui/config.yaml:/app/config.yaml
-      - /portainer/Files/AppData/Config/jackui:/data
-      # Large streaming piece cache stays on the LVM (sequential writes, LRU-managed).
-      - /mnt/lvm1-storage/jacktrack/cache:/data/streams
-      # Browsable/playable libraries (read-only) — surfaced on the "Local" page
-      # via JACKUI_EXTERNAL_MOUNTS below.
-      # Mount unificado do storage compartilhado para permitir promoção instantânea
-      # (mesmo volume de origem/destino evita EXDEV/cópia lenta na movimentação).
-      - /mnt/lvm1-storage:/mnt/storage
-      # Google Drive mounts (rclone FUSE) — RAW para mídia, CRYPT para dados sensíveis.
-      # RW para permitir promover (upload) downloads concluídos direto pro GDrive.
-      - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:rw
-      - /mnt/rclone/gdrive/pessoal/sensitive:/mnt/gdrive/sensitive:rw
-      # NOTE: The sensitive (crypt) mount also needs config.yaml to set
-      # allowed_users. Add to /portainer/.../jackui/config.yaml:
+      # Host paths come from .env (gitignored) so the public repo carries no
+      # machine-specific layout — harmless local defaults (./data/*) are used
+      # when a var is unset. Keeping config and the piece cache on separate
+      # volumes avoids I/O contention (e.g. with Jackett/Ollama).
+      - ${JACKUI_CONFIG_DIR:-./data/config}/config.yaml:/app/config.yaml
+      - ${JACKUI_CONFIG_DIR:-./data/config}:/data
+      # Large streaming piece cache (sequential writes, LRU-managed).
+      - ${JACKUI_CACHE_DIR:-./data/cache}:/data/streams
+      # Shared media library — same source/dest volume enables instant "promote"
+      # (avoids EXDEV/slow cross-device copies). Surfaced on the "Local" page.
+      - ${JACKUI_STORAGE_DIR:-./data/storage}:/mnt/storage
+      # Optional extra mounts (e.g. rclone/NFS). Leave the *_MOUNT vars unset in
+      # .env to fall back to harmless local dirs; set them to your real paths.
+      - ${JACKUI_MEDIA_MOUNT:-./data/media}:/mnt/gdrive/media:rw
+      - ${JACKUI_SENSITIVE_MOUNT:-./data/sensitive}:/mnt/gdrive/sensitive:rw
+      # NOTE: a "sensitive" mount also needs config.yaml to set allowed_users:
       #   external:
       #     mounts:
-      #       - name: "GDrive Sensitivo"
+      #       - name: "Sensitive"
       #         path: /mnt/gdrive/sensitive
       #         allowed_users: ["admin"]
     environment:
@@ -95,7 +93,7 @@ services:
       - JACKUI_SMTP_USER=${JACKUI_SMTP_USER:-}
       - JACKUI_SMTP_PASS=${JACKUI_SMTP_PASS:-}
       - JACKUI_SMTP_FROM=${JACKUI_SMTP_FROM:-}
-      - JACKUI_BASE_URL=${JACKUI_BASE_URL:-https://jackui.raspberrypi.lan}
+      - JACKUI_BASE_URL=${JACKUI_BASE_URL:-https://jackui.example.com}
     networks:
       - vpn-gateway_vpn-net
       - npm-network
