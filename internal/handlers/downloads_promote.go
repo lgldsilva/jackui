@@ -22,6 +22,11 @@ import (
 	"github.com/luizg/jackui/internal/tmdb"
 )
 
+const (
+	errSharedDirNotConfig = "JACKUI_SHARED_DIR não configurado"
+	errDownloadNotFound   = "download não encontrado"
+)
+
 // PromoteDest represents a named promote destination (shared dir or extra).
 type PromoteDest struct {
 	Name string `json:"name"`
@@ -102,7 +107,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 			return
 		}
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
 		var req promoteReq
@@ -115,7 +120,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		updated, err := promoteOne(store, s, aiClient, tmdbClient, base, userID, id, req.TargetSubdir, req.KeepSeeding, req.RenameIA)
+		updated, err := promoteOne(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -134,45 +139,57 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
-		var req promoteReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if len(req.IDs) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
-			return
-		}
-		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		req, base, ok := validateBatchReq(c, sharedDir, dests)
+		if !ok {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted := []downloads.Download{}
-		failed := []gin.H{}
-		for _, id := range req.IDs {
-			d, err := promoteOne(store, s, aiClient, tmdbClient, base, userID, id, req.TargetSubdir, req.KeepSeeding, req.RenameIA)
-			if err != nil {
-				failed = append(failed, gin.H{"id": id, "error": err.Error()})
-				continue
-			}
-			if d != nil {
-				promoted = append(promoted, *d)
-			}
-		}
+		promoted, failed := promoteBatchItems(store, s, aiClient, tmdbClient, base, userID, req)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
 
-// DownloadsPromotePreview handles POST /api/downloads/promote/preview
+func validateBatchReq(c *gin.Context, sharedDir string, dests []PromoteDest) (*promoteReq, string, bool) {
+	var req promoteReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, "", false
+	}
+	if len(req.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
+		return nil, "", false
+	}
+	base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, "", false
+	}
+	return &req, base, true
+}
+
+func promoteBatchItems(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, base string, userID int, req *promoteReq) ([]downloads.Download, []gin.H) {
+	promoted := []downloads.Download{}
+	failed := []gin.H{}
+	for _, id := range req.IDs {
+		d, err := promoteOne(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA})
+		if err != nil {
+			failed = append(failed, gin.H{"id": id, "error": err.Error()})
+			continue
+		}
+		if d != nil {
+			promoted = append(promoted, *d)
+		}
+	}
+	return promoted, failed
+}
+
 func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
 		var req promoteReq
@@ -190,40 +207,46 @@ func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbCl
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		previews := []gin.H{}
-		for _, id := range req.IDs {
-			d, err := store.Get(userID, id)
-			if err != nil || d == nil {
-				previews = append(previews, gin.H{"id": id, "error": "download não encontrado"})
-				continue
-			}
-			if d.FilePath == "" {
-				previews = append(previews, gin.H{"id": id, "error": "file_path vazio"})
-				continue
-			}
-			rawName := filepath.Base(d.FilePath)
-			if rawName == "" || rawName == "." || rawName == "/" {
-				rawName = d.Name
-			}
-			preview, err := renamer.GeneratePreview(c.Request.Context(), aiClient, tmdbClient, rawName)
-			if err != nil {
-				previews = append(previews, gin.H{"id": id, "error": err.Error()})
-				continue
-			}
-			nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
-			previews = append(previews, gin.H{
-				"id":           id,
-				"originalName": rawName,
-				"cleanName":    preview.CleanName,
-				"targetPath":   nonConflicting,
-				"kind":         preview.Kind,
-				"year":         preview.Year,
-				"season":       preview.Season,
-				"episode":      preview.Episode,
-				"episodeName":  preview.EpisodeName,
-			})
-		}
+		previews := buildDownloadPreviews(c.Request.Context(), store, aiClient, tmdbClient, userID, req.IDs, base)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
+	}
+}
+
+func buildDownloadPreviews(ctx context.Context, store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, userID int, ids []int, base string) []gin.H {
+	previews := make([]gin.H, 0, len(ids))
+	for _, id := range ids {
+		previews = append(previews, previewOneDownload(ctx, store, aiClient, tmdbClient, userID, id, base))
+	}
+	return previews
+}
+
+func previewOneDownload(ctx context.Context, store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, userID, id int, base string) gin.H {
+	d, err := store.Get(userID, id)
+	if err != nil || d == nil {
+		return gin.H{"id": id, "error": errDownloadNotFound}
+	}
+	if d.FilePath == "" {
+		return gin.H{"id": id, "error": "file_path vazio"}
+	}
+	rawName := filepath.Base(d.FilePath)
+	if rawName == "" || rawName == "." || rawName == "/" {
+		rawName = d.Name
+	}
+	preview, err := renamer.GeneratePreview(ctx, aiClient, tmdbClient, rawName)
+	if err != nil {
+		return gin.H{"id": id, "error": err.Error()}
+	}
+	nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
+	return gin.H{
+		"id":           id,
+		"originalName": rawName,
+		"cleanName":    preview.CleanName,
+		"targetPath":   nonConflicting,
+		"kind":         preview.Kind,
+		"year":         preview.Year,
+		"season":       preview.Season,
+		"episode":      preview.Episode,
+		"episodeName":  preview.EpisodeName,
 	}
 }
 
@@ -233,11 +256,10 @@ func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbCl
 func DownloadsPromoteBrowse(sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
-		base := c.Query("base")
-		root, err := resolveTargetBase(base, sharedDir, dests)
+		root, err := resolveTargetBase(c.Query("base"), sharedDir, dests)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -247,42 +269,51 @@ func DownloadsPromoteBrowse(sharedDir string, dests []PromoteDest) gin.HandlerFu
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		dir := root
-		if sub != "" {
-			dir = filepath.Join(root, sub)
-		}
+		dir := joinIfSub(root, sub)
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"dirs": []string{}, "path": sub})
 			return
 		}
-		dirs := []string{}
-		for _, e := range entries {
-			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-				dirs = append(dirs, e.Name())
-			}
-		}
-		sort.Strings(dirs)
-		c.JSON(http.StatusOK, gin.H{"dirs": dirs, "path": sub})
+		c.JSON(http.StatusOK, gin.H{"dirs": listDirs(entries), "path": sub})
 	}
 }
 
-// promoteOne implementa a lógica compartilhada entre single + batch. Validação
-// + move + (opcional) drop do torrent.
-func promoteOne(
-	store *downloads.Store,
-	s *streamer.Streamer,
-	aiClient *ai.Client,
-	tmdbClient *tmdb.Client,
-	sharedDir string,
-	userID, id int,
-	targetSubdir string,
-	keepSeeding bool,
-	renameIA bool,
-) (*downloads.Download, error) {
-	d, err := store.Get(userID, id)
+func joinIfSub(root, sub string) string {
+	if sub == "" {
+		return root
+	}
+	return filepath.Join(root, sub)
+}
+
+func listDirs(entries []os.DirEntry) []string {
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			dirs = append(dirs, e.Name())
+		}
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+type promoteOpts struct {
+	store        *downloads.Store
+	s            *streamer.Streamer
+	aiClient     *ai.Client
+	tmdbClient   *tmdb.Client
+	sharedDir    string
+	userID       int
+	id           int
+	targetSubdir string
+	keepSeeding  bool
+	renameIA     bool
+}
+
+func promoteOne(o *promoteOpts) (*downloads.Download, error) {
+	d, err := o.store.Get(o.userID, o.id)
 	if err != nil || d == nil {
-		return nil, errors.New("download não encontrado")
+		return nil, errors.New(errDownloadNotFound)
 	}
 	if d.Status != downloads.StatusCompleted {
 		return nil, errors.New("só downloads concluídos podem ser promovidos")
@@ -290,57 +321,81 @@ func promoteOne(
 	if d.FilePath == "" {
 		return nil, errors.New("file_path vazio — nada pra promover")
 	}
-	subdir, err := sanitizeSubdir(targetSubdir)
+	targetDir, err := promoteTargetDir(o)
 	if err != nil {
 		return nil, err
 	}
-	targetDir := sharedDir
-	if subdir != "" {
-		targetDir = filepath.Join(sharedDir, subdir)
-	}
-
 	src := d.FilePath
-	baseName := filepath.Base(src)
-	if baseName == "" || baseName == "." || baseName == "/" {
-		baseName = d.Name
-	}
-
-	var dst string
-	if renameIA && aiClient != nil {
-		preview, err := renamer.GeneratePreview(context.Background(), aiClient, tmdbClient, baseName)
-		if err == nil && preview != nil {
-			targetRel := renamer.ResolveTargetConflict(sharedDir, preview.TargetPath)
-			dst = filepath.Join(sharedDir, targetRel)
-			targetDir = filepath.Dir(dst)
-		}
-	}
-
-	if dst == "" {
-		dst = filepath.Join(targetDir, baseName)
-	}
-
+	baseName := safeBaseName(src, d.Name)
+	dst := promoteDestPath(o, baseName, &targetDir)
 	if src == dst {
-		return d, nil // idempotente
+		return d, nil
 	}
 	if _, statErr := os.Stat(src); statErr != nil {
 		return nil, errors.New("arquivo de origem não existe: " + statErr.Error())
 	}
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return nil, errors.New("criar destino: " + err.Error())
+	if err := ensureTargetDir(targetDir); err != nil {
+		return nil, err
 	}
+	if err := moveWithFallback(src, dst); err != nil {
+		return nil, errors.New("mover arquivo: " + err.Error())
+	}
+	_ = o.store.SetFilePath(o.userID, o.id, dst)
+	stopSeedingIfNeeded(o, d.InfoHash)
+	return o.store.Get(o.userID, o.id)
+}
+
+func promoteTargetDir(o *promoteOpts) (string, error) {
+	subdir, err := sanitizeSubdir(o.targetSubdir)
+	if err != nil {
+		return "", err
+	}
+	if subdir == "" {
+		return o.sharedDir, nil
+	}
+	return filepath.Join(o.sharedDir, subdir), nil
+}
+
+func safeBaseName(src, fallbackName string) string {
+	baseName := filepath.Base(src)
+	if baseName == "" || baseName == "." || baseName == "/" {
+		return fallbackName
+	}
+	return baseName
+}
+
+func promoteDestPath(o *promoteOpts, baseName string, targetDir *string) string {
+	if o.renameIA && o.aiClient != nil {
+		preview, err := renamer.GeneratePreview(context.Background(), o.aiClient, o.tmdbClient, baseName)
+		if err == nil && preview != nil {
+			targetRel := renamer.ResolveTargetConflict(o.sharedDir, preview.TargetPath)
+			dst := filepath.Join(o.sharedDir, targetRel)
+			*targetDir = filepath.Dir(dst)
+			return dst
+		}
+	}
+	return filepath.Join(*targetDir, baseName)
+}
+
+func ensureTargetDir(targetDir string) error {
+	return os.MkdirAll(targetDir, 0755)
+}
+
+func moveWithFallback(src, dst string) error {
 	if err := os.Rename(src, dst); err != nil {
-		if err := promoteCopyDelete(src, dst); err != nil {
-			return nil, errors.New("mover arquivo: " + err.Error())
-		}
+		return promoteCopyDelete(src, dst)
 	}
-	_ = store.SetFilePath(userID, id, dst)
-	if !keepSeeding {
-		var h metainfo.Hash
-		if err := h.FromHexString(d.InfoHash); err == nil {
-			s.Drop(h)
-		}
+	return nil
+}
+
+func stopSeedingIfNeeded(o *promoteOpts, infoHash string) {
+	if o.keepSeeding {
+		return
 	}
-	return store.Get(userID, id)
+	var h metainfo.Hash
+	if err := h.FromHexString(infoHash); err == nil {
+		o.s.Drop(h)
+	}
 }
 
 // DownloadsPromoteDests handles GET /api/promote/destinations — retorna a
@@ -364,7 +419,7 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 		userID, _, _ := auth.UserIDFromCtx(c)
 		d, err := store.Get(userID, id)
 		if err != nil || d == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "download não encontrado"})
+			c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
 			return
 		}
 		if d.InfoHash != "" {

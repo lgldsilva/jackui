@@ -19,7 +19,7 @@ func PasskeyRegisterBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		if wa == nil {
@@ -41,7 +41,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		if wa == nil {
@@ -131,7 +131,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
 			return
 		}
 		ttl := refreshTTLNormal
@@ -153,7 +153,7 @@ func PasskeyList(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -170,7 +170,7 @@ func PasskeyDelete(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		if err := store.DeleteCredential(claims.UserID, c.Param("id")); err != nil {

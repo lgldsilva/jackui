@@ -14,6 +14,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const sqlAndUserID = " AND user_id = ?"
+
 // Entry is one row in the library — a torrent the user has touched.
 type Entry struct {
 	ID               int       `json:"id"`
@@ -126,7 +128,7 @@ func (s *Store) GetByID(id int, userID int, includeAll bool) (*Entry, error) {
 		FROM library WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += sqlAndUserID
 		args = append(args, userID)
 	}
 	return scanEntry(s.db.QueryRow(q, args...))
@@ -236,7 +238,7 @@ func (s *Store) UpdateResume(id, userID int, resumeSeconds, durationSeconds floa
 	q += " WHERE id = ?"
 	args = append(args, id)
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += sqlAndUserID
 		args = append(args, userID)
 	}
 	_, err := s.db.Exec(q, args...)
@@ -248,7 +250,7 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 	q := `DELETE FROM library WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += sqlAndUserID
 		args = append(args, userID)
 	}
 	res, err := s.db.Exec(q, args...)

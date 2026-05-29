@@ -24,6 +24,8 @@ import (
 	"github.com/luizg/jackui/internal/subtitles"
 )
 
+const errMissingMountOrPath = "missing mount or path"
+
 // Local file probe/sidecar/auto endpoints — mirror /api/stream/{probe,sidecars,
 // sidecar,subtrack} + /api/subtitles/auto, but keyed by mount+path instead of
 // torrent hash+file index. The frontend's MediaSource union dispatches to
@@ -49,29 +51,19 @@ type localProbeKey struct {
 
 var localProbeCache sync.Map // localProbeKey → streamer.ProbeResult
 
-// LocalProbe handles GET /api/local/probe?mount=&path=
-// Runs ffprobe directly on the local file (no piece-download gating, no head
-// limit) and returns audio + subtitle tracks in the same shape as the torrent
-// /api/stream/probe so the frontend can consume both identically.
 func LocalProbe(b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		st, err := os.Stat(abs)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		abs, st, ok := resolveLocalProbeFile(c, b, mount, path)
+		if !ok {
 			return
 		}
 		key := localProbeKey{abs, st.ModTime().UnixNano()}
@@ -79,29 +71,50 @@ func LocalProbe(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusOK, v.(streamer.ProbeResult))
 			return
 		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "ffprobe",
-			"-hide_banner", "-loglevel", "error",
-			"-of", "json",
-			"-show_streams",
-			"-show_format",
-			"-i", abs,
-		)
-		out, err := cmd.Output()
-		if err != nil && len(out) == 0 {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "ffprobe: " + err.Error()})
-			return
-		}
-		result, perr := parseFFProbeStreams(out)
-		if perr != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": perr.Error()})
+		result, ok := runLocalFFProbe(c, abs)
+		if !ok {
 			return
 		}
 		localProbeCache.Store(key, result)
 		c.JSON(http.StatusOK, result)
 	}
+}
+
+func resolveLocalProbeFile(c *gin.Context, b *local.Browser, mount, path string) (string, os.FileInfo, bool) {
+	abs, err := b.ResolvePath(mount, path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return "", nil, false
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return "", nil, false
+	}
+	return abs, st, true
+}
+
+func runLocalFFProbe(c *gin.Context, abs string) (streamer.ProbeResult, bool) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe",
+		"-hide_banner", "-loglevel", "error",
+		"-of", "json",
+		"-show_streams",
+		"-show_format",
+		"-i", abs,
+	)
+	out, err := cmd.Output()
+	if err != nil && len(out) == 0 {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "ffprobe: " + err.Error()})
+		return streamer.ProbeResult{}, false
+	}
+	result, perr := parseFFProbeStreams(out)
+	if perr != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": perr.Error()})
+		return streamer.ProbeResult{}, false
+	}
+	return result, true
 }
 
 // parseFFProbeStreams decodes ffprobe's JSON into the same ProbeResult shape
@@ -220,7 +233,7 @@ func LocalSidecars(b *local.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
@@ -290,96 +303,108 @@ func LocalSidecarRead(b *local.Browser) gin.HandlerFunc {
 		case "vtt":
 			body = raw
 		default:
-			c.Header("Content-Type", "text/plain; charset=utf-8")
-			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header(ContentType, "text/plain; charset=utf-8")
+			c.Header(CacheControl, "public, max-age=86400, immutable")
 			_, _ = c.Writer.Write(raw)
 			return
 		}
-		c.Header("Content-Type", "text/vtt; charset=utf-8")
-		c.Header("Cache-Control", "public, max-age=86400, immutable")
+		c.Header(ContentType, "text/vtt; charset=utf-8")
+		c.Header(CacheControl, "public, max-age=86400, immutable")
 		_, _ = c.Writer.Write(body)
 	}
 }
 
-// LocalSubtitlesAuto handles GET /api/local/subtitles/auto?mount=&path=&langs=
-// Computes the OpenSubtitles file hash (free read of first/last 64KB), parses
-// season/episode from the filename, and queries OpenSubtitles for hash-exact
-// + title fallback in one shot — same shape as /api/subtitles/auto/:hash/:file.
-func LocalSubtitlesAuto(b *local.Browser, c *subtitles.Client) gin.HandlerFunc {
+func LocalSubtitlesAuto(b *local.Browser, subClient *subtitles.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		mount := ctx.Query("mount")
 		path := ctx.Query("path")
-		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
 		if mount == "" || path == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path"})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
 			return
 		}
 		if !checkMountAccess(b, ctx, mount) {
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
-		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		f, err := os.Open(abs)
-		if err != nil {
-			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		abs, f, st, ok := resolveLocalFileWithStat(ctx, b, mount, path)
+		if !ok {
 			return
 		}
 		defer f.Close()
-		st, err := f.Stat()
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
+		hashRes, hashErr, query := computeOSHash(f, st, abs)
+		opts := buildSearchOpts(query, langs, hashRes, hashErr)
+		serveAutoSubtitles(ctx, subClient, query, opts, hashRes, hashErr)
+	}
+}
 
-		// OS hash is best-effort — small files (<64KB) can't be hashed and
-		// fall back to query-only search.
-		var hashRes streamer.HashResult
-		var hashErr error
-		if st.Size() >= 64*1024 {
-			hashRes, hashErr = streamer.ComputeFileOSHash(f, st.Size())
-		} else {
-			hashErr = errors.New("file too small for OS hash")
-		}
+func resolveLocalFileWithStat(ctx *gin.Context, b *local.Browser, mount, path string) (string, *os.File, os.FileInfo, bool) {
+	abs, err := b.ResolvePath(mount, path)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return "", nil, nil, false
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return "", nil, nil, false
+	}
+	st, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return "", nil, nil, false
+	}
+	return abs, f, st, true
+}
 
-		baseName := filepath.Base(abs)
-		query := strings.TrimSuffix(baseName, filepath.Ext(baseName))
-		parsed := parser.Parse(query)
+func computeOSHash(f *os.File, st os.FileInfo, abs string) (streamer.HashResult, error, string) {
+	var hashRes streamer.HashResult
+	var hashErr error
+	if st.Size() >= 64*1024 {
+		hashRes, hashErr = streamer.ComputeFileOSHash(f, st.Size())
+	} else {
+		hashErr = errors.New("file too small for OS hash")
+	}
+	baseName := filepath.Base(abs)
+	return hashRes, hashErr, strings.TrimSuffix(baseName, filepath.Ext(baseName))
+}
 
-		opts := subtitles.SearchOpts{
-			Query:     query,
-			Languages: langs,
-			Season:    parsed.Season,
-			Episode:   parsed.Episode,
-		}
-		if hashErr == nil {
-			opts.MovieHash = hashRes.Hash
-			opts.MovieBytesize = hashRes.Size
-		}
+func buildSearchOpts(query, langs string, hashRes streamer.HashResult, hashErr error) subtitles.SearchOpts {
+	parsed := parser.Parse(query)
+	opts := subtitles.SearchOpts{
+		Query:     query,
+		Languages: langs,
+		Season:    parsed.Season,
+		Episode:   parsed.Episode,
+	}
+	if hashErr == nil {
+		opts.MovieHash = hashRes.Hash
+		opts.MovieBytesize = hashRes.Size
+	}
+	return opts
+}
 
-		results, err := c.SearchAuto(opts)
-		if err != nil {
-			ctx.JSON(http.StatusBadGateway, gin.H{
-				"error":   err.Error(),
-				"osHash":  hashRes.Hash,
-				"hashErr": errStrIfAny(hashErr),
-				"file":    baseName,
-			})
-			return
-		}
-		if results == nil {
-			results = []subtitles.Subtitle{}
-		}
-		ctx.JSON(http.StatusOK, gin.H{
+func serveAutoSubtitles(ctx *gin.Context, subClient *subtitles.Client, baseName string, opts subtitles.SearchOpts, hashRes streamer.HashResult, hashErr error) {
+	results, err := subClient.SearchAuto(opts)
+	if err != nil {
+		ctx.JSON(http.StatusBadGateway, gin.H{
+			"error":   err.Error(),
 			"osHash":  hashRes.Hash,
-			"osSize":  hashRes.Size,
 			"hashErr": errStrIfAny(hashErr),
 			"file":    baseName,
-			"results": results,
 		})
+		return
 	}
+	if results == nil {
+		results = []subtitles.Subtitle{}
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"osHash":  hashRes.Hash,
+		"osSize":  hashRes.Size,
+		"hashErr": errStrIfAny(hashErr),
+		"file":    baseName,
+		"results": results,
+	})
 }
 
 // LocalSubtitleExtract handles GET /api/local/subtrack?mount=&path=&track=
@@ -432,8 +457,8 @@ func LocalSubtitleExtract(b *local.Browser) gin.HandlerFunc {
 			})
 			return
 		}
-		c.Header("Content-Type", "text/vtt; charset=utf-8")
-		c.Header("Cache-Control", "public, max-age=3600")
+		c.Header(ContentType, "text/vtt; charset=utf-8")
+		c.Header(CacheControl, "public, max-age=3600")
 		_, _ = c.Writer.Write(stdout.Bytes())
 	}
 }

@@ -324,44 +324,47 @@ func applyAIEnv(cfg *Config) {
 	if cfg.AI.Providers == nil {
 		cfg.AI.Providers = map[string]AIProvider{}
 	}
-	setKey := func(name, baseURL, key string) {
-		p := cfg.AI.Providers[name]
-		if p.BaseURL == "" {
-			p.BaseURL = baseURL
-		}
-		if key != "" {
-			p.APIKey = key
-		}
-		cfg.AI.Providers[name] = p
-	}
-	if v := os.Getenv("GROQ_API_KEY"); v != "" {
-		setKey("groq", "https://api.groq.com/openai/v1", v)
-	}
-	if v := os.Getenv("OPENROUTER_API_KEY"); v != "" {
-		setKey("openrouter", "https://openrouter.ai/api/v1", v)
-	}
-	if v := os.Getenv("OPENCODE_API_KEY"); v != "" {
-		setKey("opencode", "https://opencode.ai/zen/v1", v)
-	}
-	if v := os.Getenv("OLLAMA_BASE_URL"); v != "" {
-		// Local Ollama, OpenAI-compatible under /v1. Behind the VPN, use the LAN
-		// IP (e.g. http://127.0.0.1:11434) — the `.lan` hostname won't resolve
-		// through the VPN DNS.
-		base := v
-		if !strings.HasSuffix(base, "/v1") {
-			base = strings.TrimRight(base, "/") + "/v1"
-		}
-		setKey("ollama", base, "")
-	}
-	// Ollama Cloud models are reached THROUGH the local Ollama (which already has
-	// the cloud API key configured) — they're just model names with a "-cloud"
-	// suffix on the same endpoint. So no separate provider/key is needed here.
+	applyAIProviderEnv(cfg, "GROQ_API_KEY", "groq", "https://api.groq.com/openai/v1")
+	applyAIProviderEnv(cfg, "OPENROUTER_API_KEY", "openrouter", "https://openrouter.ai/api/v1")
+	applyAIProviderEnv(cfg, "OPENCODE_API_KEY", "opencode", "https://opencode.ai/zen/v1")
+	applyOllamaEnv(cfg)
+
 	if v := os.Getenv("JACKUI_AI_ENABLED"); v == "0" || v == "false" {
 		cfg.AI.Enabled = false
 		return
 	}
+	autoSeedChain(cfg)
+}
 
-	// Auto-seed a default chain only when the user hasn't configured one.
+func applyAIProviderEnv(cfg *Config, envName, providerName, defaultBaseURL string) {
+	v := os.Getenv(envName)
+	if v == "" {
+		return
+	}
+	p := cfg.AI.Providers[providerName]
+	if p.BaseURL == "" {
+		p.BaseURL = defaultBaseURL
+	}
+	p.APIKey = v
+	cfg.AI.Providers[providerName] = p
+}
+
+func applyOllamaEnv(cfg *Config) {
+	v := os.Getenv("OLLAMA_BASE_URL")
+	if v == "" {
+		return
+	}
+	if !strings.HasSuffix(v, "/v1") {
+		v = strings.TrimRight(v, "/") + "/v1"
+	}
+	p := cfg.AI.Providers["ollama"]
+	if p.BaseURL == "" {
+		p.BaseURL = v
+	}
+	cfg.AI.Providers["ollama"] = p
+}
+
+func autoSeedChain(cfg *Config) {
 	if len(cfg.AI.Chain) == 0 {
 		chain := cfg.buildDefaultChain()
 		if len(chain) > 0 {
@@ -369,50 +372,71 @@ func applyAIEnv(cfg *Config) {
 			cfg.AI.Enabled = true
 		}
 	} else if !cfg.AI.Enabled {
-		// Explicit chain present → enable unless the user turned it off above.
 		cfg.AI.Enabled = true
 	}
 }
 
-// buildDefaultChain queries each configured provider's /v1/models endpoint
-// to discover available models and auto-picks the best one for the rename
-// task. Falls back to sensible defaults on failure.
 func (cfg *Config) buildDefaultChain() []AIChainSlot {
 	var chain []AIChainSlot
+	chain = cfg.appendOpenCodeSlot(chain)
+	chain = cfg.appendGroqSlot(chain)
+	chain = cfg.appendOpenRouterSlot(chain)
+	chain = cfg.appendOllamaSlots(chain)
+	return chain
+}
 
-	if p, ok := cfg.AI.Providers["opencode"]; ok && p.APIKey != "" {
-		models := fetchModels(p.BaseURL, p.APIKey)
-		m := pickModel(models, "deepseek-v4-flash-free", "big-pickle")
-		if m != "" {
-			chain = append(chain, AIChainSlot{ID: "zen-" + m, Provider: "opencode", Model: m})
-		}
+func (cfg *Config) appendOpenCodeSlot(chain []AIChainSlot) []AIChainSlot {
+	p, ok := cfg.AI.Providers["opencode"]
+	if !ok || p.APIKey == "" {
+		return chain
 	}
-	if p, ok := cfg.AI.Providers["groq"]; ok && p.APIKey != "" {
-		models := fetchModels(p.BaseURL, p.APIKey)
-		m := pickModel(models, "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768")
-		if m != "" {
-			chain = append(chain, AIChainSlot{ID: "groq-" + m, Provider: "groq", Model: m})
-		}
+	models := fetchModels(p.BaseURL, p.APIKey)
+	m := pickModel(models, "deepseek-v4-flash-free", "big-pickle")
+	if m != "" {
+		chain = append(chain, AIChainSlot{ID: "zen-" + m, Provider: "opencode", Model: m})
 	}
-	if p, ok := cfg.AI.Providers["openrouter"]; ok && p.APIKey != "" {
-		models := fetchModels(p.BaseURL, p.APIKey)
-		m := pickModel(models, "meta-llama/llama-3.3-70b-instruct:free")
-		if m != "" {
-			chain = append(chain, AIChainSlot{ID: "or-" + m, Provider: "openrouter", Model: m})
-		}
+	return chain
+}
+
+func (cfg *Config) appendGroqSlot(chain []AIChainSlot) []AIChainSlot {
+	p, ok := cfg.AI.Providers["groq"]
+	if !ok || p.APIKey == "" {
+		return chain
 	}
-	if p, ok := cfg.AI.Providers["ollama"]; ok && p.BaseURL != "" {
-		models := fetchModels(p.BaseURL, "")
-		// Local model
-		if m := pickModel(models, "qwen2.5:7b", "llama3.2:3b", "llama3.1:8b", "mistral:7b"); m != "" {
-			chain = append(chain, AIChainSlot{ID: "ollama-" + m, Provider: "ollama", Model: m})
-		}
-		// Cloud model (via Ollama Cloud proxy, model names ending in -cloud)
-		for _, m := range models {
-			if strings.HasSuffix(m, "-cloud") {
-				chain = append(chain, AIChainSlot{ID: "ollama-cloud-" + m, Provider: "ollama", Model: m})
-				break
-			}
+	models := fetchModels(p.BaseURL, p.APIKey)
+	m := pickModel(models, "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768")
+	if m != "" {
+		chain = append(chain, AIChainSlot{ID: "groq-" + m, Provider: "groq", Model: m})
+	}
+	return chain
+}
+
+func (cfg *Config) appendOpenRouterSlot(chain []AIChainSlot) []AIChainSlot {
+	p, ok := cfg.AI.Providers["openrouter"]
+	if !ok || p.APIKey == "" {
+		return chain
+	}
+	models := fetchModels(p.BaseURL, p.APIKey)
+	m := pickModel(models, "meta-llama/llama-3.3-70b-instruct:free")
+	if m != "" {
+		chain = append(chain, AIChainSlot{ID: "or-" + m, Provider: "openrouter", Model: m})
+	}
+	return chain
+}
+
+func (cfg *Config) appendOllamaSlots(chain []AIChainSlot) []AIChainSlot {
+	p, ok := cfg.AI.Providers["ollama"]
+	if !ok || p.BaseURL == "" {
+		return chain
+	}
+	models := fetchModels(p.BaseURL, "")
+	if m := pickModel(models, "qwen2.5:7b", "llama3.2:3b", "llama3.1:8b", "mistral:7b"); m != "" {
+		chain = append(chain, AIChainSlot{ID: "ollama-" + m, Provider: "ollama", Model: m})
+	}
+	for _, m := range models {
+		if strings.HasSuffix(m, "-cloud") {
+			chain = append(chain, AIChainSlot{ID: "ollama-cloud-" + m, Provider: "ollama", Model: m})
+			break
 		}
 	}
 	return chain
@@ -480,7 +504,25 @@ func fetchModels(baseURL, apiKey string) []string {
 // 2. Fast/cheap models (flash, mini, nano, small)
 // 3. The first available model
 func pickModel(models []string, preferred ...string) string {
-	// First: explicit preference
+	if m := matchPreferred(models, preferred); m != "" {
+		return m
+	}
+	if m := matchFreeModel(models); m != "" {
+		return m
+	}
+	if m := matchCheapModel(models); m != "" {
+		return m
+	}
+	if m := matchNonEmbedding(models); m != "" {
+		return m
+	}
+	if len(models) > 0 {
+		return models[0]
+	}
+	return ""
+}
+
+func matchPreferred(models, preferred []string) string {
 	for _, p := range preferred {
 		for _, m := range models {
 			if m == p {
@@ -488,27 +530,33 @@ func pickModel(models []string, preferred ...string) string {
 			}
 		}
 	}
-	// Second: free models
+	return ""
+}
+
+func matchFreeModel(models []string) string {
 	for _, m := range models {
 		if strings.HasSuffix(m, "-free") {
 			return m
 		}
 	}
-	// Third: cheap/small models
+	return ""
+}
+
+func matchCheapModel(models []string) string {
 	for _, m := range models {
 		low := strings.ToLower(m)
 		if strings.Contains(low, "flash") || strings.Contains(low, "mini") || strings.Contains(low, "nano") {
 			return m
 		}
 	}
-	// Last: first non-embedding model
+	return ""
+}
+
+func matchNonEmbedding(models []string) string {
 	for _, m := range models {
 		if !strings.Contains(strings.ToLower(m), "embedding") {
 			return m
 		}
-	}
-	if len(models) > 0 {
-		return models[0]
 	}
 	return ""
 }

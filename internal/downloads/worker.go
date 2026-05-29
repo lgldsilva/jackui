@@ -206,77 +206,85 @@ func (w *Worker) reconcile(d Download) {
 	_, isPending := w.pending[d.ID]
 	w.mu.Unlock()
 
-	if exists {
-		// Guard: if the torrent was dropped externally (e.g. user hit "Parar" in
-		// the active-torrents panel), reset our entry so init re-adds it.
-		if _, ok := w.streamer.Client().Torrent(td.hash); !ok {
-			w.mu.Lock()
-			delete(w.tracked, d.ID)
-			w.mu.Unlock()
-			exists = false
-		}
-	}
-
-	if !exists {
-		if isPending {
-			return // an init goroutine is already bringing this one up
-		}
-		ctx, cancel := context.WithCancel(context.Background())
+	if exists && !w.torrentStillActive(td) {
 		w.mu.Lock()
-		w.pending[d.ID] = cancel
+		delete(w.tracked, d.ID)
 		w.mu.Unlock()
-		w.doneWG.Add(1)
-		go w.initDownload(ctx, d)
+		exists = false
+	}
+	if !exists && isPending {
 		return
 	}
+	if !exists {
+		w.startInit(d)
+		return
+	}
+	w.sampleProgress(d, td)
+	w.checkCompletion(d, td)
+}
 
-	// Sample progress and persist. td.file is guaranteed non-nil here — the
-	// init goroutine only adds to `tracked` after a successful setup.
+func (w *Worker) torrentStillActive(td *trackedDL) bool {
+	_, ok := w.streamer.Client().Torrent(td.hash)
+	return ok
+}
+
+func (w *Worker) startInit(d Download) {
+	ctx, cancel := context.WithCancel(context.Background())
+	w.mu.Lock()
+	w.pending[d.ID] = cancel
+	w.mu.Unlock()
+	w.doneWG.Add(1)
+	go w.initDownload(ctx, d)
+}
+
+func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 	if td.file == nil {
 		return
 	}
 	completed := td.file.BytesCompleted()
-	// Forward-only: NUNCA regredir bytes_downloaded no DB. Sintoma "recomeçou
-	// do zero" surge quando anacrolix recém-fez Add do torrent e ainda está
-	// hash-verificando os pieces no disco — BytesCompleted retorna 0
-	// temporariamente apesar do .part inteiro estar lá. O tick escrevia 0,
-	// a UI mostrava 0%, e o usuário via como "recomeçou". Mantendo só
-	// avanços, o DB preserva o último valor conhecido durante a janela de
-	// verificação; em alguns segundos anacrolix volta a reportar o real e o
-	// progresso retoma de onde parou. Trade-off: se pieces forem GENUINAMENTE
-	// perdidos (raro), o DB segue mostrando o valor velho até anacrolix
-	// re-baixar — UI fica estagnada, não falsamente zerada.
 	if completed < d.BytesDownloaded {
 		log.Printf("downloads: ignoring transient regression #%d %q completed %d → %d (keeping DB) — peers=%d",
 			d.ID, td.name, d.BytesDownloaded, completed, len(td.torrent.PeerConns()))
 	} else if completed != d.BytesDownloaded {
 		_ = w.store.UpdateProgress(d.UserID, d.ID, completed)
 	}
-	// Completion check — file.Length() is the logical total bytes.
-	if completed >= td.file.Length() && td.file.Length() > 0 {
-		if w.downloadDir != "" {
-			src := filepath.Join(w.dataDir, td.file.Path())
-			dst := filepath.Join(w.downloadDir, filepath.Base(td.file.Path()))
-			if mkErr := os.MkdirAll(w.downloadDir, 0755); mkErr != nil {
-				log.Printf("downloads: mkdir %s: %v", w.downloadDir, mkErr)
-			} else if mvErr := moveFile(src, dst); mvErr != nil {
-				log.Printf("downloads: move #%d %q → %s: %v", d.ID, td.name, dst, mvErr)
-			} else {
-				_ = w.store.SetFilePath(d.UserID, d.ID, dst)
-				w.streamer.UnregisterDownload(td.name)
-				log.Printf("downloads: moved #%d %q → %s", d.ID, td.name, dst)
-			}
-		}
-		_ = w.store.SetStatus(d.UserID, d.ID, StatusCompleted)
-		w.mu.Lock()
-		delete(w.tracked, d.ID)
-		w.mu.Unlock()
-		log.Printf("downloads: completed #%d %q", d.ID, td.name)
-		body := fmt.Sprintf("%s · %.2f MB", td.name, float64(td.file.Length())/1048576)
-		// Fire-and-forget: sendNtfy has its own retry backoff (up to 7 min
-		// total) — must not block the tick loop or delay Worker.Stop().
-		go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
+}
+
+func (w *Worker) checkCompletion(d Download, td *trackedDL) {
+	if td.file == nil {
+		return
 	}
+	completed := td.file.BytesCompleted()
+	if completed < td.file.Length() || td.file.Length() <= 0 {
+		return
+	}
+	w.moveCompletedFile(d, td)
+	_ = w.store.SetStatus(d.UserID, d.ID, StatusCompleted)
+	w.mu.Lock()
+	delete(w.tracked, d.ID)
+	w.mu.Unlock()
+	log.Printf("downloads: completed #%d %q", d.ID, td.name)
+	body := fmt.Sprintf("%s · %.2f MB", td.name, float64(td.file.Length())/1048576)
+	go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
+}
+
+func (w *Worker) moveCompletedFile(d Download, td *trackedDL) {
+	if w.downloadDir == "" {
+		return
+	}
+	src := filepath.Join(w.dataDir, td.file.Path())
+	dst := filepath.Join(w.downloadDir, filepath.Base(td.file.Path()))
+	if mkErr := os.MkdirAll(w.downloadDir, 0755); mkErr != nil {
+		log.Printf("downloads: mkdir %s: %v", w.downloadDir, mkErr)
+		return
+	}
+	if mvErr := moveFile(src, dst); mvErr != nil {
+		log.Printf("downloads: move #%d %q → %s: %v", d.ID, td.name, dst, mvErr)
+		return
+	}
+	_ = w.store.SetFilePath(d.UserID, d.ID, dst)
+	w.streamer.UnregisterDownload(td.name)
+	log.Printf("downloads: moved #%d %q → %s", d.ID, td.name, dst)
 }
 
 // initDownload resolves the magnet, waits for metadata, marks the target file
