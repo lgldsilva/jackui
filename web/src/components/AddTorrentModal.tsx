@@ -168,7 +168,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
   const addFilesToResolve = (files: File[]) => {
     setView('configure')
     const newItems: TorrentItem[] = files.map(f => ({
-      id: Math.random().toString(36).substring(2, 9),
+      id: crypto.randomUUID(),
       name: f.name,
       file: f,
       loading: true,
@@ -223,7 +223,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       const name = nameMatch ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' ')) : `Magnet (hash: ${hash || '?'})`
 
       return {
-        id: Math.random().toString(36).substring(2, 9),
+        id: crypto.randomUUID(),
         name,
         magnet: line,
         infoHash: hash || undefined,

@@ -195,7 +195,7 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		if fileIdx < 0 || fileIdx >= len(info.Files) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "file index out of range"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrFileIdxOutOfRange})
 			return
 		}
 
@@ -209,7 +209,7 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 			streamURL + "\n"
 
 		filename := m3uFilename(info, fileIdx)
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.m3u"`, filename))
+		c.Header(HeaderContentDisp, fmt.Sprintf(`attachment; filename="%s.m3u"`, filename))
 		c.Data(http.StatusOK, "audio/x-mpegurl", []byte(m3u))
 	}
 }
@@ -240,8 +240,8 @@ func buildStreamURL(c *gin.Context, h metainfo.Hash, fileIdx int) string {
 	host := c.Request.Host
 
 	token := ""
-	if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-		token = strings.TrimPrefix(h, "Bearer ")
+	if h := c.Request.Header.Get(HeaderAuthorization); strings.HasPrefix(h, auth.BearerPrefix) {
+		token = strings.TrimPrefix(h, auth.BearerPrefix)
 	}
 	if token == "" {
 		token = c.Query("token")
@@ -397,12 +397,12 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 		default:
 			// ASS/SSA need ffmpeg to convert — for now, just serve raw with text/plain so browsers can show it as "non-VTT"
 			c.Header(ContentType, "text/plain; charset=utf-8")
-			c.Header(CacheControl, "public, max-age=86400, immutable")
+			c.Header(CacheControl, CacheImmutable)
 			c.Writer.Write(raw)
 			return
 		}
-		c.Header(ContentType, "text/vtt; charset=utf-8")
-		c.Header(CacheControl, "public, max-age=86400, immutable")
+		c.Header(ContentType, MIMEVTT)
+		c.Header(CacheControl, CacheImmutable)
 		c.Writer.Write(body)
 	}
 }
@@ -433,7 +433,7 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		c.Header(ContentType, "text/vtt; charset=utf-8")
+		c.Header(ContentType, MIMEVTT)
 		c.Header(CacheControl, "public, max-age=3600")
 		c.Writer.Write(vtt)
 	}
@@ -467,8 +467,8 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		c.Header(CacheControl, "public, max-age=86400") // 1d browser cache
-		c.Data(http.StatusOK, "image/jpeg", data)
+		c.Header(CacheControl, CachePublicDay) // 1d browser cache
+		c.Data(http.StatusOK, MIMEJPEG, data)
 	}
 }
 
@@ -495,8 +495,8 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "no cached metadata"})
 			return
 		}
-		c.Header(CacheControl, "public, max-age=86400") // 1d browser cache
-		c.JSON(http.StatusOK, meta)
+	c.Header(CacheControl, CachePublicDay) // 1d browser cache
+	c.JSON(http.StatusOK, meta)
 	}
 }
 
@@ -527,7 +527,7 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		c.Header(CacheControl, "public, max-age=2592000, immutable") // 30d
-		c.Data(http.StatusOK, "image/jpeg", data)
+		c.Data(http.StatusOK, MIMEJPEG, data)
 	}
 }
 
@@ -616,7 +616,7 @@ func StreamFavorite(s *streamer.Streamer) gin.HandlerFunc {
 			Reason   string `json:"reason"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrNameRequired})
 			return
 		}
 		if req.Reason == "" {

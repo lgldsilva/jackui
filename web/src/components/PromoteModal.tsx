@@ -32,9 +32,11 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const [previews, setPreviews] = useState<PromotePreviewEntry[]>([])
   const [previewLoading, setPreviewLoading] = useState(false)
 
-  const finalTarget = newFolder.trim()
-    ? (path ? `${path}/${newFolder.trim()}` : newFolder.trim())
-    : path
+  const finalTarget = (() => {
+    const trimmed = newFolder.trim()
+    if (!trimmed) return path
+    return path ? `${path}/${trimmed}` : trimmed
+  })()
 
   // Carrega destinos disponíveis ao abrir
   useEffect(() => {

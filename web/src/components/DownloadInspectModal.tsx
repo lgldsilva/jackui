@@ -152,6 +152,48 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     ? Math.abs(fileStat.apparent - fileStat.onDisk) / fileStat.apparent > 0.1
     : false
 
+  let filesTabContent: React.ReactNode
+  if (!torrent) {
+    filesTabContent = (
+      <p className="text-xs text-gray-500 italic py-2">
+        Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
+      </p>
+    )
+  } else if (torrent.files.length === 0) {
+    filesTabContent = (
+      <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
+    )
+  } else {
+    filesTabContent = (
+      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
+        {torrent.files.map(f => {
+          const isPrimary = f.index === d.fileIndex
+          return (
+            <li
+              key={f.index}
+              className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}
+            >
+              {fileIcon(f, isPrimary)}
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>
+                  {f.path}
+                </p>
+                {f.progress > 0 && f.progress < 1 && (
+                  <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
+                    <div className="h-full bg-cyan-500" style={{ width: `${Math.round(f.progress * 100)}%` }} />
+                  </div>
+                )}
+              </div>
+              {f.size > 0 && (
+                <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatSize(f.size)}</span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    )
+  }
+
   return (
     <dialog
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
@@ -281,56 +323,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
 
           {tab === 'files' && (
             <div>
-              {!torrent ? (
-                <p className="text-xs text-gray-500 italic py-2">
-                  Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
-                </p>
-              ) : torrent.files.length === 0 ? (
-                <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
-              ) : (
-                <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
-                  {torrent.files.map(f => {
-                    const isPrimary = f.index === d.fileIndex
-                    return (
-                      <li
-                        key={f.index}
-                        className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}
-                      >
-                        {fileIcon(f, isPrimary)}
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>
-                            {f.path}
-                          </p>
-                          {f.progress > 0 && f.progress < 1 && (
-                            <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
-                              <div className="h-full bg-cyan-500" style={{ width: `${Math.round(f.progress * 100)}%` }} />
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          <div className="text-right">
-                            <p className="text-xs text-gray-400">{formatBytes(f.size)}</p>
-                            {isPrimary && (
-                              <p className="text-[10px] text-green-400 uppercase tracking-wide">este download</p>
-                            )}
-                          </div>
-                          <select
-                            value={f.priority || 'normal'}
-                            disabled={updatingPrio === f.index || !!busy}
-                            onChange={(e) => handleFilePriorityChange(f.index, e.target.value as any)}
-                            className="bg-gray-800 border border-gray-700 rounded text-xs text-gray-300 px-2 py-1 focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
-                          >
-                            <option value="none">Não baixar</option>
-                            <option value="low">Prio Baixa</option>
-                            <option value="normal">Prio Normal</option>
-                            <option value="high">Prio Alta</option>
-                          </select>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+              {filesTabContent}
             </div>
           )}
           {tab === 'trackers' && (

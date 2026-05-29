@@ -86,8 +86,8 @@ func parseSearchParams(c *gin.Context) (query, category string, indexers []strin
 }
 
 func setSSEHeaders(c *gin.Context) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
+	c.Header(ContentType, "text/event-stream")
+	c.Header(CacheControl, "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 }
@@ -120,7 +120,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 	return func(c *gin.Context) {
 		query, category, indexers := parseSearchParams(c)
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
 			return
 		}
 

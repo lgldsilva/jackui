@@ -371,7 +371,7 @@ func (s *Store) UpdateSeedersLeechers(id int64, seeders, leechers int) error {
 
 // Cleanup removes results older than the given duration.
 func (s *Store) Cleanup(olderThan time.Duration) error {
-	cutoff := time.Now().Add(-olderThan).Format("2006-01-02 15:04:05")
+	cutoff := time.Now().Add(-olderThan).Format(dbutil.TimeFormat)
 	_, err := s.db.Exec("DELETE FROM results WHERE saved_at < ?", cutoff)
 	return err
 }

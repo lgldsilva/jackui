@@ -170,6 +170,14 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   const cardClickable = hasSource && !!onExploreContents
   const handleCardClick = cardClickable ? () => onExploreContents!(result) : undefined
 
+  let titleAttr: string
+  if (tmdb) {
+    const yearStr = tmdb.year ? ` (${tmdb.year})` : ''
+    titleAttr = `${tmdb.title}${yearStr} — ${tmdb.overview}`
+  } else {
+    titleAttr = result.title
+  }
+
   return (
     <div
       ref={cardRef}
@@ -202,7 +210,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         )}
         <h3
           className={`text-sm font-medium text-gray-100 line-clamp-2 flex-1 ${cardClickable ? 'hover:text-green-400' : ''}`}
-          title={tmdb ? `${tmdb.title}${tmdb.year ? ' (' + tmdb.year + ')' : ''} — ${tmdb.overview}` : result.title}
+          title={titleAttr}
         >
           {result.title}
           {tmdb && (

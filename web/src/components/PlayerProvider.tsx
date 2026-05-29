@@ -96,8 +96,10 @@ function playlistItemToResult(item: PlaylistItem): { result: SearchResult; fileI
 function shuffledOrder(n: number, startIndex: number): number[] {
   // Fisher-Yates on [0..n-1] excluding startIndex, then put startIndex at position 0.
   const rest = Array.from({ length: n }, (_, i) => i).filter(i => i !== startIndex)
+  const rand = new Uint32Array(rest.length)
+  crypto.getRandomValues(rand)
   for (let i = rest.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
+    const j = rand[i] % (i + 1)
     ;[rest[i], rest[j]] = [rest[j], rest[i]]
   }
   return [startIndex, ...rest]
@@ -213,8 +215,14 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   const prefetchNext = useCallback(() => prefetchUpcoming(1), [prefetchUpcoming])
   const prefetchNextNext = useCallback(() => prefetchUpcoming(2), [prefetchUpcoming])
 
+  const nextRepeatMode = (r: 'none' | 'all' | 'one'): 'none' | 'all' | 'one' => {
+    if (r === 'none') return 'all'
+    if (r === 'all') return 'one'
+    return 'none'
+  }
+
   const cycleRepeat = useCallback(() => {
-    setRepeat(r => (r === 'none' ? 'all' : r === 'all' ? 'one' : 'none'))
+    setRepeat(r => nextRepeatMode(r))
   }, [])
 
   const toggleShuffle = useCallback(() => {

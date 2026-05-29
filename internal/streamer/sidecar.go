@@ -129,7 +129,7 @@ func (s *Streamer) ReadSidecar(ctx context.Context, hash metainfo.Hash, fileIdx 
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return nil, "", errors.New("file index out of range")
+		return nil, "", errors.New(ErrFileIndexOutOfRange)
 	}
 	f := files[fileIdx]
 	ext := strings.ToLower(filepath.Ext(f.Path()))

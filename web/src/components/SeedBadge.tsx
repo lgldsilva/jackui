@@ -77,12 +77,23 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
   const known = !!health?.known
   const seeders = health?.seeders ?? 0
   const available = !!health?.available
-  const dot = probing ? 'bg-amber-400' : known ? (available ? 'bg-green-500' : 'bg-gray-600') : 'bg-gray-700'
-  const title = probing
-    ? 'Verificando seeds no swarm…'
-    : known
-      ? `${seeders} seeds / ${health?.peers ?? 0} peers · verificado ${relTime(health?.checkedAt)}${health?.active ? ' (ao vivo)' : ''}`
-      : 'Clique para verificar seeds'
+  let dot: string
+  if (probing) {
+    dot = 'bg-amber-400'
+  } else if (known) {
+    dot = available ? 'bg-green-500' : 'bg-gray-600'
+  } else {
+    dot = 'bg-gray-700'
+  }
+  let title: string
+  if (probing) {
+    title = 'Verificando seeds no swarm…'
+  } else if (known) {
+    const liveSuffix = health?.active ? ' (ao vivo)' : ''
+    title = `${seeders} seeds / ${health?.peers ?? 0} peers · verificado ${relTime(health?.checkedAt)}${liveSuffix}`
+  } else {
+    title = 'Clique para verificar seeds'
+  }
 
   return (
     <span

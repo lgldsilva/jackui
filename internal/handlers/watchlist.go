@@ -53,7 +53,7 @@ func WatchlistUpdate(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		var in watchlistInput
@@ -75,7 +75,7 @@ func WatchlistDelete(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		if err := s.Delete(userID, id); err != nil {
@@ -92,7 +92,7 @@ func WatchlistHits(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		limit := 50

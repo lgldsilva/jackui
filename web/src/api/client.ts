@@ -276,9 +276,9 @@ export function buildLocalHash(mount: string, path: string): string {
   const json = JSON.stringify({ mount, path })
   // base64url, no padding (URL-safe)
   const b64 = btoa(unescape(encodeURIComponent(json)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '')
   return LOCAL_PREFIX + b64
 }
 
@@ -711,7 +711,7 @@ const bufToB64url = (buf: ArrayBuffer): string => {
   const bytes = new Uint8Array(buf)
   let bin = ''
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 }
 
 export function isPasskeySupported(): boolean {
@@ -865,7 +865,11 @@ export const streamArtworkURL = (hash: string, fileIdx: number, tokenOverride?: 
 export const streamPlaylistM3UURL = (hash: string, fileIdx: number, transcode?: 'h264' | 'hevc'): string => {
   const base = `/api/stream/playlist/${hash}/${fileIdx}`
   const url = withToken(base)
-  return transcode ? `${url}${url.includes('?') ? '&' : '?'}transcode=${transcode}` : url
+  if (transcode) {
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}transcode=${transcode}`
+  }
+  return url
 }
 
 export interface CacheEntry {

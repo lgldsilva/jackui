@@ -243,7 +243,7 @@ func (f *FavoritesStore) IsFavoriteByHash(infoHash string) bool {
 // List returns favorites for a user (or all when includeAll=true), most recent first.
 func (f *FavoritesStore) List(userID int, includeAll bool) ([]Favorite, error) {
 	if f == nil {
-		return nil, fmt.Errorf("favorites store unavailable")
+		return nil, fmt.Errorf(ErrFavoritesUnavail)
 	}
 	q := `SELECT name, COALESCE(info_hash,''), COALESCE(magnet,''), user_id, favorited_at, reason, folder_id FROM favorites`
 	args := []any{}

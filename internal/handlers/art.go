@@ -54,8 +54,8 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 				c.Status(http.StatusNoContent)
 				return
 			}
-			c.Header("Cache-Control", "public, max-age=86400")
-			c.Data(http.StatusOK, "image/jpeg", data)
+			c.Header(CacheControl, CachePublicDay)
+			c.Data(http.StatusOK, MIMEJPEG, data)
 			return
 		}
 		c.Status(http.StatusNoContent)

@@ -95,7 +95,14 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
   }, [infoHash, fileIdx, kind])
 
   const fileName = filePath.split('/').slice(-1)[0]
-  const Icon = kind === 'pdf' ? FileType2 : kind === 'image' ? FileImage : FileText
+  let Icon: typeof FileText
+  if (kind === 'pdf') {
+    Icon = FileType2
+  } else if (kind === 'image') {
+    Icon = FileImage
+  } else {
+    Icon = FileText
+  }
 
   return (
     <dialog

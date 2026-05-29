@@ -108,14 +108,14 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 		stat, err := os.Stat(abs)
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
 			return
 		}
-		if stat.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is a directory"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if stat.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrPathIsDir})
 			return
 		}
 
@@ -165,8 +165,8 @@ func LocalThumb(b *local.Browser) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		c.Header("Cache-Control", "public, max-age=86400")
-		c.Data(http.StatusOK, "image/jpeg", out)
+		c.Header(CacheControl, CachePublicDay)
+		c.Data(http.StatusOK, MIMEJPEG, out)
 	}
 }
 
@@ -201,8 +201,8 @@ func serveCachedThumb(c *gin.Context, cachePath string) bool {
 	if err != nil {
 		return false
 	}
-	c.Header("Cache-Control", "public, max-age=86400")
-	c.Data(http.StatusOK, "image/jpeg", data)
+	c.Header(CacheControl, CachePublicDay)
+	c.Data(http.StatusOK, MIMEJPEG, data)
 	return true
 }
 
@@ -257,7 +257,7 @@ func LocalTranscode(b *local.Browser) gin.HandlerFunc {
 		}
 		stat, err := os.Stat(abs)
 		if err != nil || stat.IsDir() {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
 			return
 		}
 		f, err := os.Open(abs)
@@ -399,7 +399,7 @@ func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests [
 	}
 	var req localPromoteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
 		return nil, "", "", "", false
 	}
 	if req.Mount == "" || req.Path == "" {
@@ -478,7 +478,7 @@ type localPromoteReq struct {
 func extractLocalPromoteReq(c *gin.Context, b *local.Browser, sharedDir string, dests []PromoteDest) (*localPromoteReq, string, bool) {
 	var req localPromoteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
 		return nil, "", false
 	}
 	if req.Mount == "" {

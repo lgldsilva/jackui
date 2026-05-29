@@ -70,12 +70,12 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 		e, ok := s.active[hash]
 		if !ok {
 			s.mu.Unlock()
-			return ProbeResult{}, errors.New("torrent not active")
+			return ProbeResult{}, errors.New(ErrTorrentNotActive)
 		}
 		files := e.t.Files()
 		s.mu.Unlock()
 		if fileIdx < 0 || fileIdx >= len(files) {
-			return ProbeResult{}, fmt.Errorf("file index out of range")
+			return ProbeResult{}, errors.New(ErrFileIndexOutOfRange)
 		}
 		f := files[fileIdx]
 
@@ -213,12 +213,12 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		e, ok := s.active[hash]
 		if !ok {
 			s.mu.Unlock()
-			return nil, false, errors.New("torrent not active")
+			return nil, false, errors.New(ErrTorrentNotActive)
 		}
 		files := e.t.Files()
 		s.mu.Unlock()
 		if fileIdx < 0 || fileIdx >= len(files) {
-			return nil, false, fmt.Errorf("file index out of range")
+			return nil, false, errors.New(ErrFileIndexOutOfRange)
 		}
 		f := files[fileIdx]
 		r := f.NewReader()
@@ -293,12 +293,12 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		e, ok := s.active[hash]
 		if !ok {
 			s.mu.Unlock()
-			return nil, false, errors.New("torrent not active")
+			return nil, false, errors.New(ErrTorrentNotActive)
 		}
 		files := e.t.Files()
 		s.mu.Unlock()
 		if fileIdx < 0 || fileIdx >= len(files) {
-			return nil, false, fmt.Errorf("file index out of range")
+			return nil, false, errors.New(ErrFileIndexOutOfRange)
 		}
 		f := files[fileIdx]
 		r := f.NewReader()
@@ -361,12 +361,12 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		e, ok := s.active[hash]
 		if !ok {
 			s.mu.Unlock()
-			return nil, errors.New("torrent not active")
+			return nil, errors.New(ErrTorrentNotActive)
 		}
 		files := e.t.Files()
 		s.mu.Unlock()
 		if fileIdx < 0 || fileIdx >= len(files) {
-			return nil, fmt.Errorf("file index out of range")
+			return nil, errors.New(ErrFileIndexOutOfRange)
 		}
 		f := files[fileIdx]
 		r := f.NewReader()

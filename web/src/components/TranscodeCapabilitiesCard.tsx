@@ -129,16 +129,19 @@ export default function TranscodeCapabilitiesCard() {
             >
               <p className="text-xs font-medium mb-1.5">{BACKEND_LABELS[backend] || backend}</p>
               <div className="flex flex-col gap-1">
-                {encs.map(e => (
+                {encs.map(e => {
+                  let statusIcon: React.ReactNode
+                  if (e.functional) {
+                    statusIcon = <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
+                  } else if (e.available) {
+                    statusIcon = <X className="w-3 h-3 text-red-400 flex-shrink-0" />
+                  } else {
+                    statusIcon = <span className="w-3 h-3 inline-block flex-shrink-0 text-gray-600">·</span>
+                  }
+                  return (
                   <div key={e.id} className="flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      {e.functional ? (
-                        <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
-                      ) : e.available ? (
-                        <X className="w-3 h-3 text-red-400 flex-shrink-0" />
-                      ) : (
-                        <span className="w-3 h-3 inline-block flex-shrink-0 text-gray-600">·</span>
-                      )}
+                      {statusIcon}
                       <code className="text-gray-300 truncate">{e.id}</code>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -155,7 +158,7 @@ export default function TranscodeCapabilitiesCard() {
                       )}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             </div>
           )

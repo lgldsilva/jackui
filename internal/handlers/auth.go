@@ -450,7 +450,7 @@ func SetUserStatus(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		var req struct {
@@ -610,7 +610,7 @@ func DeleteUser(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		claims, _ := auth.ClaimsFromCtx(c)

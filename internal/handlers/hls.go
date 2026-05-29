@@ -103,8 +103,8 @@ func startHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, h metainf
 
 func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
 	if sess.IsVOD() {
-		c.Header(CacheControl, "no-store")
-		c.Data(http.StatusOK, "application/vnd.apple.mpegurl",
+		c.Header(CacheControl, CacheNoStore)
+		c.Data(http.StatusOK, MIMEMPEGURL,
 			buildVODPlaylist(sess.DurationSec, c.Query("token")))
 		return
 	}
@@ -112,8 +112,8 @@ func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
 	if data == nil {
 		return
 	}
-	c.Header(CacheControl, "no-store")
-	c.Data(http.StatusOK, "application/vnd.apple.mpegurl", data)
+	c.Header(CacheControl, CacheNoStore)
+	c.Data(http.StatusOK, MIMEMPEGURL, data)
 }
 
 func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
@@ -187,7 +187,7 @@ func serveSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-	c.Header("Content-Type", "video/mp2t")
+	c.Header(ContentType, "video/mp2t")
 	c.Header(CacheControl, "max-age=3600")
 	c.File(path)
 }

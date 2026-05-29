@@ -61,16 +61,16 @@ func injectAPIKey(u *url.URL, client *jackett.Client) {
 }
 
 func proxyResponse(c *gin.Context, resp *http.Response) {
-	ct := resp.Header.Get("Content-Type")
+	ct := resp.Header.Get(ContentType)
 	if ct == "" {
 		ct = "application/x-bittorrent"
 	}
-	cd := resp.Header.Get("Content-Disposition")
+	cd := resp.Header.Get(HeaderContentDisp)
 	if cd == "" {
 		cd = "attachment; filename=\"download.torrent\""
 	}
-	c.Header("Content-Type", ct)
-	c.Header("Content-Disposition", cd)
+	c.Header(ContentType, ct)
+	c.Header(HeaderContentDisp, cd)
 	c.Status(http.StatusOK)
 	io.Copy(c.Writer, resp.Body) //nolint:errcheck
 }

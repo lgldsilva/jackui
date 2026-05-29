@@ -78,7 +78,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
 			return
 		}
 		indexers := parseIndexers(c)

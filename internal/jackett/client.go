@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luizg/jackui/internal/dbutil"
 )
 
 const (
@@ -475,7 +477,7 @@ func formatAge(publishDate string) string {
 		time.RFC3339,
 		"2006-01-02T15:04:05Z",
 		"2006-01-02T15:04:05",
-		"2006-01-02 15:04:05",
+		dbutil.TimeFormat,
 	}
 
 	var t time.Time

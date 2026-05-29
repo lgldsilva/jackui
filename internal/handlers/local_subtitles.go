@@ -88,7 +88,7 @@ func resolveLocalProbeFile(c *gin.Context, b *local.Browser, mount, path string)
 	}
 	st, err := os.Stat(abs)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
 		return "", nil, false
 	}
 	return abs, st, true
@@ -304,12 +304,12 @@ func LocalSidecarRead(b *local.Browser) gin.HandlerFunc {
 			body = raw
 		default:
 			c.Header(ContentType, "text/plain; charset=utf-8")
-			c.Header(CacheControl, "public, max-age=86400, immutable")
+			c.Header(CacheControl, CacheImmutable)
 			_, _ = c.Writer.Write(raw)
 			return
 		}
-		c.Header(ContentType, "text/vtt; charset=utf-8")
-		c.Header(CacheControl, "public, max-age=86400, immutable")
+		c.Header(ContentType, MIMEVTT)
+		c.Header(CacheControl, CacheImmutable)
 		_, _ = c.Writer.Write(body)
 	}
 }
@@ -457,7 +457,7 @@ func LocalSubtitleExtract(b *local.Browser) gin.HandlerFunc {
 			})
 			return
 		}
-		c.Header(ContentType, "text/vtt; charset=utf-8")
+		c.Header(ContentType, MIMEVTT)
 		c.Header(CacheControl, "public, max-age=3600")
 		_, _ = c.Writer.Write(stdout.Bytes())
 	}

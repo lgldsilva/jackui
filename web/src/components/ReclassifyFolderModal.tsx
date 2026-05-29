@@ -44,9 +44,11 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
 
   const [result, setResult] = useState<DoneResult | null>(null)
 
-  const finalTarget = newFolder.trim()
-    ? (browsePath ? `${browsePath}/${newFolder.trim()}` : newFolder.trim())
-    : browsePath
+  const finalTarget = (() => {
+    const trimmed = newFolder.trim()
+    if (!trimmed) return browsePath
+    return browsePath ? `${browsePath}/${trimmed}` : trimmed
+  })()
 
   // Reset on open
   useEffect(() => {
