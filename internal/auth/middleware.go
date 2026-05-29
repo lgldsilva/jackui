@@ -70,6 +70,32 @@ func AdminOnly() gin.HandlerFunc {
 	}
 }
 
+// GuestRestrict blocks mutating methods (POST, DELETE, PUT, PATCH) for guests.
+// Exceptions are allowed for media routes that might write or receive POST (e.g. streaming or local-file/hls endpoints).
+func GuestRestrict() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := ClaimsFromCtx(c)
+		if !ok {
+			c.Next()
+			return
+		}
+		if claims.Role == RoleGuest {
+			method := c.Request.Method
+			if method == http.MethodPost || method == http.MethodDelete || method == http.MethodPut || method == http.MethodPatch {
+				path := c.Request.URL.Path
+				// Exceptions for media endpoints
+				if strings.HasPrefix(path, "/api/stream/") || strings.HasPrefix(path, "/api/local/file") {
+					c.Next()
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "convidados não têm permissão para modificar recursos"})
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
 // ClaimsFromCtx retrieves the authenticated Claims previously attached by Required/Optional.
 func ClaimsFromCtx(c *gin.Context) (*Claims, bool) {
 	v, ok := c.Get(ctxClaimsKey)
