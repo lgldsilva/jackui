@@ -66,43 +66,41 @@ func (s *Streamer) ProbeHealthAsync(hash metainfo.Hash, magnet string) {
 		defer healthInflight.Delete(hash)
 		healthProbeSem <- struct{}{}
 		defer func() { <-healthProbeSem }()
-
-		// Already streaming? Just snapshot live — never interfere with a play.
-		if e := s.activeEntry(hash); e != nil {
-			st := e.t.Stats()
-			_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
-			return
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.MetadataWait+healthPeerWait+2*time.Second)
-		defer cancel()
-		if _, err := s.Add(ctx, magnet); err != nil {
-			// No metadata/peers within the window → record 0 so the card stops
-			// showing "verificando" and reads as "nada encontrado".
-			_ = s.cache.SetHealth(hash.HexString(), 0, 0)
-			return
-		}
-
-		// Capture the entry WE created so we only drop our own probe (a concurrent
-		// play would replace the entry or bump lastAccess — then we leave it).
-		probeEntry := s.activeEntry(hash)
-		var la0 time.Time
-		if probeEntry != nil {
-			la0 = probeEntry.lastAccess
-		}
-
-		select {
-		case <-time.After(healthPeerWait):
-		case <-ctx.Done():
-		}
-
-		if e := s.activeEntry(hash); e != nil {
-			st := e.t.Stats()
-			_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
-			// Drop only if it's still our untouched probe entry.
-			if e == probeEntry && e.lastAccess.Equal(la0) {
-				s.Drop(hash)
-			}
-		}
+		s.probeHealth(hash, magnet)
 	}()
+}
+
+func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
+	// Already streaming? Just snapshot live — never interfere with a play.
+	if e := s.activeEntry(hash); e != nil {
+		st := e.t.Stats()
+		_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.MetadataWait+healthPeerWait+2*time.Second)
+	defer cancel()
+	if _, err := s.Add(ctx, magnet); err != nil {
+		_ = s.cache.SetHealth(hash.HexString(), 0, 0)
+		return
+	}
+
+	probeEntry := s.activeEntry(hash)
+	var la0 time.Time
+	if probeEntry != nil {
+		la0 = probeEntry.lastAccess
+	}
+
+	select {
+	case <-time.After(healthPeerWait):
+	case <-ctx.Done():
+	}
+
+	if e := s.activeEntry(hash); e != nil {
+		st := e.t.Stats()
+		_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
+		if e == probeEntry && e.lastAccess.Equal(la0) {
+			s.Drop(hash)
+		}
+	}
 }

@@ -39,6 +39,11 @@ import (
 	"github.com/luizg/jackui/ui"
 )
 
+const (
+	routeLibraryID  = "/library/:id"
+	routePlaylistID = "/playlists/:id"
+)
+
 func main() {
 	configPath := "config.yaml"
 	if len(os.Args) > 1 {
@@ -652,9 +657,9 @@ func main() {
 		// Library — per-user history of streamed torrents (magnet + resume)
 		if libraryStore != nil {
 			api.GET("/library", handlers.LibraryList(libraryStore))
-			api.GET("/library/:id", handlers.LibraryGet(libraryStore))
-			api.PATCH("/library/:id", handlers.LibraryUpdateResume(libraryStore))
-			api.DELETE("/library/:id", handlers.LibraryDelete(libraryStore))
+			api.GET(routeLibraryID, handlers.LibraryGet(libraryStore))
+			api.PATCH(routeLibraryID, handlers.LibraryUpdateResume(libraryStore))
+			api.DELETE(routeLibraryID, handlers.LibraryDelete(libraryStore))
 			api.DELETE("/library", handlers.LibraryDeleteAll(libraryStore))
 		}
 
@@ -675,9 +680,9 @@ func main() {
 		if playlistsStore != nil {
 			api.GET("/playlists", handlers.PlaylistsList(playlistsStore))
 			api.POST("/playlists", handlers.PlaylistsCreate(playlistsStore))
-			api.GET("/playlists/:id", handlers.PlaylistsGet(playlistsStore))
-			api.PATCH("/playlists/:id", handlers.PlaylistsUpdate(playlistsStore))
-			api.DELETE("/playlists/:id", handlers.PlaylistsDelete(playlistsStore))
+			api.GET(routePlaylistID, handlers.PlaylistsGet(playlistsStore))
+			api.PATCH(routePlaylistID, handlers.PlaylistsUpdate(playlistsStore))
+			api.DELETE(routePlaylistID, handlers.PlaylistsDelete(playlistsStore))
 			api.POST("/playlists/:id/items", handlers.PlaylistsAddItem(playlistsStore))
 			api.DELETE("/playlists/:id/items/:itemId", handlers.PlaylistsRemoveItem(playlistsStore))
 			api.PATCH("/playlists/:id/items/:itemId", handlers.PlaylistsReorderItem(playlistsStore))
