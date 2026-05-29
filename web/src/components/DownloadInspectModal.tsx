@@ -132,14 +132,49 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     ? Math.abs(fileStat.apparent - fileStat.onDisk) / fileStat.apparent > 0.1
     : false
 
+  // When the torrent is not active (dropped post-completion) we can still show
+  // the primary file from the download row itself.
+  const syntheticFile: StreamFile | null = !torrent && d.fileSize > 0 ? {
+    index: d.fileIndex,
+    path: d.filePath ? d.filePath.split('/').pop() ?? d.name : d.name,
+    size: d.fileSize,
+    isVideo: /\.(mp4|mkv|avi|mov|webm|m4v|wmv|ts|m2ts)$/i.test(d.name),
+    downloaded: d.bytesDownloaded,
+    progress: d.fileSize > 0 ? d.bytesDownloaded / d.fileSize : 0,
+    priority: 'normal',
+  } : null
+
   let filesTabContent: React.ReactNode
-  if (!torrent) {
+  if (!torrent && !syntheticFile) {
     filesTabContent = (
       <p className="text-xs text-gray-500 italic py-2">
         Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
       </p>
     )
-  } else if (torrent.files.length === 0) {
+  } else if (!torrent && syntheticFile) {
+    // Completed download — torrent was dropped but we know the primary file
+    filesTabContent = (
+      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
+        <li className="px-3 py-2 flex items-center gap-2.5 bg-green-500/5">
+          {fileIcon(syntheticFile, true)}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm truncate text-green-300 font-medium" title={syntheticFile.path}>
+              {syntheticFile.path}
+            </p>
+            {d.filePath && (
+              <p className="text-[10px] text-gray-500 font-mono truncate mt-0.5" title={d.filePath}>
+                {d.filePath}
+              </p>
+            )}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-xs text-gray-400">{formatBytes(syntheticFile.size)}</p>
+            <p className="text-[10px] text-green-400 uppercase tracking-wide">este download</p>
+          </div>
+        </li>
+      </ul>
+    )
+  } else if (!torrent || torrent.files.length === 0) {
     filesTabContent = (
       <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
     )

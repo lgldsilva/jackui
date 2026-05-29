@@ -49,11 +49,12 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 		}
 		// Persist into the user's library (idempotent upsert).
 		// Kind is left empty here — set later by probe/play hints.
-		// Incógnito: skip the upsert; the player still gets its TorrentInfo so
-		// playback is unaffected, but Continuar Assistindo stays untouched.
-		if lib != nil && !middleware.IsIncognito(c) {
+		// In incognito mode: still upsert so the entry exists for resume tracking,
+		// but mark it with incognito=1 so it is excluded from normal listings and
+		// deleted when the user ends their incognito session.
+		if lib != nil {
 			userID, _, _ := auth.UserIDFromCtx(c)
-			_, _ = lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "")
+			_, _ = lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "", middleware.IsIncognito(c))
 		}
 		c.JSON(http.StatusOK, info)
 	}

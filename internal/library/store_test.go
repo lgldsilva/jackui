@@ -19,7 +19,7 @@ func newTestStore(t *testing.T) *Store {
 func TestUpsertCreatesAndUpdates(t *testing.T) {
 	s := newTestStore(t)
 
-	e, err := s.Upsert(1, "abc123", "magnet:?xt=urn:btih:abc123", "Test Movie", 0, 1024, "video")
+	e, err := s.Upsert(1, "abc123", "magnet:?xt=urn:btih:abc123", "Test Movie", 0, 1024, "video", false)
 	if err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestUpsertCreatesAndUpdates(t *testing.T) {
 	}
 
 	// Re-upsert with new name — should update, not create new row
-	e2, err := s.Upsert(1, "abc123", "magnet:?xt=urn:btih:abc123", "Renamed", 1, 2048, "video")
+	e2, err := s.Upsert(1, "abc123", "magnet:?xt=urn:btih:abc123", "Renamed", 1, 2048, "video", false)
 	if err != nil {
 		t.Fatalf("Upsert update: %v", err)
 	}
@@ -46,8 +46,8 @@ func TestUpsertCreatesAndUpdates(t *testing.T) {
 func TestPerUserIsolation(t *testing.T) {
 	s := newTestStore(t)
 
-	s.Upsert(1, "ha", "magnet:?xt=urn:btih:ha", "A's movie", 0, 0, "video")
-	s.Upsert(2, "hb", "magnet:?xt=urn:btih:hb", "B's movie", 0, 0, "video")
+	s.Upsert(1, "ha", "magnet:?xt=urn:btih:ha", "A's movie", 0, 0, "video", false)
+	s.Upsert(2, "hb", "magnet:?xt=urn:btih:hb", "B's movie", 0, 0, "video", false)
 
 	listA, _ := s.List(1, false, 0)
 	if len(listA) != 1 || listA[0].Name != "A's movie" {
@@ -67,7 +67,7 @@ func TestPerUserIsolation(t *testing.T) {
 
 func TestUpdateResume(t *testing.T) {
 	s := newTestStore(t)
-	e, _ := s.Upsert(1, "ha", "magnet:x", "Movie", 0, 0, "video")
+	e, _ := s.Upsert(1, "ha", "magnet:x", "Movie", 0, 0, "video", false)
 
 	// Fresh entry: last file untracked (-1).
 	if e.LastFileIndex != -1 {
@@ -102,7 +102,7 @@ func TestUpdateResume(t *testing.T) {
 
 func TestDeleteRefusesOtherUser(t *testing.T) {
 	s := newTestStore(t)
-	e, _ := s.Upsert(1, "ha", "magnet:x", "Movie", 0, 0, "")
+	e, _ := s.Upsert(1, "ha", "magnet:x", "Movie", 0, 0, "", false)
 
 	// User 2 tries to delete user 1's entry — should fail
 	if err := s.Delete(e.ID, 2, false); err == nil {
@@ -121,10 +121,10 @@ func TestDeleteRefusesOtherUser(t *testing.T) {
 
 func TestUpsertRequiresHashAndMagnet(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Upsert(1, "", "magnet:x", "X", 0, 0, ""); err == nil {
+	if _, err := s.Upsert(1, "", "magnet:x", "X", 0, 0, "", false); err == nil {
 		t.Error("expected error for empty hash")
 	}
-	if _, err := s.Upsert(1, "h", "", "X", 0, 0, ""); err == nil {
+	if _, err := s.Upsert(1, "h", "", "X", 0, 0, "", false); err == nil {
 		t.Error("expected error for empty magnet")
 	}
 }
