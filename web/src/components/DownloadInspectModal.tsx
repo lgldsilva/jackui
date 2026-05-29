@@ -72,6 +72,21 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const torrent = details?.torrent
   const fileStat = details?.file
 
+  // Extract tracker URLs from the magnet URI as a client-side fallback.
+  const _mag = d.magnet ?? ''
+  const magnetTrackers: string[] = _mag
+    ? (() => {
+        try {
+          const q = _mag.includes('?') ? _mag.split('?')[1] : _mag
+          return new URLSearchParams(q).getAll('tr')
+        } catch { return [] as string[] }
+      })()
+    : []
+
+  const displayTrackers: string[] = (torrent?.trackers?.length ?? 0) > 0
+    ? (torrent?.trackers ?? [])
+    : magnetTrackers
+
 
   const copyMagnet = async () => {
     if (!d.magnet) return
@@ -128,18 +143,53 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     }
   }
 
-  const sparseInfo = fileStat?.exists && fileStat?.apparent > 0
+  const sparseInfo = fileStat?.exists && fileStat.apparent > 0
     ? Math.abs(fileStat.apparent - fileStat.onDisk) / fileStat.apparent > 0.1
     : false
 
+  // When the torrent is not active (dropped post-completion) we can still show
+  // the primary file from the download row itself.
+  const syntheticFile: StreamFile | null = !torrent && d.fileSize > 0 ? {
+    index: d.fileIndex,
+    path: d.filePath ? d.filePath.split('/').pop() ?? d.name : d.name,
+    size: d.fileSize,
+    isVideo: /\.(mp4|mkv|avi|mov|webm|m4v|wmv|ts|m2ts)$/i.test(d.name),
+    downloaded: d.bytesDownloaded,
+    progress: d.fileSize > 0 ? d.bytesDownloaded / d.fileSize : 0,
+    priority: 'normal',
+  } : null
+
   let filesTabContent: React.ReactNode
-  if (!torrent) {
+  if (!torrent && !syntheticFile) {
     filesTabContent = (
       <p className="text-xs text-gray-500 italic py-2">
         Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
       </p>
     )
-  } else if (torrent.files.length === 0) {
+  } else if (!torrent && syntheticFile) {
+    // Completed download — torrent was dropped but we know the primary file
+    filesTabContent = (
+      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
+        <li className="px-3 py-2 flex items-center gap-2.5 bg-green-500/5">
+          {fileIcon(syntheticFile, true)}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm truncate text-green-300 font-medium" title={syntheticFile.path}>
+              {syntheticFile.path}
+            </p>
+            {d.filePath && (
+              <p className="text-[10px] text-gray-500 font-mono truncate mt-0.5" title={d.filePath}>
+                {d.filePath}
+              </p>
+            )}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-xs text-gray-400">{formatBytes(syntheticFile.size)}</p>
+            <p className="text-[10px] text-green-400 uppercase tracking-wide">este download</p>
+          </div>
+        </li>
+      </ul>
+    )
+  } else if (!torrent || torrent.files.length === 0) {
     filesTabContent = (
       <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
     )
@@ -198,7 +248,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           {[
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
             { id: 'files' as Tab, label: `Arquivos${torrent ? ` (${torrent.files.length})` : ''}`, icon: Files },
-            { id: 'trackers' as Tab, label: `Trackers${torrent?.trackers ? ` (${torrent.trackers.length})` : ''}`, icon: Globe },
+            { id: 'trackers' as Tab, label: `Trackers${displayTrackers.length > 0 ? ` (${displayTrackers.length})` : ''}`, icon: Globe },
             { id: 'actions' as Tab, label: 'Ações', icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
             <button
@@ -308,9 +358,9 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           )}
           {tab === 'trackers' && (
             <div>
-              {!torrent?.trackers || torrent.trackers.length === 0 ? (
+              {displayTrackers.length === 0 ? (
                 <p className="text-xs text-gray-500 italic py-2 text-center">
-                  Nenhum tracker ativo ou metadados indisponíveis.
+                  Nenhum tracker encontrado. O torrent pode ter sido adicionado via .torrent sem &tr= no magnet.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -318,7 +368,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                     Servidores de tracker configurados para este torrent:
                   </p>
                   <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden font-mono text-xs max-h-[50vh] overflow-y-auto">
-                    {torrent.trackers.map(trackerUrl => (
+                    {displayTrackers.map(trackerUrl => (
                       <li key={trackerUrl} className="px-3 py-2 flex items-center justify-between gap-3 text-gray-300 hover:bg-gray-800/40">
                         <span className="truncate flex-1" title={trackerUrl}>{trackerUrl}</span>
                         <button
@@ -341,7 +391,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           )}
           {tab === 'actions' && (
             <div className="space-y-2">
-              {onPlay && fileStat?.exists && fileStat?.apparent >= d.fileSize * 0.99 && (
+              {onPlay && fileStat?.exists && fileStat.apparent >= d.fileSize * 0.99 && (
                 <ActionRow
                   icon={Play}
                   title="Tocar agora"

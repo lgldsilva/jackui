@@ -21,28 +21,6 @@ interface ResultCardProps {
   readonly refreshedAt?: string | null
 }
 
-function RatingBadge({ tmdb }: { tmdb: TmdbMatch }) {
-  if (tmdb.imdbRating && tmdb.imdbRating > 0) {
-    if (tmdb.imdbId) {
-      return (
-        <a
-          href={`https://www.imdb.com/title/${tmdb.imdbId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          className="text-amber-400 ml-1 hover:underline"
-          title="Abrir no IMDb"
-        >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
-      )
-    }
-    return <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
-  }
-  if (tmdb.voteAverage > 0) {
-    return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
-  }
-  return null
-}
-
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -234,18 +212,33 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           {tmdb && (
             <span className="block text-[11px] font-normal text-gray-400 mt-0.5 line-clamp-2">
               {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
-              <RatingBadge tmdb={tmdb} />
+              {(() => {
+                if (tmdb.imdbRating && tmdb.imdbRating > 0) {
+                  return tmdb.imdbId ? (
+                    <a
+                      href={`https://www.imdb.com/title/${tmdb.imdbId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="text-amber-400 ml-1 hover:underline"
+                      title="Abrir no IMDb"
+                    >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
+                  ) : (
+                    <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
+                  )
+                }
+                if (tmdb.voteAverage > 0) {
+                  return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
+                }
+                return null
+              })()}
             </span>
           )}
         </h3>
-        <div
-          className="flex flex-col items-end gap-1 flex-shrink-0"
-          onClick={(e) => e.stopPropagation()}
-          role="presentation"
-        >
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <div className="flex items-center gap-1.5">
             <button
-              onClick={toggleFavorite}
+              onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }}
               title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'}
               className={`transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-300' : 'text-gray-600 hover:text-pink-400'}`}
             >
@@ -322,14 +315,10 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       </div>
 
       {/* Actions — stopPropagation prevents the card-wide click handler from also firing */}
-      <div
-        className="flex gap-1.5 mt-auto pt-1 border-t border-gray-700 flex-wrap"
-        onClick={(e) => e.stopPropagation()}
-        role="presentation"
-      >
+        <div className="flex gap-1.5 mt-auto pt-1 border-t border-gray-700 flex-wrap">
         {canPlay && (
           <button
-            onClick={() => onPlay!(result)}
+            onClick={(e) => { e.stopPropagation(); onPlay!(result) }}
             title="Reproduzir no browser via stream"
             className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors"
           >
@@ -339,7 +328,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         )}
         {hasSource && onExploreContents && (
           <button
-            onClick={() => onExploreContents(result)}
+            onClick={(e) => { e.stopPropagation(); onExploreContents(result) }}
             title="Ver arquivos dentro do torrent"
             className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2.5 py-1.5 rounded-lg transition-colors"
           >
@@ -348,7 +337,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         )}
         {hasSource && onAddToPlaylist && (
           <button
-            onClick={() => onAddToPlaylist(result)}
+            onClick={(e) => { e.stopPropagation(); onAddToPlaylist(result) }}
             title="Adicionar a uma playlist"
             className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors"
           >
@@ -359,7 +348,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           <div className="flex items-center gap-0.5">
             {/* Open in local app */}
             <button
-              onClick={handleOpenMagnet}
+              onClick={(e) => { e.stopPropagation(); handleOpenMagnet() }}
               disabled={resolvingMagnet}
               title="Abrir com app associado (qBittorrent, etc.)"
               className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-gray-600"
@@ -373,7 +362,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
             </button>
             {/* Copy to clipboard */}
             <button
-              onClick={handleCopyMagnet}
+              onClick={(e) => { e.stopPropagation(); handleCopyMagnet() }}
               disabled={resolvingMagnet}
               title="Copiar link magnet"
               className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${
@@ -394,7 +383,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         )}
         {hasSource && (
           <button
-            onClick={handleTorrentDownload}
+            onClick={(e) => { e.stopPropagation(); handleTorrentDownload() }}
             disabled={resolvingTorrent}
             title="Baixar arquivo .torrent"
             className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 px-2.5 py-1.5 rounded-lg transition-colors"
@@ -409,7 +398,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         )}
         {canDownload && (
           <button
-            onClick={() => onDownload(result)}
+            onClick={(e) => { e.stopPropagation(); onDownload(result) }}
             title="Enviar para cliente de download (qBittorrent/Deluge)"
             className="flex items-center gap-1 text-xs btn-primary py-1.5 px-2.5 flex-1 justify-center min-w-[80px]"
           >

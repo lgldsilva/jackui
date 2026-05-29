@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil } from 'lucide-react'
+import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil, GripVertical } from 'lucide-react'
 import {
-  playlistsGet, playlistsUpdate, playlistsRemoveItem,
+  playlistsGet, playlistsUpdate, playlistsRemoveItem, playlistsReorderItem,
   Playlist, PlaylistItem,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
@@ -53,6 +53,26 @@ export default function PlaylistDetailPage() {
     if (!playlist) return
     await playlistsRemoveItem(playlist.id, it.id)
     setItems(items.filter(x => x.id !== it.id).map((x, i) => ({ ...x, position: i })))
+  }
+
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+
+  // Drag-to-reorder: reorder optimistically, persist via PATCH, roll back from
+  // the server on failure. `to` is the destination index — the backend's
+  // Reorder takes the same 0-based position.
+  const handleReorderDrop = async (to: number) => {
+    const from = dragIdx
+    setDragIdx(null)
+    if (from === null || from === to || !playlist) return
+    const reordered = [...items]
+    const [moved] = reordered.splice(from, 1)
+    reordered.splice(to, 0, moved)
+    setItems(reordered.map((x, i) => ({ ...x, position: i })))
+    try {
+      await playlistsReorderItem(playlist.id, moved.id, to)
+    } catch {
+      load()
+    }
   }
 
 
@@ -114,7 +134,16 @@ export default function PlaylistDetailPage() {
         ) : (
           <div className="flex flex-col gap-1.5">
             {items.map((it, idx) => (
-              <div key={it.magnet || it.infoHash + it.fileIndex} className="card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group">
+              <div
+                key={it.id}
+                draggable
+                onDragStart={() => setDragIdx(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleReorderDrop(idx)}
+                onDragEnd={() => setDragIdx(null)}
+                className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group ${dragIdx === idx ? 'opacity-50' : ''}`}
+              >
+                <GripVertical className="w-4 h-4 text-gray-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <div className="flex-1 min-w-0">
                   <button
                     onClick={() => startAt(idx)}

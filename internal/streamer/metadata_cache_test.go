@@ -100,4 +100,100 @@ func TestArtSourceRank(t *testing.T) {
 		t.Fatalf("rank order broken: torrent=%d tmdb=%d frame=%d none=%d",
 			ArtSourceRank("torrent"), ArtSourceRank("tmdb"), ArtSourceRank("frame"), ArtSourceRank(""))
 	}
+	if r := ArtSourceRank("web"); r != 2 {
+		t.Errorf("web rank = %d, want 2", r)
+	}
+}
+
+func TestMetadataCache_Get_Missing(t *testing.T) {
+	c := newTestCache(t)
+	if got := c.Get("nonexistent"); got != nil {
+		t.Errorf("expected nil for missing hash, got %+v", got)
+	}
+}
+
+func TestMetadataCache_GetArt_Missing(t *testing.T) {
+	c := newTestCache(t)
+	if got := c.GetArt("nonexistent"); got != nil {
+		t.Errorf("expected nil for missing hash, got %+v", got)
+	}
+}
+
+func TestMetadataCache_GetHealth_Missing(t *testing.T) {
+	c := newTestCache(t)
+	if got := c.GetHealth("nonexistent"); got != nil {
+		t.Errorf("expected nil for missing hash, got %+v", got)
+	}
+}
+
+func TestMetadataCache_NilSafe(t *testing.T) {
+	var nilC *MetadataCache
+	if nilC.Get("hash") != nil {
+		t.Error("Get on nil should return nil")
+	}
+	if nilC.GetArt("hash") != nil {
+		t.Error("GetArt on nil should return nil")
+	}
+	if nilC.GetHealth("hash") != nil {
+		t.Error("GetHealth on nil should return nil")
+	}
+	if err := nilC.Set(nil); err != nil {
+		t.Errorf("Set on nil with nil info: %v", err)
+	}
+	if err := nilC.SetArt("hash", nil); err != nil {
+		t.Errorf("SetArt on nil: %v", err)
+	}
+	if err := nilC.SetHealth("hash", 0, 0); err != nil {
+		t.Errorf("SetHealth on nil: %v", err)
+	}
+	nilC.Close()
+}
+
+func TestMetadataCache_SetWithArt_AllEdgeCases(t *testing.T) {
+	c := newTestCache(t)
+
+	err := c.Set(&TorrentInfo{
+		InfoHash:    "edgetest",
+		Name:        "Edge Test",
+		TotalSize:   5000,
+		PrimaryFile: 0,
+		Files:       []FileInfo{{Index: 0, Path: "v.mp4", Size: 5000, IsVideo: true}},
+	})
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	meta := c.Get("edgetest")
+	if meta == nil || meta.Name != "Edge Test" || len(meta.Files) != 1 {
+		t.Fatalf("Get = %+v", meta)
+	}
+
+	art := c.GetArt("edgetest")
+	if art != nil {
+		t.Errorf("expected nil art before SetArt, got %+v", art)
+	}
+
+	if err := c.SetArt("edgetest", &CachedArt{Source: "tmdb", PosterURL: "https://img.jpg"}); err != nil {
+		t.Fatalf("SetArt: %v", err)
+	}
+
+	art = c.GetArt("edgetest")
+	if art == nil || art.Source != "tmdb" {
+		t.Errorf("GetArt after SetArt = %+v", art)
+	}
+}
+
+func TestMetadataCache_ColumnExists_False(t *testing.T) {
+	c := newTestCache(t)
+	got := columnExists(c.db, "metadata", "nonexistent_column")
+	if got {
+		t.Error("expected false for nonexistent column")
+	}
+}
+
+func TestMetadataCache_ColumnExists_True(t *testing.T) {
+	c := newTestCache(t)
+	if !columnExists(c.db, "metadata", "info_hash") {
+		t.Error("expected info_hash column to exist")
+	}
 }

@@ -128,7 +128,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     setPhase('executing')
     setError('')
     try {
-      await localPromote(
+      const r = await localPromote(
         mount,
         entry.path,
         finalTarget,
@@ -136,7 +136,9 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         true, // renameIA always on for reclassify
         files.map(f => f.path),
       )
-      setResult({ moved: files.length, failed: [], destLabel })
+      // Report the real counts from the backend — it moves every entry in the
+      // batch and tells us how many actually succeeded vs failed.
+      setResult({ moved: r.moved, failed: r.errors, destLabel })
       setPhase('done')
       onDone()
     } catch (e: any) {
