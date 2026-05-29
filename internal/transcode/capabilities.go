@@ -27,6 +27,8 @@ const (
 	hwDeviceVAAPI   = "vaapi=va:/dev/dri/renderD128"
 	ffHideBanner    = "-hide_banner"
 	ffLogLevel      = "-loglevel"
+	pipe0           = "pipe:0"
+	pipe1           = "pipe:1"
 )
 
 // Encoder identifies one transcoding backend.

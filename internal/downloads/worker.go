@@ -24,6 +24,18 @@ import (
 // transient swarm hiccups self-heal without the user re-queueing manually.
 const maxInitRetries = 3
 
+// WorkerConfig groups the dependencies and options for creating a Worker.
+type WorkerConfig struct {
+	Store           *Store
+	Streamer        *streamer.Streamer
+	DataDir         string // streamer DataDir — where anacrolix stores pieces
+	DownloadDir     string // destination for completed files (empty = keep in DataDir)
+	Interval        time.Duration
+	NtfyBaseURL     string          // default https://ntfy.sh
+	NtfyTopic       string          // global default topic; per-user override via store
+	ResolveUsername func(int) string // optional username resolver for per-user subdir
+}
+
 // Worker reconciles download rows in the store with the running anacrolix
 // torrent client. It runs a single ticker; each tick it:
 //
@@ -71,49 +83,45 @@ type trackedDL struct {
 	startedAt time.Time
 }
 
-// NewWorker constructs a worker. interval defaults to 2 seconds when zero or
-// negative. dataDir is the streamer's piece-storage directory; downloadDir is
-// where completed files are moved (empty string keeps the legacy behaviour of
-// leaving files in DataDir protected from eviction). ntfyBaseURL and ntfyTopic
-// configure push notifications; pass empty strings to disable.
-func NewWorker(store *Store, s *streamer.Streamer, dataDir, downloadDir string, interval time.Duration, ntfyBaseURL, ntfyTopic string, resolveUsername ...func(int) string) *Worker {
-	if interval <= 0 {
-		interval = 2 * time.Second
+// NewWorker constructs a worker from a config struct. Interval defaults to 2
+// seconds when zero or negative. NtfyBaseURL defaults to "https://ntfy.sh"
+// when empty.
+func NewWorker(cfg WorkerConfig) *Worker {
+	if cfg.Interval <= 0 {
+		cfg.Interval = 2 * time.Second
 	}
-	if ntfyBaseURL == "" {
-		ntfyBaseURL = "https://ntfy.sh"
+	if cfg.NtfyBaseURL == "" {
+		cfg.NtfyBaseURL = "https://ntfy.sh"
 	}
 	w := &Worker{
-		store:        store,
-		streamer:     s,
-		dataDir:      dataDir,
-		downloadDir:  downloadDir,
-		interval:     interval,
-		tracked:      make(map[int]*trackedDL),
-		pending:      make(map[int]context.CancelFunc),
-		retries:      make(map[int]int),
-		stop:         make(chan struct{}),
-		ntfyBaseURL:  ntfyBaseURL,
-		ntfyTopic:    ntfyTopic,
-		ntfyClient:   &http.Client{Timeout: 10 * time.Second},
-	}
-	if len(resolveUsername) > 0 && resolveUsername[0] != nil {
-		w.resolveUsername = resolveUsername[0]
+		store:           cfg.Store,
+		streamer:        cfg.Streamer,
+		dataDir:         cfg.DataDir,
+		downloadDir:     cfg.DownloadDir,
+		interval:        cfg.Interval,
+		tracked:         make(map[int]*trackedDL),
+		pending:         make(map[int]context.CancelFunc),
+		retries:         make(map[int]int),
+		stop:            make(chan struct{}),
+		ntfyBaseURL:     cfg.NtfyBaseURL,
+		ntfyTopic:       cfg.NtfyTopic,
+		ntfyClient:      &http.Client{Timeout: 10 * time.Second},
+		resolveUsername: cfg.ResolveUsername,
 	}
 	// Pre-register eviction protection for active downloads. Completed
 	// downloads are only protected when no dedicated downloadDir is configured
 	// (legacy mode) — in that case the file lives in DataDir and must not be
 	// evicted. When downloadDir is set, completed files have already been
 	// moved there so DataDir pieces can be freed by the LRU.
-	if all, err := store.ListAll(); err == nil {
+	if all, err := cfg.Store.ListAll(); err == nil {
 		for _, d := range all {
 			if d.Status == StatusFailed || d.Name == "" {
 				continue
 			}
-			if d.Status == StatusCompleted && downloadDir != "" {
+			if d.Status == StatusCompleted && cfg.DownloadDir != "" {
 				continue
 			}
-			s.RegisterDownload(d.Name)
+			cfg.Streamer.RegisterDownload(d.Name)
 		}
 	}
 	return w
