@@ -110,7 +110,15 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) 
 		sortCol := c.DefaultQuery("sort", "created_at")
 		sortDir := c.DefaultQuery("order", "desc")
 
-		list, err := store.ListFiltered(userID, status, tracker, category, search, sortCol, sortDir)
+		list, err := store.ListFiltered(downloads.ListFilter{
+			UserID:   userID,
+			Status:   status,
+			Tracker:  tracker,
+			Category: category,
+			Search:   search,
+			SortCol:  sortCol,
+			SortDir:  sortDir,
+		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -133,7 +141,15 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 		sortDir := c.DefaultQuery("order", "desc")
 		userIDFilter := c.Query("userId")
 
-		list, err := dlStore.ListFilteredAll(status, tracker, category, search, userIDFilter, sortCol, sortDir)
+		list, err := dlStore.ListFilteredAll(downloads.ListFilter{
+			Status:       status,
+			Tracker:      tracker,
+			Category:     category,
+			Search:       search,
+			UserIDFilter: userIDFilter,
+			SortCol:      sortCol,
+			SortDir:      sortDir,
+		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

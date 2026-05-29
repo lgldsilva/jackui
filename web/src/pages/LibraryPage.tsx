@@ -84,9 +84,12 @@ export default function LibraryPage() {
     // primaryFileIndex. 0 there is ambiguous (column default vs real choice), so
     // only a positive primary counts; otherwise let the server's pickPrimaryFile
     // decide (it skips featurettes/extras — the Breaking Bad bug).
-    const fileIdx = e.lastFileIndex >= 0
-      ? e.lastFileIndex
-      : (e.primaryFileIndex > 0 ? e.primaryFileIndex : undefined)
+    let fileIdx: number | undefined
+    if (e.lastFileIndex >= 0) {
+      fileIdx = e.lastFileIndex
+    } else if (e.primaryFileIndex > 0) {
+      fileIdx = e.primaryFileIndex
+    }
     playSingle(entryToResult(e), fileIdx)
   }
 

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { SearchResult, PlaylistItem, streamAdd, libraryList } from '../api/client'
+import { SearchResult, PlaylistItem, streamAdd, libraryList, streamDrop } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
 import PlayerModal from './PlayerModal'
 
@@ -135,9 +135,17 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   }, [shuffle])
 
   const close = useCallback(() => {
+    if (current && current.result && current.result.infoHash) {
+      const hash = current.result.infoHash
+      if (hash && typeof hash === 'string' && !hash.startsWith('local-')) {
+        streamDrop(hash).catch(err => {
+          console.error('[player] Failed to drop stream on close:', err)
+        })
+      }
+    }
     setCurrent(null)
     setPlaylist(null)
-  }, [])
+  }, [current])
 
   const goTo = useCallback((delta: number) => {
     const pl = playlistRef.current

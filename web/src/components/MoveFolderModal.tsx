@@ -65,7 +65,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
     }
   }
 
-  const isSameLoc = dstMount === mount && browsePath === (entry.path.includes('/') ? entry.path.substring(0, entry.path.lastIndexOf('/')) : '')
+  const isSameLoc = dstMount === mount && browsePath === (entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '')
 
   return (
     <div
