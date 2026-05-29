@@ -64,8 +64,8 @@ export default function QualityBadges({ quality, compact = false }: Props) {
   }
 
   if (!compact) {
-    if (quality.audio && quality.audio.length > 0) {
-      for (const a of quality.audio.slice(0, 2)) {
+    if ((quality.audio?.length ?? 0) > 0) {
+      for (const a of (quality.audio ?? []).slice(0, 2)) {
         badges.push(<Badge key={`a-${a}`} text={a} className="bg-rose-500/15 text-rose-300 border-rose-500/25" />)
       }
     }

@@ -130,9 +130,9 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
         }
       }
       if (cancelled) return
-      if (info?.files && info.files.length > 0) {
-        setFiles(info.files)
-        setSelectedFiles(defaultSelected(info.files))
+      if ((info?.files?.length ?? 0) > 0) {
+        setFiles(info!.files ?? [])
+        setSelectedFiles(defaultSelected(info!.files ?? []))
       } else if (!filesError) {
         setFilesError('Metadata não disponível ainda — o worker vai resolver depois.')
       }
@@ -171,8 +171,8 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
         // file_index=0 — o worker descobre o nome real e atualiza via
         // UpdateMetadata. Esse fallback dá o bug do .nfo antigo, mas só
         // acontece quando o user clica Confirmar antes do picker carregar.
-        if (files && files.length > 0) {
-          const picks = files.filter(f => selectedFiles.has(f.index))
+        if ((files?.length ?? 0) > 0) {
+          const picks = (files ?? []).filter(f => selectedFiles.has(f.index))
           if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
           const results = await Promise.allSettled(picks.map(f =>
             downloadCreate({
@@ -291,11 +291,11 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                     </span>
                   )}
                 </label>
-                {files && files.length > 1 && (
+                {(files?.length ?? 0) > 1 && (
                   <div className="flex gap-2 text-xs">
                     <button
                       type="button"
-                      onClick={() => setSelectedFiles(new Set(files.map(f => f.index)))}
+                      onClick={() => setSelectedFiles(new Set((files ?? []).map(f => f.index)))}
                       className="text-cyan-400 hover:text-cyan-300"
                     >
                       Todos
@@ -322,9 +322,9 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                   {filesError}
                 </p>
               )}
-              {files && files.length > 0 && (
+              {(files?.length ?? 0) > 0 && (
                 <ul className="bg-gray-900 border border-gray-700 rounded-lg max-h-56 overflow-y-auto divide-y divide-gray-800">
-                  {files.map(f => {
+                  {(files ?? []).map(f => {
                     const checked = selectedFiles.has(f.index)
                     const toggle = () => {
                       const next = new Set(selectedFiles)
