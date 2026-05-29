@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
-  Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive
+  Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive, AlertTriangle,
+  ListFilter, Download, CheckSquare,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import {
@@ -28,7 +29,7 @@ import { useAuth } from '../auth/AuthContext'
 // Premium Downloads & Network Dashboard
 // ═══════════════════════════════════════════════════════════════════════════════
 
-type Tab = 'active' | 'seeding' | 'network'
+type Tab = 'all' | 'downloading' | 'paused' | 'completed' | 'failed' | 'network'
 
 export default function DownloadsPage() {
   const [items, setItems] = useState<DownloadEntry[]>([])
@@ -47,7 +48,7 @@ export default function DownloadsPage() {
   const [busyID, setBusyID] = useState<number | null>(null)
   const mountedRef = useRef(true)
 
-  const [activeTab, setActiveTab] = useState<Tab>('active')
+  const [activeTab, setActiveTab] = useState<Tab>('all')
 
   const [torrents, setTorrents] = useState<TorrentInfo[]>([])
   const [torrentsLoaded, setTorrentsLoaded] = useState(false)
@@ -440,32 +441,70 @@ export default function DownloadsPage() {
   const bgHashes = new Set(items.map(d => d.infoHash))
   const displayTorrents = torrents.filter(t => !bgHashes.has(t.infoHash))
 
-  // Active tab: downloading/queued torrents + background downloads
+  // Torrent status helpers
+  const torrentStatus = (t: TorrentInfo) =>
+    t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
+
   const activeTorrents = displayTorrents.filter(t => {
-    const s = t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
+    const s = torrentStatus(t)
     return s === 'downloading' || s === 'paused'
   })
-  const activeDownloads = items.filter(d => d.status === 'downloading' || d.status === 'queued' || d.status === 'paused' || d.status === 'failed')
-
-  // Seeding tab: seeding/complete torrents + completed downloads
   const seedingTorrents = displayTorrents.filter(t => {
-    const s = t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
+    const s = torrentStatus(t)
     return s === 'seeding' || s === 'complete'
   })
-  const completedDownloads = items.filter(d => d.status === 'completed')
+
+  // Per-status download groups
+  const downloadsByStatus = {
+    downloading: items.filter(d => d.status === 'downloading' || d.status === 'queued'),
+    paused:      items.filter(d => d.status === 'paused'),
+    completed:   items.filter(d => d.status === 'completed'),
+    failed:      items.filter(d => d.status === 'failed'),
+  }
+  // activeDownloads kept for backward compat with ActiveTab internal usage
+  const _activeDownloads = [...downloadsByStatus.downloading, ...downloadsByStatus.paused, ...downloadsByStatus.failed]
+  void _activeDownloads
+  const completedDownloads = downloadsByStatus.completed
+
+  // Stalled: downloading but no progress (downRate === 0 or null)
+  const stalledCount = items.filter(
+    d => d.status === 'downloading' && (d.downRate ?? 0) === 0 && d.bytesDownloaded < d.fileSize
+  ).length
 
   // Summary stats
   const totalDown = torrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
+    + items.filter(d => d.status === 'downloading').reduce((sum, d) => sum + (d.downRate || 0), 0)
   const totalUp = torrents.reduce((sum, t) => sum + (t.upRate || 0), 0)
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
-  const activeCount = activeTorrents.length + activeDownloads.length
+  const activeCount = activeTorrents.length + downloadsByStatus.downloading.length
   const seedingCount = seedingTorrents.length
 
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
-    active: activeTorrents.length + activeDownloads.length,
-    seeding: seedingTorrents.length + completedDownloads.length,
-    network: 0,
+    all:         displayTorrents.length + items.length,
+    downloading: activeTorrents.length + downloadsByStatus.downloading.length,
+    paused:      downloadsByStatus.paused.length,
+    completed:   seedingTorrents.length + completedDownloads.length,
+    failed:      downloadsByStatus.failed.length,
+    network:     0,
+  }
+
+  // Items for the currently-selected status tab
+  const tabDownloads: Record<Tab, DownloadEntry[]> = {
+    all:         items,
+    downloading: [...downloadsByStatus.downloading, ...downloadsByStatus.paused, ...downloadsByStatus.failed],
+    paused:      downloadsByStatus.paused,
+    completed:   completedDownloads,
+    failed:      downloadsByStatus.failed,
+    network:     [],
+  }
+  const tabTorrents: Record<Tab, TorrentInfo[]> = {
+    all:         displayTorrents,
+    downloading: activeTorrents,
+    paused:      [],
+    completed:   seedingTorrents,
+    failed:      [],
+    network:     [],
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -521,6 +560,94 @@ export default function DownloadsPage() {
             gradient="from-amber-500/20 to-orange-500/10"
             iconColor="text-amber-400"
           />
+        </div>
+
+        {/* ═══════════════ Global Action Toolbar ═══════════════ */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {/* Quick stats strip */}
+          <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+            {downloadsByStatus.downloading.length > 0 && (
+              <span className="flex items-center gap-1">
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="text-gray-200 font-medium">{downloadsByStatus.downloading.length}</span> baixando
+              </span>
+            )}
+            {downloadsByStatus.paused.length > 0 && (
+              <span className="flex items-center gap-1">
+                <Pause className="w-3.5 h-3.5 text-gray-400" />
+                <span className="text-gray-200 font-medium">{downloadsByStatus.paused.length}</span> pausados
+              </span>
+            )}
+            {completedDownloads.length > 0 && (
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
+                <span className="text-gray-200 font-medium">{completedDownloads.length}</span> concluídos
+              </span>
+            )}
+            {downloadsByStatus.failed.length > 0 && (
+              <span className="flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                <span className="text-gray-200 font-medium">{downloadsByStatus.failed.length}</span> com erro
+              </span>
+            )}
+            {stalledCount > 0 && (
+              <span className="flex items-center gap-1 text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span className="font-medium">{stalledCount}</span> travados
+              </span>
+            )}
+          </div>
+
+          {/* Global controls */}
+          {!isGuest && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  setBulkBusy(true)
+                  try {
+                    await Promise.all([downloadResumeAll(), streamResumeAll()])
+                    await load()
+                  } finally { setBulkBusy(false) }
+                }}
+                disabled={bulkBusy}
+                title="Iniciar todos os downloads e torrents pausados"
+                className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <Play className="w-3 h-3" /> Iniciar todos
+              </button>
+              <button
+                onClick={async () => {
+                  setBulkBusy(true)
+                  try {
+                    await Promise.all([downloadPauseAll(), streamPauseAll()])
+                    await load()
+                  } finally { setBulkBusy(false) }
+                }}
+                disabled={bulkBusy}
+                title="Pausar todos os downloads e torrents ativos"
+                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <Pause className="w-3 h-3" /> Pausar todos
+              </button>
+              {completedDownloads.length > 0 && (
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Remover ${completedDownloads.length} download(s) concluído(s)?\nOs arquivos no disco NÃO serão apagados.`)) return
+                    setBulkBusy(true)
+                    try {
+                      await downloadBatchDelete(completedDownloads.map(d => d.id))
+                      await load()
+                    } finally { setBulkBusy(false) }
+                  }}
+                  disabled={bulkBusy}
+                  title="Remover da fila todos os downloads concluídos (arquivos não são apagados)"
+                  className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" /> Remover concluídos
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ═══════════════ Filters Bar ═══════════════ */}
@@ -619,17 +746,20 @@ export default function DownloadsPage() {
 
         {/* ═══════════════ Tabs & Actions ═══════════════ */}
         <div className="flex items-center justify-between border-b border-gray-700/60 flex-wrap gap-3">
-          <div className="flex items-center gap-1 overflow-x-auto">
+          <div className="flex items-center gap-0.5 overflow-x-auto">
             {([
-              { key: 'active' as Tab, label: 'Ativos & Downloads', icon: <Zap className="w-4 h-4" /> },
-              { key: 'seeding' as Tab, label: 'Semeando & Completos', icon: <ArrowUpCircle className="w-4 h-4" /> },
-              { key: 'network' as Tab, label: 'Rede & Limites', icon: <Wifi className="w-4 h-4" /> },
+              { key: 'all'         as Tab, label: 'Todos',      icon: <ListFilter className="w-3.5 h-3.5" /> },
+              { key: 'downloading' as Tab, label: 'Baixando',   icon: <Zap className="w-3.5 h-3.5" /> },
+              { key: 'paused'      as Tab, label: 'Pausados',   icon: <Pause className="w-3.5 h-3.5" /> },
+              { key: 'completed'   as Tab, label: 'Concluídos', icon: <CheckSquare className="w-3.5 h-3.5" /> },
+              { key: 'failed'      as Tab, label: 'Erro',       icon: <AlertCircle className="w-3.5 h-3.5" /> },
+              { key: 'network'     as Tab, label: 'Rede',       icon: <Wifi className="w-3.5 h-3.5" /> },
             ]).map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={`
-                  flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap
+                  flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap
                   border-b-2 transition-all duration-200
                   ${activeTab === tab.key
                     ? 'border-emerald-400 text-emerald-400'
@@ -640,10 +770,12 @@ export default function DownloadsPage() {
                 {tab.label}
                 {tabCounts[tab.key] > 0 && (
                   <span className={`
-                    text-xs px-1.5 py-0.5 rounded-full font-semibold
+                    text-[10px] px-1.5 py-0.5 rounded-full font-semibold min-w-[18px] text-center
                     ${activeTab === tab.key
                       ? 'bg-emerald-500/20 text-emerald-300'
-                      : 'bg-gray-700 text-gray-400'}
+                      : tab.key === 'failed'
+                        ? 'bg-red-500/20 text-red-400'
+                        : 'bg-gray-700 text-gray-400'}
                   `}>
                     {tabCounts[tab.key]}
                   </span>
@@ -681,63 +813,59 @@ export default function DownloadsPage() {
 
         {/* ═══════════════ Tab Content ═══════════════ */}
         <div className="min-h-[300px]">
-          {activeTab === 'active' && (
-            <ActiveTab
-              torrents={activeTorrents}
-              downloads={activeDownloads}
-              torrentsLoaded={torrentsLoaded}
-              loading={loading}
-              busyHash={busyHash}
-              busyID={busyID}
-              bulkBusy={bulkBusy}
-              onTorrentPause={onTorrentPause}
-              onTorrentResume={onTorrentResume}
-              onTorrentPriority={onTorrentPriority}
-              onTorrentDelete={onTorrentDelete}
-              onPauseAll={onPauseAll}
-              onResumeAll={onResumeAll}
-              onPause={onPause}
-              onResume={onResume}
-              onDelete={onDelete}
-              hasTorrents={torrents.length > 0}
-              onPlay={onPlay}
-              onInspect={setInspectTarget}
-              onDownloadPauseAll={async () => {
-                setBulkBusy(true)
-                try { await downloadPauseAll(); await load() } finally { setBulkBusy(false) }
-              }}
-              onDownloadResumeAll={async () => {
-                setBulkBusy(true)
-                try { await downloadResumeAll(); await load() } finally { setBulkBusy(false) }
-              }}
-              downloadBulkBusy={bulkBusy}
-            />
-          )}
-          {activeTab === 'seeding' && (
-            <SeedingTab
-              torrents={seedingTorrents}
-              downloads={completedDownloads}
-              torrentsLoaded={torrentsLoaded}
-              busyHash={busyHash}
-              busyID={busyID}
-              selected={selected}
-              onToggleSelected={(id: number) => setSelected(prev => {
-                const next = new Set(prev)
-                if (next.has(id)) next.delete(id); else next.add(id)
-                return next
-              })}
-              onTorrentPause={onTorrentPause}
-              onTorrentResume={onTorrentResume}
-              onTorrentPriority={onTorrentPriority}
-              onTorrentDelete={onTorrentDelete}
-              onPause={onPause}
-              onResume={onResume}
-              onDelete={onDelete}
-              onPromote={onPromote}
-              onStopSeed={onStopSeed}
-              onPlay={onPlay}
-              onInspect={setInspectTarget}
-            />
+          {activeTab !== 'network' && (
+            <>
+              {/* Active / downloading torrents */}
+              {tabTorrents[activeTab].length > 0 && (
+                <ActiveTab
+                  torrents={tabTorrents[activeTab]}
+                  downloads={[]}
+                  torrentsLoaded={torrentsLoaded}
+                  loading={false}
+                  busyHash={busyHash}
+                  busyID={null}
+                  bulkBusy={bulkBusy}
+                  onTorrentPause={onTorrentPause}
+                  onTorrentResume={onTorrentResume}
+                  onTorrentPriority={onTorrentPriority}
+                  onTorrentDelete={onTorrentDelete}
+                  onPauseAll={onPauseAll}
+                  onResumeAll={onResumeAll}
+                  onPause={onPause}
+                  onResume={onResume}
+                  onDelete={onDelete}
+                  hasTorrents={false}
+                  onPlay={onPlay}
+                  onInspect={setInspectTarget}
+                />
+              )}
+              {/* Background downloads for this tab */}
+              <SeedingTab
+                torrents={[]}
+                downloads={tabDownloads[activeTab]}
+                torrentsLoaded={torrentsLoaded}
+                busyHash={busyHash}
+                busyID={busyID}
+                selected={selected}
+                onToggleSelected={(id: number) => setSelected(prev => {
+                  const next = new Set(prev)
+                  if (next.has(id)) next.delete(id); else next.add(id)
+                  return next
+                })}
+                onTorrentPause={onTorrentPause}
+                onTorrentResume={onTorrentResume}
+                onTorrentPriority={onTorrentPriority}
+                onTorrentDelete={onTorrentDelete}
+                onPause={onPause}
+                onResume={onResume}
+                onDelete={onDelete}
+                onPromote={onPromote}
+                onStopSeed={onStopSeed}
+                onPlay={onPlay}
+                onInspect={setInspectTarget}
+                loading={loading}
+              />
+            </>
           )}
           {activeTab === 'network' && (
             <NetworkTab
@@ -886,10 +1014,13 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 // ActiveTab — downloading/queued torrents + background downloads
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID, bulkBusy,
+function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
-  onPauseAll, onResumeAll, onPause, onResume, onDelete, hasTorrents, onPlay, onInspect,
-  onDownloadPauseAll, onDownloadResumeAll, downloadBulkBusy,
+  onPause, onResume, onDelete, onPlay, onInspect,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  bulkBusy: _bulkBusy, onPauseAll: _onPauseAll, onResumeAll: _onResumeAll,
+  hasTorrents: _hasTorrents, onDownloadPauseAll: _dl1, onDownloadResumeAll: _dl2,
+  downloadBulkBusy: _dl3,
 }: {
   torrents: TorrentInfo[]
   downloads: DownloadEntry[]
@@ -919,47 +1050,6 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Bulk actions bar — streaming torrents */}
-      {hasTorrents && (
-        <div className="flex items-center gap-2 justify-end">
-          <button
-            onClick={onPauseAll}
-            disabled={bulkBusy}
-            className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Pause className="w-3 h-3" /> Pausar todos
-          </button>
-          <button
-            onClick={onResumeAll}
-            disabled={bulkBusy}
-            className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Play className="w-3 h-3" /> Retomar todos
-          </button>
-        </div>
-      )}
-
-      {/* Bulk actions — background downloads */}
-      {downloads.filter(d => d.status === 'downloading' || d.status === 'queued' || d.status === 'paused').length > 0 && (
-        <div className="flex items-center gap-2 justify-end border-t border-gray-700/30 pt-2 mt-1">
-          <span className="text-[11px] text-gray-500 mr-1">Downloads:</span>
-          <button
-            onClick={onDownloadPauseAll}
-            disabled={downloadBulkBusy}
-            className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Pause className="w-3 h-3" /> Pausar todos
-          </button>
-          <button
-            onClick={onDownloadResumeAll}
-            disabled={downloadBulkBusy}
-            className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <Play className="w-3 h-3" /> Retomar todos
-          </button>
-        </div>
-      )}
-
       {isLoading && (
         <div className="flex items-center gap-2 text-gray-400 py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" />
@@ -1013,7 +1103,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
 function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
   onPause, onResume, onDelete, onPromote, onStopSeed,
-  selected, onToggleSelected, onPlay, onInspect,
+  selected, onToggleSelected, onPlay, onInspect, loading,
 }: {
   torrents: TorrentInfo[]
   downloads: DownloadEntry[]
@@ -1033,8 +1123,9 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   onToggleSelected: (id: number) => void
   onPlay: (d: DownloadEntry) => void
   onInspect: (d: DownloadEntry) => void
+  loading?: boolean
 }) {
-  const empty = torrents.length === 0 && downloads.length === 0
+  const empty = torrents.length === 0 && downloads.length === 0 && !loading
 
   return (
     <div className="flex flex-col gap-4">
@@ -1369,6 +1460,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
   const isFailed = d.status === 'failed'
   const isPaused = d.status === 'paused'
   const isActive = d.status === 'downloading' || d.status === 'queued'
+  const isStalled = d.status === 'downloading' && (d.downRate ?? 0) === 0 && d.bytesDownloaded < d.fileSize
 
   const etaText = computeETA(d)
 
@@ -1420,6 +1512,11 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <KindBadge kind="server" />
+          {isStalled && (
+            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-300 border-amber-500/30" title="Download sem progresso — sem peers ou bloqueado">
+              <AlertTriangle className="w-3 h-3" /> Travado
+            </span>
+          )}
           {d.status === 'completed' && (
             <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
               <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
