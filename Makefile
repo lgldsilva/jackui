@@ -85,7 +85,7 @@ setup:
 	$(call ok,Setup concluído — próximo passo: make deploy)
 
 # ─────────────────────────────────────────
-# Internal: sync config.yaml — used by all deploys
+# Internal: sync config.yaml + docker-compose.yml — used by all deploys
 # ─────────────────────────────────────────
 _sync-config:
 	$(call step,Sincronizando config.yaml no servidor...)
@@ -93,6 +93,12 @@ _sync-config:
 	@scp config.yaml $(DEPLOY_HOST):/tmp/jackui-config.yaml
 	@ssh $(DEPLOY_HOST) "sudo mv /tmp/jackui-config.yaml /Files/AppData/Config/jackui/config.yaml"
 	$(call ok,config.yaml sincronizado)
+	# NOTA: O docker-compose.yml do servidor vive em
+	# $(DEPLOY_HOST):/Files/AppData/Config/jackui/docker-compose.yml
+	# e é gerenciado SEPARADAMENTE do repo (contém secrets hardcoded).
+	# Se adicionar novas env vars, edite também o arquivo no servidor:
+	#   ssh $(DEPLOY_HOST) "nano /Files/AppData/Config/jackui/docker-compose.yml"
+	#   cd /Files/AppData/Config/jackui && docker compose up -d
 
 # ─────────────────────────────────────────
 # GPU detection — runs on the deploy host via SSH
