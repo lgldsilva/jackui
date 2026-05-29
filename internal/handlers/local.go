@@ -29,10 +29,14 @@ const (
 )
 
 // userFromCtx extracts the username from the JWT claims, returning ""
-// when auth is not enabled or user is anonymous (media tokens).
+// only when auth is not enabled / the request is anonymous. Media tokens
+// (scope="media") MUST keep their username: <video>/<img> load file, HLS,
+// thumb and sidecar endpoints via ?token=, and those resolve paths on
+// UserSubpath mounts — dropping the username here collapsed the per-user
+// scope to the mount root, letting one user read another's files.
 func userFromCtx(c *gin.Context) string {
 	claims, ok := auth.ClaimsFromCtx(c)
-	if !ok || claims.Scope == auth.ScopeMedia {
+	if !ok {
 		return ""
 	}
 	return claims.Username
@@ -47,10 +51,29 @@ func checkMountAccess(b *local.Browser, c *gin.Context, mountName string) bool {
 	return true
 }
 
+// isAdminCtx reports whether the request is authenticated as an admin.
+func isAdminCtx(c *gin.Context) bool {
+	_, isAdmin, _ := auth.UserIDFromCtx(c)
+	return isAdmin
+}
+
+// scopeUser returns the username whose per-user subdir the request operates on.
+// Normally the caller themselves; an admin may target another user's space via
+// ?user= (the "view as user" selector in the UI). The override is gated on the
+// admin role — a non-admin passing ?user= is ignored, so it can never cross the
+// per-user boundary. This is the single chokepoint for the admin cross-user
+// access; everything that scopes a path must route through here.
+func scopeUser(c *gin.Context) string {
+	if target := c.Query("user"); target != "" && isAdminCtx(c) {
+		return target
+	}
+	return userFromCtx(c)
+}
+
 // scopePath returns the path scoped to the user's subdir for UserSubpath mounts.
 // For regular mounts, returns relPath unchanged.
 func scopePath(b *local.Browser, c *gin.Context, mountName, relPath string) string {
-	return b.UserScopedPath(mountName, relPath, userFromCtx(c))
+	return b.UserScopedPath(mountName, relPath, scopeUser(c))
 }
 
 // LocalMounts handles GET /api/local/mounts -> []Mount
@@ -73,7 +96,7 @@ func LocalList(b *local.Browser) gin.HandlerFunc {
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		username := userFromCtx(c)
+		username := scopeUser(c)
 		scopedPath := b.UserScopedPath(mount, path, username)
 
 		entries, err := b.List(mount, scopedPath)
@@ -264,7 +287,7 @@ func LocalTranscode(b *local.Browser) gin.HandlerFunc {
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
+		abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -372,87 +395,83 @@ func isMountRoot(b *local.Browser, abs string) bool {
 
 func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		_, src, base, subdir, ok := validatePromote(c, b, sharedDir, dests)
+		if sharedDir == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
+			return
+		}
+		// Same validation path as the preview (extractLocalPromoteReq +
+		// resolveLocalPaths) so what's previewed is exactly what's moved.
+		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
 		if !ok {
+			return
+		}
+		subdir, err := sanitizeSubdir(req.TargetSubdir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		targetDir := base
 		if subdir != "" {
 			targetDir = filepath.Join(base, subdir)
 		}
-		baseName := filepath.Base(src)
-		dst, targetDir := computePromoteDst(&promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base}, baseName, targetDir)
-		if src == dst {
-			c.JSON(http.StatusOK, gin.H{"message": "source and destination are the same", "path": dst})
+		// Batch (req.Paths) or single (req.Path) — resolveLocalPaths handles both
+		// and applies the user scope. Move every entry; a failure on one doesn't
+		// abort the rest. The response carries the real moved/failed counts so the
+		// UI can't report N moved when only some succeeded.
+		paths := resolveLocalPaths(b, req, scopeUser(c))
+		if len(paths) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
-		stat, statErr := os.Stat(src)
-		if statErr != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "arquivo de origem não existe: " + statErr.Error()})
+		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base}
+		moved := 0
+		errs := make([]gin.H, 0)
+		for _, scopedRel := range paths {
+			if e := promoteOnePath(b, deps, req.Mount, scopedRel, targetDir); e != nil {
+				errs = append(errs, e)
+			} else {
+				moved++
+			}
+		}
+		if moved == 0 {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"moved": 0, "failed": len(errs), "errors": errs})
 			return
 		}
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "criar destino: " + err.Error()})
-			return
-		}
-		if err := movePath(src, dst, stat); err != nil {
-			// Remove the empty directory we created if the move failed —
-			// avoids leaving orphan dirs (e.g. on FUSE mounts that reject cross-device writes).
-			_ = os.Remove(filepath.Dir(dst))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "mover arquivo: " + err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"message": "promoted successfully", "path": dst})
+		c.JSON(http.StatusOK, gin.H{"moved": moved, "failed": len(errs), "errors": errs})
 	}
 }
 
-func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests []PromoteDest) (*localPromoteReq, string, string, string, bool) {
-	if sharedDir == "" {
-		c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
-		return nil, "", "", "", false
+// promoteOnePath moves one already-scoped relative path into targetDir, applying
+// the AI rename via computePromoteDst. Returns nil on success (incl. a no-op when
+// already in place) or a {path,error} map describing the failure.
+func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, targetDir string) gin.H {
+	clean := filepath.Clean(scopedRel)
+	if clean == "" || clean == "." || clean == "/" {
+		return gin.H{"path": scopedRel, "error": "cannot promote mount root"}
 	}
-	var req localPromoteReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
-		return nil, "", "", "", false
-	}
-	if req.Mount == "" || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
-		return nil, "", "", "", false
-	}
-	if !checkMountAccess(b, c, req.Mount) {
-		return nil, "", "", "", false
-	}
-	claims, _ := auth.ClaimsFromCtx(c)
-	isAdmin := claims != nil && claims.Role == auth.RoleAdmin
-	if !isAdmin && strings.ToLower(req.Mount) != mountMeusDownloads {
-		c.JSON(http.StatusForbidden, gin.H{"error": errOnlyMeusDownloads})
-		return nil, "", "", "", false
-	}
-	// Apply user subpath scoping — frontend strips the prefix via StripUserScope
-	// so we must re-add it before resolving the real filesystem path.
-	scopedPath := b.UserScopedPath(req.Mount, req.Path, userFromCtx(c))
-	cleanPath := filepath.Clean(scopedPath)
-	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot promote mount root"})
-		return nil, "", "", "", false
-	}
-	src, err := b.ResolvePath(req.Mount, scopedPath)
+	src, err := b.ResolvePath(mount, scopedRel)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return nil, "", "", "", false
+		return gin.H{"path": scopedRel, "error": err.Error()}
 	}
-	base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+	stat, err := os.Stat(src)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return nil, "", "", "", false
+		return gin.H{"path": scopedRel, "error": "arquivo de origem não existe"}
 	}
-	subdir, err := sanitizeSubdir(req.TargetSubdir)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return nil, "", "", "", false
+	baseName := filepath.Base(src)
+	dst, dir := computePromoteDst(deps, baseName, targetDir)
+	if src == dst {
+		return nil
 	}
-	return &req, src, base, subdir, true
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return gin.H{"path": scopedRel, "error": "criar destino: " + err.Error()}
+	}
+	if err := movePath(src, dst, stat); err != nil {
+		// Remove the empty dir we created if the move failed — avoids orphan dirs
+		// (e.g. FUSE mounts that reject cross-device writes).
+		_ = os.Remove(filepath.Dir(dst))
+		return gin.H{"path": scopedRel, "error": "mover arquivo: " + err.Error()}
+	}
+	return nil
 }
 
 func computePromoteDst(d *promoteDstDeps, baseName, targetDir string) (string, string) {
@@ -477,7 +496,7 @@ func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb
 		if !ok {
 			return
 		}
-		paths := resolveLocalPaths(b, req, userFromCtx(c))
+		paths := resolveLocalPaths(b, req, scopeUser(c))
 		previews := buildLocalPreviews(&localPreviewDeps{c: c, b: b, aiClient: aiClient, tmdbClient: tmdbClient, mount: req.Mount, base: base}, paths)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
@@ -698,7 +717,7 @@ func resolveSource(b *local.Browser, c *gin.Context, req *moveEntryReq) (string,
 	// Apply user subpath scoping for mounts like "Meus downloads" where each
 	// user sees/writes only their own subdir. The frontend strips the prefix
 	// (via StripUserScope in LocalList) so we must re-add it here.
-	scopedSrc := b.UserScopedPath(req.SrcMount, req.SrcPath, userFromCtx(c))
+	scopedSrc := b.UserScopedPath(req.SrcMount, req.SrcPath, scopeUser(c))
 	srcAbs, err := b.ResolvePath(req.SrcMount, scopedSrc)
 	if err != nil {
 		return "", nil, fmt.Errorf("origem: %w", err)
@@ -716,7 +735,7 @@ func resolveDest(b *local.Browser, c *gin.Context, req *moveEntryReq, srcAbs str
 		dstDirRel = "."
 	}
 	// Apply user subpath scoping for UserSubpath destination mounts.
-	scopedDst := b.UserScopedPath(req.DstMount, dstDirRel, userFromCtx(c))
+	scopedDst := b.UserScopedPath(req.DstMount, dstDirRel, scopeUser(c))
 	dstDirAbs, err := b.ResolvePath(req.DstMount, scopedDst)
 	if err != nil {
 		return "", fmt.Errorf("destino: %w", err)

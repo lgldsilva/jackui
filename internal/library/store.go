@@ -132,6 +132,18 @@ func (s *Store) DeleteIncognito(userID int) error {
 	return err
 }
 
+// DeleteAllIncognito removes every incognito-flagged entry across all users.
+// Called once at startup: after a restart the in-memory heartbeat map (which
+// the reaper relies on) is empty, so any incognito row left in the DB is
+// orphaned and would persist forever — defeating the purpose of incognito.
+func (s *Store) DeleteAllIncognito() error {
+	if s == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM library WHERE incognito = 1`)
+	return err
+}
+
 // GetByHash returns the user's library entry for a given info_hash (if any).
 // Incognito entries are returned regardless — callers need the entry ID for resume updates.
 func (s *Store) GetByHash(userID int, infoHash string) (*Entry, error) {

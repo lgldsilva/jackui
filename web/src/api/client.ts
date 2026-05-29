@@ -296,8 +296,36 @@ export function parseLocalHash(hash: string): { mount: string; path: string } | 
   }
 }
 
+// localViewAsUser holds the admin "view as user" selection. When set (admin
+// only — the backend re-validates the role before honoring it), every
+// /api/local/* call carries ?user=<username> so the server scopes to that
+// user's subdir instead of the admin's own. Empty = operate on own space.
+let localViewAsUser = ''
+export function setLocalViewAsUser(username: string): void {
+  localViewAsUser = username || ''
+}
+export function getLocalViewAsUser(): string {
+  return localViewAsUser
+}
+
+// appendViewAs adds the ?user= override to a URLSearchParams when an admin has
+// selected another user to view.
+function appendViewAs(p: URLSearchParams): URLSearchParams {
+  if (localViewAsUser) p.set('user', localViewAsUser)
+  return p
+}
+
+// withViewAs appends ?user= to an already-built URL (media URLs returned by the
+// backend like localPlay's url, and the POST endpoints that take no params).
+function withViewAs(url: string): string {
+  if (!localViewAsUser) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}user=${encodeURIComponent(localViewAsUser)}`
+}
+
 function localQS(mount: string, path: string): string {
-  return `mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(path)}`
+  const base = `mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(path)}`
+  return localViewAsUser ? `${base}&user=${encodeURIComponent(localViewAsUser)}` : base
 }
 
 // streamMetadata returns a cached TorrentInfo snapshot if the server has seen
@@ -1329,7 +1357,7 @@ export const deleteHistoryEntry = async (q: string): Promise<void> => {
 // without going through anacrolix. http.ServeFile handles HTTP Range for
 // progressive playback; HEVC files still need browser support locally.
 
-export interface LocalMount { name: string; path: string }
+export interface LocalMount { name: string; path: string; userSubpath?: boolean }
 export interface LocalEntry {
   name: string
   path: string       // relative to mount root
@@ -1345,14 +1373,20 @@ export const localMounts = async (): Promise<LocalMount[]> => {
 }
 
 export const localList = async (mount: string, path: string): Promise<LocalEntry[]> => {
-  const params = new URLSearchParams({ mount, path })
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
   const { data } = await api.get<LocalEntry[]>(`/local/list?${params}`)
   return data || []
 }
 
 export const localDelete = async (mount: string, path: string): Promise<void> => {
-  const params = new URLSearchParams({ mount, path })
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
   await api.delete(`/local/file?${params}`)
+}
+
+export interface PromoteResult {
+  moved: number
+  failed: number
+  errors: { path: string; error: string }[]
 }
 
 export const localPromote = async (
@@ -1362,8 +1396,11 @@ export const localPromote = async (
   targetBase?: string,
   renameIA?: boolean,
   paths?: string[],
-): Promise<void> => {
-  await api.post('/local/promote', { mount, path, paths, targetSubdir, targetBase, renameIA })
+): Promise<PromoteResult> => {
+  const { data } = await api.post<PromoteResult>(withViewAs('/local/promote'), {
+    mount, path, paths, targetSubdir, targetBase, renameIA,
+  })
+  return data
 }
 
 export interface PromotePreviewEntry {
@@ -1387,7 +1424,7 @@ export const localPromotePreview = async (
   targetBase?: string,
   paths?: string[],
 ): Promise<{ previews: PromotePreviewEntry[] }> => {
-  const { data } = await api.post<{ previews: PromotePreviewEntry[] }>('/local/promote/preview', {
+  const { data } = await api.post<{ previews: PromotePreviewEntry[] }>(withViewAs('/local/promote/preview'), {
     mount,
     path,
     paths,
@@ -1404,7 +1441,7 @@ export const localWalk = async (
   path: string,
   mediaOnly = false,
 ): Promise<{ entries: LocalEntry[]; total: number }> => {
-  const params = new URLSearchParams({ mount, path, media_only: mediaOnly ? '1' : '0' })
+  const params = appendViewAs(new URLSearchParams({ mount, path, media_only: mediaOnly ? '1' : '0' }))
   const { data } = await api.get<{ entries: LocalEntry[]; total: number }>(`/local/walk?${params}`)
   return data
 }
@@ -1417,13 +1454,13 @@ export const localMove = async (
   dstMount: string,
   dstPath: string,
 ): Promise<void> => {
-  await api.post('/local/move', { srcMount, srcPath, dstMount, dstPath })
+  await api.post(withViewAs('/local/move'), { srcMount, srcPath, dstMount, dstPath })
 }
 
 // Direct file URL with auth token in query string (http.ServeFile handles Range
 // natively; <video src> can hit this directly).
 export const localFileURL = (mount: string, path: string): string => {
-  const params = new URLSearchParams({ mount, path })
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
   return withToken(`/api/local/file?${params}`)
 }
 
@@ -1433,7 +1470,7 @@ const NATIVE_VIDEO_EXTS = new Set(['.mp4', '.m4v', '.webm', '.mov'])
 // localTranscodeURL returns a server-side transcode URL for formats browsers
 // can't decode natively (MKV, AVI, WMV, etc.).
 export const localTranscodeURL = (mount: string, path: string): string => {
-  const params = new URLSearchParams({ mount, path })
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
   return withToken(`/api/local/transcode?${params}`)
 }
 
@@ -1448,7 +1485,7 @@ export const localVideoURL = (mount: string, path: string): string => {
 // (204 server-side for non-videos / undecodable files; <img> onError falls back
 // to the generic icon).
 export const localThumbURL = (mount: string, path: string): string => {
-  const params = new URLSearchParams({ mount, path })
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
   return withToken(`/api/local/thumb?${params}`)
 }
 
@@ -1470,9 +1507,11 @@ export interface LocalPlaySource {
 // ready to use — it already carries `?token=` so it works in <video src>
 // without the JS axios interceptor (which can't set headers on the element).
 export const localPlay = async (mount: string, path: string): Promise<LocalPlaySource> => {
-  const params = new URLSearchParams({ mount, path })
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
   const { data } = await api.get<LocalPlaySource>(`/local/play?${params}`)
-  return data
+  // The backend builds data.url (direct file or HLS playlist) without the
+  // ?user= override; re-append it so the <video> request re-scopes correctly.
+  return { ...data, url: withViewAs(data.url) }
 }
 
 // ─── Background downloads ──────────────────────────────────────────────────

@@ -216,6 +216,18 @@ func (s *Store) DeleteIncognito(userID int) error {
 	return err
 }
 
+// DeleteAllIncognito removes every incognito-flagged entry across all users.
+// Called once at startup: after a restart the in-memory heartbeat map (which
+// the reaper relies on) is empty, so any incognito row left in the DB is
+// orphaned and would persist forever — defeating the purpose of incognito.
+func (s *Store) DeleteAllIncognito() error {
+	if s == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM results WHERE incognito = 1`)
+	return err
+}
+
 // Search returns cached results for a query, ordered by seeders descending.
 // Filters by userID unless includeAll=true (admin override).
 func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResult, error) {
