@@ -49,7 +49,7 @@ export async function fetchMediaToken(): Promise<string> {
   return r.data?.token || ''
 }
 
-export interface Quality {
+export type Quality = {
   resolution?: string
   codec?: string
   source?: string
@@ -70,7 +70,7 @@ export interface Quality {
   subbed?: boolean
 }
 
-export interface SearchResult {
+export type SearchResult = {
   title: string
   tracker: string
   trackerId?: string
@@ -101,7 +101,7 @@ export interface SearchResult {
   id?: number
 }
 
-export interface Indexer {
+export type Indexer = {
   id: string
   name: string
   description: string
@@ -110,20 +110,20 @@ export interface Indexer {
   configured: boolean
 }
 
-export interface DownloadClient {
+export type DownloadClient = {
   id: string
   name: string
   type: string
   default: boolean
 }
 
-export interface DownloadClientFull extends DownloadClient {
+export type DownloadClientFull = DownloadClient & {
   url: string
   username: string
   password: string
 }
 
-export interface JackettConfig {
+export type JackettConfig = {
   url: string
   // GET never returns the real key (secret); it comes back empty with
   // apiKeySet=true when one is stored. Sending empty on PUT keeps the current.
@@ -131,7 +131,7 @@ export interface JackettConfig {
   apiKeySet?: boolean
 }
 
-export interface AppConfig {
+export type AppConfig = {
   port: number
   jackett: JackettConfig
   downloadClients: DownloadClientFull[]
@@ -186,7 +186,7 @@ export const testJackettConnection = async (): Promise<{ success: boolean; messa
   return data
 }
 
-export interface HistoryEntry {
+export type HistoryEntry = {
   query: string
   resultCount: number
   lastSaved: string
@@ -202,7 +202,7 @@ export const getHistoryResults = async (q: string): Promise<SearchResult[]> => {
   return data
 }
 
-export interface CachedSearchResult extends SearchResult {
+export type CachedSearchResult = SearchResult & {
   query?: string // origin query when returned by SearchCache
 }
 
@@ -213,7 +213,7 @@ export const searchCache = async (q: string): Promise<CachedSearchResult[]> => {
 
 // Response from POST /api/history/:id/refresh. `cached=true` means the swarm
 // numbers came from the 5min TTL cache (no fresh Jackett call was made).
-export interface HistoryRefreshResponse {
+export type HistoryRefreshResponse = {
   id: number
   seeders: number
   leechers: number
@@ -228,7 +228,7 @@ export const historyRefresh = async (id: number): Promise<HistoryRefreshResponse
 
 // ─── Streaming ──────────────────────────────────────────────────────────────
 
-export interface StreamFile {
+export type StreamFile = {
   index: number
   path: string
   size: number
@@ -238,7 +238,7 @@ export interface StreamFile {
   priority: 'none' | 'low' | 'normal' | 'high'
 }
 
-export interface TorrentInfo {
+export type TorrentInfo = {
   infoHash: string
   name: string
   totalSize: number
@@ -463,7 +463,7 @@ export const streamResumeAll = async (): Promise<{ resumed: number }> => {
 }
 
 // Bandwidth caps in bytes/sec (0 = unlimited).
-export interface StreamLimits {
+export type StreamLimits = {
   down: number
   up: number
 }
@@ -482,7 +482,7 @@ export const streamSetLimits = async (limits: StreamLimits): Promise<StreamLimit
 // on an already-active torrent (e.g., next episode of a series). Fire-and-forget.
 // ─── TMDB enrichment ──────────────────────────────────────────────────────
 
-export interface TmdbMatch {
+export type TmdbMatch = {
   tmdbId: number
   imdbId?: string
   title: string
@@ -537,7 +537,7 @@ export const tmdbTrending = async (): Promise<TmdbMatch[]> => {
 
 // ─── Watchlists ────────────────────────────────────────────────────────────
 
-export interface Watchlist {
+export type Watchlist = {
   id: number
   userId: number
   query: string
@@ -549,7 +549,7 @@ export interface Watchlist {
   hitCount?: number
 }
 
-export interface WatchlistHit {
+export type WatchlistHit = {
   infoHash: string
   title: string
   magnet: string
@@ -594,7 +594,7 @@ export const streamPrefetch = async (hash: string, fileIdx: number): Promise<voi
 }
 
 // ── AI title-identification benchmark (admin) ────────────────────────────────
-export interface AISlotScore {
+export type AISlotScore = {
   slotId: string
   provider: string
   model: string
@@ -604,8 +604,8 @@ export interface AISlotScore {
   samples: number
   failureReason?: string
 }
-export interface AIBenchmarkCase { raw: string; expect: string }
-export interface AIStatus {
+export type AIBenchmarkCase = { raw: string; expect: string }
+export type AIStatus = {
   enabled: boolean
   chain: { id: string; provider: string; model: string }[]
   results: AISlotScore[]
@@ -626,7 +626,7 @@ export const saveAICases = async (cases: AIBenchmarkCase[]): Promise<AIBenchmark
 }
 
 // ── Auth: account + admin user management ────────────────────────────────────
-export interface AdminUser {
+export type AdminUser = {
   id: number
   username: string
   email: string
@@ -686,7 +686,7 @@ export const notifyTest = async (): Promise<void> => {
 }
 
 // ── Active sessions ──────────────────────────────────────────────────────────
-export interface SessionInfo {
+export type SessionInfo = {
   id: string
   createdAt: string
   expiresAt: string
@@ -746,7 +746,7 @@ export function isPasskeySupported(): boolean {
   return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials?.create
 }
 
-export interface PasskeyInfo { id: string }
+export type PasskeyInfo = { id: string }
 export const passkeyList = async (): Promise<PasskeyInfo[]> => {
   const { data } = await api.get<{ passkeys: PasskeyInfo[] }>('/auth/passkey')
   return data.passkeys || []
@@ -780,7 +780,7 @@ export const passkeyRegister = async (): Promise<void> => {
   await api.post('/auth/passkey/register/finish', body, { params: { session: data.session } })
 }
 
-export interface PasskeyTokenBundle {
+export type PasskeyTokenBundle = {
   access: string
   refresh: string
   expiresAt: string
@@ -817,7 +817,7 @@ export const passkeyAuthenticate = async (username: string, remember: boolean): 
 }
 
 // ── Swarm health (seeds / availability for cards) ────────────────────────────
-export interface StreamHealth {
+export type StreamHealth = {
   known: boolean
   active: boolean
   refreshing: boolean
@@ -900,7 +900,7 @@ export const streamPlaylistM3UURL = (hash: string, fileIdx: number, transcode?: 
   return url
 }
 
-export interface CacheEntry {
+export type CacheEntry = {
   path: string
   size: number
   modTime: string
@@ -912,7 +912,7 @@ export interface CacheEntry {
   infoHash?: string
 }
 
-export interface StreamCacheStats {
+export type StreamCacheStats = {
   dataDir: string
   totalSize: number
   maxSize: number
@@ -930,7 +930,7 @@ export const streamCacheClear = async (entry?: string): Promise<void> => {
   await api.delete(url)
 }
 
-export interface StreamRate {
+export type StreamRate = {
   downRate: number
   upRate: number
   activeTorrents: number
@@ -943,7 +943,7 @@ export const streamRate = async (): Promise<StreamRate> => {
 
 // ─── Favorites ────────────────────────────────────────────────────────────
 
-export interface StreamFavorite {
+export type StreamFavorite = {
   name: string
   infoHash: string
   magnet: string
@@ -954,7 +954,7 @@ export interface StreamFavorite {
 }
 
 /** Favorite folder for organizing the user's favorites tree. */
-export interface FavoriteFolder {
+export type FavoriteFolder = {
   id: number
   userId: number
   name: string
@@ -965,7 +965,7 @@ export interface FavoriteFolder {
 
 // ─── Library (per-user history of streamed torrents) ───────────────────────
 
-export interface LibraryEntry {
+export type LibraryEntry = {
   id: number
   userId: number
   infoHash: string
@@ -1010,7 +1010,7 @@ export const libraryDeleteAll = async (): Promise<{ deleted: number }> => {
 
 // ─── Playlists ─────────────────────────────────────────────────────────────
 
-export interface Playlist {
+export type Playlist = {
   id: number
   userId: number
   name: string
@@ -1020,7 +1020,7 @@ export interface Playlist {
   itemCount?: number
 }
 
-export interface PlaylistItem {
+export type PlaylistItem = {
   id: number
   playlistId: number
   position: number
@@ -1066,7 +1066,7 @@ export const playlistsReorderItem = async (playlistId: number, itemId: number, p
 
 // ─── Sidecar subtitles inside torrent ──────────────────────────────────────
 
-export interface SidecarSubtitle {
+export type SidecarSubtitle = {
   index: number
   path: string
   size: number
@@ -1126,7 +1126,7 @@ export const favoriteRemove = async (name: string): Promise<void> => {
 // Import a torrent straight into favorites — magnet URI or a base64-encoded
 // .torrent file. Server resolves hash + name locally (no DHT) and caches the
 // metainfo so playback is instant. Returns the resolved entry.
-export interface ImportResult { infoHash: string; name: string; magnet: string }
+type ImportResult = { infoHash: string; name: string; magnet: string  }
 export const streamImport = async (
   payload: { magnet?: string; torrentB64?: string; name?: string; folderId?: number | null },
 ): Promise<ImportResult> => {
@@ -1173,7 +1173,7 @@ export const favoriteSetFolder = async (name: string, folderID: number | null): 
 
 // ─── Subtitles ──────────────────────────────────────────────────────────────
 
-export interface Subtitle {
+export type Subtitle = {
   id: string
   language: string
   release: string
@@ -1204,7 +1204,7 @@ export const subtitlesSearch = async (
 export const subtitleDownloadURL = (fileId: string, tokenOverride?: string): string =>
   withToken(`/api/subtitles/download/${fileId}`, tokenOverride)
 
-export interface AutoSubtitlesResponse {
+export type AutoSubtitlesResponse = {
   osHash: string
   osSize: number
   hashErr?: string
@@ -1233,7 +1233,7 @@ export const subtitlesAuto = async (
 
 // ─── Embedded tracks (audio + subtitles inside the container) ───────────────
 
-export interface MediaTrack {
+export type MediaTrack = {
   index: number
   type: 'audio' | 'subtitle'
   codec: string
@@ -1245,7 +1245,7 @@ export interface MediaTrack {
   image?: boolean // subtitle is image-based (PGS, DVD) — requires burn-in
 }
 
-export interface StreamProbe {
+export type StreamProbe = {
   audio: MediaTrack[]
   subtitles: MediaTrack[]
 }
@@ -1270,7 +1270,7 @@ export const streamSubtrackURL = (hash: string, fileIdx: number, trackIdx: numbe
 
 // ─── Transcoding capabilities ──────────────────────────────────────────────
 
-export interface TranscodeEncoder {
+export type TranscodeEncoder = {
   id: string
   codec: string
   backend: string
@@ -1281,7 +1281,7 @@ export interface TranscodeEncoder {
   error?: string
 }
 
-export interface TranscodeCapabilities {
+export type TranscodeCapabilities = {
   probedAt: string
   os: string
   ffmpegPath: string
@@ -1302,7 +1302,7 @@ export const transcodeCapabilities = async (refresh = false): Promise<TranscodeC
   return data
 }
 
-export interface TranscodeOpts {
+export type TranscodeOpts = {
   audio?: number      // absolute audio stream index
   video?: 'h264' | 'hevc' | '' // force re-encode to this codec
   acodec?: 'aac' | '' // force audio re-encode
@@ -1357,8 +1357,8 @@ export const deleteHistoryEntry = async (q: string): Promise<void> => {
 // without going through anacrolix. http.ServeFile handles HTTP Range for
 // progressive playback; HEVC files still need browser support locally.
 
-export interface LocalMount { name: string; path: string; userSubpath?: boolean }
-export interface LocalEntry {
+export type LocalMount = { name: string; path: string; userSubpath?: boolean }
+export type LocalEntry = {
   name: string
   path: string       // relative to mount root
   isDir: boolean
@@ -1383,7 +1383,7 @@ export const localDelete = async (mount: string, path: string): Promise<void> =>
   await api.delete(`/local/file?${params}`)
 }
 
-export interface PromoteResult {
+export type PromoteResult = {
   moved: number
   failed: number
   errors: { path: string; error: string }[]
@@ -1403,7 +1403,7 @@ export const localPromote = async (
   return data
 }
 
-export interface PromotePreviewEntry {
+export type PromotePreviewEntry = {
   id?: number
   path?: string
   originalName: string
@@ -1494,7 +1494,7 @@ export const localThumbURL = (mount: string, path: string): string => {
 // (browser-compatible container + codecs) or to load an HLS playlist that the
 // transcode pipeline produces on demand. Mirrors the torrent-side decision so
 // the player can stay codec-agnostic — it just sets <video src> to `url`.
-export interface LocalPlaySource {
+export type LocalPlaySource = {
   kind: 'direct' | 'hls'
   url: string         // ready to drop into <video src>, token already appended
   reason?: string     // when kind=hls, why (e.g. "container=matroska", "vcodec=hevc")
@@ -1518,7 +1518,7 @@ export const localPlay = async (mount: string, path: string): Promise<LocalPlayS
 // Full-file (not streaming) download queue. Backed by anacrolix file.Download
 // which prioritises all pieces; protected from cache eviction until removed.
 
-export interface DownloadEntry {
+export type DownloadEntry = {
   id: number
   userId: number
   username?: string
@@ -1542,7 +1542,7 @@ export interface DownloadEntry {
   promoted?: boolean   // true when file was moved outside the download dir
 }
 
-export interface DownloadCreateParams {
+export type DownloadCreateParams = {
   infoHash: string
   fileIndex: number
   magnet: string
@@ -1553,7 +1553,7 @@ export interface DownloadCreateParams {
   category?: string
 }
 
-export interface DownloadFilterParams {
+export type DownloadFilterParams = {
   status?: string
   tracker?: string
   category?: string
@@ -1563,7 +1563,7 @@ export interface DownloadFilterParams {
   userId?: string
 }
 
-export interface DownloadUserEntry {
+export type DownloadUserEntry = {
   id: number
   username: string
 }
@@ -1669,7 +1669,7 @@ export const downloadRecheck = async (id: number): Promise<DownloadEntry> => {
 // + sizes reais (sparse vs apparent). Backend só preenche torrent quando o
 // info_hash está active no streamer; null quando dropado (post-completed
 // sem seed).
-export interface DownloadDetails {
+export type DownloadDetails = {
   download: DownloadEntry
   file: { apparent: number; onDisk: number; exists: boolean }
   torrent: TorrentInfo | null
@@ -1679,7 +1679,7 @@ export const downloadDetails = async (id: number): Promise<DownloadDetails> => {
   return data
 }
 
-export interface PromoteDestination {
+export type PromoteDestination = {
   name: string
   path: string
 }
@@ -1697,7 +1697,7 @@ export const downloadPromote = async (
 
 // Promove N downloads pra mesma subpasta de destino. Falhas individuais não
 // abortam o batch; retorna { promoted, failed }.
-export interface PromoteBatchResult {
+export type PromoteBatchResult = {
   promoted: DownloadEntry[]
   failed: { id: number; error: string }[]
 }
@@ -1757,7 +1757,7 @@ export const convertMagnetToTorrentUrl = (magnet: string): string => {
   return `/api/convert/magnet-to-torrent?magnet=${encodeURIComponent(magnet)}`
 }
 
-export interface HLSSessionSnapshot {
+export type HLSSessionSnapshot = {
   key: string
   codec: string
   segmentsReady: number
@@ -1766,14 +1766,14 @@ export interface HLSSessionSnapshot {
   pid: number
 }
 
-export interface GPUInfo {
+export type GPUInfo = {
   type: 'nvidia' | 'vaapi' | 'none'
   gpu: number
   vramUsed?: number
   vramTotal?: number
 }
 
-export interface ActiveTranscodesResponse {
+export type ActiveTranscodesResponse = {
   sessions: HLSSessionSnapshot[]
   gpu: GPUInfo
 }

@@ -3,7 +3,7 @@ import { FolderInput, X, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCi
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
   readonly onClose: () => void
@@ -72,6 +72,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       role="dialog" aria-modal="true" tabIndex={-1}
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">

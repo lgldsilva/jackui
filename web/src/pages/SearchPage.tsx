@@ -22,7 +22,7 @@ const ACTIVE_KEY = 'activeTabId'
 // like "min 10 seeders" sticks instead of resetting to 0 on each fresh search.
 const FILTER_DEFAULTS_KEY = 'searchFilterDefaults'
 
-interface FilterDefaults {
+type FilterDefaults = {
   trackerFilter: string
   minSeeders: number
   minLeechers: number
@@ -38,7 +38,7 @@ const FALLBACK_FILTERS: FilterDefaults = {
 }
 
 // What we persist (NOT the live SSE results — those re-fetch when the user re-searches)
-interface PersistedTab {
+type PersistedTab = {
   id: string
   query: string
   selectedIndexers: string[]
@@ -56,7 +56,7 @@ interface PersistedTab {
 type SearchPhase = 'idle' | 'cache' | 'live' | 'done' | 'error'
 type ResultSortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'age'
 
-interface TabState {
+type TabState = {
   id: string
   query: string
   results: SearchResult[]

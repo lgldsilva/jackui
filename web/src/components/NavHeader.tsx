@@ -9,7 +9,7 @@ import UserBadge from './UserBadge'
 import RateWidget from './RateWidget'
 import { useIncognito } from '../lib/incognito'
 
-interface Props {
+type Props = {
   readonly rightExtra?: React.ReactNode
 }
 

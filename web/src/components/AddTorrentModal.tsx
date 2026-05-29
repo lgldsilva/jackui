@@ -13,7 +13,7 @@ import { useScrollLock } from '../lib/useScrollLock'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 
-interface Props {
+type Props = {
   readonly isOpen: boolean
   readonly onClose: () => void
   readonly onAdded: (result: SearchResult) => void
@@ -21,7 +21,7 @@ interface Props {
 }
 
 
-interface TorrentItem {
+type TorrentItem = {
   id: string
   name: string
   file?: File
@@ -391,6 +391,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       onClose={onClose}
       open
     >

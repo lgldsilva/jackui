@@ -22,7 +22,7 @@ import { streamFileURL, withToken } from '../api/client'
  *   - Images use `<img>` with `object-contain` so portrait/landscape both fit.
  */
 
-interface FilePreviewModalProps {
+type FilePreviewModalProps = {
   readonly infoHash: string
   readonly fileIdx: number
   readonly filePath: string
@@ -109,6 +109,7 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
       className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4 open:flex"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       onClose={onClose}
       open
     >

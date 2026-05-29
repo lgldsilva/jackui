@@ -20,7 +20,7 @@ import PlayerModal from './PlayerModal'
  * the modal next.
  */
 
-export interface PlaylistContext {
+export type PlaylistContext = {
   name: string
   items: PlaylistItem[]
   currentIndex: number
@@ -28,7 +28,7 @@ export interface PlaylistContext {
 
 type RepeatMode = 'none' | 'one' | 'all'
 
-interface PlayerAPI {
+type PlayerAPI = {
   /** Plays a single item with no auto-advance logic. */
   playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
@@ -62,7 +62,7 @@ export function usePlayer(): PlayerAPI {
   return v
 }
 
-interface PlaylistState {
+type PlaylistState = {
   name: string
   items: PlaylistItem[]
   // The "order" — when shuffle is on, this is a permutation of [0..items.length-1].
@@ -135,7 +135,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   }, [shuffle])
 
   const close = useCallback(() => {
-    if (current && current.result && current.result.infoHash) {
+    if (current?.result?.infoHash) {
       const hash = current.result.infoHash
       if (hash && typeof hash === 'string' && !hash.startsWith('local-')) {
         streamDrop(hash).catch(err => {
@@ -379,7 +379,6 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   const currentKind = (() => {
     if (!current) return null
     if (playlist && playlist.items.length > 0) {
-      // Aggregate over playlist — any video → video mode.
       const anyVideo = playlist.items.some(it => detectKind(it.title) === 'video')
       return anyVideo ? 'video' : 'audio'
     }

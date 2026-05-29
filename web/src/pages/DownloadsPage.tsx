@@ -1296,7 +1296,7 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
 // TorrentCard — Premium redesigned streaming torrent card
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface TorrentCardProps {
+type TorrentCardProps = {
   readonly t: TorrentInfo
   readonly busy: boolean
   readonly onPause: () => void
@@ -1438,7 +1438,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
 // DownloadCard — Premium redesigned background download card
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface DownloadCardProps {
+type DownloadCardProps = {
   readonly d: DownloadEntry
   readonly live?: TorrentInfo
   readonly busy: boolean

@@ -365,6 +365,7 @@ export default function SettingsPage() {
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
           onClick={(e) => e.target === e.currentTarget && setEditingClient(null)}
           onKeyDown={e => e.key === 'Escape' && setEditingClient(null)}
+          onFocus={() => {}}
           onClose={() => setEditingClient(null)}
           open
         >

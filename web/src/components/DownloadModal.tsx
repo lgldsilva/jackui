@@ -51,7 +51,7 @@ function fileIcon(f: StreamFile) {
   return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
 }
 
-interface DownloadModalProps {
+type DownloadModalProps = {
   readonly result: SearchResult | null
   readonly onClose: () => void
 }
@@ -234,6 +234,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       onClose={onClose}
       open
     >

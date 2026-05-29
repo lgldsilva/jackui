@@ -15,7 +15,7 @@ import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { formatDate } from '../lib/format'
 
-interface FolderNode {
+type FolderNode = {
   folder: FavoriteFolder
   children: FolderNode[]
 }
@@ -38,7 +38,7 @@ function buildTree(folders: FavoriteFolder[]): FolderNode[] {
   return roots
 }
 
-interface TreeProps {
+type TreeProps = {
   readonly nodes: FolderNode[]
   readonly depth: number
   readonly selectedId: number | null
@@ -63,17 +63,19 @@ function FolderTree(p: TreeProps) {
         const isEditing = p.editingId === node.folder.id
         return (
           <li key={node.folder.id}>
-            <div
-              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors ${
-                isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
-              }`}
-              style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
-              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-              onDrop={e => {
-                e.preventDefault()
-                const name = e.dataTransfer.getData('text/x-favorite-name')
-                if (name) p.onDropOnFolder(node.folder.id, name)
-              }}
+              <div
+                className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors ${
+                  isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
+                }`}
+                style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                onDrop={e => {
+                  e.preventDefault()
+                  const name = e.dataTransfer.getData('text/x-favorite-name')
+                  if (name) p.onDropOnFolder(node.folder.id, name)
+                }}
+                role="button" tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onSelect(node.folder.id) } }}
             >
               {node.children.length > 0 ? (
                 <button onClick={() => p.onToggle(node.folder.id)} className="text-gray-500 hover:text-gray-200">
@@ -127,6 +129,12 @@ function FolderTree(p: TreeProps) {
 }
 
 const depthIndent = (depth: number) => 8 + depth * 14
+
+function semPastaButtonClass(isNull: boolean, dropOnRoot: boolean): string {
+  if (isNull) return 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
+  if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-100'
+  return 'text-gray-300 hover:bg-gray-800 border border-transparent'
+}
 
 export default function FavoritesPage() {
   const { isAdmin } = useAuth()
@@ -389,11 +397,7 @@ export default function FavoritesPage() {
                   if (name) handleDropOnFolder(null, name)
                 }}
                 onClick={() => { setViewMode(null); setSelectedFolderId(null) }}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
-                  viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' :
-                  dropOnRoot ? 'bg-pink-500/20 border border-pink-500/50 text-pink-100' :
-                  'text-gray-300 hover:bg-gray-800 border border-transparent'
-                }`}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${semPastaButtonClass(viewMode === null, dropOnRoot)}`}
               >
                 <Inbox className="w-3.5 h-3.5" />
                 Sem pasta
@@ -511,6 +515,8 @@ export default function FavoritesPage() {
                     e.dataTransfer.setDragImage(ghost, 12, 12)
                     setTimeout(() => ghost.remove(), 0)
                   }}
+                  role="button" tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContents(fav) } }}
                   className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}
@@ -623,6 +629,7 @@ export default function FavoritesPage() {
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 open:flex"
           onClick={() => !importing && setShowImport(false)}
           onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
+          onFocus={() => {}}
           onClose={() => !importing && setShowImport(false)}
           open
         >

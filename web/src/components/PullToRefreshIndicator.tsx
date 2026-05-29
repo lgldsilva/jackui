@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react'
 
-interface Props {
+type Props = {
   readonly pull: number
   readonly progress: number
   readonly refreshing: boolean

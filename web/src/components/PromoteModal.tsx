@@ -3,7 +3,7 @@ import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home
 import { DownloadEntry, downloadPromoteBrowse, downloadPromoteBatch, fetchPromoteDestinations, PromoteDestination, downloadPromotePreview, PromotePreviewEntry } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly items: DownloadEntry[] | null
   readonly onClose: () => void
   readonly onPromoted: (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => void
@@ -110,6 +110,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       onClose={onClose}
       open
     >

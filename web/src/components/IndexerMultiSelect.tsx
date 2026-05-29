@@ -3,7 +3,7 @@ import { Check, ChevronDown, Filter, Search as SearchIcon, Plus } from 'lucide-r
 import { Indexer } from '../api/client'
 
 
-interface Props {
+type Props = {
   readonly selected: string[]
   readonly onChange: (ids: string[]) => void
   readonly indexers: Indexer[]

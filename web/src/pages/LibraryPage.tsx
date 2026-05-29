@@ -170,7 +170,7 @@ export default function LibraryPage() {
 // LibraryCard is an inner component so each tile can hook into useThumbnail
 // without lifting state into the parent. The hook needs a stable ref + per-card
 // title input, which is awkward inside .map() without a component boundary.
-interface LibraryCardProps {
+type LibraryCardProps = {
   readonly entry: LibraryEntry
   readonly ratio: number
   readonly remaining: number

@@ -6,7 +6,7 @@ import {
 } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly result: SearchResult | null
   readonly onClose: () => void
   readonly fileIndex?: number
@@ -87,6 +87,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       onClose={onClose}
       open
     >

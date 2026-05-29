@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 
-interface Options {
+type Options = {
   /** Called when user releases past the threshold. Should be async. */
-  onRefresh: () => Promise<void> | void
+  readonly onRefresh: () => Promise<void> | void
   /** Distance (px) user must pull to trigger refresh. Default 80. */
-  threshold?: number
+  readonly threshold?: number
   /** Maximum visual displacement before clamping. Default 120. */
-  maxPull?: number
+  readonly maxPull?: number
   /** If true, the hook is inactive (e.g., loading already in progress). */
-  disabled?: boolean
+  readonly disabled?: boolean
 }
 
-interface Result {
+type Result = {
   /** Current pull displacement in px (0 if not pulling). */
   pull: number
   /** True while we're calling onRefresh after release. */

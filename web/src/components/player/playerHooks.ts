@@ -5,10 +5,10 @@ import { TorrentInfo } from '../../api/client'
 // and make these self-contained side effects independently readable/testable.
 // Behavior is unchanged — same effect bodies, same dependency arrays.
 
-interface KeyboardShortcutsOpts {
-  videoRef: RefObject<HTMLVideoElement>
-  minimized: boolean
-  requestFullscreen: () => void
+type KeyboardShortcutsOpts = {
+  readonly videoRef: RefObject<HTMLVideoElement>
+  readonly minimized: boolean
+  readonly requestFullscreen: () => void
 }
 
 // useKeyboardShortcuts wires space/arrows/M/F to the <video>. Skipped while
@@ -39,13 +39,13 @@ export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }:
   }, [minimized])
 }
 
-interface MediaSessionOpts {
-  videoRef: RefObject<HTMLVideoElement>
-  info: TorrentInfo | null
-  selectedFile: number
-  playlistName?: string
-  onNext?: () => void
-  onPrev?: () => void
+type MediaSessionOpts = {
+  readonly videoRef: RefObject<HTMLVideoElement>
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly playlistName?: string
+  readonly onNext?: () => void
+  readonly onPrev?: () => void
 }
 
 // useMediaSession exposes "what's playing" + media keys / lock-screen controls

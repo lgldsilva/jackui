@@ -9,7 +9,7 @@ import {
 } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
   readonly onClose: () => void
@@ -18,10 +18,15 @@ interface Props {
 
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
 
-interface DoneResult {
+type DoneResult = {
   moved: number
   failed: { path: string; error: string }[]
   destLabel?: string
+}
+
+function DirFileCount({ count }: { count: number }) {
+  const s = count !== 1 ? 's' : ''
+  return <><span className="text-white font-semibold">{count}</span> arquivo{s} de mídia encontrado{s}</>
 }
 
 export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }: Props) {
@@ -166,6 +171,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       role="dialog" aria-modal="true" tabIndex={-1}
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl max-h-[90vh] flex flex-col">
@@ -202,7 +208,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3 text-sm flex-wrap">
               <span className="text-gray-400">
                 {entry?.isDir
-                  ? <><span className="text-white font-semibold">{files.length}</span> arquivo{files.length !== 1 ? 's' : ''} de mídia encontrado{files.length !== 1 ? 's' : ''}</>
+                  ? <DirFileCount count={files.length} />
                   : <><span className="text-white font-semibold">1</span> arquivo selecionado</>
                 }
               </span>
