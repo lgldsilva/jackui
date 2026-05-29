@@ -1,91 +1,299 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Download as DownloadIcon, Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
-  Activity, Gauge, Users, Zap,
+  Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
+  Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
+  Plus, UploadCloud, Search, X, SlidersHorizontal
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import {
-  DownloadEntry, downloadsList, downloadDelete, downloadPause, downloadResume,
+  DownloadEntry, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
+  downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
+  downloadTrackers, downloadCategories,
   TorrentInfo, streamActive, streamPause, streamResume, streamSetPriority,
   streamPauseAll, streamResumeAll, streamGetLimits, streamSetLimits, StreamPriority, streamDrop,
+  LocalMount, localMounts, buildLocalHash, SearchResult,
+  streamAdd, streamAddTorrentFile
 } from '../api/client'
-import { formatBytes, formatRate } from '../lib/format'
+import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
+import PromoteModal from '../components/PromoteModal'
+import { usePlayer } from '../components/PlayerProvider'
+import DownloadInspectModal from '../components/DownloadInspectModal'
+import DownloadModal from '../components/DownloadModal'
+import AddTorrentModal from '../components/AddTorrentModal'
 
-/**
- * Page-level view of every background download (one row per file).
- * Auto-refreshes every 2 s while the page is mounted — matches the worker
- * tick so progress feels live but the server isn't hammered with smaller
- * intervals. Stops polling cleanly on unmount.
- */
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Premium Downloads & Network Dashboard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type Tab = 'active' | 'seeding' | 'network'
+
 export default function DownloadsPage() {
   const [items, setItems] = useState<DownloadEntry[]>([])
+  // Multi-select de downloads concluídos pra batch promote. Set of IDs.
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Items passados ao modal de promove (null = fechado). Single = [d], batch = [d1, d2, ...]
+  const [promoteTargets, setPromoteTargets] = useState<DownloadEntry[] | null>(null)
+  // Download sendo inspecionado no modal de detalhes (null = fechado)
+  const [inspectTarget, setInspectTarget] = useState<DownloadEntry | null>(null)
+  // Mounts navegáveis — usados pra decidir se Play vai pelo player local
+  // (arquivo em mount como /mnt/downloads) ou pelo torrent (em /data/streams).
+  // Carregado uma vez; mounts não mudam durante uma sessão.
+  const [mounts, setMounts] = useState<LocalMount[]>([])
+  const { playSingle } = usePlayer()
   const [loading, setLoading] = useState(true)
   const [busyID, setBusyID] = useState<number | null>(null)
   const mountedRef = useRef(true)
 
-  type TorrentFilter = 'all' | 'downloading' | 'paused' | 'done'
-  const [torrentFilter, setTorrentFilter] = useState<TorrentFilter>('all')
+  const [activeTab, setActiveTab] = useState<Tab>('active')
 
-  // Streamer-active torrents (Transmission-style). Separate state from the
-  // background-download queue above so a slow `/stream/active` call never
-  // delays the existing UI section.
   const [torrents, setTorrents] = useState<TorrentInfo[]>([])
   const [torrentsLoaded, setTorrentsLoaded] = useState(false)
   const [busyHash, setBusyHash] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
-  // Bandwidth caps round-trip through the server in bytes/sec. We expose KB/s
-  // in the UI because MB/s inputs would lose precision for typical home links.
+
   const [limitDownKB, setLimitDownKB] = useState<string>('')
   const [limitUpKB, setLimitUpKB] = useState<string>('')
   const [limitsSaving, setLimitsSaving] = useState(false)
   const [limitsMsg, setLimitsMsg] = useState<string>('')
 
+  // ─── Filter & Sort state ────────────────────────────────────────────────────
+  const [filterSearch, setFilterSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [filterTracker, setFilterTracker] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
+  const [sortCol, _setSortCol] = useState('created_at')
+  const [sortDir, _setSortDir] = useState('desc')
+  const [availableTrackers, setAvailableTrackers] = useState<string[]>([])
+  const [availableCategories, setAvailableCategories] = useState<string[]>([])
+  const [showFilters, setShowFilters] = useState(false)
+  const filterTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+
+  // Add Torrent & Magnet Modals State
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
+  const [preloadFiles, setPreloadFiles] = useState<File[] | null>(null)
+  const [isDraggingPage, setIsDraggingPage] = useState(false)
+  const dragCounter = useRef(0)
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current++
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingPage(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounter.current--
+    if (dragCounter.current === 0) {
+      setIsDraggingPage(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingPage(false)
+    dragCounter.current = 0
+
+    // Verifica magnet arrastado como texto
+    const textData = e.dataTransfer.getData('text/plain')
+    if (textData && textData.trim().startsWith('magnet:?')) {
+      const magnet = textData.trim()
+      setLoading(true)
+      try {
+        const info = await streamAdd(magnet)
+        const synthetic: SearchResult = {
+          title: info.name,
+          tracker: '',
+          categoryId: 0,
+          category: '',
+          size: info.totalSize,
+          seeders: info.seeders || 0,
+          leechers: info.peers || 0,
+          age: '',
+          magnetUri: magnet,
+          link: '',
+          infoHash: info.infoHash,
+          publishDate: '',
+        }
+        setDownloadTarget(synthetic)
+      } catch (err: any) {
+        alert(`Erro ao processar magnet: ${err.message || err}`)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files)
+      const torrentFiles = files.filter(f => f.name.endsWith('.torrent'))
+      
+      if (torrentFiles.length === 0) {
+        alert('Por favor, arraste apenas arquivos com a extensão .torrent ou links magnet')
+        return
+      }
+
+      if (torrentFiles.length === 1) {
+        setLoading(true)
+        try {
+          const info = await streamAddTorrentFile(torrentFiles[0])
+          const synthetic: SearchResult = {
+            title: info.name,
+            tracker: '',
+            categoryId: 0,
+            category: '',
+            size: info.totalSize,
+            seeders: info.seeders || 0,
+            leechers: info.peers || 0,
+            age: '',
+            magnetUri: `magnet:?xt=urn:btih:${info.infoHash}`,
+            link: '',
+            infoHash: info.infoHash,
+            publishDate: '',
+          }
+          setDownloadTarget(synthetic)
+        } catch (err: any) {
+          alert(`Erro ao carregar torrent: ${err.message || err}`)
+        } finally {
+          setLoading(false)
+        }
+      } else {
+        // Múltiplos arquivos
+        setPreloadFiles(torrentFiles)
+        setShowAddModal(true)
+      }
+    }
+  }
+
+  // ─── Data loading ─────────────────────────────────────────────────────────
+
   const load = async () => {
     try {
       const list = await downloadsList()
       if (mountedRef.current) setItems(list)
-    } catch {
-      // Silent: a transient failure doesn't justify wiping the current view.
-    } finally {
+    } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
     }
   }
 
-  // Pull current limits once on mount — the inputs are uncontrolled-after-
-  // first-load so the user's typing doesn't get clobbered by the 2s poll.
+  const loadFiltered = async () => {
+    try {
+      const list = await downloadsListFiltered({
+        status: filterStatus || undefined,
+        tracker: filterTracker || undefined,
+        category: filterCategory || undefined,
+        search: filterSearch || undefined,
+        sort: sortCol,
+        order: sortDir,
+      })
+      if (mountedRef.current) setItems(list)
+    } catch { /* silent */ } finally {
+      if (mountedRef.current) setLoading(false)
+    }
+  }
+
+  const loadFilterOptions = async () => {
+    try {
+      const [trackers, cats] = await Promise.all([downloadTrackers(), downloadCategories()])
+      if (mountedRef.current) {
+        setAvailableTrackers(trackers)
+        setAvailableCategories(cats)
+      }
+    } catch { /* silent */ }
+  }
+
   const loadLimits = async () => {
     try {
       const cur = await streamGetLimits()
       if (!mountedRef.current) return
       setLimitDownKB(cur.down > 0 ? String(Math.round(cur.down / 1024)) : '')
       setLimitUpKB(cur.up > 0 ? String(Math.round(cur.up / 1024)) : '')
-    } catch {
-      /* leave inputs empty — server will report current value on next save */
-    }
+    } catch { /* leave empty */ }
   }
 
   const loadTorrents = async () => {
     try {
       const list = await streamActive()
       if (mountedRef.current) setTorrents(list)
-    } catch {
-      /* keep last known list on transient failure */
-    } finally {
+    } catch { /* keep last */ } finally {
       if (mountedRef.current) setTorrentsLoaded(true)
     }
   }
 
   useEffect(() => {
     mountedRef.current = true
-    load()
-    loadTorrents()
-    loadLimits()
+    load(); loadTorrents(); loadLimits(); loadFilterOptions()
+    localMounts().then(setMounts).catch(() => {})
     const t = setInterval(() => { load(); loadTorrents() }, 2000)
-    return () => {
-      mountedRef.current = false
-      clearInterval(t)
-    }
+    return () => { mountedRef.current = false; clearInterval(t) }
   }, [])
+
+  // Reload when filters/sort change (debounced for search)
+  useEffect(() => {
+    if (!mountedRef.current) return
+    if (filterSearch !== undefined && filterTimeoutRef.current) {
+      clearTimeout(filterTimeoutRef.current)
+    }
+    filterTimeoutRef.current = setTimeout(() => {
+      if (mountedRef.current) {
+        const hasFilters = filterStatus || filterTracker || filterCategory || filterSearch
+        if (hasFilters || sortCol !== 'created_at' || sortDir !== 'desc') {
+          loadFiltered()
+        } else {
+          load()
+        }
+      }
+    }, filterSearch ? 300 : 0)
+    return () => { if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterTracker, filterCategory, filterSearch, sortCol, sortDir])
+
+  // Roteia play: se file_path está dentro de algum mount navegável → player
+  // local (sem tocar no anacrolix); senão → player do torrent (cache em
+  // /data/streams ou ainda baixando). Mantém a UX consistente com os outros
+  // pontos do app onde clicar em Play "simplesmente toca".
+  const onPlay = (d: DownloadEntry) => {
+    const fp = d.filePath
+    if (!fp) return
+    const m = mounts.find(mt => fp === mt.path || fp.startsWith(mt.path + '/'))
+    if (m) {
+      const rel = fp.slice(m.path.length).replace(/^\/+/, '')
+      const hash = buildLocalHash(m.name, rel)
+      const synthetic: SearchResult = {
+        title: d.name || rel.split('/').pop() || rel,
+        tracker: '', categoryId: 0, category: '', size: d.fileSize,
+        seeders: 0, leechers: 0, age: '',
+        magnetUri: `magnet:?xt=urn:btih:${hash}`,
+        link: '', infoHash: hash, publishDate: '',
+      }
+      playSingle(synthetic, 0)
+      return
+    }
+    // Não está num mount navegável → assume cache (anacrolix). Toca via hash
+    // do torrent + fileIndex. Funciona pra downloads em curso E pra completos
+    // que ainda não foram movidos pra fora do cache.
+    const synthetic: SearchResult = {
+      title: d.name || fp.split('/').pop() || fp,
+      tracker: '', categoryId: 0, category: '', size: d.fileSize,
+      seeders: 0, leechers: 0, age: '',
+      magnetUri: d.magnet,
+      link: '', infoHash: d.infoHash, publishDate: '',
+    }
+    playSingle(synthetic, d.fileIndex)
+  }
+
+  // ─── Actions ──────────────────────────────────────────────────────────────
 
   const onPause = async (id: number) => {
     setBusyID(id)
@@ -100,10 +308,71 @@ export default function DownloadsPage() {
     setBusyID(id)
     try { await downloadDelete(id); await load() } finally { setBusyID(null) }
   }
+  // Abre o modal de promove (single ou batch). Single: passa só esse item;
+  // batch: passa todos os selected. UI faz o resto.
+  const onPromote = (d: DownloadEntry) => {
+    setPromoteTargets([d])
+  }
+  const onPromoteSelected = () => {
+    const targets = items.filter(d => selected.has(d.id) && d.status === 'completed')
+    if (targets.length === 0) return
+    setPromoteTargets(targets)
+  }
 
-  // Torrent-level handlers. We refresh the active list immediately after each
-  // mutation so the row reflects its new state without waiting for the next
-  // poll tick (better-feeling UI for a single click).
+  const onBatchPause = async () => {
+    const ids = items.filter(d => selected.has(d.id) && (d.status === 'downloading' || d.status === 'queued')).map(d => d.id)
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    try { await downloadBatchPause(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
+  }
+
+  const onBatchResume = async () => {
+    const ids = items.filter(d => selected.has(d.id) && d.status === 'paused').map(d => d.id)
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    try { await downloadBatchResume(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
+  }
+
+  const onBatchDelete = async () => {
+    const ids = items.filter(d => selected.has(d.id)).map(d => d.id)
+    if (ids.length === 0) return
+    if (!confirm(`Remover ${ids.length} download(s) da lista?`)) return
+    setBulkBusy(true)
+    try { await downloadBatchDelete(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
+  }
+
+  const toggleSelectAll = () => {
+    if (selected.size === items.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(items.map(d => d.id)))
+    }
+  }
+  const onPromoted = (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => {
+    setPromoteTargets(null)
+    if (result.failed.length > 0) {
+      alert(`${result.promoted.length} promovido(s), ${result.failed.length} falha(s):\n` +
+        result.failed.map(f => `#${f.id}: ${f.error}`).join('\n'))
+    }
+    // Limpa seleção dos que deram certo
+    if (result.promoted.length > 0) {
+      const ok = new Set(result.promoted.map(d => d.id))
+      setSelected(prev => {
+        const next = new Set(prev)
+        ok.forEach(id => next.delete(id))
+        return next
+      })
+    }
+    void load()
+    void loadTorrents()
+  }
+  const onStopSeed = async (id: number, name: string) => {
+    if (!confirm(`Parar de seedar "${name}"? O arquivo permanece no lugar.`)) return
+    setBusyID(id)
+    try { await downloadStopSeed(id); await load(); await loadTorrents() }
+    finally { setBusyID(null) }
+  }
+
   const onTorrentPause = async (hash: string) => {
     setBusyHash(hash)
     try { await streamPause(hash); await loadTorrents() } finally { setBusyHash(null) }
@@ -131,215 +400,763 @@ export default function DownloadsPage() {
   }
 
   const onSaveLimits = async () => {
-    setLimitsSaving(true)
-    setLimitsMsg('')
+    setLimitsSaving(true); setLimitsMsg('')
     try {
       const down = limitDownKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitDownKB) * 1024))
       const up = limitUpKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitUpKB) * 1024))
-      if (!isFinite(down) || !isFinite(up)) {
-        setLimitsMsg('Valores inválidos')
-        return
-      }
+      if (!isFinite(down) || !isFinite(up)) { setLimitsMsg('Valores inválidos'); return }
       await streamSetLimits({ down, up })
       setLimitsMsg('Limites aplicados')
-      // Re-pull from server so the displayed value matches what was persisted
-      // (catches server-side rounding/clamping if any).
       await loadLimits()
       window.setTimeout(() => { if (mountedRef.current) setLimitsMsg('') }, 2500)
-    } catch (err) {
-      setLimitsMsg('Falha ao salvar')
-    } finally {
-      setLimitsSaving(false)
-    }
+    } catch { setLimitsMsg('Falha ao salvar') } finally { setLimitsSaving(false) }
   }
 
-  // Torrents being background-downloaded are shown in the Downloads section;
-  // exclude them from "Torrents ativos" to avoid showing the same item twice.
-  const bgHashes = new Set(
-    items.filter(d => d.status === 'downloading' || d.status === 'queued').map(d => d.infoHash)
-  )
+  // ─── Derived data ─────────────────────────────────────────────────────────
+
+  // Esconde o card de STREAMING quando existe QUALQUER download row pro mesmo
+  // hash — incluindo `completed`. Antes só filtrávamos `downloading|queued`, e
+  // ao terminar o download a streaming card voltava a aparecer ao lado da
+  // download card (ambas dizendo 4GB/4GB) — duplicata óbvia. Agora a download
+  // row é a fonte canônica e a streaming card só aparece pra torrents que NÃO
+  // foram enfileirados como background download (puro stream).
+  const bgHashes = new Set(items.map(d => d.infoHash))
   const displayTorrents = torrents.filter(t => !bgHashes.has(t.infoHash))
 
-  const filteredTorrents = displayTorrents.filter(t => {
-    if (torrentFilter === 'all') return true
-    const status = t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
-    if (torrentFilter === 'downloading') return status === 'downloading' || status === 'seeding'
-    if (torrentFilter === 'paused') return status === 'paused'
-    if (torrentFilter === 'done') return status === 'complete'
-    return true
+  // Active tab: downloading/queued torrents + background downloads
+  const activeTorrents = displayTorrents.filter(t => {
+    const s = t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
+    return s === 'downloading' || s === 'paused'
   })
+  const activeDownloads = items.filter(d => d.status === 'downloading' || d.status === 'queued' || d.status === 'paused' || d.status === 'failed')
+
+  // Seeding tab: seeding/complete torrents + completed downloads
+  const seedingTorrents = displayTorrents.filter(t => {
+    const s = t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
+    return s === 'seeding' || s === 'complete'
+  })
+  const completedDownloads = items.filter(d => d.status === 'completed')
+
+  // Summary stats
+  const totalDown = torrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
+  const totalUp = torrents.reduce((sum, t) => sum + (t.upRate || 0), 0)
+  const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
+  const activeCount = activeTorrents.length + activeDownloads.length
+  const seedingCount = seedingTorrents.length
+
+  // Tab badge counts
+  const tabCounts: Record<Tab, number> = {
+    active: activeTorrents.length + activeDownloads.length,
+    seeding: seedingTorrents.length + completedDownloads.length,
+    network: 0,
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div 
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="relative min-h-screen bg-gray-900"
+    >
+      {isDraggingPage && (
+        <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-cyan-500/50 m-4 rounded-3xl pointer-events-none transition-all duration-300 animate-pulse">
+          <UploadCloud className="w-16 h-16 text-cyan-400 mb-4 animate-bounce" />
+          <h2 className="text-xl font-bold text-gray-100 mb-1">Solte seus arquivos .torrent aqui!</h2>
+          <p className="text-sm text-gray-400">ou links magnet arrastados para iniciar o carregamento</p>
+        </div>
+      )}
+
       <NavHeader />
-      <main className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-10">
-        {/* ───────────────── Active torrents (Transmission-style) ───────────────── */}
-        <section>
-          <header className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h1 className="text-2xl font-bold text-gray-100 flex items-center gap-2">
-              <Activity className="w-6 h-6 text-emerald-400" />
-              Torrents ativos
-              {displayTorrents.length > 0 && (
-                <span className="text-sm font-normal text-gray-400">
-                  ({filteredTorrents.length}{torrentFilter !== 'all' ? `/${displayTorrents.length}` : ''})
-                </span>
+      <main className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6">
+        {/* ═══════════════ Summary Dashboard ═══════════════ */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard
+            icon={<ArrowDownCircle className="w-5 h-5" />}
+            label="Download"
+            value={formatRate(totalDown)}
+            gradient="from-emerald-500/20 to-teal-500/10"
+            iconColor="text-emerald-400"
+            pulse={totalDown > 0}
+          />
+          <StatCard
+            icon={<ArrowUpCircle className="w-5 h-5" />}
+            label="Upload"
+            value={formatRate(totalUp)}
+            gradient="from-violet-500/20 to-purple-500/10"
+            iconColor="text-violet-400"
+            pulse={totalUp > 0}
+          />
+          <StatCard
+            icon={<Users className="w-5 h-5" />}
+            label="Peers"
+            value={String(totalPeers)}
+            gradient="from-blue-500/20 to-cyan-500/10"
+            iconColor="text-blue-400"
+          />
+          <StatCard
+            icon={<Activity className="w-5 h-5" />}
+            label="Fila"
+            value={`${activeCount} ativo${activeCount !== 1 ? 's' : ''}`}
+            subtitle={seedingCount > 0 ? `${seedingCount} semeando` : undefined}
+            gradient="from-amber-500/20 to-orange-500/10"
+            iconColor="text-amber-400"
+          />
+        </div>
+
+        {/* ═══════════════ Filters Bar ═══════════════ */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <input
+                type="text"
+                value={filterSearch}
+                onChange={e => setFilterSearch(e.target.value)}
+                placeholder="Buscar por nome ou caminho..."
+                className="w-full bg-gray-800/80 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
+              />
+              {filterSearch && (
+                <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                  <X className="w-3.5 h-3.5" />
+                </button>
               )}
-            </h1>
-            <div className="flex items-center gap-1 text-xs flex-wrap">
-              {(['all', 'downloading', 'paused', 'done'] as const).map(f => {
-                const labels: Record<typeof f, string> = { all: 'Todos', downloading: 'Em andamento', paused: 'Pausados', done: 'Concluídos' }
-                return (
-                  <button
-                    key={f}
-                    onClick={() => setTorrentFilter(f)}
-                    className={torrentFilter === f ? 'btn-primary' : 'btn-secondary'}
-                  >{labels[f]}</button>
-                )
-              })}
             </div>
-          </header>
-
-          {/* Bandwidth caps row */}
-          <div className="bg-gray-800/60 border border-gray-700 rounded-lg p-3 flex items-center gap-3 flex-wrap mb-4">
-            <Gauge className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-            <span className="text-xs text-gray-400">Limites globais (KB/s, 0 = ilimitado):</span>
-            <label className="flex items-center gap-1.5 text-xs text-gray-300">
-              <span className="text-gray-500">↓ Down</span>
-              <input
-                type="number"
-                min={0}
-                placeholder="0"
-                value={limitDownKB}
-                onChange={e => setLimitDownKB(e.target.value)}
-                className="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-100 focus:outline-none focus:border-emerald-500"
-              />
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-gray-300">
-              <span className="text-gray-500">↑ Up</span>
-              <input
-                type="number"
-                min={0}
-                placeholder="0"
-                value={limitUpKB}
-                onChange={e => setLimitUpKB(e.target.value)}
-                className="w-24 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-100 focus:outline-none focus:border-emerald-500"
-              />
-            </label>
             <button
-              onClick={onSaveLimits}
-              disabled={limitsSaving}
-              className="text-xs bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded transition-colors flex items-center gap-1"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors ${
+                showFilters || filterStatus || filterTracker || filterCategory
+                  ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
+              }`}
             >
-              {limitsSaving && <Loader2 className="w-3 h-3 animate-spin" />}
-              Aplicar
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              Filtros
+              {(filterStatus || filterTracker || filterCategory) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              )}
             </button>
-            {limitsMsg && (
-              <span className="text-xs text-gray-400">{limitsMsg}</span>
-            )}
-
-            {torrents.length > 0 && (
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={onPauseAll}
-                  disabled={bulkBusy}
-                  className="text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 px-3 py-1 rounded transition-colors flex items-center gap-1"
-                >
-                  <Pause className="w-3 h-3" />
-                  Pausar todos
-                </button>
-                <button
-                  onClick={onResumeAll}
-                  disabled={bulkBusy}
-                  className="text-xs bg-blue-500/20 hover:bg-blue-500/30 disabled:opacity-50 text-blue-300 border border-blue-500/30 px-3 py-1 rounded transition-colors flex items-center gap-1"
-                >
-                  <Play className="w-3 h-3" />
-                  Retomar todos
-                </button>
-              </div>
-            )}
           </div>
 
-          {!torrentsLoaded ? (
-            <div className="flex items-center gap-2 text-gray-400 py-6 justify-center">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">Carregando torrents ativos...</span>
-            </div>
-          ) : displayTorrents.length === 0 ? (
-            <div className="text-center py-10 text-gray-500 bg-gray-800/40 border border-gray-700/50 rounded-lg">
-              <Activity className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Nenhum torrent ativo no momento</p>
-              <p className="text-xs mt-1 text-gray-600">
-                Inicie um streaming na busca para ver os controles aqui.
-              </p>
-            </div>
-          ) : filteredTorrents.length === 0 ? (
-            <div className="text-center py-10 text-gray-500 bg-gray-800/40 border border-gray-700/50 rounded-lg">
-              <Activity className="w-10 h-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm">Nenhum torrent nesse filtro</p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {filteredTorrents.map(t => (
-                <TorrentCard
-                  key={t.infoHash}
-                  t={t}
-                  busy={busyHash === t.infoHash}
-                  onPause={() => onTorrentPause(t.infoHash)}
-                  onResume={() => onTorrentResume(t.infoHash)}
-                  onPriority={(p) => onTorrentPriority(t.infoHash, p)}
-                  onDelete={() => onTorrentDelete(t.infoHash)}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* ───────────────── Background downloads (file queue) ───────────────── */}
-        <section>
-          <header className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-bold text-gray-100 flex items-center gap-2">
-              <DownloadIcon className="w-5 h-5 text-cyan-400" />
-              Downloads em background
-            </h2>
-            <span className="text-xs text-gray-500">Atualiza a cada 2s</span>
-          </header>
-
-          {loading && items.length === 0 ? (
-            <div className="flex items-center gap-2 text-gray-400 py-12 justify-center">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Carregando...
-            </div>
-          ) : items.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">
-              <DownloadIcon className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-lg">Nenhum download ainda</p>
-              <p className="text-sm mt-1">
-                Use o botão "Background" no player para enfileirar o arquivo completo aqui.
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {items.map(d => (
-                <DownloadCard
-                  key={d.id}
-                  d={d}
-                  busy={busyID === d.id}
-                  onPause={() => onPause(d.id)}
-                  onResume={() => onResume(d.id)}
-                  onDelete={() => onDelete(d.id)}
-                />
-              ))}
+          {showFilters && (
+            <div className="flex items-center gap-2 flex-wrap bg-gray-800/40 border border-gray-700/50 rounded-xl p-3">
+              <select
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+              >
+                <option value="">Todos os status</option>
+                <option value="downloading">Baixando</option>
+                <option value="paused">Pausado</option>
+                <option value="queued">Na fila</option>
+                <option value="completed">Concluído</option>
+                <option value="failed">Falhou</option>
+              </select>
+              {availableTrackers.length > 0 && (
+                <select
+                  value={filterTracker}
+                  onChange={e => setFilterTracker(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="">Todos os trackers</option>
+                  {availableTrackers.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              )}
+              {availableCategories.length > 0 && (
+                <select
+                  value={filterCategory}
+                  onChange={e => setFilterCategory(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="">Todas as categorias</option>
+                  {availableCategories.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch('') }}
+                className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1"
+              >
+                Limpar filtros
+              </button>
             </div>
           )}
-        </section>
+        </div>
+
+        {/* ═══════════════ Tabs & Actions ═══════════════ */}
+        <div className="flex items-center justify-between border-b border-gray-700/60 flex-wrap gap-3">
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {([
+              { key: 'active' as Tab, label: 'Ativos & Downloads', icon: <Zap className="w-4 h-4" /> },
+              { key: 'seeding' as Tab, label: 'Semeando & Completos', icon: <ArrowUpCircle className="w-4 h-4" /> },
+              { key: 'network' as Tab, label: 'Rede & Limites', icon: <Wifi className="w-4 h-4" /> },
+            ]).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`
+                  flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap
+                  border-b-2 transition-all duration-200
+                  ${activeTab === tab.key
+                    ? 'border-emerald-400 text-emerald-400'
+                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'}
+                `}
+              >
+                {tab.icon}
+                {tab.label}
+                {tabCounts[tab.key] > 0 && (
+                  <span className={`
+                    text-xs px-1.5 py-0.5 rounded-full font-semibold
+                    ${activeTab === tab.key
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-gray-700 text-gray-400'}
+                  `}>
+                    {tabCounts[tab.key]}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              setPreloadFiles(null)
+              setShowAddModal(true)
+            }}
+            className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-gray-900 px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
+          >
+            <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
+          </button>
+        </div>
+
+        {/* ═══════════════ Tab Content ═══════════════ */}
+        <div className="min-h-[300px]">
+          {activeTab === 'active' && (
+            <ActiveTab
+              torrents={activeTorrents}
+              downloads={activeDownloads}
+              torrentsLoaded={torrentsLoaded}
+              loading={loading}
+              busyHash={busyHash}
+              busyID={busyID}
+              bulkBusy={bulkBusy}
+              onTorrentPause={onTorrentPause}
+              onTorrentResume={onTorrentResume}
+              onTorrentPriority={onTorrentPriority}
+              onTorrentDelete={onTorrentDelete}
+              onPauseAll={onPauseAll}
+              onResumeAll={onResumeAll}
+              onPause={onPause}
+              onResume={onResume}
+              onDelete={onDelete}
+              hasTorrents={torrents.length > 0}
+              onPlay={onPlay}
+              onInspect={setInspectTarget}
+              onDownloadPauseAll={async () => {
+                setBulkBusy(true)
+                try { await downloadPauseAll(); await load() } finally { setBulkBusy(false) }
+              }}
+              onDownloadResumeAll={async () => {
+                setBulkBusy(true)
+                try { await downloadResumeAll(); await load() } finally { setBulkBusy(false) }
+              }}
+              downloadBulkBusy={bulkBusy}
+            />
+          )}
+          {activeTab === 'seeding' && (
+            <SeedingTab
+              torrents={seedingTorrents}
+              downloads={completedDownloads}
+              torrentsLoaded={torrentsLoaded}
+              busyHash={busyHash}
+              busyID={busyID}
+              selected={selected}
+              onToggleSelected={(id: number) => setSelected(prev => {
+                const next = new Set(prev)
+                if (next.has(id)) next.delete(id); else next.add(id)
+                return next
+              })}
+              onTorrentPause={onTorrentPause}
+              onTorrentResume={onTorrentResume}
+              onTorrentPriority={onTorrentPriority}
+              onTorrentDelete={onTorrentDelete}
+              onPause={onPause}
+              onResume={onResume}
+              onDelete={onDelete}
+              onPromote={onPromote}
+              onStopSeed={onStopSeed}
+              onPlay={onPlay}
+              onInspect={setInspectTarget}
+            />
+          )}
+          {activeTab === 'network' && (
+            <NetworkTab
+              limitDownKB={limitDownKB}
+              limitUpKB={limitUpKB}
+              setLimitDownKB={setLimitDownKB}
+              setLimitUpKB={setLimitUpKB}
+              limitsSaving={limitsSaving}
+              limitsMsg={limitsMsg}
+              onSaveLimits={onSaveLimits}
+              totalDown={totalDown}
+              totalUp={totalUp}
+              totalPeers={totalPeers}
+            />
+          )}
+        </div>
       </main>
+
+      {/* Modal de promove — navegador de subpastas + nova pasta + keep-seeding.
+          Aceita single (1 item) ou batch (N selecionados). Backend cria subdirs
+          inexistentes via os.MkdirAll. */}
+      <PromoteModal
+        items={promoteTargets}
+        onClose={() => setPromoteTargets(null)}
+        onPromoted={onPromoted}
+      />
+
+      {/* Modal de inspeção detalhada de download (com recheck, files list e stop seed) */}
+      <DownloadInspectModal
+        download={inspectTarget}
+        onClose={() => setInspectTarget(null)}
+        onMutated={(updated) => {
+          setItems(prev => prev.map(item => item.id === updated.id ? updated : item))
+        }}
+        onDeleted={() => {
+          setItems(prev => prev.filter(item => item.id !== inspectTarget?.id))
+          setInspectTarget(null)
+        }}
+        onPromote={onPromote}
+      />
+
+      {/* Modal para adicionar torrents por arquivo drag & drop ou link magnet */}
+      <AddTorrentModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        preloadFiles={preloadFiles}
+        onAdded={(result) => {
+          setDownloadTarget(result)
+        }}
+      />
+
+      {/* Modal para configurar download de um único torrent resolvido da busca ou arrastado */}
+      <DownloadModal
+        result={downloadTarget}
+        onClose={() => {
+          setDownloadTarget(null)
+          void load()
+          void loadTorrents()
+        }}
+      />
+
+
+      {/* Barra flutuante de bulk actions, só aparece com seleção ativa. */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-gray-800 border border-cyan-500/40 shadow-2xl rounded-full px-4 py-2 backdrop-blur">
+          <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <div className="w-px h-5 bg-gray-700" />
+          <button
+            onClick={onBatchPause}
+            disabled={bulkBusy}
+            className="flex items-center gap-1 text-xs bg-gray-700/60 hover:bg-gray-700 disabled:opacity-50 text-gray-300 px-3 py-1 rounded-full transition-colors"
+          >
+            <Pause className="w-3 h-3" /> Pausar
+          </button>
+          <button
+            onClick={onBatchResume}
+            disabled={bulkBusy}
+            className="flex items-center gap-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 px-3 py-1 rounded-full transition-colors"
+          >
+            <Play className="w-3 h-3" /> Retomar
+          </button>
+          <button
+            onClick={onPromoteSelected}
+            className="flex items-center gap-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-3 py-1 rounded-full transition-colors"
+          >
+            <ArrowUpCircle className="w-3 h-3" />
+            Promover
+          </button>
+          <button
+            onClick={onBatchDelete}
+            disabled={bulkBusy}
+            className="flex items-center gap-1 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-300 px-3 py-1 rounded-full transition-colors"
+          >
+            <Trash2 className="w-3 h-3" /> Remover
+          </button>
+          <div className="w-px h-5 bg-gray-700" />
+          <button
+            onClick={toggleSelectAll}
+            className="text-xs text-gray-400 hover:text-gray-200 px-1"
+          >
+            {selected.size === items.length ? 'desmarcar' : 'todos'}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs text-gray-400 hover:text-gray-200 px-1"
+          >
+            limpar
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// TorrentCard — one row in the Transmission-style active list. Receives a
-// snapshot (`t`) and emits intent callbacks; never mutates state directly.
+// ═══════════════════════════════════════════════════════════════════════════════
+// StatCard — one cell in the top summary dashboard
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  subtitle?: string
+  gradient: string
+  iconColor: string
+  pulse?: boolean
+}) {
+  return (
+    <div className={`
+      relative overflow-hidden rounded-xl border border-gray-700/50
+      bg-gradient-to-br ${gradient} backdrop-blur-sm
+      p-4 flex flex-col gap-1
+    `}>
+      <div className="flex items-center gap-2">
+        <span className={`${iconColor} ${pulse ? 'animate-pulse' : ''}`}>{icon}</span>
+        <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">{label}</span>
+      </div>
+      <span className="text-xl font-bold text-gray-100 tracking-tight">{value}</span>
+      {subtitle && <span className="text-xs text-gray-500">{subtitle}</span>}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ActiveTab — downloading/queued torrents + background downloads
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID, bulkBusy,
+  onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
+  onPauseAll, onResumeAll, onPause, onResume, onDelete, hasTorrents, onPlay, onInspect,
+  onDownloadPauseAll, onDownloadResumeAll, downloadBulkBusy,
+}: {
+  torrents: TorrentInfo[]
+  downloads: DownloadEntry[]
+  torrentsLoaded: boolean
+  loading: boolean
+  busyHash: string | null
+  busyID: number | null
+  bulkBusy: boolean
+  onTorrentPause: (h: string) => void
+  onTorrentResume: (h: string) => void
+  onTorrentPriority: (h: string, p: StreamPriority) => void
+  onTorrentDelete: (h: string) => void
+  onPauseAll: () => void
+  onResumeAll: () => void
+  onPause: (id: number) => void
+  onResume: (id: number) => void
+  onDelete: (id: number) => void
+  hasTorrents: boolean
+  onPlay: (d: DownloadEntry) => void
+  onInspect: (d: DownloadEntry) => void
+  onDownloadPauseAll?: () => void
+  onDownloadResumeAll?: () => void
+  downloadBulkBusy?: boolean
+}) {
+  const empty = torrents.length === 0 && downloads.length === 0 && torrentsLoaded && !loading
+  const isLoading = (!torrentsLoaded || (loading && downloads.length === 0)) && torrents.length === 0 && downloads.length === 0
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Bulk actions bar — streaming torrents */}
+      {hasTorrents && (
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={onPauseAll}
+            disabled={bulkBusy}
+            className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Pause className="w-3 h-3" /> Pausar todos
+          </button>
+          <button
+            onClick={onResumeAll}
+            disabled={bulkBusy}
+            className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Play className="w-3 h-3" /> Retomar todos
+          </button>
+        </div>
+      )}
+
+      {/* Bulk actions — background downloads */}
+      {downloads.filter(d => d.status === 'downloading' || d.status === 'queued' || d.status === 'paused').length > 0 && (
+        <div className="flex items-center gap-2 justify-end border-t border-gray-700/30 pt-2 mt-1">
+          <span className="text-[11px] text-gray-500 mr-1">Downloads:</span>
+          <button
+            onClick={onDownloadPauseAll}
+            disabled={downloadBulkBusy}
+            className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Pause className="w-3 h-3" /> Pausar todos
+          </button>
+          <button
+            onClick={onDownloadResumeAll}
+            disabled={downloadBulkBusy}
+            className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Play className="w-3 h-3" /> Retomar todos
+          </button>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="flex items-center gap-2 text-gray-400 py-12 justify-center">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Carregando...</span>
+        </div>
+      )}
+
+      {empty && (
+        <EmptyState
+          icon={<Zap className="w-12 h-12" />}
+          title="Nenhuma transferência ativa"
+          description={'Inicie um streaming ou use o botão "Baixar no Servidor" no player para enfileirar downloads.'}
+        />
+      )}
+
+      {/* Streaming torrents */}
+      {torrents.map(t => (
+        <TorrentCard
+          key={t.infoHash}
+          t={t}
+          busy={busyHash === t.infoHash}
+          onPause={() => onTorrentPause(t.infoHash)}
+          onResume={() => onTorrentResume(t.infoHash)}
+          onPriority={(p) => onTorrentPriority(t.infoHash, p)}
+          onDelete={() => onTorrentDelete(t.infoHash)}
+        />
+      ))}
+
+      {/* Background downloads */}
+      {downloads.map(d => (
+        <DownloadCard
+          key={d.id}
+          d={d}
+          live={torrents.find(t => t.infoHash === d.infoHash)}
+          busy={busyID === d.id}
+          onPause={() => onPause(d.id)}
+          onResume={() => onResume(d.id)}
+          onDelete={() => onDelete(d.id)}
+          onPlay={() => onPlay(d)}
+          onInspect={() => onInspect(d)}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SeedingTab — seeding/complete torrents + completed downloads
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
+  onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
+  onPause, onResume, onDelete, onPromote, onStopSeed,
+  selected, onToggleSelected, onPlay, onInspect,
+}: {
+  torrents: TorrentInfo[]
+  downloads: DownloadEntry[]
+  torrentsLoaded: boolean
+  busyHash: string | null
+  busyID: number | null
+  onTorrentPause: (h: string) => void
+  onTorrentResume: (h: string) => void
+  onTorrentPriority: (h: string, p: StreamPriority) => void
+  onTorrentDelete: (h: string) => void
+  onPause: (id: number) => void
+  onResume: (id: number) => void
+  onDelete: (id: number) => void
+  onPromote: (d: DownloadEntry) => void
+  onStopSeed: (id: number, name: string) => void
+  selected: Set<number>
+  onToggleSelected: (id: number) => void
+  onPlay: (d: DownloadEntry) => void
+  onInspect: (d: DownloadEntry) => void
+}) {
+  const empty = torrents.length === 0 && downloads.length === 0
+
+  return (
+    <div className="flex flex-col gap-4">
+      {!torrentsLoaded && (
+        <div className="flex items-center gap-2 text-gray-400 py-12 justify-center">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Carregando...</span>
+        </div>
+      )}
+
+      {torrentsLoaded && empty && (
+        <EmptyState
+          icon={<ArrowUpCircle className="w-12 h-12" />}
+          title="Nada semeando ou completo"
+          description="Torrents concluídos e em seed aparecerão aqui."
+        />
+      )}
+
+      {torrents.map(t => (
+        <TorrentCard
+          key={t.infoHash}
+          t={t}
+          busy={busyHash === t.infoHash}
+          onPause={() => onTorrentPause(t.infoHash)}
+          onResume={() => onTorrentResume(t.infoHash)}
+          onPriority={(p) => onTorrentPriority(t.infoHash, p)}
+          onDelete={() => onTorrentDelete(t.infoHash)}
+        />
+      ))}
+
+      {downloads.map(d => (
+        <DownloadCard
+          key={d.id}
+          d={d}
+          live={torrents.find(t => t.infoHash === d.infoHash)}
+          busy={busyID === d.id}
+          selected={selected.has(d.id)}
+          onToggleSelected={() => onToggleSelected(d.id)}
+          onPause={() => onPause ? onPause(d.id) : {}}
+          onResume={() => onResume ? onResume(d.id) : {}}
+          onDelete={() => onDelete(d.id)}
+          onPromote={() => onPromote(d)}
+          onStopSeed={() => onStopSeed(d.id, d.name || d.filePath)}
+          onPlay={() => onPlay(d)}
+          onInspect={() => onInspect(d)}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// NetworkTab — bandwidth limit controls
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
+  limitsSaving, limitsMsg, onSaveLimits, totalDown, totalUp, totalPeers,
+}: {
+  limitDownKB: string
+  limitUpKB: string
+  setLimitDownKB: (v: string) => void
+  setLimitUpKB: (v: string) => void
+  limitsSaving: boolean
+  limitsMsg: string
+  onSaveLimits: () => void
+  totalDown: number
+  totalUp: number
+  totalPeers: number
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Live network overview */}
+      <div className="rounded-xl border border-gray-700/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-6">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-5">
+          <Wifi className="w-4 h-4 text-cyan-400" />
+          Monitoramento em Tempo Real
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">Download atual</span>
+            <span className="text-2xl font-bold text-emerald-400">{formatRate(totalDown)}</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">Upload atual</span>
+            <span className="text-2xl font-bold text-violet-400">{formatRate(totalUp)}</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-gray-500">Peers conectados</span>
+            <span className="text-2xl font-bold text-blue-400">{totalPeers}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Bandwidth limits form */}
+      <div className="rounded-xl border border-gray-700/50 bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm p-6">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-5">
+          <Gauge className="w-4 h-4 text-amber-400" />
+          Limites de Velocidade
+        </h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Defina limites em KB/s. Deixe em branco ou 0 para ilimitado.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-gray-400 flex items-center gap-1.5">
+              <ArrowDownCircle className="w-3.5 h-3.5 text-emerald-400" />
+              Limite de download (KB/s)
+            </label>
+            <input
+              type="number"
+              min={0}
+              placeholder="Ilimitado"
+              value={limitDownKB}
+              onChange={e => setLimitDownKB(e.target.value)}
+              className="bg-gray-900/80 border border-gray-700 rounded-lg px-3 py-2.5 text-gray-100 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-gray-400 flex items-center gap-1.5">
+              <ArrowUpCircle className="w-3.5 h-3.5 text-violet-400" />
+              Limite de upload (KB/s)
+            </label>
+            <input
+              type="number"
+              min={0}
+              placeholder="Ilimitado"
+              value={limitUpKB}
+              onChange={e => setLimitUpKB(e.target.value)}
+              className="bg-gray-900/80 border border-gray-700 rounded-lg px-3 py-2.5 text-gray-100 text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onSaveLimits}
+            disabled={limitsSaving}
+            className="flex items-center gap-2 text-sm bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 text-emerald-300 border border-emerald-500/40 px-5 py-2 rounded-lg transition-all font-medium"
+          >
+            {limitsSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+            Aplicar limites
+          </button>
+          {limitsMsg && (
+            <span className={`text-sm font-medium ${limitsMsg.includes('aplicados') ? 'text-emerald-400' : 'text-red-400'}`}>
+              {limitsMsg}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EmptyState
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function EmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="text-gray-700 mb-3">{icon}</div>
+      <h3 className="text-lg font-semibold text-gray-400 mb-1">{title}</h3>
+      <p className="text-sm text-gray-600 max-w-md">{description}</p>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TorrentCard — Premium redesigned streaming torrent card
+// ═══════════════════════════════════════════════════════════════════════════════
 
 interface TorrentCardProps {
   t: TorrentInfo
@@ -352,100 +1169,119 @@ interface TorrentCardProps {
 
 function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: TorrentCardProps) {
   const pct = Math.max(0, Math.min(1, t.progress || 0)) * 100
-  // Status defaults to "downloading" when the server hasn't set it explicitly.
-  // The four states map to distinct colors so the user reads state at a glance.
   const status = t.status || (pct >= 100 ? 'complete' : 'downloading')
   const isPaused = status === 'paused'
   const isSeeding = status === 'seeding'
   const isComplete = status === 'complete'
 
-  const barColor = isComplete
-    ? 'bg-green-500'
-    : isPaused
-      ? 'bg-gray-500'
-      : isSeeding
-        ? 'bg-purple-500'
-        : 'bg-emerald-500'
-
-  // Linear ETA: bytes remaining / current down rate. Hidden when we have no
-  // rate sample yet (first 1-2s after add) or when the torrent is already done.
   const eta = computeTorrentETA(t)
-
   const priority: StreamPriority = (t.priority as StreamPriority) || 'normal'
 
+  // Card border/glow color based on state
+  const borderClass = isSeeding
+    ? 'border-violet-500/30 hover:border-violet-500/50'
+    : isPaused
+      ? 'border-gray-600/50 hover:border-gray-500/60'
+      : isComplete
+        ? 'border-green-500/30 hover:border-green-500/50'
+        : 'border-emerald-500/30 hover:border-emerald-500/50'
+
+  // Gradient bar colors
+  const barGradient = isComplete
+    ? 'from-green-500 to-emerald-400'
+    : isPaused
+      ? 'from-gray-600 to-gray-500'
+      : isSeeding
+        ? 'from-violet-500 to-indigo-400'
+        : 'from-emerald-500 to-teal-400'
+
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-4">
+    <div className={`
+      relative overflow-hidden rounded-xl border ${borderClass}
+      bg-gradient-to-br from-gray-800/80 to-gray-900/60 backdrop-blur-sm
+      p-4 flex flex-col gap-3 transition-all duration-300
+    `}>
+      {/* Top row: name + badges */}
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-gray-100 truncate" title={t.name}>{t.name || t.infoHash}</h3>
-          <p className="text-xs text-gray-500 truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
+          <h3 className="font-semibold text-gray-100 truncate text-sm" title={t.name}>{t.name || t.infoHash}</h3>
+          <p className="text-[11px] text-gray-600 truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
         </div>
-        <TorrentStatusBadge status={status} />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <KindBadge kind="streaming" />
+          <TorrentStatusBadge status={status} />
+        </div>
       </div>
 
+      {/* Live rate chips — destaque pro Down/Up/Peers de CADA torrent. Eram
+          mostrados em text-xs no rodapé, passavam batido (sintoma "não sei a
+          velocidade de cada um"). Agora ficam em fonte maior + chip dedicado.
+          Quando tudo zerado (ex.: pausado), só os peers ainda aparecem. */}
+      <div className="flex items-center gap-2 flex-wrap text-sm">
+        <span
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
+            t.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-gray-500'
+          }`}
+          title="Velocidade de download deste torrent"
+        >
+          <ArrowDownCircle className="w-3.5 h-3.5" />
+          {formatRate(t.downRate)}
+        </span>
+        <span
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
+            t.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-gray-500'
+          }`}
+          title="Velocidade de upload deste torrent"
+        >
+          <ArrowUpCircle className="w-3.5 h-3.5" />
+          {formatRate(t.upRate)}
+        </span>
+        <span
+          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono tabular-nums"
+          title="Peers conectados / Seeders no swarm"
+        >
+          <Users className="w-3.5 h-3.5" />
+          {t.peers}{(t.seeders ?? 0) > 0 && <span className="text-gray-500"> / {t.seeders}</span>}
+        </span>
+      </div>
+
+      {/* Progress bar */}
       <div>
-        <div className="h-2 bg-gray-900 rounded overflow-hidden">
+        <div className="h-2 bg-gray-900/80 rounded-full overflow-hidden">
           <div
-            className={`h-full transition-all duration-300 ${barColor}`}
+            className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500 ease-out`}
             style={{ width: `${pct.toFixed(1)}%` }}
           />
         </div>
-        <div className="flex items-center justify-between mt-1.5 text-xs text-gray-400 gap-3 flex-wrap">
-          <span>
+        {/* Stats row — bytes/% + ETA. Velocidades subiram para os chips acima. */}
+        <div className="flex items-center justify-between mt-2 text-xs text-gray-400 gap-3 flex-wrap">
+          <span className="text-gray-300 font-medium">
             {formatBytes(Math.round((t.totalSize || 0) * (t.progress || 0)))} / {formatBytes(t.totalSize)}
-            {' '}({pct.toFixed(1)}%)
+            <span className="text-gray-500 ml-1">({pct.toFixed(1)}%)</span>
           </span>
-          <span className="flex items-center gap-3 text-gray-400">
-            <span className="flex items-center gap-1" title="Velocidade de download">
-              <Zap className="w-3 h-3 text-blue-400" />
-              {formatRate(t.downRate)}
+          {eta && (
+            <span className="flex items-center gap-1 text-gray-500" title="ETA">
+              <Clock className="w-3 h-3" /> {eta}
             </span>
-            <span className="flex items-center gap-1" title="Velocidade de upload">
-              <Zap className="w-3 h-3 text-purple-400 rotate-180" />
-              {formatRate(t.upRate)}
-            </span>
-            <span className="flex items-center gap-1" title="Peers conectados">
-              <Users className="w-3 h-3" />
-              {t.peers}
-            </span>
-            {eta && (
-              <span className="flex items-center gap-1 text-gray-500" title="Tempo estimado">
-                <Clock className="w-3 h-3" />
-                {eta}
-              </span>
-            )}
-          </span>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Action bar */}
+      <div className="flex items-center gap-2 flex-wrap pt-1">
         {isPaused ? (
-          <button
-            onClick={onResume}
-            disabled={busy}
-            className="flex items-center gap-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 disabled:opacity-50 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded transition-colors"
-          >
-            <Play className="w-3.5 h-3.5" />
-            Retomar
-          </button>
+          <ActionButton onClick={onResume} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5" />} label="Retomar" />
         ) : (
-          <button
-            onClick={onPause}
-            disabled={busy || isComplete}
-            className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded transition-colors"
-          >
-            <Pause className="w-3.5 h-3.5" />
-            Pausar
-          </button>
+          <ActionButton onClick={onPause} disabled={busy || isComplete} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" />
         )}
 
         <label className="flex items-center gap-1.5 text-xs text-gray-400">
-          <span>Prioridade:</span>
+          <span className="text-gray-500">Prioridade:</span>
           <select
             value={priority}
             onChange={e => onPriority(e.target.value as StreamPriority)}
             disabled={busy}
-            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-gray-100 disabled:opacity-50 focus:outline-none focus:border-emerald-500"
+            className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-gray-100 text-xs disabled:opacity-50 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
           >
             <option value="low">Baixa</option>
             <option value="normal">Normal</option>
@@ -454,34 +1290,297 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
         </label>
 
         {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
-        <button
-          onClick={onDelete}
-          disabled={busy}
-          className="flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded transition-colors ml-auto"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          Parar
-        </button>
+        <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label="Parar" className="ml-auto" />
       </div>
     </div>
   )
 }
 
-function TorrentStatusBadge({ status }: { status: NonNullable<TorrentInfo['status']> }) {
-  const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
-    downloading: { label: 'Baixando',  cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 border', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    paused:      { label: 'Pausado',   cls: 'bg-gray-500/20 text-gray-300 border-gray-500/30 border',          icon: <Pause className="w-3 h-3" /> },
-    seeding:     { label: 'Semeando',  cls: 'bg-purple-500/20 text-purple-300 border-purple-500/30 border',    icon: <Activity className="w-3 h-3" /> },
-    complete:    { label: 'Completo',  cls: 'bg-green-500/20 text-green-300 border-green-500/30 border',       icon: <CheckCircle2 className="w-3 h-3" /> },
-  }
-  const s = map[status]
+// ═══════════════════════════════════════════════════════════════════════════════
+// DownloadCard — Premium redesigned background download card
+// ═══════════════════════════════════════════════════════════════════════════════
+
+interface DownloadCardProps {
+  d: DownloadEntry
+  /** Torrent ao vivo (se o anacrolix ainda tem ele carregado). Usado pra mostrar
+   *  ↑ upload e peers DEPOIS de concluído — informação que vinha da TorrentCard
+   *  duplicada que foi removida. */
+  live?: TorrentInfo
+  busy: boolean
+  /** Seleção pra batch promote (só completos). undefined = sem checkbox. */
+  selected?: boolean
+  onToggleSelected?: () => void
+  onPause: () => void
+  onResume: () => void
+  onDelete: () => void
+  onPromote?: () => void
+  onStopSeed?: () => void
+  onPlay?: () => void
+  onInspect?: () => void
+}
+
+function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect }: DownloadCardProps) {
+  const pct = Math.max(0, Math.min(1, d.progress || 0)) * 100
+  const isCompleted = d.status === 'completed'
+  const isFailed = d.status === 'failed'
+  const isPaused = d.status === 'paused'
+  const isActive = d.status === 'downloading' || d.status === 'queued'
+
+  const etaText = computeETA(d)
+
+  // Card border based on state
+  const borderClass = isCompleted
+    ? 'border-green-500/30 hover:border-green-500/50'
+    : isFailed
+      ? 'border-red-500/30 hover:border-red-500/50'
+      : isPaused
+        ? 'border-gray-600/50 hover:border-gray-500/60'
+        : 'border-cyan-500/30 hover:border-cyan-500/50'
+
+  // Gradient bar
+  const barGradient = isCompleted
+    ? 'from-green-500 to-emerald-400'
+    : isFailed
+      ? 'from-red-500 to-rose-400'
+      : isPaused
+        ? 'from-gray-600 to-gray-500'
+        : 'from-cyan-500 to-blue-400'
+
   return (
-    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 ${s.cls}`}>
-      {s.icon}
-      {s.label}
+    <div className={`
+      relative overflow-hidden rounded-xl border ${borderClass}
+      bg-gradient-to-br from-gray-800/80 to-gray-900/60 backdrop-blur-sm
+      p-4 flex flex-col gap-3 transition-all duration-300
+    `}>
+      {/* Top row */}
+      <div className="flex items-start justify-between gap-3">
+        {onToggleSelected && (
+          <input
+            type="checkbox"
+            checked={!!selected}
+            onChange={onToggleSelected}
+            className="mt-1 accent-cyan-500 flex-shrink-0"
+            title="Selecionar para ações em lote"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold text-gray-100 truncate text-sm" title={d.name}>{d.name || d.filePath}</h3>
+          <p className="text-[11px] text-gray-600 truncate mt-0.5" title={d.filePath}>{d.filePath}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <KindBadge kind="server" />
+          <DownloadStatusBadge status={d.status} />
+        </div>
+      </div>
+
+      {/* Live activity chips — só quando o anacrolix tem o torrent ativo (ou
+          baixando, ou seedando depois de concluído). Mesmo formato visual do
+          TorrentCard pra consistência. */}
+      {live && (live.downRate > 0 || live.upRate > 0 || live.peers > 0) && (
+        <div className="flex items-center gap-2 flex-wrap text-sm">
+          <span
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
+              live.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-gray-500'
+            }`}
+            title="Download deste torrent"
+          >
+            <ArrowDownCircle className="w-3.5 h-3.5" />
+            {formatRate(live.downRate)}
+          </span>
+          <span
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
+              live.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-gray-500'
+            }`}
+            title="Upload deste torrent (seedando)"
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" />
+            {formatRate(live.upRate)}
+          </span>
+          <span
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono tabular-nums"
+            title="Peers conectados / Seeders no swarm"
+          >
+            <Users className="w-3.5 h-3.5" />
+            {live.peers}{(live.seeders ?? 0) > 0 && <span className="text-gray-500"> / {live.seeders}</span>}
+          </span>
+        </div>
+      )}
+
+      {/* Progress bar */}
+      <div>
+        <div className="h-2 bg-gray-900/80 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500 ease-out`}
+            style={{ width: `${pct.toFixed(1)}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
+          <span className="text-gray-300 font-medium">
+            {formatBytes(d.bytesDownloaded)} / {formatBytes(d.fileSize)}
+            <span className="text-gray-500 ml-1">({pct.toFixed(1)}%)</span>
+          </span>
+          {!isCompleted && !isFailed && etaText && (
+            <span className="flex items-center gap-1 text-gray-500">
+              <Clock className="w-3 h-3" /> {etaText}
+            </span>
+          )}
+          {isCompleted && (
+            <span className="flex items-center gap-1 text-green-400 text-xs font-medium">
+              <CheckCircle2 className="w-3 h-3" /> Concluído
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Error banner */}
+      {isFailed && d.error && (
+        <div className="flex items-start gap-2 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+          <span className="break-all">{d.error}</span>
+        </div>
+      )}
+
+      {/* Action bar */}
+      <div className="flex items-center gap-2 pt-1 flex-wrap">
+        {onPlay && !isFailed && d.bytesDownloaded > 0 && (
+          <ActionButton
+            onClick={onPlay}
+            disabled={busy}
+            variant="success"
+            icon={<Play className="w-3.5 h-3.5 fill-current" />}
+            label="Tocar"
+          />
+        )}
+        {isActive && (
+          <ActionButton onClick={onPause} disabled={busy} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" />
+        )}
+        {(isPaused || isFailed) && (
+          <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? 'Tentar novamente' : 'Resumir'} />
+        )}
+        {isCompleted && onPromote && (
+          <ActionButton
+            onClick={onPromote}
+            disabled={busy}
+            variant="info"
+            icon={<ArrowUpCircle className="w-3.5 h-3.5" />}
+            label="Promover"
+          />
+        )}
+        {isCompleted && onStopSeed && (
+          <ActionButton
+            onClick={onStopSeed}
+            disabled={busy}
+            variant="neutral"
+            icon={<Pause className="w-3.5 h-3.5" />}
+            label="Parar de seedar"
+          />
+        )}
+        {onInspect && (
+          <ActionButton
+            onClick={onInspect}
+            disabled={busy}
+            variant="neutral"
+            icon={<Info className="w-3.5 h-3.5" />}
+            label="Detalhes"
+          />
+        )}
+        <ActionButton
+          onClick={onDelete}
+          disabled={busy}
+          variant="danger"
+          icon={<Trash2 className="w-3.5 h-3.5" />}
+          label={isCompleted ? 'Remover da lista' : 'Cancelar'}
+          className="ml-auto"
+        />
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Shared sub-components
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function KindBadge({ kind }: { kind: 'streaming' | 'server' }) {
+  if (kind === 'streaming') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30">
+        <Activity className="w-2.5 h-2.5" />
+        Streaming
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/30">
+      <Server className="w-2.5 h-2.5" />
+      Servidor
     </span>
   )
 }
+
+function TorrentStatusBadge({ status }: { status: NonNullable<TorrentInfo['status']> }) {
+  const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
+    downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+    paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-gray-300 border-gray-500/30',          icon: <Pause className="w-3 h-3" /> },
+    seeding:     { label: 'Semeando',  cls: 'bg-violet-500/15 text-violet-300 border-violet-500/30',    icon: <ArrowUpCircle className="w-3 h-3" /> },
+    complete:    { label: 'Completo',  cls: 'bg-green-500/15 text-green-300 border-green-500/30',       icon: <CheckCircle2 className="w-3 h-3" /> },
+  }
+  const s = map[status]
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${s.cls}`}>
+      {s.icon} {s.label}
+    </span>
+  )
+}
+
+function DownloadStatusBadge({ status }: { status: DownloadEntry['status'] }) {
+  const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
+    queued:      { label: 'Na fila',     cls: 'bg-gray-700/50 text-gray-300 border-gray-600/50',         icon: <Clock className="w-3 h-3" /> },
+    downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+    completed:   { label: 'Concluído',   cls: 'bg-green-500/15 text-green-300 border-green-500/30',      icon: <CheckCircle2 className="w-3 h-3" /> },
+    failed:      { label: 'Falhou',      cls: 'bg-red-500/15 text-red-300 border-red-500/30',            icon: <AlertCircle className="w-3 h-3" /> },
+    paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-gray-300 border-gray-500/30',         icon: <Pause className="w-3 h-3" /> },
+  }
+  const s = map[status]
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${s.cls}`}>
+      {s.icon} {s.label}
+    </span>
+  )
+}
+
+function ActionButton({ onClick, disabled, variant, icon, label, className = '' }: {
+  onClick: () => void
+  disabled: boolean
+  variant: 'success' | 'danger' | 'neutral' | 'info'
+  icon: React.ReactNode
+  label: string
+  className?: string
+}) {
+  const styles: Record<typeof variant, string> = {
+    success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+    danger:  'bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/30',
+    neutral: 'bg-gray-700/60 hover:bg-gray-700 text-gray-300 border-gray-600/60',
+    info:    'bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border-blue-500/30',
+  }
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`
+        flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-lg
+        disabled:opacity-50 transition-all duration-200 font-medium
+        ${styles[variant]} ${className}
+      `}
+    >
+      {icon} {label}
+    </button>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ETA helpers
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function computeTorrentETA(t: TorrentInfo): string {
   if (!t.totalSize || !t.downRate || t.downRate <= 0) return ''
@@ -493,129 +1592,6 @@ function computeTorrentETA(t: TorrentInfo): string {
   return `~${formatDurationShort(sec)}`
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-
-interface CardProps {
-  d: DownloadEntry
-  busy: boolean
-  onPause: () => void
-  onResume: () => void
-  onDelete: () => void
-}
-
-function DownloadCard({ d, busy, onPause, onResume, onDelete }: CardProps) {
-  const pct = Math.max(0, Math.min(1, d.progress || 0)) * 100
-  const isCompleted = d.status === 'completed'
-  const isFailed = d.status === 'failed'
-  const isPaused = d.status === 'paused'
-  const isActive = d.status === 'downloading' || d.status === 'queued'
-
-  const barColor = isCompleted
-    ? 'bg-green-500'
-    : isFailed
-      ? 'bg-red-500'
-      : isPaused
-        ? 'bg-gray-500'
-        : 'bg-blue-500'
-
-  // ETA: very rough — uses average rate since startedAt. The server doesn't
-  // track per-download rate (it'd require a second sample on each tick), so
-  // we settle for "linear extrapolation since start" which is good enough
-  // for the user to know whether to wait or come back later.
-  const etaText = computeETA(d)
-
-  return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="font-semibold text-gray-100 truncate" title={d.name}>{d.name || d.filePath}</h2>
-          <p className="text-xs text-gray-500 truncate mt-0.5" title={d.filePath}>{d.filePath}</p>
-        </div>
-        <StatusBadge status={d.status} />
-      </div>
-
-      <div>
-        <div className="h-2 bg-gray-900 rounded overflow-hidden">
-          <div
-            className={`h-full transition-all duration-300 ${barColor}`}
-            style={{ width: `${pct.toFixed(1)}%` }}
-          />
-        </div>
-        <div className="flex items-center justify-between mt-1.5 text-xs text-gray-400">
-          <span>
-            {formatBytes(d.bytesDownloaded)} / {formatBytes(d.fileSize)}
-            {' '}({pct.toFixed(1)}%)
-          </span>
-          {!isCompleted && !isFailed && etaText && (
-            <span className="flex items-center gap-1 text-gray-500">
-              <Clock className="w-3 h-3" />
-              {etaText}
-            </span>
-          )}
-          {isCompleted && d.completedAt && (
-            <span className="text-green-400 text-xs">Concluído</span>
-          )}
-        </div>
-      </div>
-
-      {isFailed && d.error && (
-        <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-2 py-1.5">
-          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-          <span className="break-all">{d.error}</span>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        {isActive && (
-          <button
-            onClick={onPause}
-            disabled={busy}
-            className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded transition-colors"
-          >
-            <Pause className="w-3.5 h-3.5" />
-            Pausar
-          </button>
-        )}
-        {(isPaused || isFailed) && (
-          <button
-            onClick={onResume}
-            disabled={busy}
-            className="flex items-center gap-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 disabled:opacity-50 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded transition-colors"
-          >
-            <Play className="w-3.5 h-3.5" />
-            {isFailed ? 'Tentar novamente' : 'Resumir'}
-          </button>
-        )}
-        <button
-          onClick={onDelete}
-          disabled={busy}
-          className="flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded transition-colors ml-auto"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          {isCompleted ? 'Remover da lista' : 'Cancelar'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function StatusBadge({ status }: { status: DownloadEntry['status'] }) {
-  const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
-    queued:      { label: 'Na fila',     cls: 'bg-gray-700 text-gray-300',                     icon: <Clock className="w-3 h-3" /> },
-    downloading: { label: 'Baixando',    cls: 'bg-blue-500/20 text-blue-300 border-blue-500/30 border',   icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    completed:   { label: 'Concluído',   cls: 'bg-green-500/20 text-green-300 border-green-500/30 border', icon: <CheckCircle2 className="w-3 h-3" /> },
-    failed:      { label: 'Falhou',      cls: 'bg-red-500/20 text-red-300 border-red-500/30 border',       icon: <AlertCircle className="w-3 h-3" /> },
-    paused:      { label: 'Pausado',     cls: 'bg-gray-500/20 text-gray-300 border-gray-500/30 border',    icon: <Pause className="w-3 h-3" /> },
-  }
-  const s = map[status]
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded flex-shrink-0 ${s.cls}`}>
-      {s.icon}
-      {s.label}
-    </span>
-  )
-}
-
 function computeETA(d: DownloadEntry): string {
   if (!d.startedAt || d.fileSize <= 0 || d.bytesDownloaded <= 0) return ''
   if (d.bytesDownloaded >= d.fileSize) return ''
@@ -623,17 +1599,9 @@ function computeETA(d: DownloadEntry): string {
   if (!isFinite(startMs) || startMs <= 0) return ''
   const elapsedSec = (Date.now() - startMs) / 1000
   if (elapsedSec < 2) return ''
-  const rate = d.bytesDownloaded / elapsedSec // bytes/sec
+  const rate = d.bytesDownloaded / elapsedSec
   if (rate <= 0) return ''
   const remainingSec = (d.fileSize - d.bytesDownloaded) / rate
   if (!isFinite(remainingSec) || remainingSec <= 0) return ''
   return `~${formatDurationShort(remainingSec)} restantes`
-}
-
-function formatDurationShort(totalSeconds: number): string {
-  if (totalSeconds < 60) return `${Math.ceil(totalSeconds)}s`
-  if (totalSeconds < 3600) return `${Math.ceil(totalSeconds / 60)}m`
-  const hours = Math.floor(totalSeconds / 3600)
-  const mins = Math.floor((totalSeconds % 3600) / 60)
-  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
 }

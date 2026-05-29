@@ -29,6 +29,7 @@ import {
   subtitlesSearch,
   subtitlesAuto,
   subtitleDownloadURL,
+  fetchMediaToken,
   transcodeCapabilities,
   favoriteAdd,
   favoriteRemove,
@@ -195,6 +196,13 @@ export default function PlayerModal({
   // map — otherwise /api/stream/HASH/IDX returns 404 and the browser fires a
   // misleading "format not supported" error before swarm bootstrap completes.
   const [serverReady, setServerReady] = useState(false)
+  // Media token: JWT scope="media" com TTL longo (6h backend). Buscado uma vez
+  // ao abrir o player e usado em TODAS as URLs de mídia (<video src>,
+  // <track src>, <img cover>). Se usássemos o access token regular (15min),
+  // o refresh em background trocaria a query string e o <video> resetaria
+  // playback pra 0. URLs ficam vazias até o token chegar — gate equivalente
+  // ao serverReady abaixo, garantindo que o <src> só é setado uma vez.
+  const [mediaToken, setMediaToken] = useState('')
   // Frozen snapshot of the diagnostic at the moment onVideoError fired. Used by
   // the error UI which re-renders AFTER the <video> element unmounted, so by
   // then videoRef.current is null and a live diagnostic would come back empty.
@@ -274,6 +282,20 @@ export default function PlayerModal({
   const prefetchedPlaylistN2Ref = useRef(false)
   // Store the original (un-offset) cue timings the first time we see them
   const origCuesRef = useRef<{ start: number; end: number }[]>([])
+
+  // Pede um media token (JWT TTL longo, scope="media") ao abrir o player.
+  // Necessário ANTES de montar o <video src> pra que a URL não troque depois
+  // (o que faria o browser interpretar como mídia nova e resetar pra 0).
+  // Refresh do access token regular em background não afeta este — só vai
+  // expirar depois da sessão de playback inteira (6h default).
+  useEffect(() => {
+    if (!result) return
+    let cancelled = false
+    fetchMediaToken()
+      .then(t => { if (!cancelled) setMediaToken(t) })
+      .catch(() => {}) // fallback: streamURL fica vazio, UI mostra "carregando"
+    return () => { cancelled = true }
+  }, [result?.infoHash])
 
   // Add the torrent when modal opens
   useEffect(() => {
@@ -1054,21 +1076,26 @@ export default function PlayerModal({
   // is the only thing Safari treats as a first-class video source.
   // Chromium/Edge don't have native HLS support so we keep progressive MP4
   // for them (works fine with our current ffmpeg config).
-  const streamURL = info && selectedFile >= 0 && serverReady
+  // streamURL gateia em mediaToken também: a primeira vez que o <video> recebe
+  // src ele aciona loadstart + decode pipeline. Trocar src depois (mesmo path,
+  // query diferente) faz o browser resetar pra 0. Mantendo a string idêntica
+  // durante toda a sessão (mediaToken é estado estável até unmount), o React
+  // nunca causa re-attribute do src.
+  const streamURL = info && selectedFile >= 0 && serverReady && mediaToken
     ? (isTranscoded
         ? (isSafariBrowser()
-            ? streamHLSMasterURL(info.infoHash, selectedFile)
-            : streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts))
-        : streamFileURL(info.infoHash, selectedFile))
+            ? streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
+            : streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken))
+        : streamFileURL(info.infoHash, selectedFile, mediaToken))
     : ''
   // Subtitle source priority: sidecar file (instant, perfect sync) > embedded track (extracted via ffmpeg) > OpenSubtitles external
   const subtitleVttURL =
-    info && sidecarIdx !== null
-      ? streamSidecarURL(info.infoHash, sidecarIdx)
-      : info && embeddedSub !== null
-        ? streamSubtrackURL(info.infoHash, selectedFile, embeddedSub)
-        : subActive
-          ? subtitleDownloadURL(subActive)
+    info && mediaToken && sidecarIdx !== null
+      ? streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
+      : info && mediaToken && embeddedSub !== null
+        ? streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
+        : mediaToken && subActive
+          ? subtitleDownloadURL(subActive, mediaToken)
           : ''
 
   // "Open in VLC" link — universal M3U download.
@@ -1258,7 +1285,7 @@ export default function PlayerModal({
                         and is hidden on error so the glyph shows through. */}
                     <Volume2 className="absolute w-12 h-12 text-gray-600" />
                     <img
-                      src={streamArtworkURL(info.infoHash, selectedFile)}
+                      src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
                       alt=""
                       className="relative max-h-full max-w-full object-contain"
                       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
@@ -1384,6 +1411,15 @@ export default function PlayerModal({
                     }}
                     onProgress={onTimeUpdate}
                     onEnded={() => {
+                      // Diagnostic — helps debug "player fechou mid-playlist"
+                      // reports. Captured state at the decision point.
+                      console.debug('[player] video onEnded', {
+                        repeat,
+                        nextVideoIdx,
+                        hasPlaylistAdvance: !!onPlaylistAdvance,
+                        playlistName: playlist?.name,
+                        audioMode,
+                      })
                       // 1. repeat-one: replay the same file
                       if (repeat === 'one') {
                         const v = videoRef.current

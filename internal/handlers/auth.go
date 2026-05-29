@@ -142,6 +142,33 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 	}
 }
 
+// MediaToken handles POST /api/auth/media-token — emits a long-lived JWT
+// (scope="media") for use as ?token= in <video>/<track>/<img> URLs. The
+// regular access token's 15min TTL causes the player to reset playback on
+// refresh (the new query string makes <video> treat the src as a new media);
+// the media token survives the entire playback session so the URL doesn't
+// change mid-stream. Caller must be authenticated via Required middleware.
+func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		claims, ok := auth.ClaimsFromCtx(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			return
+		}
+		user, err := store.GetUserByID(claims.UserID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+			return
+		}
+		token, exp, err := tm.SignMedia(user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": token, "expiresAt": exp})
+	}
+}
+
 // Logout handles POST /api/auth/logout — body: {refresh}
 func Logout(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {

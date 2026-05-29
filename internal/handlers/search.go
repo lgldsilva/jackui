@@ -6,29 +6,77 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/history"
 	"github.com/luizg/jackui/internal/jackett"
 	"github.com/luizg/jackui/internal/middleware"
 	"github.com/luizg/jackui/internal/parser"
+	"github.com/luizg/jackui/internal/streamer"
 )
 
+// searchResult é o que o /api/search devolve por item. Estende
+// jackett.Result com enriquecimentos calculados do lado do servidor:
+//
+//   - Cached: veio do cache local em vez de uma query live ao Jackett
+//   - Quality: parse de release (resolução, codec, source, áudio)
+//   - Playable / MediaKind: heurística "isso é audio/video tocável" (antes
+//     vivia em web/src/lib/playable.ts; movido pra cá pra fonte única)
+//   - IsFavorited / IsDownloaded: joins baratos contra favorites/downloads
+//     do usuário, eliminando o ResultCard ter que manter Sets module-scope
 type searchResult struct {
 	jackett.Result
-	Cached  bool            `json:"cached"`
-	Quality parser.Quality  `json:"quality"`
+	Cached       bool            `json:"cached"`
+	Quality      parser.Quality  `json:"quality"`
+	Playable     bool            `json:"playable"`
+	MediaKind    parser.MediaKind `json:"mediaKind"`
+	IsFavorited  bool            `json:"isFavorited"`
+	IsDownloaded bool            `json:"isDownloaded"`
 }
 
-func enriched(r jackett.Result, cached bool) searchResult {
-	return searchResult{
-		Result:  r,
-		Cached:  cached,
-		Quality: parser.Parse(r.Title),
+// resultEnricher pré-carrega os sets de favorites/downloads do usuário uma
+// vez e enriquece N results sem N queries. Construído por buildEnricher().
+type resultEnricher struct {
+	favHashes map[string]bool
+	dlHashes  map[string]bool
+}
+
+func buildEnricher(favs *streamer.FavoritesStore, dls *downloads.Store, userID int, includeAll bool) *resultEnricher {
+	e := &resultEnricher{
+		favHashes: map[string]bool{},
+		dlHashes:  map[string]bool{},
 	}
+	if favs != nil {
+		if m, err := favs.HashSetForUser(userID, includeAll); err == nil {
+			e.favHashes = m
+		}
+	}
+	if dls != nil {
+		if m, err := dls.HashSetForUser(userID, includeAll); err == nil {
+			e.dlHashes = m
+		}
+	}
+	return e
+}
+
+func (e *resultEnricher) enrich(r jackett.Result, cached bool) searchResult {
+	q := parser.Parse(r.Title)
+	out := searchResult{
+		Result:    r,
+		Cached:    cached,
+		Quality:   q,
+		Playable:  parser.IsPlayable(r.Title, r.CategoryID, r.MagnetURI, q.Resolution),
+		MediaKind: parser.DetectKind(r.Title, r.CategoryID),
+	}
+	if e != nil && r.InfoHash != "" {
+		out.IsFavorited = e.favHashes[r.InfoHash]
+		out.IsDownloaded = e.dlHashes[r.InfoHash]
+	}
+	return out
 }
 
 // Search handles GET /api/search?q=&indexers=&category=
 // Merges live Jackett results with local cache; remote results take priority on dedup.
-func Search(client *jackett.Client, store *history.Store) gin.HandlerFunc {
+func Search(client *jackett.Client, store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
@@ -49,6 +97,7 @@ func Search(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && c.Query("all") == "1"
+		enricher := buildEnricher(favs, dls, userID, includeAll)
 
 		liveResults, liveErr := client.Search(query, category, indexers)
 
@@ -61,7 +110,7 @@ func Search(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 			cached, _ = store.Search(query, userID, includeAll)
 		}
 
-		merged := mergeResults(liveResults, cached)
+		merged := mergeResults(liveResults, cached, enricher)
 
 		if liveErr != nil && len(merged) == 0 {
 			c.JSON(http.StatusBadGateway, gin.H{"error": liveErr.Error()})
@@ -74,12 +123,12 @@ func Search(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 
 // mergeResults combines live and cached results.
 // Live results are added first; cached results only appear if their infoHash is not already present.
-func mergeResults(live []jackett.Result, cached []history.CachedResult) []searchResult {
+func mergeResults(live []jackett.Result, cached []history.CachedResult, e *resultEnricher) []searchResult {
 	seen := make(map[string]bool)
 	out := make([]searchResult, 0, len(live)+len(cached))
 
 	for _, r := range live {
-		out = append(out, enriched(r, false))
+		out = append(out, e.enrich(r, false))
 		if r.InfoHash != "" {
 			seen[r.InfoHash] = true
 		}
@@ -89,7 +138,7 @@ func mergeResults(live []jackett.Result, cached []history.CachedResult) []search
 		if r.InfoHash != "" && seen[r.InfoHash] {
 			continue
 		}
-		out = append(out, enriched(r.Result, true))
+		out = append(out, e.enrich(r.Result, true))
 		if r.InfoHash != "" {
 			seen[r.InfoHash] = true
 		}

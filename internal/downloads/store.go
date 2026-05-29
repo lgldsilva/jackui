@@ -37,6 +37,8 @@ type Download struct {
 	FileSize        int64      `json:"fileSize"`
 	Name            string     `json:"name"`
 	Magnet          string     `json:"magnet"`
+	Tracker         string     `json:"tracker,omitempty"`
+	Category        string     `json:"category,omitempty"`
 	Status          string     `json:"status"`
 	BytesDownloaded int64      `json:"bytesDownloaded"`
 	Progress        float64    `json:"progress"`
@@ -77,6 +79,8 @@ func (s *Store) migrate() error {
 			file_size        INTEGER NOT NULL,
 			name             TEXT    NOT NULL,
 			magnet           TEXT    NOT NULL,
+			tracker          TEXT    NOT NULL DEFAULT '',
+			category         TEXT    NOT NULL DEFAULT '',
 			status           TEXT    NOT NULL DEFAULT 'queued',
 			bytes_downloaded INTEGER NOT NULL DEFAULT 0,
 			started_at       DATETIME,
@@ -88,7 +92,36 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_dl_user ON downloads(user_id);
 		CREATE INDEX IF NOT EXISTS idx_dl_status ON downloads(status);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, col := range []string{"tracker", "category"} {
+		if !s.hasColumn("downloads", col) {
+			if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN " + col + " TEXT NOT NULL DEFAULT ''"); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) hasColumn(table, col string) bool {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk) == nil && name == col {
+			return true
+		}
+	}
+	return false
 }
 
 // Create inserts a new download row in `downloading` state (immediately
@@ -107,12 +140,18 @@ func (s *Store) Create(d Download) (*Download, error) {
 			existing.Status = StatusDownloading
 			existing.Error = ""
 		}
+		// Update tracker/category even if re-queueing
+		if d.Tracker != "" || d.Category != "" {
+			_, _ = s.db.Exec(`UPDATE downloads SET tracker=?, category=? WHERE id=?`, d.Tracker, d.Category, existing.ID)
+			existing.Tracker = d.Tracker
+			existing.Category = d.Category
+		}
 		return existing, nil
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, status)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
-	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, StatusDownloading)
+		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusDownloading)
 	if err != nil {
 		return nil, err
 	}
@@ -122,88 +161,169 @@ func (s *Store) Create(d Download) (*Download, error) {
 
 // Get returns one download owned by userID.
 func (s *Store) Get(userID, id int) (*Download, error) {
-	row := s.db.QueryRow(`
-		SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
-		       status, bytes_downloaded,
-		       COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at
-		FROM downloads WHERE id=? AND user_id=?
-	`, id, userID)
+	row := s.db.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
 	return scanRow(row)
 }
 
 // GetByKey looks up a download by its uniqueness tuple. Used by Create() to
 // dedupe and by the worker when reconciling state.
 func (s *Store) GetByKey(userID int, infoHash string, fileIndex int) (*Download, error) {
-	row := s.db.QueryRow(`
-		SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
-		       status, bytes_downloaded,
-		       COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at
-		FROM downloads WHERE user_id=? AND info_hash=? AND file_index=?
-	`, userID, infoHash, fileIndex)
+	row := s.db.QueryRow(dlSelect+"WHERE user_id=? AND info_hash=? AND file_index=?", userID, infoHash, fileIndex)
 	return scanRow(row)
 }
 
-// List returns all downloads for the user, newest first.
-func (s *Store) List(userID int) ([]Download, error) {
-	rows, err := s.db.Query(`
-		SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
-		       status, bytes_downloaded,
-		       COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at
-		FROM downloads WHERE user_id=? ORDER BY created_at DESC
-	`, userID)
+const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
+	tracker, category, status, bytes_downloaded,
+	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at FROM downloads `
+
+// HashSetForUser returns all info_hashes the user has in the downloads table
+// as a set. Usado pelo handler de busca pra enriquecer SearchResult com
+// isDownloaded em uma única query. includeAll=true devolve hashes de todos
+// os usuários (admin "all=1"). Inclui qualquer status (queued/downloading/
+// completed/failed) — uma vez que o user iniciou, "já baixei isso" continua
+// valendo pro filtro de UI.
+func (s *Store) HashSetForUser(userID int, includeAll bool) (map[string]bool, error) {
+	if s == nil {
+		return map[string]bool{}, nil
+	}
+	q := `SELECT info_hash FROM downloads WHERE info_hash != ''`
+	args := []any{}
+	if !includeAll {
+		q += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []Download{}
+	set := map[string]bool{}
 	for rows.Next() {
-		d, err := scanRows(rows)
-		if err != nil {
-			continue
+		var h string
+		if rows.Scan(&h) == nil && h != "" {
+			set[h] = true
 		}
-		out = append(out, *d)
 	}
-	return out, rows.Err()
+	return set, rows.Err()
+}
+
+// List returns all downloads for the user, newest first.
+func (s *Store) List(userID int) ([]Download, error) {
+	rows, err := s.db.Query(dlSelect+"WHERE user_id=? ORDER BY created_at DESC", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
+}
+
+// ListFiltered returns downloads for the user filtered by optional criteria.
+// Empty filters are ignored. Sort is "created_at" (default), "name", "size", "progress".
+func (s *Store) ListFiltered(userID int, status, tracker, category, search, sortCol, sortDir string) ([]Download, error) {
+	q := "WHERE user_id=?"
+	args := []any{userID}
+	if status != "" {
+		q += " AND status=?"
+		args = append(args, status)
+	}
+	if tracker != "" {
+		q += " AND tracker=?"
+		args = append(args, tracker)
+	}
+	if category != "" {
+		q += " AND category=?"
+		args = append(args, category)
+	}
+	if search != "" {
+		q += " AND (name LIKE ? OR file_path LIKE ?)"
+		s := "%" + search + "%"
+		args = append(args, s, s)
+	}
+	order := "created_at"
+	switch sortCol {
+	case "name":
+		order = "name"
+	case "size":
+		order = "file_size"
+	case "progress":
+		order = "bytes_downloaded"
+	case "status":
+		order = "status"
+	case "tracker":
+		order = "tracker"
+	case "category":
+		order = "category"
+	}
+	dir := "DESC"
+	if sortDir == "asc" {
+		dir = "ASC"
+	}
+	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
 }
 
 // ListActive returns every download in `downloading` status across all users.
 // The worker uses this to schedule downloads each tick.
 func (s *Store) ListActive() ([]Download, error) {
-	rows, err := s.db.Query(`
-		SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
-		       status, bytes_downloaded,
-		       COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at
-		FROM downloads WHERE status=? ORDER BY id
-	`, StatusDownloading)
+	rows, err := s.db.Query(dlSelect+"WHERE status=? ORDER BY id", StatusDownloading)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []Download{}
-	for rows.Next() {
-		d, err := scanRows(rows)
-		if err != nil {
-			continue
-		}
-		out = append(out, *d)
-	}
-	return out, rows.Err()
+	return scanSlice(rows)
 }
 
 // ListAll returns every download — used by the streamer to compute the
 // "protected from eviction" set on startup (any non-final entry should keep
 // its torrent data on disk).
 func (s *Store) ListAll() ([]Download, error) {
-	rows, err := s.db.Query(`
-		SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
-		       status, bytes_downloaded,
-		       COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at
-		FROM downloads ORDER BY id
-	`)
+	rows, err := s.db.Query(dlSelect+"ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanSlice(rows)
+}
+
+// DistinctTrackers returns all distinct tracker values for the user.
+func (s *Store) DistinctTrackers(userID int) ([]string, error) {
+	rows, err := s.db.Query("SELECT DISTINCT tracker FROM downloads WHERE user_id=? AND tracker!='' ORDER BY tracker", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) == nil {
+			out = append(out, v)
+		}
+	}
+	return out, rows.Err()
+}
+
+// DistinctCategories returns all distinct category values for the user.
+func (s *Store) DistinctCategories(userID int) ([]string, error) {
+	rows, err := s.db.Query("SELECT DISTINCT category FROM downloads WHERE user_id=? AND category!='' ORDER BY category", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) == nil {
+			out = append(out, v)
+		}
+	}
+	return out, rows.Err()
+}
+
+func scanSlice(rows *sql.Rows) ([]Download, error) {
 	out := []Download{}
 	for rows.Next() {
 		d, err := scanRows(rows)
@@ -240,6 +360,45 @@ func (s *Store) SetStatus(userID, id int, status string) error {
 	return err
 }
 
+// SetStatusForUser updates status for ALL non-terminal rows owned by userID.
+// Terminal statuses (completed, failed) are left unchanged.
+func (s *Store) SetStatusForUser(userID int, status string) (int64, error) {
+	if !validStatus(status) {
+		return 0, fmt.Errorf("invalid status: %s", status)
+	}
+	res, err := s.db.Exec(`UPDATE downloads SET status=? WHERE user_id=? AND status NOT IN (?, ?)`,
+		status, userID, StatusCompleted, StatusFailed)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// SetStatusByIDs updates status for specific download IDs owned by userID.
+func (s *Store) SetStatusByIDs(userID int, ids []int, status string) (int64, error) {
+	if !validStatus(status) {
+		return 0, fmt.Errorf("invalid status: %s", status)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	q := "UPDATE downloads SET status=? WHERE user_id=? AND id IN ("
+	args := []any{status, userID}
+	for i, id := range ids {
+		if i > 0 {
+			q += ","
+		}
+		q += "?"
+		args = append(args, id)
+	}
+	q += ")"
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // SetError flips a download into `failed` with a captured error message. Scoped
 // by user_id (the worker passes the row's own UserID).
 func (s *Store) SetError(userID, id int, msg string) error {
@@ -262,6 +421,13 @@ func (s *Store) SetFilePath(userID, id int, path string) error {
 // in NewWorker consistent so a restart doesn't protect the wrong path.
 func (s *Store) UpdateName(userID, id int, name string) error {
 	_, err := s.db.Exec(`UPDATE downloads SET name=? WHERE id=? AND user_id=?`, name, id, userID)
+	return err
+}
+
+// UpdateMetadata updates the resolved torrent name, file path inside the torrent, and file size in bytes.
+// Called by the background worker once torrent metadata is fully resolved.
+func (s *Store) UpdateMetadata(userID, id int, name string, filePath string, fileSize int64) error {
+	_, err := s.db.Exec(`UPDATE downloads SET name=?, file_path=?, file_size=? WHERE id=? AND user_id=?`, name, filePath, fileSize, id, userID)
 	return err
 }
 
@@ -307,7 +473,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 	var startedAt, completedAt, createdAt string
 	err := r.Scan(
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
-		&d.Name, &d.Magnet, &d.Status, &d.BytesDownloaded,
+		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &createdAt,
 	)
 	if err != nil {

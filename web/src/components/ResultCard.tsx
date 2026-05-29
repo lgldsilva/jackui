@@ -1,76 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload } from 'lucide-react'
-import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, downloadsList } from '../api/client'
+import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
+import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, convertMagnetToTorrentUrl } from '../api/client'
 import QualityBadges from './QualityBadges'
-import { isPlayable } from '../lib/playable'
 
-// Module-scoped cache of favorite identifiers. We store both `name` and
-// `infoHash` so cards can match by hash first (precise — same content always
-// returns the same hash) and fall back to title only when the result has no
-// hash (some trackers don't expose it via Jackett).
-//
-// Why this got more careful: the old version stored only names → two cards
-// with identical titles but different sources (different trackers) shared
-// favorite state, so favoriting one filled the heart on the other too. Hash
-// matching makes each torrent independent except for true dupes.
-const favoriteSet = new Set<string>()      // names (legacy + fallback)
-const favoriteHashSet = new Set<string>()  // info hashes (preferred)
-const listeners = new Set<() => void>()
 
-// Module-scoped cache of downloaded file hashes. Populated lazily on first
-// ResultCard mount and refreshable by callers (e.g. DownloadsPage).
-const downloadedHashSet = new Set<string>()
-const downloadedListeners = new Set<() => void>()
-let downloadsFetched = false
-
-export function refreshDownloadedCache(hashes: string[]) {
-  downloadedHashSet.clear()
-  for (const h of hashes) if (h) downloadedHashSet.add(h)
-  downloadedListeners.forEach(fn => fn())
-}
-
-async function ensureDownloadedCache() {
-  if (downloadsFetched) return
-  downloadsFetched = true
-  try {
-    const list = await downloadsList()
-    refreshDownloadedCache(
-      list.filter(d => d.status === 'completed').map(d => d.infoHash),
-    )
-  } catch {}
-}
-
-export interface FavoriteEntry {
-  name: string
-  infoHash?: string
-}
-
-export function refreshFavoritesCache(entries: FavoriteEntry[] | string[]) {
-  favoriteSet.clear()
-  favoriteHashSet.clear()
-  for (const e of entries) {
-    if (typeof e === 'string') {
-      favoriteSet.add(e)
-    } else {
-      if (e.name) favoriteSet.add(e.name)
-      if (e.infoHash) favoriteHashSet.add(e.infoHash)
-    }
-  }
-  listeners.forEach(fn => fn())
-}
-
-export function isFavoriteResult(infoHash: string | undefined, name: string): boolean {
-  // STRICT hash matching: if the card carries an info hash, ONLY a matching
-  // hash counts as favorited. Don't fall back to name because two different
-  // torrents (different hashes) can share titles across trackers — falling
-  // back made favoriting card A visually fill card B's heart and, worse,
-  // clicking heart on B then called favoriteRemove(title) which deleted A's
-  // saved row (backend keys favorites on name).
-  if (infoHash) return favoriteHashSet.has(infoHash)
-  // No hash on the result — last-resort match by name (legacy entries +
-  // sources that don't expose info hash).
-  return favoriteSet.has(name)
-}
+// Backwards-compat no-op shim. Antes da onda 3, SearchPage seedava o estado
+// de "favorito" via cache module-scope; agora o backend já entrega
+// `result.isFavorited` em cada SearchResult, então esta função existe só
+// pra não quebrar o import enquanto a chamada estiver no fluxo.
+export function refreshFavoritesCache(_entries: unknown): void {}
 
 interface ResultCardProps {
   result: SearchResult
@@ -110,7 +48,13 @@ async function copyToClipboard(text: string) {
 
 export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
   const [copied, setCopied] = useState(false)
-  const [_, force] = useState(0) // re-render when favoriteSet changes globally
+  const [resolvingMagnet, setResolvingMagnet] = useState(false)
+  const [resolvingTorrent, setResolvingTorrent] = useState(false)
+  // Optimistic favorite toggle. null = exibe o valor canônico do backend
+
+  // (result.isFavorited); true/false sobrescreve até o request voltar.
+  // Em failure restauramos pra null pra cair de volta no canônico.
+  const [favOpt, setFavOpt] = useState<boolean | null>(null)
   // TMDB lazy enrichment — only fires once the card has been visible.
   // Server returns 204 (no match) or 503 (disabled) without breaking.
   const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
@@ -129,64 +73,88 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
     return () => obs.disconnect()
   }, [result.title])
 
-  // Subscribe to global favorites + downloaded cache changes
-  useEffect(() => {
-    const listener = () => force(v => v + 1)
-    listeners.add(listener)
-    downloadedListeners.add(listener)
-    void ensureDownloadedCache()
-    return () => { listeners.delete(listener); downloadedListeners.delete(listener) }
-  }, [])
-
-  // Match by infoHash first (precise — same hash means same content); fall back
-  // to name only when the result has no hash. Prevents two visually-similar
-  // cards from sharing favorite state when they have distinct hashes.
-  const isFavorited = isFavoriteResult(result.infoHash, result.title)
+  // Canônico vem do backend; favOpt sobrescreve enquanto o toggle estiver em
+  // voo (otimismo na UI). Backend resolve favorited por infoHash (preciso) ou
+  // por name (fallback p/ entradas legacy sem hash) — sem matching ambíguo
+  // entre torrents com mesmo título.
+  const isFavorited = favOpt ?? result.isFavorited ?? false
 
   const toggleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation()
     const wasFavorited = isFavorited
-    if (wasFavorited) {
-      favoriteSet.delete(result.title)
-      if (result.infoHash) favoriteHashSet.delete(result.infoHash)
-    } else {
-      favoriteSet.add(result.title)
-      if (result.infoHash) favoriteHashSet.add(result.infoHash)
-    }
-    listeners.forEach(fn => fn())
+    setFavOpt(!wasFavorited)
     try {
       if (wasFavorited) await favoriteRemove(result.title)
       else await favoriteAdd(result.title, result.infoHash, result.magnetUri, 'manual')
     } catch {
-      // Revert on failure
-      if (wasFavorited) {
-        favoriteSet.add(result.title)
-        if (result.infoHash) favoriteHashSet.add(result.infoHash)
-      } else {
-        favoriteSet.delete(result.title)
-        if (result.infoHash) favoriteHashSet.delete(result.infoHash)
-      }
-      listeners.forEach(fn => fn())
+      setFavOpt(wasFavorited) // revert
     }
   }
 
   const handleCopyMagnet = async () => {
-    if (!result.magnetUri) return
-    await copyToClipboard(result.magnetUri)
+    let magnet = result.magnetUri
+    if (!magnet && result.link) {
+      setResolvingMagnet(true)
+      try {
+        const conv = await convertTorrentToMagnet(result.link)
+        magnet = conv.magnet
+        result.magnetUri = conv.magnet
+        result.infoHash = conv.infoHash
+      } catch (err: any) {
+        alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
+        setResolvingMagnet(false)
+        return
+      }
+      setResolvingMagnet(false)
+    }
+
+    if (!magnet) return
+    await copyToClipboard(magnet)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
   // Opens the magnet link in the OS-registered handler (qBittorrent, Transmission, etc.)
-  const handleOpenMagnet = () => {
-    if (result.magnetUri) {
-      window.location.href = result.magnetUri
+  const handleOpenMagnet = async () => {
+    let magnet = result.magnetUri
+    if (!magnet && result.link) {
+      setResolvingMagnet(true)
+      try {
+        const conv = await convertTorrentToMagnet(result.link)
+        magnet = conv.magnet
+        result.magnetUri = conv.magnet
+        result.infoHash = conv.infoHash
+      } catch (err: any) {
+        alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
+        setResolvingMagnet(false)
+        return
+      }
+      setResolvingMagnet(false)
+    }
+
+    if (magnet) {
+      window.location.href = magnet
     }
   }
 
-  const handleTorrentDownload = () => {
+  const handleTorrentDownload = async () => {
     if (result.link) {
       window.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
+      return
+    }
+
+    if (result.magnetUri) {
+      setResolvingTorrent(true)
+      try {
+        const downloadUrl = convertMagnetToTorrentUrl(result.magnetUri)
+        window.location.href = downloadUrl
+      } catch (err: any) {
+        alert(`Erro ao converter magnet para torrent: ${err.message || err}`)
+      } finally {
+        setTimeout(() => {
+          setResolvingTorrent(false)
+        }, 4000)
+      }
     }
   }
 
@@ -194,7 +162,9 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   const hasTorrent = Boolean(result.link)
   const hasSource = hasMagnet || hasTorrent  // either is enough — streamer.Add accepts both
   const canDownload = hasMagnet || hasTorrent
-  const canPlay = hasSource && onPlay && isPlayable(result)
+  // result.playable vem do backend. Fallback `true` mantém comportamento legacy
+  // para syntheticResult / deep links que constroem SearchResult sem o campo.
+  const canPlay = hasSource && onPlay && (result.playable ?? true)
 
   // Card-wide click → opens contents. Action buttons stopPropagation to not double-trigger.
   const cardClickable = hasSource && !!onExploreContents
@@ -278,7 +248,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
               cache
             </span>
           )}
-          {result.infoHash && downloadedHashSet.has(result.infoHash) && (
+          {result.isDownloaded && (
             <span className="text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full whitespace-nowrap flex items-center gap-1">
               <HardDriveDownload className="w-3 h-3" />
               Baixado
@@ -372,38 +342,55 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
             <ListPlus className="w-3.5 h-3.5" />
           </button>
         )}
-        {hasMagnet && (
+        {hasSource && (
           <div className="flex items-center gap-0.5">
             {/* Open in local app */}
             <button
               onClick={handleOpenMagnet}
+              disabled={resolvingMagnet}
               title="Abrir com app associado (qBittorrent, etc.)"
-              className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-gray-600"
+              className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-gray-600"
             >
-              <Magnet className="w-3.5 h-3.5" />
+              {resolvingMagnet ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+              ) : (
+                <Magnet className="w-3.5 h-3.5" />
+              )}
               Magnet
             </button>
             {/* Copy to clipboard */}
             <button
               onClick={handleCopyMagnet}
+              disabled={resolvingMagnet}
               title="Copiar link magnet"
               className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${
                 copied
                   ? 'bg-green-500/20 text-green-400'
-                  : 'bg-gray-700 hover:bg-gray-600 text-gray-400'
+                  : 'bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-400'
               }`}
             >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
+              {copied ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : resolvingMagnet ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+              ) : (
+                <Clipboard className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
         )}
-        {hasTorrent && (
+        {hasSource && (
           <button
             onClick={handleTorrentDownload}
+            disabled={resolvingTorrent}
             title="Baixar arquivo .torrent"
-            className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2.5 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 px-2.5 py-1.5 rounded-lg transition-colors"
           >
-            <FileDown className="w-3.5 h-3.5" />
+            {resolvingTorrent ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+            ) : (
+              <FileDown className="w-3.5 h-3.5" />
+            )}
             .torrent
           </button>
         )}

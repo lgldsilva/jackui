@@ -14,6 +14,8 @@ const (
 
 // Required is the Gin middleware that rejects requests without a valid Bearer token.
 // On success, the parsed Claims are attached to the context and available via FromCtx.
+// Media tokens (scope="media") only valem em rotas de mídia chamadas via
+// ?token=; rejeitadas aqui mesmo que a assinatura seja válida.
 func Required(tm *TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractToken(c)
@@ -26,6 +28,10 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
+		if claims.Scope == ScopeMedia && !isMediaPath(c.Request.URL.Path) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "media token not accepted here"})
+			return
+		}
 		c.Set(ctxClaimsKey, claims)
 		c.Next()
 	}
@@ -33,11 +39,17 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 
 // Optional attaches claims if a valid token is present but never blocks.
 // Useful for endpoints where behavior changes based on auth state (e.g., admin sees more).
+// Aplica o mesmo gate de scope que Required pra evitar elevação de privilégio
+// silenciosa via media token em rotas sensíveis.
 func Optional(tm *TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractToken(c)
 		if raw != "" {
 			if claims, err := tm.ParseAccess(raw); err == nil {
+				if claims.Scope == ScopeMedia && !isMediaPath(c.Request.URL.Path) {
+					c.Next()
+					return
+				}
 				c.Set(ctxClaimsKey, claims)
 			}
 		}
@@ -101,6 +113,8 @@ func extractToken(c *gin.Context) string {
 //   - /api/local/file          local-filesystem file served to <video>
 //   - /api/local/thumb         local-file frame preview loaded via <img>
 //   - /api/local/hls/*         local-file HLS playlist + segments served to <video>
+//   - /api/local/sidecar       local-file sidecar (.srt/.vtt) read by <track>
+//   - /api/local/subtrack      local-file embedded subtitle extracted to VTT for <track>
 //   - /api/search/stream       EventSource (SSE) search — EventSource has no way
 //                              to set headers, so the token must ride the query.
 func isMediaPath(path string) bool {
@@ -109,5 +123,7 @@ func isMediaPath(path string) bool {
 		strings.HasPrefix(path, "/api/local/file") ||
 		strings.HasPrefix(path, "/api/local/thumb") ||
 		strings.HasPrefix(path, "/api/local/hls/") ||
+		strings.HasPrefix(path, "/api/local/sidecar") ||
+		strings.HasPrefix(path, "/api/local/subtrack") ||
 		strings.HasPrefix(path, "/api/search/stream")
 }

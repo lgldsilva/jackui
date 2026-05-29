@@ -220,7 +220,20 @@ func (w *Worker) reconcile(d Download) {
 		return
 	}
 	completed := td.file.BytesCompleted()
-	if completed != d.BytesDownloaded {
+	// Forward-only: NUNCA regredir bytes_downloaded no DB. Sintoma "recomeçou
+	// do zero" surge quando anacrolix recém-fez Add do torrent e ainda está
+	// hash-verificando os pieces no disco — BytesCompleted retorna 0
+	// temporariamente apesar do .part inteiro estar lá. O tick escrevia 0,
+	// a UI mostrava 0%, e o usuário via como "recomeçou". Mantendo só
+	// avanços, o DB preserva o último valor conhecido durante a janela de
+	// verificação; em alguns segundos anacrolix volta a reportar o real e o
+	// progresso retoma de onde parou. Trade-off: se pieces forem GENUINAMENTE
+	// perdidos (raro), o DB segue mostrando o valor velho até anacrolix
+	// re-baixar — UI fica estagnada, não falsamente zerada.
+	if completed < d.BytesDownloaded {
+		log.Printf("downloads: ignoring transient regression #%d %q completed %d → %d (keeping DB) — peers=%d",
+			d.ID, td.name, d.BytesDownloaded, completed, len(td.torrent.PeerConns()))
+	} else if completed != d.BytesDownloaded {
 		_ = w.store.UpdateProgress(d.UserID, d.ID, completed)
 	}
 	// Completion check — file.Length() is the logical total bytes.
@@ -289,17 +302,30 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 		return
 	}
 	f := files[d.FileIndex]
+	// Hash-check pieces no disco ANTES de marcar como wanted. Sem isso,
+	// se o shutdown anterior foi ungraceful (SIGKILL pelo Docker antes do
+	// graceful-shutdown ficar pronto), o bolt DB do anacrolix está stale —
+	// pieces existem no disco mas anacrolix os marca como incompletos. f.Download
+	// abaixo iria pedir esses bytes do swarm. VerifyFile faz o hash de cada
+	// piece e marca como Complete os que casam, eliminando re-download. Idempotente
+	// (sync.Map dedupe entre streaming e download). Custo: ~1 hash por piece.
+	_ = w.streamer.VerifyFile(hash, d.FileIndex)
 	// File.Download() sets piece priority to Normal across the file's piece
 	// range — anacrolix then schedules a full download to completion.
 	f.Download()
 
 	name := t.Name()
 	w.streamer.RegisterDownload(name)
-	// Persist the real torrent name so a restart's boot-time RegisterDownload
-	// protects the right path (the row was created with the search title).
-	if name != "" && name != d.Name {
-		_ = w.store.UpdateName(d.UserID, d.ID, name)
-	}
+	// Persist resolved torrent metadata. file_path GRAVA ABSOLUTO (dataDir + path
+	// dentro do torrent) — não relativo. Antes guardava só `f.Path()` (relativo,
+	// ex.: "Folder/file.mkv"); se o move pós-completion falhava (cross-mount,
+	// container OOM no meio do copy), o file_path ficava inválido pra qualquer
+	// consumer (Local browser, Promote, etc.). Absoluto: se move sucede,
+	// SetFilePath sobrescreve com o destino; se falha, ainda dá pra achar o
+	// arquivo na cache pelo path.
+	filePath := filepath.Join(w.dataDir, f.Path())
+	fileSize := f.Length()
+	_ = w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize)
 
 	td := &trackedDL{
 		id:        d.ID,
@@ -322,7 +348,15 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	w.tracked[d.ID] = td
 	delete(w.retries, d.ID)
 	w.mu.Unlock()
-	log.Printf("downloads: started #%d %q (file %d, %d bytes)", d.ID, name, d.FileIndex, f.Length())
+	// Snapshot inicial dos bytes já completos. Sem isso, o usuário que clica
+	// Download enquanto está streamando vê 0% nos primeiros 2-4s (entre o
+	// init terminar e o primeiro tick rodar UpdateProgress) — interpreta como
+	// "recomeçou". VerifyFile acima já reconciliou o estado de pieces, então
+	// BytesCompleted aqui reflete a realidade do disco.
+	if initialBytes := f.BytesCompleted(); initialBytes > 0 {
+		_ = w.store.UpdateProgress(d.UserID, d.ID, initialBytes)
+	}
+	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, f.Length(), f.BytesCompleted())
 }
 
 // failOrRetry records a transient init failure. Below maxInitRetries it leaves

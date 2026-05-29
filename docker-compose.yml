@@ -3,6 +3,11 @@ services:
     image: jackui:latest
     container_name: jackui
     restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    # Graceful shutdown: 30s pra o app processar SIGTERM, parar o HTTP server e
+    # rodar os defers (anacrolix.Client.Close commita o estado de pieces no
+    # bolt DB; sem isso, restart fazia anacrolix re-baixar pieces já gravados).
+    stop_grace_period: 30s
     ports:
       - "8989:8989"
       - "51469:51469/tcp"   # BitTorrent peer port (TCP)
@@ -17,8 +22,20 @@ services:
       - /mnt/lvm1-storage/jacktrack/cache:/data/streams
       # Browsable/playable libraries (read-only) — surfaced on the "Local" page
       # via JACKUI_EXTERNAL_MOUNTS below.
-      - /mnt/lvm1-storage/jacktrack/download:/mnt/jacktrack-download
-      - /mnt/lvm1-storage/Downloads:/mnt/downloads:ro
+      # Mount unificado do storage compartilhado para permitir promoção instantânea
+      # (mesmo volume de origem/destino evita EXDEV/cópia lenta na movimentação).
+      - /mnt/lvm1-storage:/mnt/storage
+      # Google Drive mounts (rclone FUSE) — RAW para mídia, CRYPT para dados sensíveis.
+      # RW para permitir promover (upload) downloads concluídos direto pro GDrive.
+      - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:rw
+      - /mnt/rclone/gdrive/pessoal/sensitive:/mnt/gdrive/sensitive:rw
+      # NOTE: The sensitive (crypt) mount also needs config.yaml to set
+      # allowed_users. Add to /.../jackui/config.yaml:
+      #   external:
+      #     mounts:
+      #       - name: "GDrive Sensitivo"
+      #         path: /mnt/gdrive/sensitive
+      #         allowed_users: ["admin"]
     environment:
       - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
@@ -30,10 +47,13 @@ services:
       # com Jackett/Ollama. Cache de pieces (DataDir) fica no LVM.
       - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
-      - JACKUI_DOWNLOAD_DIR=/mnt/jacktrack-download
+      - JACKUI_DOWNLOAD_DIR=/mnt/storage/jacktrack/download
+      # Destino do botão "Promover" — move arquivo da área privada do app
+      # pra biblioteca compartilhada visível a todos os apps de mídia.
+      - JACKUI_SHARED_DIR=/mnt/storage/Downloads
       # Browsable mounts on the "Local" page (Name:/container/path,...).
       # "Downloads" = shared (todos veem); "Meus downloads" = app's own area.
-      - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/downloads,Meus downloads:/mnt/jacktrack-download
+      - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/storage/Downloads,Meus downloads:/mnt/storage/jacktrack/download,GDrive Media:/mnt/gdrive/media
       - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
       - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
       - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}

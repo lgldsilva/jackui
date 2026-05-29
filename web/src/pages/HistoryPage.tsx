@@ -10,27 +10,14 @@ import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
-import { groupByInfoHash } from '../lib/group'
+import { useFilteredResults } from '../lib/useFilteredResults'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
+import { formatDate } from '../lib/format'
 
 type Mode = 'browse' | 'global'
 
 type EntrySortKey = 'recent' | 'oldest' | 'most' | 'alpha'
 type ResultSortKey = 'seeders' | 'size' | 'date' | 'title'
-
-function formatDate(iso: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
-  const now = new Date()
-  const diffMs = now.getTime() - d.getTime()
-  const diffH = diffMs / 3_600_000
-  if (diffH < 1) return 'agora'
-  if (diffH < 24) return `${Math.floor(diffH)}h atrás`
-  if (diffH < 48) return 'ontem'
-  if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-}
 
 export default function HistoryPage() {
   const navigate = useNavigate()
@@ -254,50 +241,24 @@ export default function HistoryPage() {
   }, [results])
 
   // Filtered + sorted results (with infoHash grouping)
-  const filteredResults = useMemo(() => {
-    const grouped = groupByInfoHash(results)
-    let r = grouped.filter(res => {
-      if (res.seeders < minSeeders) return false
-      if (trackerFilter !== 'all' && res.tracker !== trackerFilter) return false
-      if (resultFilter && !res.title.toLowerCase().includes(resultFilter.toLowerCase())) return false
-      return true
-    })
-    r = [...r].sort((a, b) => {
-      let diff = 0
-      switch (resultSort) {
-        case 'seeders': diff = b.seeders - a.seeders; break
-        case 'size':    diff = b.size - a.size; break
-        case 'date':    diff = b.publishDate.localeCompare(a.publishDate); break
-        case 'title':   diff = a.title.localeCompare(b.title); break
-      }
-      return resultSortAsc ? -diff : diff
-    })
-    return r
-  }, [results, resultFilter, resultSort, resultSortAsc, minSeeders, trackerFilter])
+  const { filteredResults } = useFilteredResults(results, {
+    minSeeders,
+    trackerFilter,
+    titleFilter: resultFilter,
+    sortKey: resultSort,
+    sortAsc: resultSortAsc,
+  })
 
   const totalResults = entries.reduce((s, e) => s + e.resultCount, 0)
 
   // Global results — same filters/sort apply but operate on globalResults
-  const filteredGlobal = useMemo(() => {
-    const grouped = groupByInfoHash(globalResults)
-    let r = grouped.filter(res => {
-      if (res.seeders < minSeeders) return false
-      if (trackerFilter !== 'all' && res.tracker !== trackerFilter) return false
-      if (resultFilter && !res.title.toLowerCase().includes(resultFilter.toLowerCase())) return false
-      return true
-    })
-    r = [...r].sort((a, b) => {
-      let diff = 0
-      switch (resultSort) {
-        case 'seeders': diff = b.seeders - a.seeders; break
-        case 'size':    diff = b.size - a.size; break
-        case 'date':    diff = b.publishDate.localeCompare(a.publishDate); break
-        case 'title':   diff = a.title.localeCompare(b.title); break
-      }
-      return resultSortAsc ? -diff : diff
-    })
-    return r
-  }, [globalResults, resultFilter, resultSort, resultSortAsc, minSeeders, trackerFilter])
+  const { filteredResults: filteredGlobal } = useFilteredResults(globalResults, {
+    minSeeders,
+    trackerFilter,
+    titleFilter: resultFilter,
+    sortKey: resultSort,
+    sortAsc: resultSortAsc,
+  })
 
   const globalTrackers = useMemo(() => {
     const set = new Set(globalResults.map(r => r.tracker).filter(Boolean))

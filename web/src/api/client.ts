@@ -21,15 +21,32 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// withToken appends the current access token as a query param.
-// Used for URLs that go into <video src>/<track src> where headers can't be set.
-// The middleware accepts `?token=` as a fallback to Authorization: Bearer.
-export function withToken(url: string): string {
-  const token = localStorage.getItem('jackui:auth.access')
-  if (!token) return url
-  const cleaned = token.replace(/^"|"$/g, '') // localStorage values are JSON-stringified
+// withToken appends an access token as ?token= query param. Used em URLs que
+// vão pra <video src>/<track src> onde headers Authorization não podem ser
+// setados — middleware aceita ?token= como fallback.
+//
+// override: quando presente, usa esse token em vez do access token regular.
+// Caso de uso: o PlayerModal pega um media token (scope="media", TTL longo)
+// uma vez ao abrir e passa aqui — se usássemos o access token regular, o
+// refresh em background trocaria a query string e o <video> resetaria o
+// playback pra 0 (mesmo path, src "novo" do ponto de vista do browser).
+export function withToken(url: string, override?: string): string {
+  const raw = override ?? localStorage.getItem('jackui:auth.access')
+  if (!raw) return url
+  const cleaned = String(raw).replace(/^"|"$/g, '') // localStorage values are JSON-stringified
   const sep = url.includes('?') ? '&' : '?'
   return `${url}${sep}token=${encodeURIComponent(cleaned)}`
+}
+
+// fetchMediaToken pede ao backend um JWT scope="media" com TTL longo (6h por
+// default). O PlayerModal chama isso ao montar e passa o token retornado pros
+// URL builders via o param override do withToken — assim a URL do <video src>
+// permanece estável durante toda a sessão de playback, sobrevivendo a
+// refreshes do access token regular (que trocariam a query string e
+// derrubariam o playback pra 0).
+export async function fetchMediaToken(): Promise<string> {
+  const r = await api.post('/auth/media-token')
+  return r.data?.token || ''
 }
 
 export interface Quality {
@@ -56,6 +73,7 @@ export interface Quality {
 export interface SearchResult {
   title: string
   tracker: string
+  trackerId?: string
   categoryId: number
   category: string
   size: number
@@ -68,6 +86,14 @@ export interface SearchResult {
   publishDate: string
   cached?: boolean
   quality?: Quality
+  // Backend-computed enrichments (onda 2). Opcionais porque endpoints legados
+  // ainda podem montar SearchResult sem eles (ex.: syntheticResult em deep
+  // links). UI deve preferir esses campos quando presentes; heurística
+  // client-side fica como fallback temporário até a onda 3.
+  playable?: boolean
+  mediaKind?: 'audio' | 'video' | 'other'
+  isFavorited?: boolean
+  isDownloaded?: boolean
   // Set client-side when multiple results share the same infoHash across trackers
   alsoIn?: string[]
   // Present when the result comes from a history endpoint — it's the
@@ -209,6 +235,7 @@ export interface StreamFile {
   isVideo: boolean
   downloaded: number
   progress: number
+  priority: 'none' | 'low' | 'normal' | 'high'
 }
 
 export interface TorrentInfo {
@@ -227,12 +254,58 @@ export interface TorrentInfo {
   // may not see these populated.
   status?: 'downloading' | 'paused' | 'seeding' | 'complete'
   priority?: 'low' | 'normal' | 'high' | ''
+  trackers?: string[]
+}
+
+// ─── Local file source (pseudo-hash routing) ─────────────────────────────
+//
+// Arquivos locais usam um "pseudo info-hash" no formato `local-<base64url(json{mount,path})>`.
+// PlayerModal e demais consumers continuam achando que estão lidando com um torrent
+// normal — as funções abaixo (streamProbe, streamSidecars, subtitlesAuto, etc.)
+// detectam o prefixo e roteiam pro `/api/local/*` em vez do `/api/stream/*`.
+//
+// Vantagem: PlayerModal não precisa mudar (zero risco no caminho torrent que já funciona).
+
+const LOCAL_PREFIX = 'local-'
+
+export function isLocalHash(hash: string): boolean {
+  return typeof hash === 'string' && hash.startsWith(LOCAL_PREFIX)
+}
+
+export function buildLocalHash(mount: string, path: string): string {
+  const json = JSON.stringify({ mount, path })
+  // base64url, no padding (URL-safe)
+  const b64 = btoa(unescape(encodeURIComponent(json)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+  return LOCAL_PREFIX + b64
+}
+
+export function parseLocalHash(hash: string): { mount: string; path: string } | null {
+  if (!isLocalHash(hash)) return null
+  try {
+    let b64 = hash.slice(LOCAL_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/')
+    while (b64.length % 4) b64 += '='
+    const json = decodeURIComponent(escape(atob(b64)))
+    const parsed = JSON.parse(json)
+    if (typeof parsed.mount === 'string' && typeof parsed.path === 'string') return parsed
+    return null
+  } catch {
+    return null
+  }
+}
+
+function localQS(mount: string, path: string): string {
+  return `mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(path)}`
 }
 
 // streamMetadata returns a cached TorrentInfo snapshot if the server has seen
 // this hash before. Use in parallel with streamAdd to render the file list
 // instantly while the torrent client is still resolving peers.
 export const streamMetadata = async (hash: string): Promise<TorrentInfo | null> => {
+  // Local files: synthesize TorrentInfo from /api/local/play (no real metadata cache).
+  if (isLocalHash(hash)) return synthesizeLocalInfo(hash).catch(() => null)
   try {
     const { data, status } = await api.get<TorrentInfo>(`/stream/metadata/${hash}`, { validateStatus: () => true })
     return status === 200 ? data : null
@@ -242,8 +315,73 @@ export const streamMetadata = async (hash: string): Promise<TorrentInfo | null> 
 }
 
 export const streamAdd = async (magnet: string): Promise<TorrentInfo> => {
+  // Local files: magnet carries the pseudo-hash. Synthesize TorrentInfo from
+  // /api/local/play + /api/local/probe without touching the torrent client.
+  const localHash = extractHashFromMagnet(magnet)
+  if (localHash && isLocalHash(localHash)) return synthesizeLocalInfo(localHash)
   const { data } = await api.post<TorrentInfo>('/stream/add', { magnet })
   return data
+}
+
+export const streamAddTorrentFile = async (file: File): Promise<TorrentInfo> => {
+  const fd = new FormData()
+  fd.append('file', file)
+  const { data } = await api.post<TorrentInfo>('/stream/add-file', fd, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return data
+}
+
+function extractHashFromMagnet(magnet: string): string | null {
+  const m = magnet.match(/[?&]xt=urn:btih:([^&]+)/i)
+  return m ? decodeURIComponent(m[1]) : null
+}
+
+// Cache da URL resolvida por localPlay (direct ou HLS) — populada por
+// synthesizeLocalInfo, lida pelos URL builders (streamFileURL etc.) pra que
+// PlayerModal não precise distinguir torrent de local.
+const localPlayableURLCache = new Map<string, string>()
+
+// synthesizeLocalInfo constrói um TorrentInfo "falso" pra arquivos locais.
+// O PlayerModal não distingue — só lê os mesmos campos (infoHash, name, files,
+// totalSize, primaryFile). file index é sempre 0 (o próprio arquivo local).
+async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
+  const loc = parseLocalHash(hash)
+  if (!loc) throw new Error('invalid local hash')
+  const play = await localPlay(loc.mount, loc.path)
+  // The URL from localPlay starts with /api/... (no token); withToken adds it.
+  localPlayableURLCache.set(hash, play.url)
+  const name = loc.path.split('/').pop() || loc.path
+  const file: StreamFile = {
+    index: 0,
+    path: loc.path,
+    size: 0,
+    isVideo: !/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(loc.path),
+    downloaded: 0,
+    progress: 1,
+    priority: 'normal',
+  }
+  return {
+    infoHash: hash,
+    name,
+    totalSize: 0,
+    files: [file],
+    peers: 0,
+    seeders: 0,
+    downRate: 0,
+    upRate: 0,
+    progress: 1,
+    primaryFile: 0,
+  }
+}
+
+// localResolvedURL returns the cached URL with auth token attached, or empty
+// string if not yet resolved. Used by all the streamFileURL/streamHLSMasterURL/
+// streamTranscodeURL builders when the hash is a local pseudo-hash — they all
+// converge to the same URL (the server decided direct vs HLS in /api/local/play).
+export function localResolvedURL(hash: string, tokenOverride?: string): string {
+  const url = localPlayableURLCache.get(hash)
+  return url ? withToken(url, tokenOverride) : ''
 }
 
 /** Picks the best available source for streaming — prefers magnet, falls back to .torrent URL. */
@@ -252,6 +390,7 @@ export function pickTorrentSource(r: SearchResult): string {
 }
 
 export const streamInfo = async (hash: string): Promise<TorrentInfo> => {
+  if (isLocalHash(hash)) return synthesizeLocalInfo(hash)
   const { data } = await api.get<TorrentInfo>(`/stream/info/${hash}`)
   return data
 }
@@ -279,6 +418,10 @@ export type StreamPriority = 'low' | 'normal' | 'high'
 
 export const streamSetPriority = async (hash: string, priority: StreamPriority): Promise<void> => {
   await api.post(`/stream/${hash}/priority`, { priority })
+}
+
+export const streamSetFilePriority = async (hash: string, fileIdx: number, priority: 'none' | 'low' | 'normal' | 'high'): Promise<void> => {
+  await api.post(`/stream/${hash}/files/${fileIdx}/priority`, { priority })
 }
 
 export const streamPauseAll = async (): Promise<{ paused: number }> => {
@@ -678,6 +821,9 @@ export const streamArtURL = (hash: string): string =>
 // without cached metadata); pass fileIdx=-1 there (no frame without playback).
 // Returns the resolved source ("torrent"|"tmdb"|"web"|"frame") or null.
 export const resolveArt = async (hash: string, fileIdx = -1, name?: string): Promise<string | null> => {
+  // Local files don't have torrent-side art resolution (no infoHash on disk to
+  // key by). LocalPage gera o seu próprio thumbnail via /local/thumb.
+  if (isLocalHash(hash)) return null
   try {
     const params = new URLSearchParams({ file: String(fileIdx) })
     if (name) params.set('name', name)
@@ -689,8 +835,10 @@ export const resolveArt = async (hash: string, fileIdx = -1, name?: string): Pro
   }
 }
 
-export const streamFileURL = (hash: string, fileIdx: number): string =>
-  withToken(`/api/stream/${hash}/${fileIdx}`)
+export const streamFileURL = (hash: string, fileIdx: number, tokenOverride?: string): string => {
+  if (isLocalHash(hash)) return localResolvedURL(hash, tokenOverride)
+  return withToken(`/api/stream/${hash}/${fileIdx}`, tokenOverride)
+}
 
 // streamThumbnailURL returns the URL of a single JPEG frame captured at `atSeconds`
 // in the file. Used by the player progress-bar hover preview.
@@ -699,8 +847,8 @@ export const streamThumbnailURL = (hash: string, fileIdx: number, atSeconds: num
 
 // streamArtworkURL returns the URL of embedded cover-art extracted by the server.
 // Returns 204 server-side if the file has no embedded picture.
-export const streamArtworkURL = (hash: string, fileIdx: number): string =>
-  withToken(`/api/stream/artwork/${hash}/${fileIdx}`)
+export const streamArtworkURL = (hash: string, fileIdx: number, tokenOverride?: string): string =>
+  withToken(`/api/stream/artwork/${hash}/${fileIdx}`, tokenOverride)
 
 // streamPlaylistM3UURL returns an absolute URL to a downloadable .m3u that points
 // back to the stream. Used by the "Open in VLC" button — universal across desktop
@@ -885,12 +1033,41 @@ export interface SidecarSubtitle {
   format: 'srt' | 'vtt' | 'ass' | 'ssa' | 'sub'
 }
 
+// In-memory cache popularizado por streamSidecars(local) — mapeia
+// `${hash}:${index}` → filename, lido por streamSidecarURL pra construir o
+// `?name=`. Sem isso o backend teria que re-listar o dir a cada chamada.
+const localSidecarNameCache = new Map<string, string>()
+
 export const streamSidecars = async (hash: string, fileIdx: number): Promise<SidecarSubtitle[]> => {
+  if (isLocalHash(hash)) {
+    const loc = parseLocalHash(hash)!
+    type LocalSub = { name: string; size: number; language: string; format: SidecarSubtitle['format']; match: number }
+    const { data } = await api.get<LocalSub[]>(`/local/sidecars?${localQS(loc.mount, loc.path)}`)
+    return data.map((s, i) => {
+      localSidecarNameCache.set(`${hash}:${i}`, s.name)
+      return {
+        index: i,
+        path: s.name,
+        size: s.size,
+        language: s.language,
+        format: s.format,
+      }
+    })
+  }
   const { data } = await api.get<SidecarSubtitle[]>(`/stream/sidecars/${hash}/${fileIdx}`)
   return data
 }
-export const streamSidecarURL = (hash: string, fileIdx: number): string =>
-  withToken(`/api/stream/sidecar/${hash}/${fileIdx}`)
+export const streamSidecarURL = (hash: string, fileIdx: number, tokenOverride?: string): string => {
+  if (isLocalHash(hash)) {
+    const loc = parseLocalHash(hash)!
+    const name = localSidecarNameCache.get(`${hash}:${fileIdx}`) ?? ''
+    if (name) {
+      return withToken(`/api/local/sidecar?${localQS(loc.mount, loc.path)}&name=${encodeURIComponent(name)}`, tokenOverride)
+    }
+    return withToken(`/api/local/sidecar?${localQS(loc.mount, loc.path)}&index=${fileIdx}`, tokenOverride)
+  }
+  return withToken(`/api/stream/sidecar/${hash}/${fileIdx}`, tokenOverride)
+}
 
 export const favoritesList = async (): Promise<StreamFavorite[]> => {
   const { data } = await api.get<StreamFavorite[]>('/stream/favorites')
@@ -983,8 +1160,8 @@ export const subtitlesSearch = async (
   return data
 }
 
-export const subtitleDownloadURL = (fileId: string): string =>
-  withToken(`/api/subtitles/download/${fileId}`)
+export const subtitleDownloadURL = (fileId: string, tokenOverride?: string): string =>
+  withToken(`/api/subtitles/download/${fileId}`, tokenOverride)
 
 export interface AutoSubtitlesResponse {
   osHash: string
@@ -1000,6 +1177,13 @@ export const subtitlesAuto = async (
   fileIdx: number,
   langs = 'pt-BR,pt',
 ): Promise<AutoSubtitlesResponse> => {
+  if (isLocalHash(hash)) {
+    const loc = parseLocalHash(hash)!
+    const { data } = await api.get<AutoSubtitlesResponse>(
+      `/local/subtitles/auto?${localQS(loc.mount, loc.path)}&langs=${encodeURIComponent(langs)}`,
+    )
+    return data
+  }
   const { data } = await api.get<AutoSubtitlesResponse>(
     `/subtitles/auto/${hash}/${fileIdx}?langs=${encodeURIComponent(langs)}`,
   )
@@ -1026,12 +1210,22 @@ export interface StreamProbe {
 }
 
 export const streamProbe = async (hash: string, fileIdx: number): Promise<StreamProbe> => {
+  if (isLocalHash(hash)) {
+    const loc = parseLocalHash(hash)!
+    const { data } = await api.get<StreamProbe>(`/local/probe?${localQS(loc.mount, loc.path)}`)
+    return data
+  }
   const { data } = await api.get<StreamProbe>(`/stream/probe/${hash}/${fileIdx}`)
   return data
 }
 
-export const streamSubtrackURL = (hash: string, fileIdx: number, trackIdx: number): string =>
-  withToken(`/api/stream/subtrack/${hash}/${fileIdx}/${trackIdx}`)
+export const streamSubtrackURL = (hash: string, fileIdx: number, trackIdx: number, tokenOverride?: string): string => {
+  if (isLocalHash(hash)) {
+    const loc = parseLocalHash(hash)!
+    return withToken(`/api/local/subtrack?${localQS(loc.mount, loc.path)}&track=${trackIdx}`, tokenOverride)
+  }
+  return withToken(`/api/stream/subtrack/${hash}/${fileIdx}/${trackIdx}`, tokenOverride)
+}
 
 // ─── Transcoding capabilities ──────────────────────────────────────────────
 
@@ -1074,13 +1268,14 @@ export interface TranscodeOpts {
   burn?: number       // burn-in subtitle track index (forces video re-encode)
 }
 
-export const streamTranscodeURL = (hash: string, fileIdx: number, opts: TranscodeOpts): string => {
+export const streamTranscodeURL = (hash: string, fileIdx: number, opts: TranscodeOpts, tokenOverride?: string): string => {
+  if (isLocalHash(hash)) return localResolvedURL(hash, tokenOverride)
   const p = new URLSearchParams()
   if (opts.audio !== undefined) p.set('audio', String(opts.audio))
   if (opts.video) p.set('video', opts.video)
   if (opts.acodec) p.set('acodec', opts.acodec)
   if (opts.burn !== undefined) p.set('burn', String(opts.burn))
-  return withToken(`/api/stream/transcode/${hash}/${fileIdx}?${p}`)
+  return withToken(`/api/stream/transcode/${hash}/${fileIdx}?${p}`, tokenOverride)
 }
 
 /**
@@ -1090,8 +1285,10 @@ export const streamTranscodeURL = (hash: string, fileIdx: number, opts: Transcod
  * streaming format; the only thing Safari treats as a first-class video
  * source. Jellyfin, Plex, Emby all do the same routing.
  */
-export const streamHLSMasterURL = (hash: string, fileIdx: number): string =>
-  withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8`)
+export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?: string): string => {
+  if (isLocalHash(hash)) return localResolvedURL(hash, tokenOverride)
+  return withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8`, tokenOverride)
+}
 
 /**
  * Best-effort Safari detection. Safari includes "Safari" but Chrome on macOS
@@ -1138,6 +1335,15 @@ export const localList = async (mount: string, path: string): Promise<LocalEntry
   const params = new URLSearchParams({ mount, path })
   const { data } = await api.get<LocalEntry[]>(`/local/list?${params}`)
   return data || []
+}
+
+export const localDelete = async (mount: string, path: string): Promise<void> => {
+  const params = new URLSearchParams({ mount, path })
+  await api.delete(`/local/file?${params}`)
+}
+
+export const localPromote = async (mount: string, path: string, targetSubdir: string, targetBase?: string): Promise<void> => {
+  await api.post('/local/promote', { mount, path, targetSubdir, targetBase })
 }
 
 // Direct file URL with auth token in query string (http.ServeFile handles Range
@@ -1208,6 +1414,8 @@ export interface DownloadEntry {
   fileSize: number
   name: string
   magnet: string
+  tracker?: string
+  category?: string
   status: 'queued' | 'downloading' | 'completed' | 'failed' | 'paused'
   bytesDownloaded: number
   progress: number
@@ -1224,6 +1432,17 @@ export interface DownloadCreateParams {
   name: string
   filePath: string
   fileSize: number
+  tracker?: string
+  category?: string
+}
+
+export interface DownloadFilterParams {
+  status?: string
+  tracker?: string
+  category?: string
+  search?: string
+  sort?: string
+  order?: string
 }
 
 export const downloadsList = async (): Promise<DownloadEntry[]> => {
@@ -1248,4 +1467,143 @@ export const downloadResume = async (id: number): Promise<void> => {
   await api.patch(`/downloads/${id}/resume`)
 }
 
+// downloadRecheck força um "Force Recheck" (estilo qBittorrent) — re-hasha
+// todos os pieces do arquivo no disco e reseta bytes_downloaded pro worker
+// reconciliar depois. UI mostra spinner enquanto o backend processa
+// (chamada retorna assim que o hash check inicia; o progresso aparece
+// no próximo tick do worker).
+export const downloadsListFiltered = async (params: DownloadFilterParams): Promise<DownloadEntry[]> => {
+  const query = new URLSearchParams()
+  if (params.status) query.set('status', params.status)
+  if (params.tracker) query.set('tracker', params.tracker)
+  if (params.category) query.set('category', params.category)
+  if (params.search) query.set('search', params.search)
+  if (params.sort) query.set('sort', params.sort)
+  if (params.order) query.set('order', params.order)
+  const { data } = await api.get<DownloadEntry[]>(`/downloads/filtered?${query.toString()}`)
+  return data || []
+}
+
+export const downloadPauseAll = async (): Promise<{ affected: number }> => {
+  const { data } = await api.patch<{ affected: number }>('/downloads/pause-all')
+  return data
+}
+
+export const downloadResumeAll = async (): Promise<{ affected: number }> => {
+  const { data } = await api.patch<{ affected: number }>('/downloads/resume-all')
+  return data
+}
+
+export const downloadBatchPause = async (ids: number[]): Promise<{ affected: number }> => {
+  const { data } = await api.patch<{ affected: number }>('/downloads/batch/pause', { ids })
+  return data
+}
+
+export const downloadBatchResume = async (ids: number[]): Promise<{ affected: number }> => {
+  const { data } = await api.patch<{ affected: number }>('/downloads/batch/resume', { ids })
+  return data
+}
+
+export const downloadBatchDelete = async (ids: number[]): Promise<{ deleted: number; total: number }> => {
+  const { data } = await api.post<{ deleted: number; total: number }>('/downloads/batch/delete', { ids })
+  return data
+}
+
+export const downloadTrackers = async (): Promise<string[]> => {
+  const { data } = await api.get<string[]>('/downloads/trackers')
+  return data || []
+}
+
+export const downloadCategories = async (): Promise<string[]> => {
+  const { data } = await api.get<string[]>('/downloads/categories')
+  return data || []
+}
+
+export const downloadRecheck = async (id: number): Promise<DownloadEntry> => {
+  const { data } = await api.post<DownloadEntry>(`/downloads/${id}/recheck`)
+  return data
+}
+
+// DownloadDetails: row do download + lista completa de arquivos do torrent
+// + sizes reais (sparse vs apparent). Backend só preenche torrent quando o
+// info_hash está active no streamer; null quando dropado (post-completed
+// sem seed).
+export interface DownloadDetails {
+  download: DownloadEntry
+  file: { apparent: number; onDisk: number; exists: boolean }
+  torrent: TorrentInfo | null
+}
+export const downloadDetails = async (id: number): Promise<DownloadDetails> => {
+  const { data } = await api.get<DownloadDetails>(`/downloads/${id}/details`)
+  return data
+}
+
+export interface PromoteDestination {
+  name: string
+  path: string
+}
+
+// Move um download concluído para o diretório compartilhado (JACKUI_SHARED_DIR
+// no servidor) ou outro destino (targetBase), opcionalmente numa subpasta. Após
+// mover, opcionalmente continua seedando (keepSeeding=true).
+export const downloadPromote = async (
+  id: number,
+  opts: { keepSeeding: boolean; targetSubdir?: string; targetBase?: string },
+): Promise<DownloadEntry> => {
+  const { data } = await api.post<DownloadEntry>(`/downloads/${id}/promote`, opts)
+  return data
+}
+
+// Promove N downloads pra mesma subpasta de destino. Falhas individuais não
+// abortam o batch; retorna { promoted, failed }.
+export interface PromoteBatchResult {
+  promoted: DownloadEntry[]
+  failed: { id: number; error: string }[]
+}
+export const downloadPromoteBatch = async (
+  ids: number[],
+  opts: { keepSeeding: boolean; targetSubdir?: string; targetBase?: string },
+): Promise<PromoteBatchResult> => {
+  const { data } = await api.post<PromoteBatchResult>('/downloads/promote', { ids, ...opts })
+  return data
+}
+
+// Lista subpastas no {base}/<path> pra alimentar o navegador da PromoteModal.
+// base vazio = sharedDir (default). 
+export const downloadPromoteBrowse = async (path: string, base?: string): Promise<{ dirs: string[]; path: string }> => {
+  const params = new URLSearchParams({ path })
+  if (base) params.set('base', base)
+  const { data } = await api.get<{ dirs: string[]; path: string }>(
+    `/downloads/promote/browse?${params}`,
+  )
+  return data
+}
+
+// Lista destinos de promoção disponíveis (nome + path).
+export const fetchPromoteDestinations = async (): Promise<PromoteDestination[]> => {
+  const { data } = await api.get<PromoteDestination[]>('/promote/destinations')
+  return data
+}
+
+// Para de seedar sem mover o arquivo.
+export const downloadStopSeed = async (id: number): Promise<void> => {
+  await api.post(`/downloads/${id}/stop-seed`)
+}
+
+// Converte uma URL de arquivo .torrent para link magnet no backend.
+export const convertTorrentToMagnet = async (
+  url: string,
+): Promise<{ magnet: string; infoHash: string; name: string }> => {
+  const { data } = await api.get<{ magnet: string; infoHash: string; name: string }>(
+    `/convert/torrent-to-magnet?url=${encodeURIComponent(url)}`,
+  )
+  return data
+}
+
+// Retorna a URL para converter magnet em arquivo .torrent para download.
+export const convertMagnetToTorrentUrl = (magnet: string): string => {
+  return `/api/convert/magnet-to-torrent?magnet=${encodeURIComponent(magnet)}`
+}
+
 export default api
+

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,14 +14,35 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/local"
 	"github.com/luizg/jackui/internal/transcode"
 )
 
+// userFromCtx extracts the username from the JWT claims, returning ""
+// when auth is not enabled or user is anonymous (media tokens).
+func userFromCtx(c *gin.Context) string {
+	claims, ok := auth.ClaimsFromCtx(c)
+	if !ok || claims.Scope == auth.ScopeMedia {
+		return ""
+	}
+	return claims.Username
+}
+
+func checkMountAccess(b *local.Browser, c *gin.Context, mountName string) bool {
+	username := userFromCtx(c)
+	if !b.UserCanAccess(username, mountName) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado a este mount"})
+		return false
+	}
+	return true
+}
+
 // LocalMounts handles GET /api/local/mounts -> []Mount
 func LocalMounts(b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, b.Mounts())
+		username := userFromCtx(c)
+		c.JSON(http.StatusOK, b.MountsFor(username))
 	}
 }
 
@@ -31,6 +53,9 @@ func LocalList(b *local.Browser) gin.HandlerFunc {
 		path := c.Query("path")
 		if mount == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
 			return
 		}
 
@@ -59,6 +84,9 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 		path := c.Query("path")
 		if mount == "" || path == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
 			return
 		}
 
@@ -104,6 +132,9 @@ func LocalThumb(b *local.Browser) gin.HandlerFunc {
 		path := c.Query("path")
 		if mount == "" || path == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
 			return
 		}
 		if !localVideoExts[strings.ToLower(filepath.Ext(path))] {
@@ -182,6 +213,9 @@ func LocalTranscode(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
 			return
 		}
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
 		abs, err := b.ResolvePath(mount, path)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -217,4 +251,230 @@ func isTraversalErr(err error) bool {
 	return strings.Contains(s, "traversal") ||
 		strings.Contains(s, "must be relative") ||
 		strings.Contains(s, "mount") && strings.Contains(s, "not found")
+}
+
+// LocalDelete handles DELETE /api/local/file?mount=NAME&path=REL
+func LocalDelete(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		path := c.Query("path")
+		if mount == "" || path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
+
+		// Enforce strict business logic rule: Only "Meus downloads" can be modified
+		if strings.ToLower(mount) != "meus downloads" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
+			return
+		}
+
+		// Prevent deleting mount root
+		cleanPath := filepath.Clean(path)
+		if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete mount root"})
+			return
+		}
+
+		abs, err := b.ResolvePath(mount, path)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Double safety check: make sure absolute path is not the mount root itself
+		mounts := b.Mounts()
+		for _, m := range mounts {
+			mountAbs, err := filepath.Abs(m.Path)
+			if err == nil && abs == mountAbs {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete mount root"})
+				return
+			}
+		}
+
+		_, err = os.Stat(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Perform deletion
+		if err := os.RemoveAll(abs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %s", err.Error())})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "deleted successfully"})
+	}
+}
+
+type localPromoteReq struct {
+	Mount        string `json:"mount"`
+	Path         string `json:"path"`
+	TargetSubdir string `json:"targetSubdir"`
+	TargetBase   string `json:"targetBase"`   // empty = sharedDir (default)
+}
+
+// LocalPromote handles POST /api/local/promote
+func LocalPromote(b *local.Browser, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if sharedDir == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			return
+		}
+
+		var req localPromoteReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+			return
+		}
+
+		if req.Mount == "" || req.Path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			return
+		}
+		if !checkMountAccess(b, c, req.Mount) {
+			return
+		}
+
+		// Enforce strict business logic rule: Only "Meus downloads" can be modified
+		if strings.ToLower(req.Mount) != "meus downloads" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
+			return
+		}
+
+		// Prevent promoting mount root
+		cleanPath := filepath.Clean(req.Path)
+		if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot promote mount root"})
+			return
+		}
+
+		src, err := b.ResolvePath(req.Mount, req.Path)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		subdir, err := sanitizeSubdir(req.TargetSubdir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		targetDir := base
+		if subdir != "" {
+			targetDir = filepath.Join(base, subdir)
+		}
+
+		baseName := filepath.Base(src)
+		dst := filepath.Join(targetDir, baseName)
+		if src == dst {
+			c.JSON(http.StatusOK, gin.H{"message": "source and destination are the same", "path": dst})
+			return
+		}
+
+		stat, statErr := os.Stat(src)
+		if statErr != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "arquivo de origem não existe: " + statErr.Error()})
+			return
+		}
+
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "criar destino: " + err.Error()})
+			return
+		}
+
+		if err := movePath(src, dst, stat); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "mover arquivo: " + err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "promoted successfully", "path": dst})
+	}
+}
+
+// movePath handles moving files and directories, even across different filesystems/mounts.
+func movePath(src, dst string, stat os.FileInfo) error {
+	// First try renaming. It works if on the same volume/filesystem.
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+
+	// If rename fails (e.g. cross-device link), copy and delete
+	if stat.IsDir() {
+		return copyDirAndRemove(src, dst, stat)
+	}
+	return copyFileAndRemove(src, dst, stat)
+}
+
+func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err = io.Copy(out, in); err != nil {
+		os.Remove(dst)
+		return err
+	}
+
+	out.Close()
+	in.Close()
+	return os.Remove(src)
+}
+
+func copyDirAndRemove(src, dst string, stat os.FileInfo) error {
+	if err := os.MkdirAll(dst, stat.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+
+		if entry.IsDir() {
+			if err := copyDirAndRemove(srcPath, dstPath, info); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFileAndRemove(srcPath, dstPath, info); err != nil {
+				return err
+			}
+		}
+	}
+
+	// After recursive copying, remove the source directory completely
+	return os.RemoveAll(src)
 }

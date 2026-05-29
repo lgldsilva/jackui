@@ -13,17 +13,7 @@ import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
-
-function formatDate(iso: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
-  const diffH = (Date.now() - d.getTime()) / 3_600_000
-  if (diffH < 1) return `${Math.floor(diffH * 60)}m atrás`
-  if (diffH < 24) return `${Math.floor(diffH)}h atrás`
-  if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-}
+import { formatDate } from '../lib/format'
 
 interface FolderNode {
   folder: FavoriteFolder
@@ -347,8 +337,8 @@ export default function FavoritesPage() {
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
 
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex gap-4">
-        {/* Sidebar — folder tree */}
+      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4">
+        {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
         <aside className="w-64 flex-shrink-0 hidden md:block">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs uppercase tracking-wider text-gray-500">Pastas</h2>

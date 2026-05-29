@@ -42,6 +42,7 @@ func stripAPIKey(link string) string {
 type Result struct {
 	Title       string `json:"title"`
 	Tracker     string `json:"tracker"`
+	TrackerID   string `json:"trackerId"`
 	CategoryID  int    `json:"categoryId"`
 	Category    string `json:"category"`
 	Size        int64  `json:"size"`
@@ -150,6 +151,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 		results = append(results, Result{
 			Title:       r.Title,
 			Tracker:     r.Tracker,
+			TrackerID:   r.TrackerId,
 			CategoryID:  categoryID,
 			Category:    r.CategoryDesc,
 			Size:        r.Size,

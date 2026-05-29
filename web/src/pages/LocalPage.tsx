@@ -7,21 +7,24 @@ import {
   File as FileIcon,
   HardDrive,
   Home,
-  X,
   ArrowDown,
   ArrowUp,
+  Trash2,
+  ArrowUpCircle,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
+import { usePlayer } from '../components/PlayerProvider'
+import LocalPromoteModal from '../components/LocalPromoteModal'
 import {
   LocalEntry,
   LocalMount,
-  LocalPlaySource,
-  localFileURL,
-  localPlay,
+  SearchResult,
+  buildLocalHash,
   localThumbURL,
   localList,
   localMounts,
+  localDelete,
 } from '../api/client'
 
 type SortKey = 'name' | 'size' | 'date'
@@ -125,83 +128,6 @@ function Breadcrumbs({
   )
 }
 
-function PlayerModal({
-  mount,
-  path,
-  onClose,
-}: {
-  mount: string
-  path: string
-  onClose: () => void
-}) {
-  const audio = isAudio(path)
-  // Ask the server whether the file is direct-playable (MP4/H.264/AAC) or
-  // needs HLS (MKV / HEVC / AC3 / etc.). Until the probe returns we render a
-  // small loader instead of pointing <video> at a URL that might 404 / refuse.
-  const [source, setSource] = useState<LocalPlaySource | null>(null)
-  const [probeErr, setProbeErr] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    if (audio) {
-      setSource({ kind: 'direct', url: localFileURL(mount, path) })
-      return
-    }
-    setSource(null)
-    setProbeErr('')
-    localPlay(mount, path)
-      .then((s) => { if (!cancelled) setSource(s) })
-      .catch((e: unknown) => {
-        if (cancelled) return
-        const msg = e instanceof Error ? e.message : 'Erro ao preparar reprodução'
-        setProbeErr(msg)
-        setSource({ kind: 'direct', url: localFileURL(mount, path) })
-      })
-    return () => { cancelled = true }
-  }, [mount, path, audio])
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-gray-900 rounded-2xl max-w-5xl w-full overflow-hidden border border-gray-700"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <div className="text-gray-100 font-medium truncate">{path}</div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-100"
-            aria-label="close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="bg-black flex items-center justify-center min-h-[200px]">
-          {!source ? (
-            <div className="text-gray-400 text-sm p-6">Preparando reprodução…</div>
-          ) : audio ? (
-            <audio src={source.url} controls autoPlay className="w-full p-6" />
-          ) : (
-            <video
-              src={source.url}
-              controls
-              autoPlay
-              className="w-full max-h-[75vh]"
-              playsInline
-            />
-          )}
-        </div>
-        {probeErr && (
-          <div className="px-4 py-2 text-xs text-amber-300 bg-amber-500/10 border-t border-amber-500/30">
-            {probeErr} — tentando direto.
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 export default function LocalPage() {
   const [mounts, setMounts] = useState<LocalMount[]>([])
@@ -210,10 +136,16 @@ export default function LocalPage() {
   const [entries, setEntries] = useState<LocalEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [playing, setPlaying] = useState<LocalEntry | null>(null)
+  const { playSingle } = usePlayer()
   const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
   const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
+
+  const [promoteItem, setPromoteItem] = useState<LocalEntry | null>(null)
+  const [deleteConfirmItem, setDeleteConfirmItem] = useState<LocalEntry | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const canManipulate = activeMount.toLowerCase() === 'meus downloads'
 
   // Folders always show (so navigation never gets filtered away); the kind
   // filter + sort apply within each group, folders kept on top.
@@ -254,7 +186,7 @@ export default function LocalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
+  const refresh = () => {
     if (!activeMount) return
     setLoading(true)
     setError('')
@@ -266,7 +198,26 @@ export default function LocalPage() {
         setEntries([])
       })
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    refresh()
   }, [activeMount, path])
+
+  const handleDelete = async () => {
+    if (!deleteConfirmItem || !activeMount) return
+    setDeleting(true)
+    setError('')
+    try {
+      await localDelete(activeMount, deleteConfirmItem.path)
+      setDeleteConfirmItem(null)
+      refresh()
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e.message || 'Erro ao apagar arquivo')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const handleSelectMount = (name: string) => {
     setActiveMount(name)
@@ -278,18 +229,39 @@ export default function LocalPage() {
       setPath(e.path)
       return
     }
-    if (e.isPlayable) {
-      setPlaying(e)
+    if (!e.isPlayable || !activeMount) return
+    // Routes the file through the main PlayerProvider/PlayerModal via a
+    // synthetic SearchResult com pseudo-hash `local-...` (mount+path codificados).
+    // Resultado: o player completo abre — legendas embedded, sidecar .srt/.vtt,
+    // OpenSubtitles auto, escolha persistida, tudo. As funções do client (streamProbe,
+    // streamSidecars, subtitlesAuto, etc.) detectam o prefixo e roteiam pra
+    // /api/local/* sem mudar PlayerModal.
+    const hash = buildLocalHash(activeMount, e.path)
+    const synthetic: SearchResult = {
+      title: e.name,
+      tracker: '',
+      categoryId: 0,
+      category: '',
+      size: e.size,
+      seeders: 0,
+      leechers: 0,
+      age: '',
+      magnetUri: `magnet:?xt=urn:btih:${hash}`,
+      link: '',
+      infoHash: hash,
+      publishDate: '',
     }
+    playSingle(synthetic, 0)
   }
 
   return (
     <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
       <NavHeader />
-      <main className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex gap-6">
-        {/* Sidebar */}
-        <aside className="w-56 flex-shrink-0 overflow-y-auto">
-          <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-3">
+      <main className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4 md:gap-6">
+        {/* Sidebar — desktop é coluna fixa à esquerda; mobile vira faixa horizontal
+            no topo (chips de mount) pra não roubar metade da tela do conteúdo. */}
+        <aside className="md:w-56 flex-shrink-0 md:overflow-y-auto">
+          <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-2 md:mb-3">
             Mounts
           </h2>
           {mounts.length === 0 ? (
@@ -300,14 +272,14 @@ export default function LocalPage() {
               </code>
             </p>
           ) : (
-            <ul className="space-y-1">
+            <ul className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-visible md:space-y-1 -mx-1 px-1 md:mx-0 md:px-0">
               {mounts.map((m) => {
                 const active = m.name === activeMount
                 return (
-                  <li key={m.name}>
+                  <li key={m.name} className="flex-shrink-0">
                     <button
                       onClick={() => handleSelectMount(m.name)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap ${
                         active
                           ? 'bg-green-500/10 text-green-400 border border-green-500/30'
                           : 'text-gray-300 hover:bg-gray-800 border border-transparent'
@@ -386,18 +358,18 @@ export default function LocalPage() {
               {visible.map((e) => {
                 const clickable = e.isDir || e.isPlayable
                 return (
-                  <li key={e.path}>
+                  <li key={e.path} className="flex items-center justify-between hover:bg-gray-700/20 group">
                     <button
                       onClick={() => handleEntryClick(e)}
                       disabled={!clickable}
-                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                      className={`flex-1 flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                         clickable
-                          ? 'hover:bg-gray-700/50 cursor-pointer'
+                          ? 'cursor-pointer'
                           : 'cursor-default opacity-70'
                       }`}
                     >
                       <EntryIcon entry={e} mount={activeMount} />
-                      <span className="flex-1 truncate text-gray-100">
+                      <span className="flex-1 truncate text-gray-100 font-medium">
                         {e.name}
                       </span>
                       {!e.isDir && (
@@ -409,21 +381,78 @@ export default function LocalPage() {
                         {formatDate(e.modTime)}
                       </span>
                     </button>
+
+                    {/* Ações rápidas restritas ao mount de downloads pessoais */}
+                    {canManipulate && (
+                      <div className="flex items-center gap-1.5 px-4 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          onClick={(evt) => {
+                            evt.stopPropagation()
+                            setPromoteItem(e)
+                          }}
+                          title="Promover para biblioteca compartilhada"
+                          className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
+                        >
+                          <ArrowUpCircle className="w-4.5 h-4.5" />
+                        </button>
+                        <button
+                          onClick={(evt) => {
+                            evt.stopPropagation()
+                            setDeleteConfirmItem(e)
+                          }}
+                          title="Apagar permanentemente"
+                          className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
+                        >
+                          <Trash2 className="w-4.5 h-4.5" />
+                        </button>
+                      </div>
+                    )}
                   </li>
                 )
               })}
             </ul>
           )}
+
+          {/* Confirmação de Deleção */}
+          {deleteConfirmItem && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl p-6 flex flex-col gap-4">
+                <h3 className="text-base font-semibold text-gray-100 flex items-center gap-2">
+                  <Trash2 className="w-5 h-5 text-red-400" />
+                  Apagar permanentemente?
+                </h3>
+                <p className="text-sm text-gray-300">
+                  Tem certeza que deseja apagar <span className="text-red-400 font-medium">"{deleteConfirmItem.name}"</span>? Esta ação é irreversível e excluirá o arquivo de forma permanente no servidor.
+                </p>
+                <div className="flex items-center gap-2 justify-end mt-2">
+                  <button
+                    onClick={() => setDeleteConfirmItem(null)}
+                    disabled={deleting}
+                    className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="text-sm bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-300 border border-red-500/30 px-4 py-1.5 rounded transition-colors flex items-center gap-1.5 font-medium"
+                  >
+                    {deleting ? 'Apagando...' : 'Apagar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal de Promoção */}
+          <LocalPromoteModal
+            mount={activeMount}
+            entry={promoteItem}
+            onClose={() => setPromoteItem(null)}
+            onPromoted={refresh}
+          />
         </section>
       </main>
-
-      {playing && activeMount && (
-        <PlayerModal
-          mount={activeMount}
-          path={playing.path}
-          onClose={() => setPlaying(null)}
-        />
-      )}
     </div>
   )
 }
