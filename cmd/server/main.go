@@ -545,6 +545,8 @@ func main() {
 			api.DELETE("/local/file", handlers.LocalDelete(localBrowser))
 			api.POST("/local/promote", handlers.LocalPromote(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
 			api.POST("/local/promote/preview", handlers.LocalPromotePreview(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
+			api.GET("/local/walk", handlers.LocalWalk(localBrowser))
+			api.POST("/local/move", handlers.LocalMoveEntry(localBrowser))
 			// /local/play probes the file and tells the client whether to direct-play
 			// or fetch the HLS master (for MKV / HEVC / AC3 / etc. that browsers
 			// can't decode natively). Mirrors the torrent-side codec routing.
