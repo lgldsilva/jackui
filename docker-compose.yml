@@ -1,6 +1,7 @@
 services:
   jackui:
     image: jackui:latest
+    # S7031: pin to a specific version tag for reproducible deploys
     container_name: jackui
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
@@ -8,8 +9,14 @@ services:
     # rodar os defers (anacrolix.Client.Close commita o estado de pieces no
     # bolt DB; sem isso, restart fazia anacrolix re-baixar pieces já gravados).
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8989/api/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     ports:
-      - "8989:8989"
+      - "127.0.0.1:8989:8989"
       - "51469:51469/tcp"   # BitTorrent peer port (TCP)
       - "51469:51469/udp"   # BitTorrent peer port (UDP / DHT)
     volumes:

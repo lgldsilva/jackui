@@ -970,6 +970,11 @@ func (s *Streamer) Drop(hash metainfo.Hash) {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	if ok {
+		// Do not drop if it is registered as an active background download
+		if _, protected := s.downloads[e.t.Name()]; protected {
+			s.mu.Unlock()
+			return
+		}
 		delete(s.active, hash)
 	}
 	s.mu.Unlock()

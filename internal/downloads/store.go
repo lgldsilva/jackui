@@ -29,6 +29,20 @@ const (
 
 const errInvalidStatus = "invalid status: %s"
 
+// ListFilter groups optional filtering / sorting params for ListFiltered and ListFilteredAll.
+// Empty fields are ignored. UserID is for per-user queries; UserIDFilter is for admin
+// cross-user filtering.
+type ListFilter struct {
+	UserID       int
+	Status       string
+	Tracker      string
+	Category     string
+	Search       string
+	SortCol      string // "created_at" (default), "name", "size", "progress", "status", "tracker", "category"
+	SortDir      string // "desc" (default) or "asc"
+	UserIDFilter string // admin-only: filter by user ID string
+}
+
 // Download is one tracked background transfer.
 type Download struct {
 	ID              int        `json:"id"`
@@ -244,28 +258,28 @@ func (s *Store) List(userID int) ([]Download, error) {
 
 // ListFiltered returns downloads for the user filtered by optional criteria.
 // Empty filters are ignored. Sort is "created_at" (default), "name", "size", "progress".
-func (s *Store) ListFiltered(userID int, status, tracker, category, search, sortCol, sortDir string) ([]Download, error) {
+func (s *Store) ListFiltered(f ListFilter) ([]Download, error) {
 	q := "WHERE user_id=?"
-	args := []any{userID}
-	if status != "" {
+	args := []any{f.UserID}
+	if f.Status != "" {
 		q += " AND status=?"
-		args = append(args, status)
+		args = append(args, f.Status)
 	}
-	if tracker != "" {
+	if f.Tracker != "" {
 		q += " AND tracker=?"
-		args = append(args, tracker)
+		args = append(args, f.Tracker)
 	}
-	if category != "" {
+	if f.Category != "" {
 		q += " AND category=?"
-		args = append(args, category)
+		args = append(args, f.Category)
 	}
-	if search != "" {
+	if f.Search != "" {
 		q += " AND (name LIKE ? OR file_path LIKE ?)"
-		s := "%" + search + "%"
+		s := "%" + f.Search + "%"
 		args = append(args, s, s)
 	}
 	order := "created_at"
-	switch sortCol {
+	switch f.SortCol {
 	case "name":
 		order = "name"
 	case "size":
@@ -280,7 +294,7 @@ func (s *Store) ListFiltered(userID int, status, tracker, category, search, sort
 		order = "category"
 	}
 	dir := "DESC"
-	if sortDir == "asc" {
+	if f.SortDir == "asc" {
 		dir = "ASC"
 	}
 	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir, args...)
@@ -316,32 +330,32 @@ func (s *Store) ListAll() ([]Download, error) {
 
 // ListFilteredAll returns downloads across ALL users, filtered by optional
 // criteria. Used by admin listing. Empty filters are ignored.
-func (s *Store) ListFilteredAll(status, tracker, category, search, userIDFilter, sortCol, sortDir string) ([]Download, error) {
+func (s *Store) ListFilteredAll(f ListFilter) ([]Download, error) {
 	q := "WHERE 1=1"
 	args := []any{}
-	if status != "" {
+	if f.Status != "" {
 		q += " AND status=?"
-		args = append(args, status)
+		args = append(args, f.Status)
 	}
-	if tracker != "" {
+	if f.Tracker != "" {
 		q += " AND tracker=?"
-		args = append(args, tracker)
+		args = append(args, f.Tracker)
 	}
-	if category != "" {
+	if f.Category != "" {
 		q += " AND category=?"
-		args = append(args, category)
+		args = append(args, f.Category)
 	}
-	if userIDFilter != "" {
+	if f.UserIDFilter != "" {
 		q += " AND user_id=?"
-		args = append(args, userIDFilter)
+		args = append(args, f.UserIDFilter)
 	}
-	if search != "" {
+	if f.Search != "" {
 		q += " AND (name LIKE ? OR file_path LIKE ?)"
-		s := "%" + search + "%"
+		s := "%" + f.Search + "%"
 		args = append(args, s, s)
 	}
 	order := "created_at"
-	switch sortCol {
+	switch f.SortCol {
 	case "name":
 		order = "name"
 	case "size":
@@ -350,15 +364,15 @@ func (s *Store) ListFilteredAll(status, tracker, category, search, userIDFilter,
 		order = "bytes_downloaded"
 	case "status":
 		order = "status"
-	case "user_id", "username":
-		order = "user_id"
 	case "tracker":
 		order = "tracker"
 	case "category":
 		order = "category"
+	case "user_id", "username":
+		order = "user_id"
 	}
 	dir := "DESC"
-	if sortDir == "asc" {
+	if f.SortDir == "asc" {
 		dir = "ASC"
 	}
 	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir, args...)

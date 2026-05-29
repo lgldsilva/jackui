@@ -213,7 +213,16 @@ func main() {
 				}
 				return u.Username
 			}
-			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second, cfg.Notifications.NtfyBaseURL, cfg.Notifications.NtfyDefaultTopic, usernameResolver)
+			worker := downloads.NewWorker(downloads.WorkerConfig{
+				Store:           downloadsStore,
+				Streamer:        streamSrv,
+				DataDir:         streamCfg.DataDir,
+				DownloadDir:     cfg.Stream.DownloadDir,
+				Interval:        2 * time.Second,
+				NtfyBaseURL:     cfg.Notifications.NtfyBaseURL,
+				NtfyTopic:       cfg.Notifications.NtfyDefaultTopic,
+				ResolveUsername: usernameResolver,
+			})
 			worker.Start()
 			defer worker.Stop()
 			log.Printf("Downloads worker started (tick=2s, ntfy=%q)", cfg.Notifications.NtfyDefaultTopic)

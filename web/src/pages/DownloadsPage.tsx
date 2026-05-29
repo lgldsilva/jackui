@@ -87,7 +87,7 @@ export default function DownloadsPage() {
     e.preventDefault()
     e.stopPropagation()
     dragCounter.current++
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+    if (e.dataTransfer?.items?.length > 0) {
       setIsDraggingPage(true)
     }
   }
@@ -142,7 +142,7 @@ export default function DownloadsPage() {
       return
     }
 
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer?.files?.length > 0) {
       const files = Array.from(e.dataTransfer.files)
       const torrentFiles = files.filter(f => f.name.endsWith('.torrent'))
       

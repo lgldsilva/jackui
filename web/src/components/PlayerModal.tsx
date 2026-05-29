@@ -533,7 +533,7 @@ export default function PlayerModal({
     return {
       season: parseInt(match[1]),
       episode: parseInt(match[2]),
-      cleanQuery: title.substring(0, match.index).trim().replace(/[._]/g, ' '),
+      cleanQuery: title.slice(0, match.index).trim().replace(/[._]/g, ' '),
     }
   }
 
@@ -2226,7 +2226,7 @@ export default function PlayerModal({
           subtitles, PDFs shipped inside the torrent). Rendered outside the
           main modal box so its z-index can sit ABOVE the player without
           fighting flex layout. */}
-      {previewFileIdx !== null && info && info.files[previewFileIdx] && (
+      {previewFileIdx !== null && info?.files[previewFileIdx] && (
         <FilePreviewModal
           infoHash={info.infoHash}
           fileIdx={previewFileIdx}
