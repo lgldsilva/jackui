@@ -101,7 +101,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   // voo (otimismo na UI). Backend resolve favorited por infoHash (preciso) ou
   // por name (fallback p/ entradas legacy sem hash) — sem matching ambíguo
   // entre torrents com mesmo título.
-  const isFavorited = favOpt ?? result.isFavorited ?? false
+  const isFavorited = favOpt ?? (result.isFavorited ?? false)
 
   const toggleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -212,7 +212,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           handleCardClick?.()
         }
       } : undefined}
-      role={cardClickable ? 'presentation' : undefined}
+      role={cardClickable ? 'button' : undefined}
       tabIndex={cardClickable ? 0 : undefined}
       className={`card flex flex-col gap-3 ${
         cardClickable

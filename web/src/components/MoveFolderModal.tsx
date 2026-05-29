@@ -150,28 +150,20 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
 
             {/* Dir browser */}
             <div className="flex-1 overflow-y-auto min-h-[150px] p-3">
-              {dirsLoading ? (
-                <div className="flex items-center justify-center py-8 text-gray-500">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                </div>
-              ) : dirs.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-6">Sem subpastas — mover aqui na raiz.</p>
-              ) : (
-                <ul className="space-y-0.5">
-                  {dirs.map(d => (
-                    <li key={d.name}>
-                      <button
-                        onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d.name}` : d.name)}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors"
-                      >
-                        <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                        <span className="truncate text-left flex-1">{d.name}</span>
-                        <ChevronRight className="w-4 h-4 text-gray-600" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {(() => {
+                if (dirsLoading) return <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="w-5 h-5 animate-spin" /></div>
+                if (dirs.length === 0) return <p className="text-sm text-gray-500 text-center py-6">Sem subpastas — mover aqui na raiz.</p>
+                return <ul className="space-y-0.5">{dirs.map(d => (
+                  <li key={d.name}>
+                    <button onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d.name}` : d.name)}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors">
+                      <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                      <span className="truncate text-left flex-1">{d.name}</span>
+                      <ChevronRight className="w-4 h-4 text-gray-600" />
+                    </button>
+                  </li>
+                ))}</ul>
+              })()}
             </div>
 
             {/* Footer */}

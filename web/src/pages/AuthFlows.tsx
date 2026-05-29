@@ -120,7 +120,7 @@ export function ResetPasswordPage() {
   const nav = useNavigate()
   const [params] = useSearchParams()
   const token = params.get('token') || ''
-  const [password, setPassword2] = useState('')
+  const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -142,7 +142,7 @@ export function ResetPasswordPage() {
   return (
     <Shell title="Redefinir senha">
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <input className="input-field" placeholder="Nova senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setPassword2(e.target.value)} required />
+        <input className="input-field" placeholder="Nova senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required />
         <input className="input-field" placeholder="Confirmar nova senha" type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
         {error && <Err text={error} />}
         <button type="submit" disabled={busy} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">

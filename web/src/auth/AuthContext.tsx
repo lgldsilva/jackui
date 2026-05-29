@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
             await logout()
           }
         }
-        return Promise.reject(error)
+        throw error
       },
     )
     return () => api.interceptors.response.eject(respInt)

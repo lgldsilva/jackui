@@ -149,36 +149,34 @@ export default function AccountCard() {
           Verificação em duas etapas (TOTP) {user.mfaEnabled ? '— ativa' : '— inativa'}
         </span>
 
-        {user.mfaEnabled ? (
-          <div className="flex flex-col gap-2">
+{(() => {
+          if (user.mfaEnabled) return <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <input type="password" value={mfaPw} onChange={e => setMfaPw(e.target.value)} placeholder="senha p/ desativar" autoComplete="current-password"
                 className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 flex-1" />
               <button onClick={disableMfa} disabled={!mfaPw} className="text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg px-3 py-1.5">Desativar</button>
             </div>
-            {/* Backup (recovery) codes status + regenerate */}
             <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400">
               <LifeBuoy className="w-3.5 h-3.5" />
               <span>Códigos de recuperação: {backupRemaining ?? '—'} restantes</span>
               {backupRemaining !== null && backupRemaining <= 2 && (
                 <span className="text-amber-400">— poucos! gere novos</span>
               )}
-              {!showRegen ? (
-                <button onClick={() => setShowRegen(true)} className="text-blue-400 hover:underline inline-flex items-center gap-1">
-                  <RefreshCw className="w-3 h-3" /> gerar novos
-                </button>
-              ) : (
+              {showRegen ? (
                 <span className="inline-flex items-center gap-1">
                   <input type="password" value={regenPw} onChange={e => setRegenPw(e.target.value)} placeholder="senha" autoComplete="current-password"
                     className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-200 w-28" />
                   <button onClick={regenerateBackup} disabled={!regenPw} className="text-green-400 hover:underline disabled:opacity-50">confirmar</button>
                   <button onClick={() => { setShowRegen(false); setRegenPw('') }} className="text-gray-500 hover:text-gray-300">cancelar</button>
                 </span>
+              ) : (
+                <button onClick={() => setShowRegen(true)} className="text-blue-400 hover:underline inline-flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3" /> gerar novos
+                </button>
               )}
             </div>
           </div>
-        ) : enroll ? (
-          <div className="flex flex-col gap-2">
+          if (enroll) return <div className="flex flex-col gap-2">
             <p className="text-xs text-gray-400">Adicione no app autenticador (escaneie ou digite o segredo), depois informe o código:</p>
             <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
               <code className="text-xs text-gray-200 font-mono truncate flex-1">{enroll.secret}</code>
@@ -193,11 +191,10 @@ export default function AccountCard() {
               <button onClick={() => { setEnroll(null); setMfaCode('') }} className="text-xs text-gray-500 hover:text-gray-300">cancelar</button>
             </div>
           </div>
-        ) : (
-          <button onClick={startEnroll} className="self-start flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-1.5">
+          return <button onClick={startEnroll} className="self-start flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-1.5">
             <ShieldCheck className="w-4 h-4" /> Ativar MFA
           </button>
-        )}
+        })()}
         {mfaMsg && <span className="text-xs text-gray-400">{mfaMsg}</span>}
 
         {/* One-time display of freshly generated backup codes */}
@@ -286,7 +283,7 @@ export default function AccountCard() {
             ))}
           </ul>
         )}
-        {sessions.filter(s => !s.current).length > 0 && (
+        {sessions.some(s => !s.current) && (
           <button onClick={killOthers}
             className="self-start flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-1.5">
             <LogOut className="w-4 h-4" /> Encerrar outras sessões

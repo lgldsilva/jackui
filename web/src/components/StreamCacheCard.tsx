@@ -157,8 +157,8 @@ export default function StreamCacheCard() {
             }
           </span>
           <span className="text-xs text-gray-500">
-            {stats.entries.length} arquivo{stats.entries.length !== 1 ? 's' : ''}
-            {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} ativo{stats.numActive !== 1 ? 's' : ''}</span>}
+            {stats.entries.length} arquivo{stats.entries.length === 1 ? '' : 's'}
+            {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} ativo{stats.numActive === 1 ? '' : 's'}</span>}
           </span>
         </div>
         {stats.maxSize > 0 && (

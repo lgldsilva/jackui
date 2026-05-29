@@ -110,6 +110,17 @@ func TestPurgeIncognito_Extra(t *testing.T) {
 	}
 }
 
+func TestStartIncognitoReaper_CallsDeleteAll(t *testing.T) {
+	mc := &mockCleanable2{}
+	StartIncognitoReaper(mc)
+}
+
+func TestStartIncognitoReaper_MultipleCleaners(t *testing.T) {
+	mc1 := &mockCleanable2{}
+	mc2 := &mockCleanable2{}
+	StartIncognitoReaper(mc1, mc2)
+}
+
 func TestNtfyBaseURL_Default_Extra(t *testing.T) {
 	cfg := &config.Config{}
 	got := ntfyBaseURL(cfg)

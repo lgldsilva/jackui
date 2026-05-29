@@ -126,15 +126,10 @@ export default function WatchlistPage() {
           </div>
         )}
 
-        {loading ? (
-          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-        ) : lists.length === 0 ? (
-          <div className="text-center py-20 text-gray-500">
-            <Bell className="w-16 h-16 mx-auto mb-4 opacity-30" />
-            <p>Nenhuma watchlist ainda</p>
-            <p className="text-xs mt-2">Crie uma para receber push quando novos torrents aparecerem.</p>
-          </div>
-        ) : (
+{(() => {
+          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
+          if (lists.length === 0) return <div className="text-center py-20 text-gray-500"><Bell className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nenhuma watchlist ainda</p><p className="text-xs mt-2">Crie uma para receber push quando novos torrents aparecerem.</p></div>
+          return (
           <div className="flex flex-col gap-2">
             {lists.map(w => (
               <div key={w.id} className="card flex flex-col gap-2">
@@ -214,7 +209,7 @@ export default function WatchlistPage() {
               </div>
             ))}
           </div>
-        )}
+        )})()}
       </main>
 
       <TorrentContentsModal

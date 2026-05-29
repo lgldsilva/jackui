@@ -630,7 +630,7 @@ export default function PlayerModal({
       setSubResults(resp.results || [])
       if (resp.osHash && !resp.hashErr) setAutoSource('hash')
       else setAutoSource('title')
-    } catch (error: any) {
+    } catch {
       // Fall back to plain title search if auto endpoint fails
       try {
         const baseTitle = info.name || result.title
@@ -718,7 +718,7 @@ export default function PlayerModal({
 
     const applyOffset = () => {
       const track = v.textTracks?.[0]
-      if (!track || !track.cues || track.cues.length === 0) return
+      if (!track?.cues?.length) return
       // Save originals once per loaded sub
       if (origCuesRef.current.length !== track.cues.length) {
         origCuesRef.current = Array.from(track.cues).map((c: any) => ({
@@ -1025,7 +1025,7 @@ export default function PlayerModal({
     if (!info) return
     favoritesList()
       .then(list => setIsFavorite(list.some(f =>
-        (info.infoHash && f.infoHash && f.infoHash.toLowerCase() === info.infoHash.toLowerCase())
+        (info.infoHash && f.infoHash?.toLowerCase() === info.infoHash.toLowerCase())
         || f.name === info.name
       )))
       .catch(() => {})
@@ -1324,7 +1324,7 @@ export default function PlayerModal({
               </button>
               <button
                 onClick={onCycleRepeat}
-                className={`p-1 rounded hover:bg-blue-500/20 ${repeat !== 'none' ? 'text-green-300' : 'text-blue-200/60'} hover:text-white relative`}
+                className={`p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`}
                 title={`Repeat: ${repeat}`}
               >
                 <Repeat className="w-3.5 h-3.5" />
@@ -1451,7 +1451,7 @@ export default function PlayerModal({
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
                     <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
                     <p className="text-gray-200 font-medium">
-                      {!serverReady ? 'Conectando ao swarm...' : 'Baixando primeiras peças do torrent...'}
+                      {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
                     </p>
                     {resumePosition !== null && (
                       <p className="text-xs text-blue-300 mt-2">
@@ -1492,7 +1492,7 @@ export default function PlayerModal({
                     Convertendo via GPU
                   </div>
                 )}
-                {!videoError ? (
+                {videoError ? null : (
                   <video
                     ref={videoRef}
                     /* `|| undefined` so an unresolved streamURL never becomes
@@ -1533,17 +1533,15 @@ export default function PlayerModal({
                     onEnded={handleVideoEnded}
                     onCanPlay={handleVideoCanPlay}
                   >
-                    {subtitleVttURL && (
-                      <track
-                        kind="subtitles"
-                        src={subtitleVttURL}
-                        srcLang="pt"
-                        label="Português (BR)"
-                        default
-                      />
-                    )}
+                    <track
+                      kind={subtitleVttURL ? 'subtitles' : 'metadata'}
+                      src={subtitleVttURL || ''}
+                      srcLang={subtitleVttURL ? 'pt' : ''}
+                      label={subtitleVttURL ? 'Português (BR)' : ''}
+                      default
+                    />
                   </video>
-                ) : null}
+                )}
                 {/* Native HTML5 controls render the play/pause button + the
                     fullscreen affordance inside the video element. No custom
                     overlays needed. */}
@@ -1766,13 +1764,11 @@ export default function PlayerModal({
                             key={a.index}
                             onClick={() => setTranscodeAudio(a.index)}
                             title={audioTrackTitle(a)}
-                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                              transcodeAudio === a.index
-                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                                : a.default
-                                  ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
-                                  : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-                            }`}
+                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
+                              if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
+                              return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+                            })()}`}
                           >
                             {a.language ? a.language.toUpperCase() : '??'}
                             <span className="text-gray-500 ml-1">{a.codec}{a.channels ? `·${a.channels}ch` : ''}</span>
@@ -1949,13 +1945,11 @@ export default function PlayerModal({
                   }`}
                   title="Salvar download completo no servidor (Background Download)"
                 >
-                  {serverDownloadLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : serverDownloadSuccess ? (
-                    <Check className="w-3.5 h-3.5" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5 text-green-400" />
-                  )}
+{(() => {
+                    if (serverDownloadLoading) return <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    if (serverDownloadSuccess) return <Check className="w-3.5 h-3.5" />
+                    return <Download className="w-3.5 h-3.5 text-green-400" />
+                  })()}
                   <span>
                     {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
                   </span>
@@ -1970,7 +1964,7 @@ export default function PlayerModal({
                   <span className="sm:hidden">Baixar</span>
                 </a>
                 <span className="text-xs text-gray-600 ml-auto hidden sm:block">
-                  {info.files.length} arquivo{info.files.length !== 1 ? 's' : ''} • {formatSize(info.totalSize)}
+                  {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} • {formatSize(info.totalSize)}
                 </span>
               </div>
 
@@ -2054,8 +2048,8 @@ export default function PlayerModal({
                   !filterLower ||
                   path.toLowerCase().includes(filterLower) ||
                   (ep || '').toLowerCase().includes(filterLower)
-                const SPACE_OR_DASH = '[\\s-]?'
-const extraRe = new RegExp(`\\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\\b`, 'i')
+                const SPACE_OR_DASH = String.raw`[\s-]?`
+const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\b`, 'i')
                 const isExtra = (path: string) => extraRe.test(path)
                 const filteredFiles = info.files
                   .filter(f => matchesFile(f.path, parseEpisode(f.path)))

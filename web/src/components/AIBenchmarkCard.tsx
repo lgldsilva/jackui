@@ -140,8 +140,9 @@ export default function AIBenchmarkCard() {
       )}
 
       <div className="flex flex-col gap-1.5">
-        <label className="text-sm text-gray-300">Casos de teste (um por linha: <code className="text-gray-400">nome.do.torrent =&gt; Título Esperado</code>)</label>
+        <label htmlFor="ai-testcases" className="text-sm text-gray-300">Casos de teste (um por linha: <code className="text-gray-400">nome.do.torrent =&gt; Título Esperado</code>)</label>
         <textarea
+          id="ai-testcases"
           value={casesText}
           onChange={e => setCasesText(e.target.value)}
           rows={6}

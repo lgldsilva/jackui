@@ -34,17 +34,17 @@ type Kind = 'text' | 'pdf' | 'image' | 'unknown'
 
 // Extension → preview kind. Listed exhaustively rather than via regex so we
 // can be confident no playable file ever gets sent to the wrong handler.
-const TEXT_EXTS = ['txt', 'srt', 'vtt', 'ass', 'ssa', 'log', 'info', 'nfo', 'md', 'json', 'xml', 'csv', 'cue', 'sfv', 'm3u', 'yaml', 'yml', 'ini', 'conf', 'cfg', 'readme', 'license']
-const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico']
-const PDF_EXTS = ['pdf']
+const TEXT_EXTS = new Set(['txt', 'srt', 'vtt', 'ass', 'ssa', 'log', 'info', 'nfo', 'md', 'json', 'xml', 'csv', 'cue', 'sfv', 'm3u', 'yaml', 'yml', 'ini', 'conf', 'cfg', 'readme', 'license'])
+const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'ico'])
+const PDF_EXTS = new Set(['pdf'])
 
 export function detectPreviewKind(path: string): Kind {
   const lastDot = path.lastIndexOf('.')
   if (lastDot < 0) return 'unknown'
   const ext = path.slice(lastDot + 1).toLowerCase()
-  if (TEXT_EXTS.includes(ext)) return 'text'
-  if (PDF_EXTS.includes(ext)) return 'pdf'
-  if (IMAGE_EXTS.includes(ext)) return 'image'
+  if (TEXT_EXTS.has(ext)) return 'text'
+  if (PDF_EXTS.has(ext)) return 'pdf'
+  if (IMAGE_EXTS.has(ext)) return 'image'
   // Files named "readme" without extension are common — handle by name too.
   const base = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
   if (base === 'readme' || base === 'license' || base === 'changelog') return 'text'

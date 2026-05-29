@@ -585,3 +585,104 @@ func TestFavoritesList_NilStore(t *testing.T) {
 		t.Error("expected error for nil store")
 	}
 }
+
+func TestListFolders_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	folders, err := f.ListFolders(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if folders != nil {
+		t.Errorf("expected nil folders, got %v", folders)
+	}
+}
+
+func TestListFolders_Empty(t *testing.T) {
+	f := newTestFavorites(t)
+	folders, err := f.ListFolders(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folders) != 0 {
+		t.Errorf("expected 0 folders, got %d", len(folders))
+	}
+}
+
+func TestMoveFolder_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	err := f.MoveFolder(1, 42, nil)
+	if err != nil {
+		t.Fatal("expected nil error for nil store")
+	}
+}
+
+func TestMoveFolder_CycleDetection(t *testing.T) {
+	f := newTestFavorites(t)
+
+	parent, err := f.CreateFolder(1, "parent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := f.CreateFolder(1, "child", &parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Moving parent into child should fail (cycle)
+	newParent := child.ID
+	err = f.MoveFolder(1, parent.ID, &newParent)
+	if err == nil {
+		t.Fatal("expected cycle error")
+	}
+}
+
+func TestMoveFolder_MoveToSameParent(t *testing.T) {
+	f := newTestFavorites(t)
+
+	folder, err := f.CreateFolder(1, "folder", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = f.MoveFolder(1, folder.ID, nil)
+	if err != nil {
+		t.Fatalf("MoveFolder to root: %v", err)
+	}
+	got, err := f.GetFolder(1, folder.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ParentID != nil {
+		t.Errorf("expected nil parent, got %d", *got.ParentID)
+	}
+}
+
+func TestCreateFolder_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	_, err := f.CreateFolder(1, "test", nil)
+	if err == nil {
+		t.Error("expected error for nil store")
+	}
+}
+
+func TestRenameFolder_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	err := f.RenameFolder(1, 42, "new")
+	if err != nil {
+		t.Fatal("expected nil error for nil store")
+	}
+}
+
+func TestDeleteFolder_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	err := f.DeleteFolder(1, 42)
+	if err != nil {
+		t.Fatal("expected nil error for nil store")
+	}
+}
+
+func TestMoveFavoriteToFolder_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	err := f.MoveFavoriteToFolder(1, "movie", nil)
+	if err != nil {
+		t.Fatal("expected nil error for nil store")
+	}
+}

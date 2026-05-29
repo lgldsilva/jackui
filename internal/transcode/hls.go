@@ -807,6 +807,9 @@ func (s *HLSSession) stop() {
 // segment handler which must NOT race the playlist handler into creating
 // a duplicate ffmpeg. Returns an error when the session isn't tracked.
 func (m *HLSSessionManager) Peek(key string) (*HLSSession, error) {
+	if m == nil {
+		return nil, errors.New("nil manager")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.sess[key]

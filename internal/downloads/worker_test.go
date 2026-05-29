@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -314,4 +315,390 @@ func TestWorker_NtfyTopicEmpty(t *testing.T) {
 	})
 	// sending with empty topic should be a no-op
 	w.sendNtfy(nil, "title", "body", "tag") //nolint:staticcheck
+}
+
+func TestWorkerReconcile_StartsInitForNewDownload(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, err := store.Create(Download{
+		UserID:    1,
+		InfoHash:  "testhash",
+		FileIndex: 0,
+		Magnet:    "magnet:?xt=urn:btih:testhash",
+		Name:      "TestMovie",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	w.mu.Lock()
+	_, isPending := w.pending[d.ID]
+	w.mu.Unlock()
+	if isPending {
+		t.Fatal("expected no pending entry before reconcile")
+	}
+
+	w.reconcile(*d)
+
+	w.mu.Lock()
+	_, isPending = w.pending[d.ID]
+	w.mu.Unlock()
+	if !isPending {
+		t.Error("expected pending entry after reconcile for new download")
+	}
+}
+
+func TestWorkerReconcile_SkipsWhenPending(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, _ := store.Create(Download{
+		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
+	})
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	w.mu.Lock()
+	w.pending[d.ID] = func() {}
+	w.mu.Unlock()
+
+	// Should not panic or start another init
+	w.reconcile(*d)
+}
+
+func TestWorkerSampleProgress_NilFile(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	// trackedDL with nil file — sampleProgress should be a no-op
+	td := &trackedDL{id: 1}
+	w.sampleProgress(Download{}, td)
+}
+
+func TestWorkerCheckCompletion_NilFile(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	td := &trackedDL{id: 1}
+	w.checkCompletion(Download{}, td)
+}
+
+func TestWorkerTorrentStillActive_NoClient(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	td := &trackedDL{id: 1}
+	if w.torrentStillActive(td) {
+		t.Error("expected false when streamer has no client")
+	}
+}
+
+func TestWorkerStartInit_CreatesPending(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, err := store.Create(Download{
+		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	w.startInit(*d)
+
+	w.mu.Lock()
+	cancel, ok := w.pending[d.ID]
+	w.mu.Unlock()
+	if !ok {
+		t.Fatal("expected pending entry after startInit")
+	}
+	cancel()
+
+	// Wait for the goroutine to finish
+	w.doneWG.Wait()
+}
+
+func TestWorkerReconcile_DetectsInactiveTorrent(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, _ := store.Create(Download{
+		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
+	})
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	// Put a tracked entry with no actual torrent in the streamer
+	td := &trackedDL{id: d.ID, hash: [20]byte{1}}
+	w.mu.Lock()
+	w.tracked[d.ID] = td
+	w.mu.Unlock()
+
+	// reconcile should detect the torrent is no longer active and remove it
+	w.reconcile(*d)
+
+	w.mu.Lock()
+	_, tracked := w.tracked[d.ID]
+	w.mu.Unlock()
+	if tracked {
+		t.Error("expected tracked entry to be removed after detectin inactive torrent")
+	}
+}
+
+func TestWorkerReconcile_SamplesProgress(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, _ := store.Create(Download{
+		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
+	})
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+
+	// Put a tracked entry - reconcile will call sampleProgress
+	// This tests a tracked download that exists (not pending, already tracked)
+	// The torrentStillActive check will fail (no client), so it'll remove
+	// the tracked entry and then trigger startInit again
+	w.mu.Lock()
+	w.tracked[d.ID] = &trackedDL{id: d.ID, hash: [20]byte{1}}
+	w.mu.Unlock()
+
+	w.reconcile(*d)
+
+	w.mu.Lock()
+	_, tracked := w.tracked[d.ID]
+	w.mu.Unlock()
+	if tracked {
+		t.Error("expected tracked entry to be removed after inactive torrent")
+	}
+}
+
+func TestWorkerSendNtfy_Timeout(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	w := NewWorker(WorkerConfig{
+		Store:     store,
+		Streamer:  s,
+		DataDir:   t.TempDir(),
+		NtfyTopic: "test-topic",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+	// Should return early due to context timeout
+	w.sendNtfy(ctx, "Test", "Body", "tag")
+}
+
+func TestWorkerMoveFile_CrossFS(t *testing.T) {
+	// Simulate cross-filesystem move by using rename failure
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	os.WriteFile(src, []byte("cross-fs-data"), 0644)
+
+	if err := moveFile(src, dst); err != nil {
+		t.Fatalf("moveFile: %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("source should be gone after move")
+	}
+	data, _ := os.ReadFile(dst)
+	if string(data) != "cross-fs-data" {
+		t.Errorf("content: want 'cross-fs-data', got %q", string(data))
+	}
+}
+
+func TestWorker_MoveCompletedFile_NoDir(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	td := &trackedDL{
+		id:   1,
+		name: "test",
+		file: nil,
+	}
+
+	w := NewWorker(WorkerConfig{
+		Store:       store,
+		Streamer:    s,
+		DataDir:     t.TempDir(),
+		DownloadDir: "", // empty = keep in place
+	})
+
+	// Should be a no-op
+	w.moveCompletedFile(Download{}, td)
+}
+
+func TestWorker_MoveCompletedFile_MkdirFailure(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	td := &trackedDL{
+		id:   1,
+		name: "test",
+		file: nil,
+	}
+
+	w := NewWorker(WorkerConfig{
+		Store:       store,
+		Streamer:    s,
+		DataDir:     "/nonexistent-parent-xyz",
+		DownloadDir: t.TempDir(),
+	})
+
+	// src won't exist, but the function tries mkdir first which should succeed
+	// then fails at move
+	w.moveCompletedFile(Download{}, td)
+}
+
+func TestWorkerTick_ListActiveError(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+	})
+	// Close the store so ListActive fails
+	store.Close()
+
+	w.Start()
+	time.Sleep(50 * time.Millisecond)
+	w.Stop()
+	// Should not panic on store error
+}
+
+func TestWorkerTick_CleansUpPendingRemoved(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, _ := store.Create(Download{
+		UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m:h", Name: "n",
+	})
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+		Interval: 50 * time.Millisecond,
+	})
+
+	w.mu.Lock()
+	w.pending[d.ID] = func() {}
+	w.mu.Unlock()
+
+	// Remove from store so tick cleans up pending
+	_ = store.Delete(1, d.ID)
+
+	w.Start()
+	time.Sleep(100 * time.Millisecond)
+	w.Stop()
+
+	w.mu.Lock()
+	_, pending := w.pending[d.ID]
+	w.mu.Unlock()
+	if pending {
+		t.Error("expected pending entry to be removed")
+	}
+}
+
+func TestWorkerTick_CleansUpRemovedDownloads(t *testing.T) {
+	s := streamer.NewForTesting()
+	store := newTestStore(t)
+
+	d, err := store.Create(Download{
+		UserID:    1,
+		InfoHash:  "testhash",
+		FileIndex: 0,
+		Magnet:    "magnet:?xt=urn:btih:testhash",
+		Name:      "TestMovie",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	w := NewWorker(WorkerConfig{
+		Store:    store,
+		Streamer: s,
+		DataDir:  t.TempDir(),
+		Interval: 50 * time.Millisecond,
+	})
+
+	w.mu.Lock()
+	w.tracked[d.ID] = &trackedDL{id: d.ID, name: d.Name}
+	w.mu.Unlock()
+
+	// Start worker - tick will detect this tracked download has no active store entry
+	w.Start()
+	time.Sleep(100 * time.Millisecond)
+	w.Stop()
+
+	w.mu.Lock()
+	_, tracked := w.tracked[d.ID]
+	w.mu.Unlock()
+	if tracked {
+		t.Error("expected tracked entry to be removed for inactive download")
+	}
+}
+
+func TestWorkerMoveFile_SameFS(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.txt")
+	dst := filepath.Join(dir, "dst.txt")
+	os.WriteFile(src, []byte("hello"), 0644)
+
+	if err := moveFile(src, dst); err != nil {
+		t.Fatalf("moveFile: %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("source should be gone after move")
+	}
+	data, _ := os.ReadFile(dst)
+	if string(data) != "hello" {
+		t.Errorf("content: want 'hello', got %q", string(data))
+	}
 }

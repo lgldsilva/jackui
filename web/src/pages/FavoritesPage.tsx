@@ -255,7 +255,7 @@ export default function FavoritesPage() {
     const fails: string[] = []
     for (const magnet of lines) {
       try {
-        await streamImport({ magnet, folderId: viewMode !== ALL_VIEW ? viewMode : null })
+        await streamImport({ magnet, folderId: viewMode === ALL_VIEW ? null : viewMode })
         ok++
       } catch (e: unknown) {
         fails.push(e instanceof Error ? e.message : String(e))
@@ -265,7 +265,7 @@ export default function FavoritesPage() {
     setMagnetInput('')
     let msg: { kind: 'ok' | 'err'; text: string }
     if (fails.length === 0) {
-      const plural = ok !== 1 ? 's' : ''
+      const plural = ok === 1 ? '' : 's'
       msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}` }
     } else {
       msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}` }
@@ -301,12 +301,12 @@ export default function FavoritesPage() {
     setImporting(false)
     let suffix = ''
     if (skipped > 0) {
-      const plural = skipped !== 1 ? 's' : ''
+      const plural = skipped === 1 ? '' : 's'
       suffix = ` (${skipped} ignorado${plural} — não .torrent)`
     }
     let msg: { kind: 'ok' | 'err'; text: string }
     if (fails.length === 0) {
-      const plural = ok !== 1 ? 's' : ''
+      const plural = ok === 1 ? '' : 's'
       msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
     } else {
       msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}${suffix}` }
@@ -496,7 +496,7 @@ export default function FavoritesPage() {
               <h1 className="text-lg font-semibold text-gray-100">{pageTitle(viewMode, ALL_VIEW, folders)}</h1>
               {!loading && (
                 <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">
-                  {filteredFavs.length} item{filteredFavs.length !== 1 ? 's' : ''}
+                  {filteredFavs.length} item{filteredFavs.length === 1 ? '' : 's'}
                 </span>
               )}
               {isAdmin && (
@@ -674,8 +674,9 @@ export default function FavoritesPage() {
 
             {/* Magnet textarea — one per line for batch */}
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
+              <label htmlFor="import-magnet" className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
               <textarea
+                id="import-magnet"
                 value={magnetInput}
                 onChange={e => setMagnetInput(e.target.value)}
                 placeholder="magnet:?xt=urn:btih:..."
@@ -733,7 +734,7 @@ export default function FavoritesPage() {
       {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-full shadow-2xl px-4 py-2 safe-bottom">
-          <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
           <select
             defaultValue=""
             onChange={e => { moveSelectedToFolder(e.target.value === '' ? null : Number(e.target.value)); e.target.value = '' }}
