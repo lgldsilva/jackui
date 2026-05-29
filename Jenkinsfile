@@ -24,11 +24,15 @@ pipeline {
   }
 
   environment {
-    REGISTRY    = 'gitea.raspberrypi.lan'
-    IMAGE       = "gitea.raspberrypi.lan/lgldsilva/jackui"
+    // Endereços INTERNOS via WireGuard (10.228.143.12 = oracle-desktop) — o
+    // container do Jenkins não resolve *.raspberrypi.lan; Gitea/Sonar/DT vivem
+    // no mesmo host. Registry em HTTP → exige 10.228.143.12:3000 em
+    // insecure-registries do daemon (Jenkins host E raspberrypi-srv p/ o pull).
+    REGISTRY    = '10.228.143.12:3000'
+    IMAGE       = "10.228.143.12:3000/lgldsilva/jackui"
     TAG         = "${env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER}"
-    SONAR_HOST  = 'https://sonar.raspberrypi.lan'
-    DT_API      = 'https://dependency-track-api.raspberrypi.lan'
+    SONAR_HOST  = 'http://10.228.143.12:9100'
+    DT_API      = 'http://10.228.143.12:8081'
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
 
