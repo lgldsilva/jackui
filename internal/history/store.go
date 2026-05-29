@@ -102,6 +102,14 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// Incognito flag — entries recorded during an incognito session.
+	// Filtered out from all read queries; deleted when the user ends their incognito session.
+	if !s.hasColumn("results", "incognito") {
+		if _, err := s.db.Exec(`ALTER TABLE results ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+
 	// Backfill FTS if it's empty but results has rows (e.g., upgrading from a pre-FTS DB)
 	var ftsCount, resultsCount int
 	_ = s.db.QueryRow("SELECT count(*) FROM results_fts").Scan(&ftsCount)
@@ -153,7 +161,9 @@ func buildFTSQuery(input string) string {
 // Save persists Jackett results for a query, attributed to a user.
 // Dedup is per-(user, info_hash) so two users searching the same content each get their own row.
 // userID=0 means "no auth" (legacy/anonymous mode).
-func (s *Store) Save(query string, results []jackett.Result, userID int) error {
+// When incognito=true the row is written with incognito=1 so it is visible during
+// the current session but excluded from normal queries and deleted on session end.
+func (s *Store) Save(query string, results []jackett.Result, userID int, incognito bool) error {
 	if len(results) == 0 {
 		return nil
 	}
@@ -165,6 +175,10 @@ func (s *Store) Save(query string, results []jackett.Result, userID int) error {
 	defer tx.Rollback()
 
 	seen := make(map[string]bool)
+	incognitoVal := 0
+	if incognito {
+		incognitoVal = 1
+	}
 
 	for _, r := range results {
 		if r.InfoHash != "" {
@@ -174,16 +188,16 @@ func (s *Store) Save(query string, results []jackett.Result, userID int) error {
 			seen[r.InfoHash] = true
 
 			var count int
-			tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ?", r.InfoHash, userID).Scan(&count)
+			tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ? AND incognito = ?", r.InfoHash, userID, incognitoVal).Scan(&count)
 			if count > 0 {
 				continue
 			}
 		}
 
 		_, err := tx.Exec(`
-			INSERT INTO results (query, title, tracker, category, size, seeders, leechers, age, magnet_uri, link, info_hash, publish_date, user_id)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, strings.ToLower(query), r.Title, r.Tracker, r.Category, r.Size, r.Seeders, r.Leechers, r.Age, r.MagnetURI, r.Link, r.InfoHash, r.PublishDate, userID)
+			INSERT INTO results (query, title, tracker, category, size, seeders, leechers, age, magnet_uri, link, info_hash, publish_date, user_id, incognito)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, strings.ToLower(query), r.Title, r.Tracker, r.Category, r.Size, r.Seeders, r.Leechers, r.Age, r.MagnetURI, r.Link, r.InfoHash, r.PublishDate, userID, incognitoVal)
 		if err != nil {
 			return err
 		}
@@ -192,13 +206,23 @@ func (s *Store) Save(query string, results []jackett.Result, userID int) error {
 	return tx.Commit()
 }
 
+// DeleteIncognito removes all incognito-flagged entries for a user.
+// Called when the user ends their incognito session (logout or toggle-off).
+func (s *Store) DeleteIncognito(userID int) error {
+	if s == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM results WHERE user_id = ? AND incognito = 1`, userID)
+	return err
+}
+
 // Search returns cached results for a query, ordered by seeders descending.
 // Filters by userID unless includeAll=true (admin override).
 func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResult, error) {
 	q := `
 		SELECT id, title, tracker, category, size, seeders, leechers, age, magnet_uri, link, info_hash, publish_date, saved_at
 		FROM results
-		WHERE LOWER(query) = LOWER(?)`
+		WHERE LOWER(query) = LOWER(?) AND incognito = 0`
 	args := []any{query}
 	if !includeAll {
 		q += " AND user_id = ?"
@@ -245,7 +269,7 @@ func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) 
 		       r.age, r.magnet_uri, r.link, r.info_hash, r.publish_date, r.saved_at, r.query
 		FROM results_fts
 		JOIN results r ON r.id = results_fts.rowid
-		WHERE results_fts MATCH ?`
+		WHERE results_fts MATCH ? AND r.incognito = 0`
 	args := []any{ftsQuery}
 	if !includeAll {
 		q += " AND r.user_id = ?"
@@ -298,10 +322,11 @@ type Entry struct {
 func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, error) {
 	q := `
 		SELECT query, COUNT(*) AS result_count, MAX(saved_at) AS last_seen
-		FROM results`
+		FROM results
+		WHERE incognito = 0`
 	args := []any{}
 	if !includeAll {
-		q += " WHERE user_id = ?"
+		q += " AND user_id = ?"
 		args = append(args, userID)
 	}
 	q += `

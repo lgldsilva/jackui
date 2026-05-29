@@ -141,8 +141,9 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		}
 		err := client.StreamSearch(c.Request.Context(), query, category, indexers, 30*time.Second, state.handleHit)
 
-		if store != nil && len(state.liveResults) > 0 && !middleware.IsIncognito(c) {
-			go func() { _ = store.Save(query, state.liveResults, userID) }()
+		if store != nil && len(state.liveResults) > 0 {
+			incognito := middleware.IsIncognito(c)
+			go func() { _ = store.Save(query, state.liveResults, userID, incognito) }()
 		}
 
 		if err != nil {
