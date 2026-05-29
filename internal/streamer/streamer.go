@@ -340,12 +340,17 @@ func (s *Streamer) MetainfoPath(h metainfo.Hash) string {
 	return s.metainfoPath(h)
 }
 
+const (
+	magnetPrefix          = "magnet:"
+	errTorrentNotActive   = "torrent não está ativo"
+	errFileIndexOutOfRange = "file index %d out of range"
+)
 
 // ParseMagnet validates a magnet URI and extracts its info hash + display
 // name without touching the network. Used by the import flow to preview what
 // a pasted magnet resolves to before committing it to favorites.
 func (s *Streamer) ParseMagnet(magnet string) (hash, name string, err error) {
-	if i := strings.Index(magnet, "magnet:"); i >= 0 {
+	if i := strings.Index(magnet, magnetPrefix); i >= 0 {
 		magnet = magnet[i:]
 	}
 	mi, err := metainfo.ParseMagnetUri(magnet)
@@ -444,86 +449,86 @@ func (s *Streamer) Close() {
 // don't return a magnet), we fetch the file, parse the metainfo, and add via
 // AddTorrentSpec — same downstream behavior as magnet.
 func (s *Streamer) Add(ctx context.Context, magnetOrURL string) (*TorrentInfo, error) {
-	// Defensive cleanup: strip whitespace and BOM (U+FEFF, encoded as \xef\xbb\xbf in UTF-8)
+	src := cleanSource(magnetOrURL)
+	t, err := s.resolveSource(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	t.AddTrackers(publicTrackers)
+	if err := waitForMetadata(ctx, t, s.cfg.MetadataWait); err != nil {
+		return nil, err
+	}
+	return s.registerTorrent(t), nil
+}
+
+func cleanSource(magnetOrURL string) string {
 	src := strings.TrimSpace(magnetOrURL)
 	src = strings.TrimPrefix(src, "\xef\xbb\xbf")
+	return src
+}
 
-	var t *torrent.Torrent
-	var err error
-
-	// Robust detection: check anywhere in the first 16 chars in case of stray bytes
+func (s *Streamer) resolveSource(ctx context.Context, src string) (*torrent.Torrent, error) {
 	lower := strings.ToLower(src[:min(16, len(src))])
 	switch {
-	case strings.HasPrefix(lower, "magnet:") || strings.Contains(lower, "magnet:"):
-		// Find the actual start of "magnet:" in case there's a leading garbage char we missed
-		if i := strings.Index(src, "magnet:"); i >= 0 {
-			src = src[i:]
-		}
-		// Fast path: if we've persisted this hash's metainfo before, skip the
-		// DHT round-trip and hand the .torrent directly to anacrolix. Cuts
-		// "first byte" latency from 3-10s down to ~50ms on cold cache hits.
-		if mi, err := metainfo.ParseMagnetUri(src); err == nil {
-			if cached := s.loadCachedMetainfo(mi.InfoHash); cached != nil {
-				t, err = s.client.AddTorrent(cached)
-				if err != nil {
-					return nil, fmt.Errorf("add cached metainfo: %w", err)
-				}
-				break
-			}
-		}
-		t, err = s.client.AddMagnet(src)
-		if err != nil {
-			return nil, fmt.Errorf("add magnet: %w", err)
-		}
+	case isMagnet(lower, src):
+		return s.resolveMagnet(src)
 	case strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://"):
-		t, err = s.addFromTorrentURL(ctx, src)
-		if err != nil {
-			return nil, fmt.Errorf("add torrent URL: %w", err)
-		}
+		return s.addFromTorrentURL(ctx, src)
 	default:
 		return nil, fmt.Errorf("unsupported source — provide a magnet: or http(s):// URL (got %q)", firstChars(src, 30))
 	}
+}
 
-	// Inject well-known public trackers. Many magnets (and some .torrent files)
-	// are DHT-only with no announce list; on a quiet DHT moment that means
-	// peers=0 and nothing downloads, even when seeds exist. Public trackers
-	// give those torrents another way to find peers. No-op for torrents that
-	// already list these. Must be added before/while waiting for peers.
-	t.AddTrackers(publicTrackers)
+func isMagnet(lower, src string) bool {
+	if strings.HasPrefix(lower, magnetPrefix) || strings.Contains(lower, magnetPrefix) {
+		return true
+	}
+	return false
+}
 
-	// Wait for metadata with timeout
-	waitCtx, cancel := context.WithTimeout(ctx, s.cfg.MetadataWait)
+func (s *Streamer) resolveMagnet(src string) (*torrent.Torrent, error) {
+	if i := strings.Index(src, magnetPrefix); i >= 0 {
+		src = src[i:]
+	}
+	if mi, err := metainfo.ParseMagnetUri(src); err == nil {
+		if cached := s.loadCachedMetainfo(mi.InfoHash); cached != nil {
+			t, err := s.client.AddTorrent(cached)
+			if err != nil {
+				return nil, fmt.Errorf("add cached metainfo: %w", err)
+			}
+			return t, nil
+		}
+	}
+	t, err := s.client.AddMagnet(src)
+	if err != nil {
+		return nil, fmt.Errorf("add magnet: %w", err)
+	}
+	return t, nil
+}
+
+func waitForMetadata(ctx context.Context, t *torrent.Torrent, timeout time.Duration) error {
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	select {
 	case <-t.GotInfo():
+		return nil
 	case <-waitCtx.Done():
-		return nil, fmt.Errorf("timeout aguardando metadados do torrent (%s)", s.cfg.MetadataWait)
+		return fmt.Errorf("timeout aguardando metadados do torrent (%s)", timeout)
 	}
+}
 
+func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 	now := time.Now()
 	s.mu.Lock()
 	e := &entry{t: t, lastAccess: now, lastSampleAt: now}
 	s.active[t.InfoHash()] = e
 	s.mu.Unlock()
-
-	// NOTE: we deliberately do NOT call t.VerifyData() here. It hashes the
-	// ENTIRE torrent (every file), which for a season pack is multiple GB and
-	// competes with ffmpeg for disk/CPU during startup — the first playback
-	// then loses the race and times out. Cache reconciliation is done per-file
-	// in FileReader (verifyFilePieces), scoped to just the file being played.
-
-	// Serialize the metainfo to disk so the next Add() for this hash skips
-	// the DHT round-trip. Safe to call after GotInfo — t.Metainfo() is now
-	// populated with the full piece-hash table.
 	s.persistMetainfo(t)
-
 	info := s.buildInfo(e)
-	// Persist the snapshot so subsequent opens of this info_hash are instant —
-	// the cache survives container restarts, unlike s.active which is in-memory.
 	if s.cache != nil {
 		_ = s.cache.Set(info)
 	}
-	return info, nil
+	return info
 }
 
 // addFromTorrentURL handles a HTTP(S) URL that may either:
@@ -548,40 +553,52 @@ func isBlockedFetchIP(ip net.IP) bool {
 
 func newSSRFGuardedClient(jackettHost string, capturedMagnet *string) *http.Client {
 	return &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				host, port, err := net.SplitHostPort(addr)
-				if err != nil {
-					return nil, err
-				}
-				trusted := jackettHost != "" && host == jackettHost
-				ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-				if err != nil {
-					return nil, err
-				}
-				if !trusted {
-					for _, ip := range ips {
-						if isBlockedFetchIP(ip.IP) {
-							return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
-						}
-					}
-				}
-				d := net.Dialer{}
-				return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
-			},
-		},
+		Timeout:   30 * time.Second,
+		Transport: newSSRFTransport(jackettHost),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if strings.HasPrefix(strings.ToLower(req.URL.String()), "magnet:") {
-				*capturedMagnet = req.URL.String()
-				return http.ErrUseLastResponse
-			}
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
+			return checkRedirect(req, via, capturedMagnet)
 		},
 	}
+}
+
+func newSSRFTransport(jackettHost string) *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return ssrfDialContext(ctx, network, addr, jackettHost)
+		},
+	}
+}
+
+func ssrfDialContext(ctx context.Context, network, addr, jackettHost string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	trusted := jackettHost != "" && host == jackettHost
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	if !trusted {
+		for _, ip := range ips {
+			if isBlockedFetchIP(ip.IP) {
+				return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
+			}
+		}
+	}
+	d := net.Dialer{}
+	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+}
+
+func checkRedirect(req *http.Request, via []*http.Request, capturedMagnet *string) error {
+	if strings.HasPrefix(strings.ToLower(req.URL.String()), magnetPrefix) {
+		*capturedMagnet = req.URL.String()
+		return http.ErrUseLastResponse
+	}
+	if len(via) >= 10 {
+		return fmt.Errorf("too many redirects")
+	}
+	return nil
 }
 
 func (s *Streamer) injectJackettAPIKey(torrentURL string) string {
@@ -722,7 +739,7 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, nil, errors.New("torrent não está ativo")
+		return nil, nil, errors.New(errTorrentNotActive)
 	}
 
 	files := e.t.Files()
@@ -780,7 +797,7 @@ func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return fmt.Errorf("file index %d out of range", fileIdx)
+		return fmt.Errorf(errFileIndexOutOfRange, fileIdx)
 	}
 	s.verifyFilePieces(hash, fileIdx, files[fileIdx])
 	return nil
@@ -803,7 +820,7 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return fmt.Errorf("file index %d out of range", fileIdx)
+		return fmt.Errorf(errFileIndexOutOfRange, fileIdx)
 	}
 	// Libera o claim do dedup antes de re-hashar — assim a verificação roda
 	// de verdade. Mantém a guarda: se outro recheck já está em voo no mesmo
@@ -1030,15 +1047,29 @@ var extraTagsRe = regexp.MustCompile(`(?i)\b(featurette|extras?|bonus|behind[\s\
 //     single-movie torrents and series with non-standard naming.
 //  3. Fall back to the first video, or -1 if none.
 func pickPrimaryFile(files []FileInfo) int {
+	if idx, ok := pickEpisodeStart(files); ok {
+		return idx
+	}
+	if idx, ok := pickLargestNonExtra(files); ok {
+		return idx
+	}
+	return firstVideoIndex(files)
+}
+
+func nonExtraVideos(files []FileInfo) []FileInfo {
+	var out []FileInfo
+	for _, f := range files {
+		if f.IsVideo && !extraTagsRe.MatchString(f.Path) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func pickEpisodeStart(files []FileInfo) (int, bool) {
 	type epHit struct{ idx, season, episode int }
 	var episodes []epHit
-	for _, f := range files {
-		if !f.IsVideo {
-			continue
-		}
-		if extraTagsRe.MatchString(f.Path) {
-			continue
-		}
+	for _, f := range nonExtraVideos(files) {
 		m := seriesEpisodeRe.FindStringSubmatch(f.Path)
 		if m == nil {
 			continue
@@ -1047,33 +1078,32 @@ func pickPrimaryFile(files []FileInfo) int {
 		e, _ := strconv.Atoi(m[2])
 		episodes = append(episodes, epHit{idx: f.Index, season: s, episode: e})
 	}
-	if len(episodes) >= 3 {
-		// Pick the lowest (S, E) — that's the natural "play from the start" point.
-		best := episodes[0]
-		for _, ep := range episodes[1:] {
-			if ep.season < best.season || (ep.season == best.season && ep.episode < best.episode) {
-				best = ep
-			}
-		}
-		return best.idx
+	if len(episodes) < 3 {
+		return 0, false
 	}
-	// Movie-shaped torrent: pick the largest non-extra video.
+	best := episodes[0]
+	for _, ep := range episodes[1:] {
+		if ep.season < best.season || (ep.season == best.season && ep.episode < best.episode) {
+			best = ep
+		}
+	}
+	return best.idx, true
+}
+
+func pickLargestNonExtra(files []FileInfo) (int, bool) {
 	largestIdx, largestSize := -1, int64(0)
-	for _, f := range files {
-		if !f.IsVideo {
-			continue
-		}
-		if extraTagsRe.MatchString(f.Path) {
-			continue
-		}
+	for _, f := range nonExtraVideos(files) {
 		if f.Size > largestSize {
 			largestIdx, largestSize = f.Index, f.Size
 		}
 	}
 	if largestIdx >= 0 {
-		return largestIdx
+		return largestIdx, true
 	}
-	// Last-resort: any video at all (extras included).
+	return 0, false
+}
+
+func firstVideoIndex(files []FileInfo) int {
 	for _, f := range files {
 		if f.IsVideo {
 			return f.Index
@@ -1391,7 +1421,7 @@ func (s *Streamer) Pause(hash metainfo.Hash) error {
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
 	if !ok {
-		return errors.New("torrent não está ativo")
+		return errors.New(errTorrentNotActive)
 	}
 	if e.paused {
 		return nil // idempotent
@@ -1407,7 +1437,7 @@ func (s *Streamer) Resume(hash metainfo.Hash) error {
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
 	if !ok {
-		return errors.New("torrent não está ativo")
+		return errors.New(errTorrentNotActive)
 	}
 	if !e.paused {
 		return nil
@@ -1430,7 +1460,7 @@ func (s *Streamer) SetPriority(hash metainfo.Hash, label string) error {
 	defer s.mu.Unlock()
 	e, found := s.active[hash]
 	if !found {
-		return errors.New("torrent não está ativo")
+		return errors.New(errTorrentNotActive)
 	}
 	for _, f := range e.t.Files() {
 		f.SetPriority(prio)
@@ -1576,11 +1606,11 @@ func (s *Streamer) SetFilePriority(hash metainfo.Hash, fileIdx int, label string
 	defer s.mu.Unlock()
 	e, found := s.active[hash]
 	if !found {
-		return errors.New("torrent não está ativo")
+		return errors.New(errTorrentNotActive)
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return fmt.Errorf("file index %d out of range", fileIdx)
+		return fmt.Errorf(errFileIndexOutOfRange, fileIdx)
 	}
 	files[fileIdx].SetPriority(prio)
 	return nil

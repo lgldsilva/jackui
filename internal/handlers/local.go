@@ -22,6 +22,12 @@ import (
 	"github.com/luizg/jackui/internal/transcode"
 )
 
+const (
+	errMissingMountOrPathParam = "missing mount or path parameter"
+	mountMeusDownloads         = "meus downloads"
+	errOnlyMeusDownloads       = "Somente a área 'Meus downloads' pode ser modificada ou promovida"
+)
+
 // userFromCtx extracts the username from the JWT claims, returning ""
 // when auth is not enabled or user is anonymous (media tokens).
 func userFromCtx(c *gin.Context) string {
@@ -86,7 +92,7 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
@@ -124,17 +130,13 @@ var localVideoExts = map[string]bool{
 	".webm": true, ".flv": true, ".mpeg": true, ".mpg": true, ".ts": true, ".m2ts": true,
 }
 
-// LocalThumb handles GET /api/local/thumb?mount=NAME&path=REL&at=SECONDS —
-// extracts a single early frame from a local video file as JPEG, cached on disk.
-// Used by the file browser to show a preview instead of a generic icon. Loaded
-// by <img>, so it accepts ?token= (see isMediaPath).
 func LocalThumb(b *local.Browser) gin.HandlerFunc {
 	cacheDir := filepath.Join(os.TempDir(), "jackui-local-thumbs")
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
@@ -144,65 +146,94 @@ func LocalThumb(b *local.Browser) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
+		abs, err := resolveLocalAbs(b, mount, path)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		stat, err := os.Stat(abs)
-		if err != nil || stat.IsDir() {
+		if abs == "" {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		at := 10
-		if v, e := strconv.Atoi(c.Query("at")); e == nil && v >= 0 {
-			at = v
-		}
-
-		// Cache key includes mod time so editing/replacing the file busts it.
-		key := fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", abs, stat.ModTime().UnixNano(), at))))
-		cachePath := filepath.Join(cacheDir, key+".jpg")
-		if data, rerr := os.ReadFile(cachePath); rerr == nil {
-			c.Header("Cache-Control", "public, max-age=86400")
-			c.Data(http.StatusOK, "image/jpeg", data)
+		at := parseAt(c)
+		cachePath := thumbCachePath(cacheDir, abs, at)
+		if serveCachedThumb(c, cachePath) {
 			return
 		}
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-		defer cancel()
-		// Try the requested timestamp first, then 1s — a short clip may have no
-		// frame at `at`, and the very start is sometimes black/garbage.
-		seeks := []int{at}
-		if at != 1 {
-			seeks = append(seeks, 1)
-		}
-		var out []byte
-		for _, s := range seeks {
-			cmd := exec.CommandContext(ctx, "ffmpeg",
-				"-hide_banner", "-loglevel", "error",
-				"-ss", strconv.Itoa(s),
-				"-i", abs,
-				"-frames:v", "1",
-				"-vf", "scale=320:-2",
-				"-q:v", "5",
-				"-f", "mjpeg",
-				"-y", "pipe:1",
-			)
-			if data, cerr := cmd.Output(); cerr == nil && len(data) > 0 {
-				out = data
-				break
-			}
-		}
+		out := captureThumb(c, abs, at, cacheDir, cachePath)
 		if len(out) == 0 {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		if os.MkdirAll(cacheDir, 0o755) == nil {
-			_ = os.WriteFile(cachePath, out, 0o644)
-		}
 		c.Header("Cache-Control", "public, max-age=86400")
 		c.Data(http.StatusOK, "image/jpeg", out)
 	}
+}
+
+func resolveLocalAbs(b *local.Browser, mount, path string) (string, error) {
+	abs, err := b.ResolvePath(mount, path)
+	if err != nil {
+		return "", err
+	}
+	stat, err := os.Stat(abs)
+	if err != nil || stat.IsDir() {
+		return "", nil
+	}
+	return abs, nil
+}
+
+func parseAt(c *gin.Context) int {
+	at := 10
+	if v, e := strconv.Atoi(c.Query("at")); e == nil && v >= 0 {
+		at = v
+	}
+	return at
+}
+
+func thumbCachePath(cacheDir, abs string, at int) string {
+	stat, _ := os.Stat(abs)
+	key := fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", abs, stat.ModTime().UnixNano(), at))))
+	return filepath.Join(cacheDir, key+".jpg")
+}
+
+func serveCachedThumb(c *gin.Context, cachePath string) bool {
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return false
+	}
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.Data(http.StatusOK, "image/jpeg", data)
+	return true
+}
+
+func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string) []byte {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	defer cancel()
+	seeks := []int{at}
+	if at != 1 {
+		seeks = append(seeks, 1)
+	}
+	var out []byte
+	for _, s := range seeks {
+		cmd := exec.CommandContext(ctx, "ffmpeg",
+			"-hide_banner", "-loglevel", "error",
+			"-ss", strconv.Itoa(s),
+			"-i", abs,
+			"-frames:v", "1",
+			"-vf", "scale=320:-2",
+			"-q:v", "5",
+			"-f", "mjpeg",
+			"-y", "pipe:1",
+		)
+		if data, cerr := cmd.Output(); cerr == nil && len(data) > 0 {
+			out = data
+			break
+		}
+	}
+	if len(out) > 0 && os.MkdirAll(cacheDir, 0o755) == nil {
+		_ = os.WriteFile(cachePath, out, 0o644)
+	}
+	return out
 }
 
 // LocalTranscode handles GET /api/local/transcode?mount=NAME&path=REL
@@ -213,7 +244,7 @@ func LocalTranscode(b *local.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
@@ -256,116 +287,104 @@ func isTraversalErr(err error) bool {
 		strings.Contains(s, "mount") && strings.Contains(s, "not found")
 }
 
-// LocalDelete handles DELETE /api/local/file?mount=NAME&path=REL
 func LocalDelete(b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-
-		// Admin pode modificar qualquer mount; não-admin só "Meus downloads"
-		claims, _ := auth.ClaimsFromCtx(c)
-		isAdmin := claims != nil && claims.Role == auth.RoleAdmin
-		if !isAdmin && strings.ToLower(mount) != "meus downloads" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
+		if !canModifyMount(c, mount) {
 			return
 		}
-
-		// Prevent deleting mount root
-		cleanPath := filepath.Clean(path)
-		if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete mount root"})
-			return
-		}
-
-		abs, err := b.ResolvePath(mount, path)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Double safety check: make sure absolute path is not the mount root itself
-		mounts := b.Mounts()
-		for _, m := range mounts {
-			mountAbs, err := filepath.Abs(m.Path)
-			if err == nil && abs == mountAbs {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete mount root"})
-				return
-			}
-		}
-
-		_, err = os.Stat(abs)
+		abs, err := resolveDeletablePath(b, mount, path)
 		if err != nil {
 			if os.IsNotExist(err) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-
-		// Perform deletion
 		if err := os.RemoveAll(abs); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %s", err.Error())})
 			return
 		}
-
 		c.JSON(http.StatusOK, gin.H{"message": "deleted successfully"})
 	}
 }
 
-type localPromoteReq struct {
-	Mount        string   `json:"mount"`
-	Path         string   `json:"path"`
-	Paths        []string `json:"paths"`
-	TargetSubdir string   `json:"targetSubdir"`
-	TargetBase   string   `json:"targetBase"` // empty = sharedDir (default)
-	RenameIA     bool     `json:"renameIA"`
+func canModifyMount(c *gin.Context, mount string) bool {
+	claims, _ := auth.ClaimsFromCtx(c)
+	isAdmin := claims != nil && claims.Role == auth.RoleAdmin
+	if isAdmin || strings.ToLower(mount) == mountMeusDownloads {
+		return true
+	}
+	c.JSON(http.StatusForbidden, gin.H{"error": errOnlyMeusDownloads})
+	return false
 }
 
-// LocalPromote handles POST /api/local/promote
+func resolveDeletablePath(b *local.Browser, mount, path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
+		return "", fmt.Errorf("cannot delete mount root")
+	}
+	abs, err := b.ResolvePath(mount, path)
+	if err != nil {
+		return "", err
+	}
+	if isMountRoot(b, abs) {
+		return "", fmt.Errorf("cannot delete mount root")
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+func isMountRoot(b *local.Browser, abs string) bool {
+	for _, m := range b.Mounts() {
+		mountAbs, err := filepath.Abs(m.Path)
+		if err == nil && abs == mountAbs {
+			return true
+		}
+	}
+	return false
+}
+
 func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		_, src, base, subdir, ok := validatePromote(c, b, sharedDir, dests)
 		if !ok {
 			return
 		}
-
 		targetDir := base
 		if subdir != "" {
 			targetDir = filepath.Join(base, subdir)
 		}
-
 		baseName := filepath.Base(src)
 		dst, targetDir := computePromoteDst(c.Request.Context(), aiClient, tmdbClient, baseName, base, targetDir)
-
 		if src == dst {
 			c.JSON(http.StatusOK, gin.H{"message": "source and destination are the same", "path": dst})
 			return
 		}
-
 		stat, statErr := os.Stat(src)
 		if statErr != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "arquivo de origem não existe: " + statErr.Error()})
 			return
 		}
-
 		if err := os.MkdirAll(targetDir, 0755); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "criar destino: " + err.Error()})
 			return
 		}
-
 		if err := movePath(src, dst, stat); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "mover arquivo: " + err.Error()})
 			return
 		}
-
 		c.JSON(http.StatusOK, gin.H{"message": "promoted successfully", "path": dst})
 	}
 }
@@ -375,52 +394,44 @@ func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests [
 		c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
 		return nil, "", "", "", false
 	}
-
 	var req localPromoteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
 		return nil, "", "", "", false
 	}
-
 	if req.Mount == "" || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
 		return nil, "", "", "", false
 	}
 	if !checkMountAccess(b, c, req.Mount) {
 		return nil, "", "", "", false
 	}
-
 	claims, _ := auth.ClaimsFromCtx(c)
 	isAdmin := claims != nil && claims.Role == auth.RoleAdmin
-	if !isAdmin && strings.ToLower(req.Mount) != "meus downloads" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
+	if !isAdmin && strings.ToLower(req.Mount) != mountMeusDownloads {
+		c.JSON(http.StatusForbidden, gin.H{"error": errOnlyMeusDownloads})
 		return nil, "", "", "", false
 	}
-
 	cleanPath := filepath.Clean(req.Path)
 	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot promote mount root"})
 		return nil, "", "", "", false
 	}
-
 	src, err := b.ResolvePath(req.Mount, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return nil, "", "", "", false
 	}
-
 	base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return nil, "", "", "", false
 	}
-
 	subdir, err := sanitizeSubdir(req.TargetSubdir)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return nil, "", "", "", false
 	}
-
 	return &req, src, base, subdir, true
 }
 
@@ -436,60 +447,74 @@ func computePromoteDst(ctx context.Context, aiClient *ai.Client, tmdbClient *tmd
 	return filepath.Join(targetDir, baseName), targetDir
 }
 
-// LocalPromotePreview handles POST /api/local/promote/preview
 func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
 			return
 		}
-
-		var req localPromoteReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
+		if !ok {
 			return
 		}
-
-		if req.Mount == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount parameter"})
-			return
-		}
-
-		if !checkMountAccess(b, c, req.Mount) {
-			return
-		}
-
-		// Admin pode modificar qualquer mount; não-admin só "Meus downloads"
-		claims, _ := auth.ClaimsFromCtx(c)
-		isAdmin := claims != nil && claims.Role == auth.RoleAdmin
-		if !isAdmin && strings.ToLower(req.Mount) != "meus downloads" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
-			return
-		}
-
-		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		paths := req.Paths
-		if len(paths) == 0 && req.Path != "" {
-			paths = []string{req.Path}
-		}
-
-		if len(paths) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "paths vazio"})
-			return
-		}
-
-		previews := []gin.H{}
-		for _, p := range paths {
-			previews = append(previews, previewItem(c, b, aiClient, tmdbClient, req.Mount, p, base))
-		}
-
+		paths := resolveLocalPaths(req)
+		previews := buildLocalPreviews(c, b, aiClient, tmdbClient, req.Mount, paths, base)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
+}
+
+type localPromoteReq struct {
+	Mount        string   `json:"mount"`
+	Path         string   `json:"path"`
+	Paths        []string `json:"paths"`
+	TargetSubdir string   `json:"targetSubdir"`
+	TargetBase   string   `json:"targetBase"`
+	RenameIA     bool     `json:"renameIA"`
+}
+
+func extractLocalPromoteReq(c *gin.Context, b *local.Browser, sharedDir string, dests []PromoteDest) (*localPromoteReq, string, bool) {
+	var req localPromoteReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		return nil, "", false
+	}
+	if req.Mount == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount parameter"})
+		return nil, "", false
+	}
+	if !checkMountAccess(b, c, req.Mount) {
+		return nil, "", false
+	}
+	if !canModifyMount(c, req.Mount) {
+		return nil, "", false
+	}
+	base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, "", false
+	}
+	return &req, base, true
+}
+
+func resolveLocalPaths(req *localPromoteReq) []string {
+	if len(req.Paths) > 0 {
+		return req.Paths
+	}
+	if req.Path != "" {
+		return []string{req.Path}
+	}
+	return nil
+}
+
+func buildLocalPreviews(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, mount string, paths []string, base string) []gin.H {
+	if len(paths) == 0 {
+		return []gin.H{}
+	}
+	previews := make([]gin.H, 0, len(paths))
+	for _, p := range paths {
+		previews = append(previews, previewItem(c, b, aiClient, tmdbClient, mount, p, base))
+	}
+	return previews
 }
 
 func previewItem(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, mount, p, base string) gin.H {

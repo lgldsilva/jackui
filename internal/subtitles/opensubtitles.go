@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	apiBase   = "https://api.opensubtitles.com/api/v1"
-	userAgent = "JackUI v1.0"
+	apiBase          = "https://api.opensubtitles.com/api/v1"
+	userAgent        = "JackUI v1.0"
+	contentTypeJSON  = "application/json"
 )
 
 // utf8BOM is the byte-order mark sometimes prepended to SRT files (U+FEFF).
@@ -219,7 +220,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 	body, _ := json.Marshal(map[string]string{"file_id": fileID})
 	req, _ := http.NewRequest("POST", apiBase+"/download", bytes.NewReader(body))
 	c.applyHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentTypeJSON)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -267,7 +268,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 func (c *Client) applyHeaders(req *http.Request) {
 	req.Header.Set("Api-Key", c.apiKey)
 	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", contentTypeJSON)
 }
 
 func (c *Client) ensureToken() (string, error) {
@@ -283,7 +284,7 @@ func (c *Client) ensureToken() (string, error) {
 	body, _ := json.Marshal(map[string]string{"username": c.username, "password": c.password})
 	req, _ := http.NewRequest("POST", apiBase+"/login", bytes.NewReader(body))
 	c.applyHeaders(req)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentTypeJSON)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

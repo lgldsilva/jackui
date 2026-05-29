@@ -220,7 +220,7 @@ func (s *Store) Bootstrap(adminUser, adminPass string) error {
 func (s *Store) CreateUser(username, password string, role Role) (int, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return 0, fmt.Errorf("hash password: %w", err)
+		return 0, fmt.Errorf(errHashPassword, err)
 	}
 	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
@@ -256,7 +256,7 @@ func (s *Store) ChangePassword(userID int, current, new string) error {
 func (s *Store) SetPassword(userID int, password string) error {
 	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return fmt.Errorf("hash password: %w", err)
+		return fmt.Errorf(errHashPassword, err)
 	}
 	_, err = s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", string(h), userID)
 	return err
@@ -292,6 +292,11 @@ func (s *Store) DisableTOTP(userID int) error {
 }
 
 // ─── MFA backup codes ───────────────────────────────────────────────────────
+
+const (
+	errHashPassword = "hash password: %w"
+	timeFormat      = "2006-01-02 15:04:05"
+)
 
 // backupCodeAlphabet excludes visually ambiguous characters (0/o, 1/l/i).
 const backupCodeAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"
@@ -374,7 +379,7 @@ func (s *Store) SetStatus(userID int, status Status) error {
 func (s *Store) CreateUserFull(username, email, password string, role Role, status Status) (int, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return 0, fmt.Errorf("hash password: %w", err)
+		return 0, fmt.Errorf(errHashPassword, err)
 	}
 	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
@@ -543,7 +548,7 @@ func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.D
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO auth_tokens(token_hash, user_id, purpose, email, expires_at) VALUES(?, ?, ?, ?, ?)`,
-		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC().Format("2006-01-02 15:04:05"),
+		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC().Format(timeFormat),
 	)
 	if err != nil {
 		return "", err
@@ -669,7 +674,7 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool)
 	}
 	_, err = s.db.Exec(
 		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me) VALUES(?, ?, ?, ?)",
-		hash, userID, time.Now().Add(ttl).UTC().Format("2006-01-02 15:04:05"), rem,
+		hash, userID, time.Now().Add(ttl).UTC().Format(timeFormat), rem,
 	)
 	if err != nil {
 		return "", err
@@ -714,7 +719,7 @@ func (s *Store) ConsumeRefreshToken(plain string) error {
 
 // CleanupExpired removes refresh tokens past their TTL. Call periodically.
 func (s *Store) CleanupExpired() error {
-	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	now := time.Now().UTC().Format(timeFormat)
 	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < ?", now)
 	return err
 }
@@ -831,7 +836,7 @@ func randomFromAlphabet(n int, alphabet string) (string, error) {
 //   - RFC3339 with sub-second precision
 func parseTime(s string) (time.Time, error) {
 	for _, layout := range []string{
-		"2006-01-02 15:04:05",
+		timeFormat,
 		"2006-01-02T15:04:05Z",
 		time.RFC3339,
 		time.RFC3339Nano,

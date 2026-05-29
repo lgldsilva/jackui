@@ -387,11 +387,11 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    <dialog
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      onClose={onClose}
+      open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         <header className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-850">
@@ -644,16 +644,13 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                               return (
                                 <li 
                                   key={f.index} 
-                                  className="px-2.5 py-1.5 flex items-center gap-2 hover:bg-gray-800/40 cursor-pointer text-xs"
-                                  onClick={toggle}
-                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
-                                  role="button" tabIndex={0}
+                                  className="px-2.5 py-1.5 hover:bg-gray-800/40 text-xs"
                                 >
+                                  <label className="flex items-center gap-2 cursor-pointer">
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={toggle}
-                                    onClick={e => e.stopPropagation()}
                                     className="accent-cyan-500 flex-shrink-0"
                                   />
                                   {fileIcon(f)}
@@ -663,6 +660,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                                   <span className="text-gray-500 flex-shrink-0 font-mono">
                                     {formatBytes(f.size)}
                                   </span>
+                                  </label>
                                 </li>
                               )
                             })}
@@ -725,6 +723,6 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
           </div>
         </footer>
       </div>
-    </div>
+    </dialog>
   )
 }

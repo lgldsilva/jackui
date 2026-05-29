@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	errFailedToCreateRequest = "failed to create request: %w"
+	torznabAPIEndpoint       = "/api/v2.0/indexers/all/results/torznab/api"
+)
+
 type Client struct {
 	URL    string
 	APIKey string
@@ -112,7 +117,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf(errFailedToCreateRequest, err)
 	}
 
 	q := req.URL.Query()
@@ -177,7 +182,7 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 	// degrades gracefully into "search-all-indexers" mode without breaking.
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v2.0/indexers", c.URL), nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf(errFailedToCreateRequest, err)
 	}
 
 	q := req.URL.Query()
@@ -236,7 +241,7 @@ func (c *Client) TestConnection() error {
 	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf(errFailedToCreateRequest, err)
 	}
 	q := req.URL.Query()
 	q.Set("apikey", c.APIKey)

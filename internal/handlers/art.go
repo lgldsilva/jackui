@@ -67,6 +67,24 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 // progressively earlier for short clips.
 var frameCaptureSeconds = []int{120, 60, 30, 5}
 
+type artResolveCtx struct {
+	c            *gin.Context
+	s            *streamer.Streamer
+	cache        *streamer.MetadataCache
+	h            metainfo.Hash
+	hash         string
+	existingRank int
+	ctx          context.Context
+	existing     *streamer.CachedArt
+	webSearch    *imagesearch.Chain
+	isAudio      bool
+	rawName      string
+	aiClient     *ai.Client
+	query        string
+	frameJobs    *sync.Map
+	fileIdx      int
+}
+
 // ResolveArt handles POST /api/stream/art/:hash/resolve?file=N — runs the art
 // resolution chain and persists the best result keyed by info_hash, so it's
 // never recomputed. Triggered by the player on play. Idempotent: if a result of
@@ -106,16 +124,16 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 
 		rawName, isAudio, query := buildArtQuery(c, cache, aiClient, ctx, hash)
 
-		if resolveTorrentArt(c, s, cache, h, hash, existing, existingRank, ctx) {
+		if resolveTorrentArt(&artResolveCtx{c: c, s: s, cache: cache, h: h, hash: hash, existing: existing, existingRank: existingRank, ctx: ctx}) {
 			return
 		}
 		if resolveTMDBArt(c, cache, tmdbClient, hash, existingRank, ctx, query) {
 			return
 		}
-		if resolveWebArt(c, s, cache, h, hash, webSearch, existingRank, ctx, isAudio, rawName, aiClient, query) {
+		if resolveWebArt(&artResolveCtx{c: c, s: s, cache: cache, h: h, hash: hash, webSearch: webSearch, existingRank: existingRank, ctx: ctx, isAudio: isAudio, rawName: rawName, aiClient: aiClient, query: query}) {
 			return
 		}
-		if resolveFrameCapture(c, s, cache, h, hash, &frameJobs, fileIdx, existingRank) {
+		if resolveFrameCapture(&artResolveCtx{c: c, s: s, cache: cache, h: h, hash: hash, frameJobs: &frameJobs, fileIdx: fileIdx, existingRank: existingRank}) {
 			return
 		}
 
@@ -148,24 +166,24 @@ func buildArtQuery(c *gin.Context, cache *streamer.MetadataCache, aiClient *ai.C
 	return
 }
 
-func resolveTorrentArt(c *gin.Context, s *streamer.Streamer, cache *streamer.MetadataCache, h metainfo.Hash, hash string, existing *streamer.CachedArt, existingRank int, ctx context.Context) bool {
-	if existingRank >= streamer.ArtSourceRank("torrent") {
+func resolveTorrentArt(a *artResolveCtx) bool {
+	if a.existingRank >= streamer.ArtSourceRank("torrent") {
 		return false
 	}
-	data, _, terr := s.TorrentImage(ctx, h)
+	data, _, terr := a.s.TorrentImage(a.ctx, a.h)
 	if terr != nil || len(data) == 0 {
 		return false
 	}
-	rel, serr := s.SaveArtBytes(h, data)
+	rel, serr := a.s.SaveArtBytes(a.h, data)
 	if serr != nil {
 		return false
 	}
 	art := &streamer.CachedArt{Source: "torrent", Path: rel}
-	if existing != nil {
-		art.TmdbID, art.ImdbID = existing.TmdbID, existing.ImdbID
+	if a.existing != nil {
+		art.TmdbID, art.ImdbID = a.existing.TmdbID, a.existing.ImdbID
 	}
-	_ = cache.SetArt(hash, art)
-	c.JSON(http.StatusOK, gin.H{"source": "torrent"})
+	_ = a.cache.SetArt(a.hash, art)
+	a.c.JSON(http.StatusOK, gin.H{"source": "torrent"})
 	return true
 }
 
@@ -187,58 +205,58 @@ func resolveTMDBArt(c *gin.Context, cache *streamer.MetadataCache, tmdbClient *t
 	return true
 }
 
-func resolveWebArt(c *gin.Context, s *streamer.Streamer, cache *streamer.MetadataCache, h metainfo.Hash, hash string, webSearch *imagesearch.Chain, existingRank int, ctx context.Context, isAudio bool, rawName string, aiClient *ai.Client, query string) bool {
-	if existingRank >= streamer.ArtSourceRank("web") || webSearch == nil {
+func resolveWebArt(a *artResolveCtx) bool {
+	if a.existingRank >= streamer.ArtSourceRank("web") || a.webSearch == nil {
 		return false
 	}
-	webQuery := query
-	if isAudio && aiClient != nil && rawName != "" {
-		if mq := aiClient.MusicQuery(ctx, rawName); mq != "" {
+	webQuery := a.query
+	if a.isAudio && a.aiClient != nil && a.rawName != "" {
+		if mq := a.aiClient.MusicQuery(a.ctx, a.rawName); mq != "" {
 			webQuery = mq
 		}
 	}
 	if webQuery == "" {
 		return false
 	}
-	data, _, src, werr := webSearch.Find(ctx, webQuery)
+	data, _, src, werr := a.webSearch.Find(a.ctx, webQuery)
 	if werr != nil || len(data) == 0 {
 		return false
 	}
-	rel, serr := s.SaveArtBytes(h, data)
+	rel, serr := a.s.SaveArtBytes(a.h, data)
 	if serr != nil {
 		return false
 	}
-	_ = cache.SetArt(hash, &streamer.CachedArt{Source: "web", Path: rel})
-	c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
+	_ = a.cache.SetArt(a.hash, &streamer.CachedArt{Source: "web", Path: rel})
+	a.c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
 	return true
 }
 
-func resolveFrameCapture(c *gin.Context, s *streamer.Streamer, cache *streamer.MetadataCache, h metainfo.Hash, hash string, frameJobs *sync.Map, fileIdx int, existingRank int) bool {
-	if fileIdx < 0 || existingRank >= streamer.ArtSourceRank("frame") {
+func resolveFrameCapture(a *artResolveCtx) bool {
+	if a.fileIdx < 0 || a.existingRank >= streamer.ArtSourceRank("frame") {
 		return false
 	}
-	if _, busy := frameJobs.LoadOrStore(hash, true); busy {
-		c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+	if _, busy := a.frameJobs.LoadOrStore(a.hash, true); busy {
+		a.c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
 		return true
 	}
 	go func() {
-		defer frameJobs.Delete(hash)
+		defer a.frameJobs.Delete(a.hash)
 		bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		for _, at := range frameCaptureSeconds {
-			data, _, ferr := s.ExtractThumbnail(bg, h, fileIdx, at)
+			data, _, ferr := a.s.ExtractThumbnail(bg, a.h, a.fileIdx, at)
 			if ferr != nil {
 				return
 			}
 			if len(data) == 0 {
 				continue
 			}
-			if rel, serr := s.SaveArtBytes(h, data); serr == nil {
-				_ = cache.SetArt(hash, &streamer.CachedArt{Source: "frame", Path: rel})
+			if rel, serr := a.s.SaveArtBytes(a.h, data); serr == nil {
+				_ = a.cache.SetArt(a.hash, &streamer.CachedArt{Source: "frame", Path: rel})
 			}
 			return
 		}
 	}()
-	c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+	a.c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
 	return true
 }
