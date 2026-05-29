@@ -14,6 +14,37 @@ import { useFilteredResults } from '../lib/useFilteredResults'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { formatDate } from '../lib/format'
 
+type SortDef = { key: ResultSortKey; label: string }
+
+function ResultSortButtons({
+  sort, sortAsc, onChange, defs, className,
+}: {
+  sort: ResultSortKey
+  sortAsc: boolean
+  onChange: (key: ResultSortKey, asc: boolean) => void
+  defs: SortDef[]
+  className?: string
+}) {
+  return (
+    <div className={className ?? 'flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1'}>
+      {defs.map(({ key, label }) => (
+        <button
+          key={key}
+          onClick={() => {
+            if (sort === key) onChange(key, !sortAsc)
+            else onChange(key, false)
+          }}
+          className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
+            sort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          {label}{sort === key && (sortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 type Mode = 'browse' | 'global'
 
 type EntrySortKey = 'recent' | 'oldest' | 'most' | 'alpha'
@@ -305,11 +336,13 @@ export default function HistoryPage() {
             <input type="number" min={0} value={minSeeders || ''} placeholder="0" onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none" />
           </label>
           <div className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto">
-            {([['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Nome']] as [ResultSortKey,string][]).map(([key, label]) => (
-              <button key={key} onClick={() => { if (resultSort === key) setResultSortAsc(a => !a); else { setResultSort(key); setResultSortAsc(false) } }} className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${resultSort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'}`}>
-                {label}{resultSort === key && (resultSortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
-              </button>
-            ))}
+            <ResultSortButtons
+              sort={resultSort}
+              sortAsc={resultSortAsc}
+              onChange={(k, a) => { setResultSort(k); setResultSortAsc(a) }}
+              defs={[['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Nome']].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
+              className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto"
+            />
           </div>
         </div>
       )}
@@ -397,12 +430,7 @@ export default function HistoryPage() {
           </div>
         </div>
         <div className="flex flex-col gap-3">
-          {!selected ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-600">
-              <ArrowUpDown className="w-10 h-10 mb-3 opacity-30" />
-              <p>Selecione uma busca para ver os resultados em cache</p>
-            </div>
-          ) : (
+          {selected ? (
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative flex-1 min-w-[180px]">
@@ -417,11 +445,13 @@ export default function HistoryPage() {
                   <span className="text-xs text-gray-500">Mín seeds</span>
                   <input type="number" min={0} value={minSeeders} onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-14 bg-transparent text-sm text-gray-200 focus:outline-none" />
                 </div>
-                <div className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
-                  {([['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Título']] as [ResultSortKey,string][]).map(([key, label]) => (
-                    <button key={key} onClick={() => { if (resultSort === key) setResultSortAsc(a => !a); else { setResultSort(key); setResultSortAsc(false) } }} className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${resultSort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'}`}>{label}{resultSort === key && (resultSortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}</button>
-                  ))}
-                </div>
+                <ResultSortButtons
+                  sort={resultSort}
+                  sortAsc={resultSortAsc}
+                  onChange={(k, a) => { setResultSort(k); setResultSortAsc(a) }}
+                  defs={[['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Título']].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
+                  className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1"
+                />
               </div>
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-xs text-gray-500">{loadingResults ? 'Carregando...' : (<><span className="text-gray-300 font-medium">{filteredResults.length}</span>{filteredResults.length !== results.length && <span> de {results.length}</span>} {' '}resultado{filteredResults.length === 1 ? '' : 's'} em cache para <span className="text-green-400 font-medium">"{selected}"</span></>)}</p>
@@ -458,6 +488,11 @@ export default function HistoryPage() {
                 </>
               )}
             </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-600">
+              <ArrowUpDown className="w-10 h-10 mb-3 opacity-30" />
+              <p>Selecione uma busca para ver os resultados em cache</p>
+            </div>
           )}
         </div>
       </div>

@@ -141,9 +141,9 @@ export default function PlaylistDetailPage() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleReorderDrop(idx)}
                 onDragEnd={() => setDragIdx(null)}
-                role="listitem"
+                role="button"
                 tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter') startAt(idx) }}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startAt(idx) } }}
                 className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
                 <GripVertical className="w-4 h-4 text-gray-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />

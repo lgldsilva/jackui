@@ -41,7 +41,7 @@ async function copyToClipboard(text: string) {
   }
 }
 
-function imdbOrTmdbRating(tmdb: TmdbMatch | null): React.ReactNode {
+function RatingBadge({ tmdb }: { readonly tmdb: TmdbMatch | null }): React.ReactNode {
   if (!tmdb) return null
   if (tmdb.imdbRating && tmdb.imdbRating > 0) {
     if (tmdb.imdbId) {
@@ -87,8 +87,8 @@ function renderCardTitle(
         {result.title}
         {tmdb && (
           <span className="block text-[11px] font-normal text-gray-400 mt-0.5 line-clamp-2">
-            {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
-            {imdbOrTmdbRating(tmdb)}
+              {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
+            {RatingBadge({ tmdb })}
           </span>
         )}
       </h3>
@@ -147,22 +147,25 @@ function renderCardStats(
   )
 }
 
-function renderCardActions(
-  canPlay: boolean,
-  hasSource: boolean,
-  canDownload: boolean,
-  onPlay: ((result: SearchResult) => void) | undefined,
-  onExploreContents: ((result: SearchResult) => void) | undefined,
-  onAddToPlaylist: ((result: SearchResult) => void) | undefined,
-  onDownload: (result: SearchResult) => void,
-  result: SearchResult,
-  handleOpenMagnet: () => void,
-  handleCopyMagnet: () => void,
-  handleTorrentDownload: () => void,
-  resolvingMagnet: boolean,
-  resolvingTorrent: boolean,
-  copied: boolean,
-): React.ReactNode {
+type RenderCardActionsProps = {
+  canPlay: boolean
+  hasSource: boolean
+  canDownload: boolean
+  onPlay: ((result: SearchResult) => void) | undefined
+  onExploreContents: ((result: SearchResult) => void) | undefined
+  onAddToPlaylist: ((result: SearchResult) => void) | undefined
+  onDownload: (result: SearchResult) => void
+  result: SearchResult
+  handleOpenMagnet: () => void
+  handleCopyMagnet: () => void
+  handleTorrentDownload: () => void
+  resolvingMagnet: boolean
+  resolvingTorrent: boolean
+  copied: boolean
+}
+
+function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
+  const { canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
   return (
     <div className="flex gap-1.5 mt-auto pt-1 border-t border-gray-700 flex-wrap">
       {canPlay && (
@@ -360,7 +363,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       <QualityBadges quality={result.quality} />
       {renderCategoryBadges(result)}
       {renderCardStats(result, onRefresh, refreshing, refreshedAt)}
-      {renderCardActions(canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied)}
+      {renderCardActions({ canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied })}
     </button>
   )
 }
