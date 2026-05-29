@@ -51,6 +51,8 @@ type Download struct {
 	CompletedAt     *time.Time `json:"completedAt"`
 	Error           string     `json:"error"`
 	CreatedAt       time.Time  `json:"createdAt"`
+	// Promoted is true when the file has been moved outside the download dir (computed, not stored).
+	Promoted        bool       `json:"promoted,omitempty"`
 }
 
 type Store struct {

@@ -567,7 +567,7 @@ func main() {
 			// Background full-file downloads (anacrolix Download API);
 			// worker tick keeps the DB queue in sync with active torrents.
 			if downloadsStore != nil {
-				api.GET("/downloads", handlers.DownloadsList(downloadsStore, streamSrv))
+				api.GET("/downloads", handlers.DownloadsList(downloadsStore, streamSrv, cfg.Stream.DownloadDir))
 				api.GET("/downloads/filtered", handlers.DownloadsListFiltered(downloadsStore, streamSrv))
 				api.GET("/downloads/trackers", handlers.DownloadsTrackers(downloadsStore))
 				api.GET("/downloads/categories", handlers.DownloadsCategories(downloadsStore))

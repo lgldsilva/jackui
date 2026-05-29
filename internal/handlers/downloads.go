@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -66,8 +67,23 @@ func enrichETAList(list []downloads.Download, s *streamer.Streamer) {
 	}
 }
 
+// markPromoted sets Promoted=true for completed downloads whose FilePath is
+// outside the download dir (i.e. the file was moved to a library/GDrive).
+func markPromoted(list []downloads.Download, downloadDir string) {
+	if downloadDir == "" {
+		return
+	}
+	for i := range list {
+		d := &list[i]
+		if d.Status == downloads.StatusCompleted && d.FilePath != "" &&
+			!strings.HasPrefix(d.FilePath, downloadDir) {
+			d.Promoted = true
+		}
+	}
+}
+
 // DownloadsList handles GET /api/downloads — current user's queue.
-func DownloadsList(store *downloads.Store, streamer *streamer.Streamer) gin.HandlerFunc {
+func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, downloadDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		list, err := store.List(userID)
@@ -76,6 +92,7 @@ func DownloadsList(store *downloads.Store, streamer *streamer.Streamer) gin.Hand
 			return
 		}
 		enrichETAList(list, streamer)
+		markPromoted(list, downloadDir)
 		c.JSON(http.StatusOK, list)
 	}
 }

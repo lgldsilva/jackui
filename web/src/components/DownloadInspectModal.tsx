@@ -12,17 +12,12 @@ import { formatBytes, formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
-  /** quando preenchido, o modal está aberto e mostra detalhes deste download */
-  download: DownloadEntry | null
-  onClose: () => void
-  /** chamado após uma ação mudar o estado do download — host re-puxa lista */
-  onMutated?: (d: DownloadEntry) => void
-  /** chamado após delete — host remove o card */
-  onDeleted?: (id: number) => void
-  /** chamado quando o user clica "Promover" — host abre o PromoteModal */
-  onPromote?: (d: DownloadEntry) => void
-  /** chamado quando o user clica "Tocar agora" */
-  onPlay?: (d: DownloadEntry) => void
+  readonly download: DownloadEntry | null
+  readonly onClose: () => void
+  readonly onMutated?: (d: DownloadEntry) => void
+  readonly onDeleted?: (id: number) => void
+  readonly onPromote?: (d: DownloadEntry) => void
+  readonly onPlay?: (d: DownloadEntry) => void
 }
 
 type Tab = 'overview' | 'files' | 'trackers' | 'actions'
@@ -323,8 +318,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                     Servidores de tracker configurados para este torrent:
                   </p>
                   <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden font-mono text-xs max-h-[50vh] overflow-y-auto">
-                    {torrent.trackers.map((trackerUrl, index) => (
-                      <li key={index} className="px-3 py-2 flex items-center justify-between gap-3 text-gray-300 hover:bg-gray-800/40">
+                    {torrent.trackers.map(trackerUrl => (
+                      <li key={trackerUrl} className="px-3 py-2 flex items-center justify-between gap-3 text-gray-300 hover:bg-gray-800/40">
                         <span className="truncate flex-1" title={trackerUrl}>{trackerUrl}</span>
                         <button
                           onClick={async () => {
@@ -365,7 +360,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                 busy={busy === 'recheck'}
                 disabled={!!busy}
               />
-              {onPromote && d.status === 'completed' && (
+              {onPromote && d.status === 'completed' && !d.promoted && (
                 <ActionRow
                   icon={ArrowUpCircle}
                   title="Promover"
@@ -426,13 +421,13 @@ function StatusPill({ status }: { status: string }) {
 }
 
 interface ActionRowProps {
-  icon: typeof RefreshCw
-  title: string
-  desc: string
-  onClick: () => void | Promise<void>
-  busy: boolean
-  disabled: boolean
-  variant?: 'primary' | 'danger' | 'success'
+  readonly icon: typeof RefreshCw
+  readonly title: string
+  readonly desc: string
+  readonly onClick: () => void | Promise<void>
+  readonly busy: boolean
+  readonly disabled: boolean
+  readonly variant?: 'primary' | 'danger' | 'success'
 }
 function ActionRow({ icon: Icon, title, desc, onClick, busy, disabled, variant }: ActionRowProps) {
   const colorMap = {

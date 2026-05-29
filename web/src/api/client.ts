@@ -333,7 +333,7 @@ export const streamAddTorrentFile = async (file: File): Promise<TorrentInfo> => 
 }
 
 function extractHashFromMagnet(magnet: string): string | null {
-  const m = magnet.match(/[?&]xt=urn:btih:([^&]+)/i)
+  const m = /[?&]xt=urn:btih:([^&]+)/i.exec(magnet)
   return m ? decodeURIComponent(m[1]) : null
 }
 
@@ -1500,6 +1500,7 @@ export interface DownloadEntry {
   completedAt?: string | null
   error?: string
   createdAt: string
+  promoted?: boolean   // true when file was moved outside the download dir
 }
 
 export interface DownloadCreateParams {

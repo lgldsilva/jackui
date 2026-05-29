@@ -393,14 +393,21 @@ func parseTitleJSON(content string) (*TitleResult, error) {
 	return nil, fmt.Errorf("ai: no usable title in reply")
 }
 
-const renameSystem = `You analyze a raw media filename (movie or TV show episode) and extract metadata for organized Plex-style file naming.
+const renameSystem = `You analyze raw media filenames and extract metadata for organized file naming.
+Content can be a mainstream movie, TV show episode, or adult scene.
+
 Extract the following fields as JSON:
-- "title": Canonical/official title of the movie or TV show.
-- "year": Release year (integer, or 0 if unknown).
+- "title": The best descriptive title preserving all meaningful info.
+  - Mainstream movie/show: use the canonical title (e.g. "Breaking Bad").
+  - Adult scene with pattern "studio.YY.MM.DD.model.name.scene.description.xxx":
+    produce "Studio - Model Name - Scene Description" — keep the model name and scene
+    description, never collapse to just the studio/brand name.
+  - Do NOT strip descriptive parts. If in doubt, keep more detail.
+- "year": Release year (integer, 0 if unknown). Date tokens like "26.03.29" mean 2026.
 - "kind": "movie" or "tv".
-- "season": Season number (integer, only for "tv", or 0 if not a show or not specified).
-- "episode": Episode number (integer, only for "tv", or 0 if not specified).
-- "episode_title": Episode title (string, only if explicitly present in the filename, otherwise empty).
+- "season": Season number (integer, only for tv, else 0).
+- "episode": Episode number (integer, only for tv, else 0).
+- "episode_title": Episode title only if explicitly present in filename, otherwise "".
 
 Reply with ONLY the raw JSON object, no prose, no code fences.`
 
