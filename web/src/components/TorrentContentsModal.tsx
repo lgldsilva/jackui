@@ -132,7 +132,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               the tracker title. Trackers often translate/rename releases
               (e.g. cyrillic title for a US film), so showing both makes it
               obvious that the underlying content is what the user expects. */}
-          {info && info.name && info.name !== result.title && (
+          {info?.name && info.name !== result.title && (
             <p className="text-[11px] text-gray-500 mt-0.5 truncate font-mono" title={info.name}>
               {info.name}
             </p>
@@ -215,9 +215,9 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
             </div>
           )}
 
-          {info && info.files.length > 0 && (
+          {(info?.files?.length ?? 0) > 0 && (
             <>
-              {info.files.length > 5 && (
+              {(info!.files?.length ?? 0) > 5 && (
                 <input
                   type="text"
                   value={filter}
@@ -296,7 +296,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
             </>
           )}
 
-          {info && info.files.length === 0 && (
+          {info?.files?.length === 0 && (
             <p className="text-sm text-gray-500 text-center py-6">
               Esse torrent está vazio ou ainda não tem metadados disponíveis
             </p>

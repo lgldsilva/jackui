@@ -141,7 +141,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       let filesList = info.files || []
       if (filesList.length === 0 && info.infoHash) {
         const metadata = await streamMetadata(info.infoHash)
-        if (metadata && metadata.files) {
+        if (metadata?.files) {
           filesList = metadata.files
         }
       }
@@ -186,7 +186,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     e.stopPropagation()
     setDragActive(false)
 
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer?.files?.length > 0) {
       const files = Array.from(e.dataTransfer.files)
       const torrentFiles = files.filter(f => f.name.endsWith('.torrent'))
       if (torrentFiles.length > 0) {
@@ -282,7 +282,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
     // Valida arquivos selecionados para JackUI
     if (selectedClientId === INTERNAL_ID) {
-      const anyEmpty = readyItems.some(item => item.files && item.files.length > 0 && item.selectedFiles.size === 0)
+      const anyEmpty = readyItems.some(item => (item.files?.length ?? 0) > 0 && item.selectedFiles.size === 0)
       if (anyEmpty) {
         setError('Por favor, selecione ao menos um arquivo para cada torrent ou remova-o da lista.')
         return
@@ -303,8 +303,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
         if (selectedClientId === INTERNAL_ID) {
           // Destino interno: cria rows na fila
-          if (item.files && item.files.length > 0) {
-            const picks = item.files.filter(f => item.selectedFiles.has(f.index))
+          if ((item.files?.length ?? 0) > 0) {
+            const picks = (item.files ?? []).filter(f => item.selectedFiles.has(f.index))
             await Promise.all(picks.map(f =>
               downloadCreate({
                 infoHash,
@@ -595,7 +595,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {item.files && item.files.length > 0 && selectedClientId === INTERNAL_ID && (
+                          {(item.files?.length ?? 0) > 0 && selectedClientId === INTERNAL_ID && (
                             <button
                               onClick={() => toggleExpandItem(item.id)}
                               className="text-gray-400 hover:text-gray-200 p-1 rounded-lg hover:bg-gray-800 transition-colors"
@@ -615,7 +615,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                       </div>
 
                       {/* Expandable files checklist (only for internal downloads) */}
-                      {item.expanded && item.files && item.files.length > 0 && selectedClientId === INTERNAL_ID && (
+                      {item.expanded && (item.files?.length ?? 0) > 0 && selectedClientId === INTERNAL_ID && (
                         <div className="border-t border-gray-800 bg-gray-950/60 p-3 space-y-2">
                           <div className="flex items-center justify-between text-xs px-1">
                             <span className="text-gray-400 font-medium">Lista de Arquivos</span>
@@ -639,7 +639,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                           </div>
                           
                           <ul className="border border-gray-800 rounded-lg max-h-44 overflow-y-auto divide-y divide-gray-850 bg-gray-900/60">
-                            {item.files.map(f => {
+                            {(item.files ?? []).map(f => {
                               const isChecked = item.selectedFiles.has(f.index)
                               const toggle = () => handleFileToggle(item.id, f.index)
                               return (
