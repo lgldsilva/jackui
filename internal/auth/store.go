@@ -22,6 +22,8 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
+
+	"github.com/luizg/jackui/internal/dbutil"
 )
 
 // Role identifies a user's authorization level.
@@ -295,7 +297,6 @@ func (s *Store) DisableTOTP(userID int) error {
 
 const (
 	errHashPassword = "hash password: %w"
-	timeFormat      = "2006-01-02 15:04:05"
 )
 
 // backupCodeAlphabet excludes visually ambiguous characters (0/o, 1/l/i).
@@ -548,7 +549,7 @@ func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.D
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO auth_tokens(token_hash, user_id, purpose, email, expires_at) VALUES(?, ?, ?, ?, ?)`,
-		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC().Format(timeFormat),
+		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC().Format(dbutil.TimeFormat),
 	)
 	if err != nil {
 		return "", err
@@ -674,7 +675,7 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool)
 	}
 	_, err = s.db.Exec(
 		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me) VALUES(?, ?, ?, ?)",
-		hash, userID, time.Now().Add(ttl).UTC().Format(timeFormat), rem,
+		hash, userID, time.Now().Add(ttl).UTC().Format(dbutil.TimeFormat), rem,
 	)
 	if err != nil {
 		return "", err
@@ -719,7 +720,7 @@ func (s *Store) ConsumeRefreshToken(plain string) error {
 
 // CleanupExpired removes refresh tokens past their TTL. Call periodically.
 func (s *Store) CleanupExpired() error {
-	now := time.Now().UTC().Format(timeFormat)
+	now := time.Now().UTC().Format(dbutil.TimeFormat)
 	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < ?", now)
 	return err
 }
@@ -836,7 +837,7 @@ func randomFromAlphabet(n int, alphabet string) (string, error) {
 //   - RFC3339 with sub-second precision
 func parseTime(s string) (time.Time, error) {
 	for _, layout := range []string{
-		timeFormat,
+		dbutil.TimeFormat,
 		"2006-01-02T15:04:05Z",
 		time.RFC3339,
 		time.RFC3339Nano,

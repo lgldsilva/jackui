@@ -65,7 +65,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
 			return
 		}
 
@@ -86,7 +86,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
 			return
 		}
 		limit := 200

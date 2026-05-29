@@ -103,7 +103,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		if sharedDir == "" {
@@ -413,7 +413,7 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)

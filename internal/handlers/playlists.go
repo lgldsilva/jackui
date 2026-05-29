@@ -31,7 +31,7 @@ func PlaylistsCreate(store *playlists.Store) gin.HandlerFunc {
 			Description string `json:"description"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrNameRequired})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -49,7 +49,7 @@ func PlaylistsGet(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
@@ -59,7 +59,7 @@ func PlaylistsGet(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		if p == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
 			return
 		}
 		items, _ := store.Items(id, userID, isAdmin)
@@ -72,7 +72,7 @@ func PlaylistsUpdate(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		var req struct {
@@ -97,7 +97,7 @@ func PlaylistsDelete(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
@@ -114,7 +114,7 @@ func PlaylistsAddItem(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		var req playlists.Item

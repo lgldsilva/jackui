@@ -442,8 +442,16 @@ export default function PlayerModal({
         window.setTimeout(() => { videoRef.current?.load() }, 6000)
         return
       }
+      let reason: string
+      if (transcodeFallbackAttempted) {
+        reason = 'already-attempted'
+      } else if (forceH264) {
+        reason = 'h264-already-forced'
+      } else {
+        reason = 'no-caps'
+      }
       clientLog('warn', 'player', 'surfacing error UI — no more fallbacks available',
-        { reason: transcodeFallbackAttempted ? 'already-attempted' : forceH264 ? 'h264-already-forced' : 'no-caps', retries: bufferRetryRef.current, ...diag })
+        { reason, retries: bufferRetryRef.current, ...diag })
       setVideoError(true)
       return
     }
@@ -1103,9 +1111,31 @@ export default function PlayerModal({
   // The browser downloads /api/stream/playlist/HASH/IDX.m3u with the right content-type,
   // and the OS opens it in the registered M3U handler (VLC on every platform).
   // The previous vlc:// scheme broke on desktop VLC and iOS Safari produced "invalid address".
-  const vlcURL = info && selectedFile >= 0
-    ? streamPlaylistM3UURL(info.infoHash, selectedFile, forceH264 ? 'h264' : undefined)
-    : ''
+  let vlcURL = ''
+  if (info && selectedFile >= 0) {
+    const transcodeParam = forceH264 ? 'h264' : undefined
+    vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
+  }
+
+  let encoderLabel = 'CPU'
+  if (caps?.hasNvidia) {
+    encoderLabel = 'NVENC'
+  } else if (caps?.hasVaapi) {
+    encoderLabel = 'VAAPI'
+  } else if (caps?.hasQsv) {
+    encoderLabel = 'QSV'
+  }
+
+  let subtitleLabel: string
+  if (embeddedSub !== null) {
+    subtitleLabel = 'Legenda embutida'
+  } else if (subActive) {
+    subtitleLabel = autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
+  } else if (subLoading) {
+    subtitleLabel = 'Buscando...'
+  } else {
+    subtitleLabel = 'Legendas'
+  }
 
   return (
     <div
@@ -1143,7 +1173,7 @@ export default function PlayerModal({
                 title={`Encoder: ${caps.preferred}`}
               >
                 <Cpu className="w-2.5 h-2.5" />
-                {caps.hasNvidia ? 'NVENC' : caps.hasVaapi ? 'VAAPI' : caps.hasQsv ? 'QSV' : 'CPU'}
+                {encoderLabel}
               </span>
             )}
             {isTranscoded && !caps?.preferred && (
@@ -1843,6 +1873,7 @@ export default function PlayerModal({
                         </button>
                         {probe.subtitles.map(s => {
                           const isActive = embeddedSub === s.index || burnSubTrack === s.index
+
                           return (
                             <button
                               key={s.index}
@@ -1908,11 +1939,7 @@ export default function PlayerModal({
                   }`}
                 >
                   {subLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Subtitles className="w-3.5 h-3.5" />}
-                  {embeddedSub !== null
-                    ? 'Legenda embutida'
-                    : subActive
-                      ? (autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa')
-                      : subLoading ? 'Buscando...' : 'Legendas'}
+                  {subtitleLabel}
                 </button>
                 <button
                   onClick={requestFullscreen}

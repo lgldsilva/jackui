@@ -23,7 +23,7 @@ func PasskeyRegisterBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc
 			return
 		}
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "passkeys não configuradas (defina JACKUI_BASE_URL)"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfigF})
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -45,7 +45,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 			return
 		}
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "passkeys não configuradas"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfig})
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -66,7 +66,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "passkeys não configuradas"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfig})
 			return
 		}
 		var req struct {
@@ -102,7 +102,7 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "passkeys não configuradas"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfig})
 			return
 		}
 		// The assertion JSON is the body go-webauthn parses (we must NOT consume it

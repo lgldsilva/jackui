@@ -138,6 +138,24 @@ export default function ActiveTranscodesCard() {
                   const displayKey = parts.length > 0 ? parts[0].slice(0, 8) + '...' : s.key
                   const fileIndex = parts.length > 1 ? ` (Arq: ${parts[1]})` : ''
 
+                  let codecClass: string
+                  if (s.codec === 'nvidia') {
+                    codecClass = 'bg-green-500/10 text-green-300 border-green-500/20'
+                  } else if (s.codec === 'vaapi') {
+                    codecClass = 'bg-red-500/10 text-red-300 border-red-500/20'
+                  } else {
+                    codecClass = 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20'
+                  }
+
+                  let codecLabel: string
+                  if (s.codec === 'nvidia') {
+                    codecLabel = 'NVIDIA HW'
+                  } else if (s.codec === 'vaapi') {
+                    codecLabel = 'VAAPI HW'
+                  } else {
+                    codecLabel = 'CPU SW'
+                  }
+
                   return (
                     <tr key={s.key} className="hover:bg-gray-800/30 transition-colors group">
                       <td className="py-3 px-3 font-mono text-xs text-gray-300">
@@ -149,14 +167,8 @@ export default function ActiveTranscodesCard() {
                         </div>
                       </td>
                       <td className="py-3 px-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                          s.codec === 'nvidia'
-                            ? 'bg-green-500/10 text-green-300 border-green-500/20'
-                            : s.codec === 'vaapi'
-                            ? 'bg-red-500/10 text-red-300 border-red-500/20'
-                            : 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20'
-                        }`}>
-                          {s.codec === 'nvidia' ? 'NVIDIA HW' : s.codec === 'vaapi' ? 'VAAPI HW' : 'CPU SW'}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${codecClass}`}>
+                          {codecLabel}
                         </span>
                       </td>
                       <td className="py-3 px-3 font-mono text-xs text-gray-400">

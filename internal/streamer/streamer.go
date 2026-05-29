@@ -793,7 +793,7 @@ func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New("torrent not active")
+		return errors.New(ErrTorrentNotActive)
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
@@ -816,7 +816,7 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New("torrent not active")
+		return errors.New(ErrTorrentNotActive)
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
