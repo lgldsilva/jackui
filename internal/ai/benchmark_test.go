@@ -28,10 +28,10 @@ func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
 	fastAccurate := compositeScore(0.9, 400, false)
 	slowAccurate := compositeScore(0.9, 4000, false)
 	fastSloppy := compositeScore(0.4, 400, false)
-	if !(fastAccurate > slowAccurate) {
+	if fastAccurate <= slowAccurate {
 		t.Fatalf("faster should score higher at equal accuracy: %v vs %v", fastAccurate, slowAccurate)
 	}
-	if !(fastAccurate > fastSloppy) {
+	if fastAccurate <= fastSloppy {
 		t.Fatalf("more accurate should score higher at equal latency: %v vs %v", fastAccurate, fastSloppy)
 	}
 }

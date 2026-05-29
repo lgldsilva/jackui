@@ -11,6 +11,8 @@ import (
 	"github.com/luizg/jackui/internal/jackett"
 )
 
+const queryUserClause = " AND user_id = ?"
+
 type Store struct {
 	db *sql.DB
 }
@@ -237,7 +239,7 @@ func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResul
 		WHERE LOWER(query) = LOWER(?) AND incognito = 0`
 	args := []any{query}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += queryUserClause
 		args = append(args, userID)
 	}
 	q += " ORDER BY seeders DESC, saved_at DESC"
@@ -338,7 +340,7 @@ func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, 
 		WHERE incognito = 0`
 	args := []any{}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += queryUserClause
 		args = append(args, userID)
 	}
 	q += `
@@ -376,7 +378,7 @@ func (s *Store) GetResult(id int64, userID int, isAdmin bool) (*CachedResult, er
 		WHERE id = ?`
 	args := []any{id}
 	if !isAdmin {
-		q += " AND user_id = ?"
+		q += queryUserClause
 		args = append(args, userID)
 	}
 	row := s.db.QueryRow(q, args...)

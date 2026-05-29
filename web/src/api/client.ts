@@ -52,24 +52,24 @@ export async function fetchMediaToken(): Promise<string> {
 }
 
 export type Quality = {
-  resolution?: string
-  codec?: string
-  source?: string
-  audio?: string[]
-  group?: string
-  year?: number
-  season?: number
-  episode?: number
-  hdr?: boolean
-  dv?: boolean
-  tenBit?: boolean
-  repack?: boolean
-  proper?: boolean
-  extended?: boolean
-  remux?: boolean
-  multi?: boolean
-  dubbed?: boolean
-  subbed?: boolean
+  readonly resolution?: string
+  readonly codec?: string
+  readonly source?: string
+  readonly audio?: readonly string[]
+  readonly group?: string
+  readonly year?: number
+  readonly season?: number
+  readonly episode?: number
+  readonly hdr?: boolean
+  readonly dv?: boolean
+  readonly tenBit?: boolean
+  readonly repack?: boolean
+  readonly proper?: boolean
+  readonly extended?: boolean
+  readonly remux?: boolean
+  readonly multi?: boolean
+  readonly dubbed?: boolean
+  readonly subbed?: boolean
 }
 
 export type SearchResult = {
@@ -104,25 +104,25 @@ export type SearchResult = {
 }
 
 export type Indexer = {
-  id: string
-  name: string
-  description: string
-  language: string
-  type: string
-  configured: boolean
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly language: string
+  readonly type: string
+  readonly configured: boolean
 }
 
 export type DownloadClient = {
-  id: string
-  name: string
-  type: string
-  default: boolean
+  readonly id: string
+  readonly name: string
+  readonly type: string
+  readonly default: boolean
 }
 
 export type DownloadClientFull = DownloadClient & {
-  url: string
-  username: string
-  password: string
+  readonly url: string
+  readonly username: string
+  readonly password: string
 }
 
 export type JackettConfig = {

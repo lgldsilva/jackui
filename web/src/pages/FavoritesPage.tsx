@@ -137,6 +137,18 @@ function FolderTree(p: TreeProps) {
 
 const depthIndent = (depth: number) => 8 + depth * 14
 
+function rootFolderClass(viewMode: number | null, dropOnRoot: boolean): string {
+  if (viewMode === null) return 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
+  if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-100'
+  return 'text-gray-300 hover:bg-gray-800 border border-transparent'
+}
+
+function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteFolder[]): string {
+  if (viewMode === ALL_VIEW) return 'Todos os favoritos'
+  if (viewMode === null) return 'Sem pasta'
+  return folders.find(f => f.id === viewMode)?.name || 'Favoritos'
+}
+
 export default function FavoritesPage() {
   const { isAdmin } = useAuth()
   const [favs, setFavs] = useState<StreamFavorite[]>([])
@@ -343,7 +355,11 @@ export default function FavoritesPage() {
   const toggleSelected = (name: string) => {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(name) ? next.delete(name) : next.add(name)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
       return next
     })
   }
@@ -400,11 +416,7 @@ export default function FavoritesPage() {
                 }}
                 onClick={() => { setViewMode(null); setSelectedFolderId(null) }}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(null); setSelectedFolderId(null) } }}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
-                  viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' :
-                  dropOnRoot ? 'bg-pink-500/20 border border-pink-500/50 text-pink-100' :
-                  'text-gray-300 hover:bg-gray-800 border border-transparent'
-                }`}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${rootFolderClass(viewMode, dropOnRoot)}`}
               >
                 <Inbox className="w-3.5 h-3.5" />
                 Sem pasta
@@ -457,11 +469,7 @@ export default function FavoritesPage() {
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-3">
               <Heart className="w-5 h-5 text-pink-400 fill-current" />
-              <h1 className="text-lg font-semibold text-gray-100">
-                {viewMode === ALL_VIEW ? 'Todos os favoritos'
-                  : viewMode === null ? 'Sem pasta'
-                  : folders.find(f => f.id === viewMode)?.name || 'Favoritos'}
-              </h1>
+              <h1 className="text-lg font-semibold text-gray-100">{pageTitle(viewMode, ALL_VIEW, folders)}</h1>
               {!loading && (
                 <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">
                   {filteredFavs.length} item{filteredFavs.length !== 1 ? 's' : ''}

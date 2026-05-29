@@ -54,7 +54,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 		// deleted when the user ends their incognito session.
 		if lib != nil {
 			userID, _, _ := auth.UserIDFromCtx(c)
-			_, _ = lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "", middleware.IsIncognito(c))
+			_, _ = lib.Upsert(library.UpsertInput{UserID: userID, InfoHash: info.InfoHash, Magnet: req.Magnet, Name: info.Name, PrimaryFile: info.PrimaryFile, TotalSize: info.TotalSize, Incognito: middleware.IsIncognito(c)})
 		}
 		c.JSON(http.StatusOK, info)
 	}
