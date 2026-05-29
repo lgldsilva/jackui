@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Play, Trash2, GripVertical, Save, ListMusic, Shuffle } from 'lucide-react'
+import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil } from 'lucide-react'
 import {
   playlistsGet, playlistsUpdate, playlistsRemoveItem, playlistsReorderItem,
   Playlist, PlaylistItem,
@@ -20,7 +20,7 @@ export default function PlaylistDetailPage() {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const { playPlaylist, toggleShuffle, shuffle } = usePlayer()
+  const { playPlaylist } = usePlayer()
 
   const startAt = (idx: number) => {
     if (!playlist || items.length === 0) return
@@ -56,13 +56,6 @@ export default function PlaylistDetailPage() {
     setItems(items.filter(x => x.id !== it.id).map((x, i) => ({ ...x, position: i })))
   }
 
-  const move = async (it: PlaylistItem, dir: -1 | 1) => {
-    if (!playlist) return
-    const newPos = it.position + dir
-    if (newPos < 0 || newPos >= items.length) return
-    await playlistsReorderItem(playlist.id, it.id, newPos)
-    await load()
-  }
 
   let mainContent: React.ReactNode
   if (loading) {
@@ -114,7 +107,7 @@ export default function PlaylistDetailPage() {
                 </div>
               </div>
               <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-1.5 flex-shrink-0">
-                <Edit className="w-4 h-4" /> Editar
+                <Pencil className="w-4 h-4" /> Editar
               </button>
             </div>
           )}
@@ -134,9 +127,9 @@ export default function PlaylistDetailPage() {
                   <button
                     onClick={() => startAt(idx)}
                     className="text-sm text-gray-100 hover:text-green-400 transition-colors text-left font-medium truncate block w-full"
-                    title={it.name}
+                    title={it.title}
                   >
-                    {idx + 1}. {it.name}
+                    {idx + 1}. {it.title}
                   </button>
                   {it.infoHash && (
                     <p className="text-[10px] text-gray-600 mt-0.5 font-mono">
