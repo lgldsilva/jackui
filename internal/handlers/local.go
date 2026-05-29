@@ -649,13 +649,13 @@ func localMoveHandler(c *gin.Context, b *local.Browser) {
 		return
 	}
 
-	srcAbs, srcStat, err := resolveSource(b, &req)
+	srcAbs, srcStat, err := resolveSource(b, c, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	dstAbs, err := resolveDest(b, &req, srcAbs)
+	dstAbs, err := resolveDest(b, c, &req, srcAbs)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -686,8 +686,12 @@ func isAdminMove(c *gin.Context) bool {
 	return true
 }
 
-func resolveSource(b *local.Browser, req *moveEntryReq) (string, os.FileInfo, error) {
-	srcAbs, err := b.ResolvePath(req.SrcMount, req.SrcPath)
+func resolveSource(b *local.Browser, c *gin.Context, req *moveEntryReq) (string, os.FileInfo, error) {
+	// Apply user subpath scoping for mounts like "Meus downloads" where each
+	// user sees/writes only their own subdir. The frontend strips the prefix
+	// (via StripUserScope in LocalList) so we must re-add it here.
+	scopedSrc := b.UserScopedPath(req.SrcMount, req.SrcPath, userFromCtx(c))
+	srcAbs, err := b.ResolvePath(req.SrcMount, scopedSrc)
 	if err != nil {
 		return "", nil, fmt.Errorf("origem: %w", err)
 	}
@@ -698,12 +702,14 @@ func resolveSource(b *local.Browser, req *moveEntryReq) (string, os.FileInfo, er
 	return srcAbs, srcStat, nil
 }
 
-func resolveDest(b *local.Browser, req *moveEntryReq, srcAbs string) (string, error) {
+func resolveDest(b *local.Browser, c *gin.Context, req *moveEntryReq, srcAbs string) (string, error) {
 	dstDirRel := req.DstPath
 	if dstDirRel == "" {
 		dstDirRel = "."
 	}
-	dstDirAbs, err := b.ResolvePath(req.DstMount, dstDirRel)
+	// Apply user subpath scoping for UserSubpath destination mounts.
+	scopedDst := b.UserScopedPath(req.DstMount, dstDirRel, userFromCtx(c))
+	dstDirAbs, err := b.ResolvePath(req.DstMount, scopedDst)
 	if err != nil {
 		return "", fmt.Errorf("destino: %w", err)
 	}
