@@ -51,8 +51,24 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
   const kind = detectKind(title, categoryId)
   const dim = SIZE_CLASSES[size]
   const iconDim = ICON_SIZES[size]
-  const FallbackIcon = kind === 'audio' ? Music : (match?.kind === 'tv' ? FileVideo : Film)
+  let FallbackIcon: typeof Film
+  if (kind === 'audio') {
+    FallbackIcon = Music
+  } else if (match?.kind === 'tv') {
+    FallbackIcon = FileVideo
+  } else {
+    FallbackIcon = Film
+  }
   const showArt = !!infoHash && !artFailed
+
+  let tooltipTitle: string
+  if (match) {
+    const yearStr = match.year ? ` (${match.year})` : ''
+    const overviewStr = match.overview ? ` — ${match.overview}` : ''
+    tooltipTitle = `${match.title}${yearStr}${overviewStr}`
+  } else {
+    tooltipTitle = title
+  }
 
   return (
     <div
@@ -60,7 +76,7 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
       className={`${dim} flex-shrink-0 rounded overflow-hidden border border-gray-700 bg-gray-900 relative ${className}`}
       // The tooltip duplicates info shown elsewhere in the card; keep it for
       // accessibility / hover discovery when the title is truncated.
-      title={match ? `${match.title}${match.year ? ' (' + match.year + ')' : ''}${match.overview ? ' — ' + match.overview : ''}` : title}
+      title={tooltipTitle}
     >
       {match?.posterUrl ? (
         <img

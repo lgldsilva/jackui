@@ -201,7 +201,7 @@ func DownloadsDelete(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -220,13 +220,13 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// Ownership check first
 		if _, err := store.Get(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
 			return
 		}
 		if err := store.SetStatus(userID, id, downloads.StatusPaused); err != nil {
@@ -243,12 +243,12 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if _, err := store.Get(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
 			return
 		}
 		if err := store.SetStatus(userID, id, downloads.StatusDownloading); err != nil {
@@ -388,13 +388,13 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		d, err := store.Get(userID, id)
 		if err != nil || d == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "download não encontrado"})
+			c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
 			return
 		}
 		var h metainfo.Hash
@@ -430,13 +430,13 @@ func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		d, err := store.Get(userID, id)
 		if err != nil || d == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "download não encontrado"})
+			c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
 			return
 		}
 

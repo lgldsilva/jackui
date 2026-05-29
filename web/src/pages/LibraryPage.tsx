@@ -200,7 +200,11 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
   }
   const artURL = (() => {
     const base = streamArtURL(entry.infoHash)
-    return bust > 0 ? `${base}${base.includes('?') ? '&' : '?'}_=${bust}` : base
+    if (bust > 0) {
+      const separator = base.includes('?') ? '&' : '?'
+      return `${base}${separator}_=${bust}`
+    }
+    return base
   })()
 
   return (

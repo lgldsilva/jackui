@@ -123,7 +123,7 @@ func (s *Streamer) OSHash(ctx context.Context, hash metainfo.Hash, fileIdx int) 
 	e, ok := s.active[hash]
 	if !ok {
 		s.mu.Unlock()
-		return HashResult{}, errors.New("torrent not active")
+		return HashResult{}, errors.New(ErrTorrentNotActive)
 	}
 	files := e.t.Files()
 	s.mu.Unlock()

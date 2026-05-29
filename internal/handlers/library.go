@@ -36,7 +36,7 @@ func LibraryGet(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
@@ -47,7 +47,7 @@ func LibraryGet(lib *library.Store) gin.HandlerFunc {
 			return
 		}
 		if entry == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
 			return
 		}
 		c.JSON(http.StatusOK, entry)
@@ -60,7 +60,7 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		var req struct {
@@ -112,7 +112,7 @@ func LibraryDelete(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)

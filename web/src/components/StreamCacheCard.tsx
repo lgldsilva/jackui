@@ -105,6 +105,15 @@ export default function StreamCacheCard() {
   const usagePct = stats.maxSize > 0 ? (stats.totalSize / stats.maxSize) * 100 : 0
   const overLimit = stats.maxSize > 0 && stats.totalSize > stats.maxSize
 
+  let barClass: string
+  if (overLimit) {
+    barClass = 'bg-yellow-500'
+  } else if (usagePct > 80) {
+    barClass = 'bg-orange-500'
+  } else {
+    barClass = 'bg-green-500'
+  }
+
   return (
     <div className="card flex flex-col gap-4">
       {/* Header */}
@@ -155,7 +164,7 @@ export default function StreamCacheCard() {
         {stats.maxSize > 0 && (
           <div className="bg-gray-900 rounded-full h-2 overflow-hidden">
             <div
-              className={`h-full transition-all ${overLimit ? 'bg-yellow-500' : usagePct > 80 ? 'bg-orange-500' : 'bg-green-500'}`}
+              className={`h-full transition-all ${barClass}`}
               style={{ width: `${Math.min(100, usagePct)}%` }}
             />
           </div>

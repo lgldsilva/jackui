@@ -17,7 +17,7 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store unavailable"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -39,7 +39,7 @@ func FolderCreate(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store unavailable"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
 			return
 		}
 		var body folderBody
@@ -61,12 +61,12 @@ func FolderPatch(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store unavailable"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
 			return
 		}
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		var body struct {
@@ -103,12 +103,12 @@ func FolderDelete(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store unavailable"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
 			return
 		}
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -124,7 +124,7 @@ func FavoriteMoveToFolder(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store unavailable"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
 			return
 		}
 		name := c.Param("name")
