@@ -10,10 +10,16 @@ services:
     stop_grace_period: 30s
     # Resource caps — 4-core/15G host shared with Jackett/Ollama/Jellyfin/*arr.
     # Transcode is GPU (NVENC), so CPU/RAM stay modest; a runaway can't starve
-    # the host. Override via JACKUI_CPU_LIMIT / JACKUI_MEM_LIMIT.
-    mem_limit: ${JACKUI_MEM_LIMIT:-2g}
-    mem_reservation: 256m
-    cpus: ${JACKUI_CPU_LIMIT:-2.0}
+    # the host. deploy.resources (not legacy mem_limit) so it merges cleanly with
+    # the nvidia overlay's deploy.resources.reservations.devices.
+    # Override via JACKUI_CPU_LIMIT / JACKUI_MEM_LIMIT.
+    deploy:
+      resources:
+        limits:
+          cpus: "${JACKUI_CPU_LIMIT:-2.0}"
+          memory: ${JACKUI_MEM_LIMIT:-2g}
+        reservations:
+          memory: 256m
     healthcheck:
       disable: true
     ports:
