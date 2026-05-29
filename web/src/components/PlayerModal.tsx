@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -39,6 +39,7 @@ import {
   libraryUpdateResume,
   LibraryEntry,
   downloadCreate,
+  streamThumbnailURL,
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
@@ -46,6 +47,7 @@ import { useScrollLock } from '../lib/useScrollLock'
 import { load, save } from '../lib/storage'
 import { useIncognito } from '../lib/incognito'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
+import { useHoverThumb } from './FileThumbHover'
 import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
 
 type PlaylistMeta = {
@@ -87,6 +89,18 @@ function formatSize(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+}
+
+type FileType = 'all' | 'video' | 'audio' | 'other'
+const PLAYER_AUDIO_RE = /\.(mp3|flac|m4a|aac|ogg|wav|opus|alac|wma)$/i
+const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
+
+// fileType buckets a file for the sidebar type filter: video (backend flag or
+// extension) → audio (extension) → everything else.
+function fileType(f: { isVideo?: boolean; path: string }): Exclude<FileType, 'all'> {
+  if (f.isVideo || PLAYER_VIDEO_RE.test(f.path)) return 'video'
+  if (PLAYER_AUDIO_RE.test(f.path)) return 'audio'
+  return 'other'
 }
 
 function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
@@ -659,6 +673,10 @@ export default function PlayerModal({
   // File list filter — for series packs with 30+ episodes the list pushes the
   // settings off-screen. The filter keeps the list short so settings stay reachable.
   const [fileFilter, setFileFilter] = useState('')
+  const [fileTypeFilter, setFileTypeFilter] = useState<FileType>('all')
+  const [fileSortBySize, setFileSortBySize] = useState(false)
+  const [fileSizeDesc, setFileSizeDesc] = useState(true)
+  const hoverThumb = useHoverThumb()
 
   // Favorites — auto-mark after 5min of actual playback (currentTime accumulates)
   const [isFavorite, setIsFavorite] = useState(false)
@@ -731,6 +749,8 @@ export default function PlayerModal({
     prefetchedPlaylistN2Ref.current = false
     bufferRetryRef.current = 0
     setFileFilter('')
+    setFileTypeFilter('all')
+    setFileSortBySize(false)
     origCuesRef.current = []
     setCurrentTime(0)
     setDuration(0)
@@ -2088,10 +2108,17 @@ export default function PlayerModal({
                 const SPACE_OR_DASH = String.raw`[\s-]?`
 const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\b`, 'i')
                 const isExtra = (path: string) => extraRe.test(path)
+                const typeCounts = { video: 0, audio: 0, other: 0 }
+                for (const f of info.files) typeCounts[fileType(f)]++
                 const filteredFiles = info.files
                   .filter(f => matchesFile(f.path, parseEpisode(f.path)))
+                  .filter(f => fileTypeFilter === 'all' || fileType(f) === fileTypeFilter)
                   .slice()
                   .sort((a, b) => {
+                    if (fileSortBySize) {
+                      if (a.size !== b.size) return fileSizeDesc ? b.size - a.size : a.size - b.size
+                      return a.index - b.index
+                    }
                     const ax = isExtra(a.path), bx = isExtra(b.path)
                     if (ax !== bx) return ax ? 1 : -1
                     const ae = parseEpisode(a.path), be = parseEpisode(b.path)
@@ -2138,9 +2165,53 @@ const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPAC
                         />
                       </div>
                     )}
+                    <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0 flex items-center gap-1.5 flex-wrap">
+                      {([
+                        { key: 'all' as const, label: 'Todos', count: info.files.length },
+                        { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
+                        { key: 'audio' as const, label: 'Áudio', count: typeCounts.audio },
+                        { key: 'other' as const, label: 'Outros', count: typeCounts.other },
+                      ])
+                        .filter(o => o.key === 'all' || o.count > 0)
+                        .map(o => (
+                          <button
+                            key={o.key}
+                            onClick={() => setFileTypeFilter(o.key)}
+                            className={`px-2 py-1 rounded text-[11px] border transition-colors ${
+                              fileTypeFilter === o.key
+                                ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                                : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                            }`}
+                          >
+                            {o.label} <span className="tabular-nums opacity-70">{o.count}</span>
+                          </button>
+                        ))}
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => {
+                          // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
+                          if (!fileSortBySize) setFileSortBySize(true)
+                          else if (fileSizeDesc) setFileSizeDesc(false)
+                          else { setFileSortBySize(false); setFileSizeDesc(true) }
+                        }}
+                        title="Ordenar por tamanho"
+                        className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
+                          fileSortBySize
+                            ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                            : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                        }`}
+                      >
+                        {fileSortBySize && !fileSizeDesc
+                          ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
+                          : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${fileSortBySize ? '' : 'opacity-50'}`} />}
+                        Tamanho
+                      </button>
+                    </div>
                     <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
                       {filteredFiles.length === 0 && (
-                        <p className="text-xs text-gray-500 text-center py-3">Nenhum arquivo bate com "{fileFilter}"</p>
+                        <p className="text-xs text-gray-500 text-center py-3">
+                          {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
+                        </p>
                       )}
                       {filteredFiles.slice(0, 100).map(f => {
                         const ep = parseEpisode(f.path)
@@ -2155,6 +2226,10 @@ const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPAC
                         const previewKind = isPlayable ? 'unknown' : detectPreviewKind(f.path)
                         const canPreview = previewKind !== 'unknown'
                         const previewBadge = canPreview ? previewKind.toUpperCase() : null
+                        // Hover frame-preview only for video files.
+                        const thumbUrl = fileType(f) === 'video' && info.infoHash
+                          ? streamThumbnailURL(info.infoHash, f.index, 10)
+                          : null
                         return (
                           <button
                             key={f.index}
@@ -2164,6 +2239,9 @@ const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPAC
                               else if (canPreview) setPreviewFileIdx(f.index)
                               // else: dead row, click does nothing (download via long-press / context menu still available)
                             }}
+                            onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
+                            onMouseMove={hoverThumb.move}
+                            onMouseLeave={hoverThumb.hide}
                             title={f.path}
                             className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${fileBtnClass(f.index, isPlayable, canPreview, extra)}`}
                           >
@@ -2263,6 +2341,7 @@ const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPAC
           onClose={() => setPreviewFileIdx(null)}
         />
       )}
+      {hoverThumb.popover}
     </div>
   )
 }

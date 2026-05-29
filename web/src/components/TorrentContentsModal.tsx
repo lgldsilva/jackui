@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity } from 'lucide-react'
-import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile } from '../api/client'
+import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
+import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL } from '../api/client'
 import { formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
+import { useHoverThumb } from './FileThumbHover'
 
 type Props = {
   readonly result: SearchResult | null
@@ -38,6 +39,16 @@ function isPlayableFile(f: StreamFile): boolean {
   return f.isVideo || AUDIO_EXT.test(f.path) || VIDEO_EXT.test(f.path)
 }
 
+type FileType = 'all' | 'video' | 'audio' | 'other'
+
+// fileType buckets a file for the type filter. Mirrors fileTypeIcon: video
+// (backend flag or extension) → audio (extension) → everything else.
+function fileType(f: StreamFile): Exclude<FileType, 'all'> {
+  if (f.isVideo || VIDEO_EXT.test(f.path)) return 'video'
+  if (AUDIO_EXT.test(f.path)) return 'audio'
+  return 'other'
+}
+
 /**
  * Shows the list of files inside a torrent BEFORE committing to play.
  * Lets the user pick a specific file (an episode, a single song) and either
@@ -63,7 +74,11 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState<FileType>('all')
+  const [sortBySize, setSortBySize] = useState(false)
+  const [sizeDesc, setSizeDesc] = useState(true)
   const [copied, setCopied] = useState(false)
+  const hoverThumb = useHoverThumb()
 
   const copyHash = (hash: string) => {
     navigator.clipboard?.writeText(hash).then(() => {
@@ -80,6 +95,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
     setLoading(true)
     setError('')
     setFilter('')
+    setTypeFilter('all')
+    setSortBySize(false)
     streamAdd(pickTorrentSource(result))
       .then(setInfo)
       .catch(err => setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo'))
@@ -90,12 +107,24 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
   if (!result) return null
 
-  const filteredFiles = info?.files.filter(f =>
-    !filter || f.path.toLowerCase().includes(filter.toLowerCase()),
-  ) ?? []
+  // Per-type counts drive the type-filter pills (only types actually present
+  // are offered, each with a count).
+  const typeCounts = { video: 0, audio: 0, other: 0 }
+  for (const f of info?.files ?? []) typeCounts[fileType(f)]++
 
-  // Sort: playable files first (video > audio > other), then alphabetic
+  const filteredFiles = info?.files.filter(f => {
+    const nameOk = !filter || f.path.toLowerCase().includes(filter.toLowerCase())
+    const typeOk = typeFilter === 'all' || fileType(f) === typeFilter
+    return nameOk && typeOk
+  }) ?? []
+
   const sortedFiles = [...filteredFiles].sort((a, b) => {
+    if (sortBySize) {
+      // Equal sizes fall back to alphabetic so the order stays stable.
+      if (a.size !== b.size) return sizeDesc ? b.size - a.size : a.size - b.size
+      return a.path.localeCompare(b.path)
+    }
+    // Default: playable files first (video > audio > other), then alphabetic
     const aP = isPlayableFile(a) ? 0 : 1
     const bP = isPlayableFile(b) ? 0 : 1
     if (aP !== bP) return aP - bP
@@ -218,15 +247,61 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
           {(info?.files?.length ?? 0) > 0 && (
             <>
-              {(info!.files?.length ?? 0) > 5 && (
-                <input
-                  type="text"
-                  value={filter}
-                  onChange={e => setFilter(e.target.value)}
-                  placeholder="Filtrar arquivos..."
-                  className="input-field mb-3 text-sm"
-                  autoFocus
-                />
+              {(info!.files?.length ?? 0) > 1 && (
+                <div className="mb-3 flex flex-col gap-2">
+                  {(info!.files?.length ?? 0) > 5 && (
+                    <input
+                      type="text"
+                      value={filter}
+                      onChange={e => setFilter(e.target.value)}
+                      placeholder="Filtrar arquivos..."
+                      className="input-field text-sm"
+                      autoFocus
+                    />
+                  )}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {([
+                      { key: 'all' as const, label: 'Todos', count: info!.files.length },
+                      { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
+                      { key: 'audio' as const, label: 'Áudio', count: typeCounts.audio },
+                      { key: 'other' as const, label: 'Outros', count: typeCounts.other },
+                    ])
+                      .filter(o => o.key === 'all' || o.count > 0)
+                      .map(o => (
+                        <button
+                          key={o.key}
+                          onClick={() => setTypeFilter(o.key)}
+                          className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
+                            typeFilter === o.key
+                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                              : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                          }`}
+                        >
+                          {o.label} <span className="tabular-nums opacity-70">{o.count}</span>
+                        </button>
+                      ))}
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => {
+                        // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
+                        if (!sortBySize) setSortBySize(true)
+                        else if (sizeDesc) setSizeDesc(false)
+                        else { setSortBySize(false); setSizeDesc(true) }
+                      }}
+                      title="Ordenar por tamanho"
+                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${
+                        sortBySize
+                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                          : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                      }`}
+                    >
+                      {sortBySize && !sizeDesc
+                        ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
+                        : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${sortBySize ? '' : 'opacity-50'}`} />}
+                      Tamanho
+                    </button>
+                  </div>
+                </div>
               )}
 
               <div className="flex flex-col gap-1">
@@ -239,9 +314,18 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                     const filePct = f.size > 0 && (f.downloaded ?? 0) > 0
                       ? Math.min(100, ((f.downloaded ?? 0) / f.size) * 100)
                       : null
+                    // Hover preview only for video files (frame capture). thumbHash
+                    // falls back to the search result's hash for synthetic torrents.
+                    const thumbHash = info?.infoHash || result.infoHash
+                    const thumbUrl = fileType(f) === 'video' && thumbHash
+                      ? streamThumbnailURL(thumbHash, f.index, 10)
+                      : null
                     return (
                       <div
                         key={f.index}
+                        onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
+                        onMouseMove={hoverThumb.move}
+                        onMouseLeave={hoverThumb.hide}
                         className={`flex flex-col px-3 py-2 rounded-lg group transition-colors ${
                           playable ? 'hover:bg-gray-900/70' : 'opacity-50 hover:opacity-75'
                         }`}
@@ -304,6 +388,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           )}
         </div>
       </div>
+      {hoverThumb.popover}
     </dialog>
   )
 }
