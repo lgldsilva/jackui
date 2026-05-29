@@ -74,8 +74,6 @@ func (e *resultEnricher) enrich(r jackett.Result, cached bool) searchResult {
 	return out
 }
 
-// Search handles GET /api/search?q=&indexers=&category=
-// Merges live Jackett results with local cache; remote results take priority on dedup.
 func Search(client *jackett.Client, store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
@@ -83,42 +81,50 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
 			return
 		}
-
-		category := c.Query("category")
-
-		var indexers []string
-		if ip := c.Query("indexers"); ip != "" {
-			for _, idx := range strings.Split(ip, ",") {
-				if idx = strings.TrimSpace(idx); idx != "" {
-					indexers = append(indexers, idx)
-				}
-			}
-		}
-
+		indexers := parseIndexers(c)
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && c.Query("all") == "1"
 		enricher := buildEnricher(favs, dls, userID, includeAll)
 
-		liveResults, liveErr := client.Search(query, category, indexers)
-
-		if liveErr == nil && store != nil && len(liveResults) > 0 && !middleware.IsIncognito(c) {
-			go func() { _ = store.Save(query, liveResults, userID) }()
-		}
-
-		var cached []history.CachedResult
-		if store != nil {
-			cached, _ = store.Search(query, userID, includeAll)
-		}
-
-		merged := mergeResults(liveResults, cached, enricher)
+		liveResults, liveErr := client.Search(query, c.Query("category"), indexers)
+		saveHistory(store, query, liveResults, userID, liveErr, c)
+		merged := searchMerged(store, query, userID, includeAll, liveResults, enricher)
 
 		if liveErr != nil && len(merged) == 0 {
 			c.JSON(http.StatusBadGateway, gin.H{"error": liveErr.Error()})
 			return
 		}
-
 		c.JSON(http.StatusOK, merged)
 	}
+}
+
+func parseIndexers(c *gin.Context) []string {
+	raw := c.Query("indexers")
+	if raw == "" {
+		return nil
+	}
+	var indexers []string
+	for _, idx := range strings.Split(raw, ",") {
+		if idx = strings.TrimSpace(idx); idx != "" {
+			indexers = append(indexers, idx)
+		}
+	}
+	return indexers
+}
+
+func saveHistory(store *history.Store, query string, liveResults []jackett.Result, userID int, liveErr error, c *gin.Context) {
+	if liveErr != nil || store == nil || len(liveResults) == 0 || middleware.IsIncognito(c) {
+		return
+	}
+	go func() { _ = store.Save(query, liveResults, userID) }()
+}
+
+func searchMerged(store *history.Store, query string, userID int, includeAll bool, liveResults []jackett.Result, enricher *resultEnricher) []searchResult {
+	var cached []history.CachedResult
+	if store != nil {
+		cached, _ = store.Search(query, userID, includeAll)
+	}
+	return mergeResults(liveResults, cached, enricher)
 }
 
 // mergeResults combines live and cached results.

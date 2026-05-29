@@ -86,11 +86,11 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
   if (!result) return null
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    <dialog
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      onClose={onClose}
+      open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl">
         <div className="flex items-center justify-between p-5 border-b border-gray-700">
@@ -171,6 +171,6 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
           )}
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }

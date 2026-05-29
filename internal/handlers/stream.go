@@ -20,6 +20,8 @@ import (
 	"github.com/luizg/jackui/internal/subtitles"
 )
 
+const errInvalidFileIndex = "invalid file index"
+
 type streamAddReq struct {
 	Magnet string `json:"magnet"`
 }
@@ -123,9 +125,6 @@ func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
-// StreamFile handles GET /api/stream/:hash/:file — serves one file with HTTP Range support.
-// Browser's <video> tag will issue partial requests; http.ServeContent handles them
-// against the torrent reader, which prioritizes pieces as they're read.
 func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
@@ -135,30 +134,39 @@ func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
-
-		if store != nil {
-			if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
-				if _, err := os.Stat(path); err == nil {
-					http.ServeFile(c.Writer, c.Request, path)
-					return
-				}
-			}
-		}
-
-		reader, file, err := s.FileReader(h, fileIdx)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		if serveFromCompletedStore(c, store, h, fileIdx) {
 			return
 		}
-		defer func() { _ = reader.Close() }()
-
-		// Hint the browser about content type when extension is known
-		// (http.ServeContent infers by extension via mime.TypeByExtension)
-		http.ServeContent(c.Writer, c.Request, file.DisplayPath(), time.Time{}, reader)
+		serveFromStreamer(c, s, h, fileIdx)
 	}
+}
+
+func serveFromCompletedStore(c *gin.Context, store *downloads.Store, h metainfo.Hash, fileIdx int) bool {
+	if store == nil {
+		return false
+	}
+	path, err := store.GetCompletedPath(h.HexString(), fileIdx)
+	if err != nil || path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	http.ServeFile(c.Writer, c.Request, path)
+	return true
+}
+
+func serveFromStreamer(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, fileIdx int) {
+	reader, file, err := s.FileReader(h, fileIdx)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	defer func() { _ = reader.Close() }()
+	http.ServeContent(c.Writer, c.Request, file.DisplayPath(), time.Time{}, reader)
 }
 
 // StreamPlaylistM3U handles GET /api/stream/playlist/:hash/:file.m3u — returns a
@@ -177,7 +185,7 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 
@@ -287,7 +295,7 @@ func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		if err := s.Prefetch(h, fileIdx); err != nil {
@@ -321,7 +329,7 @@ func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		// ffprobe is bounded; 60s is generous
@@ -346,7 +354,7 @@ func StreamSidecars(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		subs, err := s.Sidecars(h, fileIdx)
@@ -370,7 +378,7 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
@@ -388,13 +396,13 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 			body = raw
 		default:
 			// ASS/SSA need ffmpeg to convert — for now, just serve raw with text/plain so browsers can show it as "non-VTT"
-			c.Header("Content-Type", "text/plain; charset=utf-8")
-			c.Header("Cache-Control", "public, max-age=86400, immutable")
+			c.Header(ContentType, "text/plain; charset=utf-8")
+			c.Header(CacheControl, "public, max-age=86400, immutable")
 			c.Writer.Write(raw)
 			return
 		}
-		c.Header("Content-Type", "text/vtt; charset=utf-8")
-		c.Header("Cache-Control", "public, max-age=86400, immutable")
+		c.Header(ContentType, "text/vtt; charset=utf-8")
+		c.Header(CacheControl, "public, max-age=86400, immutable")
 		c.Writer.Write(body)
 	}
 }
@@ -409,7 +417,7 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		trackIdx, err := strconv.Atoi(c.Param("track"))
@@ -425,8 +433,8 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		c.Header("Content-Type", "text/vtt; charset=utf-8")
-		c.Header("Cache-Control", "public, max-age=3600")
+		c.Header(ContentType, "text/vtt; charset=utf-8")
+		c.Header(CacheControl, "public, max-age=3600")
 		c.Writer.Write(vtt)
 	}
 }
@@ -444,7 +452,7 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		at, _ := strconv.Atoi(c.Query("at"))
@@ -459,7 +467,7 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		c.Header("Cache-Control", "public, max-age=86400") // 1d browser cache
+		c.Header(CacheControl, "public, max-age=86400") // 1d browser cache
 		c.Data(http.StatusOK, "image/jpeg", data)
 	}
 }
@@ -487,7 +495,7 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "no cached metadata"})
 			return
 		}
-		c.Header("Cache-Control", "public, max-age=86400") // 1d browser cache
+		c.Header(CacheControl, "public, max-age=86400") // 1d browser cache
 		c.JSON(http.StatusOK, meta)
 	}
 }
@@ -504,7 +512,7 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -518,7 +526,7 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		c.Header("Cache-Control", "public, max-age=2592000, immutable") // 30d
+		c.Header(CacheControl, "public, max-age=2592000, immutable") // 30d
 		c.Data(http.StatusOK, "image/jpeg", data)
 	}
 }
@@ -746,7 +754,7 @@ func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		idx, err := strconv.Atoi(c.Param("idx"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		var req struct {

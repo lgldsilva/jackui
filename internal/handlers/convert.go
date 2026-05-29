@@ -16,8 +16,8 @@ import (
 	"github.com/luizg/jackui/internal/streamer"
 )
 
-// ConvertTorrentToMagnet converts a .torrent file URL into a magnet link
-// by downloading the torrent file, parsing its infohash and metainfo, and building the URI.
+const extTorrent = ".torrent"
+
 func ConvertTorrentToMagnet() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		torrentURL := c.Query("url")
@@ -26,47 +26,14 @@ func ConvertTorrentToMagnet() gin.HandlerFunc {
 			return
 		}
 
-		resp, err := proxyHTTP.Get(torrentURL)
+		mi, name, err := downloadAndParseTorrent(torrentURL)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("falha ao baixar .torrent: %v", err)})
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		if resp.StatusCode != http.StatusOK {
-			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("servidor retornou erro %d", resp.StatusCode)})
-			return
-		}
-
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "falha ao ler bytes do torrent"})
-			return
-		}
-
-		mi, err := metainfo.Load(bytes.NewReader(data))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("falha ao ler metainfo do torrent: %v", err)})
+			c.JSON(err.Code, gin.H{"error": err.Message})
 			return
 		}
 
 		infoHash := mi.HashInfoBytes().HexString()
-		magnet := "magnet:?xt=urn:btih:" + infoHash
-		
-		name := ""
-		if info, err := mi.UnmarshalInfo(); err == nil && info.Name != "" {
-			name = info.Name
-			magnet += "&dn=" + url.QueryEscape(name)
-		}
-
-		for _, group := range mi.AnnounceList {
-			for _, tr := range group {
-				magnet += "&tr=" + url.QueryEscape(tr)
-			}
-		}
-		if len(mi.AnnounceList) == 0 && mi.Announce != "" {
-			magnet += "&tr=" + url.QueryEscape(mi.Announce)
-		}
+		magnet := buildMagnetFromMetainfo(mi, infoHash, name)
 
 		c.JSON(http.StatusOK, gin.H{
 			"magnet":   magnet,
@@ -76,8 +43,51 @@ func ConvertTorrentToMagnet() gin.HandlerFunc {
 	}
 }
 
-// ConvertMagnetToTorrent converts a magnet link (or infohash) into a bencoded .torrent file download.
-// If the metainfo is not cached on disk, it registers the magnet to start resolving metadata.
+type convertErr struct {
+	Code    int
+	Message string
+}
+
+func downloadAndParseTorrent(torrentURL string) (*metainfo.MetaInfo, string, *convertErr) {
+	resp, err := proxyHTTP.Get(torrentURL)
+	if err != nil {
+		return nil, "", &convertErr{http.StatusBadGateway, fmt.Sprintf("falha ao baixar .torrent: %v", err)}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", &convertErr{http.StatusBadGateway, fmt.Sprintf("servidor retornou erro %d", resp.StatusCode)}
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", &convertErr{http.StatusInternalServerError, "falha ao ler bytes do torrent"}
+	}
+	mi, err := metainfo.Load(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", &convertErr{http.StatusBadRequest, fmt.Sprintf("falha ao ler metainfo do torrent: %v", err)}
+	}
+	name := ""
+	if info, err := mi.UnmarshalInfo(); err == nil && info.Name != "" {
+		name = info.Name
+	}
+	return mi, name, nil
+}
+
+func buildMagnetFromMetainfo(mi *metainfo.MetaInfo, infoHash, name string) string {
+	magnet := "magnet:?xt=urn:btih:" + infoHash
+	if name != "" {
+		magnet += "&dn=" + url.QueryEscape(name)
+	}
+	for _, group := range mi.AnnounceList {
+		for _, tr := range group {
+			magnet += "&tr=" + url.QueryEscape(tr)
+		}
+	}
+	if len(mi.AnnounceList) == 0 && mi.Announce != "" {
+		magnet += "&tr=" + url.QueryEscape(mi.Announce)
+	}
+	return magnet
+}
+
 func ConvertMagnetToTorrent(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		magnet := c.Query("magnet")
@@ -85,49 +95,56 @@ func ConvertMagnetToTorrent(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet link requerido"})
 			return
 		}
-
 		mi, err := metainfo.ParseMagnetUri(magnet)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet link inválido"})
 			return
 		}
-
 		h := mi.InfoHash
-		path := s.MetainfoPath(h)
-
-		// Check if the cached .torrent file exists.
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			// Start resolving metainfo using streamer. Blocks up to 30 seconds forGotInfo.
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-			defer cancel()
-
-			_, err = s.Add(ctx, magnet)
-			if err != nil {
-				c.JSON(http.StatusGatewayTimeout, gin.H{"error": fmt.Sprintf("tempo limite atingido aguardando metadados: %v", err)})
-				return
-			}
-		}
-
-		// Read the bencoded .torrent file from cache
-		f, err := os.Open(path)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err)})
+		if ensureMetainfo(c, s, h, magnet) {
 			return
 		}
-		defer func() { _ = f.Close() }()
-
-		filename := h.HexString() + ".torrent"
-		if loaded, err := metainfo.LoadFromFile(path); err == nil {
-			if info, err := loaded.UnmarshalInfo(); err == nil && info.Name != "" {
-				filename = info.Name + ".torrent"
-			}
-		} else if friendlyName := mi.DisplayName; friendlyName != "" {
-			filename = friendlyName + ".torrent"
-		}
-
-		c.Header("Content-Type", "application/x-bittorrent")
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", url.PathEscape(filename)))
-		c.Status(http.StatusOK)
-		_, _ = io.Copy(c.Writer, f)
+		serveTorrentFile(c, s, h, &mi)
 	}
+}
+
+func ensureMetainfo(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, magnet string) bool {
+	path := s.MetainfoPath(h)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	if _, err := s.Add(ctx, magnet); err != nil {
+		c.JSON(http.StatusGatewayTimeout, gin.H{"error": fmt.Sprintf("tempo limite atingido aguardando metadados: %v", err)})
+		return true
+	}
+	return false
+}
+
+func serveTorrentFile(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, mi *metainfo.Magnet) {
+	path := s.MetainfoPath(h)
+	f, err := os.Open(path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err)})
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	filename := resolveTorrentFilename(path, h, mi)
+	c.Header("Content-Type", "application/x-bittorrent")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", url.PathEscape(filename)))
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, f)
+}
+
+func resolveTorrentFilename(path string, h metainfo.Hash, mi *metainfo.Magnet) string {
+	if loaded, err := metainfo.LoadFromFile(path); err == nil {
+		if info, err := loaded.UnmarshalInfo(); err == nil && info.Name != "" {
+			return info.Name + extTorrent
+		}
+	} else if mi.DisplayName != "" {
+		return mi.DisplayName + extTorrent
+	}
+	return h.HexString() + extTorrent
 }

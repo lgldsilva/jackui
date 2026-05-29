@@ -14,6 +14,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+const (
+	sqlAndUserID        = " AND user_id = ?"
+	errPlaylistNotFound = "playlist not found or not owned"
+)
+
 // Playlist is one user-owned ordered collection.
 type Playlist struct {
 	ID          int       `json:"id"`
@@ -143,7 +148,7 @@ func (s *Store) Get(id, userID int, includeAll bool) (*Playlist, error) {
 		FROM playlists WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += sqlAndUserID
 		args = append(args, userID)
 	}
 	var p Playlist
@@ -165,7 +170,7 @@ func (s *Store) Update(id, userID int, name, description string, includeAll bool
 	q := `UPDATE playlists SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
 	args := []any{name, description, id}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += sqlAndUserID
 		args = append(args, userID)
 	}
 	res, err := s.db.Exec(q, args...)
@@ -173,7 +178,7 @@ func (s *Store) Update(id, userID int, name, description string, includeAll bool
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("playlist not found or not owned")
+		return fmt.Errorf(errPlaylistNotFound)
 	}
 	return nil
 }
@@ -183,7 +188,7 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 	q := `DELETE FROM playlists WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
-		q += " AND user_id = ?"
+		q += sqlAndUserID
 		args = append(args, userID)
 	}
 	res, err := s.db.Exec(q, args...)
@@ -191,7 +196,7 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("playlist not found or not owned")
+		return fmt.Errorf(errPlaylistNotFound)
 	}
 	return nil
 }
@@ -201,7 +206,7 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 // AddItem appends an item to the end of the playlist.
 func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*Item, error) {
 	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return nil, fmt.Errorf("playlist not found or not owned")
+		return nil, fmt.Errorf(errPlaylistNotFound)
 	}
 	if item.Magnet == "" || item.Title == "" {
 		return nil, errors.New("magnet and title required")
@@ -247,7 +252,7 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 // Items returns all items in a playlist, ordered by position.
 func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return nil, fmt.Errorf("playlist not found or not owned")
+		return nil, fmt.Errorf(errPlaylistNotFound)
 	}
 	rows, err := s.db.Query(`
 		SELECT id, playlist_id, position, library_id, title, magnet, info_hash, file_index, added_at
@@ -278,7 +283,7 @@ func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 // RemoveItem deletes an item and compacts positions.
 func (s *Store) RemoveItem(playlistID, itemID, userID int, includeAll bool) error {
 	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return fmt.Errorf("playlist not found or not owned")
+		return fmt.Errorf(errPlaylistNotFound)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -308,7 +313,7 @@ func (s *Store) RemoveItem(playlistID, itemID, userID int, includeAll bool) erro
 // Reorder moves an item to a new position, shifting siblings as needed.
 func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool) error {
 	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return fmt.Errorf("playlist not found or not owned")
+		return fmt.Errorf(errPlaylistNotFound)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {

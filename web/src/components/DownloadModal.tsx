@@ -230,11 +230,11 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   if (!result) return null
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    <dialog
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      onClose={onClose}
+      open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-gray-700">
@@ -331,12 +331,12 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                       setSelectedFiles(next)
                     }
                     return (
-                      <li key={f.index} className="px-3 py-2 flex items-center gap-2.5 hover:bg-gray-800/40 cursor-pointer" onClick={toggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }} role="button" tabIndex={0}>
+                      <li key={f.index} className="px-3 py-2 hover:bg-gray-800/40">
+                        <label className="flex items-center gap-2.5 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={checked}
                           onChange={toggle}
-                          onClick={e => e.stopPropagation()}
                           className="accent-cyan-500 flex-shrink-0"
                         />
                         {fileIcon(f)}
@@ -346,6 +346,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                         <span className="text-xs text-gray-500 flex-shrink-0">
                           {formatBytes(f.size)}
                         </span>
+                        </label>
                       </li>
                     )
                   })}
@@ -425,6 +426,6 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }

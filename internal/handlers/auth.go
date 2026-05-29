@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	errTokenSigningFailed = "token signing failed"
+	errNotAuthenticated   = "not authenticated"
+)
+
+const (
 	refreshTTLNormal   = 24 * time.Hour      // session-ish — sliding 1 day window
 	refreshTTLRemember = 30 * 24 * time.Hour // "lembrar de mim" — sliding 30 days window (eternal as long as user opens app)
 )
@@ -33,7 +38,6 @@ type tokenResp struct {
 	User      *auth.User `json:"user"`
 }
 
-// Login handles POST /api/auth/login
 func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req loginReq
@@ -41,12 +45,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username + password required"})
 			return
 		}
-		// Brute-force guard: refuse while the account is locked from prior failures.
-		if locked, rem := lockout.Locked(req.Username); locked {
-			c.Header("Retry-After", strconv.Itoa(int(rem.Seconds())+1))
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "muitas tentativas — tente novamente em " + rem.Round(time.Second).String(),
-			})
+		if respondIfLocked(c, lockout, req.Username) {
 			return
 		}
 		user, err := store.VerifyPassword(req.Username, req.Password)
@@ -55,51 +54,66 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
 		}
-		// Only active accounts may log in. pending = awaiting admin approval /
-		// email confirmation; disabled = blocked by an admin.
-		switch user.Status {
-		case auth.StatusPending:
-			c.JSON(http.StatusForbidden, gin.H{"error": "conta aguardando aprovação ou confirmação de e-mail", "status": "pending"})
-			return
-		case auth.StatusDisabled:
-			c.JSON(http.StatusForbidden, gin.H{"error": "conta desabilitada", "status": "disabled"})
+		if respondIfInactive(c, user.Status) {
 			return
 		}
-		// Second factor: if the account has TOTP enabled, require a valid code.
-		// Password is already verified here, so revealing mfaRequired is safe.
-		if user.MfaEnabled {
-			if req.Totp == "" {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA obrigatório", "mfaRequired": true})
-				return
-			}
-			// Accept either a TOTP code OR a single-use backup code. The backup code
-			// is only consumed when the TOTP check fails, so a valid TOTP never burns
-			// a recovery code.
-			secret, _, _ := store.GetTOTPSecret(user.ID)
-			if !auth.ValidateTOTP(secret, req.Totp) && !store.ConsumeBackupCode(user.ID, req.Totp) {
-				lockout.Fail(req.Username)
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA inválido", "mfaRequired": true})
-				return
-			}
+		if !verifyMFA(c, store, lockout, user, req.Totp) {
+			return
 		}
-		// Full success — clear the failure counter for this account.
 		lockout.Reset(req.Username)
-		access, exp, err := tm.SignAccess(user)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
-			return
-		}
-		ttl := refreshTTLNormal
-		if req.Remember {
-			ttl = refreshTTLRemember
-		}
-		refresh, err := store.CreateRefreshToken(user.ID, ttl, req.Remember)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user})
+		c.JSON(http.StatusOK, issueTokens(store, tm, user, req.Remember))
 	}
+}
+
+func respondIfLocked(c *gin.Context, lockout *auth.Lockout, username string) bool {
+	locked, rem := lockout.Locked(username)
+	if !locked {
+		return false
+	}
+	c.Header("Retry-After", strconv.Itoa(int(rem.Seconds())+1))
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"error": "muitas tentativas — tente novamente em " + rem.Round(time.Second).String(),
+	})
+	return true
+}
+
+func respondIfInactive(c *gin.Context, status auth.Status) bool {
+	switch status {
+	case auth.StatusPending:
+		c.JSON(http.StatusForbidden, gin.H{"error": "conta aguardando aprovação ou confirmação de e-mail", "status": "pending"})
+		return true
+	case auth.StatusDisabled:
+		c.JSON(http.StatusForbidden, gin.H{"error": "conta desabilitada", "status": "disabled"})
+		return true
+	}
+	return false
+}
+
+func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *auth.User, totp string) bool {
+	if !user.MfaEnabled {
+		return true
+	}
+	if totp == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA obrigatório", "mfaRequired": true})
+		return false
+	}
+	secret, _, _ := store.GetTOTPSecret(user.ID)
+	if auth.ValidateTOTP(secret, totp) || store.ConsumeBackupCode(user.ID, totp) {
+		return true
+	}
+	lockout.Fail(user.Username)
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA inválido", "mfaRequired": true})
+	return false
+}
+
+func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool) tokenResp {
+	access, exp, _ := tm.SignAccess(user)
+	ttl := refreshTTLNormal
+	if remember {
+		ttl = refreshTTLRemember
+	}
+	refresh, _ := store.CreateRefreshToken(user.ID, ttl, remember)
+	return tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user}
 }
 
 // Refresh handles POST /api/auth/refresh — body: {refresh}
@@ -130,7 +144,7 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
 			return
 		}
 		// Sliding window: new TTL counted FROM NOW. Remember-me stays remember-me eternally.
@@ -157,7 +171,7 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		user, err := store.GetUserByID(claims.UserID)
@@ -167,7 +181,7 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		}
 		token, exp, err := tm.SignMedia(user)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "token signing failed"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"token": token, "expiresAt": exp})
@@ -195,7 +209,7 @@ func ListSessions(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		var req struct {
@@ -216,7 +230,7 @@ func RevokeSession(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		if err := store.RevokeSession(claims.UserID, c.Param("id")); err != nil {
@@ -233,7 +247,7 @@ func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		var req struct {
@@ -257,7 +271,7 @@ func Me(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		user, err := store.GetUserByID(claims.UserID)
@@ -275,7 +289,7 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		var req struct {
@@ -307,7 +321,7 @@ func MFAEnrollStart(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		secret, err := auth.GenerateTOTPSecret()
@@ -330,7 +344,7 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		var req struct {
@@ -368,7 +382,7 @@ func MFABackupCodesStatus(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"remaining": store.CountBackupCodes(claims.UserID)})
@@ -382,7 +396,7 @@ func MFABackupCodesRegenerate(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		var req struct {
@@ -408,7 +422,7 @@ func MFADisable(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
 			return
 		}
 		var req struct {
@@ -531,44 +545,64 @@ func SetNtfyTopic(store *auth.Store) gin.HandlerFunc {
 // verifying that ntfy is configured correctly from the Settings UI.
 func NotifyTest(cfg *config.Config, store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		baseURL := cfg.Notifications.NtfyBaseURL
-		if baseURL == "" {
-			baseURL = "https://ntfy.sh"
-		}
-		topic := cfg.Notifications.NtfyDefaultTopic
-		if store != nil {
-			if claims, ok := auth.ClaimsFromCtx(c); ok {
-				if user, err := store.GetUserByID(claims.UserID); err == nil && user.NtfyTopic != "" {
-					topic = user.NtfyTopic
-				}
-			}
-		}
+		baseURL := ntfyBaseURL(cfg)
+		topic := resolveNtfyTopic(cfg, store, c)
 		if topic == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum tópico ntfy configurado"})
 			return
 		}
-		url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), topic)
-		host, _ := os.Hostname()
-		body := fmt.Sprintf("Notificação de teste do JackUI (%s)", host)
-		req, err := http.NewRequestWithContext(c.Request.Context(), "POST", url, bytes.NewBufferString(body))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		req.Header.Set("Title", "JackUI — Teste de Notificação")
-		req.Header.Set("Tags", "test,rocket")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-			return
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode >= 300 {
-			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("ntfy retornou %d", resp.StatusCode)})
+		if !postNtfyNotification(c, baseURL, topic) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "notificação de teste enviada"})
 	}
+}
+
+func ntfyBaseURL(cfg *config.Config) string {
+	if cfg.Notifications.NtfyBaseURL != "" {
+		return cfg.Notifications.NtfyBaseURL
+	}
+	return "https://ntfy.sh"
+}
+
+func resolveNtfyTopic(cfg *config.Config, store *auth.Store, c *gin.Context) string {
+	topic := cfg.Notifications.NtfyDefaultTopic
+	if store == nil {
+		return topic
+	}
+	claims, ok := auth.ClaimsFromCtx(c)
+	if !ok {
+		return topic
+	}
+	user, err := store.GetUserByID(claims.UserID)
+	if err != nil || user.NtfyTopic == "" {
+		return topic
+	}
+	return user.NtfyTopic
+}
+
+func postNtfyNotification(c *gin.Context, baseURL, topic string) bool {
+	url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), topic)
+	host, _ := os.Hostname()
+	body := fmt.Sprintf("Notificação de teste do JackUI (%s)", host)
+	req, err := http.NewRequestWithContext(c.Request.Context(), "POST", url, bytes.NewBufferString(body))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return false
+	}
+	req.Header.Set("Title", "JackUI — Teste de Notificação")
+	req.Header.Set("Tags", "test,rocket")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("ntfy retornou %d", resp.StatusCode)})
+		return false
+	}
+	return true
 }
 
 // DeleteUser handles DELETE /api/auth/users/:id (admin only).
