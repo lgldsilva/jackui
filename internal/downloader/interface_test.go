@@ -7,35 +7,39 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	tests := []struct {
-		name    string
-		dc      config.DownloadClient
-		wantErr bool
-	}{
-		{"qbittorrent", config.DownloadClient{Type: "qbittorrent", URL: "http://localhost:8080"}, false},
-		{"transmission", config.DownloadClient{Type: "transmission", URL: "http://localhost:9091"}, false},
-		{"unknown type", config.DownloadClient{Type: "unknown"}, true},
-		{"empty type", config.DownloadClient{Type: ""}, true},
+	t.Run("qbittorrent", func(t *testing.T) {
+		assertNewClient(t, config.DownloadClient{Type: "qbittorrent", URL: "http://localhost:8080"})
+	})
+	t.Run("transmission", func(t *testing.T) {
+		assertNewClient(t, config.DownloadClient{Type: "transmission", URL: "http://localhost:9091"})
+	})
+	t.Run("unknown type", func(t *testing.T) {
+		assertNewClientError(t, config.DownloadClient{Type: "unknown"})
+	})
+	t.Run("empty type", func(t *testing.T) {
+		assertNewClientError(t, config.DownloadClient{Type: ""})
+	})
+}
+
+func assertNewClient(t *testing.T, dc config.DownloadClient) {
+	t.Helper()
+	client, err := New(dc)
+	if err != nil {
+		t.Fatalf("New(%+v): %v", dc, err)
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			client, err := New(tc.dc)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if client == nil {
-				t.Fatal("expected non-nil client")
-			}
-			if client.Type() != tc.dc.Type {
-				t.Errorf("Type() = %q, want %q", client.Type(), tc.dc.Type)
-			}
-		})
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if client.Type() != dc.Type {
+		t.Errorf("Type() = %q, want %q", client.Type(), dc.Type)
+	}
+}
+
+func assertNewClientError(t *testing.T, dc config.DownloadClient) {
+	t.Helper()
+	_, err := New(dc)
+	if err == nil {
+		t.Fatalf("New(%+v): expected error", dc)
 	}
 }
 

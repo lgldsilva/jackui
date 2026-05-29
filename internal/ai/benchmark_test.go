@@ -90,6 +90,14 @@ func TestPropCompositeScoreFreeBonus(t *testing.T) {
 }
 
 func TestPropTitleAccuracy(t *testing.T) {
+	testPropTitleAccuracyRange(t)
+	testPropTitleAccuracyExact(t)
+	testPropTitleAccuracyNoOverlap(t)
+	testPropTitleAccuracySymmetry(t)
+}
+
+func testPropTitleAccuracyRange(t *testing.T) {
+	t.Helper()
 	t.Run("resultado sempre em [0,1]", func(t *testing.T) {
 		cases := []struct{ a, b string }{
 			{"The Matrix", "The Matrix"},
@@ -111,7 +119,10 @@ func TestPropTitleAccuracy(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPropTitleAccuracyExact(t *testing.T) {
+	t.Helper()
 	t.Run("exato apos normalizacao = 1", func(t *testing.T) {
 		pairs := [][2]string{
 			{"The.Matrix.1999", "the matrix 1999"},
@@ -126,7 +137,10 @@ func TestPropTitleAccuracy(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPropTitleAccuracyNoOverlap(t *testing.T) {
+	t.Helper()
 	t.Run("sem overlap = 0", func(t *testing.T) {
 		if a := titleAccuracy("Matrix", "Inception"); a != 0 {
 			t.Errorf("sem overlap deveria ser 0, got %v", a)
@@ -135,7 +149,10 @@ func TestPropTitleAccuracy(t *testing.T) {
 			t.Errorf("sem overlap deveria ser 0, got %v", a)
 		}
 	})
+}
 
+func testPropTitleAccuracySymmetry(t *testing.T) {
+	t.Helper()
 	t.Run("simetria aproximada", func(t *testing.T) {
 		cases := [][2]string{
 			{"The Matrix", "Matrix"},
