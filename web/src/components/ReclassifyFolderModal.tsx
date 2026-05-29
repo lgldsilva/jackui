@@ -21,6 +21,7 @@ type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
 interface DoneResult {
   moved: number
   failed: { path: string; error: string }[]
+  destLabel?: string
 }
 
 export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }: Props) {
@@ -60,9 +61,15 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     setResult(null)
   }, [entry])
 
-  // Scan folder
+  // Scan folder (or set single file directly)
   useEffect(() => {
     if (!entry || phase !== 'scanning') return
+    // Single file: skip scan, use entry directly
+    if (!entry.isDir) {
+      setFiles([entry])
+      setPhase('configure')
+      return
+    }
     let cancelled = false
     localWalk(mount, entry.path, true)
       .then(r => {
@@ -127,7 +134,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         true, // renameIA always on for reclassify
         files.map(f => f.path),
       )
-      setResult({ moved: files.length, failed: [] })
+      setResult({ moved: files.length, failed: [], destLabel })
       setPhase('done')
       onDone()
     } catch (e: any) {
@@ -162,7 +169,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         <header className="flex items-center justify-between p-4 border-b border-gray-700">
           <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
             <FolderSync className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-            Reclassificar pasta via IA
+            {entry?.isDir ? 'Reclassificar pasta via IA' : 'Classificar e mover via IA'}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-100">
             <X className="w-5 h-5" />
@@ -190,7 +197,10 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             {/* File count + destination selector */}
             <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3 text-sm flex-wrap">
               <span className="text-gray-400">
-                <span className="text-white font-semibold">{files.length}</span> arquivo{files.length !== 1 ? 's' : ''} de mídia encontrado{files.length !== 1 ? 's' : ''}
+                {entry?.isDir
+                  ? <><span className="text-white font-semibold">{files.length}</span> arquivo{files.length !== 1 ? 's' : ''} de mídia encontrado{files.length !== 1 ? 's' : ''}</>
+                  : <><span className="text-white font-semibold">1</span> arquivo selecionado</>
+                }
               </span>
             </div>
 
@@ -387,6 +397,11 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
               {result.moved} arquivo{result.moved !== 1 ? 's' : ''} organizado{result.moved !== 1 ? 's' : ''} com sucesso
               {result.failed.length > 0 && ` · ${result.failed.length} com erro`}
             </p>
+            {result.destLabel && (
+              <p className="text-xs text-gray-500 font-mono">
+                Destino: <span className="text-cyan-400">{result.destLabel}</span>
+              </p>
+            )}
             <button
               onClick={onClose}
               className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"

@@ -393,33 +393,27 @@ export default function LocalPage() {
                     {/* Ações rápidas */}
                     {(canManipulate || isAdmin) && (
                       <div className="flex items-center gap-1.5 px-4 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        {canManipulate && (
-                          <>
-                            <button
-                              onClick={(evt) => { evt.stopPropagation(); setPromoteItem(e) }}
-                              title="Promover para biblioteca compartilhada"
-                              className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
-                            >
-                              <ArrowUpCircle className="w-4.5 h-4.5" />
-                            </button>
-                            <button
-                              onClick={(evt) => { evt.stopPropagation(); setDeleteConfirmItem(e) }}
-                              title="Apagar permanentemente"
-                              className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
-                            >
-                              <Trash2 className="w-4.5 h-4.5" />
-                            </button>
-                          </>
+                        {/* Promover: usuário em Meus downloads OU admin em qualquer mount */}
+                        {(canManipulate || isAdmin) && !e.isDir && (
+                          <button
+                            onClick={(evt) => { evt.stopPropagation(); setPromoteItem(e) }}
+                            title="Promover / Organizar via IA"
+                            className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
+                          >
+                            <ArrowUpCircle className="w-4.5 h-4.5" />
+                          </button>
                         )}
-                        {isAdmin && e.isDir && (
+                        {/* Reclassificar: admin em dirs E arquivos */}
+                        {isAdmin && (
                           <button
                             onClick={(evt) => { evt.stopPropagation(); setReclassifyItem(e) }}
-                            title="Reclassificar pasta via IA (Plex)"
+                            title={e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA'}
                             className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all"
                           >
                             <FolderSync className="w-4.5 h-4.5" />
                           </button>
                         )}
+                        {/* Mover entre mounts: admin */}
                         {isAdmin && (
                           <button
                             onClick={(evt) => { evt.stopPropagation(); setMoveItem(e) }}
@@ -427,6 +421,16 @@ export default function LocalPage() {
                             className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
                           >
                             <FolderInput className="w-4.5 h-4.5" />
+                          </button>
+                        )}
+                        {/* Apagar: só Meus downloads (segurança) */}
+                        {canManipulate && (
+                          <button
+                            onClick={(evt) => { evt.stopPropagation(); setDeleteConfirmItem(e) }}
+                            title="Apagar permanentemente"
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
+                          >
+                            <Trash2 className="w-4.5 h-4.5" />
                           </button>
                         )}
                       </div>
