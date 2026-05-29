@@ -492,7 +492,7 @@ export default function LocalPage() {
                         )}
                         {/* Apagar: usuário em Meus downloads OU admin em qualquer
                             mount (pastas e arquivos). Alinha com o backend
-                            canModifyMount, que libera admin em todo mount. */}
+                            canModifyMount, que libera admin em qualquer mount. */}
                         {(canManipulate || isAdmin) && (
                           <button
                             onClick={(evt) => { evt.stopPropagation(); setDeleteConfirmItem(e) }}
