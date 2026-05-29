@@ -79,7 +79,7 @@ func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
 	// -show_format gives format_name (e.g. "matroska,webm" or "mov,mp4,m4a,3gp,3g2,mj2"),
 	// -show_streams gives codec_name per stream. JSON is easy to parse.
 	cmd := exec.CommandContext(cctx, "ffprobe",
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
 		"-show_format", "-show_streams",
 		path,

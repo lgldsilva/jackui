@@ -10,9 +10,7 @@ import RateWidget from './RateWidget'
 import { useIncognito } from '../lib/incognito'
 
 interface Props {
-  /** Optional custom element (e.g., a page-specific "back" button). Rendered in
-   *  the sidebar footer (desktop) and the mobile top bar. */
-  rightExtra?: React.ReactNode
+  readonly rightExtra?: React.ReactNode
 }
 
 const STORAGE_KEY = 'jackui.sidebar.collapsed'

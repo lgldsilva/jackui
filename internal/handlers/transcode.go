@@ -39,7 +39,7 @@ func TranscodeStream(s *streamer.Streamer, store *downloads.Store) gin.HandlerFu
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 

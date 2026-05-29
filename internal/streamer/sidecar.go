@@ -74,7 +74,7 @@ func (s *Streamer) Sidecars(hash metainfo.Hash, videoFileIdx int) ([]SidecarSubt
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, errors.New("torrent não está ativo")
+		return nil, errors.New(errTorrentNotActive)
 	}
 
 	files := e.t.Files()
@@ -125,7 +125,7 @@ func (s *Streamer) ReadSidecar(ctx context.Context, hash metainfo.Hash, fileIdx 
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, "", errors.New("torrent não está ativo")
+		return nil, "", errors.New(errTorrentNotActive)
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {

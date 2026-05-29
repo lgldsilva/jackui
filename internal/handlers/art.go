@@ -71,6 +71,7 @@ type artResolveCtx struct {
 	c            *gin.Context
 	s            *streamer.Streamer
 	cache        *streamer.MetadataCache
+	tmdbClient   *tmdb.Client
 	h            metainfo.Hash
 	hash         string
 	existingRank int
@@ -122,18 +123,33 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 		defer cancel()
 
-		rawName, isAudio, query := buildArtQuery(c, cache, aiClient, ctx, hash)
+		a := &artResolveCtx{
+			c:            c,
+			s:            s,
+			cache:        cache,
+			tmdbClient:   tmdbClient,
+			h:            h,
+			hash:         hash,
+			existing:     existing,
+			existingRank: existingRank,
+			ctx:          ctx,
+			aiClient:     aiClient,
+			webSearch:    webSearch,
+			frameJobs:    &frameJobs,
+			fileIdx:      fileIdx,
+		}
+		buildArtQuery(a)
 
-		if resolveTorrentArt(&artResolveCtx{c: c, s: s, cache: cache, h: h, hash: hash, existing: existing, existingRank: existingRank, ctx: ctx}) {
+		if resolveTorrentArt(a) {
 			return
 		}
-		if resolveTMDBArt(c, cache, tmdbClient, hash, existingRank, ctx, query) {
+		if resolveTMDBArt(a) {
 			return
 		}
-		if resolveWebArt(&artResolveCtx{c: c, s: s, cache: cache, h: h, hash: hash, webSearch: webSearch, existingRank: existingRank, ctx: ctx, isAudio: isAudio, rawName: rawName, aiClient: aiClient, query: query}) {
+		if resolveWebArt(a) {
 			return
 		}
-		if resolveFrameCapture(&artResolveCtx{c: c, s: s, cache: cache, h: h, hash: hash, frameJobs: &frameJobs, fileIdx: fileIdx, existingRank: existingRank}) {
+		if resolveFrameCapture(a) {
 			return
 		}
 
@@ -141,29 +157,28 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 	}
 }
 
-func buildArtQuery(c *gin.Context, cache *streamer.MetadataCache, aiClient *ai.Client, ctx context.Context, hash string) (rawName string, isAudio bool, query string) {
-	if meta := cache.Get(hash); meta != nil {
-		rawName = meta.Name
+func buildArtQuery(a *artResolveCtx) {
+	if meta := a.cache.Get(a.hash); meta != nil {
+		a.rawName = meta.Name
 		if len(meta.Files) > 0 {
-			isAudio = true
+			a.isAudio = true
 			for _, f := range meta.Files {
 				if f.IsVideo {
-					isAudio = false
+					a.isAudio = false
 					break
 				}
 			}
 		}
 	}
-	if rawName == "" {
-		rawName = c.Query("name")
+	if a.rawName == "" {
+		a.rawName = a.c.Query("name")
 	}
-	query = rawName
-	if aiClient != nil && rawName != "" {
-		if res, _, aerr := aiClient.IdentifyTitle(ctx, rawName); aerr == nil && res.Query() != "" {
-			query = res.Query()
+	a.query = a.rawName
+	if a.aiClient != nil && a.rawName != "" {
+		if res, _, aerr := a.aiClient.IdentifyTitle(a.ctx, a.rawName); aerr == nil && res.Query() != "" {
+			a.query = res.Query()
 		}
 	}
-	return
 }
 
 func resolveTorrentArt(a *artResolveCtx) bool {
@@ -187,21 +202,21 @@ func resolveTorrentArt(a *artResolveCtx) bool {
 	return true
 }
 
-func resolveTMDBArt(c *gin.Context, cache *streamer.MetadataCache, tmdbClient *tmdb.Client, hash string, existingRank int, ctx context.Context, query string) bool {
-	if existingRank >= streamer.ArtSourceRank("tmdb") || tmdbClient == nil || query == "" {
+func resolveTMDBArt(a *artResolveCtx) bool {
+	if a.existingRank >= streamer.ArtSourceRank("tmdb") || a.tmdbClient == nil || a.query == "" {
 		return false
 	}
-	m, merr := tmdbClient.Match(ctx, query)
+	m, merr := a.tmdbClient.Match(a.ctx, a.query)
 	if merr != nil || m == nil || m.PosterURL == "" {
 		return false
 	}
-	_ = cache.SetArt(hash, &streamer.CachedArt{
+	_ = a.cache.SetArt(a.hash, &streamer.CachedArt{
 		Source:    "tmdb",
 		PosterURL: m.PosterURL,
 		TmdbID:    m.TmdbID,
 		ImdbID:    m.ImdbID,
 	})
-	c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
+	a.c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
 	return true
 }
 

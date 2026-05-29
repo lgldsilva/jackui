@@ -98,7 +98,7 @@ func runLocalFFProbe(c *gin.Context, abs string) (streamer.ProbeResult, bool) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
 		"-show_streams",
 		"-show_format",
@@ -440,7 +440,7 @@ func LocalSubtitleExtract(b *local.Browser) gin.HandlerFunc {
 		// absolute ffprobe index but ffmpeg's stream specifier prefers relative.
 		// Easier: use 0:<absoluteIndex>. ffmpeg accepts both.
 		cmd := exec.CommandContext(ctx, "ffmpeg",
-			"-hide_banner", "-loglevel", "error",
+			ffHideBanner, ffLogLevel, "error",
 			"-i", abs,
 			"-map", fmt.Sprintf("0:%d", track),
 			"-c:s", "webvtt",

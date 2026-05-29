@@ -59,14 +59,7 @@ export default function PlaylistDetailPage() {
   let mainContent: React.ReactNode
   if (loading) {
     mainContent = <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-  } else if (!playlist) {
-    mainContent = (
-      <div className="text-center py-20 text-gray-500">
-        <p>Playlist não encontrada</p>
-        <Link to="/playlists" className="text-green-400 mt-2 inline-block">Voltar</Link>
-      </div>
-    )
-  } else {
+  } else if (playlist) {
     mainContent = (
       <>
         <div className="card flex flex-col gap-3">
@@ -155,6 +148,13 @@ export default function PlaylistDetailPage() {
           </div>
         )}
       </>
+    )
+  } else {
+    mainContent = (
+      <div className="text-center py-20 text-gray-500">
+        <p>Playlist não encontrada</p>
+        <Link to="/playlists" className="text-green-400 mt-2 inline-block">Voltar</Link>
+      </div>
     )
   }
 

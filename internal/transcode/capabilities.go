@@ -17,6 +17,18 @@ import (
 	"time"
 )
 
+const (
+	backendNvidia   = "nvidia"
+	backendAMDVAAPI = "amd-vaapi"
+	backendAMDAMF   = "amd-amf"
+	backendIntelQSV = "intel-qsv"
+	backendAppleVT  = "apple-vt"
+	backendCPU      = "cpu"
+	hwDeviceVAAPI   = "vaapi=va:/dev/dri/renderD128"
+	ffHideBanner    = "-hide_banner"
+	ffLogLevel      = "-loglevel"
+)
+
 // Encoder identifies one transcoding backend.
 type Encoder struct {
 	ID          string  `json:"id"`           // stable identifier (e.g. "h264_nvenc")
@@ -63,23 +75,23 @@ var encoderCandidates = []struct {
 	hwflag      string // -init_hw_device flag if needed
 }{
 	// NVIDIA
-	{"h264_nvenc", "h264", "nvidia", "NVIDIA NVENC H.264", ""},
-	{"hevc_nvenc", "hevc", "nvidia", "NVIDIA NVENC HEVC", ""},
+	{"h264_nvenc", "h264", backendNvidia, "NVIDIA NVENC H.264", ""},
+	{"hevc_nvenc", "hevc", backendNvidia, "NVIDIA NVENC HEVC", ""},
 	// AMD via VAAPI (Linux)
-	{"h264_vaapi", "h264", "amd-vaapi", "AMD/Intel VAAPI H.264", "vaapi=va:/dev/dri/renderD128"},
-	{"hevc_vaapi", "hevc", "amd-vaapi", "AMD/Intel VAAPI HEVC", "vaapi=va:/dev/dri/renderD128"},
+	{"h264_vaapi", "h264", backendAMDVAAPI, "AMD/Intel VAAPI H.264", hwDeviceVAAPI},
+	{"hevc_vaapi", "hevc", backendAMDVAAPI, "AMD/Intel VAAPI HEVC", hwDeviceVAAPI},
 	// AMD via AMF (Windows mostly; rarely on Linux)
-	{"h264_amf", "h264", "amd-amf", "AMD AMF H.264", ""},
-	{"hevc_amf", "hevc", "amd-amf", "AMD AMF HEVC", ""},
+	{"h264_amf", "h264", backendAMDAMF, "AMD AMF H.264", ""},
+	{"hevc_amf", "hevc", backendAMDAMF, "AMD AMF HEVC", ""},
 	// Intel QuickSync
-	{"h264_qsv", "h264", "intel-qsv", "Intel QuickSync H.264", ""},
-	{"hevc_qsv", "hevc", "intel-qsv", "Intel QuickSync HEVC", ""},
+	{"h264_qsv", "h264", backendIntelQSV, "Intel QuickSync H.264", ""},
+	{"hevc_qsv", "hevc", backendIntelQSV, "Intel QuickSync HEVC", ""},
 	// Apple VideoToolbox (macOS)
-	{"h264_videotoolbox", "h264", "apple-vt", "Apple VideoToolbox H.264", ""},
-	{"hevc_videotoolbox", "hevc", "apple-vt", "Apple VideoToolbox HEVC", ""},
+	{"h264_videotoolbox", "h264", backendAppleVT, "Apple VideoToolbox H.264", ""},
+	{"hevc_videotoolbox", "hevc", backendAppleVT, "Apple VideoToolbox HEVC", ""},
 	// CPU fallbacks (always functional if ffmpeg has them)
-	{"libx264", "h264", "cpu", "libx264 (CPU)", ""},
-	{"libx265", "hevc", "cpu", "libx265 (CPU)", ""},
+	{"libx264", "h264", backendCPU, "libx264 (CPU)", ""},
+	{"libx265", "hevc", backendCPU, "libx265 (CPU)", ""},
 }
 
 var decoderCandidates = []struct {
@@ -87,12 +99,12 @@ var decoderCandidates = []struct {
 	codec      string
 	backend    string
 }{
-	{"h264_cuvid", "h264", "nvidia"},
-	{"hevc_cuvid", "hevc", "nvidia"},
-	{"h264_vaapi", "h264", "amd-vaapi"},
-	{"hevc_vaapi", "hevc", "amd-vaapi"},
-	{"h264_qsv", "h264", "intel-qsv"},
-	{"hevc_qsv", "hevc", "intel-qsv"},
+	{"h264_cuvid", "h264", backendNvidia},
+	{"hevc_cuvid", "hevc", backendNvidia},
+	{"h264_vaapi", "h264", backendAMDVAAPI},
+	{"hevc_vaapi", "hevc", backendAMDVAAPI},
+	{"h264_qsv", "h264", backendIntelQSV},
+	{"hevc_qsv", "hevc", backendIntelQSV},
 }
 
 var (
@@ -209,12 +221,12 @@ func readFFmpegVersion(ctx context.Context, ff string) string {
 }
 
 func listEncoders(ctx context.Context, ff string) map[string]bool {
-	out, _ := exec.CommandContext(ctx, ff, "-hide_banner", "-encoders").Output()
+	out, _ := exec.CommandContext(ctx, ff, ffHideBanner, "-encoders").Output()
 	return parseCodecList(out)
 }
 
 func listDecoders(ctx context.Context, ff string) map[string]bool {
-	out, _ := exec.CommandContext(ctx, ff, "-hide_banner", "-decoders").Output()
+	out, _ := exec.CommandContext(ctx, ff, ffHideBanner, "-decoders").Output()
 	return parseCodecList(out)
 }
 
@@ -241,14 +253,14 @@ func parseCodecList(out []byte) map[string]bool {
 // Returns (ok, fps, err). Encoder works if exit=0 in <15s.
 func smokeTestEncoder(ctx context.Context, ff, encoder string) (bool, float64, error) {
 	args := []string{
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-f", "lavfi", "-i", "testsrc=duration=0.5:size=320x240:rate=10",
 	}
 	// Some encoders need format conversions / hw uploads
 	if strings.HasSuffix(encoder, "_vaapi") {
 		args = append([]string{
-			"-hide_banner", "-loglevel", "error",
-			"-init_hw_device", "vaapi=va:/dev/dri/renderD128",
+			ffHideBanner, ffLogLevel, "error",
+			"-init_hw_device", hwDeviceVAAPI,
 			"-filter_hw_device", "va",
 			"-f", "lavfi", "-i", "testsrc=duration=0.5:size=320x240:rate=10",
 			"-vf", "format=nv12,hwupload",
@@ -281,7 +293,7 @@ func smokeTestEncoder(ctx context.Context, ff, encoder string) (bool, float64, e
 // favoring hardware backends (nvenc > vaapi > qsv > amf > videotoolbox > cpu).
 func pickPreferred(encs []Encoder, codec string) string {
 	priority := map[string]int{
-		"nvidia": 1, "intel-qsv": 2, "amd-vaapi": 3, "amd-amf": 4, "apple-vt": 5, "cpu": 99,
+		backendNvidia: 1, backendIntelQSV: 2, backendAMDVAAPI: 3, backendAMDAMF: 4, backendAppleVT: 5, backendCPU: 99,
 	}
 	best := ""
 	bestPri := 1000

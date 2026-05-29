@@ -114,7 +114,7 @@ export default function DownloadsPage() {
 
     // Verifica magnet arrastado como texto
     const textData = e.dataTransfer.getData('text/plain')
-    if (textData && textData.trim().startsWith('magnet:?')) {
+    if (textData?.trim().startsWith('magnet:?')) {
       const magnet = textData.trim()
       setLoading(true)
       try {
@@ -1206,12 +1206,12 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface TorrentCardProps {
-  t: TorrentInfo
-  busy: boolean
-  onPause: () => void
-  onResume: () => void
-  onPriority: (p: StreamPriority) => void
-  onDelete: () => void
+  readonly t: TorrentInfo
+  readonly busy: boolean
+  readonly onPause: () => void
+  readonly onResume: () => void
+  readonly onPriority: (p: StreamPriority) => void
+  readonly onDelete: () => void
 }
 
 function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: TorrentCardProps) {
@@ -1348,22 +1348,18 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface DownloadCardProps {
-  d: DownloadEntry
-  /** Torrent ao vivo (se o anacrolix ainda tem ele carregado). Usado pra mostrar
-   *  ↑ upload e peers DEPOIS de concluído — informação que vinha da TorrentCard
-   *  duplicada que foi removida. */
-  live?: TorrentInfo
-  busy: boolean
-  /** Seleção pra batch promote (só completos). undefined = sem checkbox. */
-  selected?: boolean
-  onToggleSelected?: () => void
-  onPause: () => void
-  onResume: () => void
-  onDelete: () => void
-  onPromote?: () => void
-  onStopSeed?: () => void
-  onPlay?: () => void
-  onInspect?: () => void
+  readonly d: DownloadEntry
+  readonly live?: TorrentInfo
+  readonly busy: boolean
+  readonly selected?: boolean
+  readonly onToggleSelected?: () => void
+  readonly onPause: () => void
+  readonly onResume: () => void
+  readonly onDelete: () => void
+  readonly onPromote?: () => void
+  readonly onStopSeed?: () => void
+  readonly onPlay?: () => void
+  readonly onInspect?: () => void
 }
 
 function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect }: DownloadCardProps) {

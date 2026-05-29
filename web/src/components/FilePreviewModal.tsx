@@ -23,11 +23,11 @@ import { streamFileURL, withToken } from '../api/client'
  */
 
 interface FilePreviewModalProps {
-  infoHash: string
-  fileIdx: number
-  filePath: string
-  fileSize: number
-  onClose: () => void
+  readonly infoHash: string
+  readonly fileIdx: number
+  readonly filePath: string
+  readonly fileSize: number
+  readonly onClose: () => void
 }
 
 type Kind = 'text' | 'pdf' | 'image' | 'unknown'

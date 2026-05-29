@@ -16,6 +16,9 @@ const (
 	CacheNoStore   = "no-store"
 	CacheImmutable = "public, max-age=86400, immutable"
 
+	ffHideBanner = "-hide_banner"
+	ffLogLevel   = "-loglevel"
+
 	ErrInvalidID          = "invalid id"
 	ErrFileNotFound       = "file not found"
 	ErrNotFound           = "not found"

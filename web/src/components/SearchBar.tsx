@@ -4,15 +4,15 @@ import { Indexer } from '../api/client'
 import IndexerMultiSelect from './IndexerMultiSelect'
 
 interface SearchBarProps {
-  query: string
-  onQueryChange: (q: string) => void
-  selectedIndexers: string[]
-  onIndexersChange: (indexers: string[]) => void
-  selectedCategory: string
-  onCategoryChange: (category: string) => void
-  indexers: Indexer[]
-  onSearch: () => void
-  loading: boolean
+  readonly query: string
+  readonly onQueryChange: (q: string) => void
+  readonly selectedIndexers: string[]
+  readonly onIndexersChange: (indexers: string[]) => void
+  readonly selectedCategory: string
+  readonly onCategoryChange: (category: string) => void
+  readonly indexers: Indexer[]
+  readonly onSearch: () => void
+  readonly loading: boolean
 }
 
 const CATEGORIES = [

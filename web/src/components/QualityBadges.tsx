@@ -1,8 +1,8 @@
 import { Quality } from '../api/client'
 
 interface Props {
-  quality?: Quality
-  compact?: boolean
+  readonly quality?: Quality
+  readonly compact?: boolean
 }
 
 const RESOLUTION_COLORS: Record<string, string> = {

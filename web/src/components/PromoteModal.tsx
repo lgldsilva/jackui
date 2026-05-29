@@ -4,11 +4,9 @@ import { DownloadEntry, downloadPromoteBrowse, downloadPromoteBatch, fetchPromot
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
-  /** Quando preenchido, modal está aberto e vai promover esses items. */
-  items: DownloadEntry[] | null
-  onClose: () => void
-  /** Disparado após o batch terminar, com sucessos + falhas. Host re-puxa a lista. */
-  onPromoted: (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => void
+  readonly items: DownloadEntry[] | null
+  readonly onClose: () => void
+  readonly onPromoted: (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => void
 }
 
 /**
@@ -164,7 +162,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
             <Home className="w-3.5 h-3.5" /> {destLabel}
           </button>
           {breadcrumb.map((seg, i) => (
-            <span key={i} className="flex items-center gap-1">
+            <span key={`${i}-${seg}`} className="flex items-center gap-1">
               <ChevronRight className="w-3 h-3 text-gray-600" />
               <button
                 onClick={() => setPath(breadcrumb.slice(0, i + 1).join('/'))}
@@ -244,7 +242,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               ) : (
                 <div className="space-y-2 divide-y divide-gray-800/40">
                   {previews.map((p, index) => (
-                    <div key={index} className="pt-2 first:pt-0 text-xs space-y-1">
+                    <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
                       <div className="text-[10px] text-gray-400 font-mono truncate" title={p.originalName}>
                         De: {p.originalName}
                       </div>

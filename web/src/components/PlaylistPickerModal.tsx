@@ -7,13 +7,10 @@ import {
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
-  /** When non-null, the picker opens and adds this result on confirm. */
-  result: SearchResult | null
-  onClose: () => void
-  /** Optional: when adding a specific file inside the torrent. */
-  fileIndex?: number
-  /** Optional: override the title shown in the playlist (defaults to result.title). */
-  fileTitle?: string
+  readonly result: SearchResult | null
+  readonly onClose: () => void
+  readonly fileIndex?: number
+  readonly fileTitle?: string
 }
 
 /**

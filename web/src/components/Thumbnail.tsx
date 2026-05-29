@@ -16,20 +16,11 @@ import { streamArtURL } from '../api/client'
 export type ThumbnailSize = 'sm' | 'md' | 'lg'
 
 interface ThumbnailProps {
-  title: string
-  // categoryId helps detectKind() pick the right fallback icon when there's
-  // no TMDB match (Music vs Film vs generic FileVideo).
-  categoryId?: number
-  size?: ThumbnailSize
-  // When true, render a poster aspect (2:3). When false, render a square
-  // 1:1 (useful for music albums; we'd prefer cover art there but TMDB
-  // returns posters, so we still aspect-ratio square for music).
-  className?: string
-  // infoHash, when present, prefers the per-torrent resolved art (embedded
-  // poster/cover or a captured frame, persisted server-side after a play) over
-  // the title-based TMDB poster. Falls back to TMDB-by-title when the torrent
-  // has no resolved art yet (the art endpoint 204s → <img> onError).
-  infoHash?: string
+  readonly title: string
+  readonly categoryId?: number
+  readonly size?: ThumbnailSize
+  readonly className?: string
+  readonly infoHash?: string
 }
 
 // Tailwind-stable size classes — keep them static strings so JIT picks them up.

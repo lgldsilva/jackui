@@ -168,14 +168,14 @@ export default function LibraryPage() {
 // without lifting state into the parent. The hook needs a stable ref + per-card
 // title input, which is awkward inside .map() without a component boundary.
 interface LibraryCardProps {
-  entry: LibraryEntry
-  ratio: number
-  remaining: number
-  isDone: boolean
-  onPlay: () => void
-  onRemove: () => void
-  onDetails: () => void
-  onDownload: () => void
+  readonly entry: LibraryEntry
+  readonly ratio: number
+  readonly remaining: number
+  readonly isDone: boolean
+  readonly onPlay: () => void
+  readonly onRemove: () => void
+  readonly onDetails: () => void
+  readonly onDownload: () => void
 }
 
 function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDetails, onDownload }: LibraryCardProps) {

@@ -10,10 +10,10 @@ import {
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
-  mount: string
-  entry: LocalEntry | null
-  onClose: () => void
-  onDone: () => void
+  readonly mount: string
+  readonly entry: LocalEntry | null
+  readonly onClose: () => void
+  readonly onDone: () => void
 }
 
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
@@ -235,7 +235,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                 <Home className="w-3.5 h-3.5" /> {destLabel}
               </button>
               {breadcrumb.map((seg, i) => (
-                <span key={i} className="flex items-center gap-1">
+                <span key={`${i}-${seg}`} className="flex items-center gap-1">
                   <ChevronRight className="w-3 h-3 text-gray-600" />
                   <button
                     onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
@@ -289,7 +289,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                   ) : (
                     <div className="space-y-2 divide-y divide-gray-800/40">
                       {previews.map((p, i) => (
-                        <div key={i} className="pt-2 first:pt-0 text-xs space-y-1">
+                        <div key={`${p.originalName}-${i}`} className="pt-2 first:pt-0 text-xs space-y-1">
                           <p className="text-[10px] text-gray-400 font-mono truncate" title={p.originalName}>
                             De: {p.originalName}
                           </p>
