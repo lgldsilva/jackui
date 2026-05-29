@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil } from 'lucide-react'
 import {
-  playlistsGet, playlistsUpdate, playlistsRemoveItem, playlistsReorderItem,
+  playlistsGet, playlistsUpdate, playlistsRemoveItem,
   Playlist, PlaylistItem,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
-import Thumbnail from '../components/Thumbnail'
 import { usePlayer } from '../components/PlayerProvider'
 
 export default function PlaylistDetailPage() {
