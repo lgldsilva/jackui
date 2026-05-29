@@ -20,11 +20,11 @@ export default function RateWidget() {
     let cancelled = false
 
     const clear = () => {
-      if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null }
+      if (timerRef.current) { globalThis.clearTimeout(timerRef.current); timerRef.current = null }
     }
     const schedule = (ms: number) => {
       if (cancelled || document.hidden) return
-      timerRef.current = window.setTimeout(tick, ms)
+      timerRef.current = globalThis.setTimeout(tick, ms)
     }
     const tick = async () => {
       try {
@@ -38,16 +38,16 @@ export default function RateWidget() {
       }
     }
 
-    const onVisibility = () => {
+    const handleVisibilityChange = () => {
       if (document.hidden) clear()
       else if (!timerRef.current) tick() // resume immediately on focus
     }
-    document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     tick()
     return () => {
       cancelled = true
       clear()
-      document.removeEventListener('visibilitychange', onVisibility)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 

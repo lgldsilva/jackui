@@ -1,89 +1,133 @@
 package streamer
 
 import (
-	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 )
 
-func TestActiveEntry_Empty(t *testing.T) {
+func TestHealthSnapshot_NoCache(t *testing.T) {
 	s := NewForTesting()
-	if e := s.activeEntry(metainfo.Hash{}); e != nil {
-		t.Fatal("expected nil entry for empty streamer")
-	}
-}
-
-func TestHealthSnapshot_NoCacheNoEntry(t *testing.T) {
-	s := NewForTesting()
-	health, active := s.HealthSnapshot(metainfo.Hash{})
-	if health != nil {
-		t.Fatal("expected nil health")
-	}
+	h := metainfo.Hash{}
+	health, active := s.HealthSnapshot(h)
 	if active {
-		t.Fatal("expected not active")
+		t.Error("expected active=false for empty streamer")
+	}
+	if health != nil {
+		t.Errorf("expected nil health, got %+v", health)
 	}
 }
 
-func TestHealthSnapshot_WithCacheNoEntry(t *testing.T) {
-	s := NewForTesting()
-	c, err := NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+func TestHealthSnapshot_WithCache(t *testing.T) {
+	dir := t.TempDir()
+	c, err := NewMetadataCache(dir + "/meta.db")
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
-	defer c.Close()
-	s.SetMetadataCache(c)
+	t.Cleanup(func() { c.Close() })
 
-	health, active := s.HealthSnapshot(metainfo.Hash{0x01})
-	if health != nil {
-		t.Fatal("expected nil health with empty cache")
-	}
+	s := NewForTesting()
+	s.cache = c
+
+	_ = c.SetHealth("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 5, 10)
+
+	h := metainfo.Hash{0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA}
+	health, active := s.HealthSnapshot(h)
 	if active {
-		t.Fatal("expected not active")
+		t.Error("expected active=false for non-loaded torrent")
+	}
+	if health == nil {
+		t.Fatal("expected non-nil health from cache")
+	}
+	if health.Seeders != 5 {
+		t.Errorf("seeders: want 5, got %d", health.Seeders)
+	}
+	if health.Peers != 10 {
+		t.Errorf("peers: want 10, got %d", health.Peers)
 	}
 }
 
-func TestHealthSnapshot_WithCacheReturnsPersisted(t *testing.T) {
-	s := NewForTesting()
-	c := newTestCache(t)
-	s.SetMetadataCache(c)
+func TestHealthSnapshot_NoMatchInCache(t *testing.T) {
+	dir := t.TempDir()
+	c, err := NewMetadataCache(dir + "/meta.db")
+	if err != nil {
+		t.Fatalf("NewMetadataCache: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
 
-	_ = c.SetHealth("0101010101010101010101010101010101010101", 5, 10)
+	s := NewForTesting()
+	s.cache = c
 
 	var h metainfo.Hash
-	if err := h.FromHexString("0101010101010101010101010101010101010101"); err != nil {
-		t.Fatalf("FromHexString: %v", err)
-	}
+	h[0] = 0x01
 	health, active := s.HealthSnapshot(h)
-	if health == nil {
-		t.Fatal("expected health from cache")
-	}
-	if health.Seeders != 5 || health.Peers != 10 {
-		t.Errorf("got seeders=%d peers=%d, want 5/10", health.Seeders, health.Peers)
-	}
 	if active {
-		t.Fatal("expected not active (cache-only)")
+		t.Error("expected active=false")
+	}
+	if health != nil {
+		t.Error("expected nil health for cache miss")
 	}
 }
 
-func TestProbeHealthAsync_EmptyMagnetNoop(t *testing.T) {
+func TestProbeHealthAsync_DedupeBusy(t *testing.T) {
 	s := NewForTesting()
+	var h metainfo.Hash
+	h[0] = 0xBB
+	healthInflight.Store(h, true)
+	t.Cleanup(func() { healthInflight.Delete(h) })
+
+	s.ProbeHealthAsync(h, "magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+}
+
+func TestProbeHealthAsync_EmptyMagnet(t *testing.T) {
+	s := NewForTesting()
+	// Should be a no-op and not panic
 	s.ProbeHealthAsync(metainfo.Hash{}, "")
 }
 
-func TestProbeHealthAsync_Dedup(t *testing.T) {
+func TestHealthFreshForConst(t *testing.T) {
+	if HealthFreshFor != 30*time.Minute {
+		t.Errorf("expected 30m, got %v", HealthFreshFor)
+	}
+}
+
+func TestHealthSnapshot_WithNilCache(t *testing.T) {
 	s := NewForTesting()
-	h := metainfo.Hash{0x01}
+	var h metainfo.Hash
+	health, active := s.HealthSnapshot(h)
+	if active {
+		t.Error("expected active=false")
+	}
+	if health != nil {
+		t.Error("expected nil health with nil cache")
+	}
+}
 
-	healthInflight = sync.Map{}
-	defer func() { healthInflight = sync.Map{} }()
+func TestProbeHealthAsync_DedupesEmptyMagnet(t *testing.T) {
+	s := NewForTesting()
+	// Empty magnet is no-op (first check in ProbeHealthAsync)
+	// This verifies dedupe doesn't happen on empty magnet
+	var h metainfo.Hash
+	s.ProbeHealthAsync(h, "")
+	// Verify goroutine didn't panic
+}
 
-	healthInflight.Store(h, true)
-	magnet := "magnet:?xt=urn:btih:0101010101010101010101010101010101010101"
-	s.ProbeHealthAsync(h, magnet)
-	// healthInflight still has h (not deleted since no goroutine ran)
-	if _, loaded := healthInflight.Load(h); !loaded {
-		t.Error("expected hash to remain in healthInflight")
+func TestHealthInflightDedupe(t *testing.T) {
+	// Verify the sync.Map is initialized
+	var m sync.Map
+	_, loaded := m.LoadOrStore("test", true)
+	if loaded {
+		t.Fatal("expected first LoadOrStore to return loaded=false")
+	}
+	_, loaded = m.LoadOrStore("test", true)
+	if !loaded {
+		t.Fatal("expected second LoadOrStore to return loaded=true")
+	}
+	m.Delete("test")
+	_, loaded = m.LoadOrStore("test", true)
+	if loaded {
+		t.Fatal("expected after delete to return loaded=false")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 
+	"github.com/luizg/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -15,7 +16,7 @@ type BenchmarkStore struct {
 }
 
 func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL)
 	if err != nil {
 		return nil, err
 	}

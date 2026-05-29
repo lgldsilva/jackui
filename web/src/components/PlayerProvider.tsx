@@ -21,37 +21,37 @@ import PlayerModal from './PlayerModal'
  */
 
 export type PlaylistContext = {
-  name: string
-  items: PlaylistItem[]
-  currentIndex: number
+  readonly name: string
+  readonly items: readonly PlaylistItem[]
+  readonly currentIndex: number
 }
 
 type RepeatMode = 'none' | 'one' | 'all'
 
 type PlayerAPI = {
   /** Plays a single item with no auto-advance logic. */
-  playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
+  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
-  playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
+  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
   /** Close the player. Clears playlist state too. */
-  close: () => void
+  readonly close: () => void
   /** Move to the previous item respecting shuffle/repeat. */
-  previous: () => void
+  readonly previous: () => void
   /** Move to the next item respecting shuffle/repeat. */
-  next: () => void
+  readonly next: () => void
   /** Cycle 'none' → 'all' → 'one' → 'none'. */
-  cycleRepeat: () => void
+  readonly cycleRepeat: () => void
   /** Toggle shuffle. When turning on, regenerates the shuffle order. */
-  toggleShuffle: () => void
+  readonly toggleShuffle: () => void
   /** Begin warming up the next playlist item (called from PlayerModal at ~50% progress). */
-  prefetchNext: () => void
+  readonly prefetchNext: () => void
   /** Begin warming up the playlist item after the next (called at ~85% progress). */
-  prefetchNextNext: () => void
+  readonly prefetchNextNext: () => void
 
   // Read-only state for UI
-  playlist: PlaylistContext | null
-  repeat: RepeatMode
-  shuffle: boolean
+  readonly playlist: PlaylistContext | null
+  readonly repeat: RepeatMode
+  readonly shuffle: boolean
 }
 
 const Ctx = createContext<PlayerAPI | null>(null)
@@ -63,12 +63,12 @@ export function usePlayer(): PlayerAPI {
 }
 
 type PlaylistState = {
-  name: string
-  items: PlaylistItem[]
+  readonly name: string
+  readonly items: readonly PlaylistItem[]
   // The "order" — when shuffle is on, this is a permutation of [0..items.length-1].
   // When off, it's the identity sequence. The "position" cursor walks this array.
-  order: number[]
-  position: number
+  readonly order: readonly number[]
+  readonly position: number
 }
 
 function playlistItemToResult(item: PlaylistItem): { result: SearchResult; fileIdx?: number } {
@@ -105,7 +105,7 @@ function shuffledOrder(n: number, startIndex: number): number[] {
   return [startIndex, ...rest]
 }
 
-export default function PlayerProvider({ children }: { children: ReactNode }) {
+export default function PlayerProvider({ children }: { readonly children: ReactNode }) {
   const [current, setCurrent] = useState<{ result: SearchResult; fileIdx?: number; initialSeek?: number } | null>(null)
   const [playlist, setPlaylist] = useState<PlaylistState | null>(null)
   const [repeat, setRepeat] = useState<RepeatMode>('none')
@@ -135,13 +135,12 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   }, [shuffle])
 
   const close = useCallback(() => {
-    if (current?.result?.infoHash) {
-      const hash = current.result.infoHash
-      if (hash && typeof hash === 'string' && !hash.startsWith('local-')) {
-        streamDrop(hash).catch(err => {
-          console.error('[player] Failed to drop stream on close:', err)
-        })
-      }
+    const hash = current?.result?.infoHash
+    // local- hashes are local files, not torrents in the streamer — skip the drop.
+    if (hash && !hash.startsWith('local-')) {
+      streamDrop(hash).catch(err => {
+        console.error('[player] Failed to drop stream on close:', err)
+      })
     }
     setCurrent(null)
     setPlaylist(null)
@@ -209,7 +208,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     const target = pl.position + offset
     if (target < 0 || target >= pl.order.length) return
     const item = pl.items[pl.order[target]]
-    if (!item || !item.magnet) return
+    if (!item?.magnet) return
     const key = `${item.infoHash || item.magnet}:${item.fileIndex}`
     if (prefetchedHashes.current.has(key)) return
     prefetchedHashes.current.add(key)
@@ -302,8 +301,8 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     const hash = playUrlParam
     if (hash === lastSyncedHashRef.current) return
     if (!hash) {
-      // Double check window.location.search to prevent React Router race conditions on tab resume/hydration
-      const realHash = new URLSearchParams(window.location.search).get('play')
+      // Double check location.search to prevent React Router race conditions on tab resume/hydration
+      const realHash = new URLSearchParams(globalThis.location.search).get('play')
       if (realHash) {
         // The URL actually has the hash! It's just a router sync lag. Ignore it.
         return
@@ -320,9 +319,9 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
       return
     }
     lastSyncedHashRef.current = hash
-    const fIdxParsed = fileUrlParam ? parseInt(fileUrlParam, 10) : NaN
+    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : Number.NaN
     const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
-    const tParsed = timeUrlParam ? parseFloat(timeUrlParam) : NaN
+    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : Number.NaN
     const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
 
     // Best effort: lookup the library entry to get a proper title + magnet
@@ -346,11 +345,11 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     const newHash = current?.result?.infoHash || null
     if (newHash === lastSyncedHashRef.current) return
     lastSyncedHashRef.current = newHash
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     if (newHash) {
       params.set('play', newHash)
-      if (current?.fileIdx !== undefined) params.set('f', String(current.fileIdx))
-      else params.delete('f')
+      if (current?.fileIdx === undefined) params.delete('f')
+      else params.set('f', String(current.fileIdx))
       // We intentionally don't write `t` here — resume position comes from the
       // server's per-user library and updates every ~15s. Persisting it in the
       // URL on every tick would spam history and is the user's job (paste from
@@ -379,6 +378,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   const currentKind = (() => {
     if (!current) return null
     if (playlist && playlist.items.length > 0) {
+      // Aggregate over playlist — any video → video mode.
       const anyVideo = playlist.items.some(it => detectKind(it.title) === 'video')
       return anyVideo ? 'video' : 'audio'
     }

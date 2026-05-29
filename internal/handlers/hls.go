@@ -228,7 +228,7 @@ func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64) {
 		}
 	}
 	if _, err := hc.s.Get(hc.h); err != nil {
-		bareMagnet := "magnet:?xt=urn:btih:" + hc.h.HexString()
+		bareMagnet := MagnetPrefix + hc.h.HexString()
 		if _, addErr := hc.s.Add(hc.c.Request.Context(), bareMagnet); addErr != nil {
 			hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return nil, 0

@@ -95,10 +95,10 @@ export default function SettingsPage() {
     }
 
     const newClients = [...config.downloadClients]
-    if (editingIndex !== null) {
-      newClients[editingIndex] = client
-    } else {
+    if (editingIndex === null) {
       newClients.push(client)
+    } else {
+      newClients[editingIndex] = client
     }
 
     setConfig({ ...config, downloadClients: newClients })
@@ -204,8 +204,9 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-gray-100">Jackett</h2>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
+            <label htmlFor="jackett-url" className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
             <input
+              id="jackett-url"
               type="url"
               value={config.jackett.url}
               onChange={(e) =>
@@ -217,8 +218,9 @@ export default function SettingsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">API Key</label>
+            <label htmlFor="jackett-apikey" className="block text-sm font-medium text-gray-300 mb-1.5">API Key</label>
             <input
+              id="jackett-apikey"
               type="text"
               value={config.jackett.apiKey}
               onChange={(e) =>
@@ -329,11 +331,12 @@ export default function SettingsPage() {
         <section className="card flex flex-col gap-4">
           <h2 className="text-lg font-semibold text-gray-100">Servidor</h2>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Porta</label>
+            <label htmlFor="server-port" className="block text-sm font-medium text-gray-300 mb-1.5">Porta</label>
             <input
+              id="server-port"
               type="number"
               value={config.port}
-              onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) || 8989 })}
+                             onChange={(e) => setConfig({ ...config, port: Number.parseInt(e.target.value) || 8989 })}
               className="input-field w-32"
               min={1}
               max={65535}
@@ -365,21 +368,22 @@ export default function SettingsPage() {
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
           onClick={(e) => e.target === e.currentTarget && setEditingClient(null)}
           onKeyDown={e => e.key === 'Escape' && setEditingClient(null)}
-          onFocus={() => {}}
           onClose={() => setEditingClient(null)}
+          onFocus={() => {}} tabIndex={-1}
           open
         >
           <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between p-5 border-b border-gray-700">
               <h3 className="text-lg font-semibold text-gray-100">
-                {editingIndex !== null ? 'Editar Cliente' : 'Novo Cliente'}
+                {editingIndex === null ? 'Novo Cliente' : 'Editar Cliente'}
               </h3>
             </div>
 
             <div className="p-5 flex flex-col gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Nome</label>
+                <label htmlFor="client-name" className="block text-sm font-medium text-gray-300 mb-1.5">Nome</label>
                 <input
+                  id="client-name"
                   type="text"
                   value={editingClient.name}
                   onChange={(e) => setEditingClient({ ...editingClient, name: e.target.value })}
@@ -389,8 +393,9 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Tipo</label>
+                <label htmlFor="client-type" className="block text-sm font-medium text-gray-300 mb-1.5">Tipo</label>
                 <select
+                  id="client-type"
                   value={editingClient.type}
                   onChange={(e) => setEditingClient({ ...editingClient, type: e.target.value })}
                   className="input-field"
@@ -401,8 +406,9 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
+                <label htmlFor="client-url" className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
                 <input
+                  id="client-url"
                   type="url"
                   value={editingClient.url}
                   onChange={(e) => setEditingClient({ ...editingClient, url: e.target.value })}
@@ -413,10 +419,11 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                  <label htmlFor="client-username" className="block text-sm font-medium text-gray-300 mb-1.5">
                     Usuario
                   </label>
                   <input
+                    id="client-username"
                     type="text"
                     value={editingClient.username}
                     onChange={(e) =>
@@ -427,10 +434,11 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5">
+                  <label htmlFor="client-password" className="block text-sm font-medium text-gray-300 mb-1.5">
                     Senha
                   </label>
                   <input
+                    id="client-password"
                     type="password"
                     value={editingClient.password}
                     onChange={(e) =>

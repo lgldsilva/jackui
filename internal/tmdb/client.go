@@ -67,7 +67,7 @@ const trendingTTL = 6 * time.Hour
 // (404) without exploding. omdbKey is optional: when set, matches are enriched
 // with the real IMDb rating (via OMDb) on top of TMDB's own vote average.
 func New(apiKey, omdbKey, cachePath string) (*Client, error) {
-	db, err := sql.Open("sqlite", cachePath+"?_pragma=journal_mode(WAL)")
+	db, err := sql.Open(dbutil.DriverName, cachePath+dbutil.PragmaWAL)
 	if err != nil {
 		return nil, err
 	}

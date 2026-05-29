@@ -16,6 +16,7 @@ const (
 	CacheNoStore   = "no-store"
 	CacheImmutable = "public, max-age=86400, immutable"
 
+	ffBinary     = "ffmpeg"
 	ffHideBanner = "-hide_banner"
 	ffLogLevel   = "-loglevel"
 	pipe1        = "pipe:1"
@@ -31,4 +32,6 @@ const (
 	ErrPasskeysNotConfig  = "passkeys não configuradas"
 	ErrInvalidData        = "dados inválidos"
 	ErrPasskeysNotConfigF = "passkeys não configuradas (defina JACKUI_BASE_URL)"
+
+	MagnetPrefix = "magnet:?xt=urn:btih:"
 )

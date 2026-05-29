@@ -16,6 +16,18 @@ import (
 
 const sqlAndUserID = " AND user_id = ?"
 
+// UpsertInput groups the parameters for Upsert.
+type UpsertInput struct {
+	UserID      int
+	InfoHash    string
+	Magnet      string
+	Name        string
+	PrimaryFile int
+	TotalSize   int64
+	Kind        string
+	Incognito   bool
+}
+
 // Entry is one row in the library — a torrent the user has touched.
 type Entry struct {
 	ID               int       `json:"id"`
@@ -40,7 +52,7 @@ type Store struct {
 }
 
 func New(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK)
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +108,12 @@ func (s *Store) migrate() error {
 // refreshing last_played_at to now. Used on every /stream/add call.
 // When incognito=true the row is written with incognito=1 so it is excluded from
 // normal queries and deleted when the user ends their incognito session.
-func (s *Store) Upsert(userID int, infoHash, magnet, name string, primaryFile int, totalSize int64, kind string, incognito bool) (*Entry, error) {
-	if infoHash == "" || magnet == "" {
+func (s *Store) Upsert(in UpsertInput) (*Entry, error) {
+	if in.InfoHash == "" || in.Magnet == "" {
 		return nil, errors.New("info_hash and magnet are required")
 	}
 	incognitoVal := 0
-	if incognito {
+	if in.Incognito {
 		incognitoVal = 1
 	}
 	_, err := s.db.Exec(`
@@ -115,11 +127,11 @@ func (s *Store) Upsert(userID int, infoHash, magnet, name string, primaryFile in
 			kind               = CASE WHEN excluded.kind != '' THEN excluded.kind ELSE library.kind END,
 			incognito          = excluded.incognito,
 			last_played_at     = CURRENT_TIMESTAMP
-	`, userID, infoHash, magnet, name, primaryFile, totalSize, kind, incognitoVal)
+	`, in.UserID, in.InfoHash, in.Magnet, in.Name, in.PrimaryFile, in.TotalSize, in.Kind, incognitoVal)
 	if err != nil {
 		return nil, err
 	}
-	return s.GetByHash(userID, infoHash)
+	return s.GetByHash(in.UserID, in.InfoHash)
 }
 
 // DeleteIncognito removes all incognito-flagged entries for a user.

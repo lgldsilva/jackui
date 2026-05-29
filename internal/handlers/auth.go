@@ -220,35 +220,42 @@ var (
 // incognito sessions that have gone quiet (tab closed / crash) and deletes
 // their data after incognitoTTL. Call once at startup.
 func StartIncognitoReaper(cleaners ...incognitoCleanable) {
-	// Boot sweep: any incognito row still in the DB at startup is orphaned —
-	// its heartbeat lived only in memory and was lost on restart, so the
-	// reaper below would never reclaim it. Incognito data must not survive a
-	// restart, so purge it now.
 	for _, cl := range cleaners {
 		_ = cl.DeleteAllIncognito()
 	}
-	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			incognitoMu.Lock()
-			expired := make([]int, 0)
-			for uid, last := range incognitoHeartbeats {
-				if time.Since(last) > incognitoTTL {
-					expired = append(expired, uid)
-				}
-			}
-			for _, uid := range expired {
-				delete(incognitoHeartbeats, uid)
-			}
-			incognitoMu.Unlock()
-			for _, uid := range expired {
-				for _, cl := range cleaners {
-					_ = cl.DeleteIncognito(uid)
-				}
-			}
+	go reaperLoop(cleaners)
+}
+
+func reaperLoop(cleaners []incognitoCleanable) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		expired := collectExpiredIncognito()
+		purgeIncognito(cleaners, expired)
+	}
+}
+
+func collectExpiredIncognito() []int {
+	incognitoMu.Lock()
+	defer incognitoMu.Unlock()
+	expired := make([]int, 0)
+	for uid, last := range incognitoHeartbeats {
+		if time.Since(last) > incognitoTTL {
+			expired = append(expired, uid)
 		}
-	}()
+	}
+	for _, uid := range expired {
+		delete(incognitoHeartbeats, uid)
+	}
+	return expired
+}
+
+func purgeIncognito(cleaners []incognitoCleanable, uids []int) {
+	for _, uid := range uids {
+		for _, cl := range cleaners {
+			_ = cl.DeleteIncognito(uid)
+		}
+	}
 }
 
 // IncognitoHeartbeat handles POST /api/user/incognito/heartbeat — the frontend

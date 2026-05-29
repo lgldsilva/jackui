@@ -48,7 +48,7 @@ type Store struct {
 }
 
 func New(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK)
 	if err != nil {
 		return nil, err
 	}

@@ -8,7 +8,7 @@ type Props = {
 }
 
 type State = {
-  error: Error | null
+  readonly error: Error | null
 }
 
 /**
