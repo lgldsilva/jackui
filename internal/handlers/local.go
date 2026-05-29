@@ -237,7 +237,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 			"-vf", "scale=320:-2",
 			"-q:v", "5",
 			"-f", "mjpeg",
-			"-y", "pipe:1",
+			"-y", pipe1,
 		)
 		if data, cerr := cmd.Output(); cerr == nil && len(data) > 0 {
 			out = data
