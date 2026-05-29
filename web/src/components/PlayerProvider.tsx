@@ -135,8 +135,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   }, [shuffle])
 
   const close = useCallback(() => {
-    if (current?.result?.infoHash) {
-      const hash = current.result.infoHash
+    const hash = current?.result?.infoHash
+    // local- hashes are local files, not torrents in the streamer — skip the drop.
+    if (hash && !hash.startsWith('local-')) {
       streamDrop(hash).catch(err => {
         console.error('[player] Failed to drop stream on close:', err)
       })

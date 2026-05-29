@@ -105,6 +105,10 @@ func main() {
 	deps.promoteDests = buildPromoteDests(deps.cfg)
 	initHLSManager(deps)
 
+	// Incognito reaper: delete stale incognito data after 1h of inactivity
+	// (tab closed / crash). Both stores are guaranteed initialized by here.
+	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+
 	startTranscodeProbe()
 
 	defer deps.runCleanup()
@@ -630,6 +634,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		registerHistoryRoutes(api, deps)
 		registerStreamRoutes(api, adminAPI, deps)
 		registerLibraryRoutes(api, deps)
+		registerTMDBRoutes(api, deps)
 		registerWatchlistRoutes(api, deps)
 		registerPlaylistRoutes(api, deps)
 		registerSubtitleRoutes(api, deps)
@@ -765,6 +770,12 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))
 }
 
+func registerTMDBRoutes(api *gin.RouterGroup, deps *appDeps) {
+	// TMDB enrichment — optional poster + overview per torrent title
+	api.GET("/tmdb/match", handlers.TmdbMatch(deps.tmdbClient))
+	api.GET("/tmdb/trending", handlers.TmdbTrending(deps.tmdbClient))
+}
+
 func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 	if deps.libraryStore == nil {
 		return
@@ -845,6 +856,9 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(deps.authStore))
 	api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(deps.authStore))
 	api.POST("/user/notify-test", handlers.NotifyTest(deps.cfg, deps.authStore))
+	// Incognito session management
+	api.DELETE("/user/incognito", handlers.ClearIncognito(deps.historyStore, deps.libraryStore))
+	api.POST("/user/incognito/heartbeat", handlers.IncognitoHeartbeat())
 
 	adminGroup := api.Group("/auth/users")
 	adminGroup.Use(auth.AdminOnly())

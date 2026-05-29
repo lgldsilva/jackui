@@ -1449,7 +1449,7 @@ export const localWalk = async (
   path: string,
   mediaOnly = false,
 ): Promise<{ entries: LocalEntry[]; total: number }> => {
-  const params = appendViewAs(new URLSearchParams({ mount, path, mediaOnly: mediaOnly ? '1' : '0' }))
+  const params = appendViewAs(new URLSearchParams({ mount, path, media_only: mediaOnly ? '1' : '0' }))
   const { data } = await api.get<{ entries: LocalEntry[]; total: number }>(`/local/walk?${params}`)
   return data
 }
