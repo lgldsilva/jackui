@@ -38,15 +38,17 @@ pipeline {
 
   stages {
     stage('Backend test') {
-      agent { docker { image 'golang:1.26-alpine'; reuseNode true } }
+      // HOME=/tmp: o agente roda como uid do jenkins (sem home gravável); o Go
+      // precisa de GOCACHE/GOPATH graváveis. Sem apk: o projeto é cgo-free
+      // (modernc.org/sqlite), então gcc não é necessário.
+      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '-e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
       steps {
-        sh 'apk add --no-cache gcc musl-dev >/dev/null 2>&1 || true'
         sh 'go test -coverprofile=coverage.out ./internal/... ./cmd/...'
       }
     }
 
     stage('Frontend build') {
-      agent { docker { image 'node:22-alpine'; reuseNode true } }
+      agent { docker { image 'node:22-alpine'; reuseNode true; args '-e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
       steps {
         dir('web') {
           sh 'npm ci'
@@ -59,7 +61,7 @@ pipeline {
     // Quality gate é obrigatório: o estágio QUEBRA o build se o gate falhar
     // (-Dsonar.qualitygate.wait=true). Token vem do Vault.
     stage('SonarQube') {
-      agent { docker { image 'sonarsource/sonar-scanner-cli:latest'; reuseNode true } }
+      agent { docker { image 'sonarsource/sonar-scanner-cli:latest'; reuseNode true; args '-e HOME=/tmp' } }
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
