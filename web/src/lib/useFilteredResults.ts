@@ -13,7 +13,7 @@ import { isPlayable } from './playable'
 // publishDate).
 export type SortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'date' | 'age'
 
-export interface ResultFilters {
+export type ResultFilters = {
   minSeeders?: number
   minLeechers?: number
   maxBytes?: number
@@ -22,7 +22,7 @@ export interface ResultFilters {
   onlyPlayable?: boolean
 }
 
-export interface UseFilteredResultsOpts extends ResultFilters {
+export type UseFilteredResultsOpts = ResultFilters & {
   sortKey: SortKey
   sortAsc: boolean
 }

@@ -403,46 +403,52 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
-		// Same validation path as the preview (extractLocalPromoteReq +
-		// resolveLocalPaths) so what's previewed is exactly what's moved.
 		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
 		if !ok {
 			return
 		}
-		subdir, err := sanitizeSubdir(req.TargetSubdir)
+		targetDir, err := localPromoteTargetDir(base, req.TargetSubdir)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		targetDir := base
-		if subdir != "" {
-			targetDir = filepath.Join(base, subdir)
-		}
-		// Batch (req.Paths) or single (req.Path) — resolveLocalPaths handles both
-		// and applies the user scope. Move every entry; a failure on one doesn't
-		// abort the rest. The response carries the real moved/failed counts so the
-		// UI can't report N moved when only some succeeded.
 		paths := resolveLocalPaths(b, req, scopeUser(c))
 		if len(paths) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
 		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base}
-		moved := 0
-		errs := make([]gin.H, 0)
-		for _, scopedRel := range paths {
-			if e := promoteOnePath(b, deps, req.Mount, scopedRel, targetDir); e != nil {
-				errs = append(errs, e)
-			} else {
-				moved++
-			}
-		}
+		moved, errs := execPromoteMoves(b, deps, req.Mount, paths, targetDir)
 		if moved == 0 {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"moved": 0, "failed": len(errs), "errors": errs})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"moved": moved, "failed": len(errs), "errors": errs})
 	}
+}
+
+func localPromoteTargetDir(base, subdirStr string) (string, error) {
+	subdir, err := sanitizeSubdir(subdirStr)
+	if err != nil {
+		return "", err
+	}
+	if subdir == "" {
+		return base, nil
+	}
+	return filepath.Join(base, subdir), nil
+}
+
+func execPromoteMoves(b *local.Browser, deps *promoteDstDeps, mount string, paths []string, targetDir string) (int, []gin.H) {
+	moved := 0
+	errs := make([]gin.H, 0)
+	for _, scopedRel := range paths {
+		if e := promoteOnePath(b, deps, mount, scopedRel, targetDir); e != nil {
+			errs = append(errs, e)
+		} else {
+			moved++
+		}
+	}
+	return moved, errs
 }
 
 // promoteOnePath moves one already-scoped relative path into targetDir, applying

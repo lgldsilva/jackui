@@ -19,7 +19,7 @@ function relTime(iso?: string): string {
   return `há ${Math.round(h / 24)}d`
 }
 
-interface Props {
+type Props = {
   readonly infoHash?: string
   readonly magnet?: string
   readonly className?: string

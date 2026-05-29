@@ -3,7 +3,7 @@ import { FolderInput, X, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCi
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
   readonly onClose: () => void

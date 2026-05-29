@@ -4,7 +4,7 @@ import { load, save, remove } from '../lib/storage'
 
 export type Role = 'admin' | 'user' | 'guest'
 
-export interface AuthUser {
+export type AuthUser = {
   readonly id: number
   readonly username: string
   readonly email?: string
@@ -15,14 +15,14 @@ export interface AuthUser {
   readonly createdAt: string
 }
 
-interface TokenBundle {
+type TokenBundle = {
   readonly access: string
   readonly refresh: string
   readonly expiresAt: string
   readonly user: AuthUser
 }
 
-interface AuthContextValue {
+type AuthContextValue = {
   readonly user: AuthUser | null
   readonly loading: boolean
   readonly enabled: boolean // server has auth turned on

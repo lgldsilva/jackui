@@ -4,7 +4,7 @@ import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile } f
 import { formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly result: SearchResult | null
   readonly onClose: () => void
   readonly onPlayFile: (result: SearchResult, fileIndex: number) => void

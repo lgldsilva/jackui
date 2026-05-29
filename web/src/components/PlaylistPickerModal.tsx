@@ -6,7 +6,7 @@ import {
 } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly result: SearchResult | null
   readonly onClose: () => void
   readonly fileIndex?: number

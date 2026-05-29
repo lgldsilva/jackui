@@ -10,7 +10,7 @@ import QualityBadges from './QualityBadges'
 // pra não quebrar o import enquanto a chamada estiver no fluxo.
 export function refreshFavoritesCache(_entries: unknown): void {}
 
-interface ResultCardProps {
+type ResultCardProps = {
   readonly result: SearchResult
   readonly onDownload: (result: SearchResult) => void
   readonly onPlay?: (result: SearchResult) => void

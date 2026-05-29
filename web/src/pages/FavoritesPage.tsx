@@ -15,7 +15,7 @@ import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { formatDate } from '../lib/format'
 
-interface FolderNode {
+type FolderNode = {
   folder: FavoriteFolder
   children: FolderNode[]
 }
@@ -38,7 +38,7 @@ function buildTree(folders: FavoriteFolder[]): FolderNode[] {
   return roots
 }
 
-interface TreeProps {
+type TreeProps = {
   readonly nodes: FolderNode[]
   readonly depth: number
   readonly selectedId: number | null

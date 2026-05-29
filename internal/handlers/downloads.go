@@ -479,6 +479,54 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 // tamanhos reais no disco). Usado pelo modal de inspeção pra mostrar o que
 // o torrent tem além do arquivo baixado, distinguir aparente (sparse) de
 // real, e habilitar ações por arquivo.
+type downloadFileStat struct {
+	Apparent int64 `json:"apparent"`
+	OnDisk   int64 `json:"onDisk"`
+	Exists   bool  `json:"exists"`
+}
+
+func getDownloadFileStat(filePath string) downloadFileStat {
+	var stat downloadFileStat
+	if filePath == "" {
+		return stat
+	}
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return stat
+	}
+	stat.Apparent = st.Size()
+	stat.OnDisk = streamer.PhysicalBytes(st)
+	stat.Exists = true
+	return stat
+}
+
+func getDownloadTorrentInfo(s *streamer.Streamer, infoHash, magnet string) *streamer.TorrentInfo {
+	var info *streamer.TorrentInfo
+	var h metainfo.Hash
+	if err := h.FromHexString(infoHash); err == nil {
+		if got, gerr := s.Get(h); gerr == nil {
+			info = got
+		}
+	}
+	magnetTrackers := parseMagnetTrackers(magnet)
+	if len(magnetTrackers) == 0 {
+		return info
+	}
+	if info != nil {
+		existing := make(map[string]bool, len(info.Trackers))
+		for _, t := range info.Trackers {
+			existing[t] = true
+		}
+		for _, t := range magnetTrackers {
+			if !existing[t] {
+				info.Trackers = append(info.Trackers, t)
+			}
+		}
+		return info
+	}
+	return &streamer.TorrentInfo{Trackers: magnetTrackers}
+}
+
 func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
@@ -493,60 +541,13 @@ func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			return
 		}
 
-		// Sizes do arquivo principal (apparent vs real on-disk). du -b vs
-		// stat -c%b — em arquivos sparse, byte_size grande pode estar com
-		// poucos blocos alocados (bytes_downloaded baixo).
-		type fileStat struct {
-			Apparent int64 `json:"apparent"`
-			OnDisk   int64 `json:"onDisk"`
-			Exists   bool  `json:"exists"`
-		}
-		var stat fileStat
-		if d.FilePath != "" {
-			if st, err := os.Stat(d.FilePath); err == nil {
-				stat.Apparent = st.Size()
-				stat.OnDisk = streamer.PhysicalBytes(st)
-				stat.Exists = true
-			}
-		}
-
-		// Info ao vivo do streamer — só preenche se o torrent estiver active
-		// (não força attach pra não acordar torrent já dropado).
-		var info *streamer.TorrentInfo
-		var h metainfo.Hash
-		if err := h.FromHexString(d.InfoHash); err == nil {
-			if got, gerr := s.Get(h); gerr == nil {
-				info = got
-			}
-		}
-
-		// Merge &tr= tracker URLs from the magnet URI.
-		// UpvertedAnnounceList() only covers .torrent-file trackers; magnet trackers
-		// are added to anacrolix's runtime but never reflected in metainfo.
-		magnetTrackers := parseMagnetTrackers(d.Magnet)
-		if len(magnetTrackers) > 0 {
-			if info != nil {
-				// Dedup: add magnet trackers not already in the live list.
-				existing := make(map[string]bool, len(info.Trackers))
-				for _, t := range info.Trackers {
-					existing[t] = true
-				}
-				for _, t := range magnetTrackers {
-					if !existing[t] {
-						info.Trackers = append(info.Trackers, t)
-					}
-				}
-			} else {
-				// Torrent is not active — synthesise a minimal TorrentInfo so the
-				// frontend can at least show the tracker list from the magnet.
-				info = &streamer.TorrentInfo{Trackers: magnetTrackers}
-			}
-		}
+		stat := getDownloadFileStat(d.FilePath)
+		info := getDownloadTorrentInfo(s, d.InfoHash, d.Magnet)
 
 		c.JSON(http.StatusOK, gin.H{
 			"download": d,
 			"file":     stat,
-			"torrent":  info, // null quando inativo e sem trackers no magnet
+			"torrent":  info,
 		})
 	}
 }
