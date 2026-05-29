@@ -419,7 +419,7 @@ export default function DownloadsPage() {
     try {
       const down = limitDownKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitDownKB) * 1024))
       const up = limitUpKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitUpKB) * 1024))
-      if (!isFinite(down) || !isFinite(up)) { setLimitsMsg('Valores inválidos'); return }
+      if (!Number.isFinite(down) || !Number.isFinite(up)) { setLimitsMsg('Valores inválidos'); return }
       await streamSetLimits({ down, up })
       setLimitsMsg('Limites aplicados')
       await loadLimits()
@@ -1300,22 +1300,28 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   const priority: StreamPriority = (t.priority as StreamPriority) || 'normal'
 
   // Card border/glow color based on state
-  const borderClass = isSeeding
-    ? 'border-violet-500/30 hover:border-violet-500/50'
-    : isPaused
-      ? 'border-gray-600/50 hover:border-gray-500/60'
-      : isComplete
-        ? 'border-green-500/30 hover:border-green-500/50'
-        : 'border-emerald-500/30 hover:border-emerald-500/50'
+  let borderClass: string
+  if (isSeeding) {
+    borderClass = 'border-violet-500/30 hover:border-violet-500/50'
+  } else if (isPaused) {
+    borderClass = 'border-gray-600/50 hover:border-gray-500/60'
+  } else if (isComplete) {
+    borderClass = 'border-green-500/30 hover:border-green-500/50'
+  } else {
+    borderClass = 'border-emerald-500/30 hover:border-emerald-500/50'
+  }
 
   // Gradient bar colors
-  const barGradient = isComplete
-    ? 'from-green-500 to-emerald-400'
-    : isPaused
-      ? 'from-gray-600 to-gray-500'
-      : isSeeding
-        ? 'from-violet-500 to-indigo-400'
-        : 'from-emerald-500 to-teal-400'
+  let barGradient: string
+  if (isComplete) {
+    barGradient = 'from-green-500 to-emerald-400'
+  } else if (isPaused) {
+    barGradient = 'from-gray-600 to-gray-500'
+  } else if (isSeeding) {
+    barGradient = 'from-violet-500 to-indigo-400'
+  } else {
+    barGradient = 'from-emerald-500 to-teal-400'
+  }
 
   return (
     <div className={`
@@ -1449,22 +1455,28 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
   const etaText = computeETA(d)
 
   // Card border based on state
-  const borderClass = isCompleted
-    ? 'border-green-500/30 hover:border-green-500/50'
-    : isFailed
-      ? 'border-red-500/30 hover:border-red-500/50'
-      : isPaused
-        ? 'border-gray-600/50 hover:border-gray-500/60'
-        : 'border-cyan-500/30 hover:border-cyan-500/50'
+  let borderClass: string
+  if (isCompleted) {
+    borderClass = 'border-green-500/30 hover:border-green-500/50'
+  } else if (isFailed) {
+    borderClass = 'border-red-500/30 hover:border-red-500/50'
+  } else if (isPaused) {
+    borderClass = 'border-gray-600/50 hover:border-gray-500/60'
+  } else {
+    borderClass = 'border-cyan-500/30 hover:border-cyan-500/50'
+  }
 
   // Gradient bar
-  const barGradient = isCompleted
-    ? 'from-green-500 to-emerald-400'
-    : isFailed
-      ? 'from-red-500 to-rose-400'
-      : isPaused
-        ? 'from-gray-600 to-gray-500'
-        : 'from-cyan-500 to-blue-400'
+  let barGradient: string
+  if (isCompleted) {
+    barGradient = 'from-green-500 to-emerald-400'
+  } else if (isFailed) {
+    barGradient = 'from-red-500 to-rose-400'
+  } else if (isPaused) {
+    barGradient = 'from-gray-600 to-gray-500'
+  } else {
+    barGradient = 'from-cyan-500 to-blue-400'
+  }
 
   return (
     <div className={`
@@ -1737,7 +1749,7 @@ function computeTorrentETA(t: TorrentInfo): string {
   const remaining = t.totalSize - done
   if (remaining <= 0) return ''
   const sec = remaining / t.downRate
-  if (!isFinite(sec) || sec <= 0) return ''
+  if (!Number.isFinite(sec) || sec <= 0) return ''
   return `~${formatDurationShort(sec)}`
 }
 
@@ -1749,12 +1761,12 @@ function computeETA(d: DownloadEntry): string {
   if (!d.startedAt || d.fileSize <= 0 || d.bytesDownloaded <= 0) return ''
   if (d.bytesDownloaded >= d.fileSize) return ''
   const startMs = new Date(d.startedAt).getTime()
-  if (!isFinite(startMs) || startMs <= 0) return ''
+  if (!Number.isFinite(startMs) || startMs <= 0) return ''
   const elapsedSec = (Date.now() - startMs) / 1000
   if (elapsedSec < 2) return ''
   const rate = d.bytesDownloaded / elapsedSec
   if (rate <= 0) return ''
   const remainingSec = (d.fileSize - d.bytesDownloaded) / rate
-  if (!isFinite(remainingSec) || remainingSec <= 0) return ''
+  if (!Number.isFinite(remainingSec) || remainingSec <= 0) return ''
   return `~${formatDurationShort(remainingSec)} restantes`
 }

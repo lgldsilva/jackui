@@ -503,3 +503,85 @@ func TestFavoritesDefaultPath(t *testing.T) {
 		t.Errorf("unexpected default path: %q", path)
 	}
 }
+
+func TestNewFavorites_InvalidPath(t *testing.T) {
+	_, err := NewFavorites("/nonexistent/foo/fav.db")
+	if err == nil {
+		t.Error("expected error for invalid path")
+	}
+}
+
+func TestFavoritesHasColumn(t *testing.T) {
+	f := newTestFavorites(t)
+	if !f.hasColumn("favorites", "name") {
+		t.Error("expected 'name' column to exist")
+	}
+	if f.hasColumn("favorites", "nonexistent_column_xyz") {
+		t.Error("expected nonexistent column to not exist")
+	}
+}
+
+func TestFavoritesHasColumn_Error(t *testing.T) {
+	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	// Query a non-existent table
+	if f.hasColumn("nonexistent_table", "col") {
+		t.Error("expected false for non-existent table")
+	}
+}
+
+func TestFavoritesRemove_IncludeAll(t *testing.T) {
+	f := newTestFavorites(t)
+	f.Add("movie", "h1", "magnet:1", "manual", 1)
+	f.Add("movie", "h1", "magnet:1", "manual", 2)
+	f.Remove("movie", 0, true)
+	if f.IsFavorite("movie") {
+		t.Error("expected movie removed after includeAll=true")
+	}
+}
+
+func TestFavoritesIsFavoriteOf_FailClosed(t *testing.T) {
+	// Create a store then close it to trigger DB error
+	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	// On a closed DB, IsFavoriteOf should return true (fail-closed)
+	if !f.IsFavoriteOf("anything", 1) {
+		t.Error("expected fail-closed (true) for closed DB")
+	}
+}
+
+func TestFavoritesIsFavorite_FailClosed(t *testing.T) {
+	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if !f.IsFavorite("anything") {
+		t.Error("expected fail-closed (true) for closed DB")
+	}
+}
+
+func TestFavoritesIsFavoriteByHash_FailClosed(t *testing.T) {
+	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if !f.IsFavoriteByHash("anything") {
+		t.Error("expected fail-closed (true) for closed DB")
+	}
+}
+
+func TestFavoritesList_NilStore(t *testing.T) {
+	var f *FavoritesStore
+	_, err := f.List(1, false)
+	if err == nil {
+		t.Error("expected error for nil store")
+	}
+}

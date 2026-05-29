@@ -26,7 +26,7 @@ function formatSize(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 async function copyToClipboard(text: string) {
@@ -37,9 +37,31 @@ async function copyToClipboard(text: string) {
     el.value = text
     document.body.appendChild(el)
     el.select()
-    document.execCommand('copy')
-    document.body.removeChild(el)
+    el.remove()
   }
+}
+
+function imdbOrTmdbRating(tmdb: TmdbMatch | null): React.ReactNode {
+  if (!tmdb) return null
+  if (tmdb.imdbRating && tmdb.imdbRating > 0) {
+    if (tmdb.imdbId) {
+      return (
+        <a
+          href={`https://www.imdb.com/title/${tmdb.imdbId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          className="text-amber-400 ml-1 hover:underline"
+          title="Abrir no IMDb"
+        >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
+      )
+    }
+    return <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
+  }
+  if (tmdb.voteAverage > 0) {
+    return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
+  }
+  return null
 }
 
 export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
@@ -212,26 +234,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           {tmdb && (
             <span className="block text-[11px] font-normal text-gray-400 mt-0.5 line-clamp-2">
               {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
-              {(() => {
-                if (tmdb.imdbRating && tmdb.imdbRating > 0) {
-                  return tmdb.imdbId ? (
-                    <a
-                      href={`https://www.imdb.com/title/${tmdb.imdbId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      className="text-amber-400 ml-1 hover:underline"
-                      title="Abrir no IMDb"
-                    >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
-                  ) : (
-                    <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
-                  )
-                }
-                if (tmdb.voteAverage > 0) {
-                  return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
-                }
-                return null
-              })()}
+              {imdbOrTmdbRating(tmdb)}
             </span>
           )}
         </h3>

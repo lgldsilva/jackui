@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -107,6 +108,79 @@ func TestBuildMagnetFromMetainfo_NoName(t *testing.T) {
 	}
 	if !strings.Contains(magnet, "tr=http%3A%2F%2Ftracker.example.com%2Fannounce") {
 		t.Errorf("magnet should contain announce tracker, got %q", magnet)
+	}
+}
+
+func TestIsBlockedFetchIP_Handlers(t *testing.T) {
+	// Duplicate of streamer's test to ensure handler-local version matches
+	if !isBlockedFetchIP(net.ParseIP("127.0.0.1")) {
+		t.Error("loopback should be blocked")
+	}
+	if !isBlockedFetchIP(net.ParseIP("::1")) {
+		t.Error("IPv6 loopback should be blocked")
+	}
+	if !isBlockedFetchIP(net.ParseIP("169.254.1.1")) {
+		t.Error("link-local should be blocked")
+	}
+	if isBlockedFetchIP(net.ParseIP("8.8.8.8")) {
+		t.Error("public DNS should not be blocked")
+	}
+}
+
+func TestValidateFetchScheme_File(t *testing.T) {
+	err := validateFetchScheme("file:///etc/passwd")
+	if err == nil {
+		t.Error("expected error for file:// scheme")
+	}
+}
+
+func TestValidateFetchScheme_Invalid(t *testing.T) {
+	err := validateFetchScheme("://invalid")
+	if err == nil {
+		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestValidateFetchScheme_HTTPS(t *testing.T) {
+	err := validateFetchScheme("https://example.com/t.torrent")
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDownloadAndParseTorrent_InvalidScheme(t *testing.T) {
+	_, _, cerr := downloadAndParseTorrent("file:///etc/passwd")
+	if cerr == nil {
+		t.Error("expected error for file:// scheme")
+	}
+}
+
+func TestDownloadAndParseTorrent_BogusHost(t *testing.T) {
+	_, _, cerr := downloadAndParseTorrent("http://192.0.2.1/nonexistent.torrent")
+	if cerr != nil {
+		// Timeout or connection refused is fine — the point is it doesn't panic
+	}
+}
+
+func TestResolveTorrentFilename_Fallback(t *testing.T) {
+	path := "/nonexistent/path.torrent"
+	var h metainfo.Hash
+	h.FromHexString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	mi := &metainfo.Magnet{DisplayName: ""}
+	filename := resolveTorrentFilename(path, h, mi)
+	if filename != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.torrent" {
+		t.Errorf("got %q, want hex hash .torrent", filename)
+	}
+}
+
+func TestResolveTorrentFilename_FromMagnet(t *testing.T) {
+	path := "/nonexistent/path.torrent"
+	var h metainfo.Hash
+	h.FromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	mi := &metainfo.Magnet{DisplayName: "TestName"}
+	filename := resolveTorrentFilename(path, h, mi)
+	if filename != "TestName.torrent" {
+		t.Errorf("got %q, want 'TestName.torrent'", filename)
 	}
 }
 

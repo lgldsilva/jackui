@@ -279,7 +279,7 @@ export function buildLocalHash(mount: string, path: string): string {
   // base64url, no padding (URL-safe)
   const bytes = new TextEncoder().encode(json)
   let bin = ''
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  for (const byte of bytes) bin += String.fromCodePoint(byte)
   const b64 = btoa(bin)
     .replaceAll('+', '-')
     .replaceAll('/', '_')
@@ -294,7 +294,7 @@ export function parseLocalHash(hash: string): { mount: string; path: string } | 
     while (b64.length % 4) b64 += '='
     const raw = atob(b64)
     const rawBytes = new Uint8Array(raw.length)
-    for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.charCodeAt(i)
+    for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.codePointAt(i) ?? 0
     const json = new TextDecoder().decode(rawBytes)
     const parsed = JSON.parse(json)
     if (typeof parsed.mount === 'string' && typeof parsed.path === 'string') return parsed
@@ -740,18 +740,18 @@ const b64urlToBuf = (s: string): ArrayBuffer => {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
   const bin = atob((s + pad).replaceAll('-', '+').replaceAll('_', '/'))
   const buf = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.codePointAt(i) ?? 0
   return buf.buffer
 }
 const bufToB64url = (buf: ArrayBuffer): string => {
   const bytes = new Uint8Array(buf)
   let bin = ''
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  for (const byte of bytes) bin += String.fromCodePoint(byte)
   return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 }
 
 export function isPasskeySupported(): boolean {
-  return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials?.create
+  return typeof globalThis !== 'undefined' && !!globalThis.PublicKeyCredential && !!navigator.credentials?.create
 }
 
 export type PasskeyInfo = { id: string }

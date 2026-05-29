@@ -152,7 +152,7 @@ export default function HistoryPage() {
       return
     }
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = window.setTimeout(async () => {
+    debounceRef.current = globalThis.setTimeout(async () => {
       setGlobalLoading(true)
       try {
         const data = await searchCache(globalQuery)
@@ -202,7 +202,7 @@ export default function HistoryPage() {
         return next
       })
       // Fade the label out after 30s so old marks don't linger across many refreshes.
-      window.setTimeout(() => {
+      globalThis.setTimeout(() => {
         setRefreshedLabels(prev => {
           const next = new Map(prev)
           next.delete(id)
@@ -376,7 +376,7 @@ export default function HistoryPage() {
                     type="number" min={0}
                     value={minSeeders || ''}
                     placeholder="0"
-                    onChange={e => setMinSeeders(Math.max(0, parseInt(e.target.value) || 0))}
+                    onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))}
                     className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
                   />
                 </label>
@@ -601,7 +601,7 @@ export default function HistoryPage() {
                         type="number"
                         min={0}
                         value={minSeeders}
-                        onChange={e => setMinSeeders(Math.max(0, parseInt(e.target.value) || 0))}
+                onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))}
                         className="w-14 bg-transparent text-sm text-gray-200 focus:outline-none"
                       />
                     </div>

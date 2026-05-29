@@ -333,7 +333,7 @@ export default function SettingsPage() {
             <input
               type="number"
               value={config.port}
-              onChange={(e) => setConfig({ ...config, port: parseInt(e.target.value) || 8989 })}
+                             onChange={(e) => setConfig({ ...config, port: Number.parseInt(e.target.value) || 8989 })}
               className="input-field w-32"
               min={1}
               max={65535}

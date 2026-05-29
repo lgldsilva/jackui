@@ -285,6 +285,23 @@ func TestLocalSidecarRead_UnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestLocalSubtitlesAuto_NoFile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mountDir := t.TempDir()
+	b := local.NewBrowser([]config.ExternalMount{
+		{Name: "Test", Path: mountDir},
+	})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/local/subtitles/auto?mount=Test&path=nonexistent.mp4", nil)
+
+	LocalSubtitlesAuto(b, nil)(c)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestDetectLangFromName(t *testing.T) {
 	tests := []struct {
 		name     string
