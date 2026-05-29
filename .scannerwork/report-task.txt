@@ -2,5 +2,5 @@ projectKey=jackui
 serverUrl=https://sonar.raspberrypi.lan
 serverVersion=26.5.0.122743
 dashboardUrl=https://sonar.raspberrypi.lan/dashboard?id=jackui
-ceTaskId=93485c83-ef74-4cc5-abc9-63db9f85d4e8
-ceTaskUrl=https://sonar.raspberrypi.lan/api/ce/task?id=93485c83-ef74-4cc5-abc9-63db9f85d4e8
+ceTaskId=6cee149d-e79c-4b76-848a-8d6ce8ec74e4
+ceTaskUrl=https://sonar.raspberrypi.lan/api/ce/task?id=6cee149d-e79c-4b76-848a-8d6ce8ec74e4
