@@ -72,6 +72,21 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const torrent = details?.torrent
   const fileStat = details?.file
 
+  // Extract tracker URLs from the magnet URI as a client-side fallback.
+  const _mag = d.magnet ?? ''
+  const magnetTrackers: string[] = _mag
+    ? (() => {
+        try {
+          const q = _mag.includes('?') ? _mag.split('?')[1] : _mag
+          return new URLSearchParams(q).getAll('tr')
+        } catch { return [] as string[] }
+      })()
+    : []
+
+  const displayTrackers: string[] = (torrent?.trackers?.length ?? 0) > 0
+    ? (torrent?.trackers ?? [])
+    : magnetTrackers
+
 
   const copyMagnet = async () => {
     if (!d.magnet) return
@@ -128,7 +143,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     }
   }
 
-  const sparseInfo = fileStat && fileStat.exists && fileStat.apparent > 0
+  const sparseInfo = fileStat?.exists && fileStat.apparent > 0
     ? Math.abs(fileStat.apparent - fileStat.onDisk) / fileStat.apparent > 0.1
     : false
 
@@ -233,7 +248,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           {[
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
             { id: 'files' as Tab, label: `Arquivos${torrent ? ` (${torrent.files.length})` : ''}`, icon: Files },
-            { id: 'trackers' as Tab, label: `Trackers${torrent?.trackers ? ` (${torrent.trackers.length})` : ''}`, icon: Globe },
+            { id: 'trackers' as Tab, label: `Trackers${displayTrackers.length > 0 ? ` (${displayTrackers.length})` : ''}`, icon: Globe },
             { id: 'actions' as Tab, label: 'Ações', icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
             <button
@@ -281,7 +296,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               </Field>
               <Field label="Tamanho">
                 <span className="text-gray-300">{formatBytes(d.fileSize)}</span>
-                {fileStat && fileStat.exists && (
+                {fileStat?.exists && (
                   <span className="text-xs text-gray-500 ml-2">
                     no disco: {formatBytes(fileStat.onDisk)}
                     {sparseInfo && (
@@ -343,9 +358,9 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           )}
           {tab === 'trackers' && (
             <div>
-              {!torrent?.trackers || torrent.trackers.length === 0 ? (
+              {displayTrackers.length === 0 ? (
                 <p className="text-xs text-gray-500 italic py-2 text-center">
-                  Nenhum tracker ativo ou metadados indisponíveis.
+                  Nenhum tracker encontrado. O torrent pode ter sido adicionado via .torrent sem &tr= no magnet.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -353,7 +368,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                     Servidores de tracker configurados para este torrent:
                   </p>
                   <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden font-mono text-xs max-h-[50vh] overflow-y-auto">
-                    {torrent.trackers.map(trackerUrl => (
+                    {displayTrackers.map(trackerUrl => (
                       <li key={trackerUrl} className="px-3 py-2 flex items-center justify-between gap-3 text-gray-300 hover:bg-gray-800/40">
                         <span className="truncate flex-1" title={trackerUrl}>{trackerUrl}</span>
                         <button
@@ -376,7 +391,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           )}
           {tab === 'actions' && (
             <div className="space-y-2">
-              {onPlay && fileStat && fileStat.exists && fileStat.apparent >= d.fileSize * 0.99 && (
+              {onPlay && fileStat?.exists && fileStat.apparent >= d.fileSize * 0.99 && (
                 <ActionRow
                   icon={Play}
                   title="Tocar agora"

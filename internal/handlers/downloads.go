@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,25 @@ import (
 	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/streamer"
 )
+
+// parseMagnetTrackers extracts &tr= tracker URLs from a magnet URI.
+// The anacrolix runtime uses these but they are NOT in the torrent's stored
+// metainfo, so UpvertedAnnounceList() misses them entirely.
+func parseMagnetTrackers(magnet string) []string {
+	if magnet == "" {
+		return nil
+	}
+	// Magnet URIs aren't valid URLs, but we can parse the query string.
+	rest := magnet
+	if idx := strings.Index(magnet, "?"); idx >= 0 {
+		rest = magnet[idx+1:]
+	}
+	vals, err := url.ParseQuery(rest)
+	if err != nil {
+		return nil
+	}
+	return vals["tr"]
+}
 
 // userCache is a simple in-memory cache for username lookups during a single
 // request. Avoids N+1 queries to the auth store for each download row.
@@ -500,10 +520,33 @@ func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			}
 		}
 
+		// Merge &tr= tracker URLs from the magnet URI.
+		// UpvertedAnnounceList() only covers .torrent-file trackers; magnet trackers
+		// are added to anacrolix's runtime but never reflected in metainfo.
+		magnetTrackers := parseMagnetTrackers(d.Magnet)
+		if len(magnetTrackers) > 0 {
+			if info != nil {
+				// Dedup: add magnet trackers not already in the live list.
+				existing := make(map[string]bool, len(info.Trackers))
+				for _, t := range info.Trackers {
+					existing[t] = true
+				}
+				for _, t := range magnetTrackers {
+					if !existing[t] {
+						info.Trackers = append(info.Trackers, t)
+					}
+				}
+			} else {
+				// Torrent is not active — synthesise a minimal TorrentInfo so the
+				// frontend can at least show the tracker list from the magnet.
+				info = &streamer.TorrentInfo{Trackers: magnetTrackers}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"download": d,
 			"file":     stat,
-			"torrent":  info, // null se não estiver active
+			"torrent":  info, // null quando inativo e sem trackers no magnet
 		})
 	}
 }
