@@ -187,24 +187,9 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	var latSum time.Duration
 	paymentFail := false
 	for _, tc := range cases {
-		res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
-		if err != nil {
-			if errors.Is(err, errInsufficientBalance) {
-				paymentFail = true
-				if score.FailureReason == "" {
-					score.FailureReason = "pago — sem saldo"
-				}
-				break // skip remaining cases, no point testing more
-			}
-			if score.FailureReason == "" {
-				score.FailureReason = err.Error()
-			}
-			continue
-		}
-		score.Samples++
-		latSum += latency
-		if res != nil {
-			accSum += titleAccuracy(res.Title, tc.Expect)
+		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &latSum) {
+			paymentFail = true
+			break
 		}
 	}
 	if score.Samples > 0 {
@@ -212,9 +197,31 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		score.AvgLatencyMs = (latSum / time.Duration(score.Samples)).Milliseconds()
 		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.Free)
 	} else if paymentFail {
-		score.Composite = -1 // paid models with no balance get negative score
+		score.Composite = -1
 	}
 	return score
+}
+
+func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, latSum *time.Duration) bool {
+	res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
+	if err != nil {
+		if errors.Is(err, errInsufficientBalance) {
+			if score.FailureReason == "" {
+				score.FailureReason = "pago — sem saldo"
+			}
+			return true
+		}
+		if score.FailureReason == "" {
+			score.FailureReason = err.Error()
+		}
+		return false
+	}
+	score.Samples++
+	*latSum += latency
+	if res != nil {
+		*accSum += titleAccuracy(res.Title, tc.Expect)
+	}
+	return false
 }
 
 // DiscoverOllamaModels queries the local Ollama (/api/tags) for installed models
@@ -340,34 +347,42 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 func (c *Client) listModels(ctx context.Context, provider string, p config.AIProvider) []string {
 	base := strings.TrimRight(p.BaseURL, "/")
 	if provider == "ollama" {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(base, "/v1")+"/api/tags", nil)
-		resp, err := c.http.Do(req)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			if resp != nil {
-				resp.Body.Close()
-			}
-			return nil
-		}
-		defer resp.Body.Close()
-		var tags struct {
-			Models []struct {
-				Name string `json:"name"`
-			} `json:"models"`
-		}
-		if json.NewDecoder(resp.Body).Decode(&tags) != nil {
-			return nil
-		}
-		var out []string
-		for _, m := range tags.Models {
-			if m.Name != "" {
-				out = append(out, m.Name)
-			}
-		}
-		return out
+		return c.listOllamaModels(ctx, base)
 	}
+	return c.listOpenAIModels(ctx, base, p.APIKey)
+}
+
+func (c *Client) listOllamaModels(ctx context.Context, base string) []string {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(base, "/v1")+"/api/tags", nil)
+	resp, err := c.http.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil
+	}
+	defer resp.Body.Close()
+	var tags struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&tags) != nil {
+		return nil
+	}
+	var out []string
+	for _, m := range tags.Models {
+		if m.Name != "" {
+			out = append(out, m.Name)
+		}
+	}
+	return out
+}
+
+func (c *Client) listOpenAIModels(ctx context.Context, base, apiKey string) []string {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
-	if p.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -413,19 +428,36 @@ func (c *Client) healProvider(provider string) {
 	defer cancel()
 	ids := c.listModels(ctx, provider, p)
 	if len(ids) == 0 {
-		return // couldn't verify — leave the chain untouched
+		return
 	}
+	avail := toSet(ids)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	kept, dropped, providerHas := filterSlotsByAvail(c.slots, provider, avail)
+	if !dropped {
+		return
+	}
+	if !providerHas {
+		kept = append(kept, pickReplacementSlot(provider, ids, p))
+	}
+	c.slots = kept
+}
+
+func toSet(ids []string) map[string]bool {
 	avail := map[string]bool{}
 	for _, id := range ids {
 		avail[id] = true
 	}
+	return avail
+}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func filterSlotsByAvail(slots []Slot, provider string, avail map[string]bool) ([]Slot, bool, bool) {
 	var kept []Slot
 	dropped := false
 	providerHas := false
-	for _, s := range c.slots {
+	for _, s := range slots {
 		if s.Provider == provider && !avail[s.Model] {
 			dropped = true
 			log.Printf("ai: self-heal — %s model %q no longer exists; removing from chain", provider, s.Model)
@@ -436,24 +468,22 @@ func (c *Client) healProvider(provider string) {
 			providerHas = true
 		}
 	}
-	if !dropped {
-		return
-	}
-	if !providerHas {
-		repl := ids[0]
-		if provider == "openrouter" { // prefer a free replacement
-			for _, id := range ids {
-				if strings.HasSuffix(id, ":free") {
-					repl = id
-					break
-				}
+	return kept, dropped, providerHas
+}
+
+func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slot {
+	repl := ids[0]
+	if provider == "openrouter" {
+		for _, id := range ids {
+			if strings.HasSuffix(id, ":free") {
+				repl = id
+				break
 			}
 		}
-		base := strings.TrimRight(p.BaseURL, "/")
-		kept = append(kept, Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey})
-		log.Printf("ai: self-heal — added %s replacement %q (untested; run the benchmark to re-optimize)", provider, repl)
 	}
-	c.slots = kept
+	base := strings.TrimRight(p.BaseURL, "/")
+	log.Printf("ai: self-heal — added %s replacement %q (untested; run the benchmark to re-optimize)", provider, repl)
+	return Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey}
 }
 
 // AdoptBenchmark rebuilds the live chain from benchmark scores: every model that

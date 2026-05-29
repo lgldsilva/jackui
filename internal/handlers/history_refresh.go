@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -114,78 +115,92 @@ func findFreshMatch(orig *history.CachedResult, fresh []jackett.Result) *jackett
 func HistoryRefresh(store *history.Store, jck *jackett.Client) gin.HandlerFunc {
 	cache := newRefreshCache()
 	return func(c *gin.Context) {
-		idStr := c.Param("id")
-		id, err := strconv.ParseInt(idStr, 10, 64)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
-			return
-		}
+		historyRefreshHandler(c, store, jck, cache)
+	}
+}
 
-		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		row, err := store.GetResult(id, userID, isAdmin)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "history row not found"})
-			return
-		}
+func historyRefreshHandler(c *gin.Context, store *history.Store, jck *jackett.Client, cache *refreshCache) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+		return
+	}
 
-		// Cache hit — return immediately without bothering Jackett.
-		if cached, ok := cache.get(id); ok {
-			c.JSON(http.StatusOK, HistoryRefreshResponse{
-				ID:        id,
-				Seeders:   cached.Seeders,
-				Leechers:  cached.Leechers,
-				FetchedAt: cached.FetchedAt,
-				Cached:    true,
-			})
-			return
-		}
+	userID, isAdmin, _ := auth.UserIDFromCtx(c)
+	row, err := store.GetResult(id, userID, isAdmin)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "history row not found"})
+		return
+	}
 
-		if jck == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Jackett client not configured"})
-			return
-		}
+	if tryServeCachedRefresh(c, id, cache) {
+		return
+	}
 
-		// Fresh Jackett poll. Pick a sensible query: the original title is the
-		// safest because it's typically unique enough; if title is empty (very
-		// rare), fall back to the row's origin `query` instead.
-		queryStr := row.Title
-		if queryStr == "" {
-			queryStr = row.Query
-		}
-		if queryStr == "" {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "no title to search"})
-			return
-		}
-		fresh, err := jck.Search(queryStr, "", nil)
-		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "jackett search failed: " + err.Error()})
-			return
-		}
+	if jck == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Jackett client not configured"})
+		return
+	}
 
-		match := findFreshMatch(row, fresh)
-		seeders, leechers := 0, 0
-		if match != nil {
-			seeders = match.Seeders
-			leechers = match.Leechers
-		}
+	queryStr, qerr := refreshQueryStr(row)
+	if qerr != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": qerr.Error()})
+		return
+	}
+	fresh, err := jck.Search(queryStr, "", nil)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "jackett search failed: " + err.Error()})
+		return
+	}
 
-		now := time.Now()
-		// Persist the new counters so future page loads show fresh numbers
-		// without another Jackett call. Best-effort: a DB write failure
-		// doesn't fail the request — the in-memory cache still serves.
-		_ = store.UpdateSeedersLeechers(id, seeders, leechers)
-		cache.set(id, refreshCacheEntry{
-			Seeders:   seeders,
-			Leechers:  leechers,
-			FetchedAt: now,
-		})
+	match := findFreshMatch(row, fresh)
+	seeders, leechers := seedersFromMatch(match)
 
+	now := time.Now()
+	_ = store.UpdateSeedersLeechers(id, seeders, leechers)
+	cache.set(id, refreshCacheEntry{
+		Seeders:   seeders,
+		Leechers:  leechers,
+		FetchedAt: now,
+	})
+
+	c.JSON(http.StatusOK, HistoryRefreshResponse{
+		ID:        id,
+		Seeders:   seeders,
+		Leechers:  leechers,
+		FetchedAt: now,
+		Cached:    false,
+	})
+}
+
+func tryServeCachedRefresh(c *gin.Context, id int64, cache *refreshCache) bool {
+	if cached, ok := cache.get(id); ok {
 		c.JSON(http.StatusOK, HistoryRefreshResponse{
 			ID:        id,
-			Seeders:   seeders,
-			Leechers:  leechers,
-			FetchedAt: now,
-			Cached:    false,
+			Seeders:   cached.Seeders,
+			Leechers:  cached.Leechers,
+			FetchedAt: cached.FetchedAt,
+			Cached:    true,
 		})
+		return true
 	}
+	return false
+}
+
+func refreshQueryStr(row *history.CachedResult) (string, error) {
+	if row.Title != "" {
+		return row.Title, nil
+	}
+	if row.Query != "" {
+		return row.Query, nil
+	}
+	return "", fmt.Errorf("no title to search")
+}
+
+func seedersFromMatch(match *jackett.Result) (int, int) {
+	if match != nil {
+		return match.Seeders, match.Leechers
+	}
+	return 0, 0
 }

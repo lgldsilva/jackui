@@ -62,43 +62,40 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 	}
 	probeCacheMu.Unlock()
 
-	var input string
-	var stdin io.Reader
-	var closeFn func() error
-
-	if s.filePathResolver != nil {
-		if path, ok := s.filePathResolver(hash, fileIdx); ok {
-			input = path
-		}
+	pi, ierr := s.resolveProbeInput(hash, fileIdx, 2*1024*1024)
+	if ierr != nil {
+		return ProbeResult{}, ierr
 	}
 
-	if input == "" {
-		s.mu.Lock()
-		e, ok := s.active[hash]
-		if !ok {
-			s.mu.Unlock()
-			return ProbeResult{}, errors.New(ErrTorrentNotActive)
-		}
-		files := e.t.Files()
-		s.mu.Unlock()
-		if fileIdx < 0 || fileIdx >= len(files) {
-			return ProbeResult{}, errors.New(ErrFileIndexOutOfRange)
-		}
-		f := files[fileIdx]
-
-		r := f.NewReader()
-		r.SetReadahead(2 * 1024 * 1024)
-		r.SetResponsive()
-		closeFn = r.Close
-
+	// Probe uses "pipe:" (not pipe0/pipe:0) and a limited reader
+	input := pi.input
+	stdin := pi.stdin
+	if pi.input == pipe0 {
 		input = "pipe:"
-		stdin = io.LimitReader(r, 16*1024*1024)
+		stdin = io.LimitReader(pi.stdin, 16*1024*1024)
 	}
 
-	if closeFn != nil {
-		defer closeFn()
+	if pi.closeFn != nil {
+		defer pi.closeFn()
 	}
 
+	out, err := runFFprobe(ctx, input, stdin)
+	if err != nil {
+		return ProbeResult{}, err
+	}
+
+	result, perr := parseProbeOutput(out)
+	if perr != nil {
+		return ProbeResult{}, fmt.Errorf("decode ffprobe: %w", perr)
+	}
+
+	probeCacheMu.Lock()
+	probeCache[key] = *result
+	probeCacheMu.Unlock()
+	return *result, nil
+}
+
+func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
@@ -111,12 +108,14 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		// ffprobe might return early-EOF errors but still emit valid JSON; try parsing anyway
 		if len(out) == 0 {
-			return ProbeResult{}, fmt.Errorf("ffprobe: %w", err)
+			return nil, fmt.Errorf("ffprobe: %w", err)
 		}
 	}
+	return out, nil
+}
 
+func parseProbeOutput(out []byte) (*ProbeResult, error) {
 	var parsed struct {
 		Streams []struct {
 			Index       int               `json:"index"`
@@ -134,11 +133,10 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 		} `json:"format"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		return ProbeResult{}, fmt.Errorf("decode ffprobe: %w", err)
+		return nil, err
 	}
 
-	// Initialize as empty slices so JSON serializes them as [] (not null) — crucial for frontend safety
-	result := ProbeResult{
+	result := &ProbeResult{
 		Audio:     []Track{},
 		Subtitles: []Track{},
 	}
@@ -160,26 +158,57 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 			result.Audio = append(result.Audio, t)
 		case "subtitle":
 			t.Type = "subtitle"
-			switch st.CodecName {
-			case "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "pgssub", "xsub", "bd_pcm_dvb_subtitle":
+			if isImageSubtitle(st.CodecName) {
 				t.Image = true
 			}
 			result.Subtitles = append(result.Subtitles, t)
 		}
 	}
 
-	// Total duration (0 when ffprobe couldn't read it — e.g. moov-at-end MP4
-	// whose tail isn't on disk). strconv handles the "N/A" / "" cases as 0.
 	if parsed.Format.Duration != "" {
 		if d, perr := strconv.ParseFloat(parsed.Format.Duration, 64); perr == nil {
 			result.DurationSec = d
 		}
 	}
-
-	probeCacheMu.Lock()
-	probeCache[key] = result
-	probeCacheMu.Unlock()
 	return result, nil
+}
+
+func isImageSubtitle(codec string) bool {
+	switch codec {
+	case "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "pgssub", "xsub", "bd_pcm_dvb_subtitle":
+		return true
+	}
+	return false
+}
+
+type probeInput struct {
+	input   string
+	stdin   io.Reader
+	closeFn func() error
+}
+
+func (s *Streamer) resolveProbeInput(hash metainfo.Hash, fileIdx int, readahead int64) (probeInput, error) {
+	if s.filePathResolver != nil {
+		if path, ok := s.filePathResolver(hash, fileIdx); ok {
+			return probeInput{input: path}, nil
+		}
+	}
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	if !ok {
+		s.mu.Unlock()
+		return probeInput{}, errors.New(ErrTorrentNotActive)
+	}
+	files := e.t.Files()
+	s.mu.Unlock()
+	if fileIdx < 0 || fileIdx >= len(files) {
+		return probeInput{}, errors.New(ErrFileIndexOutOfRange)
+	}
+	f := files[fileIdx]
+	r := f.NewReader()
+	r.SetReadahead(readahead)
+	r.SetResponsive()
+	return probeInput{input: pipe0, stdin: r, closeFn: r.Close}, nil
 }
 
 // ExtractSubtitle pulls one embedded text-subtitle track out of the file as WebVTT.
@@ -205,40 +234,12 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		return data, true, nil
 	}
 
-	var input string
-	var stdin io.Reader
-	var closeFn func() error
-
-	if s.filePathResolver != nil {
-		if path, ok := s.filePathResolver(hash, fileIdx); ok {
-			input = path
-		}
+	pi, ierr := s.resolveProbeInput(hash, fileIdx, 8*1024*1024)
+	if ierr != nil {
+		return nil, false, ierr
 	}
-
-	if input == "" {
-		s.mu.Lock()
-		e, ok := s.active[hash]
-		if !ok {
-			s.mu.Unlock()
-			return nil, false, errors.New(ErrTorrentNotActive)
-		}
-		files := e.t.Files()
-		s.mu.Unlock()
-		if fileIdx < 0 || fileIdx >= len(files) {
-			return nil, false, errors.New(ErrFileIndexOutOfRange)
-		}
-		f := files[fileIdx]
-		r := f.NewReader()
-		r.SetReadahead(8 * 1024 * 1024)
-		r.SetResponsive()
-		closeFn = r.Close
-
-		input = pipe0
-		stdin = r
-	}
-
-	if closeFn != nil {
-		defer closeFn()
+	if pi.closeFn != nil {
+		defer pi.closeFn()
 	}
 
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
@@ -246,7 +247,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		ffHideBanner, ffLogLevel, "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
-		"-i", input,
+		"-i", pi.input,
 		"-frames:v", "1",
 		"-vf", "scale=240:-2", // 240 wide preserving aspect — height auto-computed
 		"-q:v", "5",            // 1-31, lower=better; 5 is sweet spot for previews
@@ -254,8 +255,8 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		"-y",
 		pipe1,
 	)
-	if stdin != nil {
-		cmd.Stdin = stdin
+	if pi.stdin != nil {
+		cmd.Stdin = pi.stdin
 	}
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
@@ -285,49 +286,21 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		return data, true, nil
 	}
 
-	var input string
-	var stdin io.Reader
-	var closeFn func() error
-
-	if s.filePathResolver != nil {
-		if path, ok := s.filePathResolver(hash, fileIdx); ok {
-			input = path
-		}
+	// Cover art typically sits in the header for MP3/FLAC, so a smaller readahead
+	// is enough — we don't need to wait for the whole audio file.
+	pi, ierr := s.resolveProbeInput(hash, fileIdx, 2*1024*1024)
+	if ierr != nil {
+		return nil, false, ierr
 	}
-
-	if input == "" {
-		s.mu.Lock()
-		e, ok := s.active[hash]
-		if !ok {
-			s.mu.Unlock()
-			return nil, false, errors.New(ErrTorrentNotActive)
-		}
-		files := e.t.Files()
-		s.mu.Unlock()
-		if fileIdx < 0 || fileIdx >= len(files) {
-			return nil, false, errors.New(ErrFileIndexOutOfRange)
-		}
-		f := files[fileIdx]
-		r := f.NewReader()
-		// Cover art typically sits in the header for MP3/FLAC, so a smaller readahead
-		// is enough — we don't need to wait for the whole audio file.
-		r.SetReadahead(2 * 1024 * 1024)
-		r.SetResponsive()
-		closeFn = r.Close
-
-		input = pipe0
-		stdin = r
-	}
-
-	if closeFn != nil {
-		defer closeFn()
+	if pi.closeFn != nil {
+		defer pi.closeFn()
 	}
 
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		ffHideBanner, ffLogLevel, "error",
-		"-i", input,
+		"-i", pi.input,
 		"-map", "0:v",
 		"-map", "-0:V",
 		"-c", "copy",
@@ -336,8 +309,8 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		"-y",
 		pipe1,
 	)
-	if stdin != nil {
-		cmd.Stdin = stdin
+	if pi.stdin != nil {
+		cmd.Stdin = pi.stdin
 	}
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {

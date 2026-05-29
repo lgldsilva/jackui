@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 )
 
@@ -37,30 +38,8 @@ var artImageExtensions = map[string]bool{
 // the largest image.
 var preferredArtBasenames = []string{"poster", "cover", "folder", "fanart", "movie", "show", "thumb", "front", "art"}
 
-// TorrentImage finds the best embedded artwork file in an *active* torrent and
-// returns its raw bytes plus the source filename. Prefers a file named like
-// poster/cover/folder over the largest image. Returns an error if the torrent
-// isn't active or has no suitable image — both are normal "no embedded art"
-// cases the caller falls through on.
-func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte, string, error) {
-	s.mu.Lock()
-	e, ok := s.active[hash]
-	if ok {
-		e.lastAccess = time.Now()
-	}
-	s.mu.Unlock()
-	if !ok {
-		return nil, "", errors.New(ErrTorrentNotActive)
-	}
-
-	files := e.t.Files()
-	type cand struct {
-		idx        int
-		size       int64
-		preferred  bool
-		preferRank int
-	}
-	var cands []cand
+func buildImageCandidates(files []*torrent.File) []imgCandidate {
+	var cands []imgCandidate
 	for i, f := range files {
 		base := strings.ToLower(filepath.Base(f.Path()))
 		ext := strings.ToLower(filepath.Ext(base))
@@ -78,12 +57,12 @@ func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte
 				break
 			}
 		}
-		cands = append(cands, cand{idx: i, size: f.Length(), preferred: preferred, preferRank: rank})
+		cands = append(cands, imgCandidate{idx: i, size: f.Length(), preferred: preferred, preferRank: rank})
 	}
-	if len(cands) == 0 {
-		return nil, "", errors.New("no embedded image")
-	}
-	// Preferred names first (highest preferRank), then largest file as tiebreak.
+	return cands
+}
+
+func sortCandsByPreference(cands []imgCandidate) {
 	sort.Slice(cands, func(a, b int) bool {
 		if cands[a].preferred != cands[b].preferred {
 			return cands[a].preferred
@@ -93,8 +72,38 @@ func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte
 		}
 		return cands[a].size > cands[b].size
 	})
+}
 
-	f := files[cands[0].idx]
+// TorrentImage finds the best embedded artwork file in an *active* torrent and
+// returns its raw bytes plus the source filename. Prefers a file named like
+// poster/cover/folder over the largest image. Returns an error if the torrent
+// isn't active or has no suitable image — both are normal "no embedded art"
+// cases the caller falls through on.
+type imgCandidate struct {
+	idx        int
+	size       int64
+	preferred  bool
+	preferRank int
+}
+
+func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte, string, error) {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	if ok {
+		e.lastAccess = time.Now()
+	}
+	s.mu.Unlock()
+	if !ok {
+		return nil, "", errors.New(ErrTorrentNotActive)
+	}
+
+	cands := buildImageCandidates(e.t.Files())
+	if len(cands) == 0 {
+		return nil, "", errors.New("no embedded image")
+	}
+	sortCandsByPreference(cands)
+
+	f := e.t.Files()[cands[0].idx]
 	r := f.NewReader()
 	r.SetReadahead(maxTorrentImageBytes)
 	r.SetResponsive()

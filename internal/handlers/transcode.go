@@ -32,57 +32,66 @@ func TranscodeCapabilities(c *gin.Context) {
 // Note: no Range support — browsers can't seek transcoded streams.
 func TranscodeStream(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var h metainfo.Hash
-		if err := h.FromHexString(c.Param("hash")); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
-			return
-		}
-
-		opts := transcode.Options{
-			AudioTrack:   parseIntOr(c.Query("audio"), -1),
-			SubBurnTrack: parseIntOr(c.Query("burn"), -1),
-			VideoCodec:   c.Query("video"),
-			AudioCodec:   c.Query("acodec"),
-			// Default to fragmented MP4 — Safari (macOS + iOS) does NOT play MKV
-			// in <video>, only MP4/HLS. Chrome/Edge tolerate matroska via
-			// experimental media support but it's not in any spec. Caller can
-			// still opt back into matroska explicitly via ?container=matroska
-			// (useful for VLC handoff or HEVC passthrough scenarios).
-			Container:    c.DefaultQuery("container", "mp4"),
-		}
-
-		if store != nil {
-			if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
-				if _, err := os.Stat(path); err == nil {
-					f, err := os.Open(path)
-					if err == nil {
-						defer f.Close()
-						if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
-							c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-						}
-						return
-					}
-				}
-			}
-		}
-
-		reader, _, err := s.FileReader(h, fileIdx)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return
-		}
-		defer reader.Close()
-
-		if err := transcode.Run(c.Request.Context(), reader, c.Writer, opts); err != nil {
-			// Headers may already be written; log and bail
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
+		transcodeStreamHandler(c, s, store)
 	}
+}
+
+func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloads.Store) {
+	var h metainfo.Hash
+	if err := h.FromHexString(c.Param("hash")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	fileIdx, err := strconv.Atoi(c.Param("file"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		return
+	}
+
+	opts := transcode.Options{
+		AudioTrack:   parseIntOr(c.Query("audio"), -1),
+		SubBurnTrack: parseIntOr(c.Query("burn"), -1),
+		VideoCodec:   c.Query("video"),
+		AudioCodec:   c.Query("acodec"),
+		Container:    c.DefaultQuery("container", "mp4"),
+	}
+
+	if tryServeFromCompleted(c, store, h.HexString(), fileIdx, opts) {
+		return
+	}
+
+	reader, _, err := s.FileReader(h, fileIdx)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	defer reader.Close()
+
+	if err := transcode.Run(c.Request.Context(), reader, c.Writer, opts); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+}
+
+func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex string, fileIdx int, opts transcode.Options) bool {
+	if store == nil {
+		return false
+	}
+	path, err := store.GetCompletedPath(hashHex, fileIdx)
+	if err != nil || path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+	return true
 }
 
 func parseIntOr(s string, def int) int {

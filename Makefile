@@ -267,7 +267,7 @@ SONAR_TOKEN     ?= $(shell grep SONAR_TOKEN .env 2>/dev/null | head -1 | cut -d=
 SONAR_PROJECT   ?= jackui
 BUGS_MAX        ?= 0
 VULNS_MAX       ?= 0
-SMELLS_MAX      ?= 410
+SMELLS_MAX      ?= 360
 HOTSPOTS_MAX    ?= 10
 COVERAGE_MIN    ?= 20
 DUPLICATION_MAX ?= 5

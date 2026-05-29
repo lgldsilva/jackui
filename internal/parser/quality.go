@@ -52,87 +52,121 @@ var (
 
 // Parse extracts what it can from a release title. Always returns a value (never nil).
 func Parse(title string) Quality {
-	q := Quality{}
-
-	if m := reResolution.FindString(title); m != "" {
-		v := strings.ToLower(m)
-		switch v {
-		case "4k", "uhd":
-			q.Resolution = "2160p"
-		default:
-			q.Resolution = v
-		}
+	seasonVal, episodeVal := parseSeasonAndEpisode(title)
+	return Quality{
+		Resolution: parseResolution(title),
+		Codec:      parseCodec(title),
+		Source:     parseSource(title),
+		Audio:      parseAudioTracks(title),
+		Group:      parseGroup(title),
+		Year:       parseYear(title),
+		Season:     seasonVal,
+		Episode:    episodeVal,
+		HDR:        reHDR.MatchString(title),
+		DolbyVis:   reDolby.MatchString(title),
+		TenBit:     re10bit.MatchString(title),
+		Repack:     reRepack.MatchString(title),
+		Proper:     reProper.MatchString(title),
+		Extended:   reExtended.MatchString(title),
+		Remux:      reRemux.MatchString(title),
+		Multi:      reMulti.MatchString(title),
+		Dubbed:     reDubbed.MatchString(title),
+		Subbed:     reSubbed.MatchString(title),
 	}
+}
 
-	if m := reCodec.FindString(title); m != "" {
-		v := strings.ToLower(m)
-		v = strings.ReplaceAll(v, ".", "")
-		switch {
-		case strings.Contains(v, "265") || v == "hevc":
-			q.Codec = "x265"
-		case strings.Contains(v, "264") || v == "avc":
-			q.Codec = "x264"
-		case v == "av1":
-			q.Codec = "AV1"
-		default:
-			q.Codec = strings.ToUpper(v)
-		}
+func parseResolution(title string) string {
+	m := reResolution.FindString(title)
+	if m == "" {
+		return ""
 	}
+	v := strings.ToLower(m)
+	switch v {
+	case "4k", "uhd":
+		return "2160p"
+	default:
+		return v
+	}
+}
 
+func parseCodec(title string) string {
+	m := reCodec.FindString(title)
+	if m == "" {
+		return ""
+	}
+	v := strings.ToLower(m)
+	v = strings.ReplaceAll(v, ".", "")
+	switch {
+	case strings.Contains(v, "265") || v == "hevc":
+		return "x265"
+	case strings.Contains(v, "264") || v == "avc":
+		return "x264"
+	case v == "av1":
+		return "AV1"
+	default:
+		return strings.ToUpper(v)
+	}
+}
+
+func parseSource(title string) string {
 	if m := reSource.FindString(title); m != "" {
-		q.Source = normalizeSource(m)
+		return normalizeSource(m)
 	}
+	return ""
+}
 
-	if matches := reAudio.FindAllString(title, -1); len(matches) > 0 {
-		seen := make(map[string]bool)
-		for _, m := range matches {
-			n := normalizeAudio(m)
-			if !seen[n] {
-				seen[n] = true
-				q.Audio = append(q.Audio, n)
-			}
+func parseAudioTracks(title string) []string {
+	matches := reAudio.FindAllString(title, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, m := range matches {
+		n := normalizeAudio(m)
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
 		}
 	}
+	return out
+}
 
-	if m := reGroup.FindStringSubmatch(title); len(m) > 1 {
-		// Avoid capturing what looks like a codec/year as a group
-		candidate := m[1]
-		if !looksLikeFalseGroup(candidate) {
-			q.Group = candidate
+func parseGroup(title string) string {
+	m := reGroup.FindStringSubmatch(title)
+	if len(m) <= 1 {
+		return ""
+	}
+	candidate := m[1]
+	if looksLikeFalseGroup(candidate) {
+		return ""
+	}
+	return candidate
+}
+
+func parseYear(title string) int {
+	m := reYear.FindString(title)
+	if m == "" {
+		return 0
+	}
+	all := reYear.FindAllString(title, -1)
+	var maxYear int
+	for _, y := range all {
+		if n := atoiSafe(y); n > maxYear {
+			maxYear = n
 		}
 	}
+	return maxYear
+}
 
-	if m := reYear.FindString(title); m != "" {
-		// Pick the latest 4-digit year (release years usually win over copyright years)
-		all := reYear.FindAllString(title, -1)
-		var maxYear int
-		for _, y := range all {
-			if n := atoiSafe(y); n > maxYear {
-				maxYear = n
-			}
-		}
-		q.Year = maxYear
-	}
-
+func parseSeasonAndEpisode(title string) (int, int) {
 	if m := reSE.FindStringSubmatch(title); len(m) == 3 {
-		q.Season = atoiSafe(m[1])
-		q.Episode = atoiSafe(m[2])
-	} else if m := reSeasonOnly.FindStringSubmatch(title); len(m) > 1 {
-		q.Season = atoiSafe(m[1])
+		return atoiSafe(m[1]), atoiSafe(m[2])
 	}
-
-	q.HDR = reHDR.MatchString(title)
-	q.DolbyVis = reDolby.MatchString(title)
-	q.TenBit = re10bit.MatchString(title)
-	q.Repack = reRepack.MatchString(title)
-	q.Proper = reProper.MatchString(title)
-	q.Extended = reExtended.MatchString(title)
-	q.Remux = reRemux.MatchString(title)
-	q.Multi = reMulti.MatchString(title)
-	q.Dubbed = reDubbed.MatchString(title)
-	q.Subbed = reSubbed.MatchString(title)
-
-	return q
+	if m := reSeasonOnly.FindStringSubmatch(title); len(m) > 1 {
+		return atoiSafe(m[1]), 0
+	}
+	return 0, 0
 }
 
 func normalizeSource(s string) string {
