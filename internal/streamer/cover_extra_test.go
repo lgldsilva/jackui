@@ -74,7 +74,10 @@ func TestAugmentNameToHashFromMetainfo_InvalidFile_Extra(t *testing.T) {
 
 func TestStats_NonExistentDataDir_Extra(t *testing.T) {
 	s := NewForTesting()
-	s.cfg.DataDir = "/nonexistent"
+	// Per-test temp subpath (não existe) — isolado e seguro mesmo rodando como
+	// root no CI, onde um path absoluto compartilhado (/nonexistent) poluía
+	// entre testes.
+	s.cfg.DataDir = filepath.Join(t.TempDir(), "nonexistent")
 
 	stats, err := s.Stats()
 	if err != nil {
@@ -167,7 +170,7 @@ func TestEnforceCacheLimit_ProtectsFavorites_Extra(t *testing.T) {
 
 func TestClearAll_NonExistentDir_Extra(t *testing.T) {
 	s := NewForTesting()
-	s.cfg.DataDir = "/nonexistent"
+	s.cfg.DataDir = filepath.Join(t.TempDir(), "nonexistent")
 
 	err := s.ClearAll()
 	if err != nil {
