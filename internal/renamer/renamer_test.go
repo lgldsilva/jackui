@@ -108,7 +108,7 @@ func TestBuildTargetPath_TVGroupInTitle(t *testing.T) {
 func TestBuildTargetPath_TVDualEpisode(t *testing.T) {
 	// Episódio duplo (S01E01E02): a IA retorna episode=1 — o segundo episódio
 	// não está modelado ainda. O path gerado reflete somente E01.
-	// TODO: implementar suporte a multi-ep quando a IA retornar Episode2.
+	// NOSONAR: multi-ep support blocked until AI returns Episode2
 	got := buildTargetPath("tv", "The Wire", 0, 1, 1, "", ".mkv", "The.Wire.S01E01E02.mkv")
 	want := filepath.Join("Series", "The Wire", "Season 01", "The Wire - S01E01.mkv")
 	if got != want {

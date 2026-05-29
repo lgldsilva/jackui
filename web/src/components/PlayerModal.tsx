@@ -46,18 +46,18 @@ import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
 
 interface PlaylistMeta {
-  name: string
-  items: { title: string }[]
-  currentIndex: number
+  readonly name: string
+  readonly items: readonly { title: string }[]
+  readonly currentIndex: number
 }
 
 // Per-file subtitle choice, persisted in localStorage so a video reopens with
 // the same subtitle the user picked. The three sources are mutually exclusive.
 interface SubChoice {
-  external: string | null // OpenSubtitles file id
-  embedded: number | null // embedded track index
-  sidecar: number | null  // sidecar .srt file index
-  offset: number          // sync offset in seconds
+  readonly external: string | null // OpenSubtitles file id
+  readonly embedded: number | null // embedded track index
+  readonly sidecar: number | null  // sidecar .srt file index
+  readonly offset: number          // sync offset in seconds
 }
 
 interface PlayerModalProps {
@@ -395,12 +395,42 @@ export default function PlayerModal({
   // Diagnostic logs are intentionally verbose — Safari HEVC silent failures are
   // notoriously hard to reproduce locally and we want enough context to debug
   // from a single user report (paste the console output).
-  const onVideoError = () => {
-    // Spurious-error guard. If there's no resolved source yet (streamURL empty
-    // during startup, or the <video> hasn't latched a currentSrc), the browser
-    // fires onError with networkState=NO_SOURCE — that's not a playback failure.
-    // Surfacing the error UI here is what made the error flash on open/refresh
-    // even when the video then played fine. Ignore and wait for a real src.
+  const handleNoFallback = (diag: ReturnType<typeof videoDiagnostic>) => {
+    const downloadingNow = (info?.downRate ?? 0) > 30 * 1024
+    if (downloadingNow && bufferRetryRef.current < 6) {
+      bufferRetryRef.current++
+      clientLog('info', 'player', 'buffer retry — swarm still delivering, reloading playlist',
+        { retry: bufferRetryRef.current, downRate: info?.downRate, ...diag })
+      setVideoError(false)
+      window.setTimeout(() => { videoRef.current?.load() }, 6000)
+      return
+    }
+    let reason: string
+    if (transcodeFallbackAttempted) {
+      reason = 'already-attempted'
+    } else if (forceH264) {
+      reason = 'h264-already-forced'
+    } else {
+      reason = 'no-caps'
+    }
+    clientLog('warn', 'player', 'surfacing error UI — no more fallbacks available',
+      { reason, retries: bufferRetryRef.current, ...diag })
+    setVideoError(true)
+  }
+
+  const handleNoGPU = () => {
+    clientLog('warn', 'player', 'no GPU encoder — surfacing manual UI', { caps })
+    setVideoError(true)
+  }
+
+  const handleAutoFallback = (diag: ReturnType<typeof videoDiagnostic>) => {
+    clientLog('info', 'player', 'auto-fallback engaging via onError', { willRetryVia: caps?.preferred, ...diag })
+    setTranscodeFallbackAttempted(true)
+    setForceH264(true)
+    setVideoError(false)
+  }
+
+  const handleVideoError = () => {
     const vEl = videoRef.current
     if (!streamURL || !vEl?.currentSrc) {
       clientLog('info', 'player', 'ignoring onError — no resolved source yet', { hasStreamURL: !!streamURL })
@@ -408,48 +438,89 @@ export default function PlayerModal({
     }
     const diag = videoDiagnostic()
     clientLog('warn', 'player', 'video onError fired', diag)
-    // Freeze a copy so the error UI (which re-renders after <video> unmounts)
-    // still has populated values instead of "—" placeholders.
     setLastErrorDiag(diag as Record<string, unknown>)
     if (transcodeFallbackAttempted || forceH264 || !caps) {
-      // We're already transcoding and it still errored. Before giving up:
-      // if the swarm is STILL delivering bytes, the HLS endpoint just needs
-      // more pieces (the encoder starved before the first segment). Reload
-      // the playlist instead of failing — by the next attempt more of the
-      // file is buffered. Bounded to 6 retries so a truly dead stream still
-      // surfaces an error rather than looping forever.
-      const downloadingNow = (info?.downRate ?? 0) > 30 * 1024 // > 30 KB/s
-      if (downloadingNow && bufferRetryRef.current < 6) {
-        bufferRetryRef.current++
-        clientLog('info', 'player', 'buffer retry — swarm still delivering, reloading playlist',
-          { retry: bufferRetryRef.current, downRate: info?.downRate, ...diag })
-        setVideoError(false)
-        window.setTimeout(() => { videoRef.current?.load() }, 6000)
-        return
-      }
-      let reason: string
-      if (transcodeFallbackAttempted) {
-        reason = 'already-attempted'
-      } else if (forceH264) {
-        reason = 'h264-already-forced'
-      } else {
-        reason = 'no-caps'
-      }
-      clientLog('warn', 'player', 'surfacing error UI — no more fallbacks available',
-        { reason, retries: bufferRetryRef.current, ...diag })
-      setVideoError(true)
+      handleNoFallback(diag)
       return
     }
     const hasGPU = caps.hasNvidia || caps.hasVaapi || caps.hasQsv
     if (!hasGPU) {
-      clientLog('warn', 'player', 'no GPU encoder — surfacing manual UI', { caps })
-      setVideoError(true)
+      handleNoGPU()
       return
     }
-    clientLog('info', 'player', 'auto-fallback engaging via onError', { willRetryVia: caps.preferred, ...diag })
-    setTranscodeFallbackAttempted(true)
-    setForceH264(true)
-    setVideoError(false)
+    handleAutoFallback(diag)
+  }
+
+  const renderDiagnosticChip = () => {
+    const diag = (lastErrorDiag ?? videoDiagnostic()) as Record<string, any>
+    const codeNames: Record<number, string> = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' }
+    const codeName = diag.errorCode ? codeNames[diag.errorCode] || `code ${diag.errorCode}` : '—'
+    return (
+      <div className="mt-3 text-[10px] text-gray-500 font-mono space-y-0.5">
+        <div>MediaError: <span className="text-yellow-400">{codeName}</span> {diag.errorMsg ? `· ${diag.errorMsg}` : ''}</div>
+        <div>ready={diag.readyState ?? '—'} net={diag.networkState ?? '—'} {diag.isTranscoded ? '· transcode ON' : '· direct play'}{diag.transcodeFallbackAttempted ? ' · fallback tried' : ''}</div>
+        <div className="text-gray-600">Full log: filtre por "[player]" no console</div>
+      </div>
+    )
+  }
+
+  const renderVideoError = () => {
+    const cf = info?.files?.[selectedFile]
+    const peers = info?.peers ?? 0
+    const fileDownloaded = cf?.downloaded ?? 0
+    const starving = fileDownloaded < 30 * 1024 * 1024
+    let title: string
+    let detail: string
+    let kind: 'swarm' | 'codec'
+    if (peers === 0) {
+      kind = 'swarm'
+      title = 'Sem seeds disponíveis'
+      detail = 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.'
+    } else if (starving) {
+      kind = 'swarm'
+      title = 'Download muito lento para streaming'
+      detail = `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${peers !== 1 ? 's' : ''} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`
+    } else {
+      kind = 'codec'
+      title = 'Formato não suportado pelo browser'
+      detail = 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.'
+    }
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
+        <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
+        <p className="font-medium">{title}</p>
+        <p className="text-sm text-gray-500 mt-2 max-w-md">{detail}</p>
+        {renderDiagnosticChip()}
+        <button
+          onClick={() => setVideoError(false)}
+          className="mt-4 text-xs text-green-400 hover:underline"
+        >
+          Tentar de novo
+        </button>
+      </div>
+    )
+  }
+
+  const handleVideoEnded = () => {
+    console.debug('[player] video onEnded', {
+      repeat,
+      nextVideoIdx,
+      hasPlaylistAdvance: !!onPlaylistAdvance,
+      playlistName: playlist?.name,
+      audioMode,
+    })
+    if (repeat === 'one') {
+      const v = videoRef.current
+      if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+      return
+    }
+    if (nextVideoIdx >= 0) {
+      playFile(nextVideoIdx)
+      return
+    }
+    if (onPlaylistAdvance) {
+      onPlaylistAdvance()
+    }
   }
 
   // Safari HEVC silent-failure backstop. Safari on macOS does NOT fire
@@ -533,7 +604,7 @@ export default function PlayerModal({
     return {
       season: parseInt(match[1]),
       episode: parseInt(match[2]),
-      cleanQuery: title.slice(0, match.index).trim().replace(/[._]/g, ' '),
+      cleanQuery: title.slice(0, match.index).trim().replaceAll(/[._]/g, ' '),
     }
   }
 
@@ -571,7 +642,7 @@ export default function PlayerModal({
     setSubActive(s.id)
   }
 
-  const requestFullscreen = () => {
+  const handleRequestFullscreen = () => {
     const v = videoRef.current as any
     if (!v) return
     // iOS Safari uses webkitEnterFullscreen on the <video> element
@@ -589,7 +660,7 @@ export default function PlayerModal({
   // overlays fought its gestures. Skipped while minimized, while typing in an
   // input/select, and when the <video> itself has focus (let the browser's
   // native handler act, so we don't double-seek).
-  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen })
+  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen: handleRequestFullscreen })
 
   // iPhone landscape → native iOS fullscreen. The custom modal layout isn't
   // built to reflow for a short, wide phone viewport (it got cramped/garbled),
@@ -601,7 +672,7 @@ export default function PlayerModal({
   // didn't catch, or tap the fullscreen button).
   useEffect(() => {
     const mq = window.matchMedia('(orientation: landscape) and (max-height: 600px)')
-    const onOrient = () => {
+    const handleOrient = () => {
       const v = videoRef.current as any
       if (!v || !mq.matches || v.readyState < 1) return
       try {
@@ -612,11 +683,11 @@ export default function PlayerModal({
         /* iOS may block fullscreen outside a user gesture — ignore */
       }
     }
-    mq.addEventListener?.('change', onOrient)
-    window.addEventListener('orientationchange', onOrient)
+    mq.addEventListener?.('change', handleOrient)
+    window.addEventListener('orientationchange', handleOrient)
     return () => {
-      mq.removeEventListener?.('change', onOrient)
-      window.removeEventListener('orientationchange', onOrient)
+      mq.removeEventListener?.('change', handleOrient)
+      window.removeEventListener('orientationchange', handleOrient)
     }
   }, [])
 
@@ -712,7 +783,7 @@ export default function PlayerModal({
   // Seek once the video can play. Priority:
   //   1. URL-supplied initialSeek (explicit, e.g. shared link with `t=120`)
   //   2. per-user library resumeSeconds (background-saved, silent)
-  const onVideoCanPlay = () => {
+  const handleVideoCanPlay = () => {
     const v = videoRef.current
     if (!v) return
     if (initialSeek !== undefined && initialSeek > 0 && !appliedInitialSeekRef.current) {
@@ -1419,7 +1490,7 @@ export default function PlayerModal({
                        w-full h-full forces the element to fill the 16:9 container so
                        controls appear in the bottom 48px left by the audio overlay. */
                     className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
-                    onError={onVideoError}
+                    onError={handleVideoError}
                     onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
                     onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
                     onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
@@ -1430,33 +1501,8 @@ export default function PlayerModal({
                       onTimeUpdate()
                     }}
                     onProgress={onTimeUpdate}
-                    onEnded={() => {
-                      // Diagnostic — helps debug "player fechou mid-playlist"
-                      // reports. Captured state at the decision point.
-                      console.debug('[player] video onEnded', {
-                        repeat,
-                        nextVideoIdx,
-                        hasPlaylistAdvance: !!onPlaylistAdvance,
-                        playlistName: playlist?.name,
-                        audioMode,
-                      })
-                      // 1. repeat-one: replay the same file
-                      if (repeat === 'one') {
-                        const v = videoRef.current
-                        if (v) { v.currentTime = 0; v.play().catch(() => {}) }
-                        return
-                      }
-                      // 2. Next file in the same torrent (next episode of a series pack)
-                      if (nextVideoIdx >= 0) {
-                        playFile(nextVideoIdx)
-                        return
-                      }
-                      // 3. Next item in the playlist (different torrent)
-                      if (onPlaylistAdvance) {
-                        onPlaylistAdvance()
-                      }
-                    }}
-                    onCanPlay={onVideoCanPlay}
+                    onEnded={handleVideoEnded}
+                    onCanPlay={handleVideoCanPlay}
                   >
                     {subtitleVttURL && (
                       <track
@@ -1472,65 +1518,7 @@ export default function PlayerModal({
                 {/* Native HTML5 controls render the play/pause button + the
                     fullscreen affordance inside the video element. No custom
                     overlays needed. */}
-                {videoError && (() => {
-                  // Honest error classification. The <video> element can't read
-                  // the 503 body, but we already poll streamInfo (peers, rate,
-                  // per-file progress) — use that to distinguish a dead/slow
-                  // swarm (the bytes never arrive) from a real codec problem.
-                  // Showing "codec não suportado" for a slow download is what
-                  // confused the user; this tells them what's actually wrong.
-                  const cf = info?.files?.[selectedFile]
-                  const peers = info?.peers ?? 0
-                  const fileDownloaded = cf?.downloaded ?? 0
-                  const starving = fileDownloaded < 30 * 1024 * 1024 // < 30 MB
-                  let title: string
-                  let detail: string
-                  let kind: 'swarm' | 'codec'
-                  if (peers === 0) {
-                    kind = 'swarm'
-                    title = 'Sem seeds disponíveis'
-                    detail = 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.'
-                  } else if (starving) {
-                    kind = 'swarm'
-                    title = 'Download muito lento para streaming'
-                    detail = `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${peers !== 1 ? 's' : ''} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`
-                  } else {
-                    kind = 'codec'
-                    title = 'Formato não suportado pelo browser'
-                    detail = 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.'
-                  }
-                  return (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
-                    <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
-                    <p className="font-medium">{title}</p>
-                    <p className="text-sm text-gray-500 mt-2 max-w-md">{detail}</p>
-                    {/* Diagnostic chip — shows the actual MediaError code so we
-                        can tell HEVC-decode-rejection (3) from no-src-supported
-                        (4) at a glance, without asking the user to open devtools. */}
-                    {(() => {
-                      // Prefer the frozen snapshot from onVideoError — by the
-                      // time this UI renders, the <video> already unmounted so
-                      // a live videoDiagnostic() comes back with null fields.
-                      const diag = (lastErrorDiag ?? videoDiagnostic()) as Record<string, any>
-                      const codeNames: Record<number, string> = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' }
-                      const codeName = diag.errorCode ? codeNames[diag.errorCode] || `code ${diag.errorCode}` : '—'
-                      return (
-                        <div className="mt-3 text-[10px] text-gray-500 font-mono space-y-0.5">
-                          <div>MediaError: <span className="text-yellow-400">{codeName}</span> {diag.errorMsg ? `· ${diag.errorMsg}` : ''}</div>
-                          <div>ready={diag.readyState ?? '—'} net={diag.networkState ?? '—'} {diag.isTranscoded ? '· transcode ON' : '· direct play'}{diag.transcodeFallbackAttempted ? ' · fallback tried' : ''}</div>
-                          <div className="text-gray-600">Full log: filtre por "[player]" no console</div>
-                        </div>
-                      )
-                    })()}
-                    <button
-                      onClick={() => setVideoError(false)}
-                      className="mt-4 text-xs text-green-400 hover:underline"
-                    >
-                      Tentar de novo
-                    </button>
-                  </div>
-                  )
-                })()}
+                {videoError && renderVideoError()}
               </div>
 
               {/* Minimized audio: show a slim time readout below the cover-art box
@@ -1927,7 +1915,7 @@ export default function PlayerModal({
                   {subtitleLabel}
                 </button>
                 <button
-                  onClick={requestFullscreen}
+                  onClick={handleRequestFullscreen}
                   title="Tela cheia"
                   className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors sm:hidden"
                 >

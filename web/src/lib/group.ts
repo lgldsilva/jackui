@@ -114,8 +114,8 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
   // land in distinct buckets.
   const normalizeTitle = (s: string) =>
     s.toLowerCase()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
-      .replace(/[^a-z0-9]+/g, ' ')
+      .normalize('NFD').replaceAll(/[\u0300-\u036f]/g, '') // strip diacritics
+      .replaceAll(/[^a-z0-9]+/g, ' ')
       .trim()
   const sizeBucket = (bytes: number) => Math.floor(bytes / (10 * 1024 * 1024)) // 10 MiB granularity
   const finalBuckets = new Map<string, T[]>()

@@ -8,7 +8,7 @@ interface Props {
 }
 
 interface State {
-  error: Error | null
+  readonly error: Error | null
 }
 
 /**

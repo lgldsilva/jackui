@@ -19,9 +19,9 @@ interface Props {
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
 
 interface DoneResult {
-  moved: number
-  failed: { path: string; error: string }[]
-  destLabel?: string
+  readonly moved: number
+  readonly failed: readonly { path: string; error: string }[]
+  readonly destLabel?: string
 }
 
 export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }: Props) {

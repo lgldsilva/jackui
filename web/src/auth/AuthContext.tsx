@@ -5,34 +5,34 @@ import { load, save, remove } from '../lib/storage'
 export type Role = 'admin' | 'user' | 'guest'
 
 export interface AuthUser {
-  id: number
-  username: string
-  email?: string
-  role: Role
-  status?: 'active' | 'pending' | 'disabled'
-  emailVerified?: boolean
-  mfaEnabled?: boolean
-  createdAt: string
+  readonly id: number
+  readonly username: string
+  readonly email?: string
+  readonly role: Role
+  readonly status?: 'active' | 'pending' | 'disabled'
+  readonly emailVerified?: boolean
+  readonly mfaEnabled?: boolean
+  readonly createdAt: string
 }
 
 interface TokenBundle {
-  access: string
-  refresh: string
-  expiresAt: string
-  user: AuthUser
+  readonly access: string
+  readonly refresh: string
+  readonly expiresAt: string
+  readonly user: AuthUser
 }
 
 interface AuthContextValue {
-  user: AuthUser | null
-  loading: boolean
-  enabled: boolean // server has auth turned on
-  isAdmin: boolean
-  isGuest: boolean
-  isAuthenticated: boolean
-  login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
-  loginWithPasskey: (username: string, remember: boolean) => Promise<void>
-  logout: () => Promise<void>
-  refresh: () => Promise<void>
+  readonly user: AuthUser | null
+  readonly loading: boolean
+  readonly enabled: boolean // server has auth turned on
+  readonly isAdmin: boolean
+  readonly isGuest: boolean
+  readonly isAuthenticated: boolean
+  readonly login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
+  readonly loginWithPasskey: (username: string, remember: boolean) => Promise<void>
+  readonly logout: () => Promise<void>
+  readonly refresh: () => Promise<void>
 }
 
 const Ctx = createContext<AuthContextValue | null>(null)

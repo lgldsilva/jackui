@@ -22,17 +22,17 @@ interface Props {
 
 
 interface TorrentItem {
-  id: string
-  name: string
-  file?: File
-  magnet?: string
-  infoHash?: string
-  loading: boolean
-  error?: string
-  totalSize?: number
-  files?: StreamFile[]
-  selectedFiles: Set<number>
-  expanded?: boolean
+  readonly id: string
+  readonly name: string
+  readonly file?: File
+  readonly magnet?: string
+  readonly infoHash?: string
+  readonly loading: boolean
+  readonly error?: string
+  readonly totalSize?: number
+  readonly files?: StreamFile[]
+  readonly selectedFiles: Set<number>
+  readonly expanded?: boolean
 }
 
 const KEY_CLIENT = 'lastClientId'
@@ -220,7 +220,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       const btihMatch = /btih:([a-fA-F0-9]{40})/i.exec(line)
       const nameMatch = /dn=([^&]+)/i.exec(line)
       const hash = btihMatch ? btihMatch[1].toLowerCase() : ''
-      const name = nameMatch ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' ')) : `Magnet (hash: ${hash || '?'})`
+      const name = nameMatch ? decodeURIComponent(nameMatch[1].replaceAll('+', ' ')) : `Magnet (hash: ${hash || '?'})`
 
       return {
         id: crypto.randomUUID(),

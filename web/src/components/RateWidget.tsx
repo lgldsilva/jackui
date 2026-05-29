@@ -38,16 +38,16 @@ export default function RateWidget() {
       }
     }
 
-    const onVisibility = () => {
+    const handleVisibilityChange = () => {
       if (document.hidden) clear()
       else if (!timerRef.current) tick() // resume immediately on focus
     }
-    document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     tick()
     return () => {
       cancelled = true
       clear()
-      document.removeEventListener('visibilitychange', onVisibility)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [])
 

@@ -285,7 +285,7 @@ export default function DownloadsPage() {
     if (!fp) return
     const m = mounts.find(mt => fp === mt.path || fp.startsWith(mt.path + '/'))
     if (m) {
-      const rel = fp.slice(m.path.length).replace(/^\/+/, '')
+      const rel = fp.slice(m.path.length).replaceAll(/^\/+/g, '')
       const hash = buildLocalHash(m.name, rel)
       const synthetic: SearchResult = {
         title: d.name || rel.split('/').pop() || rel,

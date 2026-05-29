@@ -128,7 +128,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     }
   }
 
-  const sparseInfo = fileStat && fileStat.exists && fileStat.apparent > 0
+  const sparseInfo = fileStat?.exists && fileStat?.apparent > 0
     ? Math.abs(fileStat.apparent - fileStat.onDisk) / fileStat.apparent > 0.1
     : false
 
@@ -246,7 +246,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               </Field>
               <Field label="Tamanho">
                 <span className="text-gray-300">{formatBytes(d.fileSize)}</span>
-                {fileStat && fileStat.exists && (
+                {fileStat?.exists && (
                   <span className="text-xs text-gray-500 ml-2">
                     no disco: {formatBytes(fileStat.onDisk)}
                     {sparseInfo && (
@@ -341,7 +341,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           )}
           {tab === 'actions' && (
             <div className="space-y-2">
-              {onPlay && fileStat && fileStat.exists && fileStat.apparent >= d.fileSize * 0.99 && (
+              {onPlay && fileStat?.exists && fileStat?.apparent >= d.fileSize * 0.99 && (
                 <ActionRow
                   icon={Play}
                   title="Tocar agora"
