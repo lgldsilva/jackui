@@ -465,7 +465,7 @@ func main() {
 
 		// Admin-only: all users' downloads with username enrichment
 		if downloadsStore != nil && authStore != nil {
-			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(downloadsStore, authStore))
+			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(downloadsStore, authStore, streamSrv))
 			adminAPI.GET("/downloads/users", handlers.DownloadsUsers(downloadsStore, authStore))
 		}
 
@@ -565,8 +565,8 @@ func main() {
 			// Background full-file downloads (anacrolix Download API);
 			// worker tick keeps the DB queue in sync with active torrents.
 			if downloadsStore != nil {
-				api.GET("/downloads", handlers.DownloadsList(downloadsStore))
-				api.GET("/downloads/filtered", handlers.DownloadsListFiltered(downloadsStore))
+				api.GET("/downloads", handlers.DownloadsList(downloadsStore, streamSrv))
+				api.GET("/downloads/filtered", handlers.DownloadsListFiltered(downloadsStore, streamSrv))
 				api.GET("/downloads/trackers", handlers.DownloadsTrackers(downloadsStore))
 				api.GET("/downloads/categories", handlers.DownloadsCategories(downloadsStore))
 				api.POST("/downloads", handlers.DownloadsCreate(downloadsStore))
