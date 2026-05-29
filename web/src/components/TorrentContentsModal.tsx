@@ -49,6 +49,43 @@ function fileType(f: StreamFile): Exclude<FileType, 'all'> {
   return 'other'
 }
 
+function compareBySize(a: StreamFile, b: StreamFile, desc: boolean): number {
+  // Equal sizes fall back to alphabetic so the order stays stable.
+  if (a.size !== b.size) return desc ? b.size - a.size : a.size - b.size
+  return a.path.localeCompare(b.path)
+}
+
+// Default order: playable files first (video > audio > other), then alphabetic.
+function compareDefault(a: StreamFile, b: StreamFile): number {
+  const aP = isPlayableFile(a) ? 0 : 1
+  const bP = isPlayableFile(b) ? 0 : 1
+  if (aP !== bP) return aP - bP
+  return a.path.localeCompare(b.path)
+}
+
+type FileView = { typeCounts: { video: number; audio: number; other: number }; sortedFiles: StreamFile[] }
+
+function computeFileView(
+  files: readonly StreamFile[],
+  filter: string,
+  typeFilter: FileType,
+  sortBySize: boolean,
+  sizeDesc: boolean,
+): FileView {
+  const typeCounts = { video: 0, audio: 0, other: 0 }
+  for (const f of files) typeCounts[fileType(f)]++
+
+  const lower = filter.toLowerCase()
+  const filtered = files.filter(f =>
+    (!filter || f.path.toLowerCase().includes(lower)) &&
+    (typeFilter === 'all' || fileType(f) === typeFilter),
+  )
+  const sortedFiles = [...filtered].sort((a, b) =>
+    sortBySize ? compareBySize(a, b, sizeDesc) : compareDefault(a, b),
+  )
+  return { typeCounts, sortedFiles }
+}
+
 /**
  * Shows the list of files inside a torrent BEFORE committing to play.
  * Lets the user pick a specific file (an episode, a single song) and either
@@ -107,29 +144,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
   if (!result) return null
 
-  // Per-type counts drive the type-filter pills (only types actually present
-  // are offered, each with a count).
-  const typeCounts = { video: 0, audio: 0, other: 0 }
-  for (const f of info?.files ?? []) typeCounts[fileType(f)]++
-
-  const filteredFiles = info?.files.filter(f => {
-    const nameOk = !filter || f.path.toLowerCase().includes(filter.toLowerCase())
-    const typeOk = typeFilter === 'all' || fileType(f) === typeFilter
-    return nameOk && typeOk
-  }) ?? []
-
-  const sortedFiles = [...filteredFiles].sort((a, b) => {
-    if (sortBySize) {
-      // Equal sizes fall back to alphabetic so the order stays stable.
-      if (a.size !== b.size) return sizeDesc ? b.size - a.size : a.size - b.size
-      return a.path.localeCompare(b.path)
-    }
-    // Default: playable files first (video > audio > other), then alphabetic
-    const aP = isPlayableFile(a) ? 0 : 1
-    const bP = isPlayableFile(b) ? 0 : 1
-    if (aP !== bP) return aP - bP
-    return a.path.localeCompare(b.path)
-  })
+  // typeCounts drives the pills (only present types, with counts); sortedFiles
+  // applies name+type filter and the chosen sort. Extracted to keep this
+  // component's cognitive complexity low.
+  const { typeCounts, sortedFiles } = computeFileView(info?.files ?? [], filter, typeFilter, sortBySize, sizeDesc)
 
   return (
     <dialog
