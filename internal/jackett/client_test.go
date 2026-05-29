@@ -1,6 +1,7 @@
 package jackett
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -82,6 +83,26 @@ func makeJackettServer(t *testing.T, results []jackettResult) (*httptest.Server,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, New(srv.URL, "testkey")
+}
+
+// TestSearchOnIndexer_PropagatesTrackerID guards the regression where the
+// live-search (SSE) result mapping dropped TrackerId — the frontend discovers
+// selectable indexers by trackerId, so without it an indexer like "amigosshare"
+// got a wrong slug id ("amigos-share-club") that no longer matched Jackett.
+func TestSearchOnIndexer_PropagatesTrackerID(t *testing.T) {
+	_, client := makeJackettServer(t, []jackettResult{
+		{Title: "X", Tracker: "Amigos Share Club", TrackerId: "amigosshare", InfoHash: "h", MagnetUri: "magnet:?xt=urn:btih:h"},
+	})
+	results, err := client.SearchOnIndexer(context.Background(), "amigosshare", "q", "")
+	if err != nil {
+		t.Fatalf("SearchOnIndexer failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("len(results) = %d, want 1", len(results))
+	}
+	if results[0].TrackerID != "amigosshare" {
+		t.Errorf("TrackerID = %q, want %q (frontend keys selectable indexers off this)", results[0].TrackerID, "amigosshare")
+	}
 }
 
 func TestSearch_ParsesResults(t *testing.T) {

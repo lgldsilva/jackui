@@ -40,7 +40,7 @@ func TestLocalDeleteAndPromote(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.DELETE("/api/local/file", LocalDelete(b))
+	router.DELETE("/api/local/file", LocalDelete(b, nil, nil))
 	router.POST("/api/local/promote", LocalPromote(b, nil, nil, sharedTargetDir, nil))
 
 	// 1. DELETE - Attempt to delete from general 'Downloads' should be rejected (403 Forbidden)
