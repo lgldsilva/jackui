@@ -233,7 +233,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	}
 	var out []byte
 	for _, s := range seeks {
-		cmd := exec.CommandContext(ctx, "ffmpeg",
+		cmd := exec.CommandContext(ctx, ffBinary,
 			ffHideBanner, ffLogLevel, "error",
 			"-ss", strconv.Itoa(s),
 			"-i", abs,

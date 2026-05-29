@@ -38,55 +38,53 @@ func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
 
 // ── Property-based tests ─────────────────────────────────────────────────────
 
-func TestPropCompositeScoreFreeBonus(t *testing.T) {
-	t.Run("free sempre maior que pago com mesmos valores", func(t *testing.T) {
-		for acc := 0.0; acc <= 1.0; acc += 0.1 {
-			for lat := int64(100); lat <= 10000; lat += 500 {
-				paid := compositeScore(acc, lat, false)
-				free := compositeScore(acc, lat, true)
-				if free < paid {
-					t.Fatalf("free=%.4f < paid=%.4f at acc=%.1f lat=%d", free, paid, acc, lat)
-				}
+func TestPropFreeBonusAlwaysHigher(t *testing.T) {
+	for acc := 0.0; acc <= 1.0; acc += 0.1 {
+		for lat := int64(100); lat <= 10000; lat += 500 {
+			paid := compositeScore(acc, lat, false)
+			free := compositeScore(acc, lat, true)
+			if free < paid {
+				t.Fatalf("free=%.4f < paid=%.4f at acc=%.1f lat=%d", free, paid, acc, lat)
 			}
 		}
-	})
+	}
+}
 
-	t.Run("score cresce com accuracy (mesma latencia)", func(t *testing.T) {
-		for lat := int64(200); lat <= 5000; lat += 500 {
-			prev := compositeScore(0.0, lat, false)
-			for acc := 0.1; acc <= 1.0; acc += 0.1 {
-				cur := compositeScore(acc, lat, false)
-				if cur < prev {
-					t.Fatalf("score decresceu acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
-				}
-				prev = cur
+func TestPropScoreIncreasesWithAccuracy(t *testing.T) {
+	for lat := int64(200); lat <= 5000; lat += 500 {
+		prev := compositeScore(0.0, lat, false)
+		for acc := 0.1; acc <= 1.0; acc += 0.1 {
+			cur := compositeScore(acc, lat, false)
+			if cur < prev {
+				t.Fatalf("score decresceu acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
 			}
+			prev = cur
 		}
-	})
+	}
+}
 
-	t.Run("score decresce com latencia (mesma accuracy)", func(t *testing.T) {
-		for acc := 0.1; acc <= 1.0; acc += 0.2 {
-			prev := compositeScore(acc, 100, false)
-			for lat := int64(200); lat <= 10000; lat += 500 {
-				cur := compositeScore(acc, lat, false)
-				if cur > prev {
-					t.Fatalf("score subiu com latencia maior acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
-				}
-				prev = cur
+func TestPropScoreDecreasesWithLatency(t *testing.T) {
+	for acc := 0.1; acc <= 1.0; acc += 0.2 {
+		prev := compositeScore(acc, 100, false)
+		for lat := int64(200); lat <= 10000; lat += 500 {
+			cur := compositeScore(acc, lat, false)
+			if cur > prev {
+				t.Fatalf("score subiu com latencia maior acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
 			}
+			prev = cur
 		}
-	})
+	}
+}
 
-	t.Run("score sempre finito e positivo", func(t *testing.T) {
-		for acc := 0.0; acc <= 1.0; acc += 0.1 {
-			for lat := int64(0); lat <= 30000; lat += 1000 {
-				s := compositeScore(acc, lat, false)
-				if s < 0 || math.IsInf(s, 0) || math.IsNaN(s) {
-					t.Fatalf("score invalido acc=%.1f lat=%d: %v", acc, lat, s)
-				}
+func TestPropScoreAlwaysFinite(t *testing.T) {
+	for acc := 0.0; acc <= 1.0; acc += 0.1 {
+		for lat := int64(0); lat <= 30000; lat += 1000 {
+			s := compositeScore(acc, lat, false)
+			if s < 0 || math.IsInf(s, 0) || math.IsNaN(s) {
+				t.Fatalf("score invalido acc=%.1f lat=%d: %v", acc, lat, s)
 			}
 		}
-	})
+	}
 }
 
 func TestPropTitleAccuracy(t *testing.T) {

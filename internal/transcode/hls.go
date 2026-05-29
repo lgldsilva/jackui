@@ -329,8 +329,8 @@ const hlsVODEnabled = true
 // custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
 // back to "ffprobe" on PATH when the ffmpeg path doesn't end in "ffmpeg".
 func ffprobePathFrom(ffmpegPath string) string {
-	if strings.HasSuffix(ffmpegPath, "ffmpeg") {
-		return ffmpegPath[:len(ffmpegPath)-len("ffmpeg")] + "ffprobe"
+	if strings.HasSuffix(ffmpegPath, ffBinary) {
+		return ffmpegPath[:len(ffmpegPath)-len(ffBinary)] + "ffprobe"
 	}
 	return "ffprobe"
 }
