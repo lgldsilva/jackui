@@ -1342,8 +1342,46 @@ export const localDelete = async (mount: string, path: string): Promise<void> =>
   await api.delete(`/local/file?${params}`)
 }
 
-export const localPromote = async (mount: string, path: string, targetSubdir: string, targetBase?: string): Promise<void> => {
-  await api.post('/local/promote', { mount, path, targetSubdir, targetBase })
+export const localPromote = async (
+  mount: string,
+  path: string,
+  targetSubdir: string,
+  targetBase?: string,
+  renameIA?: boolean,
+  paths?: string[],
+): Promise<void> => {
+  await api.post('/local/promote', { mount, path, paths, targetSubdir, targetBase, renameIA })
+}
+
+export interface PromotePreviewEntry {
+  id?: number
+  path?: string
+  originalName: string
+  cleanName: string
+  targetPath: string
+  kind: 'movie' | 'tv'
+  year?: number
+  season?: number
+  episode?: number
+  episodeName?: string
+  error?: string
+}
+
+export const localPromotePreview = async (
+  mount: string,
+  path: string,
+  targetSubdir: string,
+  targetBase?: string,
+  paths?: string[],
+): Promise<{ previews: PromotePreviewEntry[] }> => {
+  const { data } = await api.post<{ previews: PromotePreviewEntry[] }>('/local/promote/preview', {
+    mount,
+    path,
+    paths,
+    targetSubdir,
+    targetBase,
+  })
+  return data
 }
 
 // Direct file URL with auth token in query string (http.ServeFile handles Range
@@ -1562,9 +1600,20 @@ export interface PromoteBatchResult {
 }
 export const downloadPromoteBatch = async (
   ids: number[],
-  opts: { keepSeeding: boolean; targetSubdir?: string; targetBase?: string },
+  opts: { keepSeeding: boolean; targetSubdir?: string; targetBase?: string; renameIA?: boolean },
 ): Promise<PromoteBatchResult> => {
   const { data } = await api.post<PromoteBatchResult>('/downloads/promote', { ids, ...opts })
+  return data
+}
+
+export const downloadPromotePreview = async (
+  ids: number[],
+  opts: { targetSubdir?: string; targetBase?: string },
+): Promise<{ previews: PromotePreviewEntry[] }> => {
+  const { data } = await api.post<{ previews: PromotePreviewEntry[] }>('/downloads/promote/preview', {
+    ids,
+    ...opts,
+  })
   return data
 }
 

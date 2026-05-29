@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   X, Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
   Loader2, AlertCircle, Trash2, Square,
-  ArrowUpCircle, Activity, Globe,
+  ArrowUpCircle, Activity, Globe, Play
 } from 'lucide-react'
 import {
   DownloadEntry, DownloadDetails, StreamFile,
@@ -22,6 +22,8 @@ interface Props {
   onDeleted?: (id: number) => void
   /** chamado quando o user clica "Promover" — host abre o PromoteModal */
   onPromote?: (d: DownloadEntry) => void
+  /** chamado quando o user clica "Tocar agora" */
+  onPlay?: (d: DownloadEntry) => void
 }
 
 type Tab = 'overview' | 'files' | 'trackers' | 'actions'
@@ -38,7 +40,7 @@ function fileIcon(f: StreamFile, primary: boolean) {
   return <FileText className={`w-4 h-4 ${color} flex-shrink-0`} />
 }
 
-export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote }: Props) {
+export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay }: Props) {
   useScrollLock(!!download)
   const [tab, setTab] = useState<Tab>('overview')
   const [details, setDetails] = useState<DownloadDetails | null>(null)
@@ -363,6 +365,17 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           )}
           {tab === 'actions' && (
             <div className="space-y-2">
+              {onPlay && fileStat && fileStat.exists && fileStat.apparent >= d.fileSize * 0.99 && (
+                <ActionRow
+                  icon={Play}
+                  title="Tocar agora"
+                  desc="Assista a este arquivo completo localmente no player integrado."
+                  onClick={() => { onPlay(d); onClose() }}
+                  busy={false}
+                  disabled={!!busy}
+                  variant="success"
+                />
+              )}
               <ActionRow
                 icon={RefreshCw}
                 title="Recheck (force)"
@@ -438,12 +451,13 @@ interface ActionRowProps {
   onClick: () => void | Promise<void>
   busy: boolean
   disabled: boolean
-  variant?: 'primary' | 'danger'
+  variant?: 'primary' | 'danger' | 'success'
 }
 function ActionRow({ icon: Icon, title, desc, onClick, busy, disabled, variant }: ActionRowProps) {
   const colorMap = {
     primary: 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-500/30',
     danger: 'bg-red-500/15 hover:bg-red-500/25 text-red-300 border-red-500/30',
+    success: 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/30',
     default: 'bg-gray-700/40 hover:bg-gray-700/60 text-gray-200 border-gray-600',
   }
   return (

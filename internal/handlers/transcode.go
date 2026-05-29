@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/transcode"
 )
@@ -25,7 +27,7 @@ func TranscodeCapabilities(c *gin.Context) {
 // TranscodeStream handles GET /api/stream/transcode/:hash/:file?audio=N&video=h264&burn=N
 // Pipes the torrent file through ffmpeg with chosen options and streams the result.
 // Note: no Range support — browsers can't seek transcoded streams.
-func TranscodeStream(s *streamer.Streamer) gin.HandlerFunc {
+func TranscodeStream(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var h metainfo.Hash
 		if err := h.FromHexString(c.Param("hash")); err != nil {
@@ -49,6 +51,21 @@ func TranscodeStream(s *streamer.Streamer) gin.HandlerFunc {
 			// still opt back into matroska explicitly via ?container=matroska
 			// (useful for VLC handoff or HEVC passthrough scenarios).
 			Container:    c.DefaultQuery("container", "mp4"),
+		}
+
+		if store != nil {
+			if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
+				if _, err := os.Stat(path); err == nil {
+					f, err := os.Open(path)
+					if err == nil {
+						defer f.Close()
+						if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
+							c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+						}
+						return
+					}
+				}
+			}
 		}
 
 		reader, _, err := s.FileReader(h, fileIdx)

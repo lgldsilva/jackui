@@ -310,6 +310,9 @@ func applyAIEnv(cfg *Config) {
 	if v := os.Getenv("OPENROUTER_API_KEY"); v != "" {
 		setKey("openrouter", "https://openrouter.ai/api/v1", v)
 	}
+	if v := os.Getenv("OPENCODE_API_KEY"); v != "" {
+		setKey("opencode", "https://opencode.ai/zen/v1", v)
+	}
 	if v := os.Getenv("OLLAMA_BASE_URL"); v != "" {
 		// Local Ollama, OpenAI-compatible under /v1. Behind the VPN, use the LAN
 		// IP (e.g. http://127.0.0.1:11434) — the `.lan` hostname won't resolve
@@ -331,6 +334,9 @@ func applyAIEnv(cfg *Config) {
 	// Auto-seed a default chain only when the user hasn't configured one.
 	if len(cfg.AI.Chain) == 0 {
 		var chain []AIChainSlot
+		if cfg.AI.Providers["opencode"].APIKey != "" {
+			chain = append(chain, AIChainSlot{ID: "opencode-pickle", Provider: "opencode", Model: "opencode/big-pickle"})
+		}
 		if cfg.AI.Providers["groq"].APIKey != "" {
 			chain = append(chain, AIChainSlot{ID: "groq-8b", Provider: "groq", Model: "llama-3.1-8b-instant"})
 		}

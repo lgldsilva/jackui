@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/library"
 	"github.com/luizg/jackui/internal/middleware"
 	"github.com/luizg/jackui/internal/streamer"
@@ -119,7 +121,7 @@ func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
 // StreamFile handles GET /api/stream/:hash/:file — serves one file with HTTP Range support.
 // Browser's <video> tag will issue partial requests; http.ServeContent handles them
 // against the torrent reader, which prioritizes pieces as they're read.
-func StreamFile(s *streamer.Streamer) gin.HandlerFunc {
+func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -131,6 +133,16 @@ func StreamFile(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
 			return
 		}
+
+		if store != nil {
+			if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
+				if _, err := os.Stat(path); err == nil {
+					http.ServeFile(c.Writer, c.Request, path)
+					return
+				}
+			}
+		}
+
 		reader, file, err := s.FileReader(h, fileIdx)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

@@ -15,6 +15,7 @@ import (
 
 	"crypto/rand"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/ai"
@@ -181,6 +182,19 @@ func main() {
 			downloadsStore = d
 			defer d.Close()
 			log.Printf("Downloads: %s", dlPath)
+
+			// Resolve completed files locally instead of force-redownloading
+			streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
+				path, err := downloadsStore.GetCompletedPath(h.HexString(), fileIdx)
+				if err != nil || path == "" {
+					return "", false
+				}
+				if _, err := os.Stat(path); err != nil {
+					return "", false
+				}
+				return path, true
+			})
+
 			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second)
 			worker.Start()
 			defer worker.Stop()
@@ -505,7 +519,7 @@ func main() {
 			// GET is cheap (cards); POST runs the resolution chain on play.
 			api.GET("/stream/art/:hash", handlers.StreamArt(streamSrv))
 			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient, aiClient, webSearch))
-			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv))
+			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv, downloadsStore))
 			api.DELETE("/stream/:hash", handlers.StreamDrop(streamSrv))
 
 			// Converte []config.PromoteDir → []handlers.PromoteDest (mesma
@@ -522,7 +536,8 @@ func main() {
 			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
 			api.GET("/local/transcode", handlers.LocalTranscode(localBrowser))
 			api.DELETE("/local/file", handlers.LocalDelete(localBrowser))
-			api.POST("/local/promote", handlers.LocalPromote(localBrowser, cfg.Stream.SharedDir, promoteDests))
+			api.POST("/local/promote", handlers.LocalPromote(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
+			api.POST("/local/promote/preview", handlers.LocalPromotePreview(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
 			// /local/play probes the file and tells the client whether to direct-play
 			// or fetch the HLS master (for MKV / HEVC / AC3 / etc. that browsers
 			// can't decode natively). Mirrors the torrent-side codec routing.
@@ -561,9 +576,11 @@ func main() {
 				// Promove um download concluído pro diretório compartilhado
 				// (JACKUI_SHARED_DIR), opcionalmente em uma subpasta. Body:
 				// { keepSeeding, targetSubdir, targetBase }.
-				api.POST("/downloads/:id/promote", handlers.DownloadsPromote(downloadsStore, streamSrv, cfg.Stream.SharedDir, promoteDests))
+				api.POST("/downloads/:id/promote", handlers.DownloadsPromote(downloadsStore, streamSrv, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
 				// Batch: promove N downloads pra mesma subpasta de destino.
-				api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(downloadsStore, streamSrv, cfg.Stream.SharedDir, promoteDests))
+				api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(downloadsStore, streamSrv, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
+				// Preview de renomeação IA
+				api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(downloadsStore, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
 				// Lista subpastas do destino pra alimentar o navegador da UI.
 				api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(cfg.Stream.SharedDir, promoteDests))
 				// Lista destinos de promoção disponíveis (GET /api/promote/destinations).
@@ -581,7 +598,7 @@ func main() {
 			if hlsErr != nil {
 				log.Printf("Warning: HLS manager init failed: %v — Safari users won't get HLS fallback", hlsErr)
 			} else {
-				api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(streamSrv, hlsMgr))
+				api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(streamSrv, hlsMgr, downloadsStore))
 				api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(hlsMgr))
 				// Same pipeline, different source: a local file on a configured
 				// mount. Same reason for HLS as torrents — browsers can't decode
@@ -676,7 +693,7 @@ func main() {
 		}
 		if streamSrv != nil {
 			// Live transcode: remux/transcode torrent file → browser-friendly stream
-			api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(streamSrv))
+			api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(streamSrv, downloadsStore))
 		}
 	}
 

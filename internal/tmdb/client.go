@@ -416,3 +416,28 @@ func safePrefix(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// FetchEpisodeName returns the localized episode title for a given TV show's TMDB ID, season, and episode.
+// Falls back to empty string if not found or on error.
+func (c *Client) FetchEpisodeName(ctx context.Context, seriesID int, season, episode int) string {
+	if c.apiKey == "" || seriesID <= 0 || season <= 0 || episode <= 0 {
+		return ""
+	}
+	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s&language=pt-BR", apiBase, seriesID, season, episode, url.QueryEscape(c.apiKey))
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var out struct {
+		Name string `json:"name"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&out) != nil {
+		return ""
+	}
+	return strings.TrimSpace(out.Name)
+}

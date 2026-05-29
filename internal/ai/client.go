@@ -364,3 +364,78 @@ func parseTitleJSON(content string) (*TitleResult, error) {
 	}
 	return nil, fmt.Errorf("ai: no usable title in reply")
 }
+
+const renameSystem = `You analyze a raw media filename (movie or TV show episode) and extract metadata for organized Plex-style file naming.
+Extract the following fields as JSON:
+- "title": Canonical/official title of the movie or TV show.
+- "year": Release year (integer, or 0 if unknown).
+- "kind": "movie" or "tv".
+- "season": Season number (integer, only for "tv", or 0 if not a show or not specified).
+- "episode": Episode number (integer, only for "tv", or 0 if not specified).
+- "episode_title": Episode title (string, only if explicitly present in the filename, otherwise empty).
+
+Reply with ONLY the raw JSON object, no prose, no code fences.`
+
+type RenameMetadata struct {
+	Title        string `json:"title"`
+	Year         int    `json:"year"`
+	Kind         string `json:"kind"` // "movie" | "tv"
+	Season       int    `json:"season"`
+	Episode      int    `json:"episode"`
+	EpisodeTitle string `json:"episode_title"`
+}
+
+func (c *Client) ExtractRenameMetadata(ctx context.Context, rawName string) (*RenameMetadata, string, error) {
+	if c == nil {
+		return nil, "", errors.New("ai client not initialized")
+	}
+	var lastErr error
+	for _, s := range c.slotList() {
+		if !c.breaker.available(s.ID) {
+			continue
+		}
+		content, _, err := c.chat(ctx, s, renameSystem, rawName, true)
+		if err != nil {
+			lastErr = err
+			if errors.Is(err, errModelNotFound) {
+				go c.healProvider(s.Provider)
+			} else {
+				c.breaker.recordFailure(s.ID, isRateLimit(err))
+			}
+			continue
+		}
+		c.breaker.recordSuccess(s.ID)
+		res, perr := parseRenameJSON(content)
+		if perr == nil && res != nil && res.Title != "" {
+			return res, s.ID, nil
+		}
+	}
+	return nil, "", lastErr
+}
+
+func parseRenameJSON(content string) (*RenameMetadata, error) {
+	start := strings.IndexByte(content, '{')
+	end := strings.LastIndexByte(content, '}')
+	if start >= 0 && end > start {
+		var res RenameMetadata
+		if err := json.Unmarshal([]byte(content[start:end+1]), &res); err == nil {
+			res.Title = strings.TrimSpace(res.Title)
+			if res.Title != "" {
+				if res.Kind != "movie" && res.Kind != "tv" {
+					res.Kind = "movie" // fallback
+				}
+				return &res, nil
+			}
+		}
+	}
+	// Fallback to simple parse using the generic parseTitleJSON fallback
+	tr, err := parseTitleJSON(content)
+	if err == nil && tr != nil {
+		return &RenameMetadata{
+			Title: tr.Title,
+			Year:  tr.Year,
+			Kind:  tr.Kind,
+		}, nil
+	}
+	return nil, fmt.Errorf("ai: no usable rename metadata in reply")
+}

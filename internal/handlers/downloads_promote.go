@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -13,9 +14,12 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 
+	"github.com/luizg/jackui/internal/ai"
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/downloads"
+	"github.com/luizg/jackui/internal/renamer"
 	"github.com/luizg/jackui/internal/streamer"
+	"github.com/luizg/jackui/internal/tmdb"
 )
 
 // PromoteDest represents a named promote destination (shared dir or extra).
@@ -29,7 +33,8 @@ type PromoteDest struct {
 type promoteReq struct {
 	KeepSeeding  bool   `json:"keepSeeding"`
 	TargetSubdir string `json:"targetSubdir"`
-	TargetBase   string `json:"targetBase"`   // empty = sharedDir (default)
+	TargetBase   string `json:"targetBase"` // empty = sharedDir (default)
+	RenameIA     bool   `json:"renameIA"`
 	// Apenas para batch:
 	IDs []int `json:"ids"`
 }
@@ -89,7 +94,7 @@ func sanitizeSubdir(subdir string) (string, error) {
 //
 // targetSubdir vazio = raiz do destino. targetBase vazio = sharedDir (default).
 // Subpastas inexistentes são criadas (os.MkdirAll). Validação anti-traversal.
-func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -110,7 +115,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, sharedDir st
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		updated, err := promoteOne(store, s, base, userID, id, req.TargetSubdir, req.KeepSeeding)
+		updated, err := promoteOne(store, s, aiClient, tmdbClient, base, userID, id, req.TargetSubdir, req.KeepSeeding, req.RenameIA)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -126,7 +131,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, sharedDir st
 //
 // Resposta: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
 // Falhas individuais não abortam o batch — cada item é tentado.
-func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
@@ -150,7 +155,7 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, sharedD
 		promoted := []downloads.Download{}
 		failed := []gin.H{}
 		for _, id := range req.IDs {
-			d, err := promoteOne(store, s, base, userID, id, req.TargetSubdir, req.KeepSeeding)
+			d, err := promoteOne(store, s, aiClient, tmdbClient, base, userID, id, req.TargetSubdir, req.KeepSeeding, req.RenameIA)
 			if err != nil {
 				failed = append(failed, gin.H{"id": id, "error": err.Error()})
 				continue
@@ -160,6 +165,65 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, sharedD
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
+	}
+}
+
+// DownloadsPromotePreview handles POST /api/downloads/promote/preview
+func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if sharedDir == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			return
+		}
+		var req promoteReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if len(req.IDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
+			return
+		}
+		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		previews := []gin.H{}
+		for _, id := range req.IDs {
+			d, err := store.Get(userID, id)
+			if err != nil || d == nil {
+				previews = append(previews, gin.H{"id": id, "error": "download não encontrado"})
+				continue
+			}
+			if d.FilePath == "" {
+				previews = append(previews, gin.H{"id": id, "error": "file_path vazio"})
+				continue
+			}
+			rawName := filepath.Base(d.FilePath)
+			if rawName == "" || rawName == "." || rawName == "/" {
+				rawName = d.Name
+			}
+			preview, err := renamer.GeneratePreview(c.Request.Context(), aiClient, tmdbClient, rawName)
+			if err != nil {
+				previews = append(previews, gin.H{"id": id, "error": err.Error()})
+				continue
+			}
+			nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
+			previews = append(previews, gin.H{
+				"id":           id,
+				"originalName": rawName,
+				"cleanName":    preview.CleanName,
+				"targetPath":   nonConflicting,
+				"kind":         preview.Kind,
+				"year":         preview.Year,
+				"season":       preview.Season,
+				"episode":      preview.Episode,
+				"episodeName":  preview.EpisodeName,
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
 }
 
@@ -205,7 +269,17 @@ func DownloadsPromoteBrowse(sharedDir string, dests []PromoteDest) gin.HandlerFu
 
 // promoteOne implementa a lógica compartilhada entre single + batch. Validação
 // + move + (opcional) drop do torrent.
-func promoteOne(store *downloads.Store, s *streamer.Streamer, sharedDir string, userID, id int, targetSubdir string, keepSeeding bool) (*downloads.Download, error) {
+func promoteOne(
+	store *downloads.Store,
+	s *streamer.Streamer,
+	aiClient *ai.Client,
+	tmdbClient *tmdb.Client,
+	sharedDir string,
+	userID, id int,
+	targetSubdir string,
+	keepSeeding bool,
+	renameIA bool,
+) (*downloads.Download, error) {
 	d, err := store.Get(userID, id)
 	if err != nil || d == nil {
 		return nil, errors.New("download não encontrado")
@@ -226,8 +300,25 @@ func promoteOne(store *downloads.Store, s *streamer.Streamer, sharedDir string, 
 	}
 
 	src := d.FilePath
-	base := filepath.Base(src)
-	dst := filepath.Join(targetDir, base)
+	baseName := filepath.Base(src)
+	if baseName == "" || baseName == "." || baseName == "/" {
+		baseName = d.Name
+	}
+
+	var dst string
+	if renameIA && aiClient != nil {
+		preview, err := renamer.GeneratePreview(context.Background(), aiClient, tmdbClient, baseName)
+		if err == nil && preview != nil {
+			targetRel := renamer.ResolveTargetConflict(sharedDir, preview.TargetPath)
+			dst = filepath.Join(sharedDir, targetRel)
+			targetDir = filepath.Dir(dst)
+		}
+	}
+
+	if dst == "" {
+		dst = filepath.Join(targetDir, baseName)
+	}
+
 	if src == dst {
 		return d, nil // idempotente
 	}
