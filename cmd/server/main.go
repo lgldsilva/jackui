@@ -322,7 +322,6 @@ func main() {
 	}()
 
 	// Auth — initialized only if enabled in config
-	var authStore *auth.Store
 	var tokenMgr *auth.TokenManager
 	var waManager *auth.WAManager // passkeys; nil when BaseURL is unset
 	// Brute-force guard: 5 consecutive failed logins lock the account for 15 min.
