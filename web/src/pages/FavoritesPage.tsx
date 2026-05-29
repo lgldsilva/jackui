@@ -608,6 +608,7 @@ export default function FavoritesPage() {
         <dialog
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 open:flex"
           onClick={() => !importing && setShowImport(false)}
+          onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
           onClose={() => !importing && setShowImport(false)}
           open
         >
