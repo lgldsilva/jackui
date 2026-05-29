@@ -32,4 +32,6 @@ const (
 	ErrPasskeysNotConfig  = "passkeys não configuradas"
 	ErrInvalidData        = "dados inválidos"
 	ErrPasskeysNotConfigF = "passkeys não configuradas (defina JACKUI_BASE_URL)"
+
+	MagnetPrefix = "magnet:?xt=urn:btih:"
 )

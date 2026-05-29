@@ -1,9 +1,18 @@
 package renamer
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/luizg/jackui/internal/ai"
+	"github.com/luizg/jackui/internal/config"
+	"github.com/luizg/jackui/internal/tmdb"
 )
 
 // ── sanitizeFilename ────────────────────────────────────────────────────────
@@ -160,4 +169,185 @@ func TestResolveTargetConflict_MultipleConflicts(t *testing.T) {
 	if got != want {
 		t.Errorf("got %q; want %q", got, want)
 	}
+}
+
+// ── GeneratePreview ──────────────────────────────────────────────────────────
+
+func TestGeneratePreview_AIAndTMDB(t *testing.T) {
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{
+					"role":    "assistant",
+					"content": `{"title":"Inception","year":2010,"kind":"movie","season":0,"episode":0}`,
+				}},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer aiSrv.Close()
+
+	aiClient := newAIClient(t, aiSrv.URL)
+
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Inception.2010.1080p.mkv")
+	if err != nil {
+		t.Fatalf("GeneratePreview: %v", err)
+	}
+	if preview.CleanName != "Inception" {
+		t.Errorf("CleanName = %q, want 'Inception'", preview.CleanName)
+	}
+	if preview.Kind != "movie" {
+		t.Errorf("Kind = %q, want 'movie'", preview.Kind)
+	}
+	if preview.Year != 2010 {
+		t.Errorf("Year = %d, want 2010", preview.Year)
+	}
+	if preview.TargetPath == "" {
+		t.Error("expected non-empty TargetPath")
+	}
+}
+
+func TestGeneratePreview_NilTMDB(t *testing.T) {
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{
+					"role":    "assistant",
+					"content": `{"title":"Breaking Bad","year":2008,"kind":"tv","season":1,"episode":1}`,
+				}},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer aiSrv.Close()
+
+	aiClient := newAIClient(t, aiSrv.URL)
+
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Breaking.Bad.S01E01.mkv")
+	if err != nil {
+		t.Fatalf("GeneratePreview with nil TMDB: %v", err)
+	}
+	if preview.Kind != "tv" {
+		t.Errorf("Kind = %q, want 'tv'", preview.Kind)
+	}
+	if preview.Season != 1 || preview.Episode != 1 {
+		t.Errorf("Season/Episode = %d/%d, want 1/1", preview.Season, preview.Episode)
+	}
+}
+
+func TestGeneratePreview_AIError(t *testing.T) {
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer aiSrv.Close()
+
+	aiClient := newAIClient(t, aiSrv.URL)
+	_, err := GeneratePreview(context.Background(), aiClient, nil, "Inception.2010.mkv")
+	if err == nil {
+		t.Fatal("expected error when AI fails")
+	}
+}
+
+func TestGeneratePreview_TVWithEpisodeName(t *testing.T) {
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{
+					"role":    "assistant",
+					"content": `{"title":"Breaking Bad","year":2008,"kind":"tv","season":1,"episode":1}`,
+				}},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer aiSrv.Close()
+
+	aiClient := newAIClient(t, aiSrv.URL)
+
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Breaking.Bad.S01E01.1080p.mkv")
+	if err != nil {
+		t.Fatalf("GeneratePreview: %v", err)
+	}
+	if preview.EpisodeName != "" {
+		t.Errorf("EpisodeName = %q, want empty (no TMDB)", preview.EpisodeName)
+	}
+}
+
+func TestGeneratePreview_FallbackToAIWhenTMDBFails(t *testing.T) {
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{
+					"role":    "assistant",
+					"content": `{"title":"Unknown Movie","year":2020,"kind":"movie","season":0,"episode":0}`,
+				}},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer aiSrv.Close()
+
+	aiClient := newAIClient(t, aiSrv.URL)
+
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Unknown.Movie.2020.mkv")
+	if err != nil {
+		t.Fatalf("GeneratePreview: %v", err)
+	}
+	if preview.CleanName != "Unknown Movie" {
+		t.Errorf("CleanName = %q, want 'Unknown Movie'", preview.CleanName)
+	}
+	if preview.Year != 2020 {
+		t.Errorf("Year = %d, want 2020", preview.Year)
+	}
+}
+
+func TestSanitizeInGeneratePreview(t *testing.T) {
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{
+					"role":    "assistant",
+					"content": `{"title":"Bad: File/Name *Test?","year":2022,"kind":"movie","season":0,"episode":0}`,
+				}},
+			},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer aiSrv.Close()
+
+	aiClient := newAIClient(t, aiSrv.URL)
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Bad.File.Name.2022.mkv")
+	if err != nil {
+		t.Fatalf("GeneratePreview: %v", err)
+	}
+	if strings.ContainsAny(preview.CleanName, "/\\:*?\"<>|") {
+		t.Errorf("CleanName contains forbidden chars: %q", preview.CleanName)
+	}
+}
+
+func newAIClient(t *testing.T, baseURL string) *ai.Client {
+	t.Helper()
+	cfg := config.AIConfig{
+		Enabled: true,
+		Providers: map[string]config.AIProvider{
+			"test": {BaseURL: baseURL, APIKey: "test-key"},
+		},
+		Chain: []config.AIChainSlot{
+			{ID: "test", Provider: "test", Model: "test-model"},
+		},
+	}
+	c := ai.New(cfg)
+	if c == nil {
+		t.Fatal("ai.New returned nil")
+	}
+	return c
+}
+
+func newTMDBClient(t *testing.T, baseURL string) *tmdb.Client {
+	t.Helper()
+	c, err := tmdb.New("test-key", "", t.TempDir()+"/tmdb.db")
+	if err != nil {
+		t.Fatalf("tmdb.New: %v", err)
+	}
+	return c
 }

@@ -73,7 +73,7 @@ func downloadAndParseTorrent(torrentURL string) (*metainfo.MetaInfo, string, *co
 }
 
 func buildMagnetFromMetainfo(mi *metainfo.MetaInfo, infoHash, name string) string {
-	magnet := "magnet:?xt=urn:btih:" + infoHash
+	magnet := MagnetPrefix + infoHash
 	if name != "" {
 		magnet += "&dn=" + url.QueryEscape(name)
 	}

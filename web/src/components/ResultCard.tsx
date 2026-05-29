@@ -21,6 +21,28 @@ interface ResultCardProps {
   readonly refreshedAt?: string | null
 }
 
+function RatingBadge({ tmdb }: { tmdb: TmdbMatch }) {
+  if (tmdb.imdbRating && tmdb.imdbRating > 0) {
+    if (tmdb.imdbId) {
+      return (
+        <a
+          href={`https://www.imdb.com/title/${tmdb.imdbId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          className="text-amber-400 ml-1 hover:underline"
+          title="Abrir no IMDb"
+        >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
+      )
+    }
+    return <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
+  }
+  if (tmdb.voteAverage > 0) {
+    return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
+  }
+  return null
+}
+
 function formatSize(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -212,22 +234,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           {tmdb && (
             <span className="block text-[11px] font-normal text-gray-400 mt-0.5 line-clamp-2">
               {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
-              {tmdb.imdbRating && tmdb.imdbRating > 0 ? (
-                tmdb.imdbId ? (
-                  <a
-                    href={`https://www.imdb.com/title/${tmdb.imdbId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={e => e.stopPropagation()}
-                    className="text-amber-400 ml-1 hover:underline"
-                    title="Abrir no IMDb"
-                  >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
-                ) : (
-                  <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
-                )
-              ) : tmdb.voteAverage > 0 ? (
-                <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
-              ) : null}
+              <RatingBadge tmdb={tmdb} />
             </span>
           )}
         </h3>

@@ -220,7 +220,7 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 func resolveTorrentInfo(s *streamer.Streamer, ctx context.Context, h metainfo.Hash) (*streamer.TorrentInfo, error) {
 	info, err := s.Get(h)
 	if err != nil {
-		bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
+		bareMagnet := MagnetPrefix + h.HexString()
 		got, addErr := s.Add(ctx, bareMagnet)
 		if addErr != nil {
 			return nil, err
