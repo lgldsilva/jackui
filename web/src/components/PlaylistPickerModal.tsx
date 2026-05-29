@@ -88,6 +88,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
+      onFocus={() => {}}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl">

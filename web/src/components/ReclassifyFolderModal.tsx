@@ -20,7 +20,7 @@ function fileCountLabel(entry: LocalEntry | null, files: LocalEntry[]): React.Re
   if (!entry?.isDir) {
     return <><span className="text-white font-semibold">1</span> arquivo selecionado</>
   }
-  const s = files.length !== 1 ? 's' : ''
+  const s = files.length === 1 ? '' : 's'
   return <><span className="text-white font-semibold">{files.length}</span> arquivo{s} de mídia encontrado{s}</>
 }
 
@@ -201,6 +201,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
+      onFocus={() => {}}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl max-h-[90vh] flex flex-col">

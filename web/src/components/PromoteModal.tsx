@@ -111,6 +111,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
+      onFocus={() => {}}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
@@ -256,7 +257,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               onChange={e => setKeepSeeding(e.target.checked)}
               className="accent-cyan-500"
             />
-            Continuar seedando após mover (preserva ratio em trackers privados)
+            {' '}Continuar seedando após mover (preserva ratio em trackers privados)
           </label>
 
           <div className="text-xs text-gray-500 flex items-start gap-1.5">

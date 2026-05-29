@@ -37,6 +37,7 @@ import {
   favoritesList,
   libraryGet,
   libraryUpdateResume,
+  LibraryEntry,
   downloadCreate,
 } from '../api/client'
 import { formatRate } from '../lib/format'
@@ -176,8 +177,18 @@ export default function PlayerModal({
   // button). Shown as an overlay over the video.
   const [showResumePrompt, setShowResumePrompt] = useState(false)
   const lastResumeSaveRef = useRef(0)
-  const lastUrlSyncRef = useRef(0)  // throttle for writing ?t= into the URL
-  const bufferRetryRef = useRef(0)  // bounded auto-retries while swarm still delivers
+  const lastUrlSyncRef = useRef(0)
+  const bufferRetryRef = useRef(0)
+
+  const loadLibraryEntry = (list: LibraryEntry[], infoHash: string) => {
+    const entry = list.find(e => e.infoHash === infoHash)
+    if (entry) {
+      setLibraryEntryID(entry.id)
+      if (entry.resumeSeconds > 30 && entry.durationSeconds > 0 && entry.resumeSeconds < entry.durationSeconds - 30) {
+        setResumePosition(entry.resumeSeconds)
+      }
+    }
+  }
 
   // Sidebar (file list) open/closed state. On lg+ screens the file picker
   // renders as a right column instead of a stacked panel below the video.
@@ -761,15 +772,7 @@ export default function PlayerModal({
     // We don't know the library row ID upfront; the upsert happens in StreamAdd response chain.
     // Instead, fetch the user's library and find the entry by info_hash.
     import('../api/client').then(({ libraryList }) => {
-      libraryList({ limit: 100 }).then(list => {
-        const entry = list.find(e => e.infoHash === info.infoHash)
-        if (entry) {
-          setLibraryEntryID(entry.id)
-          if (entry.resumeSeconds > 30 && entry.durationSeconds > 0 && entry.resumeSeconds < entry.durationSeconds - 30) {
-            setResumePosition(entry.resumeSeconds)
-          }
-        }
-      }).catch(() => {})
+      libraryList({ limit: 100 }).then(list => loadLibraryEntry(list, info!.infoHash)).catch(() => {})
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash])
@@ -1025,7 +1028,7 @@ export default function PlayerModal({
     if (!info) return
     favoritesList()
       .then(list => setIsFavorite(list.some(f =>
-        (info.infoHash && f.infoHash?.toLowerCase() === info.infoHash.toLowerCase())
+        (f.infoHash?.toLowerCase() === info.infoHash?.toLowerCase())
         || f.name === info.name
       )))
       .catch(() => {})

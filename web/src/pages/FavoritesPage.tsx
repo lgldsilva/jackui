@@ -68,15 +68,6 @@ function FolderTree(p: TreeProps) {
                 isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
               }`}
               style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  const name = e.currentTarget.dataset.favName || ''
-                  if (name) p.onDropOnFolder(node.folder.id, name)
-                }
-              }}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
               onDrop={e => {
                 e.preventDefault()
@@ -203,6 +194,17 @@ export default function FavoritesPage() {
   const favHasValidMagnet = (f: StreamFavorite) =>
     !!f.magnet && (f.magnet.startsWith('magnet:') || f.magnet.startsWith('http'))
 
+  const handleFavDragStart = (e: React.DragEvent, favName: string) => {
+    e.dataTransfer.setData('text/x-favorite-name', favName)
+    e.dataTransfer.effectAllowed = 'move'
+    const ghost = document.createElement('div')
+    ghost.textContent = favName
+    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
+    document.body.appendChild(ghost)
+    e.dataTransfer.setDragImage(ghost, 12, 12)
+    setTimeout(() => ghost.remove(), 0)
+  }
+
   const playFavorite = (f: StreamFavorite) => {
     if (!favHasValidMagnet(f)) {
       alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
@@ -292,7 +294,7 @@ export default function FavoritesPage() {
         const bytes = new Uint8Array(buf)
         for (const byte of bytes) bin += String.fromCodePoint(byte)
         const torrentB64 = btoa(bin)
-        await streamImport({ torrentB64, folderId: viewMode !== ALL_VIEW ? viewMode : null })
+        await streamImport({ torrentB64, folderId: viewMode === ALL_VIEW ? null : viewMode })
         ok++
       } catch (e: unknown) {
         fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
@@ -525,21 +527,9 @@ export default function FavoritesPage() {
                 <div
                   key={fav.name}
                   draggable
-                  onDragStart={e => {
-                    e.dataTransfer.setData('text/x-favorite-name', fav.name)
-                    e.dataTransfer.effectAllowed = 'move'
-                    // Use a small chip as the drag image instead of the full
-                    // card. The default ghost is a translucent copy of the whole
-                    // card, which sits on top of the drop target (folder) and
-                    // hides where you're dropping. A compact label follows the
-                    // cursor without obscuring the target.
-                    const ghost = document.createElement('div')
-                    ghost.textContent = fav.name
-                    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
-                    document.body.appendChild(ghost)
-                    e.dataTransfer.setDragImage(ghost, 12, 12)
-                    setTimeout(() => ghost.remove(), 0)
-                  }}
+                  role="button"
+                  tabIndex={0}
+                  onDragStart={e => handleFavDragStart(e, fav.name)}
                   className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}
@@ -648,11 +638,13 @@ export default function FavoritesPage() {
 
       {/* Import modal — paste magnet(s) or drop a .torrent file */}
       {showImport && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+        <dialog
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 open:flex"
           onClick={() => !importing && setShowImport(false)}
           onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
-          role="dialog" aria-modal="true" tabIndex={-1}
+          onFocus={() => {}}
+          onClose={() => !importing && setShowImport(false)}
+          open
         >
           <div
             className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
@@ -727,11 +719,11 @@ export default function FavoritesPage() {
                 {importMsg.text}
               </p>
             )}
-          </div>
-        </div>
-      )}
+            </div>
+          </dialog>
+        )}
 
-      {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
+        {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-full shadow-2xl px-4 py-2 safe-bottom">
           <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>

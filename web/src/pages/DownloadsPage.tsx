@@ -495,12 +495,11 @@ export default function DownloadsPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div
+    <section
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      role="region"
       aria-label="Gerenciador de downloads — arraste arquivos .torrent ou links magnet"
       className="relative min-h-screen bg-gray-900"
     >
@@ -953,7 +952,7 @@ export default function DownloadsPage() {
           </button>
         </div>
       )}
-    </div>
+    </section>
   )
 }
 

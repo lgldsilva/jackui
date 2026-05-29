@@ -68,11 +68,13 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
   const isSameLoc = dstMount === mount && browsePath === (entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '')
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    <dialog
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      onFocus={() => {}}
+      onClose={onClose}
+      open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
@@ -201,6 +203,6 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
           </>
         )}
       </div>
-    </div>
+    </dialog>
   )
 }

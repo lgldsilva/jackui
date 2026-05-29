@@ -192,7 +192,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
 
   // Card-wide click → opens contents. Action buttons stopPropagation to not double-trigger.
   const cardClickable = hasSource && onExploreContents !== undefined
-  const handleCardClick = cardClickable ? () => onExploreContents!(result) : undefined
+  const handleCardClick = cardClickable ? () => onExploreContents(result) : undefined
 
   let titleAttr: string
   if (tmdb) {
@@ -213,7 +213,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         }
       } : undefined}
       role={cardClickable ? 'button' : undefined}
-      tabIndex={cardClickable ? 0 : undefined}
+      {...(cardClickable ? { tabIndex: 0 } : {})}
       className={`card flex flex-col gap-3 ${
         cardClickable
           ? 'cursor-pointer hover:border-green-500/40 hover:bg-gray-800/80 active:bg-gray-800/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'

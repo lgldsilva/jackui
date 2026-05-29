@@ -8,7 +8,7 @@ export default function LoginPage() {
   const { login, loginWithPasskey } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
-  const from = (location.state as any)?.from?.pathname || '/'
+  const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/'
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -125,7 +125,7 @@ export default function LoginPage() {
               onChange={e => setRemember(e.target.checked)}
               className="w-4 h-4 accent-green-500"
             />
-            Lembrar de mim por 30 dias
+            {' '}Lembrar de mim por 30 dias
           </label>
 
           {error && (
