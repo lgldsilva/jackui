@@ -38,12 +38,14 @@ pipeline {
 
   stages {
     stage('Backend test') {
-      // HOME=/tmp: o agente roda como uid do jenkins (sem home gravável); o Go
-      // precisa de GOCACHE/GOPATH graváveis. Sem apk: o projeto é cgo-free
-      // (modernc.org/sqlite), então gcc não é necessário.
-      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '-e HOME=/tmp -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
+      // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
+      // exigem, como no ambiente dev). GOCACHE/GOPATH em /tmp. Só ./internal/...
+      // — cmd/server importa o pacote ui (//go:embed all:dist), que não compila
+      // antes do frontend build; e não tem testes próprios.
+      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '-u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
       steps {
-        sh 'go test -coverprofile=coverage.out ./internal/... ./cmd/...'
+        sh 'apk add --no-cache ffmpeg >/dev/null'
+        sh 'go test -coverprofile=coverage.out ./internal/...'
       }
     }
 
