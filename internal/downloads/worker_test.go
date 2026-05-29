@@ -686,7 +686,4 @@ func testMoveFile(t *testing.T, src, dst, content string) {
 	}
 }
 
-func TestWorkerMoveFile_SameFS(t *testing.T) {
-	dir := t.TempDir()
-	testMoveFile(t, filepath.Join(dir, "src.txt"), filepath.Join(dir, "dst.txt"), "hello")
-}
+

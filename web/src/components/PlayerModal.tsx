@@ -109,6 +109,154 @@ function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | nu
   }
 }
 
+function renderPlayerHeader(
+  minimized: boolean,
+  info: TorrentInfo | null,
+  result: SearchResult,
+  isTranscoded: boolean,
+  caps: TranscodeCapabilities | null,
+  encoderLabel: string,
+  isFavorite: boolean,
+  toggleFavorite: () => void,
+  incognito: boolean,
+  setIncognito: (v: boolean) => void,
+  setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void,
+  onClose: () => void,
+) {
+  if (minimized) return null
+  return (
+    <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
+      <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
+        <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
+        <span className="truncate">{info?.name || result.title}</span>
+        {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={`Encoder: ${caps.preferred}`}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
+        {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
+      </h2>
+      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
+        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+        <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-gray-400 hover:text-gray-200 transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors"><X className="w-5 h-5" /></button>
+      </div>
+    </div>
+  )
+}
+
+function renderPlaylistBar(
+  playlist: PlaylistMeta,
+  onPrev: (() => void) | undefined,
+  onToggleShuffle: (() => void) | undefined,
+  shuffle: boolean,
+  onCycleRepeat: (() => void) | undefined,
+  repeat: 'none' | 'one' | 'all',
+  onNext: (() => void) | undefined,
+) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-200 flex-shrink-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <ListMusic className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="font-medium truncate">{playlist.name}</span>
+        <span className="text-blue-400/80 flex-shrink-0">· {playlist.currentIndex + 1} de {playlist.items.length}</span>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button onClick={onPrev} className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
+        <button onClick={onToggleShuffle} className={`p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
+        <button onClick={onCycleRepeat} className={`p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`} title={`Repeat: ${repeat}`}>
+          <Repeat className="w-3.5 h-3.5" />
+          {repeat === 'one' && <span className="absolute -bottom-0.5 -right-0.5 text-[8px] font-bold text-green-300">1</span>}
+        </button>
+        <button onClick={onNext} className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
+      </div>
+    </div>
+  )
+}
+
+function tryPrefetchNext(
+  v: HTMLVideoElement,
+  now: number,
+  nextVideoIdx: number,
+  info: TorrentInfo | null,
+  prefetchedNextEpRef: { current: boolean },
+  onPrefetchNextPlaylist: (() => void) | undefined,
+  prefetchedPlaylistN1Ref: { current: boolean },
+  onPrefetchNextNextPlaylist: (() => void) | undefined,
+  prefetchedPlaylistN2Ref: { current: boolean },
+) {
+  if (!v.duration || v.duration <= 0) return
+  const ratio = now / v.duration
+  if (ratio > 0.5) {
+    if (!prefetchedNextEpRef.current && nextVideoIdx >= 0 && info) {
+      prefetchedNextEpRef.current = true
+      streamPrefetch(info.infoHash, nextVideoIdx)
+    }
+    if (!prefetchedPlaylistN1Ref.current && onPrefetchNextPlaylist) {
+      prefetchedPlaylistN1Ref.current = true
+      onPrefetchNextPlaylist()
+    }
+  }
+  if (ratio > 0.85 && !prefetchedPlaylistN2Ref.current && onPrefetchNextNextPlaylist) {
+    prefetchedPlaylistN2Ref.current = true
+    onPrefetchNextNextPlaylist()
+  }
+}
+
+function updateBufferedRanges(
+  v: HTMLVideoElement,
+  now: number,
+  setRanges: (r: Array<[number, number]>) => void,
+  setEnd: (n: number) => void,
+) {
+  if (v.buffered.length === 0) return
+  const ranges: Array<[number, number]> = []
+  for (let i = 0; i < v.buffered.length; i++) ranges.push([v.buffered.start(i), v.buffered.end(i)])
+  setRanges(ranges)
+  let be = ranges[ranges.length - 1][1]
+  for (const [s, e] of ranges) { if (now >= s && now <= e) { be = e; break } }
+  setEnd(be)
+}
+
+function tryAutoFavorite(
+  watched: number,
+  isFavorite: boolean,
+  threshold: number,
+  info: TorrentInfo | null,
+  setIsFavorite: (v: boolean) => void,
+) {
+  if (!isFavorite && watched >= threshold && info) {
+    setIsFavorite(true)
+    favoriteAdd(info.name, info.infoHash, info.infoHash ? `magnet:?xt=urn:btih:${info.infoHash}` : '', 'auto-5min').catch(() => setIsFavorite(false))
+  }
+}
+
+function trySaveResume(
+  now: number,
+  incognito: boolean,
+  libraryEntryID: number | null,
+  lastSave: { current: number },
+  duration: number,
+) {
+  if (incognito || libraryEntryID === null || now <= 1) return
+  const elapsed = now - lastSave.current
+  if (elapsed > 15 || elapsed < -1) {
+    lastSave.current = now
+    libraryUpdateResume(libraryEntryID, now, duration).catch(() => {})
+  }
+}
+
+function trySyncUrlPlayhead(
+  now: number,
+  lastSync: { current: number },
+) {
+  if (now <= 3) return
+  const since = now - lastSync.current
+  if (since > 5 || since < -1) {
+    lastSync.current = now
+    const params = new URLSearchParams(globalThis.location.search)
+    params.set('t', String(Math.floor(now)))
+    globalThis.history.replaceState(null, '', `${globalThis.location.pathname}?${params.toString()}`)
+  }
+}
+
 export default function PlayerModal({
   result,
   onClose,
@@ -768,11 +916,10 @@ export default function PlayerModal({
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
     if (!info?.infoHash || incognito) return
-    libraryGet(0).catch(() => {}) // warmup (no-op)
-    // We don't know the library row ID upfront; the upsert happens in StreamAdd response chain.
-    // Instead, fetch the user's library and find the entry by info_hash.
+    libraryGet(0).catch(() => {})
+    const hash = info.infoHash
     import('../api/client').then(({ libraryList }) => {
-      libraryList({ limit: 100 }).then(list => loadLibraryEntry(list, info!.infoHash)).catch(() => {})
+      libraryList({ limit: 100 }).then(list => loadLibraryEntry(list, hash)).catch(() => {})
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash])
@@ -918,85 +1065,16 @@ export default function PlayerModal({
     const v = videoRef.current
     if (!v) return
     const now = v.currentTime
-    // Delta-based accumulation — handles seeks correctly (don't count jumps)
     const delta = now - lastTickRef.current
-    if (delta > 0 && delta < 2) { // small forward step = normal playback
-      watchedRef.current += delta
-    }
+    if (delta > 0 && delta < 2) watchedRef.current += delta
     lastTickRef.current = now
-
     setCurrentTime(now)
     setDuration(v.duration || 0)
-    if (v.buffered.length > 0) {
-      const ranges: Array<[number, number]> = []
-      for (let i = 0; i < v.buffered.length; i++) {
-        ranges.push([v.buffered.start(i), v.buffered.end(i)])
-      }
-      setBufferedRanges(ranges)
-      // bufferedEnd = end of the island containing the playhead (for the
-      // "X à frente" label); fall back to the last island when the playhead
-      // sits in an as-yet-unbuffered gap (just after a seek).
-      let be = ranges[ranges.length - 1][1]
-      for (const [s, e] of ranges) {
-        if (now >= s && now <= e) {
-          be = e
-          break
-        }
-      }
-      setBufferedEnd(be)
-    }
-
-    // Auto-favorite once threshold passed
-    if (!isFavorite && watchedRef.current >= AUTO_FAV_THRESHOLD && info) {
-      setIsFavorite(true)
-      favoriteAdd(info.name, info.infoHash, info?.infoHash ? `magnet:?xt=urn:btih:${info.infoHash}` : '', 'auto-5min').catch(() => setIsFavorite(false))
-    }
-
-    // Persist resume position every 15s (skipped in incognito mode)
-    if (!incognito && libraryEntryID !== null && now > 1) {
-      const elapsed = now - lastResumeSaveRef.current
-      if (elapsed > 15 || elapsed < -1 /* seek backwards forces save too */) {
-        lastResumeSaveRef.current = now
-        libraryUpdateResume(libraryEntryID, now, v.duration || 0).catch(() => {})
-      }
-    }
-
-    // Mirror the playhead into the URL (?t=) every 5s so copying the browser
-    // URL — or hitting reload — resumes at this exact point, even across
-    // devices/users (the library-based resume is per-user and lags 15s).
-    // replaceState avoids polluting browser history; preserves ?play & ?f.
-    if (now > 3) {
-      const since = now - lastUrlSyncRef.current
-      if (since > 5 || since < -1 /* seek also refreshes the URL */) {
-        lastUrlSyncRef.current = now
-        const params = new URLSearchParams(globalThis.location.search)
-        params.set('t', String(Math.floor(now)))
-        globalThis.history.replaceState(null, '', `${globalThis.location.pathname}?${params.toString()}`)
-      }
-    }
-
-    // Aggressive prefetch — eliminate the metadata + first-pieces wait at item boundaries.
-    // Heuristic: 50% triggers next-episode (same torrent) and next-playlist-item warm-up,
-    // 85% adds the N+2 playlist item for fast-sequence playlists.
-    if (v.duration && v.duration > 0) {
-      const ratio = now / v.duration
-      if (ratio > 0.5) {
-        // Next episode in the same torrent (priority head pieces for series packs)
-        if (!prefetchedNextEpRef.current && nextVideoIdx >= 0 && info) {
-          prefetchedNextEpRef.current = true
-          streamPrefetch(info.infoHash, nextVideoIdx)
-        }
-        // Next item in the playlist (different torrent — preloads metadata + first pieces)
-        if (!prefetchedPlaylistN1Ref.current && onPrefetchNextPlaylist) {
-          prefetchedPlaylistN1Ref.current = true
-          onPrefetchNextPlaylist()
-        }
-      }
-      if (ratio > 0.85 && !prefetchedPlaylistN2Ref.current && onPrefetchNextNextPlaylist) {
-        prefetchedPlaylistN2Ref.current = true
-        onPrefetchNextNextPlaylist()
-      }
-    }
+    updateBufferedRanges(v, now, setBufferedRanges, setBufferedEnd)
+    tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
+    trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
+    trySyncUrlPlayhead(now, lastUrlSyncRef)
+    tryPrefetchNext(v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref)
   }
 
   // Apply playback speed + pitch preservation whenever the user changes it or
@@ -1247,104 +1325,8 @@ export default function PlayerModal({
       <div className={minimized
         ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
         : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
-        {/* Header — safe-top on mobile so the title + close button clear the iOS
-            notch in PWA standalone mode. Bounded to mobile (sm:pt-0 via inline
-            class) because on sm+ the modal sits inside the page with margins
-            and the inset is always 0 anyway. */}
-        <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
-            <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
-            <span className="truncate">{info?.name || result.title}</span>
-            {isTranscoded && caps?.preferred && (
-              <span
-                className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"
-                title={`Encoder: ${caps.preferred}`}
-              >
-                <Cpu className="w-2.5 h-2.5" />
-                {encoderLabel}
-              </span>
-            )}
-            {isTranscoded && !caps?.preferred && (
-              <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0">
-                <Cpu className="w-2.5 h-2.5" />GPU
-              </span>
-            )}
-          </h2>
-          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-            {info && (
-              <button
-                onClick={toggleFavorite}
-                title={isFavorite ? 'Remover dos favoritos (volta a ser elegível pra eviction)' : 'Marcar como favorito — preservado mesmo após "Limpar cache"'}
-                className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}
-              >
-                <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
-              </button>
-            )}
-            <button
-              onClick={() => setIncognito(!incognito)}
-              title={incognito ? 'Modo incógnito ativo — histórico e progresso não são salvos' : 'Ativar modo incógnito — não salva no Continuar Assistindo nem no histórico'}
-              className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              {incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={() => setMinimized(m => !m)}
-              title={minimized ? 'Expandir player' : 'Minimizar (continua tocando ao navegar)'}
-              className="text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              {minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}
-            </button>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Playlist context bar */}
-        {playlist && (
-          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-200 flex-shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <ListMusic className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="font-medium truncate">{playlist.name}</span>
-              <span className="text-blue-400/80 flex-shrink-0">
-                · {playlist.currentIndex + 1} de {playlist.items.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={onPlaylistPrevious}
-                className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white"
-                title="Item anterior da playlist"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={onToggleShuffle}
-                className={`p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`}
-                title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}
-              >
-                <Shuffle className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={onCycleRepeat}
-                className={`p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`}
-                title={`Repeat: ${repeat}`}
-              >
-                <Repeat className="w-3.5 h-3.5" />
-                {repeat === 'one' && (
-                  <span className="absolute -bottom-0.5 -right-0.5 text-[8px] font-bold text-green-300">1</span>
-                )}
-              </button>
-              <button
-                onClick={onPlaylistAdvance}
-                className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white"
-                title="Próximo item da playlist"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        {renderPlayerHeader(minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose)}
+        {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent

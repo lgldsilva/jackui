@@ -85,6 +85,40 @@ function renderItemStatus(item: TorrentItem) {
   </span>
 }
 
+async function confirmDownloads(
+  readyItems: TorrentItem[],
+  selectedClientId: string,
+  savePath: string,
+): Promise<number> {
+  let successCount = 0
+  for (const item of readyItems) {
+    const infoHash = item.infoHash
+    const magnet = item.magnet || (infoHash ? `magnet:?xt=urn:btih:${infoHash}` : '')
+    if (!infoHash || !magnet) continue
+    if (selectedClientId === INTERNAL_ID) {
+      if ((item.files?.length ?? 0) > 0) {
+        const picks = (item.files ?? []).filter(f => item.selectedFiles.has(f.index))
+        await Promise.all(picks.map(f => downloadCreate({ infoHash, fileIndex: f.index, magnet, name: item.name, filePath: f.path, fileSize: f.size })))
+      } else {
+        await downloadCreate({ infoHash, fileIndex: 0, magnet, name: item.name, filePath: '', fileSize: 0 })
+      }
+    } else {
+      await downloadTorrent(selectedClientId, magnet, '', savePath || undefined)
+    }
+    successCount++
+  }
+  return successCount
+}
+
+function notifyAdded(readyItems: TorrentItem[], onAdded: (r: SearchResult) => void, onClose: () => void) {
+  if (readyItems.length === 1) {
+    const first = readyItems[0]
+    onAdded({ title: first.name, tracker: '', categoryId: 0, category: '', size: first.totalSize || 0, seeders: 0, leechers: 0, age: '', magnetUri: first.magnet || `magnet:?xt=urn:btih:${first.infoHash}`, link: '', infoHash: first.infoHash || '', publishDate: '' })
+  } else {
+    setTimeout(() => onClose(), 1200)
+  }
+}
+
 export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles }: Props) {
   useScrollLock(isOpen)
   
@@ -302,100 +336,19 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       setError('Nenhum torrent válido para baixar.')
       return
     }
-
-    // Valida arquivos selecionados para JackUI
-    if (selectedClientId === INTERNAL_ID) {
-      const anyEmpty = readyItems.some(item => (item.files?.length ?? 0) > 0 && item.selectedFiles.size === 0)
-      if (anyEmpty) {
-        setError('Por favor, selecione ao menos um arquivo para cada torrent ou remova-o da lista.')
-        return
-      }
+    if (selectedClientId === INTERNAL_ID && readyItems.some(item => (item.files?.length ?? 0) > 0 && item.selectedFiles.size === 0)) {
+      setError('Por favor, selecione ao menos um arquivo para cada torrent ou remova-o da lista.')
+      return
     }
 
     setLoading(true)
     setError('')
-    
     try {
-      let successCount = 0
-      
-      for (const item of readyItems) {
-        const infoHash = item.infoHash
-        const magnet = item.magnet || (infoHash ? `magnet:?xt=urn:btih:${infoHash}` : '')
-        
-        if (!infoHash || !magnet) continue
-
-        if (selectedClientId === INTERNAL_ID) {
-          // Destino interno: cria rows na fila
-          if ((item.files?.length ?? 0) > 0) {
-            const picks = (item.files ?? []).filter(f => item.selectedFiles.has(f.index))
-            await Promise.all(picks.map(f =>
-              downloadCreate({
-                infoHash,
-                fileIndex: f.index,
-                magnet,
-                name: item.name,
-                filePath: f.path,
-                fileSize: f.size,
-              })
-            ))
-            successCount++
-          } else {
-            // Fallback se não resolveu arquivos ainda
-            await downloadCreate({
-              infoHash,
-              fileIndex: 0,
-              magnet,
-              name: item.name,
-              filePath: '',
-              fileSize: 0
-            })
-            successCount++
-          }
-        } else {
-          // Cliente externo
-          await downloadTorrent(
-            selectedClientId,
-            magnet,
-            '', // torrentUrl
-            savePath || undefined
-          )
-          successCount++
-        }
-      }
-
-      // Salva preferências
+      await confirmDownloads(readyItems, selectedClientId, savePath)
       save(KEY_CLIENT, selectedClientId)
-      if (savePath.trim()) {
-        save(KEY_PATH, savePath.trim())
-        pushMRU(KEY_RECENT_PATHS, savePath.trim())
-      }
-
+      if (savePath.trim()) { save(KEY_PATH, savePath.trim()); pushMRU(KEY_RECENT_PATHS, savePath.trim()) }
       setSuccess(true)
-      
-      // Cria um SearchResult sintético para notificar a página inicial (compatibilidade)
-      if (readyItems.length === 1) {
-        const first = readyItems[0]
-        onAdded({
-          title: first.name,
-          tracker: '',
-          categoryId: 0,
-          category: '',
-          size: first.totalSize || 0,
-          seeders: 0,
-          leechers: 0,
-          age: '',
-          magnetUri: first.magnet || `magnet:?xt=urn:btih:${first.infoHash}`,
-          link: '',
-          infoHash: first.infoHash || '',
-          publishDate: ''
-        })
-      } else {
-        // Para múltiplos, apenas fecha e atualiza
-        setTimeout(() => {
-          onClose()
-        }, 1200)
-      }
-
+      notifyAdded(readyItems, onAdded, onClose)
     } catch (err: any) {
       setError(err.message || 'Erro ao iniciar os downloads.')
     } finally {

@@ -38,6 +38,32 @@ function buildTree(folders: FavoriteFolder[]): FolderNode[] {
   return roots
 }
 
+async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW: number): Promise<{ ok: number; fails: string[] }> {
+  let ok = 0
+  const fails: string[] = []
+  for (const file of files) {
+    try {
+      const buf = await file.arrayBuffer()
+      let bin = ''
+      const bytes = new Uint8Array(buf)
+      for (const byte of bytes) bin += String.fromCodePoint(byte)
+      await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
+      ok++
+    } catch (e: unknown) {
+      fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  return { ok, fails }
+}
+
+function buildImportMsg(ok: number, failCount: number, firstFail: string | undefined, suffix: string): { kind: 'ok' | 'err'; text: string } {
+  if (failCount === 0) {
+    const plural = ok === 1 ? '' : 's'
+    return { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
+  }
+  return { kind: 'err', text: `${ok} ok, ${failCount} falha(s): ${firstFail}${suffix}` }
+}
+
 type TreeProps = {
   readonly nodes: FolderNode[]
   readonly depth: number
@@ -74,6 +100,9 @@ function FolderTree(p: TreeProps) {
                 const name = e.dataTransfer.getData('text/x-favorite-name')
                 if (name) p.onDropOnFolder(node.folder.id, name)
               }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onSelect(node.folder.id) } }}
             >
               {node.children.length > 0 ? (
                 <button onClick={() => p.onToggle(node.folder.id)} className="text-gray-500 hover:text-gray-200">
@@ -285,35 +314,10 @@ export default function FavoritesPage() {
     }
     setImporting(true)
     setImportMsg(null)
-    let ok = 0
-    const fails: string[] = []
-    for (const file of torrents) {
-      try {
-        const buf = await file.arrayBuffer()
-        let bin = ''
-        const bytes = new Uint8Array(buf)
-        for (const byte of bytes) bin += String.fromCodePoint(byte)
-        const torrentB64 = btoa(bin)
-        await streamImport({ torrentB64, folderId: viewMode === ALL_VIEW ? null : viewMode })
-        ok++
-      } catch (e: unknown) {
-        fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
-      }
-    }
+    const { ok, fails } = await importTorrentB64(torrents, viewMode, ALL_VIEW)
     setImporting(false)
-    let suffix = ''
-    if (skipped > 0) {
-      const plural = skipped === 1 ? '' : 's'
-      suffix = ` (${skipped} ignorado${plural} — não .torrent)`
-    }
-    let msg: { kind: 'ok' | 'err'; text: string }
-    if (fails.length === 0) {
-      const plural = ok === 1 ? '' : 's'
-      msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
-    } else {
-      msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}${suffix}` }
-    }
-    setImportMsg(msg)
+    const suffix = skipped > 0 ? ` (${skipped} ignorado${skipped === 1 ? '' : 's'} — não .torrent)` : ''
+    setImportMsg(buildImportMsg(ok, fails.length, fails[0], suffix))
     await load()
   }
 
@@ -527,8 +531,6 @@ export default function FavoritesPage() {
                 <div
                   key={fav.name}
                   draggable
-                  role="button"
-                  tabIndex={0}
                   onDragStart={e => handleFavDragStart(e, fav.name)}
                   className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
