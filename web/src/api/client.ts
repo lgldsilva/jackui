@@ -99,6 +99,9 @@ export type SearchResult = {
   // Present when the result comes from a history endpoint — it's the
   // results.id primary key and unlocks per-row mutations like refresh.
   id?: number
+  // Origin search query — present on results returned by history/cache
+  // endpoints (lets the UI jump back to "see all results for this query").
+  query?: string
 }
 
 export type Indexer = {
