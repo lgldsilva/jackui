@@ -1,7 +1,6 @@
 services:
   jackui:
-    image: jackui:latest
-    # S7031: pin to a specific version tag for reproducible deploys
+    image: jackui:${JACKUI_TAG:-latest}
     container_name: jackui
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
@@ -9,8 +8,12 @@ services:
     # rodar os defers (anacrolix.Client.Close commita o estado de pieces no
     # bolt DB; sem isso, restart fazia anacrolix re-baixar pieces já gravados).
     stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${JACKUI_MEM_LIMIT:-4G}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8989/api/config"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8989/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
