@@ -172,6 +172,10 @@ func main() {
 		}
 	}
 
+	// authStore declared early so the downloads worker closure can capture it.
+	// Initialised further below (Auth section); nil-safe until then.
+	var authStore *auth.Store
+
 	// Downloads store + worker — full-file background downloads. Worker
 	// reconciles the DB queue with anacrolix every 2s; registered names are
 	// protected from cache eviction.
@@ -195,7 +199,21 @@ func main() {
 				return path, true
 			})
 
-			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second, cfg.Notifications.NtfyBaseURL, cfg.Notifications.NtfyDefaultTopic)
+			// Per-user isolation: resolve username from auth store so completed
+			// files land in downloadDir/{username}/ instead of the flat root.
+			// The closure captures authStore by reference — authStore will be
+			// initialised before any download completes so the nil guard inside works.
+			usernameResolver := func(userID int) string {
+				if authStore == nil {
+					return ""
+				}
+				u, err := authStore.GetUserByID(userID)
+				if err != nil || u == nil {
+					return ""
+				}
+				return u.Username
+			}
+			worker := downloads.NewWorker(downloadsStore, streamSrv, streamCfg.DataDir, cfg.Stream.DownloadDir, 2*time.Second, cfg.Notifications.NtfyBaseURL, cfg.Notifications.NtfyDefaultTopic, usernameResolver)
 			worker.Start()
 			defer worker.Stop()
 			log.Printf("Downloads worker started (tick=2s, ntfy=%q)", cfg.Notifications.NtfyDefaultTopic)
