@@ -26,6 +26,7 @@ import (
 	"github.com/luizg/jackui/internal/library"
 	"github.com/luizg/jackui/internal/local"
 	"github.com/luizg/jackui/internal/mailer"
+	"github.com/luizg/jackui/internal/middleware"
 	"github.com/luizg/jackui/internal/playlists"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/subtitles"
@@ -85,6 +86,14 @@ func main() {
 	if streamCfg.DataDir == "" {
 		streamCfg.DataDir = "/data/streams"
 	}
+	// stateDir holds the SQLite stores (favorites, library, etc.). When unset
+	// (or in legacy deploys) it falls back to DataDir so behavior is unchanged;
+	// pointing it at a faster/separate volume (e.g. /portainer state SSD) keeps
+	// state writes out of the LVM piece cache that competes for I/O.
+	stateDir := cfg.Stream.StateDir
+	if stateDir == "" {
+		stateDir = streamCfg.DataDir
+	}
 	streamSrv, err := streamer.New(streamCfg)
 	if err != nil {
 		log.Printf("Warning: streamer init failed: %v — streaming disabled", err)
@@ -94,10 +103,10 @@ func main() {
 		defer streamSrv.Close()
 
 		// Favorites store — preserved across cache evictions
-		if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(streamCfg.DataDir)); ferr == nil {
+		if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(stateDir)); ferr == nil {
 			streamSrv.SetFavorites(favs)
 			defer favs.Close()
-			log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(streamCfg.DataDir))
+			log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(stateDir))
 		} else {
 			log.Printf("Warning: favorites store init failed: %v", ferr)
 		}
@@ -106,10 +115,10 @@ func main() {
 		// snapshots so reopening a hash is instant. (Was nested inside the
 		// favorites success branch, so a favorites-store failure silently took
 		// the metadata cache + the RefreshStalePrimary migration down with it.)
-		if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(streamCfg.DataDir)); mcerr == nil {
+		if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(stateDir)); mcerr == nil {
 			streamSrv.SetMetadataCache(mc)
 			defer mc.Close()
-			log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(streamCfg.DataDir))
+			log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(stateDir))
 		} else {
 			log.Printf("Warning: metadata cache init failed: %v", mcerr)
 		}
@@ -118,7 +127,7 @@ func main() {
 	// Library store — per-user history of streamed torrents (magnet + resume position)
 	var libraryStore *library.Store
 	if streamSrv != nil {
-		libPath := streamCfg.DataDir + "/.library.db"
+		libPath := stateDir + "/.library.db"
 		if l, lerr := library.New(libPath); lerr == nil {
 			libraryStore = l
 			defer l.Close()
@@ -150,7 +159,7 @@ func main() {
 	// Playlists store — per-user ordered collections referencing torrents
 	var playlistsStore *playlists.Store
 	if streamSrv != nil {
-		plPath := streamCfg.DataDir + "/.playlists.db"
+		plPath := stateDir + "/.playlists.db"
 		if p, perr := playlists.New(plPath); perr == nil {
 			playlistsStore = p
 			defer p.Close()
@@ -165,7 +174,7 @@ func main() {
 	// protected from cache eviction.
 	var downloadsStore *downloads.Store
 	if streamSrv != nil {
-		dlPath := streamCfg.DataDir + "/.downloads.db"
+		dlPath := stateDir + "/.downloads.db"
 		if d, derr := downloads.New(dlPath); derr == nil {
 			downloadsStore = d
 			defer d.Close()
@@ -182,7 +191,7 @@ func main() {
 	// TMDB enrichment client — optional; nil-tolerant downstream.
 	var tmdbClient *tmdb.Client
 	if streamSrv != nil {
-		tmdbPath := streamCfg.DataDir + "/.tmdb-cache.db"
+		tmdbPath := stateDir + "/.tmdb-cache.db"
 		if tc, terr := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.OMDbAPIKey, tmdbPath); terr == nil {
 			tmdbClient = tc
 			defer tc.Close()
@@ -202,7 +211,7 @@ func main() {
 	aiClient := ai.New(cfg.AI)
 	var aiBench *ai.BenchmarkStore
 	if aiClient != nil {
-		if bs, berr := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(streamCfg.DataDir)); berr == nil {
+		if bs, berr := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(stateDir)); berr == nil {
 			aiBench = bs
 			defer bs.Close()
 			// Adopt the last benchmark as the chain on boot (best model first +
@@ -233,7 +242,7 @@ func main() {
 	// store and jackett client are healthy; partial init is OK.
 	var watchlistStore *watchlist.Store
 	if streamSrv != nil {
-		wlPath := streamCfg.DataDir + "/.watchlist.db"
+		wlPath := stateDir + "/.watchlist.db"
 		if w, werr := watchlist.New(wlPath); werr == nil {
 			watchlistStore = w
 			defer w.Close()
@@ -401,6 +410,9 @@ func main() {
 	if tokenMgr != nil {
 		api.Use(auth.Required(tokenMgr))
 	}
+	// Incognito flag — tags the request when the client sent
+	// X-JackUI-Incognito: 1 so history/library handlers can skip persistence.
+	api.Use(middleware.Incognito())
 	{
 		// Client-side diagnostics — frontend posts here when something interesting
 		// happens (codec failure, fallback fired, etc.) so we can grep server logs
@@ -496,6 +508,10 @@ func main() {
 			api.GET("/local/file", handlers.LocalFile(localBrowser))
 			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
 			api.GET("/local/transcode", handlers.LocalTranscode(localBrowser))
+			// /local/play probes the file and tells the client whether to direct-play
+			// or fetch the HLS master (for MKV / HEVC / AC3 / etc. that browsers
+			// can't decode natively). Mirrors the torrent-side codec routing.
+			api.GET("/local/play", handlers.LocalPlay(localBrowser))
 
 			// Background full-file downloads (anacrolix Download API);
 			// worker tick keeps the DB queue in sync with active torrents.
@@ -518,6 +534,12 @@ func main() {
 			} else {
 				api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(streamSrv, hlsMgr))
 				api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(hlsMgr))
+				// Same pipeline, different source: a local file on a configured
+				// mount. Same reason for HLS as torrents — browsers can't decode
+				// MKV / HEVC / AC3 in <video> directly; the transcode manager
+				// dedupes by session key so concurrent viewers share one ffmpeg.
+				api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(localBrowser, hlsMgr))
+				api.GET("/local/hls/seg", handlers.LocalHLSSegment(localBrowser, hlsMgr))
 				log.Printf("HLS sessions: %s/hls", streamCfg.DataDir)
 			}
 		}

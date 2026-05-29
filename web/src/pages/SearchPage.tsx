@@ -15,6 +15,7 @@ import { SearchResult, Indexer, getIndexers, favoritesList, withToken } from '..
 import { load, save } from '../lib/storage'
 import { groupByInfoHash } from '../lib/group'
 import { isPlayable } from '../lib/playable'
+import { isIncognito } from '../lib/incognito'
 
 const TABS_KEY = 'searchTabs'
 const ACTIVE_KEY = 'activeTabId'
@@ -295,6 +296,7 @@ export default function SearchPage() {
       params.set('indexers', tab.selectedIndexers.join(','))
     if (tab.selectedCategory && tab.selectedCategory !== 'all')
       params.set('category', tab.selectedCategory)
+    if (isIncognito()) params.set('incognito', '1')
 
     // EventSource can't set Authorization header — inject Bearer as query token instead.
     // The middleware's extractToken() reads ?token= as a fallback.

@@ -12,6 +12,7 @@ import (
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/history"
 	"github.com/luizg/jackui/internal/jackett"
+	"github.com/luizg/jackui/internal/middleware"
 )
 
 func writeSSE(c *gin.Context, event string, data any) {
@@ -120,7 +121,7 @@ func SearchSSE(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 		})
 
 		// Save what we got to history asynchronously (even partial)
-		if store != nil && len(liveResults) > 0 {
+		if store != nil && len(liveResults) > 0 && !middleware.IsIncognito(c) {
 			go store.Save(query, liveResults, userID)
 		}
 

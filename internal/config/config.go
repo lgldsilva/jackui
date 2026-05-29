@@ -14,12 +14,12 @@ type Config struct {
 		URL    string `yaml:"url"`
 		APIKey string `yaml:"api_key"`
 	} `yaml:"jackett"`
-	DownloadClients []DownloadClient `yaml:"download_clients"`
-	Port            int              `yaml:"port"`
-	DBPath          string           `yaml:"db_path"`
-	Stream          StreamConfig     `yaml:"stream"`
-	Subtitles       SubtitlesConfig  `yaml:"subtitles"`
-	Auth            AuthConfig       `yaml:"auth"`
+	DownloadClients []DownloadClient    `yaml:"download_clients"`
+	Port            int                 `yaml:"port"`
+	DBPath          string              `yaml:"db_path"`
+	Stream          StreamConfig        `yaml:"stream"`
+	Subtitles       SubtitlesConfig     `yaml:"subtitles"`
+	Auth            AuthConfig          `yaml:"auth"`
 	Notifications   NotificationsConfig `yaml:"notifications"`
 	TMDB            TMDBConfig          `yaml:"tmdb"`
 	External        ExternalConfig      `yaml:"external"`
@@ -80,25 +80,28 @@ type ExternalMount struct {
 }
 
 type NotificationsConfig struct {
-	NtfyBaseURL      string `yaml:"ntfy_base_url"`       // default https://ntfy.sh
-	NtfyDefaultTopic string `yaml:"ntfy_default_topic"`  // used when a watchlist has no override
-	WatchlistInterval int   `yaml:"watchlist_minutes"`   // poll interval in minutes (default 15)
+	NtfyBaseURL       string `yaml:"ntfy_base_url"`      // default https://ntfy.sh
+	NtfyDefaultTopic  string `yaml:"ntfy_default_topic"` // used when a watchlist has no override
+	WatchlistInterval int    `yaml:"watchlist_minutes"`  // poll interval in minutes (default 15)
 }
 
 type TMDBConfig struct {
-	APIKey string `yaml:"api_key"` // empty disables enrichment (no posters)
+	APIKey     string `yaml:"api_key"`      // empty disables enrichment (no posters)
+	OMDbAPIKey string `yaml:"omdb_api_key"` // empty disables real IMDb ratings (falls back to TMDB vote)
 }
 
 type AuthConfig struct {
-	Enabled       bool   `yaml:"enabled"`         // false = legacy no-auth mode (everything public)
-	JWTSecret     string `yaml:"jwt_secret"`      // HS256 secret (auto-generated if empty + persisted)
-	AdminUsername string `yaml:"admin_username"`  // bootstrap admin login
-	AdminPassword string `yaml:"admin_password"`  // bootstrap admin password (only used on first run)
-	DBPath        string `yaml:"db_path"`         // auth DB (defaults to /data/auth.db)
+	Enabled       bool   `yaml:"enabled"`        // false = legacy no-auth mode (everything public)
+	JWTSecret     string `yaml:"jwt_secret"`     // HS256 secret (auto-generated if empty + persisted)
+	AdminUsername string `yaml:"admin_username"` // bootstrap admin login
+	AdminPassword string `yaml:"admin_password"` // bootstrap admin password (only used on first run)
+	DBPath        string `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
 }
 
 type StreamConfig struct {
 	DataDir         string `yaml:"data_dir"`         // where torrent pieces are stored
+	DownloadDir     string `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
+	StateDir        string `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
 	IdleMinutes     int    `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
 	MetadataSeconds int    `yaml:"metadata_seconds"` // metadata fetch timeout
 	MaxCacheGB      int    `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
@@ -181,6 +184,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("JACKUI_STREAM_DIR"); v != "" {
 		cfg.Stream.DataDir = v
 	}
+	if v := os.Getenv("JACKUI_DOWNLOAD_DIR"); v != "" {
+		cfg.Stream.DownloadDir = v
+	}
+	if v := os.Getenv("JACKUI_STATE_DIR"); v != "" {
+		cfg.Stream.StateDir = v
+	}
 	if v := os.Getenv("JACKUI_STREAM_MAX_GB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Stream.MaxCacheGB = n
@@ -206,6 +215,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("TMDB_API_KEY"); v != "" {
 		cfg.TMDB.APIKey = v
+	}
+	if v := os.Getenv("OMDB_API_KEY"); v != "" {
+		cfg.TMDB.OMDbAPIKey = v
 	}
 	// JACKUI_EXTERNAL_MOUNTS lets the deploy declare browsable mounts without
 	// editing config.yaml — format: "Name:/abs/path,Other:/abs/path2". Merged

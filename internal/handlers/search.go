@@ -8,6 +8,7 @@ import (
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/history"
 	"github.com/luizg/jackui/internal/jackett"
+	"github.com/luizg/jackui/internal/middleware"
 	"github.com/luizg/jackui/internal/parser"
 )
 
@@ -51,7 +52,7 @@ func Search(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 
 		liveResults, liveErr := client.Search(query, category, indexers)
 
-		if liveErr == nil && store != nil && len(liveResults) > 0 {
+		if liveErr == nil && store != nil && len(liveResults) > 0 && !middleware.IsIncognito(c) {
 			go store.Save(query, liveResults, userID)
 		}
 
