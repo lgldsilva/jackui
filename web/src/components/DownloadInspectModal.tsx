@@ -73,11 +73,11 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const fileStat = details?.file
 
   // Extract tracker URLs from the magnet URI as a client-side fallback.
-  const _mag = d.magnet ?? ''
-  const magnetTrackers: string[] = _mag
+  const magnetQ = d.magnet ?? ''
+  const magnetTrackers: string[] = magnetQ
     ? (() => {
         try {
-          const q = _mag.includes('?') ? _mag.split('?')[1] : _mag
+          const q = magnetQ.includes('?') ? magnetQ.split('?')[1] : magnetQ
           return new URLSearchParams(q).getAll('tr')
         } catch { return [] as string[] }
       })()

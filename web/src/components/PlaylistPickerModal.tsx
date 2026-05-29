@@ -40,7 +40,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
       .finally(() => setLoading(false))
   }, [result])
 
-  const add = async (p: Playlist) => {
+  const handleAddPlaylist = async (p: Playlist) => {
     if (!result) return
     setBusy(true)
     try {
@@ -120,7 +120,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
               {lists.map(p => (
                 <button
                   key={p.id}
-                  onClick={() => add(p)}
+                  onClick={() => handleAddPlaylist(p)}
                   disabled={busy}
                   className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                     added === p.id
@@ -139,8 +139,8 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
           )}
 
           {!creating && (
-            <button
-              onClick={() => setCreating(true)}
+                <button
+                  onClick={() => setCreating(true)}
               className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors mt-2"
             >
               <Plus className="w-4 h-4" /> Nova playlist
