@@ -614,7 +614,6 @@ export default function FavoritesPage() {
         >
           <div
             className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
-            onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
