@@ -368,7 +368,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
       onClose={onClose}
-      onFocus={() => {}}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
