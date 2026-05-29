@@ -8,7 +8,7 @@ import QualityBadges from './QualityBadges'
 // de "favorito" via cache module-scope; agora o backend já entrega
 // `result.isFavorited` em cada SearchResult, então esta função existe só
 // pra não quebrar o import enquanto a chamada estiver no fluxo.
-export function refreshFavoritesCache(_entries: unknown): void {}
+export function refreshFavoritesCache(_entries: unknown): void { /* no-op backwards compat */ }
 
 type ResultCardProps = {
   readonly result: SearchResult
@@ -62,6 +62,12 @@ function imdbOrTmdbRating(tmdb: TmdbMatch | null): React.ReactNode {
     return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
   }
   return null
+}
+
+function renderMagnetIcon(copied: boolean, resolvingMagnet: boolean): JSX.Element {
+  if (copied) return <Check className="w-3.5 h-3.5" />
+  if (resolvingMagnet) return <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+  return <Clipboard className="w-3.5 h-3.5" />
 }
 
 export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
@@ -151,13 +157,13 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
     }
 
     if (magnet) {
-      window.location.href = magnet
+      globalThis.location.href = magnet
     }
   }
 
   const handleTorrentDownload = async () => {
     if (result.link) {
-      window.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
+      globalThis.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
       return
     }
 
@@ -165,7 +171,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       setResolvingTorrent(true)
       try {
         const downloadUrl = convertMagnetToTorrentUrl(result.magnetUri)
-        window.location.href = downloadUrl
+        globalThis.location.href = downloadUrl
       } catch (err: any) {
         alert(`Erro ao converter magnet para torrent: ${err.message || err}`)
       } finally {
@@ -185,7 +191,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   const canPlay = hasSource && onPlay && (result.playable ?? true)
 
   // Card-wide click → opens contents. Action buttons stopPropagation to not double-trigger.
-  const cardClickable = hasSource && !!onExploreContents
+  const cardClickable = hasSource && onExploreContents !== undefined
   const handleCardClick = cardClickable ? () => onExploreContents!(result) : undefined
 
   let titleAttr: string
@@ -206,7 +212,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
           handleCardClick?.()
         }
       } : undefined}
-      role={cardClickable ? 'button' : undefined}
+      role={cardClickable ? 'presentation' : undefined}
       tabIndex={cardClickable ? 0 : undefined}
       className={`card flex flex-col gap-3 ${
         cardClickable
@@ -276,7 +282,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         {result.alsoIn && result.alsoIn.length > 0 && (
           <span className="flex items-center gap-1 text-indigo-400" title={`Mesmo torrent em: ${result.alsoIn.join(', ')}`}>
             <Globe className="w-3 h-3" />
-            +{result.alsoIn.length} tracker{result.alsoIn.length !== 1 ? 's' : ''}
+            +{result.alsoIn.length} tracker{result.alsoIn.length === 1 ? '' : 's'}
           </span>
         )}
       </div>
@@ -321,7 +327,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         <div className="flex gap-1.5 mt-auto pt-1 border-t border-gray-700 flex-wrap">
         {canPlay && (
           <button
-            onClick={(e) => { e.stopPropagation(); onPlay!(result) }}
+            onClick={(e) => { e.stopPropagation(); onPlay(result) }}
             title="Reproduzir no browser via stream"
             className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors"
           >
@@ -374,13 +380,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
                   : 'bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-400'
               }`}
             >
-              {copied ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : resolvingMagnet ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-              ) : (
-                <Clipboard className="w-3.5 h-3.5" />
-              )}
+              {renderMagnetIcon(copied, resolvingMagnet)}
             </button>
           </div>
         )}

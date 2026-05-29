@@ -74,7 +74,7 @@ function formatDate(iso: string): string {
   }
 }
 
-function EntryIcon({ entry, mount }: { entry: LocalEntry; mount: string }) {
+function EntryIcon({ entry, mount }: { readonly entry: LocalEntry; readonly mount: string }) {
   const [thumbFailed, setThumbFailed] = useState(false)
   if (entry.isDir) return <Folder className="w-5 h-5 text-blue-400 flex-shrink-0" />
   if (isVideo(entry.name)) {
@@ -100,9 +100,9 @@ function Breadcrumbs({
   path,
   onNavigate,
 }: {
-  mountName: string
-  path: string
-  onNavigate: (p: string) => void
+  readonly mountName: string
+  readonly path: string
+  readonly onNavigate: (p: string) => void
 }) {
   const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
 

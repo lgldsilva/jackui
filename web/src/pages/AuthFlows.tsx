@@ -5,7 +5,7 @@ import { registerAccount, verifyEmail, forgotPassword, resetPassword } from '../
 
 // Shared shell for the unauthenticated auth pages (register / verify / forgot /
 // reset) — same centered card as the login screen.
-function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+function Shell({ title, children }: { readonly title: string; readonly children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4 safe-top safe-bottom">
       <div className="w-full max-w-sm">
@@ -22,10 +22,10 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
   )
 }
 
-function Err({ text }: { text: string }) {
+function Err({ text }: { readonly text: string }) {
   return <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 flex items-center gap-2"><AlertCircle className="w-4 h-4 flex-shrink-0" />{text}</div>
 }
-function Ok({ text }: { text: string }) {
+function Ok({ text }: { readonly text: string }) {
   return <div className="bg-green-500/10 border border-green-500/30 text-green-300 text-sm rounded-lg p-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 flex-shrink-0" />{text}</div>
 }
 

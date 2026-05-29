@@ -72,7 +72,7 @@ export default function LibraryPage() {
         fileSize: e.totalSize,
       })
       // Navigate to downloads page so the user sees the queue
-      window.location.href = '/downloads'
+      globalThis.location.href = '/downloads'
     } catch {
       alert('Falha ao enfileirar o download')
     }

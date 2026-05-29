@@ -414,7 +414,7 @@ export default function DownloadsPage() {
       await streamSetLimits({ down, up })
       setLimitsMsg('Limites aplicados')
       await loadLimits()
-      window.setTimeout(() => { if (mountedRef.current) setLimitsMsg('') }, 2500)
+      globalThis.setTimeout(() => { if (mountedRef.current) setLimitsMsg('') }, 2500)
     } catch { setLimitsMsg('Falha ao salvar') } finally { setLimitsSaving(false) }
   }
 
@@ -962,13 +962,13 @@ export default function DownloadsPage() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  subtitle?: string
-  gradient: string
-  iconColor: string
-  pulse?: boolean
+  readonly icon: React.ReactNode
+  readonly label: string
+  readonly value: string
+  readonly subtitle?: string
+  readonly gradient: string
+  readonly iconColor: string
+  readonly pulse?: boolean
 }) {
   return (
     <div className={`
@@ -994,21 +994,21 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
   onPause, onResume, onDelete, onPlay, onInspect,
 }: {
-  torrents: TorrentInfo[]
-  downloads: DownloadEntry[]
-  torrentsLoaded: boolean
-  loading: boolean
-  busyHash: string | null
-  busyID: number | null
-  onTorrentPause: (h: string) => void
-  onTorrentResume: (h: string) => void
-  onTorrentPriority: (h: string, p: StreamPriority) => void
-  onTorrentDelete: (h: string) => void
-  onPause: (id: number) => void
-  onResume: (id: number) => void
-  onDelete: (id: number) => void
-  onPlay: (d: DownloadEntry) => void
-  onInspect: (d: DownloadEntry) => void
+  readonly torrents: TorrentInfo[]
+  readonly downloads: DownloadEntry[]
+  readonly torrentsLoaded: boolean
+  readonly loading: boolean
+  readonly busyHash: string | null
+  readonly busyID: number | null
+  readonly onTorrentPause: (h: string) => void
+  readonly onTorrentResume: (h: string) => void
+  readonly onTorrentPriority: (h: string, p: StreamPriority) => void
+  readonly onTorrentDelete: (h: string) => void
+  readonly onPause: (id: number) => void
+  readonly onResume: (id: number) => void
+  readonly onDelete: (id: number) => void
+  readonly onPlay: (d: DownloadEntry) => void
+  readonly onInspect: (d: DownloadEntry) => void
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && torrentsLoaded && !loading
   const isLoading = (!torrentsLoaded || (loading && downloads.length === 0)) && torrents.length === 0 && downloads.length === 0
@@ -1070,25 +1070,25 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   onPause, onResume, onDelete, onPromote, onStopSeed,
   selected, onToggleSelected, onPlay, onInspect, loading,
 }: {
-  torrents: TorrentInfo[]
-  downloads: DownloadEntry[]
-  torrentsLoaded: boolean
-  busyHash: string | null
-  busyID: number | null
-  onTorrentPause: (h: string) => void
-  onTorrentResume: (h: string) => void
-  onTorrentPriority: (h: string, p: StreamPriority) => void
-  onTorrentDelete: (h: string) => void
-  onPause: (id: number) => void
-  onResume: (id: number) => void
-  onDelete: (id: number) => void
-  onPromote: (d: DownloadEntry) => void
-  onStopSeed: (id: number, name: string) => void
-  selected: Set<number>
-  onToggleSelected: (id: number) => void
-  onPlay: (d: DownloadEntry) => void
-  onInspect: (d: DownloadEntry) => void
-  loading?: boolean
+  readonly torrents: TorrentInfo[]
+  readonly downloads: DownloadEntry[]
+  readonly torrentsLoaded: boolean
+  readonly busyHash: string | null
+  readonly busyID: number | null
+  readonly onTorrentPause: (h: string) => void
+  readonly onTorrentResume: (h: string) => void
+  readonly onTorrentPriority: (h: string, p: StreamPriority) => void
+  readonly onTorrentDelete: (h: string) => void
+  readonly onPause: (id: number) => void
+  readonly onResume: (id: number) => void
+  readonly onDelete: (id: number) => void
+  readonly onPromote: (d: DownloadEntry) => void
+  readonly onStopSeed: (id: number, name: string) => void
+  readonly selected: Set<number>
+  readonly onToggleSelected: (id: number) => void
+  readonly onPlay: (d: DownloadEntry) => void
+  readonly onInspect: (d: DownloadEntry) => void
+  readonly loading?: boolean
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && !loading
 
@@ -1149,16 +1149,16 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
 function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
   limitsSaving, limitsMsg, onSaveLimits, totalDown, totalUp, totalPeers,
 }: {
-  limitDownKB: string
-  limitUpKB: string
-  setLimitDownKB: (v: string) => void
-  setLimitUpKB: (v: string) => void
-  limitsSaving: boolean
-  limitsMsg: string
-  onSaveLimits: () => void
-  totalDown: number
-  totalUp: number
-  totalPeers: number
+  readonly limitDownKB: string
+  readonly limitUpKB: string
+  readonly setLimitDownKB: (v: string) => void
+  readonly setLimitUpKB: (v: string) => void
+  readonly limitsSaving: boolean
+  readonly limitsMsg: string
+  readonly onSaveLimits: () => void
+  readonly totalDown: number
+  readonly totalUp: number
+  readonly totalPeers: number
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -1247,7 +1247,7 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
 // EmptyState
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function EmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+function EmptyState({ icon, title, description }: { readonly icon: React.ReactNode; readonly title: string; readonly description: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <div className="text-gray-700 mb-3">{icon}</div>
@@ -1633,7 +1633,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
 // Shared sub-components
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function KindBadge({ kind }: { kind: 'streaming' | 'server' }) {
+function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
   if (kind === 'streaming') {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30">
@@ -1650,7 +1650,7 @@ function KindBadge({ kind }: { kind: 'streaming' | 'server' }) {
   )
 }
 
-function TorrentStatusBadge({ status }: { status: NonNullable<TorrentInfo['status']> }) {
+function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentInfo['status']> }) {
   const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
     downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-gray-300 border-gray-500/30',          icon: <Pause className="w-3 h-3" /> },
@@ -1665,7 +1665,7 @@ function TorrentStatusBadge({ status }: { status: NonNullable<TorrentInfo['statu
   )
 }
 
-function DownloadStatusBadge({ status }: { status: DownloadEntry['status'] }) {
+function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['status'] }) {
   const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
     queued:      { label: 'Na fila',     cls: 'bg-gray-700/50 text-gray-300 border-gray-600/50',         icon: <Clock className="w-3 h-3" /> },
     downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
@@ -1682,12 +1682,12 @@ function DownloadStatusBadge({ status }: { status: DownloadEntry['status'] }) {
 }
 
 function ActionButton({ onClick, disabled, variant, icon, label, className = '' }: {
-  onClick: () => void
-  disabled: boolean
-  variant: 'success' | 'danger' | 'neutral' | 'info'
-  icon: React.ReactNode
-  label: string
-  className?: string
+  readonly onClick: () => void
+  readonly disabled: boolean
+  readonly variant: 'success' | 'danger' | 'neutral' | 'info'
+  readonly icon: React.ReactNode
+  readonly label: string
+  readonly className?: string
 }) {
   const styles: Record<typeof variant, string> = {
     success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',

@@ -62,6 +62,29 @@ function fileIcon(f: StreamFile) {
   return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
 }
 
+function renderItemStatus(item: TorrentItem) {
+  if (item.loading) {
+    return <span className="text-xs text-gray-500 flex items-center gap-1.5">
+      <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+      Buscando metadados...
+    </span>
+  }
+  if (item.error) {
+    return <span className="text-xs text-red-400 flex items-center gap-1.5">
+      <AlertCircle className="w-3.5 h-3.5" />
+      {item.error}
+    </span>
+  }
+  return <span className="text-xs text-gray-400 flex items-center gap-1.5">
+    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+    {formatBytes(item.totalSize || 0)}
+    {item.files && <>
+      <span className="text-gray-600">•</span>
+      <span>{item.files.length} arquivos ({item.selectedFiles.size} selecionados)</span>
+    </>}
+  </span>
+}
+
 export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles }: Props) {
   useScrollLock(isOpen)
   
@@ -217,7 +240,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     setView('configure')
     const newItems: TorrentItem[] = lines.map(line => {
       // Tenta extrair um hash ou nome amigável do magnet
-      const btihMatch = /btih:([a-fA-F0-9]{40})/i.exec(line)
+      const btihMatch = /btih:([a-f0-9]{40})/i.exec(line)
       const nameMatch = /dn=([^&]+)/i.exec(line)
       const hash = btihMatch ? btihMatch[1].toLowerCase() : ''
       const name = nameMatch ? decodeURIComponent(nameMatch[1].replaceAll('+', ' ')) : `Magnet (hash: ${hash || '?'})`
@@ -390,7 +413,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     <dialog
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
+      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
       onClose={onClose}
       open
     >
@@ -429,8 +452,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click() } }}
-                role="button" tabIndex={0}
+                tabIndex={0}
                 className={`
                   border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
                   ${dragActive 
@@ -479,10 +501,11 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               {/* Destination inputs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-900/60 p-4 rounded-xl border border-gray-700/50">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
+                  <label htmlFor="download-dest" className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
                     Destino do download
                   </label>
                   <select
+                    id="download-dest"
                     value={selectedClientId}
                     onChange={(e) => setSelectedClientId(e.target.value)}
                     className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
@@ -504,11 +527,12 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 </div>
 
                 <div className={`relative ${selectedClientId === INTERNAL_ID ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
+                  <label htmlFor="save-path" className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
                     Pasta de Destino <span className="text-gray-500 font-normal">(opcional)</span>
                   </label>
                   <div className="relative">
                     <input
+                      id="save-path"
                       ref={pathInputRef}
                       type="text"
                       value={savePath}
@@ -569,28 +593,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                             {item.name}
                           </h4>
                           <div className="flex items-center gap-2.5 mt-1">
-                            {item.loading ? (
-                              <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                                <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
-                                Buscando metadados...
-                              </span>
-                            ) : item.error ? (
-                              <span className="text-xs text-red-400 flex items-center gap-1.5">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {item.error}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-gray-400 flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                                {formatBytes(item.totalSize || 0)}
-                                {item.files && (
-                                  <>
-                                    <span className="text-gray-600">•</span>
-                                    <span>{item.files.length} arquivos ({item.selectedFiles.size} selecionados)</span>
-                                  </>
-                                )}
-                              </span>
-                            )}
+                            {renderItemStatus(item)}
                           </div>
                         </div>
 

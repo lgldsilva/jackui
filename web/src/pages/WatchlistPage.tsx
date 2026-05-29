@@ -112,7 +112,7 @@ export default function WatchlistPage() {
               />
               <input
                 type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders"
-                value={draft.minSeeders} onChange={e => setDraft({ ...draft, minSeeders: parseInt(e.target.value || '0', 10) })}
+                value={draft.minSeeders} onChange={e => setDraft({ ...draft, minSeeders: Number.parseInt(e.target.value || '0', 10) })}
               />
             </div>
             <input
@@ -143,7 +143,7 @@ export default function WatchlistPage() {
                     <input className="input-field" value={editing.query} onChange={e => setEditing({ ...editing, query: e.target.value })} />
                     <div className="grid grid-cols-2 gap-2">
                       <input className="input-field text-sm" placeholder="Categoria" value={editing.category} onChange={e => setEditing({ ...editing, category: e.target.value })} />
-                      <input type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders" value={editing.minSeeders} onChange={e => setEditing({ ...editing, minSeeders: parseInt(e.target.value || '0', 10) })} />
+                      <input type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders" value={editing.minSeeders} onChange={e => setEditing({ ...editing, minSeeders: Number.parseInt(e.target.value || '0', 10) })} />
                     </div>
                     <input className="input-field text-sm" placeholder="ntfy topic" value={editing.ntfyTopic} onChange={e => setEditing({ ...editing, ntfyTopic: e.target.value })} />
                     <div className="flex gap-2">

@@ -147,8 +147,8 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     let bestSeeders = primary.seeders
     let bestLeechers = primary.leechers
     for (const r of arr.slice(1)) {
-      if (r.tracker) mergedAlsoIn.add(r.tracker)
-      ;(r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
+      if (r.tracker) { mergedAlsoIn.add(r.tracker) }
+      (r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
       for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
       if (r.seeders > bestSeeders) bestSeeders = r.seeders
       if (r.leechers > bestLeechers) bestLeechers = r.leechers

@@ -22,7 +22,7 @@ const SOURCE_COLORS: Record<string, string> = {
   'TS':       'bg-red-500/20 text-red-300 border-red-500/30',
 }
 
-function Badge({ text, className, title }: { text: string; className: string; title?: string }) {
+function Badge({ text, className, title }: { readonly text: string; readonly className: string; readonly title?: string }) {
   return (
     <span
       title={title || text}

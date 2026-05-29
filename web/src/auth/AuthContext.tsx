@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import api, { passkeyAuthenticate } from '../api/client'
 import { load, save, remove } from '../lib/storage'
 
@@ -39,7 +39,7 @@ const Ctx = createContext<AuthContextValue | null>(null)
 const ACCESS_KEY = 'auth.access'
 const REFRESH_KEY = 'auth.refresh'
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [enabled, setEnabled] = useState(true) // assume enabled until config arrives
@@ -142,19 +142,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => { await refreshTokens() }, [])
 
+  const ctx = useMemo(() => ({
+    user,
+    loading,
+    enabled,
+    isAdmin: !enabled || user?.role === 'admin', // when auth disabled, treat as admin
+    isGuest: enabled && user?.role === 'guest',
+    isAuthenticated: !enabled || user !== null,
+    login,
+    loginWithPasskey,
+    logout,
+    refresh,
+  }), [user, loading, enabled, login, loginWithPasskey, logout, refresh])
+
   return (
-    <Ctx.Provider value={{
-      user,
-      loading,
-      enabled,
-      isAdmin: !enabled || user?.role === 'admin', // when auth disabled, treat as admin
-      isGuest: enabled && user?.role === 'guest',
-      isAuthenticated: !enabled || user !== null,
-      login,
-      loginWithPasskey,
-      logout,
-      refresh,
-    }}>
+    <Ctx.Provider value={ctx}>
       {children}
     </Ctx.Provider>
   )

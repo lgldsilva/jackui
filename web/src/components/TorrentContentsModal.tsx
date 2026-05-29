@@ -16,7 +16,7 @@ function formatSize(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 function parseEpisode(path: string): string | null {
@@ -46,7 +46,7 @@ function isPlayableFile(f: StreamFile): boolean {
 // DetailRow renders one labelled fact in the details grid, only when it has a
 // value — so synthetic results (favorites/library, which lack tracker/category)
 // simply show fewer rows instead of a wall of "—".
-function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: React.ReactNode }) {
+function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; readonly label: string; readonly value?: React.ReactNode }) {
   if (value === undefined || value === null || value === '' || value === 0) return null
   return (
     <div className="flex items-center gap-2 min-w-0">

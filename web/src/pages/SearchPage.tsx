@@ -100,7 +100,7 @@ function hydrateTabs(): { tabs: TabState[]; activeId: string } {
     return { tabs: [newTab(id)], activeId: id }
   }
   // Restore counter so new tabs get unique IDs beyond persisted ones
-  const maxId = persisted.reduce((m, t) => Math.max(m, parseInt(t.id) || 0), 0)
+  const maxId = persisted.reduce((m, t) => Math.max(m, Number.parseInt(t.id) || 0), 0)
   tabCounter = maxId + 1
   const tabs = persisted.map(p => ({ ...newTab(p.id), ...p }))
   const savedActive = load<string>(ACTIVE_KEY, '')
@@ -146,7 +146,7 @@ function SkeletonCard() {
   )
 }
 
-function PhaseIndicator({ phase }: { phase: SearchPhase }) {
+function PhaseIndicator({ phase }: { readonly phase: SearchPhase }) {
   if (phase === 'idle') return null
   if (phase === 'cache' || phase === 'live')
     return <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
@@ -352,7 +352,7 @@ export default function SearchPage() {
     // throw out of the listener (an uncaught exception there would leave the tab
     // stuck "searching" forever). Parse defensively; the generic `error` event
     // isn't even a MessageEvent (no .data), so guard that too.
-    const parseSSE = (raw: unknown): any | null => {
+    const parseSSE = (raw: unknown): any => {
       if (typeof raw !== 'string' || raw === '') return null
       try { return JSON.parse(raw) } catch { return null }
     }
@@ -739,7 +739,7 @@ export default function SearchPage() {
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <SearchX className="w-12 h-12 mb-3 opacity-30" />
             <p className="font-medium">Nenhum resultado com os filtros aplicados</p>
-            <p className="text-sm mt-1">{activeTab.results.length} resultado{activeTab.results.length !== 1 ? 's' : ''} disponíve{activeTab.results.length !== 1 ? 'is' : 'l'} antes dos filtros</p>
+            <p className="text-sm mt-1">{activeTab.results.length} resultado{(activeTab.results.length !== 1 ? 's' : '')} disponíve{(activeTab.results.length !== 1 ? 'is' : 'l')} antes dos filtros</p>
           </div>
         )}
 
