@@ -46,3 +46,7 @@ data/
 !docker-compose.vaapi.yml
 !docker-compose.gluetun.yml
 *.out
+node_modules/
+package-lock.json
+package.json
+.scannerwork/

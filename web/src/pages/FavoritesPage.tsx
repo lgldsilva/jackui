@@ -68,6 +68,15 @@ function FolderTree(p: TreeProps) {
                 isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
               }`}
               style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  const name = e.currentTarget.getAttribute('data-fav-name') || ''
+                  if (name) p.onDropOnFolder(node.folder.id, name)
+                }
+              }}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
               onDrop={e => {
                 e.preventDefault()
@@ -370,6 +379,7 @@ export default function FavoritesPage() {
             <li>
               <button
                 onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null) }}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(ALL_VIEW); setSelectedFolderId(null) } }}
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
                   viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
                 }`}
@@ -389,6 +399,7 @@ export default function FavoritesPage() {
                   if (name) handleDropOnFolder(null, name)
                 }}
                 onClick={() => { setViewMode(null); setSelectedFolderId(null) }}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(null); setSelectedFolderId(null) } }}
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
                   viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' :
                   dropOnRoot ? 'bg-pink-500/20 border border-pink-500/50 text-pink-100' :
