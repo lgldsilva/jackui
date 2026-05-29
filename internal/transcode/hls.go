@@ -347,7 +347,7 @@ func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) flo
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, ffprobePathFrom(ffmpegPath),
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-seekable", "1", "-multiple_requests", "1",
 		"-probesize", "10M", "-analyzeduration", "3M",
 		"-of", "json", "-show_format",
@@ -396,7 +396,7 @@ type encodeSpec struct {
 // explicit EXT-X-DISCONTINUITY, makes it abort with SRC_NOT_SUPPORTED).
 func (e *encodeSpec) args(startSeg int) []string {
 	args := []string{
-		"-hide_banner", "-loglevel", "warning",
+		ffHideBanner, ffLogLevel, "warning",
 		"-seekable", "1", "-multiple_requests", "1",
 		"-probesize", "10M", "-analyzeduration", "3M",
 	}

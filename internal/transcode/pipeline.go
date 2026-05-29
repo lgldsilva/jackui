@@ -106,13 +106,13 @@ func resolveContainer(container string) string {
 }
 
 func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Options) []string {
-	args := []string{"-hide_banner", "-loglevel", "warning"}
+	args := []string{ffHideBanner, ffLogLevel, "warning"}
 
 	if opts.VideoCodec != "" && shouldUseHWDecode(opts.SourceVCodec, preferred) {
 		args = append(args, hwaccelDecodeArgs(preferred)...)
 	}
 
-	args = append(args, "-i", "pipe:0")
+	args = append(args, "-i", pipe0)
 
 	args = append(args, "-map", "0:v:0")
 	if opts.AudioTrack >= 0 {
@@ -135,7 +135,7 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 	args = appendVideoCodecArgs(args, caps, preferred, opts.VideoCodec)
 	args = appendAudioCodecArgs(args, opts.AudioCodec, container)
 	args = appendContainerArgs(args, container)
-	args = append(args, "-y", "pipe:1")
+	args = append(args, "-y", pipe1)
 	return args
 }
 

@@ -18,6 +18,7 @@ const (
 
 	ffHideBanner = "-hide_banner"
 	ffLogLevel   = "-loglevel"
+	pipe1        = "pipe:1"
 
 	ErrInvalidID          = "invalid id"
 	ErrFileNotFound       = "file not found"
