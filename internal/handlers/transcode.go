@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
@@ -91,4 +94,75 @@ func parseIntOr(s string, def int) int {
 		return def
 	}
 	return n
+}
+
+type GPUInfo struct {
+	Type      string `json:"type"`      // "nvidia" | "vaapi" | "none"
+	GPU       int    `json:"gpu"`       // percentage, e.g. 15
+	VRAMUsed  int    `json:"vramUsed"`  // MB
+	VRAMTotal int    `json:"vramTotal"` // MB
+}
+
+func getGPUStats() *GPUInfo {
+	// 1. Try NVIDIA
+	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		parts := strings.Split(strings.TrimSpace(out.String()), ",")
+		if len(parts) >= 3 {
+			gpu, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
+			used, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
+			total, _ := strconv.Atoi(strings.TrimSpace(parts[2]))
+			return &GPUInfo{
+				Type:      "nvidia",
+				GPU:       gpu,
+				VRAMUsed:  used,
+				VRAMTotal: total,
+			}
+		}
+	}
+
+	// 2. Try VAAPI /sys/class/drm/card0/device/gpu_busy_percent (Intel/AMD)
+	if bytesRead, err := os.ReadFile("/sys/class/drm/card0/device/gpu_busy_percent"); err == nil {
+		if val, err := strconv.Atoi(strings.TrimSpace(string(bytesRead))); err == nil {
+			return &GPUInfo{
+				Type: "vaapi",
+				GPU:  val,
+			}
+		}
+	}
+
+	return &GPUInfo{Type: "none"}
+}
+
+// TranscodeActive handles GET /api/transcode/active
+func TranscodeActive(hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if hlsMgr == nil {
+			c.JSON(http.StatusOK, gin.H{"sessions": []interface{}{}, "gpu": getGPUStats()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"sessions": hlsMgr.Sessions(),
+			"gpu":      getGPUStats(),
+		})
+	}
+}
+
+// TranscodeKill handles DELETE /api/transcode/active/:key
+func TranscodeKill(hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if hlsMgr == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "HLS manager não ativo"})
+			return
+		}
+		key := c.Param("key")
+		if key == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing session key"})
+			return
+		}
+		hlsMgr.Close(key)
+		c.Status(http.StatusNoContent)
+	}
 }

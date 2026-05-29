@@ -10,6 +10,7 @@ import {
 } from '../api/client'
 import StreamCacheCard from '../components/StreamCacheCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
+import ActiveTranscodesCard from '../components/ActiveTranscodesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
 import AccountCard from '../components/AccountCard'
 import UsersAdminCard from '../components/UsersAdminCard'
@@ -342,6 +343,9 @@ export default function SettingsPage() {
 
         {/* Hardware transcoding capabilities */}
         <TranscodeCapabilitiesCard />
+
+        {/* Active transcoding monitor */}
+        <ErrorBoundary title="Erro no monitor de transcode"><ActiveTranscodesCard /></ErrorBoundary>
 
         {/* Account (change password) + admin user management. Wrapped so a crash
             in one card can't blank the whole Settings page (and surfaces the error). */}

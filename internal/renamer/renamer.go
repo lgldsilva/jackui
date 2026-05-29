@@ -57,54 +57,24 @@ func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.
 	cleanTitle = sanitizeFilename(cleanTitle)
 
 	// 3. Organização de Pastas
-	var targetPath string
 	var epName string
 
 	if kind == "tv" {
 		seasonNum := meta.Season
 		if seasonNum <= 0 {
-			seasonNum = 1 // Default to season 1
+			seasonNum = 1
 		}
 		episodeNum := meta.Episode
 
-		// If we have TMDB, try to fetch the localized episode title
 		if tmdbClient != nil && episodeNum > 0 {
-			// Find TMDB ID by match again if we have it
 			match, _ := tmdbClient.Match(ctx, cleanTitle)
 			if match != nil {
-				epName = tmdbClient.FetchEpisodeName(ctx, match.TmdbID, seasonNum, episodeNum)
+				epName = sanitizeFilename(tmdbClient.FetchEpisodeName(ctx, match.TmdbID, seasonNum, episodeNum))
 			}
 		}
-
-		// Sanitize episode name
-		epName = sanitizeFilename(epName)
-
-		// Format season/episode: SXXEXX
-		sStr := fmt.Sprintf("S%02d", seasonNum)
-		eStr := fmt.Sprintf("E%02d", episodeNum)
-
-		// Series structure: Series/Show Name/Season XX/Show Name - SXXEXX - Episode Name.ext
-		if episodeNum > 0 {
-			var filename string
-			if epName != "" {
-				filename = fmt.Sprintf("%s - %s%s - %s%s", cleanTitle, sStr, eStr, epName, ext)
-			} else {
-				filename = fmt.Sprintf("%s - %s%s%s", cleanTitle, sStr, eStr, ext)
-			}
-			targetPath = filepath.Join("Series", cleanTitle, fmt.Sprintf("Season %02d", seasonNum), filename)
-		} else {
-			targetPath = filepath.Join("Series", cleanTitle, fmt.Sprintf("Season %02d", seasonNum), rawName)
-		}
-	} else {
-		// Movie structure: Filmes/Movie Name (Year)/Movie Name (Year).ext
-		var folderName string
-		if year > 0 {
-			folderName = fmt.Sprintf("%s (%d)", cleanTitle, year)
-		} else {
-			folderName = cleanTitle
-		}
-		targetPath = filepath.Join("Filmes", folderName, folderName+ext)
 	}
+
+	targetPath := buildTargetPath(kind, cleanTitle, year, meta.Season, meta.Episode, epName, ext, rawName)
 
 	return &PreviewResult{
 		OriginalName: rawName,
@@ -116,6 +86,35 @@ func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.
 		Episode:      meta.Episode,
 		EpisodeName:  epName,
 	}, nil
+}
+
+// buildTargetPath is the pure path-building step of GeneratePreview, extracted
+// so it can be unit-tested without an AI or TMDB client.
+func buildTargetPath(kind, cleanTitle string, year, season, episode int, epName, ext, rawName string) string {
+	if kind == "tv" {
+		if season <= 0 {
+			season = 1
+		}
+		sStr := fmt.Sprintf("S%02d", season)
+		eStr := fmt.Sprintf("E%02d", episode)
+		if episode > 0 {
+			var filename string
+			if epName != "" {
+				filename = fmt.Sprintf("%s - %s%s - %s%s", cleanTitle, sStr, eStr, epName, ext)
+			} else {
+				filename = fmt.Sprintf("%s - %s%s%s", cleanTitle, sStr, eStr, ext)
+			}
+			return filepath.Join("Series", cleanTitle, fmt.Sprintf("Season %02d", season), filename)
+		}
+		return filepath.Join("Series", cleanTitle, fmt.Sprintf("Season %02d", season), rawName)
+	}
+	var folderName string
+	if year > 0 {
+		folderName = fmt.Sprintf("%s (%d)", cleanTitle, year)
+	} else {
+		folderName = cleanTitle
+	}
+	return filepath.Join("Filmes", folderName, folderName+ext)
 }
 
 func sanitizeFilename(s string) string {

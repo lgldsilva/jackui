@@ -1654,5 +1654,35 @@ export const convertMagnetToTorrentUrl = (magnet: string): string => {
   return `/api/convert/magnet-to-torrent?magnet=${encodeURIComponent(magnet)}`
 }
 
+export interface HLSSessionSnapshot {
+  key: string
+  codec: string
+  segmentsReady: number
+  startedAt: string
+  lastActivity: string
+  pid: number
+}
+
+export interface GPUInfo {
+  type: 'nvidia' | 'vaapi' | 'none'
+  gpu: number
+  vramUsed?: number
+  vramTotal?: number
+}
+
+export interface ActiveTranscodesResponse {
+  sessions: HLSSessionSnapshot[]
+  gpu: GPUInfo
+}
+
+export const fetchActiveTranscodes = async (): Promise<ActiveTranscodesResponse> => {
+  const { data } = await api.get<ActiveTranscodesResponse>('/transcode/active')
+  return data
+}
+
+export const killTranscodeSession = async (key: string): Promise<void> => {
+  await api.delete(`/transcode/active/${encodeURIComponent(key)}`)
+}
+
 export default api
 
