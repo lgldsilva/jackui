@@ -54,6 +54,32 @@ func TestComputeOSHashLengthIs16Hex(t *testing.T) {
 	}
 }
 
+func TestComputeFileOSHash(t *testing.T) {
+	buf := make([]byte, 200*1024)
+	for i := range buf {
+		buf[i] = byte(i % 256)
+	}
+	r := bytes.NewReader(buf)
+	hr, err := ComputeFileOSHash(r, int64(len(buf)))
+	if err != nil {
+		t.Fatalf("ComputeFileOSHash: %v", err)
+	}
+	if len(hr.Hash) != 16 {
+		t.Errorf("hash length = %d, want 16", len(hr.Hash))
+	}
+	if hr.Size != int64(len(buf)) {
+		t.Errorf("size = %d, want %d", hr.Size, len(buf))
+	}
+}
+
+func TestComputeFileOSHash_TooSmall(t *testing.T) {
+	r := bytes.NewReader(make([]byte, 32*1024))
+	_, err := ComputeFileOSHash(r, 32*1024)
+	if err == nil {
+		t.Error("expected error for small file")
+	}
+}
+
 func TestComputeOSHashIOError(t *testing.T) {
 	// Reader that errors on first read
 	r := &erroringReader{}

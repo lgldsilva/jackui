@@ -422,6 +422,224 @@ func TestParseSegName(t *testing.T) {
 	}
 }
 
+func TestFfprobePathFrom(t *testing.T) {
+	cases := map[string]string{
+		"/usr/bin/ffmpeg":      "/usr/bin/ffprobe",
+		"ffmpeg":               "ffprobe",
+		"/usr/local/bin/ffmpeg": "/usr/local/bin/ffprobe",
+		"/custom/path/ff":      "ffprobe",
+		"":                     "ffprobe",
+	}
+	for input, want := range cases {
+		got := ffprobePathFrom(input)
+		if got != want {
+			t.Errorf("ffprobePathFrom(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestParseRange(t *testing.T) {
+	cases := []struct {
+		header    string
+		total     int64
+		wStart    int64
+		wEnd      int64
+		wantOk    bool
+	}{
+		{"bytes=0-99", 1000, 0, 99, true},
+		{"bytes=100-", 1000, 100, 999, true},
+		{"bytes=0-", 500, 0, 499, true},
+		{"bytes=200-299", 1000, 200, 299, true},
+		{"", 1000, 0, 0, false},
+		{"invalid", 1000, 0, 0, false},
+		{"bytes=abc-def", 1000, 0, 0, false},
+		{"bytes=-100", 1000, 0, 0, false},
+		{"bytes=0-99,200-299", 1000, 0, 0, false},
+		{"bytes=2000-", 1000, 0, 0, false},
+		{"bytes=0-2000", 1000, 0, 999, true},
+		{"bytes=500-400", 1000, 0, 0, false},
+		{"BYTES=0-99", 1000, 0, 0, false},
+	}
+	for _, tc := range cases {
+		start, end, ok := parseRange(tc.header, tc.total)
+		if ok != tc.wantOk || (ok && (start != tc.wStart || end != tc.wEnd)) {
+			t.Errorf("parseRange(%q, %d) = (%d,%d,%v), want (%d,%d,%v)",
+				tc.header, tc.total, start, end, ok, tc.wStart, tc.wEnd, tc.wantOk)
+		}
+	}
+}
+
+func TestSessionPid(t *testing.T) {
+	s := &HLSSession{}
+	if pid := sessionPid(s); pid != 0 {
+		t.Errorf("expected 0 pid for unstarted session, got %d", pid)
+	}
+}
+
+func TestSessionEncoder(t *testing.T) {
+	s := &HLSSession{}
+	if enc := sessionEncoder(s); enc != "cpu" {
+		t.Errorf("expected 'cpu' for nil spec, got %q", enc)
+	}
+	s.spec = &encodeSpec{encoder: "h264_nvenc"}
+	if enc := sessionEncoder(s); enc != "h264_nvenc" {
+		t.Errorf("expected 'h264_nvenc', got %q", enc)
+	}
+}
+
+func TestSessionSegmentsReady_EmptyDir(t *testing.T) {
+	s := &HLSSession{Dir: t.TempDir()}
+	if n := sessionSegmentsReady(s); n != 0 {
+		t.Errorf("expected 0 segments in empty dir, got %d", n)
+	}
+}
+
+func TestSessionSegmentsReady_NoDir(t *testing.T) {
+	s := &HLSSession{}
+	if n := sessionSegmentsReady(s); n != 0 {
+		t.Errorf("expected 0 segments for empty session, got %d", n)
+	}
+}
+
+func TestAppendSnapshotIfActive_Closed(t *testing.T) {
+	s := &HLSSession{closed: true}
+	snaps := appendSnapshotIfActive(nil, "test-key", s)
+	if len(snaps) != 0 {
+		t.Errorf("expected no snapshots for closed session, got %d", len(snaps))
+	}
+}
+
+func TestAppendSnapshotIfActive_Open(t *testing.T) {
+	s := &HLSSession{
+		Key:    "test",
+		Dir:    t.TempDir(),
+		closed: false,
+	}
+	snaps := appendSnapshotIfActive(nil, "test-key", s)
+	if len(snaps) != 1 {
+		t.Fatalf("expected 1 snapshot, got %d", len(snaps))
+	}
+	if snaps[0].Key != "test-key" {
+		t.Errorf("key mismatch: %q", snaps[0].Key)
+	}
+}
+
+func TestSessions_NilManager(t *testing.T) {
+	var m *HLSSessionManager
+	if s := m.Sessions(); s != nil {
+		t.Errorf("expected nil sessions from nil manager, got %v", s)
+	}
+}
+
+func TestPeek_NotFound(t *testing.T) {
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	_, err = mgr.Peek("nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}
+
+func TestClose_NotFound(t *testing.T) {
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	mgr.Close("nonexistent")
+	// Should not panic
+}
+
+func TestNewLogWriter(t *testing.T) {
+	lw := newLogWriter("test: ")
+	if lw == nil {
+		t.Fatal("expected non-nil log writer")
+	}
+	lw.Write([]byte("hello\nworld\n"))
+	if len(lw.buf) != 0 {
+		t.Errorf("expected buffer to be empty after newline flush, got %q", lw.buf)
+	}
+}
+
+func TestLogWriter_PartialLine(t *testing.T) {
+	lw := newLogWriter("test: ")
+	lw.Write([]byte("hello "))
+	if string(lw.buf) != "hello " {
+		t.Errorf("expected buffered 'hello ', got %q", lw.buf)
+	}
+}
+
+func TestLogWriter_EmptyLine(t *testing.T) {
+	lw := newLogWriter("test: ")
+	n, err := lw.Write([]byte("\n"))
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 byte written, got %d", n)
+	}
+}
+
+func TestReadSeekerContentSize(t *testing.T) {
+	data := []byte("hello world")
+	r := &readSeekerContent{ReadSeeker: bytes.NewReader(data)}
+	sz, err := r.size()
+	if err != nil {
+		t.Fatalf("size: %v", err)
+	}
+	if sz != int64(len(data)) {
+		t.Errorf("expected size %d, got %d", len(data), sz)
+	}
+}
+
+func TestHLSSession_IsVOD(t *testing.T) {
+	s := &HLSSession{}
+	if s.IsVOD() {
+		t.Error("expected IsVOD to be false for nil spec")
+	}
+	s.spec = &encodeSpec{}
+	if s.IsVOD() {
+		t.Error("expected IsVOD to be false for non-VOD spec")
+	}
+	s.spec = &encodeSpec{vod: true}
+	if !s.IsVOD() {
+		t.Error("expected IsVOD to be true for VOD spec")
+	}
+}
+
+func TestHLSSession_HighestSeg_NoDir(t *testing.T) {
+	s := &HLSSession{}
+	if n := s.highestSeg(); n != -1 {
+		t.Errorf("expected -1 for no dir, got %d", n)
+	}
+}
+
+func TestHLSSession_HighestSeg_EmptyDir(t *testing.T) {
+	s := &HLSSession{Dir: t.TempDir()}
+	if n := s.highestSeg(); n != -1 {
+		t.Errorf("expected -1 for empty dir, got %d", n)
+	}
+}
+
+func TestParseSegIndex(t *testing.T) {
+	n, ok := ParseSegIndex("seg_00042.ts")
+	if !ok || n != 42 {
+		t.Errorf("ParseSegIndex = (%d, %v), want (42, true)", n, ok)
+	}
+	_, ok = ParseSegIndex("index.m3u8")
+	if ok {
+		t.Error("ParseSegIndex should be false for m3u8")
+	}
+}
+
+func TestProbeDurationSeekable_NoFFprobe(t *testing.T) {
+	dur := probeDurationSeekable(context.Background(), "/nonexistent/ffmpeg", "http://127.0.0.1:1/source")
+	if dur != 0 {
+		t.Errorf("expected 0 for nonexistent ffmpeg, got %f", dur)
+	}
+}
+
 // Compile-time check that *bytes.Reader satisfies io.ReadSeeker — guards the
 // HLSStartOpts.Source field type.
 var _ io.ReadSeeker = (*bytes.Reader)(nil)

@@ -2,6 +2,33 @@ package transcode
 
 import "testing"
 
+func TestCached_Nil(t *testing.T) {
+	cacheMu.Lock()
+	prev := cached
+	cached = nil
+	cacheMu.Unlock()
+	defer func() {
+		cacheMu.Lock()
+		cached = prev
+		cacheMu.Unlock()
+	}()
+	if c := Cached(); c != nil {
+		t.Error("Cached() should be nil when not probed")
+	}
+}
+
+func TestCapabilities_String(t *testing.T) {
+	c := &Capabilities{
+		FFmpegPath: "/usr/bin/ffmpeg",
+		OS:         "linux",
+		Preferred:  "libx264",
+	}
+	s := c.String()
+	if s == "" {
+		t.Error("String() should not be empty")
+	}
+}
+
 func TestParseCodecList(t *testing.T) {
 	out := []byte(`Encoders:
  V..... = Video
