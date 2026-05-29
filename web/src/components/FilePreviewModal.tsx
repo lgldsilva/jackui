@@ -101,6 +101,7 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
     <dialog
       className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4 open:flex"
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
       open
     >

@@ -156,6 +156,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     <dialog
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
       open
     >
