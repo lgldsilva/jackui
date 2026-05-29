@@ -19,11 +19,11 @@ type SortDef = { key: ResultSortKey; label: string }
 function ResultSortButtons({
   sort, sortAsc, onChange, defs, className,
 }: {
-  sort: ResultSortKey
-  sortAsc: boolean
-  onChange: (key: ResultSortKey, asc: boolean) => void
-  defs: SortDef[]
-  className?: string
+  readonly sort: ResultSortKey
+  readonly sortAsc: boolean
+  readonly onChange: (key: ResultSortKey, asc: boolean) => void
+  readonly defs: readonly SortDef[]
+  readonly className?: string
 }) {
   return (
     <div className={className ?? 'flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1'}>

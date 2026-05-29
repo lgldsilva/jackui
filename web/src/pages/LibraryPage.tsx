@@ -206,12 +206,10 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
   })()
 
   return (
-    <div
+    <button
+      type="button"
       className="card flex flex-col gap-2 hover:bg-gray-800/80 transition-colors text-left p-3 relative group cursor-pointer"
       onClick={onPlay}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay() } }}
-      role="button"
-      tabIndex={0}
     >
       {/* Per-card delete — stops click propagation so it doesn't start playback */}
       <button
@@ -299,6 +297,6 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
           </p>
         </>
       )}
-    </div>
+    </button>
   )
 }

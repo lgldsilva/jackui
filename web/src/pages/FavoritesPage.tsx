@@ -88,9 +88,10 @@ function FolderTree(p: TreeProps) {
         const isSelected = p.selectedId === node.folder.id
         const isEditing = p.editingId === node.folder.id
         return (
-          <li key={node.folder.id}>
-            <div
-              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors ${
+            <li key={node.folder.id}>
+            <button
+              type="button"
+              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors w-full text-left ${
                 isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
               }`}
               style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
@@ -100,9 +101,7 @@ function FolderTree(p: TreeProps) {
                 const name = e.dataTransfer.getData('text/x-favorite-name')
                 if (name) p.onDropOnFolder(node.folder.id, name)
               }}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onSelect(node.folder.id) } }}
+              onClick={() => p.onSelect(node.folder.id)}
             >
               {node.children.length > 0 ? (
                 <button onClick={() => p.onToggle(node.folder.id)} className="text-gray-500 hover:text-gray-200">
@@ -144,7 +143,7 @@ function FolderTree(p: TreeProps) {
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
-            </div>
+            </button>
             {isOpen && node.children.length > 0 && (
               <FolderTree {...p} nodes={node.children} depth={p.depth + 1} />
             )}
@@ -529,14 +528,13 @@ export default function FavoritesPage() {
             if (fallback) return fallback
             return <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredFavs.map(fav => (
-                <div
+                <button
+                  type="button"
                   key={fav.name}
                   draggable
                   onDragStart={e => handleFavDragStart(e, fav.name)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContents(fav) } }}
-                  className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
+                  onClick={() => openContents(fav)}
+                  className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative w-full text-left ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}
                 >
@@ -635,7 +633,7 @@ export default function FavoritesPage() {
                       </select>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           })()}
