@@ -147,7 +147,7 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClien
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted, failed := promoteBatchItems(store, s, aiClient, tmdbClient, base, userID, req)
+		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA}, req)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
@@ -170,11 +170,12 @@ func validateBatchReq(c *gin.Context, sharedDir string, dests []PromoteDest) (*p
 	return &req, base, true
 }
 
-func promoteBatchItems(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, base string, userID int, req *promoteReq) ([]downloads.Download, []gin.H) {
+func promoteBatchItems(o *promoteOpts, req *promoteReq) ([]downloads.Download, []gin.H) {
 	promoted := []downloads.Download{}
 	failed := []gin.H{}
 	for _, id := range req.IDs {
-		d, err := promoteOne(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA})
+		o.id = id
+		d, err := promoteOne(o)
 		if err != nil {
 			failed = append(failed, gin.H{"id": id, "error": err.Error()})
 			continue
@@ -207,36 +208,36 @@ func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbCl
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		previews := buildDownloadPreviews(c.Request.Context(), store, aiClient, tmdbClient, userID, req.IDs, base)
+		previews := buildDownloadPreviews(&previewDeps{ctx: c.Request.Context(), store: store, aiClient: aiClient, tmdbClient: tmdbClient, userID: userID, base: base}, req.IDs)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
 }
 
-func buildDownloadPreviews(ctx context.Context, store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, userID int, ids []int, base string) []gin.H {
+func buildDownloadPreviews(d *previewDeps, ids []int) []gin.H {
 	previews := make([]gin.H, 0, len(ids))
 	for _, id := range ids {
-		previews = append(previews, previewOneDownload(ctx, store, aiClient, tmdbClient, userID, id, base))
+		previews = append(previews, previewOneDownload(d, id))
 	}
 	return previews
 }
 
-func previewOneDownload(ctx context.Context, store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, userID, id int, base string) gin.H {
-	d, err := store.Get(userID, id)
-	if err != nil || d == nil {
+func previewOneDownload(d *previewDeps, id int) gin.H {
+	dl, err := d.store.Get(d.userID, id)
+	if err != nil || dl == nil {
 		return gin.H{"id": id, "error": errDownloadNotFound}
 	}
-	if d.FilePath == "" {
+	if dl.FilePath == "" {
 		return gin.H{"id": id, "error": "file_path vazio"}
 	}
-	rawName := filepath.Base(d.FilePath)
+	rawName := filepath.Base(dl.FilePath)
 	if rawName == "" || rawName == "." || rawName == "/" {
-		rawName = d.Name
+		rawName = dl.Name
 	}
-	preview, err := renamer.GeneratePreview(ctx, aiClient, tmdbClient, rawName)
+	preview, err := renamer.GeneratePreview(d.ctx, d.aiClient, d.tmdbClient, rawName)
 	if err != nil {
 		return gin.H{"id": id, "error": err.Error()}
 	}
-	nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
+	nonConflicting := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 	return gin.H{
 		"id":           id,
 		"originalName": rawName,
@@ -295,6 +296,15 @@ func listDirs(entries []os.DirEntry) []string {
 	}
 	sort.Strings(dirs)
 	return dirs
+}
+
+type previewDeps struct {
+	ctx        context.Context
+	store      *downloads.Store
+	aiClient   *ai.Client
+	tmdbClient *tmdb.Client
+	userID     int
+	base       string
 }
 
 type promoteOpts struct {

@@ -15,6 +15,13 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 )
 
+const (
+	pipe0        = "pipe:0"
+	pipe1        = "pipe:1"
+	ffHideBanner = "-hide_banner"
+	ffLogLevel   = "-loglevel"
+)
+
 // Track describes one audio or subtitle stream inside a container.
 type Track struct {
 	Index    int    `json:"index"`              // absolute stream index in the container (use with `-map 0:N`)
@@ -93,7 +100,7 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 	}
 
 	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
 		"-show_streams",
 		"-show_format",
@@ -226,7 +233,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		r.SetResponsive()
 		closeFn = r.Close
 
-		input = "pipe:0"
+		input = pipe0
 		stdin = r
 	}
 
@@ -237,7 +244,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
 	// We're only producing a preview tooltip image — pixel-accuracy is overkill.
 	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
 		"-i", input,
 		"-frames:v", "1",
@@ -245,7 +252,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		"-q:v", "5",            // 1-31, lower=better; 5 is sweet spot for previews
 		"-f", "mjpeg",
 		"-y",
-		"pipe:1",
+		pipe1,
 	)
 	if stdin != nil {
 		cmd.Stdin = stdin
@@ -308,7 +315,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		r.SetResponsive()
 		closeFn = r.Close
 
-		input = "pipe:0"
+		input = pipe0
 		stdin = r
 	}
 
@@ -319,7 +326,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
 	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-i", input,
 		"-map", "0:v",
 		"-map", "-0:V",
@@ -327,7 +334,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		"-f", "mjpeg",
 		"-frames:v", "1",
 		"-y",
-		"pipe:1",
+		pipe1,
 	)
 	if stdin != nil {
 		cmd.Stdin = stdin
@@ -374,7 +381,7 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		r.SetResponsive()
 		closeFn = r.Close
 
-		input = "pipe:0"
+		input = pipe0
 		stdin = r
 	}
 
@@ -383,13 +390,13 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 	}
 
 	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-hide_banner", "-loglevel", "error",
+		ffHideBanner, ffLogLevel, "error",
 		"-i", input,
 		"-map", fmt.Sprintf("0:%d", trackIdx),
 		"-c:s", "webvtt",
 		"-f", "webvtt",
 		"-y",
-		"pipe:1",
+		pipe1,
 	)
 	if stdin != nil {
 		cmd.Stdin = stdin

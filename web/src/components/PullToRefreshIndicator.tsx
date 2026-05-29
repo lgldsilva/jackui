@@ -1,9 +1,9 @@
 import { RefreshCw } from 'lucide-react'
 
 interface Props {
-  pull: number       // displacement in px
-  progress: number   // 0..1 fraction of threshold reached
-  refreshing: boolean
+  readonly pull: number
+  readonly progress: number
+  readonly refreshing: boolean
 }
 
 /**

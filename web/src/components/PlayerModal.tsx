@@ -61,36 +61,21 @@ interface SubChoice {
 }
 
 interface PlayerModalProps {
-  result: SearchResult | null
-  onClose: () => void
-  /** Optional override of the auto-selected file (primaryFile).
-   *  Used when caller already knows which file (e.g., picked from contents view, episode N of a series). */
-  initialFileIndex?: number
-  /** Optional seek-to position (seconds) applied once the video can play.
-   *  Takes precedence over the per-user DB resume position when both exist —
-   *  the URL-encoded value is more explicit (a shared timestamp) than the
-   *  silent DB value. Falls through to DB resume when undefined. */
-  initialSeek?: number
-  /** When set, the player is part of a playlist sequence. The header shows
-   *  "X de Y · Playlist Name" and onEnded falls through to onPlaylistAdvance
-   *  once the local file-sequence inside the torrent is exhausted. */
-  playlist?: PlaylistMeta | null
-  onPlaylistAdvance?: () => void
-  onPlaylistPrevious?: () => void
-  repeat?: 'none' | 'one' | 'all'
-  shuffle?: boolean
-  onCycleRepeat?: () => void
-  onToggleShuffle?: () => void
-  /** Called once when the current item passes ~50% — warms up next playlist item. */
-  onPrefetchNextPlaylist?: () => void
-  /** Called once when the current item passes ~85% — warms up the item after the next. */
-  onPrefetchNextNextPlaylist?: () => void
-  /** Open in minimized (compact floating card) mode. Used for audio, which
-   *  replaces the old bottom AudioBar — the player opens as a small dock. */
-  startMinimized?: boolean
-  /** Audio content: in minimized mode we show cover art over the (black)
-   *  video element since there's nothing to display. */
-  audioMode?: boolean
+  readonly result: SearchResult | null
+  readonly onClose: () => void
+  readonly initialFileIndex?: number
+  readonly initialSeek?: number
+  readonly playlist?: PlaylistMeta | null
+  readonly onPlaylistAdvance?: () => void
+  readonly onPlaylistPrevious?: () => void
+  readonly repeat?: 'none' | 'one' | 'all'
+  readonly shuffle?: boolean
+  readonly onCycleRepeat?: () => void
+  readonly onToggleShuffle?: () => void
+  readonly onPrefetchNextPlaylist?: () => void
+  readonly onPrefetchNextNextPlaylist?: () => void
+  readonly startMinimized?: boolean
+  readonly audioMode?: boolean
 }
 
 function formatSize(bytes: number): string {
@@ -543,7 +528,7 @@ export default function PlayerModal({
 
   // Detect season/episode from title for better subtitle matches
   const parseSeasonEpisode = (title: string): { season?: number; episode?: number; cleanQuery: string } => {
-    const match = title.match(/[Ss](\d{1,2})[Ee](\d{1,3})/)
+    const match = /[Ss](\d{1,2})[Ee](\d{1,3})/.exec(title)
     if (!match) return { cleanQuery: title }
     return {
       season: parseInt(match[1]),
@@ -996,7 +981,7 @@ export default function PlayerModal({
   // Parse S/E pattern from filename for nicer episode labels (defined before
   // conditional return so the hook below is not behind a branch)
   const parseEpisode = (path: string): string | null => {
-    const m = path.match(/[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/)
+    const m = /[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/.exec(path)
     if (m) return `S${m[1].padStart(2, '0')}E${m[2].padStart(2, '0')}`
     return null
   }
@@ -1711,9 +1696,9 @@ export default function PlayerModal({
                   />
                   {duration > 0 && (
                     <>
-                      {bufferedRanges.map(([start, end], i) => (
+                      {bufferedRanges.map(([start, end]) => (
                         <div
-                          key={i}
+                          key={start}
                           className="absolute inset-y-0 bg-blue-500/50 rounded-full"
                           style={{
                             left: `${(start / duration) * 100}%`,

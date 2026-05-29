@@ -39,19 +39,19 @@ function buildTree(folders: FavoriteFolder[]): FolderNode[] {
 }
 
 interface TreeProps {
-  nodes: FolderNode[]
-  depth: number
-  selectedId: number | null
-  expanded: Set<number>
-  editingId: number | null
-  onSelect: (id: number | null) => void
-  onToggle: (id: number) => void
-  onStartEdit: (id: number) => void
-  onCommitEdit: (id: number, name: string) => void
-  onCancelEdit: () => void
-  onDelete: (id: number) => void
-  onCreateSub: (parentId: number) => void
-  onDropOnFolder: (folderId: number, favoriteName: string) => void
+  readonly nodes: FolderNode[]
+  readonly depth: number
+  readonly selectedId: number | null
+  readonly expanded: Set<number>
+  readonly editingId: number | null
+  readonly onSelect: (id: number | null) => void
+  readonly onToggle: (id: number) => void
+  readonly onStartEdit: (id: number) => void
+  readonly onCommitEdit: (id: number, name: string) => void
+  readonly onCancelEdit: () => void
+  readonly onDelete: (id: number) => void
+  readonly onCreateSub: (parentId: number) => void
+  readonly onDropOnFolder: (folderId: number, favoriteName: string) => void
 }
 
 function FolderTree(p: TreeProps) {

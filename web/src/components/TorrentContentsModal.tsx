@@ -5,13 +5,10 @@ import { formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
-  /** When non-null, the modal opens and fetches contents. */
-  result: SearchResult | null
-  onClose: () => void
-  /** Callback when user picks a specific file to play. */
-  onPlayFile: (result: SearchResult, fileIndex: number) => void
-  /** Callback when user wants to add a specific file to a playlist. */
-  onAddFileToPlaylist?: (result: SearchResult, fileIndex: number, fileTitle: string) => void
+  readonly result: SearchResult | null
+  readonly onClose: () => void
+  readonly onPlayFile: (result: SearchResult, fileIndex: number) => void
+  readonly onAddFileToPlaylist?: (result: SearchResult, fileIndex: number, fileTitle: string) => void
 }
 
 function formatSize(bytes: number): string {
@@ -23,7 +20,7 @@ function formatSize(bytes: number): string {
 }
 
 function parseEpisode(path: string): string | null {
-  const m = path.match(/[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/)
+  const m = /[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/.exec(path)
   if (m) return `S${m[1].padStart(2, '0')}E${m[2].padStart(2, '0')}`
   return null
 }

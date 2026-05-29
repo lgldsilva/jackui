@@ -129,7 +129,7 @@ func (s *Streamer) OSHash(ctx context.Context, hash metainfo.Hash, fileIdx int) 
 	s.mu.Unlock()
 
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return HashResult{}, fmt.Errorf("file index %d out of range", fileIdx)
+		return HashResult{}, fmt.Errorf(errFileIndexOutOfRange, fileIdx)
 	}
 	f := files[fileIdx]
 	size := f.Length()

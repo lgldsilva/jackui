@@ -216,7 +216,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	var out []byte
 	for _, s := range seeks {
 		cmd := exec.CommandContext(ctx, "ffmpeg",
-			"-hide_banner", "-loglevel", "error",
+			ffHideBanner, ffLogLevel, "error",
 			"-ss", strconv.Itoa(s),
 			"-i", abs,
 			"-frames:v", "1",
@@ -367,7 +367,7 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			targetDir = filepath.Join(base, subdir)
 		}
 		baseName := filepath.Base(src)
-		dst, targetDir := computePromoteDst(c.Request.Context(), aiClient, tmdbClient, baseName, base, targetDir)
+		dst, targetDir := computePromoteDst(&promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base}, baseName, targetDir)
 		if src == dst {
 			c.JSON(http.StatusOK, gin.H{"message": "source and destination are the same", "path": dst})
 			return
@@ -394,7 +394,7 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 
 func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests []PromoteDest) (*localPromoteReq, string, string, string, bool) {
 	if sharedDir == "" {
-		c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+		c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 		return nil, "", "", "", false
 	}
 	var req localPromoteReq
@@ -438,12 +438,12 @@ func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests [
 	return &req, src, base, subdir, true
 }
 
-func computePromoteDst(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.Client, baseName, base, targetDir string) (string, string) {
-	if aiClient != nil {
-		preview, err := renamer.GeneratePreview(ctx, aiClient, tmdbClient, baseName)
+func computePromoteDst(d *promoteDstDeps, baseName, targetDir string) (string, string) {
+	if d.aiClient != nil {
+		preview, err := renamer.GeneratePreview(d.ctx, d.aiClient, d.tmdbClient, baseName)
 		if err == nil && preview != nil {
-			targetRel := renamer.ResolveTargetConflict(base, preview.TargetPath)
-			dst := filepath.Join(base, targetRel)
+			targetRel := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
+			dst := filepath.Join(d.base, targetRel)
 			return dst, filepath.Dir(dst)
 		}
 	}
@@ -453,7 +453,7 @@ func computePromoteDst(ctx context.Context, aiClient *ai.Client, tmdbClient *tmd
 func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
 			return
 		}
 		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
@@ -461,9 +461,25 @@ func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb
 			return
 		}
 		paths := resolveLocalPaths(req)
-		previews := buildLocalPreviews(c, b, aiClient, tmdbClient, req.Mount, paths, base)
+		previews := buildLocalPreviews(&localPreviewDeps{c: c, b: b, aiClient: aiClient, tmdbClient: tmdbClient, mount: req.Mount, base: base}, paths)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
+}
+
+type localPreviewDeps struct {
+	c          *gin.Context
+	b          *local.Browser
+	aiClient   *ai.Client
+	tmdbClient *tmdb.Client
+	mount      string
+	base       string
+}
+
+type promoteDstDeps struct {
+	ctx        context.Context
+	aiClient   *ai.Client
+	tmdbClient *tmdb.Client
+	base       string
 }
 
 type localPromoteReq struct {
@@ -509,24 +525,24 @@ func resolveLocalPaths(req *localPromoteReq) []string {
 	return nil
 }
 
-func buildLocalPreviews(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, mount string, paths []string, base string) []gin.H {
+func buildLocalPreviews(d *localPreviewDeps, paths []string) []gin.H {
 	if len(paths) == 0 {
 		return []gin.H{}
 	}
 	previews := make([]gin.H, 0, len(paths))
 	for _, p := range paths {
-		previews = append(previews, previewItem(c, b, aiClient, tmdbClient, mount, p, base))
+		previews = append(previews, previewItem(d, p))
 	}
 	return previews
 }
 
-func previewItem(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, mount, p, base string) gin.H {
+func previewItem(d *localPreviewDeps, p string) gin.H {
 	cleanPath := filepath.Clean(p)
 	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
 		return gin.H{"path": p, "error": "cannot promote mount root"}
 	}
 
-	src, err := b.ResolvePath(mount, p)
+	src, err := d.b.ResolvePath(d.mount, p)
 	if err != nil {
 		return gin.H{"path": p, "error": err.Error()}
 	}
@@ -536,12 +552,12 @@ func previewItem(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClie
 	}
 
 	baseName := filepath.Base(src)
-	preview, err := renamer.GeneratePreview(c.Request.Context(), aiClient, tmdbClient, baseName)
+	preview, err := renamer.GeneratePreview(d.c.Request.Context(), d.aiClient, d.tmdbClient, baseName)
 	if err != nil {
 		return gin.H{"path": p, "error": err.Error()}
 	}
 
-	nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
+	nonConflicting := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 	return gin.H{
 		"path":         p,
 		"originalName": baseName,
@@ -562,7 +578,7 @@ func LocalWalk(b *local.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
 			return
 		}
 		if !checkMountAccess(b, c, mount) {

@@ -2,9 +2,9 @@ import { Component, ReactNode } from 'react'
 import { AlertCircle, X } from 'lucide-react'
 
 interface Props {
-  children: ReactNode
-  onReset?: () => void
-  title?: string
+  readonly children: ReactNode
+  readonly onReset?: () => void
+  readonly title?: string
 }
 
 interface State {

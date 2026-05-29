@@ -4,10 +4,10 @@ import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../ap
 import { useScrollLock } from '../lib/useScrollLock'
 
 interface Props {
-  mount: string
-  entry: LocalEntry | null
-  onClose: () => void
-  onMoved: () => void
+  readonly mount: string
+  readonly entry: LocalEntry | null
+  readonly onClose: () => void
+  readonly onMoved: () => void
 }
 
 export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Props) {
@@ -136,7 +136,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
                 <Home className="w-3.5 h-3.5" /> {dstMount || '—'}
               </button>
               {breadcrumb.map((seg, i) => (
-                <span key={i} className="flex items-center gap-1">
+                <span key={`${i}-${seg}`} className="flex items-center gap-1">
                   <ChevronRight className="w-3 h-3 text-gray-600" />
                   <button
                     onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}

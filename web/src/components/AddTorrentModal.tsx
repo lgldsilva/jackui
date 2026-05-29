@@ -14,10 +14,10 @@ import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 
 interface Props {
-  isOpen: boolean
-  onClose: () => void
-  onAdded: (result: SearchResult) => void
-  preloadFiles?: File[] | null
+  readonly isOpen: boolean
+  readonly onClose: () => void
+  readonly onAdded: (result: SearchResult) => void
+  readonly preloadFiles?: File[] | null
 }
 
 
@@ -217,8 +217,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     setView('configure')
     const newItems: TorrentItem[] = lines.map(line => {
       // Tenta extrair um hash ou nome amigável do magnet
-      const btihMatch = line.match(/btih:([a-fA-F0-9]{40})/i)
-      const nameMatch = line.match(/dn=([^&]+)/i)
+      const btihMatch = /btih:([a-fA-F0-9]{40})/i.exec(line)
+      const nameMatch = /dn=([^&]+)/i.exec(line)
       const hash = btihMatch ? btihMatch[1].toLowerCase() : ''
       const name = nameMatch ? decodeURIComponent(nameMatch[1].replace(/\+/g, ' ')) : `Magnet (hash: ${hash || '?'})`
 

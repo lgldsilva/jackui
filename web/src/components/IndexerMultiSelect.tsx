@@ -4,10 +4,9 @@ import { Indexer } from '../api/client'
 
 
 interface Props {
-  /** Empty array = "search all indexers". The backend treats that as the default. */
-  selected: string[]
-  onChange: (ids: string[]) => void
-  indexers: Indexer[]
+  readonly selected: string[]
+  readonly onChange: (ids: string[]) => void
+  readonly indexers: Indexer[]
 }
 
 /**

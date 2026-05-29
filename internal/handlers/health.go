@@ -10,6 +10,8 @@ import (
 	"github.com/luizg/jackui/internal/jackett"
 )
 
+const downPrefix = "down: "
+
 // Health handles GET /healthz — liveness check. Fast, no external deps.
 // Returns 200 as long as the JackUI process and DB are alive.
 func Health(store *history.Store) gin.HandlerFunc {
@@ -18,7 +20,7 @@ func Health(store *history.Store) gin.HandlerFunc {
 		if store == nil {
 			dbStatus = "disabled"
 		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
-			dbStatus = "down: " + err.Error()
+			dbStatus = downPrefix + err.Error()
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"status": "degraded", "db": dbStatus,
 				"time": time.Now().UTC().Format(time.RFC3339),
@@ -52,7 +54,7 @@ func Status(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 		select {
 		case err := <-errCh:
 			if err != nil {
-				out["jackett"] = "down: " + err.Error()
+				out["jackett"] = downPrefix + err.Error()
 				out["status"] = "degraded"
 			}
 		case <-ctx.Done():
@@ -63,7 +65,7 @@ func Status(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 		if store == nil {
 			out["db"] = "disabled"
 		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
-			out["db"] = "down: " + err.Error()
+			out["db"] = downPrefix + err.Error()
 			out["status"] = "degraded"
 		}
 

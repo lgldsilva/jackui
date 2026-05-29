@@ -20,9 +20,9 @@ function relTime(iso?: string): string {
 }
 
 interface Props {
-  infoHash?: string
-  magnet?: string
-  className?: string
+  readonly infoHash?: string
+  readonly magnet?: string
+  readonly className?: string
 }
 
 export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {

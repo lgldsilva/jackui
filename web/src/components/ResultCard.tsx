@@ -11,18 +11,14 @@ import QualityBadges from './QualityBadges'
 export function refreshFavoritesCache(_entries: unknown): void {}
 
 interface ResultCardProps {
-  result: SearchResult
-  onDownload: (result: SearchResult) => void
-  onPlay?: (result: SearchResult) => void
-  onAddToPlaylist?: (result: SearchResult) => void
-  onExploreContents?: (result: SearchResult) => void
-  // onRefresh re-polls Jackett for this row's swarm counts. Only meaningful
-  // when the result has an `id` (i.e. came from the history endpoint). The
-  // host page handles loading state and the eventual numbers update.
-  onRefresh?: (result: SearchResult) => Promise<void> | void
-  refreshing?: boolean
-  // Optional "freshness" hint shown next to seeders (e.g. "atualizado agora").
-  refreshedAt?: string | null
+  readonly result: SearchResult
+  readonly onDownload: (result: SearchResult) => void
+  readonly onPlay?: (result: SearchResult) => void
+  readonly onAddToPlaylist?: (result: SearchResult) => void
+  readonly onExploreContents?: (result: SearchResult) => void
+  readonly onRefresh?: (result: SearchResult) => Promise<void> | void
+  readonly refreshing?: boolean
+  readonly refreshedAt?: string | null
 }
 
 function formatSize(bytes: number): string {

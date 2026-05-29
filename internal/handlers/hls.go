@@ -18,6 +18,15 @@ import (
 	"github.com/luizg/jackui/internal/transcode"
 )
 
+type hlsCtx struct {
+	c       *gin.Context
+	s       *streamer.Streamer
+	mgr     *transcode.HLSSessionManager
+	store   *downloads.Store
+	h       metainfo.Hash
+	fileIdx int
+}
+
 // hlsVODSegDur must match transcode.hlsSegDur — the segment length the encoder
 // targets with forced keyframes. The synthesised playlist declares each
 // segment as this long so Safari's timeline (sum of EXTINF) matches the media.
@@ -69,33 +78,34 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
-		transcodeSource, transcodeSourceSize := resolveTranscodeSource(c, s, store, h, fileIdx)
+		hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
+		transcodeSource, transcodeSourceSize := resolveTranscodeSource(hc)
 		if transcodeSource == nil {
 			return
 		}
-		sess, err := startHLSSession(c, mgr, h, fileIdx, transcodeSource, transcodeSourceSize)
+		sess, err := startHLSSession(hc, transcodeSource, transcodeSourceSize)
 		if err != nil {
 			return
 		}
-		if !waitForMasterPlaylist(c, s, sess, h, fileIdx) {
+		if !waitForMasterPlaylist(hc, sess) {
 			return
 		}
 		serveHLSPlaylist(c, sess)
 	}
 }
 
-func startHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, h metainfo.Hash, fileIdx int, source io.ReadSeekCloser, sourceSize int64) (*transcode.HLSSession, error) {
-	key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
-	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
+func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64) (*transcode.HLSSession, error) {
+	key := fmt.Sprintf("%s-%d", hc.h.HexString(), hc.fileIdx)
+	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
 		Key:        key,
 		Source:     source,
 		SourceSize: sourceSize,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return nil, err
 	}
 	return sess, nil
@@ -145,7 +155,7 @@ func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
 		segName := c.Param("seg")
@@ -207,9 +217,9 @@ func getSession(mgr *transcode.HLSSessionManager, key string) (*transcode.HLSSes
 
 // resolveTranscodeSource tries the completed-download store first, then falls
 // back to activating the torrent and opening a streaming reader.
-func resolveTranscodeSource(c *gin.Context, s *streamer.Streamer, store *downloads.Store, h metainfo.Hash, fileIdx int) (io.ReadSeekCloser, int64) {
-	if store != nil {
-		if path, err := store.GetCompletedPath(h.HexString(), fileIdx); err == nil && path != "" {
+func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64) {
+	if hc.store != nil {
+		if path, err := hc.store.GetCompletedPath(hc.h.HexString(), hc.fileIdx); err == nil && path != "" {
 			if stat, err := os.Stat(path); err == nil {
 				if f, err := os.Open(path); err == nil {
 					return f, stat.Size()
@@ -217,16 +227,16 @@ func resolveTranscodeSource(c *gin.Context, s *streamer.Streamer, store *downloa
 			}
 		}
 	}
-	if _, err := s.Get(h); err != nil {
-		bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
-		if _, addErr := s.Add(c.Request.Context(), bareMagnet); addErr != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	if _, err := hc.s.Get(hc.h); err != nil {
+		bareMagnet := "magnet:?xt=urn:btih:" + hc.h.HexString()
+		if _, addErr := hc.s.Add(hc.c.Request.Context(), bareMagnet); addErr != nil {
+			hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return nil, 0
 		}
 	}
-	reader, file, err := s.FileReader(h, fileIdx)
+	reader, file, err := hc.s.FileReader(hc.h, hc.fileIdx)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return nil, 0
 	}
 	return reader, file.Length()
@@ -234,15 +244,15 @@ func resolveTranscodeSource(c *gin.Context, s *streamer.Streamer, store *downloa
 
 // waitForMasterPlaylist blocks until the first HLS segment is ready. On failure
 // it classifies the reason (no_seeds, slow_download) and responds with 503.
-func waitForMasterPlaylist(c *gin.Context, s *streamer.Streamer, sess *transcode.HLSSession, h metainfo.Hash, fileIdx int) bool {
+func waitForMasterPlaylist(hc *hlsCtx, sess *transcode.HLSSession) bool {
 	if err := sess.WaitForMaster(2 * time.Minute); err != nil {
 		resp := gin.H{"error": err.Error(), "code": "transcode_failed"}
-		if info, gerr := s.Get(h); gerr == nil {
+		if info, gerr := hc.s.Get(hc.h); gerr == nil {
 			resp["downRate"] = info.DownRate
 			resp["peers"] = info.Peers
-			if fileIdx >= 0 && fileIdx < len(info.Files) {
-				resp["fileProgress"] = info.Files[fileIdx].Progress
-				downloaded := info.Files[fileIdx].Downloaded
+			if hc.fileIdx >= 0 && hc.fileIdx < len(info.Files) {
+				resp["fileProgress"] = info.Files[hc.fileIdx].Progress
+				downloaded := info.Files[hc.fileIdx].Downloaded
 				switch {
 				case info.Peers == 0:
 					resp["code"] = "no_seeds"
@@ -251,7 +261,7 @@ func waitForMasterPlaylist(c *gin.Context, s *streamer.Streamer, sess *transcode
 				}
 			}
 		}
-		c.JSON(http.StatusServiceUnavailable, resp)
+		hc.c.JSON(http.StatusServiceUnavailable, resp)
 		return false
 	}
 	return true
