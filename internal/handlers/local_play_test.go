@@ -358,7 +358,7 @@ func TestErrStrIfAny_WithError(t *testing.T) {
 }
 
 func TestSegURLBuilder(t *testing.T) {
-	builder := segURLBuilder("Mount", "video.mp4", "mytoken")
+	builder := segURLBuilder("Mount", "video.mp4", "mytoken", "")
 	got := builder("seg_00000.ts")
 	if !strings.Contains(got, "mount=Mount") {
 		t.Errorf("expected mount param, got %q", got)
@@ -372,7 +372,7 @@ func TestSegURLBuilder(t *testing.T) {
 }
 
 func TestSegURLBuilder_NoToken(t *testing.T) {
-	builder := segURLBuilder("Mount", "video.mp4", "")
+	builder := segURLBuilder("Mount", "video.mp4", "", "")
 	got := builder("seg_00000.ts")
 	if strings.Contains(got, "token=") {
 		t.Errorf("expected no token param, got %q", got)
@@ -455,21 +455,24 @@ func TestListHandleError_NotFound(t *testing.T) {
 }
 
 func TestResolveLocalPaths_Empty(t *testing.T) {
-	got := resolveLocalPaths(&localPromoteReq{})
+	b := local.NewBrowser(nil)
+	got := resolveLocalPaths(b, &localPromoteReq{}, "testuser")
 	if got != nil {
 		t.Errorf("expected nil, got %v", got)
 	}
 }
 
 func TestResolveLocalPaths_WithPath(t *testing.T) {
-	got := resolveLocalPaths(&localPromoteReq{Path: "video.mp4"})
-	if len(got) != 1 || got[0] != "video.mp4" {
+	b := local.NewBrowser(nil)
+	got := resolveLocalPaths(b, &localPromoteReq{Path: "video.mp4"}, "testuser")
+	if len(got) != 1 || !strings.HasSuffix(got[0], "video.mp4") {
 		t.Errorf("expected [video.mp4], got %v", got)
 	}
 }
 
 func TestResolveLocalPaths_WithPaths(t *testing.T) {
-	got := resolveLocalPaths(&localPromoteReq{Paths: []string{"a.mp4", "b.mp4"}})
+	b := local.NewBrowser(nil)
+	got := resolveLocalPaths(b, &localPromoteReq{Paths: []string{"a.mp4", "b.mp4"}}, "testuser")
 	if len(got) != 2 {
 		t.Errorf("expected 2 paths, got %v", got)
 	}

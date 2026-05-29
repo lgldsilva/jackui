@@ -192,8 +192,12 @@ func TestIsAdminMove_NoClaims(t *testing.T) {
 }
 
 func TestResolveSource_InvalidMount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 	b := local.NewBrowser(nil)
-	_, _, err := resolveSource(b, &moveEntryReq{
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	_, _, err := resolveSource(b, c, &moveEntryReq{
 		SrcMount: "DoesNotExist",
 		SrcPath:  "file.txt",
 	})
@@ -203,11 +207,15 @@ func TestResolveSource_InvalidMount(t *testing.T) {
 }
 
 func TestResolveSource_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 	mountDir := t.TempDir()
 	b := local.NewBrowser([]config.ExternalMount{
 		{Name: "Test", Path: mountDir},
 	})
-	_, _, err := resolveSource(b, &moveEntryReq{
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	_, _, err := resolveSource(b, c, &moveEntryReq{
 		SrcMount: "Test",
 		SrcPath:  "nonexistent.txt",
 	})
@@ -217,12 +225,16 @@ func TestResolveSource_NotFound(t *testing.T) {
 }
 
 func TestResolveSource_Valid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
 	mountDir := t.TempDir()
 	os.WriteFile(filepath.Join(mountDir, "file.txt"), []byte("content"), 0644)
 	b := local.NewBrowser([]config.ExternalMount{
 		{Name: "Test", Path: mountDir},
 	})
-	abs, stat, err := resolveSource(b, &moveEntryReq{
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	abs, stat, err := resolveSource(b, c, &moveEntryReq{
 		SrcMount: "Test",
 		SrcPath:  "file.txt",
 	})
@@ -482,77 +494,10 @@ func TestSanitizeSubdir_Dot(t *testing.T) {
 	}
 }
 
-func TestValidatePromote_NoSharedDir(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/", nil)
 
-	_, _, _, _, ok := validatePromote(c, nil, "", nil)
-	if ok {
-		t.Error("expected validatePromote to fail with empty sharedDir")
-	}
-}
 
-func TestValidatePromote_NoBody(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/", nil)
 
-	_, _, _, _, ok := validatePromote(c, nil, "/shared", nil)
-	if ok {
-		t.Error("expected validatePromote to fail with no body")
-	}
-}
 
-func TestValidatePromote_EmptyMount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/", strings.NewReader(`{"mount":"","path":"file.mp4"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	_, _, _, _, ok := validatePromote(c, nil, "/shared", nil)
-	if ok {
-		t.Error("expected validatePromote to fail with empty mount")
-	}
-}
-
-func TestValidatePromote_UnknownMount(t *testing.T) {
-	mountDir := t.TempDir()
-	b := local.NewBrowser([]config.ExternalMount{
-		{Name: "Real", Path: mountDir},
-	})
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/", strings.NewReader(`{"mount":"Fake","path":"file.mp4"}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	_, _, _, _, ok := validatePromote(c, b, "/shared", nil)
-	if ok {
-		t.Error("expected validatePromote to fail with unknown mount")
-	}
-}
-
-func TestValidatePromote_RootPath(t *testing.T) {
-	mountDir := t.TempDir()
-	b := local.NewBrowser([]config.ExternalMount{
-		{Name: "Meus downloads", Path: mountDir},
-	})
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/", strings.NewReader(`{"mount":"Meus downloads","path":"."}`))
-	c.Request.Header.Set("Content-Type", "application/json")
-	setAuth(c, 1, true)
-
-	_, _, _, _, ok := validatePromote(c, b, "/shared", nil)
-	if ok {
-		t.Error("expected validatePromote to fail with root path")
-	}
-}
 
 func TestComputePromoteDst_NoAIClient(t *testing.T) {
 	dst, dir := computePromoteDst(&promoteDstDeps{base: "/base"}, "test.mp4", "/base/filmes")

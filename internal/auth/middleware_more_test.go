@@ -251,7 +251,7 @@ func TestGuestRestrict_BlocksMutationForGuests(t *testing.T) {
 		{"PATCH", "/api/library/1", true},
 		{"GET", "/api/library/1", false},
 		{"POST", "/api/stream/abc/0", false},
-		{"POST", "/api/local/file", false},
+		{"POST", "/api/local/file", true},
 	}
 
 	for _, tc := range tests {
@@ -418,7 +418,7 @@ func TestParseAccess_InvalidSignature(t *testing.T) {
 func TestGuestRestrict_MediaPathExceptions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mediaPaths := []string{"/api/stream/abc", "/api/local/file"}
+	mediaPaths := []string{"/api/stream/abc"}
 	for _, path := range mediaPaths {
 		t.Run(path, func(t *testing.T) {
 			w := httptest.NewRecorder()

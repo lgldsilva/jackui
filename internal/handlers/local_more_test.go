@@ -814,7 +814,11 @@ func TestResolveDest_WithPath(t *testing.T) {
 		{Name: "Test", Path: mountDir},
 	})
 
-	dst, err := resolveDest(b, &moveEntryReq{
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+
+	dst, err := resolveDest(b, c, &moveEntryReq{
 		SrcMount: "Test",
 		SrcPath:  "source.txt",
 		DstMount: "Test",
@@ -836,7 +840,11 @@ func TestResolveDest_EmptyDstPath(t *testing.T) {
 		{Name: "Test", Path: mountDir},
 	})
 
-	dst, err := resolveDest(b, &moveEntryReq{
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+
+	dst, err := resolveDest(b, c, &moveEntryReq{
 		SrcMount: "Test",
 		SrcPath:  "source.txt",
 		DstMount: "Test",

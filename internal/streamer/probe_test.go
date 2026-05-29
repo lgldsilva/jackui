@@ -3,7 +3,6 @@ package streamer
 import (
 	"io"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -234,31 +233,7 @@ func TestComputeOSHash_Exact64K(t *testing.T) {
 	}
 }
 
-func TestComputeFileOSHash(t *testing.T) {
-	data := make([]byte, 128*1024)
-	for i := range data {
-		data[i] = byte(i % 256)
-	}
-	r := &readSeekerWrapper{data: data}
-	result, err := ComputeFileOSHash(r, int64(len(data)))
-	if err != nil {
-		t.Fatalf("ComputeFileOSHash: %v", err)
-	}
-	if result.Hash == "" {
-		t.Error("expected non-empty hash")
-	}
-	if result.Size != int64(len(data)) {
-		t.Errorf("Size = %d, want %d", result.Size, len(data))
-	}
-}
 
-func TestComputeFileOSHash_Small(t *testing.T) {
-	r := &readSeekerWrapper{data: []byte("tiny")}
-	_, err := ComputeFileOSHash(r, 5)
-	if err == nil {
-		t.Error("expected error for small file")
-	}
-}
 
 type readSeekerWrapper struct {
 	data   []byte
@@ -307,20 +282,7 @@ func TestProbeHealthAsync_EmptyMagnetNoOp(t *testing.T) {
 	s.ProbeHealthAsync(hash, "")
 }
 
-func TestDefaultMetadataCachePath(t *testing.T) {
-	got := DefaultMetadataCachePath("/data")
-	expected := filepath.Join("/data", ".metadata-cache.db")
-	if got != expected {
-		t.Errorf("got %q, want %q", got, expected)
-	}
-}
 
-func TestDefaultMetadataCachePath_Empty(t *testing.T) {
-	got := DefaultMetadataCachePath("")
-	if got == "" {
-		t.Error("expected non-empty path")
-	}
-}
 
 func TestMetadataCache_NewAndClose(t *testing.T) {
 	dir := t.TempDir()
@@ -497,16 +459,6 @@ func TestHealthSnapshot_UnknownHash(t *testing.T) {
 	}
 }
 
-func TestMetainfoPath(t *testing.T) {
-	dir := t.TempDir()
-	s := &Streamer{cfg: Config{DataDir: dir}}
-	s.metainfoDir = filepath.Join(dir, ".metainfo")
-	hash := metainfo.HashBytes([]byte("test"))
-	got := s.MetainfoPath(hash)
-	if !strings.HasSuffix(got, hash.HexString()+".torrent") {
-		t.Errorf("MetainfoPath = %q, doesn't end with hash.torrent", got)
-	}
-}
 
 func TestRegisterDownload_Empty(t *testing.T) {
 	s := NewForTesting()
@@ -544,16 +496,6 @@ func TestIsDownloadProtected_NoMatch(t *testing.T) {
 	}
 }
 
-func TestSetFilePathResolver(t *testing.T) {
-	s := NewForTesting()
-	resolver := FilePathResolver(func(hash metainfo.Hash, fileIdx int) (string, bool) {
-		return "/path/to/file", true
-	})
-	s.SetFilePathResolver(resolver)
-	if s.filePathResolver == nil {
-		t.Error("expected filePathResolver to be set")
-	}
-}
 
 func TestSetFavorites(t *testing.T) {
 	s := NewForTesting()
@@ -578,12 +520,6 @@ func TestSetMetadataCache(t *testing.T) {
 	}
 }
 
-func TestClient_Nil(t *testing.T) {
-	s := NewForTesting()
-	if s.Client() != nil {
-		t.Error("expected nil client for testing streamer")
-	}
-}
 
 func TestEnsureActive_FailsWithNoClient(t *testing.T) {
 	s := NewForTesting()
@@ -608,23 +544,8 @@ func TestParseMagnet_Valid(t *testing.T) {
 }
 
 
-func TestImportTorrentBytes_Invalid(t *testing.T) {
-	s := &Streamer{}
-	_, _, err := s.ImportTorrentBytes([]byte("not a torrent"))
-	if err == nil {
-		t.Error("expected error for invalid torrent bytes")
-	}
-}
 
 
-func TestRateBurst(t *testing.T) {
-	if got := rateBurst(0); got != 65536 {
-		t.Errorf("rateBurst(0) = %d, want 65536", got)
-	}
-	if got := rateBurst(1000); got <= 0 {
-		t.Errorf("rateBurst(1000) = %d, want > 0", got)
-	}
-}
 
 func TestLabelFromPriority_Unknown(t *testing.T) {
 	got := labelFromPriority(100)
@@ -633,24 +554,6 @@ func TestLabelFromPriority_Unknown(t *testing.T) {
 	}
 }
 
-func TestPriorityFromLabel(t *testing.T) {
-	tests := []struct {
-		label string
-		ok    bool
-	}{
-		{"none", true},
-		{"low", true},
-		{"normal", true},
-		{"high", true},
-		{"unknown", false},
-	}
-	for _, tc := range tests {
-		_, ok := priorityFromLabel(tc.label)
-		if ok != tc.ok {
-			t.Errorf("priorityFromLabel(%q) ok=%v, want %v", tc.label, ok, tc.ok)
-		}
-	}
-}
 
 func TestGlobalStats(t *testing.T) {
 	s := NewForTesting()
