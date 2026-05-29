@@ -31,7 +31,7 @@ func ConvertTorrentToMagnet() gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("falha ao baixar .torrent: %v", err)})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("servidor retornou erro %d", resp.StatusCode)})
@@ -114,7 +114,7 @@ func ConvertMagnetToTorrent(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err)})
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		filename := h.HexString() + ".torrent"
 		if loaded, err := metainfo.LoadFromFile(path); err == nil {

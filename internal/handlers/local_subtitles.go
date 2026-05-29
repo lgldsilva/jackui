@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -158,10 +159,56 @@ func parseFFProbeStreams(out []byte) (streamer.ProbeResult, error) {
 	}
 	if parsed.Format.Duration != "" {
 		var d float64
-		fmt.Sscanf(parsed.Format.Duration, "%f", &d)
+		_, _ = fmt.Sscanf(parsed.Format.Duration, "%f", &d)
 		result.DurationSec = d
 	}
 	return result, nil
+}
+
+type localSidecarSub struct {
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	Language string `json:"language"`
+	Format   string `json:"format"`
+	Match    int    `json:"match"` // 2=basename match, 1=in same dir, 0=other
+}
+
+func collectDirSubs(dir, baseNoExt string) ([]localSidecarSub, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var subs []localSidecarSub
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		format, ok := localSubtitleExtensions[ext]
+		if !ok {
+			continue
+		}
+		match := 1
+		if strings.HasPrefix(strings.TrimSuffix(e.Name(), ext), baseNoExt) {
+			match = 2
+		}
+		info, _ := e.Info()
+		var size int64
+		if info != nil {
+			size = info.Size()
+		}
+		subs = append(subs, localSidecarSub{
+			Name:     e.Name(),
+			Size:     size,
+			Language: detectLangFromName(e.Name()),
+			Format:   format,
+			Match:    match,
+		})
+	}
+	sort.Slice(subs, func(i, j int) bool {
+		return subs[i].Match > subs[j].Match
+	})
+	return subs, nil
 }
 
 // LocalSidecars handles GET /api/local/sidecars?mount=&path=
@@ -187,56 +234,13 @@ func LocalSidecars(b *local.Browser) gin.HandlerFunc {
 		dir := filepath.Dir(abs)
 		baseNoExt := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
 
-		entries, err := os.ReadDir(dir)
+		subs, err := collectDirSubs(dir, baseNoExt)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-
-		type sub struct {
-			Name     string `json:"name"`     // basename (passed back to /sidecar to read)
-			Size     int64  `json:"size"`
-			Language string `json:"language"` // best-effort detection from filename
-			Format   string `json:"format"`
-			Match    int    `json:"match"` // 2=basename match, 1=in same dir, 0=other
-		}
-		var subs []sub
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			ext := strings.ToLower(filepath.Ext(e.Name()))
-			format, ok := localSubtitleExtensions[ext]
-			if !ok {
-				continue
-			}
-			match := 1
-			if strings.HasPrefix(strings.TrimSuffix(e.Name(), ext), baseNoExt) {
-				match = 2
-			}
-			info, _ := e.Info()
-			var size int64
-			if info != nil {
-				size = info.Size()
-			}
-			subs = append(subs, sub{
-				Name:     e.Name(),
-				Size:     size,
-				Language: detectLangFromName(e.Name()),
-				Format:   format,
-				Match:    match,
-			})
-		}
-		// Rank: basename-prefix matches first
-		for i := 0; i < len(subs); i++ {
-			for j := i + 1; j < len(subs); j++ {
-				if subs[j].Match > subs[i].Match {
-					subs[i], subs[j] = subs[j], subs[i]
-				}
-			}
-		}
 		if subs == nil {
-			subs = []sub{}
+			subs = []localSidecarSub{}
 		}
 		c.JSON(http.StatusOK, subs)
 	}
@@ -288,12 +292,12 @@ func LocalSidecarRead(b *local.Browser) gin.HandlerFunc {
 		default:
 			c.Header("Content-Type", "text/plain; charset=utf-8")
 			c.Header("Cache-Control", "public, max-age=86400, immutable")
-			c.Writer.Write(raw)
+			_, _ = c.Writer.Write(raw)
 			return
 		}
 		c.Header("Content-Type", "text/vtt; charset=utf-8")
 		c.Header("Cache-Control", "public, max-age=86400, immutable")
-		c.Writer.Write(body)
+		_, _ = c.Writer.Write(body)
 	}
 }
 
@@ -430,7 +434,7 @@ func LocalSubtitleExtract(b *local.Browser) gin.HandlerFunc {
 		}
 		c.Header("Content-Type", "text/vtt; charset=utf-8")
 		c.Header("Cache-Control", "public, max-age=3600")
-		c.Writer.Write(stdout.Bytes())
+		_, _ = c.Writer.Write(stdout.Bytes())
 	}
 }
 

@@ -233,6 +233,8 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
+      role="dialog" aria-modal="true" tabIndex={-1}
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-gray-700">
@@ -329,7 +331,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                       setSelectedFiles(next)
                     }
                     return (
-                      <li key={f.index} className="px-3 py-2 flex items-center gap-2.5 hover:bg-gray-800/40 cursor-pointer" onClick={toggle}>
+                      <li key={f.index} className="px-3 py-2 flex items-center gap-2.5 hover:bg-gray-800/40 cursor-pointer" onClick={toggle} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }} role="button" tabIndex={0}>
                         <input
                           type="checkbox"
                           checked={checked}

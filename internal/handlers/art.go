@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 
 	"github.com/luizg/jackui/internal/ai"
@@ -75,8 +76,6 @@ var frameCaptureSeconds = []int{120, 60, 30, 5}
 // Chain (highest trust first): embedded torrent image → TMDB poster (by cached
 // name) → captured video frame.
 func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain) gin.HandlerFunc {
-	// Tracks in-flight frame-capture jobs (the one slow step) per info_hash so a
-	// repeated resolve doesn't spawn duplicate ffmpeg runs for the same torrent.
 	var frameJobs sync.Map
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
@@ -97,7 +96,6 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 		if existing != nil {
 			existingRank = streamer.ArtSourceRank(existing.Source)
 		}
-		// Already have the best possible source — never reprocess.
 		if existingRank >= streamer.ArtSourceRank("torrent") {
 			c.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
 			return
@@ -106,119 +104,141 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 		defer cancel()
 
-		// 1) Embedded torrent image — uploader-curated, highest trust.
-		if existingRank < streamer.ArtSourceRank("torrent") {
-			if data, _, terr := s.TorrentImage(ctx, h); terr == nil && len(data) > 0 {
-				if rel, serr := s.SaveArtBytes(h, data); serr == nil {
-					art := &streamer.CachedArt{Source: "torrent", Path: rel}
-					if existing != nil {
-						art.TmdbID, art.ImdbID = existing.TmdbID, existing.ImdbID
-					}
-					_ = cache.SetArt(hash, art)
-					c.JSON(http.StatusOK, gin.H{"source": "torrent"})
-					return
-				}
-			}
-		}
+		rawName, isAudio, query := buildArtQuery(c, cache, aiClient, ctx, hash)
 
-		// Build the search query once (shared by TMDB + web). Prefer the cached
-		// torrent name; fall back to ?name= so a proactive resolve from a card
-		// (where the torrent isn't active and metadata may not be cached) still
-		// has something to search. An AI chain cleans the messy release name into
-		// a real title first — it beats regex stripping on tricky / non-English
-		// names and gives the web search a cleaner query too.
-		rawName := ""
-		isAudio := false
-		if meta := cache.Get(hash); meta != nil {
-			rawName = meta.Name
-			// Music = has files and none are video (a season pack has videos; an
-			// album/discography is all audio). Drives the cover-art path below.
-			if len(meta.Files) > 0 {
-				isAudio = true
-				for _, f := range meta.Files {
-					if f.IsVideo {
-						isAudio = false
-						break
-					}
-				}
-			}
+		if resolveTorrentArt(c, s, cache, h, hash, existing, existingRank, ctx) {
+			return
 		}
-		if rawName == "" {
-			rawName = c.Query("name")
+		if resolveTMDBArt(c, cache, tmdbClient, hash, existingRank, ctx, query) {
+			return
 		}
-		query := rawName
-		if aiClient != nil && rawName != "" {
-			if res, _, aerr := aiClient.IdentifyTitle(ctx, rawName); aerr == nil && res.Query() != "" {
-				query = res.Query()
-			}
+		if resolveWebArt(c, s, cache, h, hash, webSearch, existingRank, ctx, isAudio, rawName, aiClient, query) {
+			return
 		}
-
-		// 2) TMDB poster by title.
-		if existingRank < streamer.ArtSourceRank("tmdb") && tmdbClient != nil && query != "" {
-			if m, merr := tmdbClient.Match(ctx, query); merr == nil && m != nil && m.PosterURL != "" {
-				_ = cache.SetArt(hash, &streamer.CachedArt{
-					Source:    "tmdb",
-					PosterURL: m.PosterURL,
-					TmdbID:    m.TmdbID,
-					ImdbID:    m.ImdbID,
-				})
-				c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
-				return
-			}
-		}
-
-		// 3) Web image search — only reached when TMDB didn't match (adult /
-		// obscure / music / non-catalogued). For audio, ask the AI to build an
-		// album-cover query ("artist album") since the movie-title path doesn't
-		// fit music. Downloads the found image and caches it like a frame.
-		webQuery := query
-		if isAudio && aiClient != nil && rawName != "" {
-			if mq := aiClient.MusicQuery(ctx, rawName); mq != "" {
-				webQuery = mq
-			}
-		}
-		if existingRank < streamer.ArtSourceRank("web") && webSearch != nil && webQuery != "" {
-			if data, _, src, werr := webSearch.Find(ctx, webQuery); werr == nil && len(data) > 0 {
-				if rel, serr := s.SaveArtBytes(h, data); serr == nil {
-					_ = cache.SetArt(hash, &streamer.CachedArt{Source: "web", Path: rel})
-					c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
-					return
-				}
-			}
-		}
-
-		// 4) Captured video frame — the one slow step (ffmpeg can block up to ~25s
-		// waiting on pieces). Run it OFF the request: return 202 immediately and
-		// extract in the background, persisting when done. The caller (player, on
-		// play) is fire-and-forget, and cards re-fetch the art on their next
-		// render — so nothing needs to block on this. Deduped per info_hash.
-		if fileIdx >= 0 && existingRank < streamer.ArtSourceRank("frame") {
-			if _, busy := frameJobs.LoadOrStore(hash, true); busy {
-				c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
-				return
-			}
-			go func() {
-				defer frameJobs.Delete(hash)
-				bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				for _, at := range frameCaptureSeconds {
-					data, _, ferr := s.ExtractThumbnail(bg, h, fileIdx, at)
-					if ferr != nil {
-						return // torrent gone / index bad
-					}
-					if len(data) == 0 {
-						continue // couldn't decode here; try earlier
-					}
-					if rel, serr := s.SaveArtBytes(h, data); serr == nil {
-						_ = cache.SetArt(hash, &streamer.CachedArt{Source: "frame", Path: rel})
-					}
-					return
-				}
-			}()
-			c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+		if resolveFrameCapture(c, s, cache, h, hash, &frameJobs, fileIdx, existingRank) {
 			return
 		}
 
 		c.Status(http.StatusNoContent)
 	}
+}
+
+func buildArtQuery(c *gin.Context, cache *streamer.MetadataCache, aiClient *ai.Client, ctx context.Context, hash string) (rawName string, isAudio bool, query string) {
+	if meta := cache.Get(hash); meta != nil {
+		rawName = meta.Name
+		if len(meta.Files) > 0 {
+			isAudio = true
+			for _, f := range meta.Files {
+				if f.IsVideo {
+					isAudio = false
+					break
+				}
+			}
+		}
+	}
+	if rawName == "" {
+		rawName = c.Query("name")
+	}
+	query = rawName
+	if aiClient != nil && rawName != "" {
+		if res, _, aerr := aiClient.IdentifyTitle(ctx, rawName); aerr == nil && res.Query() != "" {
+			query = res.Query()
+		}
+	}
+	return
+}
+
+func resolveTorrentArt(c *gin.Context, s *streamer.Streamer, cache *streamer.MetadataCache, h metainfo.Hash, hash string, existing *streamer.CachedArt, existingRank int, ctx context.Context) bool {
+	if existingRank >= streamer.ArtSourceRank("torrent") {
+		return false
+	}
+	data, _, terr := s.TorrentImage(ctx, h)
+	if terr != nil || len(data) == 0 {
+		return false
+	}
+	rel, serr := s.SaveArtBytes(h, data)
+	if serr != nil {
+		return false
+	}
+	art := &streamer.CachedArt{Source: "torrent", Path: rel}
+	if existing != nil {
+		art.TmdbID, art.ImdbID = existing.TmdbID, existing.ImdbID
+	}
+	_ = cache.SetArt(hash, art)
+	c.JSON(http.StatusOK, gin.H{"source": "torrent"})
+	return true
+}
+
+func resolveTMDBArt(c *gin.Context, cache *streamer.MetadataCache, tmdbClient *tmdb.Client, hash string, existingRank int, ctx context.Context, query string) bool {
+	if existingRank >= streamer.ArtSourceRank("tmdb") || tmdbClient == nil || query == "" {
+		return false
+	}
+	m, merr := tmdbClient.Match(ctx, query)
+	if merr != nil || m == nil || m.PosterURL == "" {
+		return false
+	}
+	_ = cache.SetArt(hash, &streamer.CachedArt{
+		Source:    "tmdb",
+		PosterURL: m.PosterURL,
+		TmdbID:    m.TmdbID,
+		ImdbID:    m.ImdbID,
+	})
+	c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
+	return true
+}
+
+func resolveWebArt(c *gin.Context, s *streamer.Streamer, cache *streamer.MetadataCache, h metainfo.Hash, hash string, webSearch *imagesearch.Chain, existingRank int, ctx context.Context, isAudio bool, rawName string, aiClient *ai.Client, query string) bool {
+	if existingRank >= streamer.ArtSourceRank("web") || webSearch == nil {
+		return false
+	}
+	webQuery := query
+	if isAudio && aiClient != nil && rawName != "" {
+		if mq := aiClient.MusicQuery(ctx, rawName); mq != "" {
+			webQuery = mq
+		}
+	}
+	if webQuery == "" {
+		return false
+	}
+	data, _, src, werr := webSearch.Find(ctx, webQuery)
+	if werr != nil || len(data) == 0 {
+		return false
+	}
+	rel, serr := s.SaveArtBytes(h, data)
+	if serr != nil {
+		return false
+	}
+	_ = cache.SetArt(hash, &streamer.CachedArt{Source: "web", Path: rel})
+	c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
+	return true
+}
+
+func resolveFrameCapture(c *gin.Context, s *streamer.Streamer, cache *streamer.MetadataCache, h metainfo.Hash, hash string, frameJobs *sync.Map, fileIdx int, existingRank int) bool {
+	if fileIdx < 0 || existingRank >= streamer.ArtSourceRank("frame") {
+		return false
+	}
+	if _, busy := frameJobs.LoadOrStore(hash, true); busy {
+		c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+		return true
+	}
+	go func() {
+		defer frameJobs.Delete(hash)
+		bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		for _, at := range frameCaptureSeconds {
+			data, _, ferr := s.ExtractThumbnail(bg, h, fileIdx, at)
+			if ferr != nil {
+				return
+			}
+			if len(data) == 0 {
+				continue
+			}
+			if rel, serr := s.SaveArtBytes(h, data); serr == nil {
+				_ = cache.SetArt(hash, &streamer.CachedArt{Source: "frame", Path: rel})
+			}
+			return
+		}
+	}()
+	c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+	return true
 }

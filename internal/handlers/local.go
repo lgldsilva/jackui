@@ -234,7 +234,7 @@ func LocalTranscode(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		opts := transcode.Options{
 			AudioTrack:  -1,
@@ -332,55 +332,8 @@ type localPromoteReq struct {
 // LocalPromote handles POST /api/local/promote
 func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
-			return
-		}
-
-		var req localPromoteReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
-			return
-		}
-
-		if req.Mount == "" || req.Path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
-			return
-		}
-		if !checkMountAccess(b, c, req.Mount) {
-			return
-		}
-
-		// Admin pode modificar qualquer mount; não-admin só "Meus downloads"
-		claims, _ := auth.ClaimsFromCtx(c)
-		isAdmin := claims != nil && claims.Role == auth.RoleAdmin
-		if !isAdmin && strings.ToLower(req.Mount) != "meus downloads" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
-			return
-		}
-
-		// Prevent promoting mount root
-		cleanPath := filepath.Clean(req.Path)
-		if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot promote mount root"})
-			return
-		}
-
-		src, err := b.ResolvePath(req.Mount, req.Path)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		subdir, err := sanitizeSubdir(req.TargetSubdir)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		_, src, base, subdir, ok := validatePromote(c, b, sharedDir, dests)
+		if !ok {
 			return
 		}
 
@@ -390,19 +343,7 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 		}
 
 		baseName := filepath.Base(src)
-		var dst string
-		if req.RenameIA && aiClient != nil {
-			preview, err := renamer.GeneratePreview(c.Request.Context(), aiClient, tmdbClient, baseName)
-			if err == nil && preview != nil {
-				targetRel := renamer.ResolveTargetConflict(base, preview.TargetPath)
-				dst = filepath.Join(base, targetRel)
-				targetDir = filepath.Dir(dst)
-			}
-		}
-
-		if dst == "" {
-			dst = filepath.Join(targetDir, baseName)
-		}
+		dst, targetDir := computePromoteDst(c.Request.Context(), aiClient, tmdbClient, baseName, base, targetDir)
 
 		if src == dst {
 			c.JSON(http.StatusOK, gin.H{"message": "source and destination are the same", "path": dst})
@@ -427,6 +368,72 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 
 		c.JSON(http.StatusOK, gin.H{"message": "promoted successfully", "path": dst})
 	}
+}
+
+func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests []PromoteDest) (*localPromoteReq, string, string, string, bool) {
+	if sharedDir == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "JACKUI_SHARED_DIR não configurado"})
+		return nil, "", "", "", false
+	}
+
+	var req localPromoteReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		return nil, "", "", "", false
+	}
+
+	if req.Mount == "" || req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+		return nil, "", "", "", false
+	}
+	if !checkMountAccess(b, c, req.Mount) {
+		return nil, "", "", "", false
+	}
+
+	claims, _ := auth.ClaimsFromCtx(c)
+	isAdmin := claims != nil && claims.Role == auth.RoleAdmin
+	if !isAdmin && strings.ToLower(req.Mount) != "meus downloads" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Somente a área 'Meus downloads' pode ser modificada ou promovida"})
+		return nil, "", "", "", false
+	}
+
+	cleanPath := filepath.Clean(req.Path)
+	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot promote mount root"})
+		return nil, "", "", "", false
+	}
+
+	src, err := b.ResolvePath(req.Mount, req.Path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, "", "", "", false
+	}
+
+	base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, "", "", "", false
+	}
+
+	subdir, err := sanitizeSubdir(req.TargetSubdir)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, "", "", "", false
+	}
+
+	return &req, src, base, subdir, true
+}
+
+func computePromoteDst(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.Client, baseName, base, targetDir string) (string, string) {
+	if aiClient != nil {
+		preview, err := renamer.GeneratePreview(ctx, aiClient, tmdbClient, baseName)
+		if err == nil && preview != nil {
+			targetRel := renamer.ResolveTargetConflict(base, preview.TargetPath)
+			dst := filepath.Join(base, targetRel)
+			return dst, filepath.Dir(dst)
+		}
+	}
+	return filepath.Join(targetDir, baseName), targetDir
 }
 
 // LocalPromotePreview handles POST /api/local/promote/preview
@@ -478,46 +485,45 @@ func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb
 
 		previews := []gin.H{}
 		for _, p := range paths {
-			// Prevent promoting mount root
-			cleanPath := filepath.Clean(p)
-			if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
-				previews = append(previews, gin.H{"path": p, "error": "cannot promote mount root"})
-				continue
-			}
-
-			src, err := b.ResolvePath(req.Mount, p)
-			if err != nil {
-				previews = append(previews, gin.H{"path": p, "error": err.Error()})
-				continue
-			}
-
-			if _, err := os.Stat(src); err != nil {
-				previews = append(previews, gin.H{"path": p, "error": "arquivo não existe"})
-				continue
-			}
-
-			baseName := filepath.Base(src)
-			preview, err := renamer.GeneratePreview(c.Request.Context(), aiClient, tmdbClient, baseName)
-			if err != nil {
-				previews = append(previews, gin.H{"path": p, "error": err.Error()})
-				continue
-			}
-
-			nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
-			previews = append(previews, gin.H{
-				"path":         p,
-				"originalName": baseName,
-				"cleanName":    preview.CleanName,
-				"targetPath":   nonConflicting,
-				"kind":         preview.Kind,
-				"year":         preview.Year,
-				"season":       preview.Season,
-				"episode":      preview.Episode,
-				"episodeName":  preview.EpisodeName,
-			})
+			previews = append(previews, previewItem(c, b, aiClient, tmdbClient, req.Mount, p, base))
 		}
 
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
+	}
+}
+
+func previewItem(c *gin.Context, b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, mount, p, base string) gin.H {
+	cleanPath := filepath.Clean(p)
+	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
+		return gin.H{"path": p, "error": "cannot promote mount root"}
+	}
+
+	src, err := b.ResolvePath(mount, p)
+	if err != nil {
+		return gin.H{"path": p, "error": err.Error()}
+	}
+
+	if _, err := os.Stat(src); err != nil {
+		return gin.H{"path": p, "error": "arquivo não existe"}
+	}
+
+	baseName := filepath.Base(src)
+	preview, err := renamer.GeneratePreview(c.Request.Context(), aiClient, tmdbClient, baseName)
+	if err != nil {
+		return gin.H{"path": p, "error": err.Error()}
+	}
+
+	nonConflicting := renamer.ResolveTargetConflict(base, preview.TargetPath)
+	return gin.H{
+		"path":         p,
+		"originalName": baseName,
+		"cleanName":    preview.CleanName,
+		"targetPath":   nonConflicting,
+		"kind":         preview.Kind,
+		"year":         preview.Year,
+		"season":       preview.Season,
+		"episode":      preview.Episode,
+		"episodeName":  preview.EpisodeName,
 	}
 }
 
@@ -541,21 +547,21 @@ func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err = io.Copy(out, in); err != nil {
-		os.Remove(dst)
+		_ = os.Remove(dst)
 		return err
 	}
 
-	out.Close()
-	in.Close()
+	_ = out.Close()
+	_ = in.Close()
 	return os.Remove(src)
 }
 

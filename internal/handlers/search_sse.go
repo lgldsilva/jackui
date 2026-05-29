@@ -19,8 +19,94 @@ import (
 
 func writeSSE(c *gin.Context, event string, data any) {
 	b, _ := json.Marshal(data)
-	fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, b)
+	_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, b)
 	c.Writer.Flush()
+}
+
+type liveSearchState struct {
+	c              *gin.Context
+	enricher       *resultEnricher
+	cachedSeen     map[string]bool
+	liveSeen       map[string]bool
+	mu             sync.Mutex
+	liveResults    []jackett.Result
+	liveCount      int
+	indexersDone   int
+	indexersFailed int
+}
+
+func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.indexersDone++
+	if hit.Err != nil {
+		s.indexersFailed++
+		writeSSE(s.c, "progress", gin.H{
+			"phase":    "indexer",
+			"indexer":  hit.IndexerName,
+			"error":    hit.Err.Error(),
+			"durMs":    hit.Duration.Milliseconds(),
+			"done":     s.indexersDone,
+		})
+		return
+	}
+	emitted := 0
+	for _, r := range hit.Results {
+		if r.InfoHash != "" {
+			if s.cachedSeen[r.InfoHash] || s.liveSeen[r.InfoHash] {
+				continue
+			}
+			s.liveSeen[r.InfoHash] = true
+		}
+		s.liveResults = append(s.liveResults, r)
+		writeSSE(s.c, "result", s.enricher.enrich(r, false))
+		s.liveCount++
+		emitted++
+	}
+	writeSSE(s.c, "progress", gin.H{
+		"phase":   "indexer",
+		"indexer": hit.IndexerName,
+		"hits":    emitted,
+		"durMs":   hit.Duration.Milliseconds(),
+		"done":    s.indexersDone,
+	})
+}
+
+func parseSearchParams(c *gin.Context) (query, category string, indexers []string) {
+	query = c.Query("q")
+	category = c.Query("category")
+	if ip := c.Query("indexers"); ip != "" {
+		for _, idx := range strings.Split(ip, ",") {
+			if idx = strings.TrimSpace(idx); idx != "" {
+				indexers = append(indexers, idx)
+			}
+		}
+	}
+	return
+}
+
+func setSSEHeaders(c *gin.Context) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+}
+
+func emitCachedResults(c *gin.Context, store *history.Store, query string, userID int, includeAll bool, enricher *resultEnricher) (map[string]bool, int) {
+	seen := make(map[string]bool)
+	if store == nil {
+		return seen, 0
+	}
+	count := 0
+	cached, _ := store.Search(query, userID, includeAll)
+	for _, r := range cached {
+		writeSSE(c, "result", enricher.enrich(r.Result, true))
+		count++
+		if r.InfoHash != "" {
+			seen[r.InfoHash] = true
+		}
+	}
+	return seen, count
 }
 
 // SearchSSE handles GET /api/search/stream — streams results via Server-Sent Events.
@@ -30,118 +116,49 @@ func writeSSE(c *gin.Context, event string, data any) {
 //   2. Fan out one HTTP request per configured Jackett indexer (parallel goroutines)
 //   3. As each indexer responds, emit its results + progress event (live, ms-level)
 //   4. When all done, emit `done`
-//
-// This replaces the previous "wait for Jackett /all then stream" which blocked ~100s
-// before the first live result. Now first results appear in 1-5s.
 func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query := c.Query("q")
+		query, category, indexers := parseSearchParams(c)
 		if query == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter 'q' is required"})
 			return
 		}
 
-		category := c.Query("category")
-		var indexers []string
-		if ip := c.Query("indexers"); ip != "" {
-			for _, idx := range strings.Split(ip, ",") {
-				if idx = strings.TrimSpace(idx); idx != "" {
-					indexers = append(indexers, idx)
-				}
-			}
-		}
-
-		c.Header("Content-Type", "text/event-stream")
-		c.Header("Cache-Control", "no-cache")
-		c.Header("Connection", "keep-alive")
-		c.Header("X-Accel-Buffering", "no")
+		setSSEHeaders(c)
 
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && c.Query("all") == "1"
 		enricher := buildEnricher(favs, dls, userID, includeAll)
 
-		// Phase 1: send cached results immediately
-		cachedSeen := make(map[string]bool)
-		cachedCount := 0
-		if store != nil {
-			cached, _ := store.Search(query, userID, includeAll)
-			for _, r := range cached {
-				writeSSE(c, "result", enricher.enrich(r.Result, true))
-				cachedCount++
-				if r.InfoHash != "" {
-					cachedSeen[r.InfoHash] = true
-				}
-			}
-		}
-
-		// Notify client that live search is starting
+		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, enricher)
 		writeSSE(c, "progress", gin.H{"phase": "live", "cached": cachedCount})
 
-		// Phase 2: parallel per-indexer queries. As each indexer finishes,
-		// its results stream immediately. Serialized via mutex on SSE write.
-		liveResults := make([]jackett.Result, 0, 256)
-		liveSeen := make(map[string]bool)
-		var mu sync.Mutex
-		var liveCount, indexersDone, indexersFailed int
+		state := &liveSearchState{
+			c:          c,
+			enricher:   enricher,
+			cachedSeen: cachedSeen,
+			liveSeen:   make(map[string]bool),
+		}
+		err := client.StreamSearch(c.Request.Context(), query, category, indexers, 30*time.Second, state.handleHit)
 
-		// Concurrent calls fan out — only the writes to ResponseWriter are serialized
-		serr := client.StreamSearch(c.Request.Context(), query, category, indexers, 30*time.Second, func(hit jackett.IndexerHit) {
-			mu.Lock()
-			defer mu.Unlock()
-			indexersDone++
-			if hit.Err != nil {
-				indexersFailed++
-				writeSSE(c, "progress", gin.H{
-					"phase":    "indexer",
-					"indexer":  hit.IndexerName,
-					"error":    hit.Err.Error(),
-					"durMs":    hit.Duration.Milliseconds(),
-					"done":     indexersDone,
-				})
-				return
-			}
-			// Emit each result that isn't already in cache or another indexer's results
-			emitted := 0
-			for _, r := range hit.Results {
-				if r.InfoHash != "" {
-					if cachedSeen[r.InfoHash] || liveSeen[r.InfoHash] {
-						continue
-					}
-					liveSeen[r.InfoHash] = true
-				}
-				liveResults = append(liveResults, r)
-				writeSSE(c, "result", enricher.enrich(r, false))
-				liveCount++
-				emitted++
-			}
-			writeSSE(c, "progress", gin.H{
-				"phase":   "indexer",
-				"indexer": hit.IndexerName,
-				"hits":    emitted,
-				"durMs":   hit.Duration.Milliseconds(),
-				"done":    indexersDone,
-			})
-		})
-
-		// Save what we got to history asynchronously (even partial)
-		if store != nil && len(liveResults) > 0 && !middleware.IsIncognito(c) {
-			go store.Save(query, liveResults, userID)
+		if store != nil && len(state.liveResults) > 0 && !middleware.IsIncognito(c) {
+			go func() { _ = store.Save(query, state.liveResults, userID) }()
 		}
 
-		if serr != nil {
+		if err != nil {
 			msg := "Jackett indisponível, mostrando apenas cache"
-			if cachedCount == 0 && liveCount == 0 {
-				msg = serr.Error()
+			if cachedCount == 0 && state.liveCount == 0 {
+				msg = err.Error()
 			}
 			writeSSE(c, "error", gin.H{"message": msg})
 		}
 
 		writeSSE(c, "done", gin.H{
-			"total":          liveCount + cachedCount,
-			"live":           liveCount,
+			"total":          state.liveCount + cachedCount,
+			"live":           state.liveCount,
 			"cached":         cachedCount,
-			"indexersDone":   indexersDone,
-			"indexersFailed": indexersFailed,
+			"indexersDone":   state.indexersDone,
+			"indexersFailed": state.indexersFailed,
 		})
 	}
 }

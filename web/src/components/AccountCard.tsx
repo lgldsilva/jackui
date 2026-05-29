@@ -70,14 +70,14 @@ export default function AccountCard() {
     catch (e: any) { setPkMsg(e?.response?.data?.error || 'Falha ao remover.') }
   }
 
-  if (!user) return null
-
   const loadBackupRemaining = useCallback(async () => {
     if (!user?.mfaEnabled) { setBackupRemaining(null); return }
     try { setBackupRemaining(await mfaBackupCodesRemaining()) } catch { /* ignore */ }
   }, [user?.mfaEnabled])
 
   useEffect(() => { loadBackupRemaining() }, [loadBackupRemaining])
+
+  if (!user) return null
 
   const startEnroll = async () => {
     setMfaMsg('')

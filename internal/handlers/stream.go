@@ -51,7 +51,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 		// playback is unaffected, but Continuar Assistindo stays untouched.
 		if lib != nil && !middleware.IsIncognito(c) {
 			userID, _, _ := auth.UserIDFromCtx(c)
-			lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "")
+			_, _ = lib.Upsert(userID, info.InfoHash, req.Magnet, info.Name, info.PrimaryFile, info.TotalSize, "")
 		}
 		c.JSON(http.StatusOK, info)
 	}
@@ -70,7 +70,7 @@ func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		defer src.Close()
+		defer func() { _ = src.Close() }()
 
 		mi, err := metainfo.Load(src)
 		if err != nil {
@@ -90,7 +90,12 @@ func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 		default:
 		}
 
-		magnet := mi.Magnet(nil, nil).String()
+		m, merr := mi.MagnetV2()
+		if merr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": merr.Error()})
+			return
+		}
+		magnet := m.String()
 		info, err := s.Add(c.Request.Context(), magnet)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -148,7 +153,7 @@ func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 
 		// Hint the browser about content type when extension is known
 		// (http.ServeContent infers by extension via mime.TypeByExtension)
@@ -175,93 +180,96 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file index"})
 			return
 		}
-		info, err := s.Get(h)
+
+		info, err := resolveTorrentInfo(s, c.Request.Context(), h)
 		if err != nil {
-			// Torrent isn't currently active (dropped after restart or idle GC).
-			// Try a best-effort auto-add using a bare magnet — DHT/peers will
-			// resolve metadata if any peers are still seeding. This makes the
-			// VLC link survive cache evictions and container restarts.
-			bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
-			if got, addErr := s.Add(c.Request.Context(), bareMagnet); addErr == nil {
-				info = got
-			} else {
-				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-				return
-			}
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
 		}
 		if fileIdx < 0 || fileIdx >= len(info.Files) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "file index out of range"})
 			return
 		}
 
-		// Build absolute stream URL using the same scheme/host the client used to reach us.
-		scheme := "http"
-		if c.Request.TLS != nil || c.Request.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		host := c.Request.Host
-		// Allow ?transcode=h264 / ?transcode=hevc to route via /stream/transcode.
-		// Path must match the actual Gin route: /api/stream/:hash/:file (no
-		// "file" segment) — the previous "/api/stream/file/HASH/IDX" was a
-		// typo that made the M3U point at a 404, breaking the VLC handoff.
-		// Propagate the caller's auth token into the stream URL. VLC and other
-		// non-browser players don't carry browser cookies/headers, so the only
-		// way the streamer recognises the request is via `?token=` (the same
-		// fallback the auth middleware already honours for <video src>).
-		// Token order: Authorization header (Bearer X), then ?token= query.
-		token := ""
-		if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-			token = strings.TrimPrefix(h, "Bearer ")
-		}
-		if token == "" {
-			token = c.Query("token")
-		}
-		appendToken := func(base string) string {
-			if token == "" {
-				return base
-			}
-			sep := "?"
-			if strings.Contains(base, "?") {
-				sep = "&"
-			}
-			return base + sep + "token=" + token
-		}
-
-		path := fmt.Sprintf("/api/stream/%s/%d", h.HexString(), fileIdx)
-		if v := c.Query("transcode"); v == "h264" || v == "hevc" {
-			path = fmt.Sprintf("/api/stream/transcode/%s/%d?video=%s", h.HexString(), fileIdx, v)
-		}
-		streamURL := appendToken(fmt.Sprintf("%s://%s%s", scheme, host, path))
-
+		streamURL := buildStreamURL(c, h, fileIdx)
 		title := info.Files[fileIdx].Path
 		if title == "" {
 			title = info.Name
 		}
-
 		m3u := "#EXTM3U\n" +
 			"#EXTINF:-1," + title + "\n" +
 			streamURL + "\n"
 
-		// Build a filesystem-safe filename derived from the playing file's
-		// basename. Example: "Season 1/S01E01 - Pilot.mkv" → "S01E01 - Pilot.m3u"
-		// Without this every download was just "stream.m3u" — confusing when
-		// the user later opens the Downloads folder and tries to recall which
-		// episode this was for.
-		base := info.Files[fileIdx].Path
-		if i := strings.LastIndex(base, "/"); i >= 0 {
-			base = base[i+1:]
-		}
-		if dot := strings.LastIndex(base, "."); dot > 0 {
-			base = base[:dot]
-		}
-		// Sanitise for HTTP header — quotes and CRLF would break it.
-		safe := strings.NewReplacer(`"`, "", "\r", "", "\n", "", "\\", "").Replace(base)
-		if safe == "" {
-			safe = "stream"
-		}
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.m3u"`, safe))
+		filename := m3uFilename(info, fileIdx)
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.m3u"`, filename))
 		c.Data(http.StatusOK, "audio/x-mpegurl", []byte(m3u))
 	}
+}
+
+// resolveTorrentInfo returns the TorrentInfo for the given hash. If the torrent
+// is not currently active, it attempts a best-effort auto-add using a bare
+// magnet so that VLC links survive cache evictions and container restarts.
+func resolveTorrentInfo(s *streamer.Streamer, ctx context.Context, h metainfo.Hash) (*streamer.TorrentInfo, error) {
+	info, err := s.Get(h)
+	if err != nil {
+		bareMagnet := "magnet:?xt=urn:btih:" + h.HexString()
+		got, addErr := s.Add(ctx, bareMagnet)
+		if addErr != nil {
+			return nil, err
+		}
+		info = got
+	}
+	return info, nil
+}
+
+// buildStreamURL builds the absolute stream URL using the same scheme/host the
+// client used to reach us, propagating auth token and optional ?transcode param.
+func buildStreamURL(c *gin.Context, h metainfo.Hash, fileIdx int) string {
+	scheme := "http"
+	if c.Request.TLS != nil || c.Request.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := c.Request.Host
+
+	token := ""
+	if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		token = strings.TrimPrefix(h, "Bearer ")
+	}
+	if token == "" {
+		token = c.Query("token")
+	}
+
+	path := fmt.Sprintf("/api/stream/%s/%d", h.HexString(), fileIdx)
+	if v := c.Query("transcode"); v == "h264" || v == "hevc" {
+		path = fmt.Sprintf("/api/stream/transcode/%s/%d?video=%s", h.HexString(), fileIdx, v)
+	}
+
+	base := fmt.Sprintf("%s://%s%s", scheme, host, path)
+	if token == "" {
+		return base
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + "token=" + token
+}
+
+// m3uFilename builds a filesystem-safe filename derived from the playing
+// file's basename. Example: "Season 1/S01E01 - Pilot.mkv" → "S01E01 - Pilot".
+func m3uFilename(info *streamer.TorrentInfo, fileIdx int) string {
+	base := info.Files[fileIdx].Path
+	if i := strings.LastIndex(base, "/"); i >= 0 {
+		base = base[i+1:]
+	}
+	if dot := strings.LastIndex(base, "."); dot > 0 {
+		base = base[:dot]
+	}
+	safe := strings.NewReplacer(`"`, "", "\r", "", "\n", "", "\\", "").Replace(base)
+	if safe == "" {
+		safe = "stream"
+	}
+	return safe
 }
 
 // StreamPrefetch handles POST /api/stream/prefetch/:hash/:file — best-effort

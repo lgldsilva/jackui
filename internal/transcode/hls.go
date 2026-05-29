@@ -173,10 +173,10 @@ type readSeekerContent struct {
 func (r *readSeekerContent) readAt(p []byte, off int64) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, err := r.ReadSeeker.Seek(off, io.SeekStart); err != nil {
+	if _, err := r.Seek(off, io.SeekStart); err != nil {
 		return 0, err
 	}
-	return io.ReadFull(r.ReadSeeker, p)
+	return io.ReadFull(r, p)
 }
 
 // size returns the total length via Seek(0, end) under the lock so a stray
@@ -186,11 +186,11 @@ func (r *readSeekerContent) readAt(p []byte, off int64) (int, error) {
 func (r *readSeekerContent) size() (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	end, err := r.ReadSeeker.Seek(0, io.SeekEnd)
+	end, err := r.Seek(0, io.SeekEnd)
 	if err != nil {
 		return 0, err
 	}
-	_, _ = r.ReadSeeker.Seek(0, io.SeekStart)
+	_, _ = r.Seek(0, io.SeekStart)
 	return end, nil
 }
 
@@ -699,7 +699,7 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	log.Printf("hls: starting session %s (vod=%v)", opts.Key, s.spec.vod)
 	if err := s.launch(0); err != nil {
 		_ = srv.Close()
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		return nil, err
 	}
 

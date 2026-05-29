@@ -608,10 +608,13 @@ export default function FavoritesPage() {
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
           onClick={() => !importing && setShowImport(false)}
+          onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
+          role="dialog" aria-modal="true" tabIndex={-1}
         >
           <div
             className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
             onClick={e => e.stopPropagation()}
+            role="presentation"
           >
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">

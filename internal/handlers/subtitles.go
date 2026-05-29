@@ -138,6 +138,6 @@ func SubtitlesDownload(c *subtitles.Client) gin.HandlerFunc {
 		// VTT content for a given file_id is immutable — cache aggressively in the browser
 		ctx.Header("Cache-Control", "public, max-age=2592000, immutable")
 		ctx.Header("ETag", `"sub-`+fileID+`"`)
-		ctx.Writer.Write(vtt)
+		_, _ = ctx.Writer.Write(vtt)
 	}
 }

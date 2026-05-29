@@ -250,7 +250,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch subtitle file: %w", err)
 	}
-	defer dlResp.Body.Close()
+	defer func() { _ = dlResp.Body.Close() }()
 	raw, err := io.ReadAll(dlResp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read subtitle: %w", err)

@@ -101,6 +101,8 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
     <div
       className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
+      role="dialog" aria-modal="true" tabIndex={-1}
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-4xl lg:max-w-5xl shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-3 border-b border-gray-700 flex-shrink-0">

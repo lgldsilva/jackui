@@ -230,6 +230,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         <div
           className="flex flex-col items-end gap-1 flex-shrink-0"
           onClick={(e) => e.stopPropagation()}
+          role="presentation"
         >
           <div className="flex items-center gap-1.5">
             <button
@@ -313,6 +314,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       <div
         className="flex gap-1.5 mt-auto pt-1 border-t border-gray-700 flex-wrap"
         onClick={(e) => e.stopPropagation()}
+        role="presentation"
       >
         {canPlay && (
           <button

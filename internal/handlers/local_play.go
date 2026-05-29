@@ -143,6 +143,90 @@ func localSessionKey(mount, relPath string) string {
 	return "local-" + hex.EncodeToString(sum[:])
 }
 
+func resolveLocalFile(b *local.Browser, c *gin.Context, mount, path string) (string, bool) {
+	if mount == "" || path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
+		return "", false
+	}
+	if !checkMountAccess(b, c, mount) {
+		return "", false
+	}
+	abs, err := b.ResolvePath(mount, path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return "", false
+	}
+	stat, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+			return "", false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return "", false
+	}
+	if stat.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is a directory"})
+		return "", false
+	}
+	return abs, true
+}
+
+func localPlayToken(c *gin.Context) string {
+	if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimPrefix(h, "Bearer ")
+	}
+	return c.Query("token")
+}
+
+func appendTokenToURL(token, base string) string {
+	if token == "" {
+		return base
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + "token=" + url.QueryEscape(token)
+}
+
+func localPlayVideoResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
+	probe, perr := probeLocalFile(c.Request.Context(), abs)
+	if perr != nil {
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".mp4" || ext == ".m4v" || ext == ".mov" || ext == ".webm" {
+			return LocalPlayResp{
+				Kind:   "direct",
+				URL:    appendTokenToURL(token, buildLocalFileURL(mount, path)),
+				Reason: "probe_failed_safe_ext",
+			}
+		}
+		return LocalPlayResp{
+			Kind:   "hls",
+			URL:    appendTokenToURL(token, buildLocalHLSURL(mount, path)),
+			Reason: "probe_failed",
+		}
+	}
+	direct, reason := classifyForBrowser(probe)
+	if direct {
+		return LocalPlayResp{
+			Kind:      "direct",
+			URL:       appendTokenToURL(token, buildLocalFileURL(mount, path)),
+			VCodec:    probe.VideoCodec,
+			ACodec:    probe.AudioCodec,
+			Container: probe.Container,
+		}
+	}
+	return LocalPlayResp{
+		Kind:      "hls",
+		URL:       appendTokenToURL(token, buildLocalHLSURL(mount, path)),
+		Reason:    reason,
+		VCodec:    probe.VideoCodec,
+		ACodec:    probe.AudioCodec,
+		Container: probe.Container,
+	}
+}
+
 // LocalPlay handles GET /api/local/play?mount=NAME&path=REL — probes the file
 // and returns either { kind: "direct", url } or { kind: "hls", url }. The
 // frontend just consumes `url` and trusts the kind for any wrapper logic
@@ -151,102 +235,23 @@ func LocalPlay(b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
-		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount or path parameter"})
-			return
-		}
-		if !checkMountAccess(b, c, mount) {
-			return
-		}
-		abs, err := b.ResolvePath(mount, path)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		stat, err := os.Stat(abs)
-		if err != nil {
-			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if stat.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path is a directory"})
+
+		abs, ok := resolveLocalFile(b, c, mount, path)
+		if !ok {
 			return
 		}
 
-		// Propagate token (same fallback rules as <video src>: header or query).
-		token := ""
-		if h := c.Request.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
-			token = strings.TrimPrefix(h, "Bearer ")
-		}
-		if token == "" {
-			token = c.Query("token")
-		}
-		appendToken := func(base string) string {
-			if token == "" {
-				return base
-			}
-			sep := "?"
-			if strings.Contains(base, "?") {
-				sep = "&"
-			}
-			return base + sep + "token=" + url.QueryEscape(token)
-		}
+		token := localPlayToken(c)
 
-		// Audio files: direct play is always safe — browsers handle mp3/aac/flac/etc.
-		// natively, and HLS adds latency for no gain.
 		if isAudioByExt(path) {
 			c.JSON(http.StatusOK, LocalPlayResp{
 				Kind: "direct",
-				URL:  appendToken(buildLocalFileURL(mount, path)),
+				URL:  appendTokenToURL(token, buildLocalFileURL(mount, path)),
 			})
 			return
 		}
 
-		// Video files: probe and decide.
-		probe, perr := probeLocalFile(c.Request.Context(), abs)
-		if perr != nil {
-			// ffprobe failed — best guess by extension. Anything other than .mp4/.m4v
-			// goes HLS to be safe; ffmpeg will figure out the container itself.
-			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".mp4" || ext == ".m4v" || ext == ".mov" || ext == ".webm" {
-				c.JSON(http.StatusOK, LocalPlayResp{
-					Kind:   "direct",
-					URL:    appendToken(buildLocalFileURL(mount, path)),
-					Reason: "probe_failed_safe_ext",
-				})
-				return
-			}
-			c.JSON(http.StatusOK, LocalPlayResp{
-				Kind:   "hls",
-				URL:    appendToken(buildLocalHLSURL(mount, path)),
-				Reason: "probe_failed",
-			})
-			return
-		}
-
-		direct, reason := classifyForBrowser(probe)
-		if direct {
-			c.JSON(http.StatusOK, LocalPlayResp{
-				Kind:      "direct",
-				URL:       appendToken(buildLocalFileURL(mount, path)),
-				VCodec:    probe.VideoCodec,
-				ACodec:    probe.AudioCodec,
-				Container: probe.Container,
-			})
-			return
-		}
-		c.JSON(http.StatusOK, LocalPlayResp{
-			Kind:      "hls",
-			URL:       appendToken(buildLocalHLSURL(mount, path)),
-			Reason:    reason,
-			VCodec:    probe.VideoCodec,
-			ACodec:    probe.AudioCodec,
-			Container: probe.Container,
-		})
+		c.JSON(http.StatusOK, localPlayVideoResp(c, abs, mount, path, token))
 	}
 }
 
@@ -324,7 +329,7 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Hand
 			SourceSize: stat.Size(),
 		})
 		if err != nil {
-			f.Close()
+			_ = f.Close()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

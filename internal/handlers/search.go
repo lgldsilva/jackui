@@ -102,7 +102,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 		liveResults, liveErr := client.Search(query, category, indexers)
 
 		if liveErr == nil && store != nil && len(liveResults) > 0 && !middleware.IsIncognito(c) {
-			go store.Save(query, liveResults, userID)
+			go func() { _ = store.Save(query, liveResults, userID) }()
 		}
 
 		var cached []history.CachedResult

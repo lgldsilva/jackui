@@ -756,7 +756,7 @@ export default function PlayerModal({
       .then(p => {
         const safe = { audio: p.audio ?? [], subtitles: p.subtitles ?? [] }
         setProbe(safe)
-        const ptSub = safe.subtitles.find(t => !t.image && /^pt|por/i.test(t.language || ''))
+        const ptSub = safe.subtitles.find(t => !t.image && /^(pt|por)/i.test(t.language || ''))
         if (ptSub && !hasSavedChoice && !subActive) {
           setEmbeddedSub(ptSub.index)
           setAutoSource('embedded')
@@ -770,7 +770,7 @@ export default function PlayerModal({
         setSidecars(list ?? [])
         // Auto-pick pt sidecar if no embedded already chosen and no saved choice
         if (!hasSavedChoice && !subActive && embeddedSub === null && list && list.length > 0) {
-          const pt = list.find(s => /^pt|por/i.test(s.language || ''))
+          const pt = list.find(s => /^(pt|por)/i.test(s.language || ''))
           if (pt) {
             setSidecarIdx(pt.index)
             setAutoSource('embedded')
@@ -985,24 +985,13 @@ export default function PlayerModal({
     return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
-  if (!result) return null
-
-  const videoFiles = info?.files.filter(f => f.isVideo) || []
-  const currentFile = selectedFile >= 0 ? info?.files[selectedFile] : null
-
-  // Series-in-torrent navigation: detect prev/next video file (by index order, restricted to video files)
-  const videoFileIndices = (info?.files || []).filter(f => f.isVideo).map(f => f.index)
-  const videoCursor = videoFileIndices.indexOf(selectedFile)
-  const prevVideoIdx = videoCursor > 0 ? videoFileIndices[videoCursor - 1] : -1
-  const nextVideoIdx = videoCursor >= 0 && videoCursor < videoFileIndices.length - 1 ? videoFileIndices[videoCursor + 1] : -1
-
-  // Parse S/E pattern from filename for nicer episode labels
+  // Parse S/E pattern from filename for nicer episode labels (defined before
+  // conditional return so the hook below is not behind a branch)
   const parseEpisode = (path: string): string | null => {
     const m = path.match(/[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/)
     if (m) return `S${m[1].padStart(2, '0')}E${m[2].padStart(2, '0')}`
     return null
   }
-  const currentEp = currentFile ? parseEpisode(currentFile.path) : null
 
   const playFile = (idx: number) => {
     if (idx < 0) return
@@ -1035,6 +1024,18 @@ export default function PlayerModal({
     playFile(initialFileIndex)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFileIndex])
+
+  if (!result) return null
+
+  const videoFiles = info?.files.filter(f => f.isVideo) || []
+  const currentFile = selectedFile >= 0 ? info?.files[selectedFile] : null
+  const currentEp = currentFile ? parseEpisode(currentFile.path) : null
+
+  // Series-in-torrent navigation: detect prev/next video file (by index order, restricted to video files)
+  const videoFileIndices = (info?.files || []).filter(f => f.isVideo).map(f => f.index)
+  const videoCursor = videoFileIndices.indexOf(selectedFile)
+  const prevVideoIdx = videoCursor > 0 ? videoFileIndices[videoCursor - 1] : -1
+  const nextVideoIdx = videoCursor >= 0 && videoCursor < videoFileIndices.length - 1 ? videoFileIndices[videoCursor + 1] : -1
 
   // URL builder: raw direct play unless any transcoding option is active.
   // Safari + HEVC/x265/AV1 short-circuits to transcode (which is HLS for Safari)
@@ -1112,6 +1113,10 @@ export default function PlayerModal({
         ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]'
         : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
       onClick={minimized ? undefined : (e) => e.target === e.currentTarget && setMinimized(true)}
+      onKeyDown={minimized ? undefined : (e) => e.key === 'Escape' && setMinimized(true)}
+      role={minimized ? undefined : "dialog"}
+      aria-modal={minimized ? undefined : "true"}
+      tabIndex={minimized ? undefined : -1}
     >
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
           modal. Laptops bump to ~1280px so the file list + side panels stop fighting

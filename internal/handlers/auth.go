@@ -562,7 +562,7 @@ func NotifyTest(cfg *config.Config, store *auth.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode >= 300 {
 			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("ntfy retornou %d", resp.StatusCode)})
 			return
