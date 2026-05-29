@@ -19,8 +19,13 @@
 # To change vendor later, just re-run a different target.
 # The capability prober auto-detects and the API exposes /api/transcode/capabilities.
 
-DOCKER_CONTEXT ?= homeserver
-DEPLOY_HOST    ?= lgldsilva@192.168.0.100
+# Deploy target — lido do .env (gitignored) com fallback genérico, ou via env var.
+#   DOCKER_CONTEXT=meu-server  DEPLOY_HOST=user@host  no .env
+DOCKER_CONTEXT ?= $(or $(shell grep -E '^DOCKER_CONTEXT=' .env 2>/dev/null | head -1 | cut -d= -f2-),default)
+DEPLOY_HOST    ?= $(or $(shell grep -E '^DEPLOY_HOST=' .env 2>/dev/null | head -1 | cut -d= -f2-),user@your-server)
+DEPLOY_ADDR    := $(shell echo '$(DEPLOY_HOST)' | sed 's/.*@//')
+# Diretório de config no servidor remoto (onde o config.yaml é sincronizado).
+REMOTE_CONFIG_DIR ?= $(or $(shell grep -E '^REMOTE_CONFIG_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/opt/jackui)
 IMAGE_CPU      := jackui:latest
 IMAGE_NVIDIA   := jackui:nvidia
 IMAGE_VAAPI    := jackui:vaapi
@@ -89,16 +94,16 @@ setup:
 # ─────────────────────────────────────────
 _sync-config:
 	$(call step,Sincronizando config.yaml no servidor...)
-	@ssh $(DEPLOY_HOST) "sudo mkdir -p /portainer/Files/AppData/Config/jackui"
+	@ssh $(DEPLOY_HOST) "sudo mkdir -p $(REMOTE_CONFIG_DIR)"
 	@scp config.yaml $(DEPLOY_HOST):/tmp/jackui-config.yaml
-	@ssh $(DEPLOY_HOST) "sudo mv /tmp/jackui-config.yaml /portainer/Files/AppData/Config/jackui/config.yaml"
+	@ssh $(DEPLOY_HOST) "sudo mv /tmp/jackui-config.yaml $(REMOTE_CONFIG_DIR)/config.yaml"
 	$(call ok,config.yaml sincronizado)
 	# NOTA: O docker-compose.yml do servidor vive em
-	# $(DEPLOY_HOST):/portainer/Files/AppData/Config/jackui/docker-compose.yml
+	# $(DEPLOY_HOST):$(REMOTE_CONFIG_DIR)/docker-compose.yml
 	# e é gerenciado SEPARADAMENTE do repo (contém secrets hardcoded).
 	# Se adicionar novas env vars, edite também o arquivo no servidor:
-	#   ssh $(DEPLOY_HOST) "nano /portainer/Files/AppData/Config/jackui/docker-compose.yml"
-	#   cd /portainer/Files/AppData/Config/jackui && docker compose up -d
+	#   ssh $(DEPLOY_HOST) "nano $(REMOTE_CONFIG_DIR)/docker-compose.yml"
+	#   cd $(REMOTE_CONFIG_DIR) && docker compose up -d
 
 # ─────────────────────────────────────────
 # GPU detection — runs on the deploy host via SSH
@@ -157,7 +162,7 @@ deploy-cpu: _sync-config
 	$(call ok,Imagem CPU pronta)
 	$(call step,Subindo container (CPU-only)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml up -d --remove-orphans
-	$(call ok,JackUI [CPU] rodando em http://192.168.0.100:8989)
+	$(call ok,JackUI [CPU] rodando em http://$(DEPLOY_ADDR):8989)
 
 deploy-nvidia: _sync-config
 	$(call step,Construindo imagem NVIDIA (CUDA + ffmpeg-nvenc)...)
@@ -165,7 +170,7 @@ deploy-nvidia: _sync-config
 	$(call ok,Imagem NVIDIA pronta)
 	$(call step,Subindo container (NVIDIA)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --remove-orphans
-	$(call ok,JackUI [NVIDIA] rodando em http://192.168.0.100:8989)
+	$(call ok,JackUI [NVIDIA] rodando em http://$(DEPLOY_ADDR):8989)
 
 deploy-vaapi: _sync-config
 	$(call step,Construindo imagem VAAPI (Debian + mesa/iHD)...)
@@ -173,7 +178,7 @@ deploy-vaapi: _sync-config
 	$(call ok,Imagem VAAPI pronta)
 	$(call step,Subindo container (VAAPI)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --remove-orphans
-	$(call ok,JackUI [VAAPI] rodando em http://192.168.0.100:8989)
+	$(call ok,JackUI [VAAPI] rodando em http://$(DEPLOY_ADDR):8989)
 
 # ─── With VPN (gluetun overlay) ────────────────────────────────────────────
 deploy-vpn: _sync-config
@@ -219,7 +224,7 @@ down:
 # Query the GPU/CPU capability matrix from the running container
 probe-gpu:
 	$(call step,Probing transcoder capabilities...)
-	@ssh lgldsilva@192.168.0.100 "curl -s http://localhost:8989/api/transcode/capabilities?refresh=1" | python3 -m json.tool
+	@ssh $(DEPLOY_HOST) "curl -s http://localhost:8989/api/transcode/capabilities?refresh=1" | python3 -m json.tool
 
 # ─────────────────────────────────────────
 # build local (binário sem Docker)
@@ -262,7 +267,7 @@ test-verbose:
 # ─────────────────────────────────────────
 
 # Thresholds (override via env var)
-SONAR_HOST_URL  ?= https://sonar.raspberrypi.lan
+SONAR_HOST_URL  ?= $(or $(shell grep -E '^SONAR_HOST_URL=' .env 2>/dev/null | head -1 | cut -d= -f2-),https://sonar.example.com)
 SONAR_TOKEN     ?= $(shell grep SONAR_TOKEN .env 2>/dev/null | head -1 | cut -d= -f2-)
 SONAR_PROJECT   ?= jackui
 BUGS_MAX        ?= 0

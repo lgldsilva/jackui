@@ -28,8 +28,8 @@ type waSession struct {
 }
 
 // NewWAManager builds the manager. rpID is the effective domain (no scheme/port,
-// e.g. "jackui.raspberrypi.lan"); origin is the full URL the browser uses
-// (e.g. "https://jackui.raspberrypi.lan"). Returns nil if config is incomplete.
+// e.g. "jackui.example.com"); origin is the full URL the browser uses
+// (e.g. "https://jackui.example.com"). Returns nil if config is incomplete.
 func NewWAManager(rpID, rpDisplayName, origin string) (*WAManager, error) {
 	if rpID == "" || origin == "" {
 		return nil, nil

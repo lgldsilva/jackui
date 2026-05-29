@@ -28,7 +28,7 @@ type Config struct {
 	External        ExternalConfig      `yaml:"external"`
 	AI              AIConfig            `yaml:"ai"`
 	SMTP            SMTPConfig          `yaml:"smtp"`
-	// BaseURL is the public URL of the app (e.g. https://jackui.raspberrypi.lan),
+	// BaseURL is the public URL of the app (e.g. https://jackui.example.com),
 	// used to build links in emails (reset/verify/invite). Falls back to the
 	// request's Origin when empty.
 	BaseURL string `yaml:"base_url"`
