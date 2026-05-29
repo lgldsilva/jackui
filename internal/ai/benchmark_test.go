@@ -151,6 +151,98 @@ func TestPropTitleAccuracy(t *testing.T) {
 		}
 	})
 }
+func TestScoreSlotPaymentError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPaymentRequired)
+		w.Write([]byte(`{"error":"insufficient balance"}`))
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"p": {BaseURL: srv.URL, APIKey: "k"},
+	}, Chain: []config.AIChainSlot{{ID: "p:m", Provider: "p", Model: "m"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+	scores := c.Run(context.Background(), []BenchmarkCase{{Raw: "Test", Expect: "Test"}})
+	if len(scores) != 1 {
+		t.Fatalf("expected 1 score, got %d", len(scores))
+	}
+	if scores[0].FailureReason != "pago — sem saldo" {
+		t.Fatalf("expected 'pago — sem saldo', got %q", scores[0].FailureReason)
+	}
+	if scores[0].Composite != -1 {
+		t.Fatalf("expected composite -1 for paid model, got %v", scores[0].Composite)
+	}
+	if scores[0].Free {
+		t.Fatal("expected Free=false for paid model")
+	}
+}
+
+func TestAdoptBenchmark(t *testing.T) {
+	srv := httptest.NewServer(jsonChat(`{"title":"T","year":0,"kind":"movie"}`, http.StatusOK))
+	defer srv.Close()
+	c := clientForURL(t, srv.URL)
+
+	scores := []SlotScore{
+		{SlotID: "p0", Provider: "p0", Model: "m", Accuracy: 0.5, AvgLatencyMs: 1000, Composite: 1.5, Samples: 3},
+		{SlotID: "p1", Provider: "p1", Model: "nope", Samples: 0}, // no samples → skipped
+	}
+	c.AdoptBenchmark(scores)
+	if len(c.Slots()) != 1 || c.Slots()[0].ID != "p0" {
+		t.Fatalf("expected 1 adopted slot, got %+v", c.Slots())
+	}
+}
+
+func TestRunSlotsCloudSequential(t *testing.T) {
+	good := httptest.NewServer(jsonChat(`{"title":"T","year":0,"kind":"movie"}`, http.StatusOK))
+	defer good.Close()
+
+	c := &Client{
+		http:      &http.Client{},
+		providers: map[string]config.AIProvider{"ollama": {BaseURL: good.URL + "/v1", APIKey: ""}},
+	}
+
+	local := Slot{ID: "ollama:local", Provider: "ollama", Model: "local-model", BaseURL: good.URL + "/v1", apiKey: ""}
+	cloud := Slot{ID: "ollama:gpt-oss:120b-cloud", Provider: "ollama", Model: "gpt-oss:120b-cloud", BaseURL: good.URL + "/v1", apiKey: ""}
+
+	scores := c.RunSlots(context.Background(), []Slot{local, cloud}, []BenchmarkCase{{Raw: "Test", Expect: "Test"}})
+	if len(scores) != 2 {
+		t.Fatalf("expected 2 scores, got %d", len(scores))
+	}
+}
+
+func TestRunSlotsFreeBonus(t *testing.T) {
+	good := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
+	defer good.Close()
+
+	c := &Client{
+		http:      &http.Client{},
+		providers: map[string]config.AIProvider{"p": {BaseURL: good.URL, APIKey: "k"}},
+	}
+
+	paid := Slot{ID: "paid", Provider: "p", Model: "paid-model", BaseURL: good.URL, apiKey: "k", Free: false}
+	free := Slot{ID: "free", Provider: "p", Model: "free-model", BaseURL: good.URL, apiKey: "k", Free: true}
+
+	scores := c.RunSlots(context.Background(), []Slot{paid, free}, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	if len(scores) != 2 {
+		t.Fatalf("expected 2 scores, got %d", len(scores))
+	}
+
+	var paidScore, freeScore float64
+	for _, s := range scores {
+		if s.Free {
+			freeScore = s.Composite
+		} else {
+			paidScore = s.Composite
+		}
+	}
+	if freeScore <= paidScore {
+		t.Fatalf("free bonus not applied: free=%.4f <= paid=%.4f", freeScore, paidScore)
+	}
+}
+
 func TestRunSortsByComposite(t *testing.T) {
 	// Both slots are equally accurate; the only difference is the model id echoed
 	// back, so accuracy ties and the sort is stable. We assert Run produces a
@@ -218,6 +310,145 @@ func TestHealProviderReplacesDeadModel(t *testing.T) {
 	if len(slots) != 1 || slots[0].Model != "goodmodel" {
 		t.Fatalf("expected goodmodel replacement, got %+v", slots)
 	}
+}
+
+func TestDiscoverViaModelsAPI(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[
+			{"id":"free-model","pricing":{"prompt":"0","completion":"0"}},
+			{"id":"paid-model","pricing":{"prompt":"0.01","completion":"0.02"}},
+			{"id":"free:model","pricing":{"prompt":"","completion":""}}
+		]}`))
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"test": {BaseURL: srv.URL, APIKey: "k"},
+	}, Chain: []config.AIChainSlot{{ID: "existing", Provider: "test", Model: "existing-model"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+
+	slots := c.DiscoverModels(context.Background())
+	if len(slots) == 0 {
+		t.Fatal("expected discovered models")
+	}
+	// free-model or free:model should be marked Free
+	for _, s := range slots {
+		if s.ID == "test:free-model" || s.ID == "test:free:model" {
+			if !s.Free {
+				t.Errorf("%s should be free", s.ID)
+			}
+		}
+	}
+}
+
+func TestDiscoverOllamaModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/tags") {
+			w.Write([]byte(`{"models":[{"name":"llama3.2:3b"},{"name":"qwen2.5:7b"},{"name":"mistral:7b"}]}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"ollama": {BaseURL: srv.URL + "/v1", APIKey: ""},
+	}, Chain: []config.AIChainSlot{{ID: "ollama:existing", Provider: "ollama", Model: "existing-model"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+
+	slots := c.DiscoverModels(context.Background())
+	// Should discover 3 new models (existing-model already in chain)
+	if len(slots) < 3 {
+		t.Fatalf("expected at least 3 discovered ollama models, got %d", len(slots))
+	}
+	for _, s := range slots {
+		if s.Provider != "ollama" {
+			t.Errorf("expected ollama provider, got %q", s.Provider)
+		}
+	}
+}
+
+func TestListModelsOllama(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/tags") {
+			w.Write([]byte(`{"models":[{"name":"model-a"},{"name":"model-b"}]}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		http:      &http.Client{},
+		providers: map[string]config.AIProvider{"ollama": {BaseURL: srv.URL + "/v1", APIKey: ""}},
+		slots:     []Slot{{Provider: "ollama", BaseURL: srv.URL + "/v1"}},
+	}
+	slots := c.DiscoverOllamaModels(context.Background())
+	if len(slots) < 2 {
+		t.Fatalf("expected >= 2 ollama models, got %d", len(slots))
+	}
+}
+
+func TestHealProviderOllama(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/tags") {
+			w.Write([]byte(`{"models":[{"name":"goodmodel"},{"name":"another"}]}`))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"ollama": {BaseURL: srv.URL + "/v1", APIKey: ""},
+	}, Chain: []config.AIChainSlot{{ID: "ollama:deadmodel", Provider: "ollama", Model: "deadmodel"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+
+	c.healProvider("ollama")
+
+	slots := c.Slots()
+	for _, s := range slots {
+		if s.Model == "deadmodel" {
+			t.Fatal("dead model should have been removed")
+		}
+	}
+	if len(slots) == 0 {
+		t.Fatal("expected at least one replacement model")
+	}
+}
+
+func TestDefaultBenchmarkStorePath(t *testing.T) {
+	path := DefaultBenchmarkStorePath("/data")
+	if path != "/data/.ai-benchmark.db" {
+		t.Fatalf("expected /data/.ai-benchmark.db, got %q", path)
+	}
+}
+
+func TestBenchmarkStoreEdgeCases(t *testing.T) {
+	t.Run("nil store returns defaults", func(t *testing.T) {
+		var s *BenchmarkStore
+		if got := s.Results(); got != nil {
+			t.Fatal("expected nil results")
+		}
+		if got := s.Order(); got != nil {
+			t.Fatal("expected nil order")
+		}
+		if got := s.Cases(); len(got) == 0 {
+			t.Fatal("expected default cases")
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	})
 }
 
 func TestBenchmarkStoreRoundTrip(t *testing.T) {
