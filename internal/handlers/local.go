@@ -382,6 +382,9 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			return
 		}
 		if err := movePath(src, dst, stat); err != nil {
+			// Remove the empty directory we created if the move failed —
+			// avoids leaving orphan dirs (e.g. on FUSE mounts that reject cross-device writes).
+			_ = os.Remove(filepath.Dir(dst))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "mover arquivo: " + err.Error()})
 			return
 		}
