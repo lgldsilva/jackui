@@ -7,7 +7,6 @@ import {
 import {
   DownloadEntry, DownloadDetails, StreamFile,
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed,
-  streamSetFilePriority,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
@@ -48,7 +47,6 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const [error, setError] = useState('')
   const [copiedMagnet, setCopiedMagnet] = useState(false)
   const [busy, setBusy] = useState<string | null>(null) // 'recheck' | 'delete' | 'stopSeed'
-  const [updatingPrio, setUpdatingPrio] = useState<number | null>(null)
 
   const refresh = useCallback(async () => {
     if (!download) return
@@ -79,19 +77,6 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const torrent = details?.torrent
   const fileStat = details?.file
 
-  const handleFilePriorityChange = async (fileIdx: number, newPrio: 'none' | 'low' | 'normal' | 'high') => {
-    if (busy) return
-    setUpdatingPrio(fileIdx)
-    setError('')
-    try {
-      await streamSetFilePriority(d.infoHash, fileIdx, newPrio)
-      await refresh()
-    } catch (e: unknown) {
-      setError((e as Error)?.message || 'Falha ao alterar prioridade')
-    } finally {
-      setUpdatingPrio(null)
-    }
-  }
 
   const copyMagnet = async () => {
     if (!d.magnet) return
@@ -185,7 +170,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                 )}
               </div>
               {f.size > 0 && (
-                <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatSize(f.size)}</span>
+                <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>
               )}
             </li>
           )
