@@ -137,6 +137,112 @@ func TestLooksModelNotFound(t *testing.T) {
 	}
 }
 
+// ── Property-based tests for error detection ──────────────────────────────────
+
+func TestLooksPaymentErrorProperties(t *testing.T) {
+	t.Run("402 e 403 sempre sao pagamento", func(t *testing.T) {
+		bodies := []string{"", "ok", "forbidden", "payment required", "{}", "random text"}
+		for _, b := range bodies {
+			if !looksPaymentError(http.StatusPaymentRequired, b) {
+				t.Errorf("looksPaymentError(402, %q) should be true", b)
+			}
+			if !looksPaymentError(http.StatusForbidden, b) {
+				t.Errorf("looksPaymentError(403, %q) should be true", b)
+			}
+		}
+	})
+
+	t.Run("2xx e 5xx (exceto 402/403) nunca sao pagamento", func(t *testing.T) {
+		for code := 200; code < 600; code++ {
+			if code == 402 || code == 403 {
+				continue
+			}
+			if looksPaymentError(code, "") {
+				t.Errorf("looksPaymentError(%d, '') should be false", code)
+			}
+		}
+	})
+
+	t.Run("mensagens de erro conhecidas", func(t *testing.T) {
+		cases := []string{
+			`{"error":"insufficient_quota"}`,
+			`{"error":"quota exceeded"}`,
+			`{"error":"insufficient balance"}`,
+			`{"error":"you have exceeded your current quota"}`,
+			`{"error":"payment_required"}`,
+			`rate limit exceeded`,
+			`insufficient_credits`,
+			`not enough credits`,
+			`billing problem`,
+			`user_rate_limit_exceeded`,
+		}
+		for _, body := range cases {
+			if !looksPaymentError(http.StatusOK, body) {
+				t.Errorf("looksPaymentError(200, %q) should detect payment error in body", body)
+			}
+		}
+	})
+
+	t.Run("mensagens normais nao sao pagamento", func(t *testing.T) {
+		cases := []string{
+			`{"choices":[{"message":{"content":"ok"}}]}`,
+			`The model does not exist`,
+			`internal server error`,
+			`timeout`,
+			`bad gateway`,
+			`model not found`,
+			`{"error":{"code":"model_not_found"}}`,
+		}
+		for _, body := range cases {
+			if looksPaymentError(http.StatusOK, body) {
+				t.Errorf("looksPaymentError(200, %q) should be false for normal messages", body)
+			}
+		}
+	})
+}
+
+func TestLooksModelNotFoundProperties(t *testing.T) {
+	t.Run("404 sempre e model-not-found", func(t *testing.T) {
+		bodies := []string{"", "not found", "{}", "anything", "model xyz not found"}
+		for _, b := range bodies {
+			if !looksModelNotFound(http.StatusNotFound, b) {
+				t.Errorf("looksModelNotFound(404, %q) should be true", b)
+			}
+		}
+	})
+
+	t.Run("2xx nunca e model-not-found", func(t *testing.T) {
+		bodies := []string{"", "ok", `{"choices":[{"message":{"content":"hello"}}]}`, "200 OK success"}
+		for code := 200; code < 300; code++ {
+			for _, b := range bodies {
+				if looksModelNotFound(code, b) {
+					t.Errorf("looksModelNotFound(%d, %q) should be false", code, b)
+				}
+			}
+		}
+	})
+
+	t.Run("mensagens de modelo inexistente", func(t *testing.T) {
+		cases := []string{
+			`model_not_found`,
+			`does not exist`,
+			`is not a valid model`,
+			`not a valid model id`,
+			`no endpoints found for model`,
+			`model not found`,
+			`no such model`,
+			`try pulling`,
+			`decommissioned`,
+			`has been deprecated`,
+		}
+		for _, body := range cases {
+			if !looksModelNotFound(http.StatusOK, body) {
+				t.Errorf("looksModelNotFound(200, %q) should detect model-not-found", body)
+			}
+		}
+	})
+}
+
 func TestRateLimitDetected(t *testing.T) {
 	srv := httptest.NewServer(jsonChat("", http.StatusTooManyRequests))
 	defer srv.Close()
