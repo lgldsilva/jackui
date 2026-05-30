@@ -22,8 +22,6 @@ function extractTrackers(magnet: string | undefined): string[] {
  * peers from every other tracker that indexed the same infoHash.
  */
 function mergeBuckets<T extends SearchResult>(
-  hashOut: T[],
-  noHash: T[],
   finalBuckets: Map<string, T[]>,
 ): T[] {
   const out: T[] = []
@@ -167,5 +165,5 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     finalBuckets.set(k, arr)
   }
 
-  return mergeBuckets(hashOut, noHash, finalBuckets)
+  return mergeBuckets(finalBuckets)
 }

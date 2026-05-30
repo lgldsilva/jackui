@@ -306,7 +306,7 @@ export default function ResultCard(props: ResultCardProps) {
   const canDownload = hasMagnet || hasTorrent
   // result.playable vem do backend. Fallback `true` mantém comportamento legacy
   // para syntheticResult / deep links que constroem SearchResult sem o campo.
-  const canPlay = hasSource && onPlay && (result.playable ?? true)
+  const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
 
   // Card-wide click → opens contents. Action buttons stopPropagation to not double-trigger.
   const cardClickable = hasSource && !!onExploreContents
