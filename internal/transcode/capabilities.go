@@ -25,6 +25,7 @@ const (
 	backendAppleVT  = "apple-vt"
 	backendCPU      = "cpu"
 	hwDeviceVAAPI   = "vaapi=va:/dev/dri/renderD128"
+	ffBinary        = "ffmpeg"
 	ffHideBanner    = "-hide_banner"
 	ffLogLevel      = "-loglevel"
 	pipe0           = "pipe:0"

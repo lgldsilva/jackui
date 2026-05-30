@@ -16,6 +16,7 @@ const (
 	CacheNoStore   = "no-store"
 	CacheImmutable = "public, max-age=86400, immutable"
 
+	ffBinary     = "ffmpeg"
 	ffHideBanner = "-hide_banner"
 	ffLogLevel   = "-loglevel"
 	pipe1        = "pipe:1"
