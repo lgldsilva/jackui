@@ -68,7 +68,7 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
-            docker run --rm -e SONAR_TOKEN -v "$PWD":/usr/src -w /usr/src \
+            docker run --rm --platform linux/amd64 -e SONAR_TOKEN -v "$PWD":/usr/src -w /usr/src \
               sonarsource/sonar-scanner-cli:latest \
               -Dsonar.host.url=$SONAR_HOST \
               -Dsonar.token=$SONAR_TOKEN \
