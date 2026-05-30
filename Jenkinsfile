@@ -127,8 +127,10 @@ pipeline {
     }
 
     // Só publica na main. O push dispara o Watchtower no raspberrypi-srv.
+    // Sem when { branch 'main' }: este job só faz checkout da main (BRANCH_NAME
+    // não é setado em pipeline-from-SCM, então o when pulava o push). O job só
+    // builda main, então publicar sempre é correto.
     stage('Push (Gitea registry)') {
-      when { branch 'main' }
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')]) {
           sh '''
