@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -336,11 +337,18 @@ func (h *Handler) methodTorrentAdd(args map[string]interface{}, userID int) rpcR
 
 	category := extractCategory(downloadDir)
 
+	// Nome provisório a partir do hash; o worker resolve o nome real depois.
+	// Slice guardado: um btih malformado/curto não deve causar panic.
+	shortHash := infoHash
+	if len(shortHash) > 8 {
+		shortHash = shortHash[:8]
+	}
+
 	d, err := h.store.Create(downloads.Download{
-		UserID:    0,
+		UserID:    userID,
 		InfoHash:  infoHash,
 		FileIndex: -1,
-		Name:      infoHash[:8] + "...",
+		Name:      shortHash + "...",
 		Magnet:    magnet,
 		Category:  category,
 	})
@@ -362,10 +370,36 @@ func (h *Handler) methodTorrentAdd(args map[string]interface{}, userID int) rpcR
 	})
 }
 
+// blockInternalIP recusa conexões a IPs internos/loopback/link-local. Roda no
+// Control do dialer, DEPOIS do DNS resolver, então também barra DNS-rebinding
+// (um host que resolve p/ 127.0.0.1 / 169.254.169.254 / 10.x etc.).
+func blockInternalIP(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsLoopback() || ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return fmt.Errorf("acesso bloqueado a IP interno: %s", host)
+	}
+	return nil
+}
+
 // fetchTorrentHash downloads a .torrent file from a URL and returns its
 // infoHash. Uses a short timeout (30s) so the RPC handler doesn't block long.
+// Bloqueia IPs internos (SSRF): a URL vem do cliente RPC (*arr).
 func fetchTorrentHash(url string) (string, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	lower := strings.ToLower(url)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return "", fmt.Errorf("esquema de URL não suportado")
+	}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{Timeout: 10 * time.Second, Control: blockInternalIP}).DialContext,
+		},
+	}
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("download: %w", err)
@@ -547,8 +581,12 @@ func (h *Handler) buildTorrent(d downloads.Download, si *streamer.TorrentInfo, f
 	secondsSeeding := int64(0)
 	now := time.Now().Unix()
 	if d.Status == downloads.StatusCompleted && d.CompletedAt != nil {
-		secondsDownloading = int64(d.CompletedAt.Sub(*d.StartedAt).Seconds())
 		secondsSeeding = now - d.CompletedAt.Unix()
+		// StartedAt pode ser nil (import/boot sem início registrado) — guarda
+		// o deref p/ não dar panic.
+		if d.StartedAt != nil {
+			secondsDownloading = int64(d.CompletedAt.Sub(*d.StartedAt).Seconds())
+		}
 	} else if d.StartedAt != nil {
 		secondsDownloading = now - d.StartedAt.Unix()
 	}
@@ -788,11 +826,9 @@ func (h *Handler) methodTorrentSet(args map[string]interface{}) rpcResponse {
 		if rawLabels, ok := args["labels"]; ok {
 			if labels, ok := rawLabels.([]interface{}); ok && len(labels) > 0 {
 				if cat, ok := labels[0].(string); ok {
-					_, _ = h.store.Create(downloads.Download{
-						UserID:   d.UserID,
-						InfoHash: d.InfoHash,
-						Category: cat,
-					})
+					// Atualiza a categoria do download existente. Create exige
+					// Magnet e recriaria/reativaria o row — usar update dedicado.
+					_ = h.store.SetCategory(d.UserID, d.ID, cat)
 				}
 			}
 		}
