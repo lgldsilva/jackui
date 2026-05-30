@@ -89,6 +89,10 @@ type Config struct {
 	// server-side so it never has to travel through the browser.
 	JackettHost   string
 	JackettAPIKey string
+	// ListenPort is the BitTorrent peer port for inbound connections. 0 → 51469.
+	// Behind a VPN this should be the provider's forwarded port so peers can
+	// reach us (seed + better leech). See resolvePeerPort in main.
+	ListenPort int
 }
 
 // FilePathResolver resolves an info_hash and file index to a local physical file path.
@@ -284,12 +288,15 @@ func New(cfg Config) (*Streamer, error) {
 	if cfg.MetadataWait == 0 {
 		cfg.MetadataWait = 60 * time.Second
 	}
+	if cfg.ListenPort == 0 {
+		cfg.ListenPort = 51469
+	}
 
 	tcfg := torrent.NewDefaultClientConfig()
 	tcfg.DataDir = cfg.DataDir
 	tcfg.Seed = true
 	tcfg.NoUpload = false
-	tcfg.ListenPort = 51469
+	tcfg.ListenPort = cfg.ListenPort
 	// Reduce log noise
 	tcfg.Logger = tcfg.Logger.WithFilterLevel(alog.Critical)
 

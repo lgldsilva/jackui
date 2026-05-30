@@ -109,6 +109,10 @@ function hydrateTabs(): { tabs: TabState[]; activeId: string } {
 }
 
 function persistTabs(tabs: TabState[], activeId: string) {
+  // Incognito must not leave a trace in the browser either — skip persisting
+  // the search tabs/queries to localStorage while it's active (the backend
+  // already skips history/library writes).
+  if (isIncognito()) return
   const stripped: PersistedTab[] = tabs.map(t => ({
     id: t.id,
     query: t.query,

@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/luizg/jackui/internal/dbutil"
@@ -244,6 +245,34 @@ func (s *Store) HashSetForUser(userID int, includeAll bool) (map[string]bool, er
 		}
 	}
 	return set, rows.Err()
+}
+
+// FindByPathPrefix returns the downloads whose file_path equals absPath or
+// lives under it (when absPath is a directory). Used to remove the torrent(s)
+// linked to a local file/folder when it's deleted from "Meus downloads".
+// Filtering happens in Go to avoid LIKE-escaping issues with special chars in
+// paths; the downloads table is small.
+func (s *Store) FindByPathPrefix(absPath string) ([]Download, error) {
+	if s == nil || absPath == "" {
+		return nil, nil
+	}
+	rows, err := s.db.Query(dlSelect + "WHERE file_path != ''")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	all, err := scanSlice(rows)
+	if err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimRight(absPath, "/") + "/"
+	out := make([]Download, 0)
+	for _, d := range all {
+		if d.FilePath == absPath || strings.HasPrefix(d.FilePath, prefix) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 // List returns all downloads for the user, newest first.

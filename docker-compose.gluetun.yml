@@ -1,33 +1,58 @@
-# Gluetun overlay — routes all JackUI traffic through the existing gluetun VPN container.
+# Gluetun overlay — routes JackUI through its OWN dedicated ProtonVPN tunnel
+# (2nd Proton connection, separate from the vpn-gateway used by transmission/qbit)
+# WITH port forwarding, so JackUI can seed public torrents behind the VPN with
+# its own inbound port.
 #
-# Compose with: docker compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d
+# Compose with:
+#   docker compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d
+#   (or: make deploy-auto-vpn)
 #
-# Requires:
-#   1. The 'gluetun' container is already running on the same Docker host
-#      (managed by another compose project — the VPN gateway)
-#   2. Gluetun's compose file MUST expose the JackUI web UI port. Add this line
-#      to gluetun's `ports:` section and recreate it:
+# Requires in the .env (same Proton creds as the vpn-gateway; the OpenVPN
+# username usually needs the "+pmp" suffix so Proton enables NAT-PMP port
+# forwarding — e.g. OPENVPN_USER=myuser+pmp):
+#   OPENVPN_USER, OPENVPN_PASSWORD
+#   SERVER_COUNTRIES (optional, default Brazil)
 #
-#        ports:
-#          - "8989:8989/tcp"     # JackUI web UI
-#
-#      NOTE: leech-only deployment (consume through the VPN, not seed). We do NOT
-#      publish a BitTorrent peer port — inbound peer connections aren't needed to
-#      download. Only the UI port needs exposing; all of JackUI's OUTBOUND
-#      traffic (peers, trackers, DHT) already rides the VPN by sharing gluetun's
-#      network namespace.
-#
-#   3. Once gluetun re-exposes the UI port, the web UI is reachable on the host
-#      while every outbound connection from JackUI goes through the VPN tunnel.
+# Port sync: NO cron / no up-command script needed. JackUI polls gluetun's
+# control API (:8000) on boot to pick the forwarded port, and a built-in watcher
+# (watchForwardedPort) restarts the app if Proton rotates the port on reconnect.
 
 services:
-  jackui:
-    # Container network namespace is shared with gluetun.
-    # All outbound traffic from JackUI goes through the VPN.
-    # All inbound traffic to the gluetun-exposed ports lands in JackUI.
-    network_mode: "container:gluetun"
+  gluetun-jackui:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun-jackui
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=${VPN_TYPE:-openvpn}
+      - OPENVPN_USER=${OPENVPN_USER:?defina OPENVPN_USER (com +pmp) no .env}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:?defina OPENVPN_PASSWORD no .env}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-Brazil}
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      # Control server JackUI queries for the forwarded port (same netns).
+      - HTTP_CONTROL_SERVER_ADDRESS=:8000
+    ports:
+      # JackUI web UI is published via gluetun's namespace (loopback on the host;
+      # NPM reaches it). The BitTorrent peer port is NOT published here — inbound
+      # peers arrive through Proton's forwarded port inside the tunnel.
+      - "127.0.0.1:8989:8989"
+    restart: unless-stopped
 
-    # When sharing a container's network namespace, we can't define our own ports / network.
-    # The "ports:" and "networks:" fields from the base file are nulled here.
+  jackui:
+    # Share the dedicated gluetun's network namespace: all JackUI traffic
+    # (peers, trackers, DHT, UI) rides this VPN tunnel.
+    network_mode: "container:gluetun-jackui"
+    # Can't define our own ports/networks while sharing a namespace.
     ports: !reset []
     networks: !reset []
+    depends_on:
+      gluetun-jackui:
+        condition: service_started
+    environment:
+      # Tells JackUI to bind the BitTorrent peer port to Proton's forwarded port
+      # (read from gluetun's control API) instead of the fixed 51469.
+      - JACKUI_GLUETUN_CONTROL_URL=http://localhost:8000

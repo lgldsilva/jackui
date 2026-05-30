@@ -13,11 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/ai"
 	"github.com/luizg/jackui/internal/auth"
+	"github.com/luizg/jackui/internal/downloads"
 	"github.com/luizg/jackui/internal/local"
 	"github.com/luizg/jackui/internal/renamer"
+	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/tmdb"
 	"github.com/luizg/jackui/internal/transcode"
 )
@@ -324,7 +327,7 @@ func isTraversalErr(err error) bool {
 		strings.Contains(s, "mount") && strings.Contains(s, "not found")
 }
 
-func LocalDelete(b *local.Browser) gin.HandlerFunc {
+func LocalDelete(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -347,12 +350,46 @@ func LocalDelete(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// Find the torrent(s) linked to this path BEFORE deleting it (the lookup
+		// matches on the on-disk file_path). Deleting a local file/folder must
+		// also tear down its torrent so it doesn't linger in Downloads, in the
+		// piece cache or as a favorite.
+		linked, _ := dls.FindByPathPrefix(abs)
 		if err := os.RemoveAll(abs); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %s", err.Error())})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "deleted successfully"})
+		removed := purgeLinkedTorrents(dls, s, linked)
+		c.JSON(http.StatusOK, gin.H{"message": "deleted successfully", "torrentsRemoved": removed})
 	}
+}
+
+// purgeLinkedTorrents tears down the torrent(s) tied to a deleted local path:
+// drops the active torrent, wipes its piece cache, clears the favorite, and
+// removes the download row. Returns how many rows were removed. Best-effort —
+// a failure on one step doesn't abort the others.
+func purgeLinkedTorrents(dls *downloads.Store, s *streamer.Streamer, linked []downloads.Download) int {
+	removed := 0
+	for _, d := range linked {
+		if s != nil {
+			if d.InfoHash != "" {
+				var h metainfo.Hash
+				if err := h.FromHexString(d.InfoHash); err == nil {
+					s.Drop(h)
+				}
+			}
+			if d.Name != "" {
+				_ = s.ClearEntry(d.Name) // wipe pieces from the cache (DataDir/<name>)
+			}
+			if favs := s.Favorites(); favs != nil && d.Name != "" {
+				_ = favs.Remove(d.Name, d.UserID, true)
+			}
+		}
+		if err := dls.Delete(d.UserID, d.ID); err == nil {
+			removed++
+		}
+	}
+	return removed
 }
 
 func canModifyMount(c *gin.Context, mount string) bool {
