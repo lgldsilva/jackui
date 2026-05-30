@@ -22,8 +22,9 @@ type Entry struct {
 }
 
 type Mount struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	UserSubpath bool   `json:"userSubpath"` // per-user subdirs — drives the admin "view as user" selector
 }
 
 type Browser struct {
@@ -55,7 +56,7 @@ func (b *Browser) MountsFor(username string) []Mount {
 		if !visible {
 			continue
 		}
-		out = append(out, Mount{Name: m.Name, Path: m.Path})
+		out = append(out, Mount{Name: m.Name, Path: m.Path, UserSubpath: m.UserSubpath})
 	}
 	return out
 }

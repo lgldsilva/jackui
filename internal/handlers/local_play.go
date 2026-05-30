@@ -152,7 +152,7 @@ func resolveLocalFile(b *local.Browser, c *gin.Context, mount, path string) (str
 	if !checkMountAccess(b, c, mount) {
 		return "", false
 	}
-	abs, err := b.ResolvePath(mount, path)
+	abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return "", false
@@ -289,18 +289,22 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Hand
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		abs, stat, err := resolveLocalFileStat(b, mount, path)
+		// scoped is the on-disk path (prefixed with the user's subdir on
+		// UserSubpath mounts); it also keys the HLS session so two users with
+		// same-named files don't collide. path stays logical for the seg URLs.
+		scoped := scopePath(b, c, mount, path)
+		abs, stat, err := resolveLocalFileStat(b, mount, scoped)
 		if err != nil || abs == "" {
 			return
 		}
-		_, sess, err := startLocalHLSSession(c, mgr, mount, path, abs, stat)
+		_, sess, err := startLocalHLSSession(c, mgr, mount, scoped, abs, stat)
 		if err != nil {
 			return
 		}
 		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		buildSegURL := segURLBuilder(mount, path, c.Query("token"))
+		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"))
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
 }
@@ -348,7 +352,7 @@ func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	return true
 }
 
-func segURLBuilder(mount, path, token string) func(name string) string {
+func segURLBuilder(mount, path, token, user string) func(name string) string {
 	return func(name string) string {
 		p := url.Values{}
 		p.Set("mount", mount)
@@ -356,6 +360,11 @@ func segURLBuilder(mount, path, token string) func(name string) string {
 		p.Set("seg", name)
 		if token != "" {
 			p.Set("token", token)
+		}
+		// Propagate the admin "view as user" target so each segment request
+		// re-scopes to the same subdir the master playlist resolved against.
+		if user != "" {
+			p.Set("user", user)
 		}
 		return "/api/local/hls/seg?" + p.Encode()
 	}
@@ -433,10 +442,14 @@ func LocalHLSSegment(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Han
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid segment name"})
 			return
 		}
-		if !validLocalSegPath(b, mount, path) {
+		// Must mirror LocalHLSMaster: scope both the path validation and the
+		// session-key lookup with the user's subdir, or the segment serves
+		// another user's file / session.
+		scoped := scopePath(b, c, mount, path)
+		if !validLocalSegPath(b, mount, scoped) {
 			return
 		}
-		sess := resolveLocalSession(c, mgr, mount, path)
+		sess := resolveLocalSession(c, mgr, mount, scoped)
 		if sess == nil {
 			return
 		}

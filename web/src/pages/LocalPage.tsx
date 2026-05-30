@@ -25,11 +25,14 @@ import {
   LocalEntry,
   LocalMount,
   SearchResult,
+  AdminUser,
   buildLocalHash,
   localThumbURL,
   localList,
   localMounts,
   localDelete,
+  adminListUsers,
+  setLocalViewAsUser,
 } from '../api/client'
 
 type SortKey = 'name' | 'size' | 'date'
@@ -153,6 +156,12 @@ export default function LocalPage() {
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
 
   const { isGuest, isAdmin } = useAuth()
+  // Admin "view as user": '' = own space. When set, every /api/local/* call
+  // carries ?user= (the backend re-checks the admin role before honoring it).
+  const [viewAsUser, setViewAsUser] = useState('')
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
+  const activeMountObj = useMemo(() => mounts.find((m) => m.name === activeMount), [mounts, activeMount])
+  const canViewAsUser = isAdmin && !!activeMountObj?.userSubpath
   const canManipulate = !isGuest && activeMount.toLowerCase() === 'meus downloads'
 
   // Folders always show (so navigation never gets filtered away); the kind
@@ -196,6 +205,9 @@ export default function LocalPage() {
 
   const refresh = () => {
     if (!activeMount) return
+    // Sync the client module's view-as state BEFORE any local call so list +
+    // subsequent play/thumb/move/delete all hit the selected user's space.
+    setLocalViewAsUser(viewAsUser)
     setLoading(true)
     setError('')
     localList(activeMount, path)
@@ -210,7 +222,21 @@ export default function LocalPage() {
 
   useEffect(() => {
     refresh()
-  }, [activeMount, path])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMount, path, viewAsUser])
+
+  // Load the user list once for the admin "view as user" selector.
+  useEffect(() => {
+    if (!isAdmin) return
+    adminListUsers().then(setAdminUsers).catch(() => setAdminUsers([]))
+  }, [isAdmin])
+
+  // Reset the view-as override when leaving the page so other views (e.g. the
+  // player opening a local "continue watching" item) aren't silently scoped to
+  // another user.
+  useEffect(() => {
+    return () => setLocalViewAsUser('')
+  }, [])
 
   const handleDelete = async () => {
     if (!deleteConfirmItem || !activeMount) return
@@ -230,6 +256,13 @@ export default function LocalPage() {
   const handleSelectMount = (name: string) => {
     setActiveMount(name)
     setPath('')
+    setViewAsUser('') // back to own space when switching mounts
+  }
+
+  const handleViewAsUser = (username: string) => {
+    setLocalViewAsUser(username) // module state — takes effect on the next call
+    setViewAsUser(username)
+    setPath('') // jump to the root of the selected user's space
   }
 
   const handleEntryClick = (e: LocalEntry) => {
@@ -300,6 +333,27 @@ export default function LocalPage() {
                 )
               })}
             </ul>
+          )}
+
+          {canViewAsUser && (
+            <div className="mt-5 md:mt-6">
+              <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Ver como</h2>
+              <select
+                value={viewAsUser}
+                onChange={(e) => handleViewAsUser(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm bg-gray-800 border border-gray-700 text-gray-200 focus:border-green-500/50 focus:outline-none"
+              >
+                <option value="">Meu espaço (admin)</option>
+                {adminUsers.map((u) => (
+                  <option key={u.id} value={u.username}>{u.username}</option>
+                ))}
+              </select>
+              {viewAsUser && (
+                <p className="mt-1.5 text-[11px] text-amber-400/80">
+                  Vendo o espaço de <strong>{viewAsUser}</strong>
+                </p>
+              )}
+            </div>
           )}
         </aside>
 

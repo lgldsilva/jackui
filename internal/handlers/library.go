@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/library"
-	"github.com/luizg/jackui/internal/middleware"
 )
 
 // LibraryList handles GET /api/library — user's playback history (most recent first).
@@ -77,12 +76,9 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 		if req.FileIndex != nil {
 			fileIndex = *req.FileIndex
 		}
-		// Incognito: pretend we saved but skip the write — Continuar Assistindo
-		// stays clean and the player keeps PATCHing without noticing.
-		if middleware.IsIncognito(c) {
-			c.JSON(http.StatusOK, gin.H{"message": "saved"})
-			return
-		}
+		// Incognito entries still track resume progress — the entry is already
+		// flagged incognito=1 and excluded from normal listings; saving position
+		// allows the user to resume within their incognito session.
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := lib.UpdateResume(id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

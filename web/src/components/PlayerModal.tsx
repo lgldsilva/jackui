@@ -42,6 +42,7 @@ import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
 import { useScrollLock } from '../lib/useScrollLock'
 import { load, save } from '../lib/storage'
+import { useIncognito } from '../lib/incognito'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
 
@@ -167,12 +168,11 @@ export default function PlayerModal({
   useEffect(() => {
     localStorage.setItem('jackui.playerSidebar', sidebarOpen ? '1' : '0')
   }, [sidebarOpen])
-  // Incognito mode: don't save watch history or resume position for this session.
-  // Persisted per-session only (sessionStorage) so it resets on tab close.
-  const [incognito, setIncognito] = useState(() => sessionStorage.getItem('jackui.incognito') === '1')
-  useEffect(() => {
-    sessionStorage.setItem('jackui.incognito', incognito ? '1' : '0')
-  }, [incognito])
+  // Incognito mode: synced with the global toggle in the navbar (localStorage).
+  // When incognito is ON, the backend still records history/library but marks
+  // entries as incognito=1; they are cleaned up when incognito is disabled or
+  // the user logs out.
+  const [incognito, setIncognito] = useIncognito()
 
   // serverReady — flips true the moment streamAdd resolves and the streamer has
   // actually loaded the torrent. The metadata cache lets us populate `info`
@@ -1249,7 +1249,7 @@ export default function PlayerModal({
               </button>
             )}
             <button
-              onClick={() => setIncognito(v => !v)}
+              onClick={() => setIncognito(!incognito)}
               title={incognito ? 'Modo incógnito ativo — histórico e progresso não são salvos' : 'Ativar modo incógnito — não salva no Continuar Assistindo nem no histórico'}
               className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}
             >

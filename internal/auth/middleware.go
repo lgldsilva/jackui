@@ -71,7 +71,10 @@ func AdminOnly() gin.HandlerFunc {
 }
 
 // GuestRestrict blocks mutating methods (POST, DELETE, PUT, PATCH) for guests.
-// Exceptions are allowed for media routes that might write or receive POST (e.g. streaming or local-file/hls endpoints).
+// The only exception is /api/stream/* — playing a torrent legitimately POSTs to
+// add it to the swarm. /api/local/file is NOT exempt: its only mutating method
+// is DELETE (LocalDelete), which a read-only guest must never reach. GET on any
+// media route is already unaffected (it isn't a mutating method).
 func GuestRestrict() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := ClaimsFromCtx(c)
@@ -83,8 +86,7 @@ func GuestRestrict() gin.HandlerFunc {
 			method := c.Request.Method
 			if method == http.MethodPost || method == http.MethodDelete || method == http.MethodPut || method == http.MethodPatch {
 				path := c.Request.URL.Path
-				// Exceptions for media endpoints
-				if strings.HasPrefix(path, "/api/stream/") || strings.HasPrefix(path, "/api/local/file") {
+				if strings.HasPrefix(path, "/api/stream/") {
 					c.Next()
 					return
 				}
