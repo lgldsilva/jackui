@@ -511,7 +511,7 @@ function VideoPlayerElement({
     // tenta de novo mudado (autoplay mudo é sempre permitido) — aí o usuário só
     // dá unmute, em vez de ter que clicar em play.
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      v.play().catch(() => { v.muted = true; v.play().catch(() => {}) })
+      tryAutoplayMutedFallback(v)
     })
     hls.loadSource(streamURL)
     hls.attachMedia(v)
@@ -627,6 +627,19 @@ function VideoPlayerElement({
       {videoError && renderVideoError()}
     </div>
   )
+}
+
+// tryAutoplayMutedFallback: o iOS/Safari ignora o atributo autoPlay quando há
+// faixa de áudio (política de auto-play da Apple — só toca sozinho mudo, sem som
+// ou após gesto). Tenta play() com som; se a política bloquear (NotAllowed sem
+// gesto), cai pra MUDO (sempre permitido inline) e o usuário só dá unmute. No
+// desktop, onde autoplay com som é permitido, o primeiro play() já passa e o
+// vídeo NÃO fica mudo. Usado tanto no hls.js (desktop) quanto no <video> nativo.
+function tryAutoplayMutedFallback(v: HTMLVideoElement) {
+  v.play().catch(() => {
+    v.muted = true
+    v.play().catch(() => {})
+  })
 }
 
 // Resolve the file to auto-select when (re)opening a torrent: an explicit
@@ -2293,18 +2306,31 @@ export default function PlayerModal({
   // and then keep `resumePosition` populated so the "Continuar" button can use
   // it after the user goes back to the start.
   const appliedAutoResumeRef = useRef(false)
+  // Autoplay nativo (iOS): dispara uma vez por fonte, no canplay sem-resume.
+  const autoplayTriedRef = useRef(false)
   useEffect(() => {
     // Reset whenever a new file is selected so a future URL-driven re-play
     // (e.g., navigating to ?play=X&t=...) re-applies the seek instead of
     // remembering "already done" from the previous file.
     appliedInitialSeekRef.current = false
     appliedAutoResumeRef.current = false
+    autoplayTriedRef.current = false
     setShowResumePrompt(false)
   }, [selectedFile, info?.infoHash])
 
   // Seek once the video can play. Priority:
   //   1. URL-supplied initialSeek (explicit, e.g. shared link with `t=120`)
   //   2. per-user library resumeSeconds (background-saved, silent)
+  // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
+  // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
+  // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
+  // — aí o usuário escolhe continuar/recomeçar. (O caminho hls.js já trata o
+  // autoplay no MANIFEST_PARSED; um play() extra aqui seria no-op idempotente.)
+  const maybeAutoplayNative = (v: HTMLVideoElement) => {
+    if (autoplayTriedRef.current) return
+    autoplayTriedRef.current = true
+    tryAutoplayMutedFallback(v)
+  }
   const handleVideoCanPlay = () => {
     const v = videoRef.current
     if (!v) return
@@ -2315,15 +2341,18 @@ export default function PlayerModal({
       appliedInitialSeekRef.current = true
       // Clear DB resume to avoid the second branch firing on the same canplay
       setResumePosition(null)
+      maybeAutoplayNative(v)
       return
     }
-    if (resumePosition === null) return
-    if (v.currentTime < 1 && resumePosition > 30 && !appliedAutoResumeRef.current) {
+    if (resumePosition !== null && v.currentTime < 1 && resumePosition > 30 && !appliedAutoResumeRef.current) {
       appliedAutoResumeRef.current = true
       // Ask instead of silently jumping: the user picks "continue" or "restart"
       // via the overlay (see resume prompt). Mark applied so it only asks once.
       setShowResumePrompt(true)
+      return
     }
+    // Sem seek explícito nem prompt de resume → começa a tocar sozinho.
+    maybeAutoplayNative(v)
   }
 
   // Probe container for embedded audio + subtitle tracks (uses ffprobe on first ~16MB).
