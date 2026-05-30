@@ -95,28 +95,30 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            # cdxgen gera o SBOM (CycloneDX). NÃO sobrescrever NODE_PATH: cdxgen
-            # é Node e precisa dele p/ achar os próprios módulos — esvaziá-lo
-            # derruba o cdxgen (gera bom.json vazio). O "SECURE MODE: Environment
-            # audit" que ele emite é só informativo (auto-auditoria do ENV do
-            # agente, não vulnerabilidade da app) e não quebra o build.
+            # cdxgen roda sobre uma ÁRVORE LIMPA (git archive HEAD), não sobre o
+            # workspace: o `-r` recursivo no workspace varria web/node_modules
+            # (do stage de frontend), .git e artefatos, e o cdxgen:latest (v24,
+            # com "SECURE MODE") abortava em ~3s gerando bom vazio. Na árvore
+            # limpa ele gera o SBOM normalmente (~300KB). Sem jq no controller →
+            # payload via printf/base64 (BOM grande por arquivo, não estoura
+            # ARG_MAX). Só sobe se o BOM existir e não for vazio.
+            rm -rf .cdx-src && mkdir -p .cdx-src
+            git archive --format=tar HEAD | tar -x -C .cdx-src
             docker run --rm --user 0 \
-              -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
-              --spec-version 1.6 -r -o bom.json . || true
-            # Sem jq no controller do Jenkins: monta o payload com printf/base64
-            # (BOM grande vai por arquivo p/ não estourar ARG_MAX). Só sobe se o
-            # BOM existir e não for vazio.
-            if [ -s bom.json ]; then
+              -v "$PWD/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
+              --spec-version 1.6 -r -o /src/bom.json . || true
+            if [ -s .cdx-src/bom.json ]; then
               JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
                 --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
               printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
-                "$(base64 -w0 bom.json)" > dt-payload.json
+                "$(base64 -w0 .cdx-src/bom.json)" > dt-payload.json
               curl -sk -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
                 -H 'Content-Type: application/json' --data-binary @dt-payload.json \
                 -w '\n[DT upload HTTP %{http_code}]\n'
             else
               echo 'bom.json vazio/ausente — cdxgen falhou; pulando upload pro DT'
             fi
+            rm -rf .cdx-src dt-payload.json
           '''
         }
       }
