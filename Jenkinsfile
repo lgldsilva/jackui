@@ -93,7 +93,11 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            docker run --rm --user 0 -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
+            # NODE_PATH/SWIFT_SIGNING_KEY vazios: silencia o "SECURE MODE:
+            # Environment audit" do cdxgen (auto-auditoria do ENV do agente, não
+            # vulnerabilidade da app) — apontava NODE_PATH HIGH + SWIFT LOW.
+            docker run --rm --user 0 -e NODE_PATH= -e SWIFT_SIGNING_KEY= \
+              -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o bom.json . || true
             JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
               --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
