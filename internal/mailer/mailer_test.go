@@ -84,6 +84,47 @@ func TestSend_NotEnabled(t *testing.T) {
 	}
 }
 
+func TestBuildMessage_WithSpecialChars(t *testing.T) {
+	msg := buildMessage("from@test.com", "to@test.com", "Test & Subject <3", "<p>hello & goodbye</p>")
+	if !contains(msg, "Subject: Test & Subject <3") {
+		t.Error("expected Subject with special chars")
+	}
+	if !contains(msg, "<p>hello & goodbye</p>") {
+		t.Error("expected body with special chars")
+	}
+}
+
+func TestBuildMessage_WithNewlines(t *testing.T) {
+	msg := buildMessage("from@test.com", "to@test.com", "Subject", "line1\nline2\r\nline3")
+	if !contains(msg, "\r\nline3") {
+		t.Error("expected body to preserve newlines in SMTP format")
+	}
+}
+
+func TestBuildMessage_NonASCII(t *testing.T) {
+	msg := buildMessage("from@test.com", "to@test.com", "Assunto com ção", "<p>coração</p>")
+	if !contains(msg, "Subject: Assunto com ção") {
+		t.Error("expected Subject with non-ASCII chars")
+	}
+}
+
+func TestBuildMessage_HasDateHeader(t *testing.T) {
+	msg := buildMessage("f@t.com", "t@t.com", "S", "b")
+	if !contains(msg, "Date: ") {
+		t.Error("expected Date header")
+	}
+}
+
+func TestBuildMessage_HasMIMEHeader(t *testing.T) {
+	msg := buildMessage("f@t.com", "t@t.com", "S", "b")
+	if !contains(msg, "MIME-Version: 1.0") {
+		t.Error("expected MIME-Version header")
+	}
+	if !contains(msg, "Content-Type: text/html; charset=UTF-8") {
+		t.Error("expected Content-Type header")
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchStr(s, substr)
 }
