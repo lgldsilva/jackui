@@ -94,6 +94,8 @@ function formatSize(bytes: number): string {
 type FileType = 'all' | 'video' | 'audio' | 'other'
 const PLAYER_AUDIO_RE = /\.(mp3|flac|m4a|aac|ogg|wav|opus|alac|wma)$/i
 const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
+// Variable playback speed for audiobooks / lectures.
+const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
 // fileType buckets a file for the sidebar type filter: video (backend flag or
 // extension) → audio (extension) → everything else.
@@ -509,6 +511,980 @@ function VideoPlayerElement({
   )
 }
 
+// Resolve the file to auto-select when (re)opening a torrent: an explicit
+// override wins, then the backend-suggested primary, else the first file.
+function chooseInitialFile(t: TorrentInfo, initialFileIndex: number | undefined): number {
+  if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length) {
+    return initialFileIndex
+  }
+  return Math.max(0, t.primaryFile)
+}
+
+const FILE_EXTRA_RE = (() => {
+  const SPACE_OR_DASH = String.raw`[\s-]?`
+  return new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\b`, 'i')
+})()
+const FILE_AUDIO_RE = /\.(mp3|flac|m4a|aac|ogg|wav|opus|alac|wma)$/i
+
+type FilePickerSidebarProps = {
+  readonly info: TorrentInfo
+  readonly videoFiles: TorrentInfo['files']
+  readonly selectedFile: number
+  readonly selectedFileRef: React.RefObject<HTMLButtonElement>
+  readonly fileFilter: string
+  readonly fileTypeFilter: FileType
+  readonly fileSortBySize: boolean
+  readonly fileSizeDesc: boolean
+  readonly hoverThumb: ReturnType<typeof useHoverThumb>
+  readonly parseEpisode: (path: string) => string | null
+  readonly playFile: (idx: number) => void
+  readonly setFileFilter: (v: string) => void
+  readonly setFileTypeFilter: (v: FileType) => void
+  readonly setFileSortBySize: (v: boolean) => void
+  readonly setFileSizeDesc: (v: boolean) => void
+  readonly setSidebarOpen: (v: boolean) => void
+  readonly setPreviewFileIdx: (v: number | null) => void
+}
+
+// File picker — right sidebar on lg+, stacked panel below on mobile.
+// Series-aware: detects S/E in filenames and labels them. Filter matches both
+// the path AND the parsed S/E tag so "s04e03" finds the episode without typing
+// the show name. Extras (featurettes, bonus, behind-the-scenes) sort to the
+// bottom with an EXTRA badge.
+function FilePickerSidebar({
+  info,
+  videoFiles,
+  selectedFile,
+  selectedFileRef,
+  fileFilter,
+  fileTypeFilter,
+  fileSortBySize,
+  fileSizeDesc,
+  hoverThumb,
+  parseEpisode,
+  playFile,
+  setFileFilter,
+  setFileTypeFilter,
+  setFileSortBySize,
+  setFileSizeDesc,
+  setSidebarOpen,
+  setPreviewFileIdx,
+}: FilePickerSidebarProps) {
+  const filterLower = fileFilter.trim().toLowerCase()
+  const matchesFile = (path: string, ep: string | null) =>
+    !filterLower ||
+    path.toLowerCase().includes(filterLower) ||
+    (ep || '').toLowerCase().includes(filterLower)
+  const isExtra = (path: string) => FILE_EXTRA_RE.test(path)
+  const typeCounts = { video: 0, audio: 0, other: 0 }
+  for (const f of info.files) typeCounts[fileType(f)]++
+  const filteredFiles = info.files
+    .filter(f => matchesFile(f.path, parseEpisode(f.path)))
+    .filter(f => fileTypeFilter === 'all' || fileType(f) === fileTypeFilter)
+    .slice()
+    .sort((a, b) => {
+      if (fileSortBySize) {
+        if (a.size !== b.size) return fileSizeDesc ? b.size - a.size : a.size - b.size
+        return a.index - b.index
+      }
+      const ax = isExtra(a.path), bx = isExtra(b.path)
+      if (ax !== bx) return ax ? 1 : -1
+      const ae = parseEpisode(a.path), be = parseEpisode(b.path)
+      if (ae && be) return ae.localeCompare(be)
+      if (ae) return -1
+      if (be) return 1
+      return a.index - b.index
+    })
+  const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
+    if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
+    if (isPlayable) {
+      if (ext) return 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
+      return 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
+    }
+    if (canPreview) return 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
+    return 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
+  }
+  const cycleSizeSort = () => {
+    // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
+    if (!fileSortBySize) setFileSortBySize(true)
+    else if (fileSizeDesc) setFileSizeDesc(false)
+    else { setFileSortBySize(false); setFileSizeDesc(true) }
+  }
+  return (
+    <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0">
+        <p className="text-xs text-gray-400 flex items-center gap-2 min-w-0">
+          <FileVideo className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+          <span className="truncate">
+            {filteredFiles.length}{filterLower ? ` / ${info.files.length}` : ''} arquivo{filteredFiles.length === 1 ? '' : 's'}
+            {videoFiles.length > 0 && <span className="text-blue-400"> · {videoFiles.length} vídeo{videoFiles.length === 1 ? '' : 's'}</span>}
+          </span>
+        </p>
+        <button
+          onClick={() => setSidebarOpen(false)}
+          title="Esconder lista de arquivos"
+          className="text-gray-500 hover:text-gray-200 p-1 rounded hover:bg-gray-700 flex-shrink-0"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+      {info.files.length > 6 && (
+        <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0">
+          <input
+            type="text"
+            value={fileFilter}
+            onChange={e => setFileFilter(e.target.value)}
+            placeholder="Filtrar (ex: s04e03)"
+            className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 sm:py-1 text-sm sm:text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-500"
+          />
+        </div>
+      )}
+      <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0 flex items-center gap-1.5 flex-wrap">
+        {([
+          { key: 'all' as const, label: 'Todos', count: info.files.length },
+          { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
+          { key: 'audio' as const, label: 'Áudio', count: typeCounts.audio },
+          { key: 'other' as const, label: 'Outros', count: typeCounts.other },
+        ])
+          .filter(o => o.key === 'all' || o.count > 0)
+          .map(o => (
+            <button
+              key={o.key}
+              onClick={() => setFileTypeFilter(o.key)}
+              className={`px-2 py-1 rounded text-[11px] border transition-colors ${
+                fileTypeFilter === o.key
+                  ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                  : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+              }`}
+            >
+              {o.label} <span className="tabular-nums opacity-70">{o.count}</span>
+            </button>
+          ))}
+        <div className="flex-1" />
+        <button
+          onClick={cycleSizeSort}
+          title="Ordenar por tamanho"
+          className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
+            fileSortBySize
+              ? 'bg-green-500/20 text-green-300 border-green-500/40'
+              : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+          }`}
+        >
+          {fileSortBySize && !fileSizeDesc
+            ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
+            : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${fileSortBySize ? '' : 'opacity-50'}`} />}
+          Tamanho
+        </button>
+      </div>
+      <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
+        {filteredFiles.length === 0 && (
+          <p className="text-xs text-gray-500 text-center py-3">
+            {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
+          </p>
+        )}
+        {filteredFiles.slice(0, 100).map(f => {
+          const ep = parseEpisode(f.path)
+          const extra = isExtra(f.path)
+          // Compact name for sidebar: drop the long shared prefix
+          // (everything before the last "/") so paths fit in 320px.
+          const shortName = f.path.split('/').slice(-2).join('/')
+          const isPlayable = f.isVideo || FILE_AUDIO_RE.test(f.path)
+          const previewKind = isPlayable ? 'unknown' : detectPreviewKind(f.path)
+          const canPreview = previewKind !== 'unknown'
+          const previewBadge = canPreview ? previewKind.toUpperCase() : null
+          // Hover frame-preview only for video files.
+          const thumbUrl = fileType(f) === 'video' && info.infoHash
+            ? streamThumbnailURL(info.infoHash, f.index, 10)
+            : null
+          return (
+            <button
+              key={f.index}
+              ref={selectedFile === f.index ? selectedFileRef : null}
+              onClick={() => {
+                if (isPlayable) playFile(f.index)
+                else if (canPreview) setPreviewFileIdx(f.index)
+                // else: dead row, click does nothing (download via long-press / context menu still available)
+              }}
+              onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
+              onMouseMove={hoverThumb.move}
+              onMouseLeave={hoverThumb.hide}
+              title={f.path}
+              className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${fileBtnClass(f.index, isPlayable, canPreview, extra)}`}
+            >
+              <span className="flex items-center gap-1.5 min-w-0">
+                {ep && (
+                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                    {ep}
+                  </span>
+                )}
+                {extra && (
+                  <span className="text-[10px] font-mono bg-gray-700/60 text-gray-400 border border-gray-600/40 px-1.5 py-0.5 rounded flex-shrink-0">
+                    EXTRA
+                  </span>
+                )}
+                {previewBadge && (
+                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Visualizar inline">
+                    {previewBadge}
+                  </span>
+                )}
+                {selectedFile === f.index && <Play className="w-3 h-3 flex-shrink-0" />}
+              </span>
+              <span className="flex items-center justify-between gap-2 min-w-0">
+                <span className="truncate">{shortName}</span>
+                <span className="text-gray-500 flex-shrink-0 text-[10px] tabular-nums">{formatSize(f.size)}</span>
+              </span>
+            </button>
+          )
+        })}
+        {filteredFiles.length > 100 && (
+          <p className="text-[11px] text-gray-500 text-center py-3 px-2 leading-snug">
+            Mostrando 100 de {filteredFiles.length}. Use o filtro acima
+            (ex: <span className="font-mono text-gray-400">s04e03</span> ou
+            parte do nome) pra achar o resto.
+          </p>
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function audioTrackTitle(a: MediaTrack): string {
+  let t = a.title || a.codec
+  if (a.channels) t += ` (${a.channels}ch)`
+  return `${t} — clicar transcoda via FFmpeg, perde seek`
+}
+
+function subBtnClass(active: boolean, image: boolean | undefined): string {
+  if (active) {
+    return image
+      ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+  }
+  return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+}
+
+type EmbeddedTracksPanelProps = {
+  readonly probe: StreamProbe
+  readonly sidecars: SidecarSubtitle[]
+  readonly transcodeAudio: number | null
+  readonly forceH264: boolean
+  readonly burnSubTrack: number | null
+  readonly isTranscoded: boolean
+  readonly sidecarIdx: number | null
+  readonly embeddedSub: number | null
+  readonly clearCustomSub: () => void
+  readonly setTranscodeAudio: (v: number | null) => void
+  readonly setForceH264: (fn: (prev: boolean) => boolean) => void
+  readonly setBurnSubTrack: (v: number | null) => void
+  readonly setSidecarIdx: (v: number | null) => void
+  readonly setEmbeddedSub: (v: number | null) => void
+  readonly setSubActive: (v: string | null) => void
+  readonly setAutoSource: (v: 'hash' | 'title' | 'embedded' | null) => void
+}
+
+// Embedded tracks panel (audio + subtitles inside the file, plus sidecar .srt
+// files shipped alongside the video in the torrent).
+function EmbeddedTracksPanel({
+  probe,
+  sidecars,
+  transcodeAudio,
+  forceH264,
+  burnSubTrack,
+  isTranscoded,
+  sidecarIdx,
+  embeddedSub,
+  clearCustomSub,
+  setTranscodeAudio,
+  setForceH264,
+  setBurnSubTrack,
+  setSidecarIdx,
+  setEmbeddedSub,
+  setSubActive,
+  setAutoSource,
+}: EmbeddedTracksPanelProps) {
+  return (
+    <div className="px-3 sm:px-4 py-3 border-b border-gray-700 flex flex-col gap-3">
+      {/* Audio tracks — clicking a non-default triggers transcoded remux */}
+      {probe.audio.length > 1 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
+            <Volume2 className="w-3 h-3" />
+            Faixas de áudio ({probe.audio.length})
+            {transcodeAudio !== null && (
+              <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
+                <Cpu className="w-2.5 h-2.5 inline mr-0.5" />GPU encoding
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <button
+              onClick={() => setTranscodeAudio(null)}
+              className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                transcodeAudio === null
+                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                  : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+              }`}
+              title="Faixa padrão do arquivo (direct play, com seek completo)"
+            >
+              Padrão
+            </button>
+            {probe.audio.map(a => (
+              <button
+                key={a.index}
+                onClick={() => setTranscodeAudio(a.index)}
+                title={audioTrackTitle(a)}
+                className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
+                  if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                  if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
+                  return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+                })()}`}
+              >
+                {a.language ? a.language.toUpperCase() : '??'}
+                <span className="text-gray-500 ml-1">{a.codec}{a.channels ? `·${a.channels}ch` : ''}</span>
+                {a.default && <span className="ml-1 text-[9px]">★</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Force H.264 toggle — useful for HEVC files in Chrome */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <button
+          onClick={() => setForceH264(v => !v)}
+          title="Re-encoda vídeo para H.264 — útil quando o codec original é HEVC e o browser não decodifica"
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+            forceH264
+              ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+              : 'bg-gray-700/50 text-gray-400 border-gray-700 hover:text-gray-200'
+          }`}
+        >
+          <Cpu className="w-3.5 h-3.5" />
+          Forçar H.264
+          {forceH264 && <Check className="w-3 h-3" />}
+        </button>
+
+        {/* Stream mode indicator */}
+        {isTranscoded && (
+          <span className="text-[11px] text-yellow-400 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Stream transcoded — seek limitado
+          </span>
+        )}
+      </div>
+
+      {/* Sidecar subtitles (.srt files alongside the video in the torrent) */}
+      {sidecars.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
+            <Subtitles className="w-3 h-3" />
+            Legendas no torrent ({sidecars.length}) <span className="text-[10px] text-gray-600 italic">— arquivos .srt/.vtt</span>
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <button
+              onClick={() => {
+                setSidecarIdx(null)
+                clearCustomSub()
+              }}
+              className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                sidecarIdx === null
+                  ? 'bg-gray-700 text-gray-200 border-gray-600'
+                  : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+              }`}
+            >
+              Nenhuma
+            </button>
+            {sidecars.map(s => (
+              <button
+                key={s.index}
+                onClick={() => {
+                  setSidecarIdx(s.index)
+                  setEmbeddedSub(null)
+                  setSubActive(null)
+                  setAutoSource('embedded')
+                  clearCustomSub()
+                }}
+                title={s.path}
+                className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                  sidecarIdx === s.index
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+                }`}
+              >
+                {(s.language || '??').toUpperCase()}
+                <span className="text-gray-500 ml-1">.{s.format}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Embedded subtitles — pickable (text subs as track, image subs as burn-in) */}
+      {probe.subtitles.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
+            <Subtitles className="w-3 h-3" />
+            Legendas embutidas ({probe.subtitles.length})
+            {burnSubTrack !== null && (
+              <span className="text-[10px] text-orange-300 bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 rounded">
+                <Flame className="w-2.5 h-2.5 inline mr-0.5" />Burn-in
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            <button
+              onClick={() => {
+                setEmbeddedSub(null)
+                setBurnSubTrack(null)
+                clearCustomSub()
+              }}
+              className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+                embeddedSub === null && burnSubTrack === null
+                  ? 'bg-gray-700 text-gray-200 border-gray-600'
+                  : 'bg-gray-850 text-gray-500 border-gray-700 hover:text-gray-300'
+              }`}
+            >
+              Nenhuma
+            </button>
+            {probe.subtitles.map(s => {
+              const isActive = embeddedSub === s.index || burnSubTrack === s.index
+              return (
+                <button
+                  key={s.index}
+                  onClick={() => {
+                    clearCustomSub()
+                    if (s.image) {
+                      // Image sub → burn-in (forces video re-encode)
+                      setBurnSubTrack(s.index)
+                      setEmbeddedSub(null)
+                    } else {
+                      // Text sub → extract as VTT
+                      setEmbeddedSub(s.index)
+                      setBurnSubTrack(null)
+                      setSubActive(null)
+                      setAutoSource('embedded')
+                    }
+                  }}
+                  title={
+                    s.image
+                      ? `${s.codec} (imagem) — burn-in via FFmpeg, vai forçar transcode do vídeo`
+                      : s.title || s.codec
+                  }
+                  className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
+                >
+                  {s.language ? s.language.toUpperCase() : '??'}
+                  <span className="text-gray-500 ml-1">{s.codec}</span>
+                  {s.forced && <span className="ml-1 text-[9px] text-yellow-400">FORCED</span>}
+                  {s.image && <span className="ml-1 text-[9px] text-orange-400">IMG</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Slim time readout shown below the cover art when an audio track plays in the
+// minimized (PiP) card, so the user knows where they are without expanding.
+function MinimizedAudioProgress({ currentTime, duration, formatTime }: {
+  readonly currentTime: number
+  readonly duration: number
+  readonly formatTime: (s: number) => string
+}) {
+  const pct = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'
+  return (
+    <div className="px-3 py-1.5 bg-gray-900 border-t border-gray-700 flex items-center gap-2 text-xs text-gray-400">
+      <span className="font-mono tabular-nums">{formatTime(currentTime)}</span>
+      <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+        <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: pct }} />
+      </div>
+      <span className="font-mono tabular-nums">{formatTime(duration)}</span>
+    </div>
+  )
+}
+
+function subtitleButtonTitle(enabled: boolean, source: string | null): string {
+  if (!enabled) return 'Configure OpenSubtitles API key em Settings'
+  if (source === 'embedded') return 'Legenda embutida no arquivo (sync perfeito)'
+  if (source === 'hash') return 'Legenda casada por hash do arquivo (frame-exato)'
+  if (source === 'title') return 'Legenda encontrada pelo título'
+  return 'Buscar legendas em português'
+}
+
+function subtitleBtnClass(active: string | null, embedded: number | null, source: string | null, enabled: boolean): string {
+  if (active || embedded !== null) {
+    if (source === 'embedded' || source === 'hash') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+    return 'bg-green-500/20 text-green-400 border-green-500/30'
+  }
+  if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+  return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
+}
+
+function serverDownloadIcon(loading: boolean, success: boolean): React.ReactNode {
+  if (loading) return <Loader2 className="w-3.5 h-3.5 animate-spin" />
+  if (success) return <Check className="w-3.5 h-3.5" />
+  return <Download className="w-3.5 h-3.5 text-green-400" />
+}
+
+type PlayerControlsPanelProps = {
+  readonly info: TorrentInfo
+  readonly currentFile: TorrentInfo['files'][number] | null | undefined
+  readonly videoFileIndices: number[]
+  readonly videoCursor: number
+  readonly prevVideoIdx: number
+  readonly nextVideoIdx: number
+  readonly currentEp: string | null
+  readonly currentTime: number
+  readonly duration: number
+  readonly bufferedEnd: number
+  readonly bufferedRanges: Array<[number, number]>
+  readonly subActive: string | null
+  readonly subOffset: number
+  readonly showMobileOpts: boolean
+  readonly playbackSpeed: number
+  readonly probe: StreamProbe | null
+  readonly sidecars: SidecarSubtitle[]
+  readonly transcodeAudio: number | null
+  readonly forceH264: boolean
+  readonly burnSubTrack: number | null
+  readonly isTranscoded: boolean
+  readonly sidecarIdx: number | null
+  readonly embeddedSub: number | null
+  readonly subEnabled: boolean
+  readonly autoSource: 'hash' | 'title' | 'embedded' | null
+  readonly subLoading: boolean
+  readonly subtitleLabel: string
+  readonly vlcURL: string
+  readonly streamURL: string
+  readonly serverDownloadLoading: boolean
+  readonly serverDownloadSuccess: boolean
+  readonly subOpen: boolean
+  readonly customSubName: string | null
+  readonly subError: string
+  readonly subResults: Subtitle[]
+  readonly formatTime: (s: number) => string
+  readonly playFile: (idx: number) => void
+  readonly adjustSubOffset: (delta: number) => void
+  readonly resetSubOffset: () => void
+  readonly setShowMobileOpts: (fn: (prev: boolean) => boolean) => void
+  readonly setPlaybackSpeed: (v: number) => void
+  readonly clearCustomSub: () => void
+  readonly setTranscodeAudio: (v: number | null) => void
+  readonly setForceH264: (fn: (prev: boolean) => boolean) => void
+  readonly setBurnSubTrack: (v: number | null) => void
+  readonly setSidecarIdx: (v: number | null) => void
+  readonly setEmbeddedSub: (v: number | null) => void
+  readonly setSubActive: (v: string | null) => void
+  readonly setAutoSource: (v: 'hash' | 'title' | 'embedded' | null) => void
+  readonly openSubtitlePanel: () => void
+  readonly handleRequestFullscreen: () => void
+  readonly handleServerDownload: () => void
+  readonly setSubOpen: (v: boolean) => void
+  readonly handleCustomSubtitleUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
+  readonly pickSubtitle: (s: Subtitle) => void
+}
+
+// Everything below the <video> when expanded: transport row (series nav + time
+// + subtitle offset), the mobile "Opções" collapse, the status/buffer bar, the
+// embedded-tracks panel, the action bar (subtitle/VLC/download), and the
+// OpenSubtitles picker. Hidden entirely while minimized.
+function PlayerControlsPanel({
+  info,
+  currentFile,
+  videoFileIndices,
+  videoCursor,
+  prevVideoIdx,
+  nextVideoIdx,
+  currentEp,
+  currentTime,
+  duration,
+  bufferedEnd,
+  bufferedRanges,
+  subActive,
+  subOffset,
+  showMobileOpts,
+  playbackSpeed,
+  probe,
+  sidecars,
+  transcodeAudio,
+  forceH264,
+  burnSubTrack,
+  isTranscoded,
+  sidecarIdx,
+  embeddedSub,
+  subEnabled,
+  autoSource,
+  subLoading,
+  subtitleLabel,
+  vlcURL,
+  streamURL,
+  serverDownloadLoading,
+  serverDownloadSuccess,
+  subOpen,
+  customSubName,
+  subError,
+  subResults,
+  formatTime,
+  playFile,
+  adjustSubOffset,
+  resetSubOffset,
+  setShowMobileOpts,
+  setPlaybackSpeed,
+  clearCustomSub,
+  setTranscodeAudio,
+  setForceH264,
+  setBurnSubTrack,
+  setSidecarIdx,
+  setEmbeddedSub,
+  setSubActive,
+  setAutoSource,
+  openSubtitlePanel,
+  handleRequestFullscreen,
+  handleServerDownload,
+  setSubOpen,
+  handleCustomSubtitleUpload,
+  pickSubtitle,
+}: PlayerControlsPanelProps) {
+  return (
+    <>
+      {/* Transport row — ONE line. The native <video controls> already
+          provides the seek bar, play/pause and ±skip, so we keep only
+          what it lacks: series navigation (prev/next episode) and a time
+          readout. "Back to start" / "resume" are now offered as a prompt
+          on play (see resume overlay); ±10s removed (native bar seeks). */}
+      <div className="px-3 sm:px-4 py-2 bg-gray-900 border-b border-gray-700 flex items-center gap-2 min-w-0">
+        {videoFileIndices.length > 1 && (
+          <>
+            <button
+              onClick={() => playFile(prevVideoIdx)}
+              disabled={prevVideoIdx < 0}
+              title="Episódio anterior"
+              className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+              <span className="hidden xs:inline">Ep ant.</span>
+            </button>
+            <button
+              onClick={() => playFile(nextVideoIdx)}
+              disabled={nextVideoIdx < 0}
+              title="Próximo episódio"
+              className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+            >
+              <span className="hidden xs:inline">Próx.</span>
+              <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+            </button>
+            {currentEp && (
+              <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
+                {currentEp}
+              </span>
+            )}
+            <span className="text-xs text-gray-500 flex-shrink-0">
+              {videoCursor + 1}/{videoFileIndices.length}
+            </span>
+          </>
+        )}
+        <span className="text-xs text-gray-400 ml-auto font-mono tabular-nums flex-shrink-0">
+          {formatTime(currentTime)} <span className="text-gray-600">/</span> {formatTime(duration)}
+        </span>
+
+        {/* Subtitle offset controls — only visible when sub active */}
+        {subActive && (
+          <div className="flex items-center gap-1 ml-auto bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5">
+            <span className="text-[10px] text-gray-500 uppercase tracking-wide mr-1">Legenda</span>
+            <button
+              onClick={() => adjustSubOffset(-0.1)}
+              title="Atrasar legenda em 0.1s"
+              className="text-gray-400 hover:text-blue-400 p-1 transition-colors"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span className="text-xs text-gray-200 font-mono tabular-nums min-w-[40px] text-center">
+              {subOffset >= 0 ? '+' : ''}{subOffset.toFixed(1)}s
+            </span>
+            <button
+              onClick={() => adjustSubOffset(0.1)}
+              title="Adiantar legenda em 0.1s"
+              className="text-gray-400 hover:text-blue-400 p-1 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+            {subOffset !== 0 && (
+              <button
+                onClick={resetSubOffset}
+                title="Resetar offset"
+                className="text-gray-500 hover:text-gray-200 p-1 transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Mobile-only toggle that collapses everything below (status,
+          transcode controls, subtitle picker, VLC/download) so the file
+          list sits right under the video. Desktop shows it all inline. */}
+      <button
+        onClick={() => setShowMobileOpts(v => !v)}
+        className="sm:hidden flex items-center justify-center gap-1.5 w-full px-4 py-2.5 border-b border-gray-700 bg-gray-900/40 text-gray-300 text-sm active:bg-gray-800"
+      >
+        {showMobileOpts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        {showMobileOpts ? 'Ocultar opções' : 'Opções (legendas · status · baixar)'}
+      </button>
+
+      {/* Secondary controls — collapsed on mobile unless toggled, always
+          shown on desktop. */}
+      <div className={showMobileOpts ? 'flex flex-col' : 'hidden sm:flex sm:flex-col'}>
+        {/* Status bar with buffer + torrent progress. `relative` lets the
+            hover preview bubble (absolute) anchor inside this container. */}
+        <div className="relative px-3 sm:px-4 py-3 bg-gray-900/50 border-b border-gray-700 flex flex-col gap-2 text-xs">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="flex items-center gap-1.5 text-gray-300">
+              <Users className="w-3.5 h-3.5 text-green-400" />
+              {info.seeders} <span className="text-gray-500 hidden sm:inline">seeders</span>
+              <span className="text-gray-500">/</span> {info.peers} <span className="text-gray-500 hidden sm:inline">peers</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-gray-300">
+              <Activity className="w-3.5 h-3.5 text-blue-400" />
+              {(info.progress * 100).toFixed(1)}%<span className="text-gray-500 hidden sm:inline ml-1">torrent</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-gray-300 tabular-nums">
+              <span className="text-green-400">↓</span> {formatRate(info.downRate)}
+              <span className="text-yellow-400 ml-1">↑</span> {formatRate(info.upRate)}
+            </span>
+            <label className="flex items-center gap-1 text-gray-400" title="Velocidade de reprodução (pitch preservado — voz não fica robotizada)">
+              <FastForward className="w-3.5 h-3.5 text-gray-500" />
+              <select
+                value={playbackSpeed}
+                onChange={e => setPlaybackSpeed(Number.parseFloat(e.target.value))}
+                className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-green-500"
+              >
+                {SPEED_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s}x</option>
+                ))}
+              </select>
+            </label>
+            {currentFile && (
+              <span className="text-gray-400">
+                {formatSize(currentFile.downloaded)} / {formatSize(currentFile.size)}
+              </span>
+            )}
+            {bufferedEnd > 0 && duration > 0 && (
+              <span className="text-gray-400 ml-auto">
+                Buffer: <span className="text-blue-400">{formatTime(bufferedEnd - currentTime)}</span> à frente
+              </span>
+            )}
+          </div>
+          {/* Load/buffer indicator — PRESENTATION ONLY (not clickable).
+              The native <video controls> bar owns seeking; this strip just
+              visualises state so it doesn't compete with it: gray = torrent
+              downloaded, blue islands = buffered/ready (disjoint after a #61
+              seek-restart, gaps = not loaded yet), green = play progress. */}
+          <div className="relative bg-gray-700 rounded-full h-1.5">
+            <div
+              className="absolute inset-y-0 left-0 bg-gray-500 rounded-full"
+              style={{ width: `${(currentFile?.progress || 0) * 100}%` }}
+            />
+            {duration > 0 && (
+              <>
+                {bufferedRanges.map(([start, end]) => (
+                  <div
+                    key={start}
+                    className="absolute inset-y-0 bg-blue-500/50 rounded-full"
+                    style={{
+                      left: `${(start / duration) * 100}%`,
+                      width: `${(Math.max(0, end - start) / duration) * 100}%`,
+                    }}
+                  />
+                ))}
+                <div
+                  className="absolute inset-y-0 left-0 bg-green-500 rounded-full"
+                  style={{ width: `${(currentTime / duration) * 100}%` }}
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Embedded tracks (audio + subtitles inside the file) */}
+        {probe && (probe.audio.length > 0 || probe.subtitles.length > 0) && (
+          <EmbeddedTracksPanel
+            probe={probe}
+            sidecars={sidecars}
+            transcodeAudio={transcodeAudio}
+            forceH264={forceH264}
+            burnSubTrack={burnSubTrack}
+            isTranscoded={isTranscoded}
+            sidecarIdx={sidecarIdx}
+            embeddedSub={embeddedSub}
+            clearCustomSub={clearCustomSub}
+            setTranscodeAudio={setTranscodeAudio}
+            setForceH264={setForceH264}
+            setBurnSubTrack={setBurnSubTrack}
+            setSidecarIdx={setSidecarIdx}
+            setEmbeddedSub={setEmbeddedSub}
+            setSubActive={setSubActive}
+            setAutoSource={setAutoSource}
+          />
+        )}
+
+        {/* Action bar */}
+        <div className="px-3 sm:px-4 py-3 flex items-center gap-2 flex-wrap">
+          <button
+            onClick={openSubtitlePanel}
+            disabled={!subEnabled}
+            title={subtitleButtonTitle(subEnabled, autoSource)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${subtitleBtnClass(subActive, embeddedSub, autoSource, subEnabled)}`}
+          >
+            {subLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Subtitles className="w-3.5 h-3.5" />}
+            {subtitleLabel}
+          </button>
+          <button
+            onClick={handleRequestFullscreen}
+            title="Tela cheia"
+            className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors sm:hidden"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            Fullscreen
+          </button>
+          <a
+            href={vlcURL}
+            className="flex items-center gap-1.5 text-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 px-3 py-1.5 rounded-lg transition-colors"
+            title="Abrir o stream no app VLC local — funciona com qualquer codec"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            VLC
+          </a>
+          <button
+            onClick={handleServerDownload}
+            disabled={serverDownloadLoading || serverDownloadSuccess}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
+              serverDownloadSuccess
+                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                : 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
+            }`}
+            title="Salvar download completo no servidor (Background Download)"
+          >
+            {serverDownloadIcon(serverDownloadLoading, serverDownloadSuccess)}
+            <span>
+              {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
+            </span>
+          </button>
+          <a
+            href={streamURL}
+            download
+            className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Baixar direto</span>
+            <span className="sm:hidden">Baixar</span>
+          </a>
+          <span className="text-xs text-gray-600 ml-auto hidden sm:block">
+            {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} • {formatSize(info.totalSize)}
+          </span>
+        </div>
+
+        {/* Subtitle picker panel */}
+        {subOpen && (
+          <div className="px-3 sm:px-4 pb-4 border-t border-gray-700 pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-200 flex items-center gap-2">
+                <Subtitles className="w-4 h-4 text-blue-400" />
+                Legendas (pt-BR / pt)
+              </h3>
+              <button onClick={() => setSubOpen(false)} className="text-gray-500 hover:text-gray-300">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Carregar Legenda Local */}
+            <div className="mb-3 pb-3 border-b border-gray-700/50 flex flex-col gap-2">
+              <div>
+                <label className="inline-flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors border border-gray-600">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Carregar Legenda Local (.srt/.vtt)</span>
+                  <input
+                    type="file"
+                    accept=".srt,.vtt"
+                    onChange={handleCustomSubtitleUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {customSubName && (
+                <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-lg">
+                  <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate flex-1">Ativa: {customSubName}</span>
+                  <button
+                    onClick={clearCustomSub}
+                    className="text-gray-400 hover:text-red-400 font-bold ml-1 p-0.5"
+                    title="Remover legenda"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+            {subLoading && (
+              <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Buscando no OpenSubtitles...
+              </div>
+            )}
+            {subError && (
+              <p className="text-xs text-red-400 py-2">{subError}</p>
+            )}
+            {!subLoading && !subError && subResults.length === 0 && (
+              <p className="text-xs text-gray-500 py-2">Nenhuma legenda encontrada</p>
+            )}
+            {subResults.length > 0 && (
+              <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+                {subResults.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => pickSubtitle(s)}
+                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors ${
+                      subActive === s.id
+                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                        : 'bg-gray-900/50 hover:bg-gray-900 text-gray-300 border border-transparent'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono uppercase text-[10px] bg-gray-700 px-1.5 py-0.5 rounded">
+                          {s.language}
+                        </span>
+                        <span className="truncate">{s.release || '(sem release name)'}</span>
+                        {s.trusted && <span className="text-green-400 text-[10px]">✓ trusted</span>}
+                        {s.hearingImpaired && <span className="text-yellow-400 text-[10px]">[HI]</span>}
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">
+                        {s.uploaderName} • {s.downloads.toLocaleString()} downloads
+                      </div>
+                    </div>
+                    {subActive === s.id && <Check className="w-4 h-4 flex-shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+            {subActive && (
+              <button
+                onClick={() => setSubActive(null)}
+                className="mt-2 text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
+              >
+                <X className="w-3 h-3" />
+                Remover legenda
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function PlayerModal({
   result,
   onClose,
@@ -576,42 +1552,43 @@ export default function PlayerModal({
     }
   }, [])
 
-  const handleCustomSubtitleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCustomSubtitleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (evt) => {
-      const text = evt.target?.result as string
-      let vttContent = ''
-
-      if (file.name.endsWith('.srt')) {
-        vttContent = 'WEBVTT\n\n' + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
-      } else {
-        vttContent = text
-      }
-
-      setCustomSubURL(prev => {
-        if (prev) URL.revokeObjectURL(prev)
-        return null
-      })
-
-      const blob = new Blob([vttContent], { type: 'text/vtt' })
-      const url = URL.createObjectURL(blob)
-      setCustomSubURL(url)
-      setCustomSubName(file.name)
-      
-      setSubActive(null)
-      setSidecarIdx(null)
-      setEmbeddedSub(null)
-      setAutoSource(null)
-    }
-    
-    reader.onerror = () => {
+    let text: string
+    try {
+      text = await file.text()
+    } catch {
       alert('Erro ao ler o arquivo de legenda.')
+      return
     }
 
-    reader.readAsText(file)
+    const vttContent = file.name.endsWith('.srt')
+      ? 'WEBVTT\n\n' + text.replaceAll(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
+      : text
+
+    setCustomSubURL(prev => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+
+    const blob = new Blob([vttContent], { type: 'text/vtt' })
+    const url = URL.createObjectURL(blob)
+    setCustomSubURL(url)
+    setCustomSubName(file.name)
+
+    setSubActive(null)
+    setSidecarIdx(null)
+    setEmbeddedSub(null)
+    setAutoSource(null)
+  }
+
+  // Drop any uploaded custom subtitle (revoking its blob URL) when the user
+  // switches to an embedded/sidecar/external track instead.
+  const clearCustomSub = () => {
+    setCustomSubURL(prev => { if (prev) { URL.revokeObjectURL(prev) } return null })
+    setCustomSubName(null)
   }
 
   // Sidecar subtitle files (separate .srt/.vtt inside the torrent)
@@ -720,7 +1697,6 @@ export default function PlayerModal({
     const stored = Number.parseFloat(localStorage.getItem('jackui.playbackSpeed') || '1')
     return Number.isFinite(stored) && stored > 0 ? stored : 1
   })
-  const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
   // File list filter — for series packs with 30+ episodes the list pushes the
   // settings off-screen. The filter keeps the list short so settings stay reachable.
   const [fileFilter, setFileFilter] = useState('')
@@ -820,13 +1796,7 @@ export default function PlayerModal({
       streamMetadata(result.infoHash).then(cached => {
         if (cached && !info) {
           setInfo(cached)
-          let chosen: number
-          if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < cached.files.length) {
-            chosen = initialFileIndex
-          } else {
-            chosen = Math.max(0, cached.primaryFile)
-          }
-          setSelectedFile(chosen)
+          setSelectedFile(chooseInitialFile(cached, initialFileIndex))
         }
       })
     }
@@ -834,14 +1804,7 @@ export default function PlayerModal({
     streamAdd(pickTorrentSource(result))
       .then(t => {
         setInfo(t)
-        // Honor explicit override; fall back to backend-suggested primary; else first file
-        let chosen: number
-        if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length) {
-          chosen = initialFileIndex
-        } else {
-          chosen = Math.max(0, t.primaryFile)
-        }
-        setSelectedFile(chosen)
+        setSelectedFile(chooseInitialFile(t, initialFileIndex))
         // Streamer now has the torrent active — unblock <video src>.
         setServerReady(true)
       })
@@ -1122,8 +2085,7 @@ export default function PlayerModal({
     // and the user can switch or remove it without reopening. They close it via
     // the ✕ (or the "Legendas" toggle) when done.
     setSubActive(s.id)
-    setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
-    setCustomSubName(null)
+    clearCustomSub()
   }
 
   const handleRequestFullscreen = () => {
@@ -1519,35 +2481,6 @@ export default function PlayerModal({
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const audioTrackTitle = (a: MediaTrack) => {
-    let t = a.title || a.codec
-    if (a.channels) t += ` (${a.channels}ch)`
-    return `${t} — clicar transcoda via FFmpeg, perde seek`
-  }
-  const subBtnClass = (active: boolean, image: boolean | undefined) => {
-    if (active) {
-      return image
-        ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-    }
-    return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-  }
-  const subtitleButtonTitle = (enabled: boolean, source: string | null) => {
-    if (!enabled) return 'Configure OpenSubtitles API key em Settings'
-    if (source === 'embedded') return 'Legenda embutida no arquivo (sync perfeito)'
-    if (source === 'hash') return 'Legenda casada por hash do arquivo (frame-exato)'
-    if (source === 'title') return 'Legenda encontrada pelo título'
-    return 'Buscar legendas em português'
-  }
-  const subtitleBtnClass = (active: string | null, embedded: number | null, source: string | null, enabled: boolean) => {
-    if (active || embedded !== null) {
-      if (source === 'embedded' || source === 'hash') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-      return 'bg-green-500/20 text-green-400 border-green-500/30'
-    }
-    if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
-    return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
-  }
-
   const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps })
   const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
@@ -1668,725 +2601,95 @@ export default function PlayerModal({
                   Native <video controls> handle play/pause/seek (visible once the
                   video element is sized — see audioMode w-full h-full above). */}
               {minimized && audioMode && duration > 0 && (
-                <div className="px-3 py-1.5 bg-gray-900 border-t border-gray-700 flex items-center gap-2 text-xs text-gray-400">
-                  <span className="font-mono tabular-nums">{formatTime(currentTime)}</span>
-                  <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-purple-500 rounded-full transition-all"
-                      style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
-                    />
-                  </div>
-                  <span className="font-mono tabular-nums">{formatTime(duration)}</span>
-                </div>
+                <MinimizedAudioProgress currentTime={currentTime} duration={duration} formatTime={formatTime} />
               )}
 
               {/* Everything below the video (transport, status, subtitle panel)
                   is hidden in minimized mode — the native <video> controls cover
                   play/pause/seek in the compact card. The <video> element itself
                   stays mounted above, so all the HEVC/HLS/buffer logic is intact. */}
-              {!minimized && (<>
-
-              {/* Transport row — ONE line. The native <video controls> already
-                  provides the seek bar, play/pause and ±skip, so we keep only
-                  what it lacks: series navigation (prev/next episode) and a time
-                  readout. "Back to start" / "resume" are now offered as a prompt
-                  on play (see resume overlay); ±10s removed (native bar seeks). */}
-              <div className="px-3 sm:px-4 py-2 bg-gray-900 border-b border-gray-700 flex items-center gap-2 min-w-0">
-                {videoFileIndices.length > 1 && (
-                  <>
-                    <button
-                      onClick={() => playFile(prevVideoIdx)}
-                      disabled={prevVideoIdx < 0}
-                      title="Episódio anterior"
-                      className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
-                    >
-                      <ChevronLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                      <span className="hidden xs:inline">Ep ant.</span>
-                    </button>
-                    <button
-                      onClick={() => playFile(nextVideoIdx)}
-                      disabled={nextVideoIdx < 0}
-                      title="Próximo episódio"
-                      className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
-                    >
-                      <span className="hidden xs:inline">Próx.</span>
-                      <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                    </button>
-                    {currentEp && (
-                      <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
-                        {currentEp}
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-500 flex-shrink-0">
-                      {videoCursor + 1}/{videoFileIndices.length}
-                    </span>
-                  </>
-                )}
-                <span className="text-xs text-gray-400 ml-auto font-mono tabular-nums flex-shrink-0">
-                  {formatTime(currentTime)} <span className="text-gray-600">/</span> {formatTime(duration)}
-                </span>
-
-                {/* Subtitle offset controls — only visible when sub active */}
-                {subActive && (
-                  <div className="flex items-center gap-1 ml-auto bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-wide mr-1">Legenda</span>
-                    <button
-                      onClick={() => adjustSubOffset(-0.1)}
-                      title="Atrasar legenda em 0.1s"
-                      className="text-gray-400 hover:text-blue-400 p-1 transition-colors"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="text-xs text-gray-200 font-mono tabular-nums min-w-[40px] text-center">
-                      {subOffset >= 0 ? '+' : ''}{subOffset.toFixed(1)}s
-                    </span>
-                    <button
-                      onClick={() => adjustSubOffset(0.1)}
-                      title="Adiantar legenda em 0.1s"
-                      className="text-gray-400 hover:text-blue-400 p-1 transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                    {subOffset !== 0 && (
-                      <button
-                        onClick={resetSubOffset}
-                        title="Resetar offset"
-                        className="text-gray-500 hover:text-gray-200 p-1 transition-colors"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Mobile-only toggle that collapses everything below (status,
-                  transcode controls, subtitle picker, VLC/download) so the file
-                  list sits right under the video. Desktop shows it all inline. */}
-              <button
-                onClick={() => setShowMobileOpts(v => !v)}
-                className="sm:hidden flex items-center justify-center gap-1.5 w-full px-4 py-2.5 border-b border-gray-700 bg-gray-900/40 text-gray-300 text-sm active:bg-gray-800"
-              >
-                {showMobileOpts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                {showMobileOpts ? 'Ocultar opções' : 'Opções (legendas · status · baixar)'}
-              </button>
-
-              {/* Secondary controls — collapsed on mobile unless toggled, always
-                  shown on desktop. */}
-              <div className={showMobileOpts ? 'flex flex-col' : 'hidden sm:flex sm:flex-col'}>
-              {/* Status bar with buffer + torrent progress. `relative` lets the
-                  hover preview bubble (absolute) anchor inside this container. */}
-              <div className="relative px-3 sm:px-4 py-3 bg-gray-900/50 border-b border-gray-700 flex flex-col gap-2 text-xs">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="flex items-center gap-1.5 text-gray-300">
-                    <Users className="w-3.5 h-3.5 text-green-400" />
-                    {info.seeders} <span className="text-gray-500 hidden sm:inline">seeders</span>
-                    <span className="text-gray-500">/</span> {info.peers} <span className="text-gray-500 hidden sm:inline">peers</span>
-                  </span>
-                  <span className="flex items-center gap-1.5 text-gray-300">
-                    <Activity className="w-3.5 h-3.5 text-blue-400" />
-                    {(info.progress * 100).toFixed(1)}%<span className="text-gray-500 hidden sm:inline ml-1">torrent</span>
-                  </span>
-                  <span className="flex items-center gap-1.5 text-gray-300 tabular-nums">
-                    <span className="text-green-400">↓</span> {formatRate(info.downRate)}
-                    <span className="text-yellow-400 ml-1">↑</span> {formatRate(info.upRate)}
-                  </span>
-                  <label className="flex items-center gap-1 text-gray-400" title="Velocidade de reprodução (pitch preservado — voz não fica robotizada)">
-                    <FastForward className="w-3.5 h-3.5 text-gray-500" />
-                    <select
-                      value={playbackSpeed}
-                      onChange={e => setPlaybackSpeed(Number.parseFloat(e.target.value))}
-                      className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-green-500"
-                    >
-                      {SPEED_OPTIONS.map(s => (
-                        <option key={s} value={s}>{s}x</option>
-                      ))}
-                    </select>
-                  </label>
-                  {currentFile && (
-                    <span className="text-gray-400">
-                      {formatSize(currentFile.downloaded)} / {formatSize(currentFile.size)}
-                    </span>
-                  )}
-                  {bufferedEnd > 0 && duration > 0 && (
-                    <span className="text-gray-400 ml-auto">
-                      Buffer: <span className="text-blue-400">{formatTime(bufferedEnd - currentTime)}</span> à frente
-                    </span>
-                  )}
-                </div>
-                {/* Load/buffer indicator — PRESENTATION ONLY (not clickable).
-                    The native <video controls> bar owns seeking; this strip just
-                    visualises state so it doesn't compete with it: gray = torrent
-                    downloaded, blue islands = buffered/ready (disjoint after a #61
-                    seek-restart, gaps = not loaded yet), green = play progress. */}
-                <div className="relative bg-gray-700 rounded-full h-1.5">
-                  <div
-                    className="absolute inset-y-0 left-0 bg-gray-500 rounded-full"
-                    style={{ width: `${(currentFile?.progress || 0) * 100}%` }}
-                  />
-                  {duration > 0 && (
-                    <>
-                      {bufferedRanges.map(([start, end]) => (
-                        <div
-                          key={start}
-                          className="absolute inset-y-0 bg-blue-500/50 rounded-full"
-                          style={{
-                            left: `${(start / duration) * 100}%`,
-                            width: `${(Math.max(0, end - start) / duration) * 100}%`,
-                          }}
-                        />
-                      ))}
-                      <div
-                        className="absolute inset-y-0 left-0 bg-green-500 rounded-full"
-                        style={{ width: `${(currentTime / duration) * 100}%` }}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* (file picker moved to right sidebar — see end of active-stream block) */}
-
-              {/* Embedded tracks (audio + subtitles inside the file) */}
-              {probe && (probe.audio.length > 0 || probe.subtitles.length > 0) && (
-                <div className="px-3 sm:px-4 py-3 border-b border-gray-700 flex flex-col gap-3">
-                  {/* Audio tracks — clicking a non-default triggers transcoded remux */}
-                  {probe.audio.length > 1 && (
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
-                        <Volume2 className="w-3 h-3" />
-                        Faixas de áudio ({probe.audio.length})
-                        {transcodeAudio !== null && (
-                          <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
-                            <Cpu className="w-2.5 h-2.5 inline mr-0.5" />GPU encoding
-                          </span>
-                        )}
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          onClick={() => setTranscodeAudio(null)}
-                          className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                            transcodeAudio === null
-                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                              : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
-                          }`}
-                          title="Faixa padrão do arquivo (direct play, com seek completo)"
-                        >
-                          Padrão
-                        </button>
-                        {probe.audio.map(a => (
-                          <button
-                            key={a.index}
-                            onClick={() => setTranscodeAudio(a.index)}
-                            title={audioTrackTitle(a)}
-                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
-                              if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                              if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
-                              return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-                            })()}`}
-                          >
-                            {a.language ? a.language.toUpperCase() : '??'}
-                            <span className="text-gray-500 ml-1">{a.codec}{a.channels ? `·${a.channels}ch` : ''}</span>
-                            {a.default && <span className="ml-1 text-[9px]">★</span>}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Force H.264 toggle — useful for HEVC files in Chrome */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <button
-                      onClick={() => setForceH264(v => !v)}
-                      title="Re-encoda vídeo para H.264 — útil quando o codec original é HEVC e o browser não decodifica"
-                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                        forceH264
-                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                          : 'bg-gray-700/50 text-gray-400 border-gray-700 hover:text-gray-200'
-                      }`}
-                    >
-                      <Cpu className="w-3.5 h-3.5" />
-                      Forçar H.264
-                      {forceH264 && <Check className="w-3 h-3" />}
-                    </button>
-
-                    {/* Stream mode indicator */}
-                    {isTranscoded && (
-                      <span className="text-[11px] text-yellow-400 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        Stream transcoded — seek limitado
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Sidecar subtitles (.srt files alongside the video in the torrent) */}
-                  {sidecars.length > 0 && (
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
-                        <Subtitles className="w-3 h-3" />
-                        Legendas no torrent ({sidecars.length}) <span className="text-[10px] text-gray-600 italic">— arquivos .srt/.vtt</span>
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          onClick={() => {
-                            setSidecarIdx(null)
-                            setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
-                            setCustomSubName(null)
-                          }}
-                          className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                            sidecarIdx === null
-                              ? 'bg-gray-700 text-gray-200 border-gray-600'
-                              : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
-                          }`}
-                        >
-                          Nenhuma
-                        </button>
-                        {sidecars.map(s => (
-                          <button
-                            key={s.index}
-                            onClick={() => {
-                              setSidecarIdx(s.index)
-                              setEmbeddedSub(null)
-                              setSubActive(null)
-                              setAutoSource('embedded')
-                              setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
-                              setCustomSubName(null)
-                            }}
-                            title={s.path}
-                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                              sidecarIdx === s.index
-                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                                : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-                            }`}
-                          >
-                            {(s.language || '??').toUpperCase()}
-                            <span className="text-gray-500 ml-1">.{s.format}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Embedded subtitles — pickable (text subs as track, image subs as burn-in) */}
-                  {probe.subtitles.length > 0 && (
-                    <div>
-                      <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
-                        <Subtitles className="w-3 h-3" />
-                        Legendas embutidas ({probe.subtitles.length})
-                        {burnSubTrack !== null && (
-                          <span className="text-[10px] text-orange-300 bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 rounded">
-                            <Flame className="w-2.5 h-2.5 inline mr-0.5" />Burn-in
-                          </span>
-                        )}
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          onClick={() => {
-                            setEmbeddedSub(null)
-                            setBurnSubTrack(null)
-                            setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
-                            setCustomSubName(null)
-                          }}
-                          className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                            embeddedSub === null && burnSubTrack === null
-                              ? 'bg-gray-700 text-gray-200 border-gray-600'
-                              : 'bg-gray-850 text-gray-500 border-gray-700 hover:text-gray-300'
-                          }`}
-                        >
-                          Nenhuma
-                        </button>
-                        {probe.subtitles.map(s => {
-                          const isActive = embeddedSub === s.index || burnSubTrack === s.index
-
-                          return (
-                            <button
-                              key={s.index}
-                              onClick={() => {
-                                setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
-                                setCustomSubName(null)
-                                if (s.image) {
-                                  // Image sub → burn-in (forces video re-encode)
-                                  setBurnSubTrack(s.index)
-                                  setEmbeddedSub(null)
-                                } else {
-                                  // Text sub → extract as VTT
-                                  setEmbeddedSub(s.index)
-                                  setBurnSubTrack(null)
-                                  setSubActive(null)
-                                  setAutoSource('embedded')
-                                }
-                              }}
-                              title={
-                                s.image
-                                  ? `${s.codec} (imagem) — burn-in via FFmpeg, vai forçar transcode do vídeo`
-                                  : s.title || s.codec
-                              }
-                              className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
-                            >
-                              {s.language ? s.language.toUpperCase() : '??'}
-                              <span className="text-gray-500 ml-1">{s.codec}</span>
-                              {s.forced && <span className="ml-1 text-[9px] text-yellow-400">FORCED</span>}
-                              {s.image && <span className="ml-1 text-[9px] text-orange-400">IMG</span>}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              {!minimized && (
+                <PlayerControlsPanel
+                  info={info}
+                  currentFile={currentFile}
+                  videoFileIndices={videoFileIndices}
+                  videoCursor={videoCursor}
+                  prevVideoIdx={prevVideoIdx}
+                  nextVideoIdx={nextVideoIdx}
+                  currentEp={currentEp}
+                  currentTime={currentTime}
+                  duration={duration}
+                  bufferedEnd={bufferedEnd}
+                  bufferedRanges={bufferedRanges}
+                  subActive={subActive}
+                  subOffset={subOffset}
+                  showMobileOpts={showMobileOpts}
+                  playbackSpeed={playbackSpeed}
+                  probe={probe}
+                  sidecars={sidecars}
+                  transcodeAudio={transcodeAudio}
+                  forceH264={forceH264}
+                  burnSubTrack={burnSubTrack}
+                  isTranscoded={isTranscoded}
+                  sidecarIdx={sidecarIdx}
+                  embeddedSub={embeddedSub}
+                  subEnabled={subEnabled}
+                  autoSource={autoSource}
+                  subLoading={subLoading}
+                  subtitleLabel={subtitleLabel}
+                  vlcURL={vlcURL}
+                  streamURL={streamURL}
+                  serverDownloadLoading={serverDownloadLoading}
+                  serverDownloadSuccess={serverDownloadSuccess}
+                  subOpen={subOpen}
+                  customSubName={customSubName}
+                  subError={subError}
+                  subResults={subResults}
+                  formatTime={formatTime}
+                  playFile={playFile}
+                  adjustSubOffset={adjustSubOffset}
+                  resetSubOffset={resetSubOffset}
+                  setShowMobileOpts={setShowMobileOpts}
+                  setPlaybackSpeed={setPlaybackSpeed}
+                  clearCustomSub={clearCustomSub}
+                  setTranscodeAudio={setTranscodeAudio}
+                  setForceH264={setForceH264}
+                  setBurnSubTrack={setBurnSubTrack}
+                  setSidecarIdx={setSidecarIdx}
+                  setEmbeddedSub={setEmbeddedSub}
+                  setSubActive={setSubActive}
+                  setAutoSource={setAutoSource}
+                  openSubtitlePanel={openSubtitlePanel}
+                  handleRequestFullscreen={handleRequestFullscreen}
+                  handleServerDownload={handleServerDownload}
+                  setSubOpen={setSubOpen}
+                  handleCustomSubtitleUpload={handleCustomSubtitleUpload}
+                  pickSubtitle={pickSubtitle}
+                />
               )}
-
-              {/* Action bar */}
-              <div className="px-3 sm:px-4 py-3 flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={openSubtitlePanel}
-                  disabled={!subEnabled}
-                  title={subtitleButtonTitle(subEnabled, autoSource)}
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${subtitleBtnClass(subActive, embeddedSub, autoSource, subEnabled)}`}
-                >
-                  {subLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Subtitles className="w-3.5 h-3.5" />}
-                  {subtitleLabel}
-                </button>
-                <button
-                  onClick={handleRequestFullscreen}
-                  title="Tela cheia"
-                  className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors sm:hidden"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  Fullscreen
-                </button>
-                <a
-                  href={vlcURL}
-                  className="flex items-center gap-1.5 text-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 px-3 py-1.5 rounded-lg transition-colors"
-                  title="Abrir o stream no app VLC local — funciona com qualquer codec"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  VLC
-                </a>
-                <button
-                  onClick={handleServerDownload}
-                  disabled={serverDownloadLoading || serverDownloadSuccess}
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
-                    serverDownloadSuccess
-                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                      : 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
-                  }`}
-                  title="Salvar download completo no servidor (Background Download)"
-                >
-{(() => {
-                    if (serverDownloadLoading) return <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    if (serverDownloadSuccess) return <Check className="w-3.5 h-3.5" />
-                    return <Download className="w-3.5 h-3.5 text-green-400" />
-                  })()}
-                  <span>
-                    {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
-                  </span>
-                </button>
-                <a
-                  href={streamURL}
-                  download
-                  className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Baixar direto</span>
-                  <span className="sm:hidden">Baixar</span>
-                </a>
-                <span className="text-xs text-gray-600 ml-auto hidden sm:block">
-                  {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} • {formatSize(info.totalSize)}
-                </span>
-              </div>
-
-              {/* Subtitle picker panel */}
-              {subOpen && (
-                <div className="px-3 sm:px-4 pb-4 border-t border-gray-700 pt-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-gray-200 flex items-center gap-2">
-                      <Subtitles className="w-4 h-4 text-blue-400" />
-                      Legendas (pt-BR / pt)
-                    </h3>
-                    <button onClick={() => setSubOpen(false)} className="text-gray-500 hover:text-gray-300">
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Carregar Legenda Local */}
-                  <div className="mb-3 pb-3 border-b border-gray-700/50 flex flex-col gap-2">
-                    <div>
-                      <label className="inline-flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors border border-gray-600">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Carregar Legenda Local (.srt/.vtt)</span>
-                        <input
-                          type="file"
-                          accept=".srt,.vtt"
-                          onChange={handleCustomSubtitleUpload}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                    {customSubName && (
-                      <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-lg">
-                        <Check className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="truncate flex-1">Ativa: {customSubName}</span>
-                        <button
-                          onClick={() => {
-                            setCustomSubURL(prev => {
-                              if (prev) URL.revokeObjectURL(prev)
-                              return null
-                            })
-                            setCustomSubName(null)
-                          }}
-                          className="text-gray-400 hover:text-red-400 font-bold ml-1 p-0.5"
-                          title="Remover legenda"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {subLoading && (
-                    <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Buscando no OpenSubtitles...
-                    </div>
-                  )}
-                  {subError && (
-                    <p className="text-xs text-red-400 py-2">{subError}</p>
-                  )}
-                  {!subLoading && !subError && subResults.length === 0 && (
-                    <p className="text-xs text-gray-500 py-2">Nenhuma legenda encontrada</p>
-                  )}
-                  {subResults.length > 0 && (
-                    <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
-                      {subResults.map(s => (
-                        <button
-                          key={s.id}
-                          onClick={() => pickSubtitle(s)}
-                          className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors ${
-                            subActive === s.id
-                              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                              : 'bg-gray-900/50 hover:bg-gray-900 text-gray-300 border border-transparent'
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono uppercase text-[10px] bg-gray-700 px-1.5 py-0.5 rounded">
-                                {s.language}
-                              </span>
-                              <span className="truncate">{s.release || '(sem release name)'}</span>
-                              {s.trusted && <span className="text-green-400 text-[10px]">✓ trusted</span>}
-                              {s.hearingImpaired && <span className="text-yellow-400 text-[10px]">[HI]</span>}
-                            </div>
-                            <div className="text-[10px] text-gray-500 mt-0.5">
-                              {s.uploaderName} • {s.downloads.toLocaleString()} downloads
-                            </div>
-                          </div>
-                          {subActive === s.id && <Check className="w-4 h-4 flex-shrink-0" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {subActive && (
-                    <button
-                      onClick={() => setSubActive(null)}
-                      className="mt-2 text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
-                    >
-                      <X className="w-3 h-3" />
-                      Remover legenda
-                    </button>
-                  )}
-                </div>
-              )}
-              </div>{/* end secondary controls (Opções) wrapper */}
-              </>)}{/* end !minimized transport/status/subtitle block */}
               </div>{/* end main column */}
 
-              {/* File picker — right sidebar on lg+, stacked panel below on mobile.
-                  Series-aware: detects S/E in filenames and labels them. Filter
-                  matches both the path AND the parsed S/E tag so "s04e03" finds
-                  the episode without typing the show name. Extras (featurettes,
-                  bonus, behind-the-scenes) sort to the bottom with an EXTRA badge. */}
-              {!minimized && info.files.length > 1 && sidebarOpen && (() => {
-                const filterLower = fileFilter.trim().toLowerCase()
-                const matchesFile = (path: string, ep: string | null) =>
-                  !filterLower ||
-                  path.toLowerCase().includes(filterLower) ||
-                  (ep || '').toLowerCase().includes(filterLower)
-                const SPACE_OR_DASH = String.raw`[\s-]?`
-const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\b`, 'i')
-                const isExtra = (path: string) => extraRe.test(path)
-                const typeCounts = { video: 0, audio: 0, other: 0 }
-                for (const f of info.files) typeCounts[fileType(f)]++
-                const filteredFiles = info.files
-                  .filter(f => matchesFile(f.path, parseEpisode(f.path)))
-                  .filter(f => fileTypeFilter === 'all' || fileType(f) === fileTypeFilter)
-                  .slice()
-                  .sort((a, b) => {
-                    if (fileSortBySize) {
-                      if (a.size !== b.size) return fileSizeDesc ? b.size - a.size : a.size - b.size
-                      return a.index - b.index
-                    }
-                    const ax = isExtra(a.path), bx = isExtra(b.path)
-                    if (ax !== bx) return ax ? 1 : -1
-                    const ae = parseEpisode(a.path), be = parseEpisode(b.path)
-                    if (ae && be) return ae.localeCompare(be)
-                    if (ae) return -1
-                    if (be) return 1
-                    return a.index - b.index
-                  })
-                const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
-                  if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  if (isPlayable) {
-                    if (ext) return 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
-                    return 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
-                  }
-                  if (canPreview) return 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
-                  return 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
-                }
-                return (
-                  <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0">
-                      <p className="text-xs text-gray-400 flex items-center gap-2 min-w-0">
-                        <FileVideo className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-                        <span className="truncate">
-                          {filteredFiles.length}{filterLower ? ` / ${info.files.length}` : ''} arquivo{filteredFiles.length === 1 ? '' : 's'}
-                          {videoFiles.length > 0 && <span className="text-blue-400"> · {videoFiles.length} vídeo{videoFiles.length === 1 ? '' : 's'}</span>}
-                        </span>
-                      </p>
-                      <button
-                        onClick={() => setSidebarOpen(false)}
-                        title="Esconder lista de arquivos"
-                        className="text-gray-500 hover:text-gray-200 p-1 rounded hover:bg-gray-700 flex-shrink-0"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {info.files.length > 6 && (
-                      <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0">
-                        <input
-                          type="text"
-                          value={fileFilter}
-                          onChange={e => setFileFilter(e.target.value)}
-                          placeholder="Filtrar (ex: s04e03)"
-                          className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 sm:py-1 text-sm sm:text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-500"
-                        />
-                      </div>
-                    )}
-                    <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0 flex items-center gap-1.5 flex-wrap">
-                      {([
-                        { key: 'all' as const, label: 'Todos', count: info.files.length },
-                        { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
-                        { key: 'audio' as const, label: 'Áudio', count: typeCounts.audio },
-                        { key: 'other' as const, label: 'Outros', count: typeCounts.other },
-                      ])
-                        .filter(o => o.key === 'all' || o.count > 0)
-                        .map(o => (
-                          <button
-                            key={o.key}
-                            onClick={() => setFileTypeFilter(o.key)}
-                            className={`px-2 py-1 rounded text-[11px] border transition-colors ${
-                              fileTypeFilter === o.key
-                                ? 'bg-green-500/20 text-green-300 border-green-500/40'
-                                : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
-                            }`}
-                          >
-                            {o.label} <span className="tabular-nums opacity-70">{o.count}</span>
-                          </button>
-                        ))}
-                      <div className="flex-1" />
-                      <button
-                        onClick={() => {
-                          // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
-                          if (!fileSortBySize) setFileSortBySize(true)
-                          else if (fileSizeDesc) setFileSizeDesc(false)
-                          else { setFileSortBySize(false); setFileSizeDesc(true) }
-                        }}
-                        title="Ordenar por tamanho"
-                        className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
-                          fileSortBySize
-                            ? 'bg-green-500/20 text-green-300 border-green-500/40'
-                            : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
-                        }`}
-                      >
-                        {fileSortBySize && !fileSizeDesc
-                          ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
-                          : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${fileSortBySize ? '' : 'opacity-50'}`} />}
-                        Tamanho
-                      </button>
-                    </div>
-                    <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
-                      {filteredFiles.length === 0 && (
-                        <p className="text-xs text-gray-500 text-center py-3">
-                          {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
-                        </p>
-                      )}
-                      {filteredFiles.slice(0, 100).map(f => {
-                        const ep = parseEpisode(f.path)
-                        const extra = isExtra(f.path)
-                        // Compact name for sidebar: drop the long shared prefix
-                        // (everything before the last "/") so paths fit in 320px.
-                        const shortName = f.path.split('/').slice(-2).join('/')
-                        // Audio file detection — torrents that pack mp3/flac
-                        // along with the video should be playable too.
-                        const AUDIO_RE = /\.(mp3|flac|m4a|aac|ogg|wav|opus|alac|wma)$/i
-                        const isPlayable = f.isVideo || AUDIO_RE.test(f.path)
-                        const previewKind = isPlayable ? 'unknown' : detectPreviewKind(f.path)
-                        const canPreview = previewKind !== 'unknown'
-                        const previewBadge = canPreview ? previewKind.toUpperCase() : null
-                        // Hover frame-preview only for video files.
-                        const thumbUrl = fileType(f) === 'video' && info.infoHash
-                          ? streamThumbnailURL(info.infoHash, f.index, 10)
-                          : null
-                        return (
-                          <button
-                            key={f.index}
-                            ref={selectedFile === f.index ? selectedFileRef : null}
-                            onClick={() => {
-                              if (isPlayable) playFile(f.index)
-                              else if (canPreview) setPreviewFileIdx(f.index)
-                              // else: dead row, click does nothing (download via long-press / context menu still available)
-                            }}
-                            onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
-                            onMouseMove={hoverThumb.move}
-                            onMouseLeave={hoverThumb.hide}
-                            title={f.path}
-                            className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${fileBtnClass(f.index, isPlayable, canPreview, extra)}`}
-                          >
-                            <span className="flex items-center gap-1.5 min-w-0">
-                              {ep && (
-                                <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
-                                  {ep}
-                                </span>
-                              )}
-                              {extra && (
-                                <span className="text-[10px] font-mono bg-gray-700/60 text-gray-400 border border-gray-600/40 px-1.5 py-0.5 rounded flex-shrink-0">
-                                  EXTRA
-                                </span>
-                              )}
-                              {previewBadge && (
-                                <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Visualizar inline">
-                                  {previewBadge}
-                                </span>
-                              )}
-                              {selectedFile === f.index && <Play className="w-3 h-3 flex-shrink-0" />}
-                            </span>
-                            <span className="flex items-center justify-between gap-2 min-w-0">
-                              <span className="truncate">{shortName}</span>
-                              <span className="text-gray-500 flex-shrink-0 text-[10px] tabular-nums">{formatSize(f.size)}</span>
-                            </span>
-                          </button>
-                        )
-                      })}
-                      {filteredFiles.length > 100 && (
-                        <p className="text-[11px] text-gray-500 text-center py-3 px-2 leading-snug">
-                          Mostrando 100 de {filteredFiles.length}. Use o filtro acima
-                          (ex: <span className="font-mono text-gray-400">s04e03</span> ou
-                          parte do nome) pra achar o resto.
-                        </p>
-                      )}
-                    </div>
-                  </aside>
-                )
-              })()}
+              {!minimized && info.files.length > 1 && sidebarOpen && (
+                <FilePickerSidebar
+                  info={info}
+                  videoFiles={videoFiles}
+                  selectedFile={selectedFile}
+                  selectedFileRef={selectedFileRef}
+                  fileFilter={fileFilter}
+                  fileTypeFilter={fileTypeFilter}
+                  fileSortBySize={fileSortBySize}
+                  fileSizeDesc={fileSizeDesc}
+                  hoverThumb={hoverThumb}
+                  parseEpisode={parseEpisode}
+                  playFile={playFile}
+                  setFileFilter={setFileFilter}
+                  setFileTypeFilter={setFileTypeFilter}
+                  setFileSortBySize={setFileSortBySize}
+                  setFileSizeDesc={setFileSizeDesc}
+                  setSidebarOpen={setSidebarOpen}
+                  setPreviewFileIdx={setPreviewFileIdx}
+                />
+              )}
 
               {/* Collapsed-sidebar reopen tab — two variants:
                   • lg+: slim vertical strip on the right edge of the modal.

@@ -169,7 +169,7 @@ export default function LocalPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const updateNavigation = (newMount: string, newPath: string, replace = false) => {
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     if (newMount) params.set('mount', newMount)
     else params.delete('mount')
     
@@ -216,7 +216,7 @@ export default function LocalPage() {
     localMounts()
       .then((ms) => {
         setMounts(ms)
-        const params = new URLSearchParams(window.location.search)
+        const params = new URLSearchParams(globalThis.location.search)
         const mountFromUrl = params.get('mount')
         if (ms.length > 0 && !mountFromUrl) {
           params.set('mount', ms[0].name)
