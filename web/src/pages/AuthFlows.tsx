@@ -40,7 +40,7 @@ export function RegisterPage() {
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
 
-  const submit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setError('')
     try {
       const r = await registerAccount(username, email, password, invite)
@@ -54,7 +54,7 @@ export function RegisterPage() {
 
   return (
     <Shell title={invite ? 'Criar conta (convite)' : 'Criar conta'}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <input className="input-field" placeholder="Usuário" autoComplete="username" value={username} onChange={e => setU(e.target.value)} required />
         <input className="input-field" placeholder="E-mail" type="email" autoComplete="email" value={email} onChange={e => setE(e.target.value)} required />
         <input className="input-field" placeholder="Senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setP(e.target.value)} required />
@@ -95,14 +95,14 @@ export function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const submit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true)
     try { setMsg(await forgotPassword(email)) } catch { setMsg('Se o e-mail estiver cadastrado, enviamos um link.') } finally { setBusy(false) }
   }
   if (msg) return <Shell title="Recuperar senha"><Ok text={msg} /><button onClick={() => nav('/login')} className="btn-primary">Voltar ao login</button></Shell>
   return (
     <Shell title="Recuperar senha">
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <input className="input-field" placeholder="Seu e-mail" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />
         <button type="submit" disabled={busy || !email} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} Enviar link
@@ -122,7 +122,7 @@ export function ResetPasswordPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
-  const submit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('')
     if (password.length < 6) { setError('Mínimo 6 caracteres.'); return }
     if (password !== confirm) { setError('As senhas não batem.'); return }
@@ -135,7 +135,7 @@ export function ResetPasswordPage() {
   if (done) return <Shell title="Senha redefinida"><Ok text="Pronto! Você já pode entrar." /><button onClick={() => nav('/login')} className="btn-primary">Ir para o login</button></Shell>
   return (
     <Shell title="Redefinir senha">
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <input className="input-field" placeholder="Nova senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setP(e.target.value)} required />
         <input className="input-field" placeholder="Confirmar nova senha" type="password" autoComplete="new-password" value={confirm} onChange={e => setC(e.target.value)} required />
         {error && <Err text={error} />}

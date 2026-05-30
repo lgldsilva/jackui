@@ -359,12 +359,9 @@ export default function DownloadsPage() {
     try { await downloadBatchDelete(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
   }
 
-  const toggleSelectAll = () => {
-    if (selected.size === items.length) {
-      setSelected(new Set())
-    } else {
-      setSelected(new Set(items.map(d => d.id)))
-    }
+  const handleToggleSelectAll = () => {
+    const next = selected.size === items.length ? new Set<number>() : new Set(items.map(d => d.id))
+    setSelected(next)
   }
   const onPromoted = (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => {
     setPromoteTargets(null)
@@ -510,11 +507,13 @@ export default function DownloadsPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div 
+    <div
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      role="region"
+      aria-label="Gerenciador de downloads — arraste arquivos .torrent ou links magnet"
       className="relative min-h-screen bg-gray-900"
     >
       {isDraggingPage && (
@@ -964,7 +963,7 @@ export default function DownloadsPage() {
           </button>
           <div className="w-px h-5 bg-gray-700" />
           <button
-            onClick={toggleSelectAll}
+            onClick={handleToggleSelectAll}
             className="text-xs text-gray-400 hover:text-gray-200 px-1"
           >
             {selected.size === items.length ? 'desmarcar' : 'todos'}

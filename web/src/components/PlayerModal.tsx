@@ -900,7 +900,7 @@ export default function PlayerModal({
   }, [subActive, embeddedSub, sidecarIdx, subOffset, subRestored, info?.infoHash, selectedFile])
 
   // Track playback state + accumulate watch time for auto-favorite
-  const onTimeUpdate = () => {
+  const handleTimeUpdate = () => {
     const v = videoRef.current
     if (!v) return
     const now = v.currentTime
@@ -1141,27 +1141,19 @@ export default function PlayerModal({
   // is the only thing Safari treats as a first-class video source.
   // Chromium/Edge don't have native HLS support so we keep progressive MP4
   // for them (works fine with our current ffmpeg config).
-  // streamURL gateia em mediaToken também: a primeira vez que o <video> recebe
-  // src ele aciona loadstart + decode pipeline. Trocar src depois (mesmo path,
-  // query diferente) faz o browser resetar pra 0. Mantendo a string idêntica
-  // durante toda a sessão (mediaToken é estado estável até unmount), o React
-  // nunca causa re-attribute do src.
-  const streamURL = info && selectedFile >= 0 && serverReady && mediaToken
-    ? (isTranscoded
-        ? (isSafariBrowser()
-            ? streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
-            : streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken))
-        : streamFileURL(info.infoHash, selectedFile, mediaToken))
-    : ''
-  // Subtitle source priority: sidecar file (instant, perfect sync) > embedded track (extracted via ffmpeg) > OpenSubtitles external
-  const subtitleVttURL =
-    info && mediaToken && sidecarIdx !== null
-      ? streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
-      : info && mediaToken && embeddedSub !== null
-        ? streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
-        : mediaToken && subActive
-          ? subtitleDownloadURL(subActive, mediaToken)
-          : ''
+  const streamURL = (() => {
+    if (!info || selectedFile < 0 || !serverReady || !mediaToken) return ''
+    if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
+    if (isSafariBrowser()) return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
+    return streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken)
+  })()
+  const subtitleVttURL = (() => {
+    if (!mediaToken) return ''
+    if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
+    if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
+    if (subActive) return subtitleDownloadURL(subActive, mediaToken)
+    return ''
+  })()
 
   // "Open in VLC" link — universal M3U download.
   // The browser downloads /api/stream/playlist/HASH/IDX.m3u with the right content-type,
@@ -1195,13 +1187,11 @@ export default function PlayerModal({
 
   return (
     <div
-      className={minimized
-        ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]'
-        : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
+      className={minimized ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]' : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
       onClick={minimized ? undefined : (e) => e.target === e.currentTarget && setMinimized(true)}
       onKeyDown={minimized ? undefined : (e) => e.key === 'Escape' && setMinimized(true)}
-      role={minimized ? undefined : "dialog"}
-      aria-modal={minimized ? undefined : "true"}
+      role={minimized ? undefined : 'dialog'}
+      aria-modal={minimized ? undefined : 'true'}
       tabIndex={minimized ? undefined : -1}
     >
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
@@ -1494,13 +1484,13 @@ export default function PlayerModal({
                     onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
                     onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
                     onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
-                    onTimeUpdate={onTimeUpdate}
+                    handleTimeUpdate={handleTimeUpdate}
                     onLoadedMetadata={(e) => {
                       const v = e.currentTarget
                       clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
-                      onTimeUpdate()
+                      handleTimeUpdate()
                     }}
-                    onProgress={onTimeUpdate}
+                    onProgress={handleTimeUpdate}
                     onEnded={handleVideoEnded}
                     onCanPlay={handleVideoCanPlay}
                   >
