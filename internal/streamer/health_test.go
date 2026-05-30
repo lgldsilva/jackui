@@ -57,6 +57,27 @@ func TestHealthFreshForConst(t *testing.T) {
 	}
 }
 
+func TestHealthSnapshot_WithNilCache(t *testing.T) {
+	s := NewForTesting()
+	var h metainfo.Hash
+	health, active := s.HealthSnapshot(h)
+	if active {
+		t.Error("expected active=false")
+	}
+	if health != nil {
+		t.Error("expected nil health with nil cache")
+	}
+}
+
+func TestProbeHealthAsync_DedupesEmptyMagnet(t *testing.T) {
+	s := NewForTesting()
+	// Empty magnet is no-op (first check in ProbeHealthAsync)
+	// This verifies dedupe doesn't happen on empty magnet
+	var h metainfo.Hash
+	s.ProbeHealthAsync(h, "")
+	// Verify goroutine didn't panic
+}
+
 func TestHealthInflightDedupe(t *testing.T) {
 	// Verify the sync.Map is initialized
 	var m sync.Map

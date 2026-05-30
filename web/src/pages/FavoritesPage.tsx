@@ -73,7 +73,7 @@ function FolderTree(p: TreeProps) {
               onKeyDown={e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
-                  const name = e.currentTarget.getAttribute('data-fav-name') || ''
+                  const name = e.currentTarget.dataset.favName || ''
                   if (name) p.onDropOnFolder(node.folder.id, name)
                 }
               }}
@@ -266,7 +266,7 @@ export default function FavoritesPage() {
         const buf = await file.arrayBuffer()
         let bin = ''
         const bytes = new Uint8Array(buf)
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+        for (const byte of bytes) bin += String.fromCodePoint(byte)
         const torrentB64 = btoa(bin)
         await streamImport({ torrentB64, folderId: viewMode !== ALL_VIEW ? viewMode : null })
         ok++
@@ -301,7 +301,7 @@ export default function FavoritesPage() {
   // (favorites without folder); a positive id = that folder only.
   const filteredFavs = useMemo(() => {
     if (viewMode === ALL_VIEW) return favs
-    if (viewMode === null) return favs.filter(f => f.folderId == null)
+    if (viewMode === null) return favs.filter(f => f.folderId === null)
     return favs.filter(f => f.folderId === viewMode)
   }, [favs, viewMode])
 

@@ -300,7 +300,7 @@ export default function SearchPage() {
       }
       // Cmd+1..9 → switch tab by index
       if (cmd && /^[1-9]$/.test(e.key)) {
-        const idx = parseInt(e.key) - 1
+        const idx = Number.parseInt(e.key) - 1
         if (idx < tabs.length) {
           e.preventDefault()
           setActiveId(tabs[idx].id)
@@ -315,8 +315,8 @@ export default function SearchPage() {
         return
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, activeId])
 
@@ -448,7 +448,7 @@ export default function SearchPage() {
   const { filteredResults, groupedCount } = useFilteredResults(activeTab.results, {
     minSeeders: activeTab.minSeeders,
     minLeechers: activeTab.minLeechers,
-    maxBytes: activeTab.maxSizeGb ? parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity,
+    maxBytes: activeTab.maxSizeGb ? Number.parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity,
     trackerFilter: activeTab.trackerFilter,
     titleFilter: activeTab.titleFilter,
     onlyPlayable: activeTab.onlyPlayable,
@@ -601,7 +601,7 @@ export default function SearchPage() {
                 type="number" min={0}
                 value={activeTab.minSeeders || ''}
                 placeholder="0"
-                onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, parseInt(e.target.value) || 0) })}
+                onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
                 className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
               />
             </label>
@@ -613,7 +613,7 @@ export default function SearchPage() {
                 type="number" min={0}
                 value={activeTab.minLeechers || ''}
                 placeholder="0"
-                onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, parseInt(e.target.value) || 0) })}
+                onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
                 className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
               />
             </label>

@@ -137,11 +137,9 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   const close = useCallback(() => {
     if (current?.result?.infoHash) {
       const hash = current.result.infoHash
-      if (hash && typeof hash === 'string' && !hash.startsWith('local-')) {
-        streamDrop(hash).catch(err => {
-          console.error('[player] Failed to drop stream on close:', err)
-        })
-      }
+      streamDrop(hash).catch(err => {
+        console.error('[player] Failed to drop stream on close:', err)
+      })
     }
     setCurrent(null)
     setPlaylist(null)
@@ -303,7 +301,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     if (hash === lastSyncedHashRef.current) return
     if (!hash) {
       // Double check window.location.search to prevent React Router race conditions on tab resume/hydration
-      const realHash = new URLSearchParams(window.location.search).get('play')
+      const realHash = new URLSearchParams(globalThis.location.search).get('play')
       if (realHash) {
         // The URL actually has the hash! It's just a router sync lag. Ignore it.
         return
@@ -320,9 +318,9 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
       return
     }
     lastSyncedHashRef.current = hash
-    const fIdxParsed = fileUrlParam ? parseInt(fileUrlParam, 10) : NaN
+    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : NaN
     const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
-    const tParsed = timeUrlParam ? parseFloat(timeUrlParam) : NaN
+    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : NaN
     const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
 
     // Best effort: lookup the library entry to get a proper title + magnet

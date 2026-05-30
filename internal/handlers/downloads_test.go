@@ -418,3 +418,78 @@ func TestResolveDownloadClient(t *testing.T) {
 		}
 	})
 }
+
+func TestParseMagnetTrackers_Empty(t *testing.T) {
+	if got := parseMagnetTrackers(""); got != nil {
+		t.Errorf("expected nil, got %v", got)
+	}
+}
+
+func TestParseMagnetTrackers_WithTrackers(t *testing.T) {
+	got := parseMagnetTrackers("magnet:?xt=urn:btih:abc&tr=udp://tracker.example.com:1337&tr=https://tracker2.example.com")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 trackers, got %d: %v", len(got), got)
+	}
+	if got[0] != "udp://tracker.example.com:1337" {
+		t.Errorf("tracker[0] = %q", got[0])
+	}
+}
+
+func TestParseMagnetTrackers_NoQuery(t *testing.T) {
+	got := parseMagnetTrackers("magnet:?xt=urn:btih:abc")
+	if len(got) != 0 {
+		t.Errorf("expected 0 trackers, got %d", len(got))
+	}
+}
+
+func TestParseMagnetTrackers_BadQuery(t *testing.T) {
+	got := parseMagnetTrackers("magnet:?%zz")
+	if got != nil {
+		t.Errorf("expected nil for bad query, got %v", got)
+	}
+}
+
+func TestEnrichETA_NilStreamer(t *testing.T) {
+	d := &downloads.Download{InfoHash: "abc", FileSize: 1000}
+	enrichETA(d, nil)
+}
+
+func TestEnrichETA_EmptyHash(t *testing.T) {
+	s := streamer.NewForTesting()
+	d := &downloads.Download{InfoHash: "", FileSize: 1000}
+	enrichETA(d, s)
+}
+
+func TestEnrichETA_InvalidHash(t *testing.T) {
+	s := streamer.NewForTesting()
+	d := &downloads.Download{InfoHash: "nothex", FileSize: 1000}
+	enrichETA(d, s)
+}
+
+func TestEnrichETAList_NilStreamer(t *testing.T) {
+	enrichETAList(nil, nil)
+}
+
+func TestMarkPromoted_EmptyDir(t *testing.T) {
+	markPromoted(nil, "")
+}
+
+func TestMarkPromoted_CompletedOutside(t *testing.T) {
+	list := []downloads.Download{
+		{Status: downloads.StatusCompleted, FilePath: "/mnt/library/movie.mkv"},
+	}
+	markPromoted(list, "/mnt/downloads")
+	if !list[0].Promoted {
+		t.Error("expected promoted to be true for completed file outside download dir")
+	}
+}
+
+func TestMarkPromoted_CompletedInside(t *testing.T) {
+	list := []downloads.Download{
+		{Status: downloads.StatusCompleted, FilePath: "/mnt/downloads/movie.mkv"},
+	}
+	markPromoted(list, "/mnt/downloads")
+	if list[0].Promoted {
+		t.Error("expected promoted to be false for file inside download dir")
+	}
+}

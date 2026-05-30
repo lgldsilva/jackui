@@ -94,6 +94,22 @@ func TestBuildMessage_WithSpecialChars(t *testing.T) {
 	}
 }
 
+func TestSend_DialFailure(t *testing.T) {
+	m := New(config.SMTPConfig{Host: "192.0.2.1", Port: 1})
+	err := m.Send("to@test.com", "sub", "body")
+	if err == nil {
+		t.Fatal("expected error for unreachable SMTP")
+	}
+}
+
+func TestSend_NilMailer(t *testing.T) {
+	var m *Mailer
+	err := m.Send("to@test.com", "sub", "body")
+	if err == nil {
+		t.Fatal("expected error for nil mailer")
+	}
+}
+
 func TestBuildMessage_WithNewlines(t *testing.T) {
 	msg := buildMessage("from@test.com", "to@test.com", "Subject", "line1\nline2\r\nline3")
 	if !contains(msg, "\r\nline3") {

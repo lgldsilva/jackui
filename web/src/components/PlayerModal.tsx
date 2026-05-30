@@ -6,8 +6,9 @@ import {
   Subtitle,
   StreamProbe,
   TranscodeOpts,
-  SidecarSubtitle,
   TranscodeCapabilities,
+  MediaTrack,
+  SidecarSubtitle,
   streamAdd,
   streamMetadata,
   pickTorrentSource,
@@ -84,7 +85,7 @@ function formatSize(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
@@ -95,7 +96,7 @@ function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | nu
     }
   }
   if (starving) {
-    const suffix = peers !== 1 ? 's' : ''
+    const suffix = peers === 1 ? '' : 's'
     return {
       title: 'Download muito lento para streaming',
       detail: `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${suffix} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`,
@@ -256,8 +257,8 @@ export default function PlayerModal({
   // the browser's built-in pitch-preservation (preservesPitch / webkitPreservesPitch)
   // so 1.5x/2x doesn't sound chipmunked.
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
-    const stored = parseFloat(localStorage.getItem('jackui.playbackSpeed') || '1')
-    return isFinite(stored) && stored > 0 ? stored : 1
+    const stored = Number.parseFloat(localStorage.getItem('jackui.playbackSpeed') || '1')
+    return Number.isFinite(stored) && stored > 0 ? stored : 1
   })
   const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
   // File list filter — for series packs with 30+ episodes the list pushes the
@@ -348,10 +349,12 @@ export default function PlayerModal({
       streamMetadata(result.infoHash).then(cached => {
         if (cached && !info) {
           setInfo(cached)
-          const chosen =
-            initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < cached.files.length
-              ? initialFileIndex
-              : (cached.primaryFile >= 0 ? cached.primaryFile : 0)
+          let chosen: number
+          if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < cached.files.length) {
+            chosen = initialFileIndex
+          } else {
+            chosen = cached.primaryFile >= 0 ? cached.primaryFile : 0
+          }
           setSelectedFile(chosen)
         }
       })
@@ -361,10 +364,12 @@ export default function PlayerModal({
       .then(t => {
         setInfo(t)
         // Honor explicit override; fall back to backend-suggested primary; else first file
-        const chosen =
-          initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length
-            ? initialFileIndex
-            : (t.primaryFile >= 0 ? t.primaryFile : 0)
+        let chosen: number
+        if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length) {
+          chosen = initialFileIndex
+        } else {
+          chosen = t.primaryFile >= 0 ? t.primaryFile : 0
+        }
         setSelectedFile(chosen)
         // Streamer now has the torrent active — unblock <video src>.
         setServerReady(true)
@@ -422,7 +427,7 @@ export default function PlayerModal({
       clientLog('info', 'player', 'buffer retry — swarm still delivering, reloading playlist',
         { retry: bufferRetryRef.current, downRate: info?.downRate, ...diag })
       setVideoError(false)
-      window.setTimeout(() => { videoRef.current?.load() }, 6000)
+      globalThis.setTimeout(() => { videoRef.current?.load() }, 6000)
       return
     }
     let reason: string
@@ -541,7 +546,7 @@ export default function PlayerModal({
     const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
     // Audio files don't need H264 transcoding — skip backstop entirely.
     if (audioMode || transcodingActive || transcodeFallbackAttempted || videoError) return
-    const timer = window.setTimeout(() => {
+    const timer = globalThis.setTimeout(() => {
       const v = videoRef.current
       if (!v) return
       // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
@@ -559,7 +564,7 @@ export default function PlayerModal({
         }
       }
     }, 20000)
-    return () => window.clearTimeout(timer)
+    return () => globalThis.clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps])
 
@@ -569,9 +574,9 @@ export default function PlayerModal({
     const tick = () => {
       streamInfo(info.infoHash).then(setInfo).catch(() => {})
     }
-    pollRef.current = window.setInterval(tick, 2000)
+    pollRef.current = globalThis.setInterval(tick, 2000)
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current)
+      if (pollRef.current) globalThis.clearInterval(pollRef.current)
     }
   }, [info?.infoHash])
 
@@ -608,8 +613,8 @@ export default function PlayerModal({
     const match = /[Ss](\d{1,2})[Ee](\d{1,3})/.exec(title)
     if (!match) return { cleanQuery: title }
     return {
-      season: parseInt(match[1]),
-      episode: parseInt(match[2]),
+      season: Number.parseInt(match[1]),
+      episode: Number.parseInt(match[2]),
       cleanQuery: title.slice(0, match.index).trim().replaceAll(/[._]/g, ' '),
     }
   }
@@ -625,7 +630,7 @@ export default function PlayerModal({
       setSubResults(resp.results || [])
       if (resp.osHash && !resp.hashErr) setAutoSource('hash')
       else setAutoSource('title')
-    } catch (e: any) {
+    } catch (error: any) {
       // Fall back to plain title search if auto endpoint fails
       try {
         const baseTitle = info.name || result.title
@@ -633,8 +638,8 @@ export default function PlayerModal({
         const data = await subtitlesSearch(cleanQuery || baseTitle, { season, episode, langs: 'pt-BR,pt' })
         setSubResults(data || [])
         setAutoSource('title')
-      } catch (e2: any) {
-        setSubError(e2?.response?.data?.error || e2.message || 'Erro ao buscar legendas')
+      } catch (error_: any) {
+        setSubError(error_?.response?.data?.error || error_.message || 'Erro ao buscar legendas')
       }
     } finally {
       setSubLoading(false)
@@ -677,7 +682,7 @@ export default function PlayerModal({
   // it outside a user gesture, so this is best-effort (rotate again if it
   // didn't catch, or tap the fullscreen button).
   useEffect(() => {
-    const mq = window.matchMedia('(orientation: landscape) and (max-height: 600px)')
+    const mq = globalThis.matchMedia('(orientation: landscape) and (max-height: 600px)')
     const handleOrient = () => {
       const v = videoRef.current as any
       if (!v || !mq.matches || v.readyState < 1) return
@@ -690,10 +695,10 @@ export default function PlayerModal({
       }
     }
     mq.addEventListener?.('change', handleOrient)
-    window.addEventListener('orientationchange', handleOrient)
+    globalThis.addEventListener('orientationchange', handleOrient)
     return () => {
       mq.removeEventListener?.('change', handleOrient)
-      window.removeEventListener('orientationchange', handleOrient)
+      globalThis.removeEventListener('orientationchange', handleOrient)
     }
   }, [])
 
@@ -712,7 +717,7 @@ export default function PlayerModal({
     if (!v || !subActive) return
 
     const applyOffset = () => {
-      const track = v.textTracks[0]
+      const track = v.textTracks?.[0]
       if (!track || !track.cues || track.cues.length === 0) return
       // Save originals once per loaded sub
       if (origCuesRef.current.length !== track.cues.length) {
@@ -734,12 +739,12 @@ export default function PlayerModal({
     applyOffset()
     const tracks = v.textTracks
     const onLoad = () => applyOffset()
-    for (let i = 0; i < tracks.length; i++) {
-      tracks[i].addEventListener('cuechange', onLoad)
+    for (const track of tracks) {
+      track.addEventListener('cuechange', onLoad)
     }
     return () => {
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].removeEventListener('cuechange', onLoad)
+      for (const track of tracks) {
+        track.removeEventListener('cuechange', onLoad)
       }
     }
   }, [subActive, subOffset])
@@ -961,9 +966,9 @@ export default function PlayerModal({
       const since = now - lastUrlSyncRef.current
       if (since > 5 || since < -1 /* seek also refreshes the URL */) {
         lastUrlSyncRef.current = now
-        const params = new URLSearchParams(window.location.search)
+        const params = new URLSearchParams(globalThis.location.search)
         params.set('t', String(Math.floor(now)))
-        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+        globalThis.history.replaceState(null, '', `${globalThis.location.pathname}?${params.toString()}`)
       }
     }
 
@@ -1047,7 +1052,7 @@ export default function PlayerModal({
   }
 
   const formatTime = (s: number): string => {
-    if (!isFinite(s) || s < 0) return '0:00'
+    if (!Number.isFinite(s) || s < 0) return '0:00'
     const h = Math.floor(s / 3600)
     const m = Math.floor((s % 3600) / 60)
     const sec = Math.floor(s % 60)
@@ -1123,6 +1128,34 @@ export default function PlayerModal({
   const safariNeedsTranscode = isSafariBrowser() &&
     /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
   const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
+  const audioTrackTitle = (a: MediaTrack) => {
+    let t = a.title || a.codec
+    if (a.channels) t += ` (${a.channels}ch)`
+    return `${t} — clicar transcoda via FFmpeg, perde seek`
+  }
+  const subBtnClass = (active: boolean, image: boolean | undefined) => {
+    if (active) {
+      return image
+        ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+    }
+    return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+  }
+  const subtitleButtonTitle = (enabled: boolean, source: string | null) => {
+    if (!enabled) return 'Configure OpenSubtitles API key em Settings'
+    if (source === 'embedded') return 'Legenda embutida no arquivo (sync perfeito)'
+    if (source === 'hash') return 'Legenda casada por hash do arquivo (frame-exato)'
+    if (source === 'title') return 'Legenda encontrada pelo título'
+    return 'Buscar legendas em português'
+  }
+  const subtitleBtnClass = (active: string | null, embedded: number | null, source: string | null, enabled: boolean) => {
+    if (active || embedded !== null) {
+      if (source === 'embedded' || source === 'hash') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+      return 'bg-green-500/20 text-green-400 border-green-500/30'
+    }
+    if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+    return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
+  }
   const transcodeOpts: TranscodeOpts = {}
   if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
   if (forceH264) transcodeOpts.video = 'h264'
@@ -1168,7 +1201,7 @@ export default function PlayerModal({
   let vlcURL = ''
   if (info && selectedFile >= 0) {
     const transcodeParam = forceH264 ? 'h264' : undefined
-    vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
+  vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
   }
 
   let encoderLabel = 'CPU'
@@ -1180,10 +1213,16 @@ export default function PlayerModal({
     encoderLabel = 'QSV'
   }
 
-  const subtitleLabel = embeddedSub !== null ? 'Legenda embutida'
-    : subActive ? (autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa')
-    : subLoading ? 'Buscando...'
-    : 'Legendas'
+  let subtitleLabel: string
+  if (embeddedSub !== null) {
+    subtitleLabel = 'Legenda embutida'
+  } else if (subActive) {
+    subtitleLabel = autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
+  } else if (subLoading) {
+    subtitleLabel = 'Buscando...'
+  } else {
+    subtitleLabel = 'Legendas'
+  }
 
   return (
     <div
@@ -1484,7 +1523,7 @@ export default function PlayerModal({
                     onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
                     onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
                     onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
-                    handleTimeUpdate={handleTimeUpdate}
+                    onTimeUpdate={handleTimeUpdate}
                     onLoadedMetadata={(e) => {
                       const v = e.currentTarget
                       clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
@@ -1726,7 +1765,7 @@ export default function PlayerModal({
                           <button
                             key={a.index}
                             onClick={() => setTranscodeAudio(a.index)}
-                            title={`${a.title || a.codec}${a.channels ? ` (${a.channels}ch)` : ''} — clicar transcoda via FFmpeg, perde seek`}
+                            title={audioTrackTitle(a)}
                             className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                               transcodeAudio === a.index
                                 ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
@@ -1858,13 +1897,7 @@ export default function PlayerModal({
                                   ? `${s.codec} (imagem) — burn-in via FFmpeg, vai forçar transcode do vídeo`
                                   : s.title || s.codec
                               }
-                              className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                                isActive
-                                  ? s.image
-                                    ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-                                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                                  : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-                              }`}
+                              className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
                             >
                               {s.language ? s.language.toUpperCase() : '??'}
                               <span className="text-gray-500 ml-1">{s.codec}</span>
@@ -1884,22 +1917,8 @@ export default function PlayerModal({
                 <button
                   onClick={openSubtitlePanel}
                   disabled={!subEnabled}
-                  title={
-                    !subEnabled ? 'Configure OpenSubtitles API key em Settings'
-                    : autoSource === 'embedded' ? 'Legenda embutida no arquivo (sync perfeito)'
-                    : autoSource === 'hash' ? 'Legenda casada por hash do arquivo (frame-exato)'
-                    : autoSource === 'title' ? 'Legenda encontrada pelo título'
-                    : 'Buscar legendas em português'
-                  }
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
-                    (subActive || embeddedSub !== null)
-                      ? autoSource === 'embedded' || autoSource === 'hash'
-                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                        : 'bg-green-500/20 text-green-400 border-green-500/30'
-                      : subEnabled
-                        ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
-                        : 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
-                  }`}
+                  title={subtitleButtonTitle(subEnabled, autoSource)}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${subtitleBtnClass(subActive, embeddedSub, autoSource, subEnabled)}`}
                 >
                   {subLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Subtitles className="w-3.5 h-3.5" />}
                   {subtitleLabel}
