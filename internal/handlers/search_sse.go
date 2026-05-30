@@ -139,7 +139,38 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 			cachedSeen: cachedSeen,
 			liveSeen:   make(map[string]bool),
 		}
+
+		// Keep-alive: a slow indexer can leave a long gap with no bytes flowing,
+		// and a reverse proxy (NPM) may cut the SSE stream on read-timeout before
+		// the `done` event — the client then reports "Conexão perdida". A periodic
+		// comment frame keeps the connection warm. Writes share state.mu with
+		// handleHit so the ResponseWriter is never touched concurrently; the
+		// WaitGroup guarantees the pinger has stopped before the final writes.
+		stopPing := make(chan struct{})
+		var pingWg sync.WaitGroup
+		pingWg.Add(1)
+		go func() {
+			defer pingWg.Done()
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopPing:
+					return
+				case <-c.Request.Context().Done():
+					return
+				case <-ticker.C:
+					state.mu.Lock()
+					_, _ = fmt.Fprint(c.Writer, ": ping\n\n")
+					c.Writer.Flush()
+					state.mu.Unlock()
+				}
+			}
+		}()
+
 		err := client.StreamSearch(c.Request.Context(), query, category, indexers, 30*time.Second, state.handleHit)
+		close(stopPing)
+		pingWg.Wait()
 
 		if store != nil && len(state.liveResults) > 0 {
 			incognito := middleware.IsIncognito(c)
