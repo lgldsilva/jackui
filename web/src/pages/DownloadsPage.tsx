@@ -1404,6 +1404,20 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   )
 }
 
+function downloadBorderClass(completed: boolean, failed: boolean, paused: boolean): string {
+  if (completed) return 'border-green-500/30 hover:border-green-500/50'
+  if (failed) return 'border-red-500/30 hover:border-red-500/50'
+  if (paused) return 'border-gray-600/50 hover:border-gray-500/60'
+  return 'border-cyan-500/30 hover:border-cyan-500/50'
+}
+
+function downloadBarGradient(completed: boolean, failed: boolean, paused: boolean): string {
+  if (completed) return 'from-green-500 to-emerald-400'
+  if (failed) return 'from-red-500 to-rose-400'
+  if (paused) return 'from-gray-600 to-gray-500'
+  return 'from-cyan-500 to-blue-400'
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // DownloadCard — Premium redesigned background download card
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1433,30 +1447,8 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
   const isStalled = d.status === 'downloading' && (d.downRate ?? 0) === 0 && d.bytesDownloaded < d.fileSize
 
   const etaText = computeETA(d)
-
-  // Card border based on state
-  let borderClass: string
-  if (isCompleted) {
-    borderClass = 'border-green-500/30 hover:border-green-500/50'
-  } else if (isFailed) {
-    borderClass = 'border-red-500/30 hover:border-red-500/50'
-  } else if (isPaused) {
-    borderClass = 'border-gray-600/50 hover:border-gray-500/60'
-  } else {
-    borderClass = 'border-cyan-500/30 hover:border-cyan-500/50'
-  }
-
-  // Gradient bar
-  let barGradient: string
-  if (isCompleted) {
-    barGradient = 'from-green-500 to-emerald-400'
-  } else if (isFailed) {
-    barGradient = 'from-red-500 to-rose-400'
-  } else if (isPaused) {
-    barGradient = 'from-gray-600 to-gray-500'
-  } else {
-    barGradient = 'from-cyan-500 to-blue-400'
-  }
+  const borderClass = downloadBorderClass(isCompleted, isFailed, isPaused)
+  const barGradient = downloadBarGradient(isCompleted, isFailed, isPaused)
 
   return (
     <div className={`
