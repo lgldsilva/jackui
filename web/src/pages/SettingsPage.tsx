@@ -369,7 +369,7 @@ export default function SettingsPage() {
           onClick={(e) => e.target === e.currentTarget && setEditingClient(null)}
           onKeyDown={e => e.key === 'Escape' && setEditingClient(null)}
           onClose={() => setEditingClient(null)}
-          onFocus={() => {}}
+          onFocus={() => {}} tabIndex={-1}
           open
         >
           <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl">

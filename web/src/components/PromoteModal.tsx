@@ -111,7 +111,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
-      onFocus={() => {}}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
