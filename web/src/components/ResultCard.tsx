@@ -37,6 +37,9 @@ async function copyToClipboard(text: string) {
     el.value = text
     document.body.appendChild(el)
     el.select()
+    // NOSONAR: execCommand é depreciado, mas é o único fallback de cópia
+    // quando navigator.clipboard falha (contexto não-HTTPS / browser antigo).
+    document.execCommand('copy')
     el.remove()
   }
 }
