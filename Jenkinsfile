@@ -101,12 +101,20 @@ pipeline {
             docker run --rm --user 0 -e NODE_PATH= -e SWIFT_SIGNING_KEY= \
               -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o bom.json . || true
-            JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
-              --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
-            curl -sk -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
-              -H 'Content-Type: application/json' \
-              -d "$(jq -n --arg b "$(base64 -w0 bom.json)" \
-                   '{projectName:"jackui",projectVersion:"main",autoCreate:true,bom:$b}')"
+            # Sem jq no controller do Jenkins: monta o payload com printf/base64
+            # (BOM grande vai por arquivo p/ não estourar ARG_MAX). Só sobe se o
+            # BOM existir e não for vazio.
+            if [ -s bom.json ]; then
+              JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
+                --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
+              printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
+                "$(base64 -w0 bom.json)" > dt-payload.json
+              curl -sk -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
+                -H 'Content-Type: application/json' --data-binary @dt-payload.json \
+                -w '\n[DT upload HTTP %{http_code}]\n'
+            else
+              echo 'bom.json vazio/ausente — cdxgen falhou; pulando upload pro DT'
+            fi
           '''
         }
       }
@@ -185,12 +193,17 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GU', passwordVariable: 'GT')]) {
           sh '''
             API=http://10.228.143.12:3000/api/v1
+            # Sem jq no controller → roda jq num container. O filtro considera
+            # APENAS tags de git-sha (8-40 hex): ignora :nvidia e os manifests
+            # :sha256:... que o Gitea lista como "versões". Mantém as 2 mais
+            # recentes (atual + anterior p/ rollback) e apaga as antigas.
             curl -sk -u "$GU:$GT" "$API/packages/lgldsilva?type=container&limit=100" \
-              | jq -r '[.[] | select(.name=="jackui" and .version!="nvidia")] | sort_by(.created_at) | reverse | .[2:][].version' \
+              | docker run -i --rm ghcr.io/jqlang/jq:latest -r \
+                  '[.[] | select(.name=="jackui" and (.version|test("^[0-9a-f]{8,40}$")))] | sort_by(.created_at) | reverse | .[2:][].version' \
               | while read -r v; do
                   [ -n "$v" ] && curl -sk -u "$GU:$GT" -X DELETE "$API/packages/lgldsilva/container/jackui/$v" -o /dev/null -w "  apagado jackui:$v -> %{http_code}\\n"
                 done
-            echo "retenção: mantidas :nvidia + 2 últimas :<sha>"
+            echo "retenção: mantidas :nvidia + 2 últimas tags de git-sha"
           '''
         }
       }
