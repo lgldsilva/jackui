@@ -152,15 +152,29 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 		stat, err := os.Stat(abs)
 		if err != nil {
 			if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
+				c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if stat.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrPathIsDir})
+		if stat.IsDir() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrPathIsDir})
 			return
+		}
+
+		// Stored-XSS guard: this endpoint serves user-uploaded files same-origin,
+		// where the JWT lives in localStorage. Always disable MIME sniffing.
+		// Subtitles get the correct text/vtt so <track> renders them; actively
+		// rendered formats (html/svg/xml/js) are forced to download instead of
+		// executing in our origin. Media (video/audio) keeps ServeFile's type.
+		c.Header("X-Content-Type-Options", "nosniff")
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".vtt", ".srt":
+			c.Header("Content-Type", "text/vtt; charset=utf-8")
+		case ".html", ".htm", ".xhtml", ".svg", ".xml", ".js", ".mjs":
+			c.Header("Content-Type", "application/octet-stream")
+			c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(path)+"\"")
 		}
 
 		http.ServeFile(c.Writer, c.Request, abs)
@@ -312,11 +326,11 @@ func LocalTranscode(b *local.Browser) gin.HandlerFunc {
 		defer func() { _ = f.Close() }()
 
 		opts := transcode.Options{
-			AudioTrack:  -1,
+			AudioTrack:   -1,
 			SubBurnTrack: -1,
-			VideoCodec:  "h264",
-			AudioCodec:  "aac",
-			Container:   "mp4",
+			VideoCodec:   "h264",
+			AudioCodec:   "aac",
+			Container:    "mp4",
 		}
 		if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -695,6 +709,97 @@ func LocalWalk(b *local.Browser) gin.HandlerFunc {
 			entries = []local.Entry{}
 		}
 		c.JSON(http.StatusOK, gin.H{"entries": entries, "total": len(entries)})
+	}
+}
+
+// LocalUpload handles POST /api/local/upload?mount=NAME&path=REL
+func LocalUpload(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		path := c.Query("path")
+
+		if mount == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mount is required"})
+			return
+		}
+
+		if !canModifyMount(c, mount) {
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
+
+		fileHeader, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required: " + err.Error()})
+			return
+		}
+
+		filename := filepath.Base(fileHeader.Filename)
+		if filename == "" || filename == "." || filename == "/" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+			return
+		}
+
+		scoped := b.UserScopedPath(mount, path, scopeUser(c))
+		absDir, err := b.ResolvePath(mount, scoped)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "caminho de destino inválido: " + err.Error()})
+			return
+		}
+
+		absPath := filepath.Join(absDir, filename)
+		if !strings.HasPrefix(absPath, absDir) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal detectado"})
+			return
+		}
+
+		srcFile, err := fileHeader.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao abrir arquivo enviado: " + err.Error()})
+			return
+		}
+		defer srcFile.Close()
+
+		if err := os.MkdirAll(absDir, 0o755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar diretório: " + err.Error()})
+			return
+		}
+
+		// Auto-rename on collision so one user never clobbers another's file
+		// (the destination dir may be shared). O_EXCL makes claim+create atomic,
+		// so two concurrent uploads of the same name resolve to distinct files
+		// ("foo.mkv" → "foo (1).mkv" → ...) instead of one overwriting the other.
+		ext := filepath.Ext(filename)
+		stem := strings.TrimSuffix(filename, ext)
+		finalPath := absPath
+		var dstFile *os.File
+		for i := 1; ; i++ {
+			dstFile, err = os.OpenFile(finalPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
+			if err == nil {
+				break
+			}
+			if !os.IsExist(err) {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar arquivo no servidor: " + err.Error()})
+				return
+			}
+			if i > 9999 {
+				c.JSON(http.StatusConflict, gin.H{"error": "muitos arquivos com o mesmo nome neste diretório"})
+				return
+			}
+			finalPath = filepath.Join(absDir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
+		}
+		defer dstFile.Close()
+
+		if _, err = io.Copy(dstFile, srcFile); err != nil {
+			_ = os.Remove(finalPath)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gravar arquivo: " + err.Error()})
+			return
+		}
+
+		finalName := filepath.Base(finalPath)
+		c.JSON(http.StatusCreated, gin.H{"uploaded": finalName, "path": filepath.Join(path, finalName)})
 	}
 }
 

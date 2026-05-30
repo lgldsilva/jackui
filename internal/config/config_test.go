@@ -27,6 +27,29 @@ func TestExternalMountsEnv(t *testing.T) {
 	}
 }
 
+func TestExternalMountsEnv_UserSubpathFlag(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_EXTERNAL_MOUNTS", "Meus downloads:/mnt/dl:usersubpath,Shared:/mnt/shared")
+
+	applyEnvOverrides(cfg)
+
+	if len(cfg.External.Mounts) != 2 {
+		t.Fatalf("got %d mounts, want 2: %+v", len(cfg.External.Mounts), cfg.External.Mounts)
+	}
+	byName := map[string]ExternalMount{}
+	for _, m := range cfg.External.Mounts {
+		byName[m.Name] = m
+	}
+	priv := byName["Meus downloads"]
+	if priv.Path != "/mnt/dl" || !priv.UserSubpath {
+		t.Errorf("flag mount = %+v, want Path=/mnt/dl UserSubpath=true", priv)
+	}
+	shared := byName["Shared"]
+	if shared.Path != "/mnt/shared" || shared.UserSubpath {
+		t.Errorf("plain mount = %+v, want Path=/mnt/shared UserSubpath=false", shared)
+	}
+}
+
 func TestLoad_CreatesDefaultWhenMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 
