@@ -45,3 +45,4 @@ data/
 !docker-compose.nvidia.yml
 !docker-compose.vaapi.yml
 !docker-compose.gluetun.yml
+*.out

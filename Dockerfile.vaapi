@@ -68,4 +68,7 @@ USER jackui
 
 EXPOSE 8989
 
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:8989/healthz || exit 1
+
 ENTRYPOINT ["./jackui"]

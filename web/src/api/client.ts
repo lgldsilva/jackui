@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { isIncognito } from '../lib/incognito'
 
+export const MAGNET_PREFIX = 'magnet:?xt=urn:btih:'
+
 // Exported so diagnostic shippers (lib/diag.ts) can post without re-wiring
 // auth interceptors. Don't reach into this directly from feature code — keep
 // using the helper functions below; this is for cross-cutting infra only.

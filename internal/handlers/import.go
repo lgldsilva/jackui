@@ -105,5 +105,5 @@ func resolveTorrentB64Import(s *streamer.Streamer, b64 string) (hash, name, magn
 	if err != nil {
 		return "", "", "", err
 	}
-	return hash, name, "magnet:?xt=urn:btih:" + hash, nil
+	return hash, name, MagnetPrefix + hash, nil
 }
