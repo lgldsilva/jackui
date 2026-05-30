@@ -95,10 +95,12 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            # NODE_PATH/SWIFT_SIGNING_KEY vazios: silencia o "SECURE MODE:
-            # Environment audit" do cdxgen (auto-auditoria do ENV do agente, não
-            # vulnerabilidade da app) — apontava NODE_PATH HIGH + SWIFT LOW.
-            docker run --rm --user 0 -e NODE_PATH= -e SWIFT_SIGNING_KEY= \
+            # cdxgen gera o SBOM (CycloneDX). NÃO sobrescrever NODE_PATH: cdxgen
+            # é Node e precisa dele p/ achar os próprios módulos — esvaziá-lo
+            # derruba o cdxgen (gera bom.json vazio). O "SECURE MODE: Environment
+            # audit" que ele emite é só informativo (auto-auditoria do ENV do
+            # agente, não vulnerabilidade da app) e não quebra o build.
+            docker run --rm --user 0 \
               -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o bom.json . || true
             # Sem jq no controller do Jenkins: monta o payload com printf/base64
