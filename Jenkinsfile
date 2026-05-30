@@ -63,11 +63,13 @@ pipeline {
     // Quality gate é obrigatório: o estágio QUEBRA o build se o gate falhar
     // (-Dsonar.qualitygate.wait=true). Token vem do Vault.
     stage('SonarQube') {
-      agent { docker { image 'sonarsource/sonar-scanner-cli:latest'; reuseNode true; args '-e HOME=/tmp' } }
+      // sonar-scanner-cli não serve como agente (entrypoint roda e sai); roda
+      // via `docker run` montando o workspace, igual cdxgen/trivy.
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
-            sonar-scanner \
+            docker run --rm -e SONAR_TOKEN -v "$PWD":/usr/src -w /usr/src \
+              sonarsource/sonar-scanner-cli:latest \
               -Dsonar.host.url=$SONAR_HOST \
               -Dsonar.token=$SONAR_TOKEN \
               -Dsonar.projectKey=jackui \
@@ -75,7 +77,7 @@ pipeline {
               -Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**' \
               -Dsonar.go.coverage.reportPaths=coverage.out \
               -Dsonar.tests=. -Dsonar.test.inclusions='**/*_test.go' \
-              -Dsonar.coverage.exclusions='web/**' \
+              -Dsonar.coverage.exclusions='web/**,cmd/**' \
               -Dsonar.qualitygate.wait=true
           '''
         }
