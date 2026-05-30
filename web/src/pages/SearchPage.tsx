@@ -22,7 +22,7 @@ const ACTIVE_KEY = 'activeTabId'
 // like "min 10 seeders" sticks instead of resetting to 0 on each fresh search.
 const FILTER_DEFAULTS_KEY = 'searchFilterDefaults'
 // One-shot flag: corrige filtros antigos persistidos no browser que escondiam
-// resultados — `onlyPlayable` ligado matava todo torrent sem magnet (trackers
+// resultados — `onlyPlayable` ligado matava qualquer torrent sem magnet (trackers
 // privados como o amigos-share só expõem o .torrent), e `minSeeders=0` deixava
 // passar torrents mortos. Migra uma vez para os novos defaults.
 const FILTER_MIGRATION_KEY = 'searchFiltersMigratedV1'
