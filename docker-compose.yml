@@ -65,7 +65,12 @@ services:
       - JACKUI_SHARED_DIR=/mnt/storage/Downloads
       # Browsable mounts on the "Local" page (Name:/container/path,...).
       # "Downloads" = shared (todos veem); "Meus downloads" = app's own area.
-      - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/storage/Downloads,Meus downloads:/mnt/storage/jacktrack/download,GDrive Media:/mnt/gdrive/media
+      # Sufixo ":usersubpath" isola por usuário (mount/{username}/...): cada um
+      # só vê/escreve na sua subpasta. Sem o sufixo, o diretório é COMPARTILHADO
+      # entre todos os usuários comuns (upload/delete visíveis a todos).
+      # "Meus downloads" usa :usersubpath → arquivos soltos na raiz são migrados
+      # no boot pra subpasta do dono (via downloads DB; sem dono → admin).
+      - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/storage/Downloads,Meus downloads:/mnt/storage/jacktrack/download:usersubpath,GDrive Media:/mnt/gdrive/media
       - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
       - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
       - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}

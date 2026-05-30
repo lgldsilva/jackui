@@ -280,11 +280,22 @@ func applyExternalMountsEnv(cfg *Config) {
 		if i <= 0 || i == len(spec)-1 {
 			continue
 		}
-		name, path := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+		name, rest := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+		// Optional trailing ":usersubpath" flag turns the mount into per-user
+		// private subdirs (mount/{username}/...). Backward compatible: specs
+		// without the flag keep the shared-root behavior.
+		userSubpath := false
+		if j := strings.LastIndex(rest, ":"); j >= 0 {
+			if flag := strings.ToLower(strings.TrimSpace(rest[j+1:])); flag == "usersubpath" || flag == "subpath" {
+				userSubpath = true
+				rest = strings.TrimSpace(rest[:j])
+			}
+		}
+		path := rest
 		if name == "" || path == "" || seen[path] {
 			continue
 		}
-		cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path})
+		cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path, UserSubpath: userSubpath})
 		seen[path] = true
 	}
 }
