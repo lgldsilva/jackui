@@ -11,7 +11,7 @@ import { usePlayer } from '../components/PlayerProvider'
 export default function PlaylistDetailPage() {
   const { id } = useParams<{ id: string }>()
   const nav = useNavigate()
-  const playlistID = parseInt(id || '0', 10)
+  const playlistID = Number.parseInt(id || '0', 10)
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null)
   const [items, setItems] = useState<PlaylistItem[]>([])
@@ -134,17 +134,17 @@ export default function PlaylistDetailPage() {
         ) : (
           <div className="flex flex-col gap-1.5">
             {items.map((it, idx) => (
-                <div
-                  key={it.id}
-                  draggable
-                  onDragStart={() => setDragIdx(idx)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleReorderDrop(idx)}
-                  onDragEnd={() => setDragIdx(null)}
-                  role="button" tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startAt(idx) } }}
-                  className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group ${dragIdx === idx ? 'opacity-50' : ''}`}
-                >
+              <button
+                type="button"
+                key={it.id}
+                draggable
+                onDragStart={() => setDragIdx(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleReorderDrop(idx)}
+                onDragEnd={() => setDragIdx(null)}
+                onClick={() => startAt(idx)}
+                className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
+              >
                 <GripVertical className="w-4 h-4 text-gray-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <div className="flex-1 min-w-0">
                   <button
@@ -174,7 +174,7 @@ export default function PlaylistDetailPage() {
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
-              </div>
+              </button>
             ))}
           </div>
         )}

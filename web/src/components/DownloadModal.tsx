@@ -15,7 +15,7 @@ const INTERNAL_ID = '__internal__'
 // Pull the 40-hex btih out of a magnet URI. The internal download queue keys
 // on info hash; search results sometimes only carry the magnet.
 function hashFromMagnet(magnet: string): string {
-  const m = /btih:([a-fA-F0-9]{40})/i.exec(magnet)
+  const m = /btih:([a-f0-9]{40})/i.exec(magnet)
   return m ? m[1].toLowerCase() : ''
 }
 
@@ -49,6 +49,37 @@ function fileIcon(f: StreamFile) {
     return <FileAudio className="w-4 h-4 text-purple-400 flex-shrink-0" />
   }
   return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+}
+
+async function downloadInternal(
+  result: SearchResult,
+  files: StreamFile[] | null,
+  selectedFiles: Set<number>,
+  streamAdd: (source: string) => Promise<any>,
+  downloadCreate: (opts: any) => Promise<any>,
+): Promise<string | null> {
+  let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
+  let infoHash = result.infoHash || hashFromMagnet(magnet)
+  if ((!infoHash || !magnet) && result.link) {
+    const info = await streamAdd(result.link)
+    infoHash = info.infoHash
+    magnet = result.link
+  }
+  if (!infoHash || !magnet) throw new Error('Sem magnet/infoHash — não dá pra baixar internamente')
+
+  if ((files?.length ?? 0) > 0) {
+    const picks = (files ?? []).filter(f => selectedFiles.has(f.index))
+    if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
+    const results = await Promise.allSettled(picks.map(f =>
+      downloadCreate({ infoHash, fileIndex: f.index, magnet, name: result.title, filePath: f.path, fileSize: f.size, tracker: result.tracker || undefined, category: result.category || undefined }),
+    ))
+    const failures = results.filter(r => r.status === 'rejected')
+    if (failures.length === picks.length) throw new Error('Todos os downloads falharam')
+    if (failures.length > 0) return `${picks.length - failures.length}/${picks.length} enfileirados; ${failures.length} falharam`
+  } else {
+    await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined })
+  }
+  return null
 }
 
 type DownloadModalProps = {
@@ -150,72 +181,17 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
 
     try {
       if (selectedClientId === INTERNAL_ID) {
-        // Download inside JackUI: enqueue on the background worker. It resolves
-        // file path/size from metadata; we just need a hash + a source the
-        // streamer can add (magnet OR a .torrent URL).
-        let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-        let infoHash = result.infoHash || hashFromMagnet(magnet)
-        // Some indexers only expose a .torrent link (no magnet/hash). The streamer
-        // can resolve that URL — add it once to learn the infoHash, then enqueue
-        // with the link as the source (the worker's EnsureActive handles URLs).
-        if ((!infoHash || !magnet) && result.link) {
-          const info = await streamAdd(result.link)
-          infoHash = info.infoHash
-          magnet = result.link
-        }
-        if (!infoHash || !magnet) {
-          throw new Error('Sem magnet/infoHash — não dá pra baixar internamente')
-        }
-        // Quando temos lista de arquivos resolvida, cria N rows (uma por
-        // arquivo marcado). Sem lista (metadata não chegou), fallback pra
-        // file_index=0 — o worker descobre o nome real e atualiza via
-        // UpdateMetadata. Esse fallback dá o bug do .nfo antigo, mas só
-        // acontece quando o user clica Confirmar antes do picker carregar.
-        if ((files?.length ?? 0) > 0) {
-          const picks = (files ?? []).filter(f => selectedFiles.has(f.index))
-          if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
-          const results = await Promise.allSettled(picks.map(f =>
-            downloadCreate({
-              infoHash,
-              fileIndex: f.index,
-              magnet,
-              name: result.title,
-              filePath: f.path,
-              fileSize: f.size,
-              tracker: result.tracker || undefined,
-              category: result.category || undefined,
-            }),
-          ))
-          const failures = results.filter(r => r.status === 'rejected')
-          if (failures.length === picks.length) {
-            throw new Error('Todos os downloads falharam')
-          }
-          if (failures.length > 0) {
-            // Sucesso parcial: avisa mas considera ok (rows que passaram já estão na fila).
-            setError(`${picks.length - failures.length}/${picks.length} enfileirados; ${failures.length} falharam`)
-          }
-        } else {
-          await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined })
-        }
+        const error = await downloadInternal(result, files, selectedFiles, streamAdd, downloadCreate)
+        if (error) setError(error)
       } else {
-        await downloadTorrent(
-          selectedClientId,
-          result.magnetUri || '',
-          result.link || '',
-          savePath || undefined,
-        )
+        await downloadTorrent(selectedClientId, result.magnetUri || '', result.link || '', savePath || undefined)
       }
-      // Persist what worked for next time
       save(KEY_CLIENT, selectedClientId)
-      if (savePath.trim()) {
-        save(KEY_PATH, savePath.trim())
-        pushMRU(KEY_RECENT_PATHS, savePath.trim())
-      }
+      if (savePath.trim()) { save(KEY_PATH, savePath.trim()); pushMRU(KEY_RECENT_PATHS, savePath.trim()) }
       setSuccess(true)
       setTimeout(onClose, 1200)
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Erro ao enviar para o cliente'
-      setError(errorMessage)
+      setError(err instanceof Error ? err.message : 'Erro ao enviar para o cliente')
     } finally {
       setLoading(false)
     }
@@ -234,8 +210,8 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      onFocus={() => {}}
       onClose={onClose}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
@@ -256,10 +232,11 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+            <label htmlFor="download-client" className="block text-sm font-medium text-gray-300 mb-1.5">
               Destino do download
             </label>
             <select
+              id="download-client"
               value={selectedClientId}
               onChange={(e) => setSelectedClientId(e.target.value)}
               className="input-field"

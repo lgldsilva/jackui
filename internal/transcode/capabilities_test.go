@@ -91,3 +91,56 @@ func TestPickPreferredFilterByCodec(t *testing.T) {
 		t.Errorf("hevc selection: got %s", got)
 	}
 }
+
+func TestPickPreferredPrefersQSVOverVAAPI(t *testing.T) {
+	encs := []Encoder{
+		{ID: "h264_vaapi", Codec: "h264", Backend: "amd-vaapi", Functional: true},
+		{ID: "h264_qsv", Codec: "h264", Backend: "intel-qsv", Functional: true},
+		{ID: "h264_amf", Codec: "h264", Backend: "amd-amf", Functional: true},
+		{ID: "h264_videotoolbox", Codec: "h264", Backend: "apple-vt", Functional: true},
+		{ID: "libx264", Codec: "h264", Backend: "cpu", Functional: true},
+	}
+	if got := pickPreferred(encs, "h264"); got != "h264_qsv" {
+		t.Errorf("expected h264_qsv (highest priority), got %s", got)
+	}
+}
+
+func TestPickPreferredPicksNVENCOverAll(t *testing.T) {
+	encs := []Encoder{
+		{ID: "h264_nvenc", Codec: "h264", Backend: "nvidia", Functional: true},
+		{ID: "h264_qsv", Codec: "h264", Backend: "intel-qsv", Functional: true},
+		{ID: "libx264", Codec: "h264", Backend: "cpu", Functional: true},
+	}
+	if got := pickPreferred(encs, "h264"); got != "h264_nvenc" {
+		t.Errorf("expected h264_nvenc, got %s", got)
+	}
+}
+
+func TestPickPreferredEmptyList(t *testing.T) {
+	if got := pickPreferred(nil, "h264"); got != "" {
+		t.Errorf("expected empty string, got %s", got)
+	}
+}
+
+func TestParseCodecList_Empty(t *testing.T) {
+	m := parseCodecList([]byte{})
+	if len(m) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(m))
+	}
+}
+
+func TestParseCodecList_NoFlags(t *testing.T) {
+	out := []byte("some line without VAS flags\nanother line\n")
+	m := parseCodecList(out)
+	if len(m) != 0 {
+		t.Errorf("expected 0 entries for no-flag lines, got %d", len(m))
+	}
+}
+
+func TestParseCodecList_SkipsShortLines(t *testing.T) {
+	out := []byte("V\nAS\nS\n")
+	m := parseCodecList(out)
+	if len(m) != 0 {
+		t.Errorf("expected 0 entries for short lines, got %d", len(m))
+	}
+}

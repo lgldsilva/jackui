@@ -22,7 +22,7 @@ const SOURCE_COLORS: Record<string, string> = {
   'TS':       'bg-red-500/20 text-red-300 border-red-500/30',
 }
 
-function Badge({ text, className, title }: { text: string; className: string; title?: string }) {
+function Badge({ text, className, title }: { readonly text: string; readonly className: string; readonly title?: string }) {
   return (
     <span
       title={title || text}
@@ -33,57 +33,62 @@ function Badge({ text, className, title }: { text: string; className: string; ti
   )
 }
 
-export default function QualityBadges({ quality, compact = false }: Props) {
-  if (!quality) return null
-
+function buildCompactBadges(quality: Quality): React.ReactNode[] {
   const badges: React.ReactNode[] = []
-
   if (quality.resolution) {
     const cls = RESOLUTION_COLORS[quality.resolution] || 'bg-gray-600/20 text-gray-300 border-gray-600/30'
     badges.push(<Badge key="res" text={quality.resolution} className={cls} />)
   }
-
   if (quality.hdr) {
     badges.push(<Badge key="hdr" text="HDR" className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30" title="HDR" />)
   }
   if (quality.dv) {
     badges.push(<Badge key="dv" text="DV" className="bg-yellow-500/20 text-yellow-300 border-yellow-500/30" title="Dolby Vision" />)
   }
-
   if (quality.source) {
     const cls = SOURCE_COLORS[quality.source] || 'bg-gray-600/20 text-gray-300 border-gray-600/30'
     badges.push(<Badge key="src" text={quality.source} className={cls} />)
   }
-
   if (quality.codec) {
     badges.push(<Badge key="codec" text={quality.codec} className="bg-indigo-500/20 text-indigo-300 border-indigo-500/30" />)
   }
-
   if (quality.remux) {
     badges.push(<Badge key="rmx" text="REMUX" className="bg-pink-500/20 text-pink-300 border-pink-500/30" />)
   }
+  return badges
+}
 
+function buildExtendedBadges(quality: Quality): React.ReactNode[] {
+  const badges: React.ReactNode[] = []
+  if ((quality.audio?.length ?? 0) > 0) {
+    for (const a of (quality.audio ?? []).slice(0, 2)) {
+      badges.push(<Badge key={`a-${a}`} text={a} className="bg-rose-500/15 text-rose-300 border-rose-500/25" />)
+    }
+  }
+  if (quality.dubbed) {
+    badges.push(<Badge key="dub" text="DUB" className="bg-orange-500/20 text-orange-300 border-orange-500/30" title="Dublado" />)
+  }
+  if (quality.repack) {
+    badges.push(<Badge key="rep" text="REPACK" className="bg-gray-500/20 text-gray-300 border-gray-500/30" />)
+  }
+  if (quality.proper) {
+    badges.push(<Badge key="pro" text="PROPER" className="bg-gray-500/20 text-gray-300 border-gray-500/30" />)
+  }
+  if (quality.extended) {
+    badges.push(<Badge key="ext" text="EXT" className="bg-gray-500/20 text-gray-300 border-gray-500/30" title="Extended/Director's Cut" />)
+  }
+  if (quality.year) {
+    badges.push(<Badge key="yr" text={String(quality.year)} className="bg-gray-700/40 text-gray-400 border-gray-600/30" />)
+  }
+  return badges
+}
+
+export default function QualityBadges({ quality, compact = false }: Props) {
+  if (!quality) return null
+
+  const badges = buildCompactBadges(quality)
   if (!compact) {
-    if ((quality.audio?.length ?? 0) > 0) {
-      for (const a of (quality.audio ?? []).slice(0, 2)) {
-        badges.push(<Badge key={`a-${a}`} text={a} className="bg-rose-500/15 text-rose-300 border-rose-500/25" />)
-      }
-    }
-    if (quality.dubbed) {
-      badges.push(<Badge key="dub" text="DUB" className="bg-orange-500/20 text-orange-300 border-orange-500/30" title="Dublado" />)
-    }
-    if (quality.repack) {
-      badges.push(<Badge key="rep" text="REPACK" className="bg-gray-500/20 text-gray-300 border-gray-500/30" />)
-    }
-    if (quality.proper) {
-      badges.push(<Badge key="pro" text="PROPER" className="bg-gray-500/20 text-gray-300 border-gray-500/30" />)
-    }
-    if (quality.extended) {
-      badges.push(<Badge key="ext" text="EXT" className="bg-gray-500/20 text-gray-300 border-gray-500/30" title="Extended/Director's Cut" />)
-    }
-    if (quality.year) {
-      badges.push(<Badge key="yr" text={String(quality.year)} className="bg-gray-700/40 text-gray-400 border-gray-600/30" />)
-    }
+    badges.push(...buildExtendedBadges(quality))
   }
 
   if (badges.length === 0) return null

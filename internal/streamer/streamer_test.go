@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/types"
@@ -597,6 +598,244 @@ func TestPhysicalBytes(t *testing.T) {
 	sz := PhysicalBytes(info)
 	if sz == 0 {
 		t.Error("expected non-zero physical bytes")
+	}
+}
+
+func TestNew_DefaultConfig(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Config{DataDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+	if s.cfg.DataDir != dir {
+		t.Errorf("DataDir = %q, want %q", s.cfg.DataDir, dir)
+	}
+	if s.cfg.IdleTimeout != 30*time.Minute {
+		t.Errorf("IdleTimeout = %v", s.cfg.IdleTimeout)
+	}
+	if s.cfg.MetadataWait != 60*time.Second {
+		t.Errorf("MetadataWait = %v", s.cfg.MetadataWait)
+	}
+	if s.client == nil {
+		t.Error("expected non-nil client")
+	}
+}
+
+func TestNew_CustomConfig(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Config{
+		DataDir:      dir,
+		IdleTimeout:  5 * time.Minute,
+		MetadataWait: 10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+	if s.cfg.IdleTimeout != 5*time.Minute {
+		t.Errorf("IdleTimeout = %v", s.cfg.IdleTimeout)
+	}
+	if s.cfg.MetadataWait != 10*time.Second {
+		t.Errorf("MetadataWait = %v", s.cfg.MetadataWait)
+	}
+}
+
+func TestBuildActiveMaps_WithEntries(t *testing.T) {
+	s := NewForTesting()
+	names, hashes, n := s.buildActiveMaps()
+	if n != 0 {
+		t.Errorf("expected 0 active, got %d", n)
+	}
+	if len(names) != 0 {
+		t.Errorf("expected empty names, got %d", len(names))
+	}
+	if len(hashes) != 0 {
+		t.Errorf("expected empty hashes, got %d", len(hashes))
+	}
+}
+
+func TestIsMagnet_HTTPIsNotMagnet(t *testing.T) {
+	if isMagnet("http", "https://example.com") {
+		t.Error("expected false for HTTP")
+	}
+}
+
+func TestCleanSource_BOMOnly(t *testing.T) {
+	got := cleanSource("\xef\xbb\xbf")
+	if got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestParseMagnet_SourceWithLeadingJunk(t *testing.T) {
+	s := &Streamer{}
+	hash, name, err := s.ParseMagnet("ignore this magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=Movie")
+	if err != nil {
+		t.Fatalf("ParseMagnet: %v", err)
+	}
+	if hash != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Errorf("hash = %q", hash)
+	}
+	if name != "Movie" {
+		t.Errorf("name = %q", name)
+	}
+}
+
+func TestStats_WithActiveEntry(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "active_entry"), []byte("data"), 0o644)
+
+	s := NewForTesting()
+	s.cfg.DataDir = dir
+
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("Stats returned nil")
+	}
+	if len(stats.Entries) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(stats.Entries))
+	}
+}
+
+func TestEnforceCacheLimit_ProtectsDownload(t *testing.T) {
+	dir := t.TempDir()
+	data := make([]byte, 100*1024)
+	os.WriteFile(filepath.Join(dir, "dl-entry"), data, 0o644)
+
+	s := NewForTesting()
+	s.cfg.DataDir = dir
+	s.cfg.MaxCacheSize = 1
+	s.RegisterDownload("dl-entry")
+
+	s.enforceCacheLimit()
+
+	if _, err := os.Stat(filepath.Join(dir, "dl-entry")); os.IsNotExist(err) {
+		t.Error("download-protected entry was evicted despite protection")
+	}
+}
+
+func TestClearAll_WithDotPrefix(t *testing.T) {
+	dir := t.TempDir()
+	s := NewForTesting()
+	s.cfg.DataDir = dir
+	os.MkdirAll(filepath.Join(dir, ".internal"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "regular"), 0o755)
+
+	if err := s.ClearAll(); err != nil {
+		t.Fatalf("ClearAll: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".internal")); os.IsNotExist(err) {
+		t.Error("dot-prefix dirs should be preserved")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "regular")); !os.IsNotExist(err) {
+		t.Error("regular dir should be deleted")
+	}
+}
+
+func TestResolveSource_Invalid(t *testing.T) {
+	s := NewForTesting()
+	_, err := s.resolveSource(nil, "ftp://bad")
+	if err == nil {
+		t.Error("expected error for unsupported source")
+	}
+}
+
+func TestLoadCachedMetainfo_NoDir(t *testing.T) {
+	s := NewForTesting()
+	s.metainfoDir = ""
+	if mi := s.loadCachedMetainfo(metainfo.Hash{}); mi != nil {
+		t.Error("expected nil for empty metainfoDir")
+	}
+}
+
+func TestLoadCachedMetainfo_Missing(t *testing.T) {
+	dir := t.TempDir()
+	s := NewForTesting()
+	s.metainfoDir = dir
+	if mi := s.loadCachedMetainfo(metainfo.Hash{}); mi != nil {
+		t.Error("expected nil for non-existent metainfo")
+	}
+}
+
+func TestPersistMetainfo_NoDir(t *testing.T) {
+	s := NewForTesting()
+	s.metainfoDir = ""
+	s.persistMetainfo(nil)
+}
+
+func TestDrop_NonExistent(t *testing.T) {
+	s := NewForTesting()
+	var h metainfo.Hash
+	s.Drop(h)
+}
+
+func TestPauseResume_NonExistentHash(t *testing.T) {
+	s := NewForTesting()
+	if err := s.Pause(metainfo.Hash{}); err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+	if err := s.Resume(metainfo.Hash{}); err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+}
+
+func TestSetPriority_InvalidLabel(t *testing.T) {
+	s := NewForTesting()
+	err := s.SetPriority(metainfo.Hash{}, "bogus")
+	if err == nil {
+		t.Error("expected error for invalid label")
+	}
+}
+
+func TestSetPriority_NonExistentHash(t *testing.T) {
+	s := NewForTesting()
+	err := s.SetPriority(metainfo.Hash{}, "high")
+	if err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+}
+
+func TestRecheckFile_NonExistent(t *testing.T) {
+	s := NewForTesting()
+	err := s.RecheckFile(metainfo.Hash{}, 0)
+	if err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+}
+
+func TestVerifyFile_NonExistent(t *testing.T) {
+	s := NewForTesting()
+	err := s.VerifyFile(metainfo.Hash{}, 0)
+	if err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+}
+
+func TestGet_UpdatesLastAccess(t *testing.T) {
+	s := NewForTesting()
+	_, err := s.Get(metainfo.Hash{0x01})
+	if err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+}
+
+func TestFileReader_NonExistent(t *testing.T) {
+	s := NewForTesting()
+	_, _, err := s.FileReader(metainfo.Hash{}, 0)
+	if err == nil {
+		t.Error("expected error for non-existent hash")
+	}
+}
+
+func TestImportTorrentBytes_InvalidData(t *testing.T) {
+	s := NewForTesting()
+	_, _, err := s.ImportTorrentBytes([]byte("garbage"))
+	if err == nil {
+		t.Error("expected error for invalid data")
 	}
 }
 

@@ -26,7 +26,7 @@ type Props = {
 }
 
 export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
-  const ref = useRef<HTMLSpanElement>(null)
+  const ref = useRef<HTMLButtonElement>(null)
   const [health, setHealth] = useState<StreamHealth | null>(null)
   const [probing, setProbing] = useState(false)
   const fetchedRef = useRef(false)
@@ -96,25 +96,20 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
   }
 
   return (
-    <span
+    <button
       ref={ref}
+      type="button"
       onClick={verify}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); verify() } }}
       title={title}
-      role="button"
-      tabIndex={0}
       className={`inline-flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-200 ${className}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot} ${probing ? 'animate-pulse' : ''}`} />
-      {probing ? (
-        <Loader2 className="w-3 h-3 animate-spin text-gray-500" />
-      ) : known ? (
-        <span className="flex items-center gap-0.5 tabular-nums">
-          <ArrowUp className="w-3 h-3 text-green-500" />{seeders}
-        </span>
-      ) : (
-        <span className="text-gray-500">seeds?</span>
-      )}
-    </span>
+{(() => {
+        if (probing) return <Loader2 className="w-3 h-3 animate-spin text-gray-500" />
+        if (known) return <span className="flex items-center gap-0.5 tabular-nums"><ArrowUp className="w-3 h-3 text-green-500" />{seeders}</span>
+        return <span className="text-gray-500">seeds?</span>
+      })()}
+    </button>
   )
 }

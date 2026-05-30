@@ -104,8 +104,8 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      onFocus={() => {}}
       onClose={onClose}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
@@ -166,28 +166,20 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 min-h-[150px]">
-          {loading ? (
-            <div className="flex items-center justify-center py-8 text-gray-500">
-              <Loader2 className="w-5 h-5 animate-spin" />
-            </div>
-          ) : dirs.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
-          ) : (
-            <ul className="space-y-1">
-              {dirs.map(d => (
-                <li key={d}>
-                  <button
-                    onClick={() => setPath(path ? `${path}/${d}` : d)}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors"
-                  >
-                    <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                    <span className="truncate text-left flex-1">{d}</span>
-                    <ChevronRight className="w-4 h-4 text-gray-600" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          {(() => {
+            if (loading) return <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="w-5 h-5 animate-spin" /></div>
+            if (dirs.length === 0) return <p className="text-sm text-gray-500 text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
+            return <ul className="space-y-1">{dirs.map(d => (
+              <li key={d}>
+                <button onClick={() => setPath(path ? `${path}/${d}` : d)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors">
+                  <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                  <span className="truncate text-left flex-1">{d}</span>
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </button>
+              </li>
+            ))}</ul>
+          })()}
         </div>
 
         <div className="border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
@@ -221,41 +213,28 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
                 <Sparkles className="w-3 h-3" />
                 Visualização do Destino Organizado:
               </h3>
-              {previewLoading ? (
-                <div className="flex items-center gap-2 text-xs text-gray-500 py-2 justify-center">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                  <span>Analisando nomes com IA...</span>
-                </div>
-              ) : previews.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-2">Nenhum preview gerado.</p>
-              ) : (
-                <div className="space-y-2 divide-y divide-gray-800/40">
-                  {previews.map((p, index) => (
-                    <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
-                      <div className="text-[10px] text-gray-400 font-mono truncate" title={p.originalName}>
-                        De: {p.originalName}
+{(() => {
+                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-gray-500 py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>Analisando nomes com IA...</span></div>
+                if (previews.length === 0) return <p className="text-xs text-gray-500 text-center py-2">Nenhum preview gerado.</p>
+                return <div className="space-y-2 divide-y divide-gray-800/40">{previews.map((p, index) => (
+                  <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
+                    <div className="text-[10px] text-gray-400 font-mono truncate" title={p.originalName}>De: {p.originalName}</div>
+                    {p.error ? (
+                      <div className="text-red-400 text-[11px] bg-red-950/30 px-2 py-1 rounded border border-red-900/30">Erro: {p.error}</div>
+                    ) : (
+                      <div className="flex items-start gap-1.5 bg-emerald-950/10 border border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-300">
+                        <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
+                        <div className="font-mono text-[11px] break-all leading-tight">
+                          <span className="text-gray-450">Para: </span>
+                          <span className="font-semibold text-emerald-450">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
+                          <span className="text-white font-bold">{p.targetPath.split('/').pop()}</span>
+                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">{p.kind === 'tv' ? 'Série' : 'Filme'}</span>
+                        </div>
                       </div>
-                      {p.error ? (
-                        <div className="text-red-400 text-[11px] bg-red-950/30 px-2 py-1 rounded border border-red-900/30">
-                          Erro: {p.error}
-                        </div>
-                      ) : (
-                        <div className="flex items-start gap-1.5 bg-emerald-950/10 border border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-300">
-                          <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
-                          <div className="font-mono text-[11px] break-all leading-tight">
-                            <span className="text-gray-450">Para: </span>
-                            <span className="font-semibold text-emerald-450">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
-                            <span className="text-white font-bold">{p.targetPath.split('/').pop()}</span>
-                            <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">
-                              {p.kind === 'tv' ? 'Série' : 'Filme'}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                    )}
+                  </div>
+                ))}</div>
+              })()}
             </div>
           )}
 

@@ -201,13 +201,13 @@ func shouldUseHWDecode(sourceCodec, encoder string) bool {
 func hwaccelDecodeArgs(encoder string) []string {
 	switch {
 	case strings.HasSuffix(encoder, "_nvenc"):
-		return []string{"-hwaccel", "cuda", "-hwaccel_output_format", "cuda"}
+		return []string{ffHWAccel, "cuda", ffHWAccelOutFormat, "cuda"}
 	case strings.HasSuffix(encoder, "_vaapi"):
-		return []string{"-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"}
+		return []string{ffHWAccel, "vaapi", "-hwaccel_device", "/dev/dri/renderD128", ffHWAccelOutFormat, "vaapi"}
 	case strings.HasSuffix(encoder, "_qsv"):
-		return []string{"-hwaccel", "qsv", "-hwaccel_output_format", "qsv"}
+		return []string{ffHWAccel, "qsv", ffHWAccelOutFormat, "qsv"}
 	case strings.HasSuffix(encoder, "_videotoolbox"):
-		return []string{"-hwaccel", "videotoolbox"}
+		return []string{ffHWAccel, "videotoolbox"}
 	}
 	return nil
 }
@@ -215,13 +215,13 @@ func hwaccelDecodeArgs(encoder string) []string {
 func encoderPresetArgs(encoder string) []string {
 	switch {
 	case strings.HasSuffix(encoder, "_nvenc"):
-		return []string{"-preset", "p4", "-cq", "23"}
+		return []string{ffPreset, "p4", "-cq", "23"}
 	case strings.HasSuffix(encoder, "_vaapi"):
 		return []string{"-compression_level", "7", "-qp", "23"}
 	case strings.HasSuffix(encoder, "_qsv"):
-		return []string{"-preset", "medium", "-global_quality", "23"}
+		return []string{ffPreset, "medium", "-global_quality", "23"}
 	case encoder == "libx264" || encoder == "libx265":
-		return []string{"-preset", "veryfast", "-crf", "23"}
+		return []string{ffPreset, "veryfast", "-crf", "23"}
 	}
 	return nil
 }

@@ -79,6 +79,36 @@ export default function WatchlistPage() {
     link: '', infoHash: h.infoHash, publishDate: '',
   })
   const playHit = (h: WatchlistHit) => playSingle(hitToResult(h))
+  const openContents = (h: WatchlistHit) => setContentsTarget(hitToResult(h))
+  const copyMagnet = (magnet: string) => { navigator.clipboard?.writeText(magnet) }
+  const renderHitItem = (h: WatchlistHit) => (
+    <div key={h.infoHash} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-900/50 rounded">
+      <button onClick={() => playHit(h)} className="text-green-400 hover:text-green-300 px-1" title="Reproduzir">
+        ▶
+      </button>
+      <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
+      <div className="flex-1 min-w-0">
+        <button
+          onClick={() => openContents(h)}
+          className="text-gray-200 truncate block w-full text-left hover:text-green-400 transition-colors"
+          title="Ver conteúdo e detalhes"
+        >
+          {h.title}
+        </button>
+        <p className="text-gray-500 flex items-center gap-2 flex-wrap">
+          <SeedBadge infoHash={h.infoHash} magnet={h.magnet} />
+          <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
+        </p>
+      </div>
+      <button
+        onClick={() => copyMagnet(h.magnet)}
+        className="text-gray-500 hover:text-gray-200 p-1"
+        title="Copiar magnet"
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -112,7 +142,7 @@ export default function WatchlistPage() {
               />
               <input
                 type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders"
-                value={draft.minSeeders} onChange={e => setDraft({ ...draft, minSeeders: parseInt(e.target.value || '0', 10) })}
+                value={draft.minSeeders} onChange={e => setDraft({ ...draft, minSeeders: Number.parseInt(e.target.value || '0', 10) })}
               />
             </div>
             <input
@@ -126,15 +156,10 @@ export default function WatchlistPage() {
           </div>
         )}
 
-        {loading ? (
-          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-        ) : lists.length === 0 ? (
-          <div className="text-center py-20 text-gray-500">
-            <Bell className="w-16 h-16 mx-auto mb-4 opacity-30" />
-            <p>Nenhuma watchlist ainda</p>
-            <p className="text-xs mt-2">Crie uma para receber push quando novos torrents aparecerem.</p>
-          </div>
-        ) : (
+{(() => {
+          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
+          if (lists.length === 0) return <div className="text-center py-20 text-gray-500"><Bell className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nenhuma watchlist ainda</p><p className="text-xs mt-2">Crie uma para receber push quando novos torrents aparecerem.</p></div>
+          return (
           <div className="flex flex-col gap-2">
             {lists.map(w => (
               <div key={w.id} className="card flex flex-col gap-2">
@@ -143,7 +168,7 @@ export default function WatchlistPage() {
                     <input className="input-field" value={editing.query} onChange={e => setEditing({ ...editing, query: e.target.value })} />
                     <div className="grid grid-cols-2 gap-2">
                       <input className="input-field text-sm" placeholder="Categoria" value={editing.category} onChange={e => setEditing({ ...editing, category: e.target.value })} />
-                      <input type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders" value={editing.minSeeders} onChange={e => setEditing({ ...editing, minSeeders: parseInt(e.target.value || '0', 10) })} />
+                      <input type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders" value={editing.minSeeders} onChange={e => setEditing({ ...editing, minSeeders: Number.parseInt(e.target.value || '0', 10) })} />
                     </div>
                     <input className="input-field text-sm" placeholder="ntfy topic" value={editing.ntfyTopic} onChange={e => setEditing({ ...editing, ntfyTopic: e.target.value })} />
                     <div className="flex gap-2">
@@ -178,35 +203,7 @@ export default function WatchlistPage() {
                       <div className="border-t border-gray-700 pt-2 flex flex-col gap-1 max-h-80 overflow-y-auto">
                         {hits.length === 0 ? (
                           <p className="text-xs text-gray-500 text-center py-3">Nenhuma detecção ainda. O worker passa a cada 15 min.</p>
-                        ) : hits.map(h => (
-                          <div key={h.infoHash} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-900/50 rounded">
-                            <button onClick={() => playHit(h)} className="text-green-400 hover:text-green-300 px-1" title="Reproduzir">
-                              ▶
-                            </button>
-                            {/* Lazy poster — shared session cache prevents N hits triggering N requests. */}
-                            <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
-                            <div className="flex-1 min-w-0">
-                              <button
-                                onClick={() => setContentsTarget(hitToResult(h))}
-                                className="text-gray-200 truncate block w-full text-left hover:text-green-400 transition-colors"
-                                title="Ver conteúdo e detalhes"
-                              >
-                                {h.title}
-                              </button>
-                              <p className="text-gray-500 flex items-center gap-2 flex-wrap">
-                                <SeedBadge infoHash={h.infoHash} magnet={h.magnet} />
-                                <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => { navigator.clipboard?.writeText(h.magnet) }}
-                              className="text-gray-500 hover:text-gray-200 p-1"
-                              title="Copiar magnet"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                        ) : hits.map(h => renderHitItem(h))}
                       </div>
                     )}
                   </>
@@ -214,7 +211,7 @@ export default function WatchlistPage() {
               </div>
             ))}
           </div>
-        )}
+        )})()}
       </main>
 
       <TorrentContentsModal

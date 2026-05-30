@@ -239,7 +239,11 @@ func (w *Worker) reconcile(d Download) {
 }
 
 func (w *Worker) torrentStillActive(td *trackedDL) bool {
-	_, ok := w.streamer.Client().Torrent(td.hash)
+	c := w.streamer.Client()
+	if c == nil {
+		return false
+	}
+	_, ok := c.Torrent(td.hash)
 	return ok
 }
 
@@ -284,7 +288,7 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 }
 
 func (w *Worker) moveCompletedFile(d Download, td *trackedDL) {
-	if w.downloadDir == "" {
+	if w.downloadDir == "" || td.file == nil {
 		return
 	}
 	// Per-user isolation: move to downloadDir/{username}/ when a resolver is set.

@@ -38,8 +38,8 @@ import {
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
 
-const VIDEO_EXTS = ['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts']
-const AUDIO_EXTS = ['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus']
+const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts'])
+const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus'])
 
 function extOf(name: string): string {
   const i = name.lastIndexOf('.')
@@ -47,11 +47,11 @@ function extOf(name: string): string {
 }
 
 function isVideo(name: string): boolean {
-  return VIDEO_EXTS.includes(extOf(name))
+  return VIDEO_EXTS.has(extOf(name))
 }
 
 function isAudio(name: string): boolean {
-  return AUDIO_EXTS.includes(extOf(name))
+  return AUDIO_EXTS.has(extOf(name))
 }
 
 function formatSize(bytes: number): string {
@@ -74,7 +74,7 @@ function formatDate(iso: string): string {
   }
 }
 
-function EntryIcon({ entry, mount }: { entry: LocalEntry; mount: string }) {
+function EntryIcon({ entry, mount }: { readonly entry: LocalEntry; readonly mount: string }) {
   const [thumbFailed, setThumbFailed] = useState(false)
   if (entry.isDir) return <Folder className="w-5 h-5 text-blue-400 flex-shrink-0" />
   if (isVideo(entry.name)) {
@@ -100,9 +100,9 @@ function Breadcrumbs({
   path,
   onNavigate,
 }: {
-  mountName: string
-  path: string
-  onNavigate: (p: string) => void
+  readonly mountName: string
+  readonly path: string
+  readonly onNavigate: (p: string) => void
 }) {
   const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
 
@@ -319,12 +319,12 @@ export default function LocalPage() {
             Mounts
           </h2>
           {mounts.length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <><p className="text-sm text-gray-500">
               Nenhum mount configurado. Adicione em <code>config.yaml</code>:
-              <code className="block mt-2 p-2 bg-gray-800 rounded text-xs">
-                external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
-              </code>
             </p>
+            <code className="block mt-2 p-2 bg-gray-800 rounded text-xs">
+                external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
+              </code></>
           ) : (
             <ul className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-visible md:space-y-1 -mx-1 px-1 md:mx-0 md:px-0">
               {mounts.map((m) => {

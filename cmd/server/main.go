@@ -41,6 +41,11 @@ import (
 	"github.com/luizg/jackui/ui"
 )
 
+const (
+	routeLibraryID  = "/library/:id"
+	routePlaylistID = "/playlists/:id"
+)
+
 // resolvePeerPort picks the inbound BitTorrent peer port. Behind a VPN the port
 // must be the provider's forwarded port (dynamic), so when
 // JACKUI_GLUETUN_CONTROL_URL is set we ask gluetun for it — it takes
@@ -83,771 +88,85 @@ func watchForwardedPort(ctrl string, current int) {
 	}
 }
 
+type appDeps struct {
+	cfg             *config.Config
+	configPath      string
+	jackettClient   *jackett.Client
+	localBrowser    *local.Browser
+	historyStore    *history.Store
+	streamSrv       *streamer.Streamer
+	streamCfg       streamer.Config
+	stateDir        string
+	libraryStore    *library.Store
+	playlistsStore  *playlists.Store
+	downloadsStore  *downloads.Store
+	tmdbClient      *tmdb.Client
+	aiClient        *ai.Client
+	aiBench         *ai.BenchmarkStore
+	webSearch       *imagesearch.Chain
+	watchlistStore  *watchlist.Store
+	subtitleClient  *subtitles.Client
+	authStore       *auth.Store
+	tokenMgr        *auth.TokenManager
+	waManager       *auth.WAManager
+	loginLockout    *auth.Lockout
+	mlr             *mailer.Mailer
+	promoteDests    []handlers.PromoteDest
+	hlsMgr          *transcode.HLSSessionManager
+	cleanup         []func()
+}
+
+func (d *appDeps) addCleanup(fn func()) {
+	d.cleanup = append(d.cleanup, fn)
+}
+
+func (d *appDeps) runCleanup() {
+	for i := len(d.cleanup) - 1; i >= 0; i-- {
+		d.cleanup[i]()
+	}
+}
+
 func main() {
-	configPath := "config.yaml"
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
-	}
+	deps := &appDeps{}
+	deps.cfg, deps.configPath = loadConfig()
+	jackettClient := jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
+	deps.jackettClient = jackettClient
+	deps.localBrowser = local.NewBrowser(deps.cfg.External.Mounts)
+	deps.webSearch = imagesearch.Default()
+	deps.mlr = mailer.New(deps.cfg.SMTP)
 
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	jackettClient := jackett.New(cfg.Jackett.URL, cfg.Jackett.APIKey)
-	// Browser for filesystem mounts the user wants exposed (HD externo, NAS).
-	// Browser is stateless; safe to construct unconditionally — empty mount
-	// list means /api/local/* endpoints return 404 cleanly.
-	localBrowser := local.NewBrowser(cfg.External.Mounts)
-
-	dbPath := cfg.DBPath
-	if dbPath == "" {
-		dbPath = "./jackui.db"
-	}
-	historyStore, err := history.New(dbPath)
-	if err != nil {
-		log.Printf("Warning: failed to open history store at %s: %v — history disabled", dbPath, err)
-		historyStore = nil
-	} else {
-		log.Printf("History store: %s", dbPath)
-		go func() {
-			for {
-				time.Sleep(24 * time.Hour)
-				historyStore.Cleanup(90 * 24 * time.Hour)
-			}
-		}()
-	}
-
-	// Stream server (BitTorrent → HTTP video stream)
-	streamCfg := streamer.Config{
-		DataDir:       cfg.Stream.DataDir,
-		IdleTimeout:   time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
-		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
-		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
-		JackettAPIKey: cfg.Jackett.APIKey,
-	}
-	// Trust the Jackett host in the SSRF guard + inject its apikey server-side.
-	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
-		streamCfg.JackettHost = u.Hostname()
-	}
-	// Inbound BitTorrent peer port. Behind a VPN it must be the provider's
-	// forwarded port (read from gluetun) so peers can reach us — seeds public
-	// torrents properly and improves leech. 0 → streamer default (51469).
-	streamCfg.ListenPort = resolvePeerPort()
-	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" && streamCfg.ListenPort > 0 {
-		go watchForwardedPort(ctrl, streamCfg.ListenPort)
-	}
-	if streamCfg.DataDir == "" {
-		streamCfg.DataDir = "/data/streams"
-	}
-	// stateDir holds the SQLite stores (favorites, library, etc.). When unset
-	// (or in legacy deploys) it falls back to DataDir so behavior is unchanged;
-	// pointing it at a faster/separate volume (e.g. /portainer state SSD) keeps
-	// state writes out of the LVM piece cache that competes for I/O.
-	stateDir := cfg.Stream.StateDir
-	if stateDir == "" {
-		stateDir = streamCfg.DataDir
-	}
-	streamSrv, err := streamer.New(streamCfg)
-	if err != nil {
-		log.Printf("Warning: streamer init failed: %v — streaming disabled", err)
-		streamSrv = nil
-	} else {
-		log.Printf("Streamer ready: %s (idle=%s, metadata=%s)", streamCfg.DataDir, streamCfg.IdleTimeout, streamCfg.MetadataWait)
-		defer streamSrv.Close()
-
-		// Favorites store — preserved across cache evictions
-		if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(stateDir)); ferr == nil {
-			streamSrv.SetFavorites(favs)
-			defer favs.Close()
-			log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(stateDir))
-		} else {
-			log.Printf("Warning: favorites store init failed: %v", ferr)
-		}
-
-		// Metadata cache — INDEPENDENT of favorites; persists TorrentInfo
-		// snapshots so reopening a hash is instant. (Was nested inside the
-		// favorites success branch, so a favorites-store failure silently took
-		// the metadata cache + the RefreshStalePrimary migration down with it.)
-		if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(stateDir)); mcerr == nil {
-			streamSrv.SetMetadataCache(mc)
-			defer mc.Close()
-			log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(stateDir))
-		} else {
-			log.Printf("Warning: metadata cache init failed: %v", mcerr)
-		}
-	}
-
-	// Library store — per-user history of streamed torrents (magnet + resume position)
-	var libraryStore *library.Store
-	if streamSrv != nil {
-		libPath := stateDir + "/.library.db"
-		if l, lerr := library.New(libPath); lerr == nil {
-			libraryStore = l
-			defer l.Close()
-			log.Printf("Library: %s", libPath)
-
-			// One-shot startup migration: refresh primary_file_index for legacy rows
-			// where it's still 0 (column default). Pulls the correct value from the
-			// metadata cache when available — fixes the Breaking Bad/featurette bug
-			// for users who streamed before pickPrimaryFile learned to skip extras.
-			if mc := streamSrv.MetadataCache(); mc != nil {
-				n, mErr := libraryStore.RefreshStalePrimary(func(hash string) (int, bool) {
-					meta := mc.Get(hash)
-					if meta == nil {
-						return 0, false
-					}
-					return meta.PrimaryFile, true
-				})
-				if mErr != nil {
-					log.Printf("Library: stale primary refresh failed: %v", mErr)
-				} else if n > 0 {
-					log.Printf("Library: refreshed %d stale primary_file_index entries from metadata cache", n)
-				}
-			}
-		} else {
-			log.Printf("Warning: library store init failed: %v", lerr)
-		}
-	}
-
-	// Playlists store — per-user ordered collections referencing torrents
-	var playlistsStore *playlists.Store
-	if streamSrv != nil {
-		plPath := stateDir + "/.playlists.db"
-		if p, perr := playlists.New(plPath); perr == nil {
-			playlistsStore = p
-			defer p.Close()
-			log.Printf("Playlists: %s", plPath)
-		} else {
-			log.Printf("Warning: playlists store init failed: %v", perr)
-		}
-	}
-
-	// authStore declared early so the downloads worker closure can capture it.
-	// Initialised further below (Auth section); nil-safe until then.
-	var authStore *auth.Store
-
-	// Downloads store + worker — full-file background downloads. Worker
-	// reconciles the DB queue with anacrolix every 2s; registered names are
-	// protected from cache eviction.
-	var downloadsStore *downloads.Store
-	if streamSrv != nil {
-		dlPath := stateDir + "/.downloads.db"
-		if d, derr := downloads.New(dlPath); derr == nil {
-			downloadsStore = d
-			defer d.Close()
-			log.Printf("Downloads: %s", dlPath)
-
-			// Resolve completed files locally instead of force-redownloading
-			streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
-				path, err := downloadsStore.GetCompletedPath(h.HexString(), fileIdx)
-				if err != nil || path == "" {
-					return "", false
-				}
-				if _, err := os.Stat(path); err != nil {
-					return "", false
-				}
-				return path, true
-			})
-
-			// Per-user isolation: resolve username from auth store so completed
-			// files land in downloadDir/{username}/ instead of the flat root.
-			// The closure captures authStore by reference — authStore will be
-			// initialised before any download completes so the nil guard inside works.
-			usernameResolver := func(userID int) string {
-				if authStore == nil {
-					return ""
-				}
-				u, err := authStore.GetUserByID(userID)
-				if err != nil || u == nil {
-					return ""
-				}
-				return u.Username
-			}
-			worker := downloads.NewWorker(downloads.WorkerConfig{
-				Store:           downloadsStore,
-				Streamer:        streamSrv,
-				DataDir:         streamCfg.DataDir,
-				DownloadDir:     cfg.Stream.DownloadDir,
-				Interval:        2 * time.Second,
-				NtfyBaseURL:     cfg.Notifications.NtfyBaseURL,
-				NtfyTopic:       cfg.Notifications.NtfyDefaultTopic,
-				ResolveUsername: usernameResolver,
-			})
-			worker.Start()
-			defer worker.Stop()
-			log.Printf("Downloads worker started (tick=2s, ntfy=%q)", cfg.Notifications.NtfyDefaultTopic)
-		} else {
-			log.Printf("Warning: downloads store init failed: %v", derr)
-		}
-	}
-
-	// TMDB enrichment client — optional; nil-tolerant downstream.
-	var tmdbClient *tmdb.Client
-	if streamSrv != nil {
-		tmdbPath := stateDir + "/.tmdb-cache.db"
-		if tc, terr := tmdb.New(cfg.TMDB.APIKey, cfg.TMDB.OMDbAPIKey, tmdbPath); terr == nil {
-			tmdbClient = tc
-			defer tc.Close()
-			if cfg.TMDB.APIKey != "" {
-				log.Printf("TMDB enrichment: enabled (cache: %s)", tmdbPath)
-			} else {
-				log.Printf("TMDB enrichment: disabled (no API key) — cache prepared at %s", tmdbPath)
-			}
-		} else {
-			log.Printf("Warning: tmdb client init failed: %v", terr)
-		}
-	}
-
-	// AI title-identification chain — optional; nil falls back to TMDB's regex
-	// title cleaning. Lights up automatically from GROQ_API_KEY/OPENROUTER_API_KEY/
-	// OLLAMA_BASE_URL (see config.applyAIEnv).
-	aiClient := ai.New(cfg.AI)
-	var aiBench *ai.BenchmarkStore
-	if aiClient != nil {
-		if bs, berr := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(stateDir)); berr == nil {
-			aiBench = bs
-			defer bs.Close()
-			// Adopt the last benchmark as the chain on boot (best model first +
-			// discovered free local models as fallbacks), so a restart keeps the
-			// tuned chain instead of falling back to the config defaults.
-			if res := bs.Results(); len(res) > 0 {
-				aiClient.AdoptBenchmark(res)
-			}
-		} else {
-			log.Printf("Warning: ai benchmark store init failed: %v", berr)
-		}
-		ids := make([]string, 0, len(aiClient.Slots()))
-		for _, s := range aiClient.Slots() {
-			ids = append(ids, s.ID)
-		}
-		log.Printf("AI title identification: enabled — chain: %s", strings.Join(ids, " → "))
-	} else {
-		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
-	}
-
-	// Web image search — keyless fallback for art when TMDB has no match (adult /
-	// obscure titles). Only fires after a failed TMDB lookup. Routes through the
-	// same egress as everything else (the VPN, in prod).
-	webSearch := imagesearch.Default()
-
-	// Watchlist store + background worker — polls Jackett periodically for saved
-	// queries and pushes new matches to ntfy.sh. Worker starts only when both the
-	// store and jackett client are healthy; partial init is OK.
-	var watchlistStore *watchlist.Store
-	if streamSrv != nil {
-		wlPath := stateDir + "/.watchlist.db"
-		if w, werr := watchlist.New(wlPath); werr == nil {
-			watchlistStore = w
-			defer w.Close()
-			log.Printf("Watchlist: %s", wlPath)
-			interval := time.Duration(cfg.Notifications.WatchlistInterval) * time.Minute
-			if interval <= 0 {
-				interval = 15 * time.Minute
-			}
-			notifier := &watchlist.NtfyPoster{BaseURL: cfg.Notifications.NtfyBaseURL}
-			worker := watchlist.NewWorker(watchlistStore, jackettClient, notifier, cfg.Notifications.NtfyDefaultTopic, interval)
-			worker.Start()
-			defer worker.Stop()
-			log.Printf("Watchlist worker: interval=%s default_topic=%q", interval, cfg.Notifications.NtfyDefaultTopic)
-		} else {
-			log.Printf("Warning: watchlist store init failed: %v", werr)
-		}
-	}
-
-	// Subtitles (OpenSubtitles REST) — optional, only enabled if API key is set
-	subCacheDir := cfg.Subtitles.CacheDir
-	if subCacheDir == "" {
-		subCacheDir = "/data/subtitles"
-	}
-	subtitleClient := subtitles.New(
-		cfg.Subtitles.OpenSubtitlesAPIKey,
-		cfg.Subtitles.OpenSubtitlesUsername,
-		cfg.Subtitles.OpenSubtitlesPassword,
-		subCacheDir,
-	)
-	if subtitleClient.Enabled() {
-		log.Printf("Subtitles: OpenSubtitles enabled (cache=%s)", subCacheDir)
-	}
-
-	// Probe transcoding capabilities in background — non-blocking, takes ~10-30s on first run
-	go func() {
-		caps, err := transcode.Probe(context.Background(), false)
-		if err != nil {
-			log.Printf("Transcode probe failed: %v", err)
-			return
-		}
-		log.Printf("Transcode: preferred H.264=%q, HEVC=%q (NVIDIA=%v VAAPI=%v QSV=%v)",
-			caps.Preferred, caps.PreferredHE, caps.HasNVIDIA, caps.HasVAAPI, caps.HasQSV)
-	}()
-
-	// Auth — initialized only if enabled in config
-	var tokenMgr *auth.TokenManager
-	var waManager *auth.WAManager // passkeys; nil when BaseURL is unset
-	// Brute-force guard: 5 consecutive failed logins lock the account for 15 min.
-	loginLockout := auth.NewLockout(5, 15*time.Minute)
-	if cfg.Auth.Enabled {
-		authDB := cfg.Auth.DBPath
-		if authDB == "" {
-			authDB = "/data/auth.db"
-		}
-		var aerr error
-		authStore, aerr = auth.New(authDB)
-		if aerr != nil {
-			log.Fatalf("Auth store init failed: %v", aerr)
-		}
-		defer authStore.Close()
-
-		secret := []byte(cfg.Auth.JWTSecret)
-		if len(secret) < 32 {
-			// Auto-generate a strong secret if not provided
-			secret = make([]byte, 32)
-			if _, err := rand.Read(secret); err != nil {
-				log.Fatalf("Failed to generate JWT secret: %v", err)
-			}
-			log.Printf("Auth: generated random JWT secret (set jwt_secret in config to persist across restarts)")
-		}
-		tokenMgr = auth.NewTokenManager(secret, 15*time.Minute)
-
-		// Passkeys (WebAuthn) need the public origin to bind the RP ID. We derive
-		// both from BaseURL (e.g. https://jackui.example.com → RPID host +
-		// origin). Without it, passkey endpoints return 503 but the rest of auth
-		// keeps working — TOTP/password are unaffected.
-		if cfg.BaseURL != "" {
-			if u, perr := url.Parse(cfg.BaseURL); perr == nil && u.Host != "" {
-				origin := u.Scheme + "://" + u.Host
-				wm, werr := auth.NewWAManager(u.Hostname(), "JackUI", origin)
-				if werr != nil {
-					log.Printf("Passkeys: disabled — %v", werr)
-				} else {
-					waManager = wm
-					log.Printf("Passkeys (WebAuthn): enabled for %s (RPID=%s)", origin, u.Hostname())
-				}
-			}
-		}
-		if waManager == nil {
-			log.Printf("Passkeys (WebAuthn): disabled — set JACKUI_BASE_URL to the public https origin to enable")
-		}
-
-		adminUser := cfg.Auth.AdminUsername
-		if adminUser == "" {
-			adminUser = "admin"
-		}
-		if cfg.Auth.AdminPassword == "" {
-			log.Fatalf("Auth enabled but JACKUI_ADMIN_PASSWORD / config admin_password not set")
-		}
-		if err := authStore.Bootstrap(adminUser, cfg.Auth.AdminPassword); err != nil {
-			log.Fatalf("Auth bootstrap failed: %v", err)
-		}
-		log.Printf("Auth enabled: user store at %s (admin user=%s)", authDB, adminUser)
-
-		// Background cleanup of expired refresh tokens
-		go func() {
-			for {
-				time.Sleep(1 * time.Hour)
-				authStore.CleanupExpired()
-			}
-		}()
-	} else {
-		log.Printf("Auth disabled — all endpoints public (set JACKUI_AUTH_ENABLED=1 to enable)")
-	}
+	initHistoryStore(deps)
+	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg)
+	initStreamer(deps)
+	initLibraryStore(deps)
+	initPlaylistsStore(deps)
+	initDownloadsStore(deps)
+	initTMDBClient(deps)
+	initAIClient(deps)
+	initWatchlistStore(deps)
+	deps.subtitleClient = initSubtitles(deps.cfg)
+	initAuth(deps)
+	deps.promoteDests = buildPromoteDests(deps.cfg)
+	initHLSManager(deps)
 
 	// Incognito reaper: delete stale incognito data after 1h of inactivity
-	// (tab closed / crash). Both stores are guaranteed to be initialized by here.
-	handlers.StartIncognitoReaper(historyStore, libraryStore)
+	// (tab closed / crash). Both stores are guaranteed initialized by here.
+	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+
+	startTranscodeProbe()
+
+	defer deps.runCleanup()
 
 	gin.SetMode(gin.ReleaseMode)
-	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
+	router := setupRouter(deps)
 
-	corsConfig := cors.DefaultConfig()
-	// Self-hosted on LAN — open CORS so any device in the network can access.
-	// Override via JACKUI_CORS_ALLOW_ORIGINS env if you want to restrict it.
-	corsConfig.AllowAllOrigins = true
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range"}
-	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges"}
-	router.Use(cors.New(corsConfig))
-
-	// Healthcheck — fast liveness probe, no external deps
-	router.GET("/healthz", handlers.Health(historyStore))
-
-	// Public auth config — frontend uses this to decide whether to show login screen
-	router.GET("/api/auth/config", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"enabled": cfg.Auth.Enabled})
-	})
-
-	// Transactional email (reset / verify / invite). Disabled when SMTP is unset
-	// — those flows then log the link instead of sending.
-	mlr := mailer.New(cfg.SMTP)
-	if mlr.Enabled() {
-		log.Printf("Email (SMTP): enabled via %s:%d", cfg.SMTP.Host, cfg.SMTP.Port)
-	} else {
-		log.Printf("Email (SMTP): disabled — reset/verify/invite links are logged, not emailed")
-	}
-
-	// Public auth endpoints (no existing token needed).
-	if authStore != nil && tokenMgr != nil {
-		pub := router.Group("/api/auth")
-		pub.POST("/login", handlers.Login(authStore, tokenMgr, loginLockout))
-		pub.POST("/refresh", handlers.Refresh(authStore, tokenMgr))
-		pub.POST("/logout", handlers.Logout(authStore, historyStore, libraryStore))
-		pub.POST("/register", handlers.Register(authStore, mlr, cfg.BaseURL))
-		pub.POST("/verify-email", handlers.VerifyEmail(authStore))
-		pub.POST("/forgot", handlers.Forgot(authStore, mlr, cfg.BaseURL))
-		pub.POST("/reset", handlers.Reset(authStore))
-		// Passkey login is public (it's an authentication method).
-		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(authStore, waManager))
-		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(authStore, tokenMgr, waManager))
-	}
-
-	api := router.Group("/api")
-	// If auth enabled, all /api/* routes (except /api/auth/* already mounted above) require a valid token.
-	if tokenMgr != nil {
-		api.Use(auth.Required(tokenMgr))
-		api.Use(auth.GuestRestrict())
-	}
-	// Incognito flag — tags the request when the client sent
-	// X-JackUI-Incognito: 1 so history/library handlers can skip persistence.
-	api.Use(middleware.Incognito())
-	{
-		// Client-side diagnostics — frontend posts here when something interesting
-		// happens (codec failure, fallback fired, etc.) so we can grep server logs
-		// instead of asking the user for browser console output.
-		api.POST("/diag/log", handlers.ClientLog())
-
-		api.GET("/search", handlers.Search(jackettClient, historyStore, streamSrv.Favorites(), downloadsStore))
-		api.GET("/search/stream", handlers.SearchSSE(jackettClient, historyStore, streamSrv.Favorites(), downloadsStore))
-		api.GET("/indexers", handlers.GetIndexers(jackettClient))
-		api.POST("/download", handlers.Download(cfg))
-		api.GET("/clients", handlers.GetClients(cfg))
-		api.GET("/proxy/torrent", handlers.ProxyTorrentDownload(jackettClient))
-		api.GET("/convert/torrent-to-magnet", handlers.ConvertTorrentToMagnet())
-		api.GET("/convert/magnet-to-torrent", handlers.ConvertMagnetToTorrent(streamSrv))
-
-
-		// Server config carries the Jackett API key and lets a caller rewrite
-		// URLs/clients — admin-only. With auth OFF this degrades to public (same
-		// as everything else); with auth ON, AdminOnly blocks non-admin users.
-		adminAPI := api.Group("")
-		if tokenMgr != nil {
-			adminAPI.Use(auth.AdminOnly())
-		}
-		adminAPI.GET("/config", handlers.GetConfig(cfg, configPath))
-		adminAPI.PUT("/config", handlers.UpdateConfig(cfg, configPath))
-		adminAPI.POST("/config/test", handlers.TestJackett(cfg))
-
-		// AI title-identification benchmark — admin-only (it spends external LLM
-		// calls and re-orders the live chain).
-		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(aiClient, aiBench))
-		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(aiClient, aiBench))
-		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(aiBench))
-
-		// Admin-only: all users' downloads with username enrichment
-		if downloadsStore != nil && authStore != nil {
-			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(downloadsStore, authStore, streamSrv))
-			adminAPI.GET("/downloads/users", handlers.DownloadsUsers(downloadsStore, authStore))
-		}
-
-		api.GET("/status", handlers.Status(jackettClient, historyStore))
-
-		if historyStore != nil {
-			api.GET("/history", handlers.GetHistory(historyStore))
-			api.GET("/history/results", handlers.GetHistoryResults(historyStore, streamSrv.Favorites(), downloadsStore))
-			api.GET("/history/cache", handlers.SearchCache(historyStore, streamSrv.Favorites(), downloadsStore))
-			api.DELETE("/history", handlers.DeleteHistory(historyStore))
-			// Per-row swarm refresh — re-polls Jackett for current seeders/leechers.
-			// 5min TTL cache per row keeps Jackett happy under spam-clicks.
-			api.POST("/history/:id/refresh", handlers.HistoryRefresh(historyStore, jackettClient))
-		}
-
-		if streamSrv != nil {
-			// Static paths first to win over /:hash wildcard
-			api.GET("/stream/cache", handlers.StreamCacheStats(streamSrv))
-			api.DELETE("/stream/cache", handlers.StreamCacheClear(streamSrv))
-			api.GET("/stream/rate", handlers.StreamRateStats(streamSrv))
-			// Transmission-style active-torrent controls — static paths win over /:hash
-			api.GET("/stream/active", handlers.StreamActive(streamSrv))
-			api.POST("/stream/active/pause", handlers.StreamPauseAll(streamSrv))
-			api.POST("/stream/active/resume", handlers.StreamResumeAll(streamSrv))
-			api.GET("/stream/limits", handlers.StreamGetLimits(streamSrv))
-			api.POST("/stream/limits", handlers.StreamSetLimits(streamSrv))
-			api.POST("/stream/:hash/pause", handlers.StreamPause(streamSrv))
-			api.POST("/stream/:hash/resume", handlers.StreamResume(streamSrv))
-			api.POST("/stream/:hash/priority", handlers.StreamSetPriority(streamSrv))
-			api.POST("/stream/:hash/files/:idx/priority", handlers.StreamSetFilePriority(streamSrv))
-			api.GET("/stream/favorites", handlers.StreamFavorites(streamSrv))
-			api.POST("/stream/favorite", handlers.StreamFavorite(streamSrv))
-			api.DELETE("/stream/favorite/:name", handlers.StreamUnfavorite(streamSrv))
-			// Folder tree under favorites — lets users organize starred torrents
-			// into categories/subcategories with drag-and-drop on the frontend.
-			api.GET("/stream/favorites/folders", handlers.FoldersList(streamSrv))
-			api.POST("/stream/favorites/folders", handlers.FolderCreate(streamSrv))
-			api.PATCH("/stream/favorites/folders/:id", handlers.FolderPatch(streamSrv))
-			api.DELETE("/stream/favorites/folders/:id", handlers.FolderDelete(streamSrv))
-			api.PATCH("/stream/favorite/:name/folder", handlers.FavoriteMoveToFolder(streamSrv))
-			// Import a torrent (magnet or .torrent file) straight into favorites,
-			// bypassing search. Resolves hash+name locally; caches metainfo.
-			api.POST("/stream/import", handlers.StreamImport(streamSrv))
-			api.POST("/stream/add", handlers.StreamAdd(streamSrv, libraryStore))
-			api.POST("/stream/add-file", handlers.StreamAddTorrentFile(streamSrv))
-			api.GET("/stream/info/:hash", handlers.StreamInfo(streamSrv))
-			api.GET("/stream/probe/:hash/:file", handlers.StreamProbe(streamSrv))
-			// Subtrack and the raw stream file endpoint are hit by <video src>/<track src>
-			// which can't send Authorization headers — they accept ?token= as fallback (handled by middleware).
-			api.GET("/stream/subtrack/:hash/:file/:track", handlers.StreamSubtitleExtract(streamSrv))
-			api.GET("/stream/playlist/:hash/:file", handlers.StreamPlaylistM3U(streamSrv))
-			api.POST("/stream/prefetch/:hash/:file", handlers.StreamPrefetch(streamSrv))
-			api.GET("/stream/artwork/:hash/:file", handlers.StreamArtwork(streamSrv))
-			api.GET("/stream/metadata/:hash", handlers.StreamMetadata(streamSrv))
-			api.GET("/stream/health/:hash", handlers.StreamHealth(streamSrv))
-			api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(streamSrv))
-			// Per-torrent resolved thumbnail (poster/cover/frame, persisted by info_hash).
-			// GET is cheap (cards); POST runs the resolution chain on play.
-			api.GET("/stream/art/:hash", handlers.StreamArt(streamSrv))
-			api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(streamSrv, tmdbClient, aiClient, webSearch))
-			api.GET("/stream/:hash/:file", handlers.StreamFile(streamSrv, downloadsStore))
-			api.DELETE("/stream/:hash", handlers.StreamDrop(streamSrv))
-
-			// Converte []config.PromoteDir → []handlers.PromoteDest (mesma
-			// estrutura, pacotes diferentes).
-			promoteDests := make([]handlers.PromoteDest, 0, len(cfg.Stream.PromoteDirs))
-			for _, pd := range cfg.Stream.PromoteDirs {
-				promoteDests = append(promoteDests, handlers.PromoteDest{Name: pd.Name, Path: pd.Path})
-			}
-			// External filesystem mounts — browse + stream files already on
-			// disk (HD externo, NAS, OneDrive sync). Independent from torrents.
-			api.GET("/local/mounts", handlers.LocalMounts(localBrowser))
-			api.GET("/local/list", handlers.LocalList(localBrowser))
-			api.GET("/local/file", handlers.LocalFile(localBrowser))
-			api.GET("/local/thumb", handlers.LocalThumb(localBrowser))
-			api.GET("/local/transcode", handlers.LocalTranscode(localBrowser))
-			api.DELETE("/local/file", handlers.LocalDelete(localBrowser, downloadsStore, streamSrv))
-			api.POST("/local/promote", handlers.LocalPromote(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
-			api.POST("/local/promote/preview", handlers.LocalPromotePreview(localBrowser, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
-			api.GET("/local/walk", handlers.LocalWalk(localBrowser))
-			api.POST("/local/move", handlers.LocalMoveEntry(localBrowser))
-			// /local/play probes the file and tells the client whether to direct-play
-			// or fetch the HLS master (for MKV / HEVC / AC3 / etc. that browsers
-			// can't decode natively). Mirrors the torrent-side codec routing.
-			api.GET("/local/play", handlers.LocalPlay(localBrowser))
-
-			// Local subtitle pipeline — equivalentes às rotas /stream/{probe,
-			// sidecars,sidecar,subtrack} + /subtitles/auto, mas keyed por
-			// mount+path. Permite reusar o PlayerModal completo pra arquivos
-			// locais (embedded, sidecar, OpenSubtitles, persistência por arquivo).
-			api.GET("/local/probe", handlers.LocalProbe(localBrowser))
-			api.GET("/local/sidecars", handlers.LocalSidecars(localBrowser))
-			api.GET("/local/sidecar", handlers.LocalSidecarRead(localBrowser))
-			api.GET("/local/subtrack", handlers.LocalSubtitleExtract(localBrowser))
-			if subtitleClient != nil {
-				api.GET("/local/subtitles/auto", handlers.LocalSubtitlesAuto(localBrowser, subtitleClient))
-			}
-
-			// Background full-file downloads (anacrolix Download API);
-			// worker tick keeps the DB queue in sync with active torrents.
-			if downloadsStore != nil {
-				api.GET("/downloads", handlers.DownloadsList(downloadsStore, streamSrv, cfg.Stream.DownloadDir))
-				api.GET("/downloads/filtered", handlers.DownloadsListFiltered(downloadsStore, streamSrv))
-				api.GET("/downloads/trackers", handlers.DownloadsTrackers(downloadsStore))
-				api.GET("/downloads/categories", handlers.DownloadsCategories(downloadsStore))
-				api.POST("/downloads", handlers.DownloadsCreate(downloadsStore))
-				api.DELETE("/downloads/:id", handlers.DownloadsDelete(downloadsStore))
-			api.GET("/downloads/:id/details", handlers.DownloadsDetails(downloadsStore, streamSrv))
-			api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(downloadsStore, streamSrv))
-				api.PATCH("/downloads/:id/pause", handlers.DownloadsPause(downloadsStore))
-				api.PATCH("/downloads/:id/resume", handlers.DownloadsResume(downloadsStore))
-				api.PATCH("/downloads/pause-all", handlers.DownloadsPauseAll(downloadsStore))
-				api.PATCH("/downloads/resume-all", handlers.DownloadsResumeAll(downloadsStore))
-				api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(downloadsStore))
-				api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(downloadsStore))
-				api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(downloadsStore))
-				// Promove um download concluído pro diretório compartilhado
-				// (JACKUI_SHARED_DIR), opcionalmente em uma subpasta. Body:
-				// { keepSeeding, targetSubdir, targetBase }.
-				api.POST("/downloads/:id/promote", handlers.DownloadsPromote(downloadsStore, streamSrv, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
-				// Batch: promove N downloads pra mesma subpasta de destino.
-				api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(downloadsStore, streamSrv, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
-				// Preview de renomeação IA
-				api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(downloadsStore, aiClient, tmdbClient, cfg.Stream.SharedDir, promoteDests))
-				// Lista subpastas do destino pra alimentar o navegador da UI.
-				api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(cfg.Stream.SharedDir, promoteDests))
-				// Lista destinos de promoção disponíveis (GET /api/promote/destinations).
-				api.GET("/promote/destinations", handlers.DownloadsPromoteDests(cfg.Stream.SharedDir, promoteDests))
-				// Para de seedar sem mover o arquivo.
-				api.POST("/downloads/:id/stop-seed", handlers.DownloadsStopSeed(downloadsStore, streamSrv))
-			}
-
-			// HLS — Safari-friendly playback path. Apple's MSE pipeline
-			// rejects progressive fragmented MP4 over chunked transfer;
-			// HLS (.m3u8 + .ts) is the only thing `<video src>` accepts
-			// reliably across Safari/iOS. Frontend uses this URL as
-			// fallback when Safari is detected or transcode-with-mp4 fails.
-			hlsMgr, hlsErr := transcode.NewHLSManager(streamCfg.DataDir)
-			if hlsErr != nil {
-				log.Printf("Warning: HLS manager init failed: %v — Safari users won't get HLS fallback", hlsErr)
-			} else {
-				api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(streamSrv, hlsMgr, downloadsStore))
-				api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(hlsMgr))
-				// Same pipeline, different source: a local file on a configured
-				// mount. Same reason for HLS as torrents — browsers can't decode
-				// MKV / HEVC / AC3 in <video> directly; the transcode manager
-				// dedupes by session key so concurrent viewers share one ffmpeg.
-				api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(localBrowser, hlsMgr))
-				api.GET("/local/hls/seg", handlers.LocalHLSSegment(localBrowser, hlsMgr))
-
-				adminAPI.GET("/transcode/active", handlers.TranscodeActive(hlsMgr))
-				adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(hlsMgr))
-
-				log.Printf("HLS sessions: %s/hls", streamCfg.DataDir)
-			}
-		}
-
-		// Library — per-user history of streamed torrents (magnet + resume)
-		if libraryStore != nil {
-			api.GET("/library", handlers.LibraryList(libraryStore))
-			api.GET("/library/:id", handlers.LibraryGet(libraryStore))
-			api.PATCH("/library/:id", handlers.LibraryUpdateResume(libraryStore))
-			api.DELETE("/library/:id", handlers.LibraryDelete(libraryStore))
-			api.DELETE("/library", handlers.LibraryDeleteAll(libraryStore))
-		}
-
-		// TMDB enrichment — optional poster + overview per torrent title
-		api.GET("/tmdb/match", handlers.TmdbMatch(tmdbClient))
-		api.GET("/tmdb/trending", handlers.TmdbTrending(tmdbClient))
-
-		// Watchlists — saved searches + ntfy push notifications
-		if watchlistStore != nil {
-			api.GET("/watchlists", handlers.WatchlistList(watchlistStore))
-			api.POST("/watchlists", handlers.WatchlistCreate(watchlistStore))
-			api.PUT("/watchlists/:id", handlers.WatchlistUpdate(watchlistStore))
-			api.DELETE("/watchlists/:id", handlers.WatchlistDelete(watchlistStore))
-			api.GET("/watchlists/:id/hits", handlers.WatchlistHits(watchlistStore))
-		}
-
-		// Playlists — per-user ordered collections
-		if playlistsStore != nil {
-			api.GET("/playlists", handlers.PlaylistsList(playlistsStore))
-			api.POST("/playlists", handlers.PlaylistsCreate(playlistsStore))
-			api.GET("/playlists/:id", handlers.PlaylistsGet(playlistsStore))
-			api.PATCH("/playlists/:id", handlers.PlaylistsUpdate(playlistsStore))
-			api.DELETE("/playlists/:id", handlers.PlaylistsDelete(playlistsStore))
-			api.POST("/playlists/:id/items", handlers.PlaylistsAddItem(playlistsStore))
-			api.DELETE("/playlists/:id/items/:itemId", handlers.PlaylistsRemoveItem(playlistsStore))
-			api.PATCH("/playlists/:id/items/:itemId", handlers.PlaylistsReorderItem(playlistsStore))
-		}
-
-		// Sidecar subtitles (.srt/.vtt files inside the torrent)
-		if streamSrv != nil {
-			api.GET("/stream/sidecars/:hash/:file", handlers.StreamSidecars(streamSrv))
-			api.GET("/stream/sidecar/:hash/:file", handlers.StreamSidecarRead(streamSrv))
-		}
-
-		api.GET("/subtitles/search", handlers.SubtitlesSearch(subtitleClient))
-		api.GET("/subtitles/download/:fileId", handlers.SubtitlesDownload(subtitleClient))
-		api.GET("/subtitles/enabled", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"enabled": subtitleClient.Enabled()})
-		})
-		if streamSrv != nil {
-			api.GET("/subtitles/auto/:hash/:file", handlers.SubtitlesAuto(streamSrv, subtitleClient))
-		}
-
-		// Hardware transcoding capability matrix
-		api.GET("/transcode/capabilities", handlers.TranscodeCapabilities)
-
-		// Authenticated user endpoints
-		if authStore != nil {
-			api.GET("/auth/me", handlers.Me(authStore))
-			api.POST("/auth/password", handlers.ChangePassword(authStore))
-			api.POST("/auth/mfa/enroll", handlers.MFAEnrollStart(authStore))
-			api.POST("/auth/mfa/verify", handlers.MFAEnrollVerify(authStore))
-			api.POST("/auth/mfa/disable", handlers.MFADisable(authStore))
-			api.GET("/auth/mfa/backup-codes", handlers.MFABackupCodesStatus(authStore))
-			api.POST("/auth/mfa/backup-codes/regenerate", handlers.MFABackupCodesRegenerate(authStore))
-			// Media token: emite JWT scope="media" com TTL longo pra <video src>
-			// não resetar quando o access token regular fizer refresh em background.
-			api.POST("/auth/media-token", handlers.MediaToken(authStore, tokenMgr))
-			// Active session management (list / revoke).
-			api.POST("/auth/sessions", handlers.ListSessions(authStore))
-			api.POST("/auth/sessions/revoke-others", handlers.RevokeOtherSessions(authStore))
-			api.DELETE("/auth/sessions/:id", handlers.RevokeSession(authStore))
-			// Passkey enrollment + management (authenticated).
-			api.GET("/auth/passkey", handlers.PasskeyList(authStore))
-			api.POST("/auth/passkey/register/begin", handlers.PasskeyRegisterBegin(authStore, waManager))
-			api.POST("/auth/passkey/register/finish", handlers.PasskeyRegisterFinish(authStore, waManager))
-			api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(authStore))
-			// Notification settings
-			api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(authStore))
-			api.POST("/user/notify-test", handlers.NotifyTest(cfg, authStore))
-			// Incognito session management
-			api.DELETE("/user/incognito", handlers.ClearIncognito(historyStore, libraryStore))
-			api.POST("/user/incognito/heartbeat", handlers.IncognitoHeartbeat())
-			adminGroup := api.Group("/auth/users")
-			adminGroup.Use(auth.AdminOnly())
-			adminGroup.GET("", handlers.ListUsers(authStore))
-			adminGroup.POST("", handlers.CreateUser(authStore))
-			adminGroup.DELETE("/:id", handlers.DeleteUser(authStore))
-			adminGroup.PATCH("/:id/status", handlers.SetUserStatus(authStore))
-			adminGroup.POST("/invite", handlers.Invite(authStore, mlr, cfg.BaseURL))
-		}
-		if streamSrv != nil {
-			// Live transcode: remux/transcode torrent file → browser-friendly stream
-			api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(streamSrv, downloadsStore))
-		}
-	}
-
-	distFS, err := fs.Sub(ui.FS, "dist")
-	if err != nil {
-		log.Fatalf("Failed to create sub filesystem: %v", err)
-	}
-
+	distFS := mustGetDistFS()
 	fileServer := http.FileServer(http.FS(distFS))
+	router.NoRoute(spaFallback(distFS, fileServer))
 
-	router.NoRoute(func(c *gin.Context) {
-		path := c.Request.URL.Path
-
-		if strings.HasPrefix(path, "/api/") {
-			c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
-			return
-		}
-
-		// Hashed assets (index-Bm63i5PK.js etc.) are content-addressed → safe to cache forever
-		// HTML (index.html / unknown paths) must NOT be cached — Vite changes the hash inside on rebuild
-		isHashedAsset := strings.HasPrefix(path, "/assets/") ||
-			strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") ||
-			strings.HasSuffix(path, ".woff2") || strings.HasSuffix(path, ".woff")
-
-		if isHashedAsset {
-			c.Writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else {
-			// SPA shell + manifest + favicons — always revalidate so iOS PWA picks up new builds
-			c.Writer.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			c.Writer.Header().Set("Pragma", "no-cache")
-			c.Writer.Header().Set("Expires", "0")
-		}
-
-		f, err := distFS.Open(strings.TrimPrefix(path, "/"))
-		if err == nil {
-			f.Close()
-			fileServer.ServeHTTP(c.Writer, c.Request)
-			return
-		}
-
-		c.Request.URL.Path = "/"
-		fileServer.ServeHTTP(c.Writer, c.Request)
-	})
-
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	addr := fmt.Sprintf(":%d", deps.cfg.Port)
 	log.Printf("JackUI starting on http://localhost%s", addr)
 
-	// Graceful shutdown: SEM isto, o SIGTERM do Docker matava o processo
-	// imediatamente e os `defer ...Close()` NUNCA rodavam — especialmente
-	// `streamSrv.Close()` que comita o estado dos pieces do anacrolix no
-	// `.torrent.bolt.db`. Resultado: bytes ficavam no disco mas o bolt DB
-	// não sabia, e a cada restart o anacrolix re-baixava pieces que já estavam
-	// completos. Esse é o motivo real do "download recomeçou do início" que
-	// o usuário relatou ao longo do dia.
 	srv := &http.Server{Addr: addr, Handler: router}
 	serverErr := make(chan error, 1)
 	go func() {
@@ -866,16 +185,730 @@ func main() {
 		log.Printf("Signal %s recebido — graceful shutdown iniciado...", sig)
 	}
 
-	// Para o HTTP server primeiro (para de aceitar requests novos + drena os
-	// em curso) e DEPOIS deixa os defers rodarem. Timeout de 25s cabe dentro
-	// dos 30s default de stop-timeout do Docker.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
 	}
 	log.Printf("HTTP server encerrado — rodando cleanups (anacrolix, stores, worker)...")
-	// O return de main() agora dispara todos os `defer` (streamSrv.Close,
-	// libraryStore.Close, worker.Stop, ...) que antes eram puladados pelo
-	// SIGKILL após o grace period de 10s.
+}
+
+func loadConfig() (*config.Config, string) {
+	configPath := "config.yaml"
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	return cfg, configPath
+}
+
+func initHistoryStore(deps *appDeps) {
+	dbPath := deps.cfg.DBPath
+	if dbPath == "" {
+		dbPath = "./jackui.db"
+	}
+	store, err := history.New(dbPath)
+	if err != nil {
+		log.Printf("Warning: failed to open history store at %s: %v — history disabled", dbPath, err)
+		return
+	}
+	deps.historyStore = store
+	log.Printf("History store: %s", dbPath)
+	go func() {
+		for {
+			time.Sleep(24 * time.Hour)
+			store.Cleanup(90 * 24 * time.Hour)
+		}
+	}()
+}
+
+func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
+	sc := streamer.Config{
+		DataDir:       cfg.Stream.DataDir,
+		IdleTimeout:   time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
+		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
+		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
+		JackettAPIKey: cfg.Jackett.APIKey,
+	}
+	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
+		sc.JackettHost = u.Hostname()
+	}
+	// Inbound BitTorrent peer port. Behind a VPN it must be the provider's
+	// forwarded port (read from gluetun) so peers can reach us — seeds public
+	// torrents properly and improves leech. 0 → streamer default (51469).
+	sc.ListenPort = resolvePeerPort()
+	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" && sc.ListenPort > 0 {
+		go watchForwardedPort(ctrl, sc.ListenPort)
+	}
+	if sc.DataDir == "" {
+		sc.DataDir = "/data/streams"
+	}
+	stateDir := cfg.Stream.StateDir
+	if stateDir == "" {
+		stateDir = sc.DataDir
+	}
+	return sc, stateDir
+}
+
+func initStreamer(deps *appDeps) {
+	s, err := streamer.New(deps.streamCfg)
+	if err != nil {
+		log.Printf("Warning: streamer init failed: %v — streaming disabled", err)
+		return
+	}
+	deps.streamSrv = s
+	deps.addCleanup(func() { s.Close() })
+	log.Printf("Streamer ready: %s (idle=%s, metadata=%s)", deps.streamCfg.DataDir, deps.streamCfg.IdleTimeout, deps.streamCfg.MetadataWait)
+
+	if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(deps.stateDir)); ferr == nil {
+		s.SetFavorites(favs)
+		deps.addCleanup(func() { favs.Close() })
+		log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(deps.stateDir))
+	} else {
+		log.Printf("Warning: favorites store init failed: %v", ferr)
+	}
+	if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(deps.stateDir)); mcerr == nil {
+		s.SetMetadataCache(mc)
+		deps.addCleanup(func() { _ = mc.Close() })
+		log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(deps.stateDir))
+	} else {
+		log.Printf("Warning: metadata cache init failed: %v", mcerr)
+	}
+}
+
+func initLibraryStore(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	libPath := deps.stateDir + "/.library.db"
+	l, err := library.New(libPath)
+	if err != nil {
+		log.Printf("Warning: library store init failed: %v", err)
+		return
+	}
+	deps.libraryStore = l
+	deps.addCleanup(func() { l.Close() })
+	log.Printf("Library: %s", libPath)
+	if mc := deps.streamSrv.MetadataCache(); mc != nil {
+		n, mErr := l.RefreshStalePrimary(func(hash string) (int, bool) {
+			meta := mc.Get(hash)
+			if meta == nil {
+				return 0, false
+			}
+			return meta.PrimaryFile, true
+		})
+		if mErr != nil {
+			log.Printf("Library: stale primary refresh failed: %v", mErr)
+		} else if n > 0 {
+			log.Printf("Library: refreshed %d stale primary_file_index entries from metadata cache", n)
+		}
+	}
+}
+
+func initPlaylistsStore(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	plPath := deps.stateDir + "/.playlists.db"
+	p, err := playlists.New(plPath)
+	if err != nil {
+		log.Printf("Warning: playlists store init failed: %v", err)
+		return
+	}
+	deps.playlistsStore = p
+	deps.addCleanup(func() { p.Close() })
+	log.Printf("Playlists: %s", plPath)
+}
+
+func initDownloadsStore(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	dlPath := deps.stateDir + "/.downloads.db"
+	d, err := downloads.New(dlPath)
+	if err != nil {
+		log.Printf("Warning: downloads store init failed: %v", err)
+		return
+	}
+	deps.downloadsStore = d
+	deps.addCleanup(func() { d.Close() })
+	log.Printf("Downloads: %s", dlPath)
+
+	deps.streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
+		path, err := d.GetCompletedPath(h.HexString(), fileIdx)
+		if err != nil || path == "" {
+			return "", false
+		}
+		if _, err := os.Stat(path); err != nil {
+			return "", false
+		}
+		return path, true
+	})
+
+	usernameResolver := func(userID int) string {
+		if deps.authStore == nil {
+			return ""
+		}
+		u, err := deps.authStore.GetUserByID(userID)
+		if err != nil || u == nil {
+			return ""
+		}
+		return u.Username
+	}
+	worker := downloads.NewWorker(downloads.WorkerConfig{
+		Store:           d,
+		Streamer:        deps.streamSrv,
+		DataDir:         deps.streamCfg.DataDir,
+		DownloadDir:     deps.cfg.Stream.DownloadDir,
+		Interval:        2 * time.Second,
+		NtfyBaseURL:     deps.cfg.Notifications.NtfyBaseURL,
+		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
+		ResolveUsername: usernameResolver,
+	})
+	worker.Start()
+	deps.addCleanup(worker.Stop)
+	log.Printf("Downloads worker started (tick=2s, ntfy=%q)", deps.cfg.Notifications.NtfyDefaultTopic)
+}
+
+func initTMDBClient(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	tmdbPath := deps.stateDir + "/.tmdb-cache.db"
+	tc, err := tmdb.New(deps.cfg.TMDB.APIKey, deps.cfg.TMDB.OMDbAPIKey, tmdbPath)
+	if err != nil {
+		log.Printf("Warning: tmdb client init failed: %v", err)
+		return
+	}
+	deps.tmdbClient = tc
+	deps.addCleanup(func() { _ = tc.Close() })
+	if deps.cfg.TMDB.APIKey != "" {
+		log.Printf("TMDB enrichment: enabled (cache: %s)", tmdbPath)
+	} else {
+		log.Printf("TMDB enrichment: disabled (no API key) — cache prepared at %s", tmdbPath)
+	}
+}
+
+func initAIClient(deps *appDeps) {
+	aiClient := ai.New(deps.cfg.AI)
+	deps.aiClient = aiClient
+	if aiClient == nil {
+		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
+		return
+	}
+	bs, err := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(deps.stateDir))
+	if err != nil {
+		log.Printf("Warning: ai benchmark store init failed: %v", err)
+	} else {
+		deps.aiBench = bs
+		deps.addCleanup(func() { _ = bs.Close() })
+		if res := bs.Results(); len(res) > 0 {
+			aiClient.AdoptBenchmark(res)
+		}
+	}
+	ids := make([]string, 0, len(aiClient.Slots()))
+	for _, s := range aiClient.Slots() {
+		ids = append(ids, s.ID)
+	}
+	log.Printf("AI title identification: enabled — chain: %s", strings.Join(ids, " → "))
+}
+
+func initWatchlistStore(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	wlPath := deps.stateDir + "/.watchlist.db"
+	w, err := watchlist.New(wlPath)
+	if err != nil {
+		log.Printf("Warning: watchlist store init failed: %v", err)
+		return
+	}
+	deps.watchlistStore = w
+	deps.addCleanup(func() { w.Close() })
+	log.Printf("Watchlist: %s", wlPath)
+	interval := time.Duration(deps.cfg.Notifications.WatchlistInterval) * time.Minute
+	if interval <= 0 {
+		interval = 15 * time.Minute
+	}
+	notifier := &watchlist.NtfyPoster{BaseURL: deps.cfg.Notifications.NtfyBaseURL}
+	worker := watchlist.NewWorker(w, deps.jackettClient, notifier, deps.cfg.Notifications.NtfyDefaultTopic, interval)
+	worker.Start()
+	deps.addCleanup(worker.Stop)
+	log.Printf("Watchlist worker: interval=%s default_topic=%q", interval, deps.cfg.Notifications.NtfyDefaultTopic)
+}
+
+func initSubtitles(cfg *config.Config) *subtitles.Client {
+	subCacheDir := cfg.Subtitles.CacheDir
+	if subCacheDir == "" {
+		subCacheDir = "/data/subtitles"
+	}
+	sc := subtitles.New(
+		cfg.Subtitles.OpenSubtitlesAPIKey,
+		cfg.Subtitles.OpenSubtitlesUsername,
+		cfg.Subtitles.OpenSubtitlesPassword,
+		subCacheDir,
+	)
+	if sc.Enabled() {
+		log.Printf("Subtitles: OpenSubtitles enabled (cache=%s)", subCacheDir)
+	}
+	return sc
+}
+
+func startTranscodeProbe() {
+	go func() {
+		caps, err := transcode.Probe(context.Background(), false)
+		if err != nil {
+			log.Printf("Transcode probe failed: %v", err)
+			return
+		}
+		log.Printf("Transcode: preferred H.264=%q, HEVC=%q (NVIDIA=%v VAAPI=%v QSV=%v)",
+			caps.Preferred, caps.PreferredHE, caps.HasNVIDIA, caps.HasVAAPI, caps.HasQSV)
+	}()
+}
+
+func initAuth(deps *appDeps) {
+	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
+	if !deps.cfg.Auth.Enabled {
+		log.Printf("Auth disabled — all endpoints public (set JACKUI_AUTH_ENABLED=1 to enable)")
+		return
+	}
+	initAuthStore(deps)
+	initJWTSecret(deps)
+	initPasskeys(deps)
+	bootstrapAdmin(deps)
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			deps.authStore.CleanupExpired()
+		}
+	}()
+}
+
+func initAuthStore(deps *appDeps) {
+	authDB := deps.cfg.Auth.DBPath
+	if authDB == "" {
+		authDB = "/data/auth.db"
+	}
+	authStore, err := auth.New(authDB)
+	if err != nil {
+		log.Fatalf("Auth store init failed: %v", err)
+	}
+	deps.authStore = authStore
+	deps.addCleanup(func() { authStore.Close() })
+	log.Printf("Auth enabled: user store at %s", authDB)
+}
+
+func initJWTSecret(deps *appDeps) {
+	secret := []byte(deps.cfg.Auth.JWTSecret)
+	if len(secret) < 32 {
+		secret = make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			log.Fatalf("Failed to generate JWT secret: %v", err)
+		}
+		log.Printf("Auth: generated random JWT secret (set jwt_secret in config to persist across restarts)")
+	}
+	deps.tokenMgr = auth.NewTokenManager(secret, 15*time.Minute)
+}
+
+func initPasskeys(deps *appDeps) {
+	if deps.cfg.BaseURL == "" {
+		log.Printf("Passkeys (WebAuthn): disabled — set JACKUI_BASE_URL to the public https origin to enable")
+		return
+	}
+	u, perr := url.Parse(deps.cfg.BaseURL)
+	if perr != nil || u.Host == "" {
+		log.Printf("Passkeys (WebAuthn): disabled — set JACKUI_BASE_URL to the public https origin to enable")
+		return
+	}
+	origin := u.Scheme + "://" + u.Host
+	wm, werr := auth.NewWAManager(u.Hostname(), "JackUI", origin)
+	if werr != nil {
+		log.Printf("Passkeys: disabled — %v", werr)
+		return
+	}
+	deps.waManager = wm
+	log.Printf("Passkeys (WebAuthn): enabled for %s (RPID=%s)", origin, u.Hostname())
+}
+
+func bootstrapAdmin(deps *appDeps) {
+	adminUser := deps.cfg.Auth.AdminUsername
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+	if deps.cfg.Auth.AdminPassword == "" {
+		log.Fatalf("Auth enabled but JACKUI_ADMIN_PASSWORD / config admin_password not set")
+	}
+	if err := deps.authStore.Bootstrap(adminUser, deps.cfg.Auth.AdminPassword); err != nil {
+		log.Fatalf("Auth bootstrap failed: %v", err)
+	}
+	log.Printf("Admin user=%s", adminUser)
+}
+
+func initHLSManager(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	hlsMgr, err := transcode.NewHLSManager(deps.streamCfg.DataDir)
+	if err != nil {
+		log.Printf("Warning: HLS manager init failed: %v — Safari users won't get HLS fallback", err)
+		return
+	}
+	deps.hlsMgr = hlsMgr
+}
+
+func buildPromoteDests(cfg *config.Config) []handlers.PromoteDest {
+	dests := make([]handlers.PromoteDest, 0, len(cfg.Stream.PromoteDirs))
+	for _, pd := range cfg.Stream.PromoteDirs {
+		dests = append(dests, handlers.PromoteDest{Name: pd.Name, Path: pd.Path})
+	}
+	return dests
+}
+
+func mustGetDistFS() fs.FS {
+	distFS, err := fs.Sub(ui.FS, "dist")
+	if err != nil {
+		log.Fatalf("Failed to create sub filesystem: %v", err)
+	}
+	return distFS
+}
+
+func spaFallback(distFS fs.FS, fileServer http.Handler) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		if strings.HasPrefix(path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "endpoint not found"})
+			return
+		}
+
+		isHashedAsset := strings.HasPrefix(path, "/assets/") ||
+			strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") ||
+			strings.HasSuffix(path, ".woff2") || strings.HasSuffix(path, ".woff")
+
+		if isHashedAsset {
+			c.Writer.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			c.Writer.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Writer.Header().Set("Pragma", "no-cache")
+			c.Writer.Header().Set("Expires", "0")
+		}
+
+		f, err := distFS.Open(strings.TrimPrefix(path, "/"))
+		if err == nil {
+			f.Close()
+			fileServer.ServeHTTP(c.Writer, c.Request)
+			return
+		}
+
+		c.Request.URL.Path = "/"
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func setupRouter(deps *appDeps) *gin.Engine {
+	router := gin.New()
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range"}
+	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges"}
+	router.Use(cors.New(corsConfig))
+
+	router.GET("/healthz", handlers.Health(deps.historyStore))
+	router.GET("/api/auth/config", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"enabled": deps.cfg.Auth.Enabled})
+	})
+
+	log.Printf("Email (SMTP): %s", emailStatus(deps.mlr))
+
+	if deps.authStore != nil && deps.tokenMgr != nil {
+		pub := router.Group("/api/auth")
+		pub.POST("/login", handlers.Login(deps.authStore, deps.tokenMgr, deps.loginLockout))
+		pub.POST("/refresh", handlers.Refresh(deps.authStore, deps.tokenMgr))
+		pub.POST("/logout", handlers.Logout(deps.authStore))
+		pub.POST("/register", handlers.Register(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
+		pub.POST("/forgot", handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+		pub.POST("/reset", handlers.Reset(deps.authStore))
+		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(deps.authStore, deps.waManager))
+		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(deps.authStore, deps.tokenMgr, deps.waManager))
+	}
+
+	api := router.Group("/api")
+	if deps.tokenMgr != nil {
+		api.Use(auth.Required(deps.tokenMgr))
+		api.Use(auth.GuestRestrict())
+	}
+	api.Use(middleware.Incognito())
+	{
+		api.POST("/diag/log", handlers.ClientLog())
+		api.GET("/search", handlers.Search(deps.jackettClient, deps.historyStore, deps.streamSrv.Favorites(), deps.downloadsStore))
+		api.GET("/search/stream", handlers.SearchSSE(deps.jackettClient, deps.historyStore, deps.streamSrv.Favorites(), deps.downloadsStore))
+		api.GET("/indexers", handlers.GetIndexers(deps.jackettClient))
+		api.POST("/download", handlers.Download(deps.cfg))
+		api.GET("/clients", handlers.GetClients(deps.cfg))
+		api.GET("/proxy/torrent", handlers.ProxyTorrentDownload(deps.jackettClient))
+		api.GET("/convert/torrent-to-magnet", handlers.ConvertTorrentToMagnet())
+		api.GET("/convert/magnet-to-torrent", handlers.ConvertMagnetToTorrent(deps.streamSrv))
+
+		adminAPI := api.Group("")
+		if deps.tokenMgr != nil {
+			adminAPI.Use(auth.AdminOnly())
+		}
+		adminAPI.GET("/config", handlers.GetConfig(deps.cfg, deps.configPath))
+		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath))
+		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
+		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench))
+		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))
+		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
+
+		if deps.downloadsStore != nil && deps.authStore != nil {
+			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv))
+			adminAPI.GET("/downloads/users", handlers.DownloadsUsers(deps.downloadsStore, deps.authStore))
+		}
+
+		api.GET("/status", handlers.Status(deps.jackettClient, deps.historyStore))
+
+		registerHistoryRoutes(api, deps)
+		registerStreamRoutes(api, adminAPI, deps)
+		registerLibraryRoutes(api, deps)
+		registerTMDBRoutes(api, deps)
+		registerWatchlistRoutes(api, deps)
+		registerPlaylistRoutes(api, deps)
+		registerSubtitleRoutes(api, deps)
+		registerTranscodeRoutes(api)
+		registerAuthRoutes(api, deps)
+		registerSidecarRoutes(api, deps)
+	}
+	return router
+}
+
+func emailStatus(mlr *mailer.Mailer) string {
+	if mlr.Enabled() {
+		return "enabled"
+	}
+	return "disabled — reset/verify/invite links are logged, not emailed"
+}
+
+func registerHistoryRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.historyStore == nil {
+		return
+	}
+	api.GET("/history", handlers.GetHistory(deps.historyStore))
+	api.GET("/history/results", handlers.GetHistoryResults(deps.historyStore, deps.streamSrv.Favorites(), deps.downloadsStore))
+	api.GET("/history/cache", handlers.SearchCache(deps.historyStore, deps.streamSrv.Favorites(), deps.downloadsStore))
+	api.DELETE("/history", handlers.DeleteHistory(deps.historyStore))
+	api.POST("/history/:id/refresh", handlers.HistoryRefresh(deps.historyStore, deps.jackettClient))
+}
+
+func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	api.GET("/stream/cache", handlers.StreamCacheStats(deps.streamSrv))
+	api.DELETE("/stream/cache", handlers.StreamCacheClear(deps.streamSrv))
+	api.GET("/stream/rate", handlers.StreamRateStats(deps.streamSrv))
+	api.GET("/stream/active", handlers.StreamActive(deps.streamSrv))
+	api.POST("/stream/active/pause", handlers.StreamPauseAll(deps.streamSrv))
+	api.POST("/stream/active/resume", handlers.StreamResumeAll(deps.streamSrv))
+	api.GET("/stream/limits", handlers.StreamGetLimits(deps.streamSrv))
+	api.POST("/stream/limits", handlers.StreamSetLimits(deps.streamSrv))
+	api.POST("/stream/:hash/pause", handlers.StreamPause(deps.streamSrv))
+	api.POST("/stream/:hash/resume", handlers.StreamResume(deps.streamSrv))
+	api.POST("/stream/:hash/priority", handlers.StreamSetPriority(deps.streamSrv))
+	api.POST("/stream/:hash/files/:idx/priority", handlers.StreamSetFilePriority(deps.streamSrv))
+	api.GET("/stream/favorites", handlers.StreamFavorites(deps.streamSrv))
+	api.POST("/stream/favorite", handlers.StreamFavorite(deps.streamSrv))
+	api.DELETE("/stream/favorite/:name", handlers.StreamUnfavorite(deps.streamSrv))
+	api.GET("/stream/favorites/folders", handlers.FoldersList(deps.streamSrv))
+	api.POST("/stream/favorites/folders", handlers.FolderCreate(deps.streamSrv))
+	api.PATCH("/stream/favorites/folders/:id", handlers.FolderPatch(deps.streamSrv))
+	api.DELETE("/stream/favorites/folders/:id", handlers.FolderDelete(deps.streamSrv))
+	api.PATCH("/stream/favorite/:name/folder", handlers.FavoriteMoveToFolder(deps.streamSrv))
+	api.POST("/stream/import", handlers.StreamImport(deps.streamSrv))
+	api.POST("/stream/add", handlers.StreamAdd(deps.streamSrv, deps.libraryStore))
+	api.POST("/stream/add-file", handlers.StreamAddTorrentFile(deps.streamSrv))
+	api.GET("/stream/info/:hash", handlers.StreamInfo(deps.streamSrv))
+	api.GET("/stream/probe/:hash/:file", handlers.StreamProbe(deps.streamSrv))
+	api.GET("/stream/subtrack/:hash/:file/:track", handlers.StreamSubtitleExtract(deps.streamSrv))
+	api.GET("/stream/playlist/:hash/:file", handlers.StreamPlaylistM3U(deps.streamSrv))
+	api.POST("/stream/prefetch/:hash/:file", handlers.StreamPrefetch(deps.streamSrv))
+	api.GET("/stream/artwork/:hash/:file", handlers.StreamArtwork(deps.streamSrv))
+	api.GET("/stream/metadata/:hash", handlers.StreamMetadata(deps.streamSrv))
+	api.GET("/stream/health/:hash", handlers.StreamHealth(deps.streamSrv))
+	api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(deps.streamSrv))
+	api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
+	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore))
+	api.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv))
+	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))
+
+	registerLocalRoutes(api, deps)
+	registerDownloadsRoutes(api, deps)
+	registerHLSRoutes(api, adminAPI, deps)
+}
+
+func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
+	api.GET("/local/mounts", handlers.LocalMounts(deps.localBrowser))
+	api.GET("/local/list", handlers.LocalList(deps.localBrowser))
+	api.GET("/local/file", handlers.LocalFile(deps.localBrowser))
+	api.GET("/local/thumb", handlers.LocalThumb(deps.localBrowser))
+	api.GET("/local/transcode", handlers.LocalTranscode(deps.localBrowser))
+	api.DELETE("/local/file", handlers.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/promote", handlers.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
+	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser))
+	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser))
+	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
+	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
+	api.GET("/local/sidecar", handlers.LocalSidecarRead(deps.localBrowser))
+	api.GET("/local/subtrack", handlers.LocalSubtitleExtract(deps.localBrowser))
+	if deps.subtitleClient != nil {
+		api.GET("/local/subtitles/auto", handlers.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
+	}
+}
+
+func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.downloadsStore == nil {
+		return
+	}
+	api.GET("/downloads", handlers.DownloadsList(deps.downloadsStore, deps.streamSrv, deps.cfg.Stream.DownloadDir))
+	api.GET("/downloads/filtered", handlers.DownloadsListFiltered(deps.downloadsStore, deps.streamSrv))
+	api.GET("/downloads/trackers", handlers.DownloadsTrackers(deps.downloadsStore))
+	api.GET("/downloads/categories", handlers.DownloadsCategories(deps.downloadsStore))
+	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
+	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore))
+	api.GET("/downloads/:id/details", handlers.DownloadsDetails(deps.downloadsStore, deps.streamSrv))
+	api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(deps.downloadsStore, deps.streamSrv))
+	api.PATCH("/downloads/:id/pause", handlers.DownloadsPause(deps.downloadsStore))
+	api.PATCH("/downloads/:id/resume", handlers.DownloadsResume(deps.downloadsStore))
+	api.PATCH("/downloads/pause-all", handlers.DownloadsPauseAll(deps.downloadsStore))
+	api.PATCH("/downloads/resume-all", handlers.DownloadsResumeAll(deps.downloadsStore))
+	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))
+	api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(deps.downloadsStore))
+	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore))
+	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(deps.downloadsStore, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.GET("/promote/destinations", handlers.DownloadsPromoteDests(deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.POST("/downloads/:id/stop-seed", handlers.DownloadsStopSeed(deps.downloadsStore, deps.streamSrv))
+}
+
+func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
+	if deps.hlsMgr == nil {
+		return
+	}
+	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.hlsMgr))
+	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr))
+	api.GET("/local/hls/seg", handlers.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
+	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
+	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))
+}
+
+func registerTMDBRoutes(api *gin.RouterGroup, deps *appDeps) {
+	// TMDB enrichment — optional poster + overview per torrent title
+	api.GET("/tmdb/match", handlers.TmdbMatch(deps.tmdbClient))
+	api.GET("/tmdb/trending", handlers.TmdbTrending(deps.tmdbClient))
+}
+
+func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.libraryStore == nil {
+		return
+	}
+	api.GET("/library", handlers.LibraryList(deps.libraryStore))
+	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore))
+	api.PATCH(routeLibraryID, handlers.LibraryUpdateResume(deps.libraryStore))
+	api.DELETE(routeLibraryID, handlers.LibraryDelete(deps.libraryStore))
+	api.DELETE("/library", handlers.LibraryDeleteAll(deps.libraryStore))
+}
+
+func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.watchlistStore == nil {
+		return
+	}
+	api.GET("/watchlists", handlers.WatchlistList(deps.watchlistStore))
+	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore))
+	api.PUT("/watchlists/:id", handlers.WatchlistUpdate(deps.watchlistStore))
+	api.DELETE("/watchlists/:id", handlers.WatchlistDelete(deps.watchlistStore))
+	api.GET("/watchlists/:id/hits", handlers.WatchlistHits(deps.watchlistStore))
+}
+
+func registerPlaylistRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.playlistsStore == nil {
+		return
+	}
+	api.GET("/playlists", handlers.PlaylistsList(deps.playlistsStore))
+	api.POST("/playlists", handlers.PlaylistsCreate(deps.playlistsStore))
+	api.GET(routePlaylistID, handlers.PlaylistsGet(deps.playlistsStore))
+	api.PATCH(routePlaylistID, handlers.PlaylistsUpdate(deps.playlistsStore))
+	api.DELETE(routePlaylistID, handlers.PlaylistsDelete(deps.playlistsStore))
+	api.POST("/playlists/:id/items", handlers.PlaylistsAddItem(deps.playlistsStore))
+	api.DELETE("/playlists/:id/items/:itemId", handlers.PlaylistsRemoveItem(deps.playlistsStore))
+	api.PATCH("/playlists/:id/items/:itemId", handlers.PlaylistsReorderItem(deps.playlistsStore))
+}
+
+func registerSidecarRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	api.GET("/stream/sidecars/:hash/:file", handlers.StreamSidecars(deps.streamSrv))
+	api.GET("/stream/sidecar/:hash/:file", handlers.StreamSidecarRead(deps.streamSrv))
+}
+
+func registerSubtitleRoutes(api *gin.RouterGroup, deps *appDeps) {
+	api.GET("/subtitles/search", handlers.SubtitlesSearch(deps.subtitleClient))
+	api.GET("/subtitles/download/:fileId", handlers.SubtitlesDownload(deps.subtitleClient))
+	api.GET("/subtitles/enabled", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"enabled": deps.subtitleClient.Enabled()})
+	})
+	if deps.streamSrv != nil {
+		api.GET("/subtitles/auto/:hash/:file", handlers.SubtitlesAuto(deps.streamSrv, deps.subtitleClient))
+	}
+}
+
+func registerTranscodeRoutes(api *gin.RouterGroup) {
+	api.GET("/transcode/capabilities", handlers.TranscodeCapabilities)
+}
+
+func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
+	if deps.authStore == nil {
+		return
+	}
+	api.GET("/auth/me", handlers.Me(deps.authStore))
+	api.POST("/auth/password", handlers.ChangePassword(deps.authStore))
+	api.POST("/auth/mfa/enroll", handlers.MFAEnrollStart(deps.authStore))
+	api.POST("/auth/mfa/verify", handlers.MFAEnrollVerify(deps.authStore))
+	api.POST("/auth/mfa/disable", handlers.MFADisable(deps.authStore))
+	api.GET("/auth/mfa/backup-codes", handlers.MFABackupCodesStatus(deps.authStore))
+	api.POST("/auth/mfa/backup-codes/regenerate", handlers.MFABackupCodesRegenerate(deps.authStore))
+	api.POST("/auth/media-token", handlers.MediaToken(deps.authStore, deps.tokenMgr))
+	api.POST("/auth/sessions", handlers.ListSessions(deps.authStore))
+	api.POST("/auth/sessions/revoke-others", handlers.RevokeOtherSessions(deps.authStore))
+	api.DELETE("/auth/sessions/:id", handlers.RevokeSession(deps.authStore))
+	api.GET("/auth/passkey", handlers.PasskeyList(deps.authStore))
+	api.POST("/auth/passkey/register/begin", handlers.PasskeyRegisterBegin(deps.authStore, deps.waManager))
+	api.POST("/auth/passkey/register/finish", handlers.PasskeyRegisterFinish(deps.authStore, deps.waManager))
+	api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(deps.authStore))
+	api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(deps.authStore))
+	api.POST("/user/notify-test", handlers.NotifyTest(deps.cfg, deps.authStore))
+	// Incognito session management
+	api.DELETE("/user/incognito", handlers.ClearIncognito(deps.historyStore, deps.libraryStore))
+	api.POST("/user/incognito/heartbeat", handlers.IncognitoHeartbeat())
+
+	adminGroup := api.Group("/auth/users")
+	adminGroup.Use(auth.AdminOnly())
+	adminGroup.GET("", handlers.ListUsers(deps.authStore))
+	adminGroup.POST("", handlers.CreateUser(deps.authStore))
+	adminGroup.DELETE("/:id", handlers.DeleteUser(deps.authStore))
+	adminGroup.PATCH("/:id/status", handlers.SetUserStatus(deps.authStore))
+	adminGroup.POST("/invite", handlers.Invite(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 }

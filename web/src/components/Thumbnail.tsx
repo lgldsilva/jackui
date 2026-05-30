@@ -85,10 +85,10 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
           Positioned absolute under the <img> so a broken poster falls back
           gracefully via the onError handler above without re-rendering. */}
       <div className={`absolute inset-0 flex items-center justify-center text-gray-600 pointer-events-none ${match?.posterUrl ? 'invisible' : ''}`}>
-        {!loaded ? (
-          <div className={`${iconDim} animate-pulse rounded bg-gray-800`} />
-        ) : (
+        {loaded ? (
           <FallbackIcon className={iconDim} />
+        ) : (
+          <div className={`${iconDim} animate-pulse rounded bg-gray-800`} />
         )}
       </div>
       {/* Top layer: per-torrent resolved art (poster/cover/frame). Covers the
@@ -96,7 +96,7 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
           revealing the layers below. Only mounts when we have an info_hash. */}
       {showArt && (
         <img
-          src={streamArtURL(infoHash!)}
+          src={streamArtURL(infoHash)}
           alt={title}
           loading="lazy"
           className="absolute inset-0 w-full h-full object-cover"

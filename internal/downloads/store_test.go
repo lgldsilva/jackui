@@ -273,62 +273,33 @@ func TestListFiltered(t *testing.T) {
 	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "Alpha", Tracker: "t1", Category: "movies"})
 	s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "Beta", Tracker: "t2", Category: "tv"})
 
-	filtered, err := s.ListFiltered(ListFilter{UserID: 1, Status: StatusDownloading})
-	if err != nil {
-		t.Fatalf("ListFiltered status: %v", err)
+	tests := []struct {
+		name      string
+		filter    ListFilter
+		wantLen   int
+		wantFirst string
+	}{
+		{"status downloading", ListFilter{UserID: 1, Status: StatusDownloading}, 2, ""},
+		{"tracker t1", ListFilter{UserID: 1, Tracker: "t1"}, 1, "Alpha"},
+		{"category tv", ListFilter{UserID: 1, Category: "tv"}, 1, "Beta"},
+		{"search Alpha", ListFilter{UserID: 1, Search: "Alpha"}, 1, ""},
+		{"sort name asc", ListFilter{UserID: 1, SortCol: "name", SortDir: "asc"}, 2, "Alpha"},
+		{"sort status asc", ListFilter{UserID: 1, SortCol: "status", SortDir: "asc"}, 2, ""},
+		{"sort size desc", ListFilter{UserID: 1, SortCol: "size", SortDir: "desc"}, 2, ""},
 	}
-	if len(filtered) != 2 {
-		t.Errorf("expected 2 downloading, got %d", len(filtered))
-	}
-
-	filtered, err = s.ListFiltered(ListFilter{UserID: 1, Tracker: "t1"})
-	if err != nil {
-		t.Fatalf("ListFiltered tracker: %v", err)
-	}
-	if len(filtered) != 1 || filtered[0].Name != "Alpha" {
-		t.Errorf("expected 1 tracker=t1 result, got %d", len(filtered))
-	}
-
-	filtered, err = s.ListFiltered(ListFilter{UserID: 1, Category: "tv"})
-	if err != nil {
-		t.Fatalf("ListFiltered category: %v", err)
-	}
-	if len(filtered) != 1 || filtered[0].Name != "Beta" {
-		t.Errorf("expected 1 category=tv result, got %d", len(filtered))
-	}
-
-	filtered, err = s.ListFiltered(ListFilter{UserID: 1, Search: "Alpha"})
-	if err != nil {
-		t.Fatalf("ListFiltered search: %v", err)
-	}
-	if len(filtered) != 1 {
-		t.Errorf("expected 1 search result, got %d", len(filtered))
-	}
-
-	filtered, err = s.ListFiltered(ListFilter{UserID: 1, SortCol: "name", SortDir: "asc"})
-	if err != nil {
-		t.Fatalf("ListFiltered sort: %v", err)
-	}
-	if len(filtered) != 2 || filtered[0].Name != "Alpha" {
-		t.Errorf("expected Alpha first (asc), got %v", filtered)
-	}
-
-	// Sort by status to get deterministic order (both are "downloading", stable)
-	const sortByStatus = "status"
-	filtered, err = s.ListFiltered(ListFilter{UserID: 1, SortCol: sortByStatus, SortDir: "asc"})
-	if err != nil {
-		t.Fatalf("ListFiltered sort status: %v", err)
-	}
-	if len(filtered) != 2 {
-		t.Errorf("expected 2 results, got %d", len(filtered))
-	}
-	// Sort by size desc
-	filtered, err = s.ListFiltered(ListFilter{UserID: 1, SortCol: "size", SortDir: "desc"})
-	if err != nil {
-		t.Fatalf("ListFiltered sort size: %v", err)
-	}
-	if len(filtered) != 2 {
-		t.Errorf("expected 2 results, got %d", len(filtered))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			filtered, err := s.ListFiltered(tc.filter)
+			if err != nil {
+				t.Fatalf("ListFiltered: %v", err)
+			}
+			if len(filtered) != tc.wantLen {
+				t.Errorf("expected %d results, got %d", tc.wantLen, len(filtered))
+			}
+			if tc.wantFirst != "" && len(filtered) > 0 && filtered[0].Name != tc.wantFirst {
+				t.Errorf("expected first %q, got %q", tc.wantFirst, filtered[0].Name)
+			}
+		})
 	}
 }
 

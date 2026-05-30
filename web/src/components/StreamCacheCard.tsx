@@ -9,13 +9,13 @@ function formatSize(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 function formatDate(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
+  if (Number.isNaN(d.getTime())) return '—'
   const diffH = (Date.now() - d.getTime()) / 3_600_000
   if (diffH < 1) return `${Math.floor(diffH * 60)}m atrás`
   if (diffH < 24) return `${Math.floor(diffH)}h atrás`
@@ -157,8 +157,8 @@ export default function StreamCacheCard() {
             }
           </span>
           <span className="text-xs text-gray-500">
-            {stats.entries.length} arquivo{stats.entries.length !== 1 ? 's' : ''}
-            {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} ativo{stats.numActive !== 1 ? 's' : ''}</span>}
+            {stats.entries.length} arquivo{stats.entries.length === 1 ? '' : 's'}
+            {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} ativo{stats.numActive === 1 ? '' : 's'}</span>}
           </span>
         </div>
         {stats.maxSize > 0 && (

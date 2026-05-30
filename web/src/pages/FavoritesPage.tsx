@@ -38,6 +38,32 @@ function buildTree(folders: FavoriteFolder[]): FolderNode[] {
   return roots
 }
 
+async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW: number): Promise<{ ok: number; fails: string[] }> {
+  let ok = 0
+  const fails: string[] = []
+  for (const file of files) {
+    try {
+      const buf = await file.arrayBuffer()
+      let bin = ''
+      const bytes = new Uint8Array(buf)
+      for (const byte of bytes) bin += String.fromCodePoint(byte)
+      await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
+      ok++
+    } catch (e: unknown) {
+      fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  return { ok, fails }
+}
+
+function buildImportMsg(ok: number, failCount: number, firstFail: string | undefined, suffix: string): { kind: 'ok' | 'err'; text: string } {
+  if (failCount === 0) {
+    const plural = ok === 1 ? '' : 's'
+    return { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
+  }
+  return { kind: 'err', text: `${ok} ok, ${failCount} falha(s): ${firstFail}${suffix}` }
+}
+
 type TreeProps = {
   readonly nodes: FolderNode[]
   readonly depth: number
@@ -62,20 +88,20 @@ function FolderTree(p: TreeProps) {
         const isSelected = p.selectedId === node.folder.id
         const isEditing = p.editingId === node.folder.id
         return (
-          <li key={node.folder.id}>
-              <div
-                className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors ${
-                  isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
-                }`}
-                style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
-                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-                onDrop={e => {
-                  e.preventDefault()
-                  const name = e.dataTransfer.getData('text/x-favorite-name')
-                  if (name) p.onDropOnFolder(node.folder.id, name)
-                }}
-                role="button" tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onSelect(node.folder.id) } }}
+            <li key={node.folder.id}>
+            <button
+              type="button"
+              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors w-full text-left ${
+                isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
+              }`}
+              style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
+              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+              onDrop={e => {
+                e.preventDefault()
+                const name = e.dataTransfer.getData('text/x-favorite-name')
+                if (name) p.onDropOnFolder(node.folder.id, name)
+              }}
+              onClick={() => p.onSelect(node.folder.id)}
             >
               {node.children.length > 0 ? (
                 <button onClick={() => p.onToggle(node.folder.id)} className="text-gray-500 hover:text-gray-200">
@@ -117,7 +143,7 @@ function FolderTree(p: TreeProps) {
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
-            </div>
+            </button>
             {isOpen && node.children.length > 0 && (
               <FolderTree {...p} nodes={node.children} depth={p.depth + 1} />
             )}
@@ -130,10 +156,40 @@ function FolderTree(p: TreeProps) {
 
 const depthIndent = (depth: number) => 8 + depth * 14
 
-function semPastaButtonClass(isNull: boolean, dropOnRoot: boolean): string {
-  if (isNull) return 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
+function rootFolderClass(viewMode: number | null, dropOnRoot: boolean): string {
+  if (viewMode === null) return 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
   if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-100'
   return 'text-gray-300 hover:bg-gray-800 border border-transparent'
+}
+
+function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteFolder[]): string {
+  if (viewMode === ALL_VIEW) return 'Todos os favoritos'
+  if (viewMode === null) return 'Sem pasta'
+  return folders.find(f => f.id === viewMode)?.name || 'Favoritos'
+}
+
+function renderFavsContent(loading: boolean, error: string, filteredFavs: StreamFavorite[], viewMode: number | null, ALL_VIEW: number, _folders: FavoriteFolder[]): JSX.Element | null {
+  if (loading) {
+    return <div className="flex items-center justify-center py-20 text-gray-500">
+      <Loader2 className="w-8 h-8 animate-spin" />
+    </div>
+  }
+  if (error) {
+    return <div className="card text-red-400 text-sm">Erro: {error}</div>
+  }
+  if (filteredFavs.length === 0) {
+    const insideFolder = viewMode !== ALL_VIEW
+    return <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+      <Heart className="w-16 h-16 mb-4 opacity-30" />
+      <p className="text-xl font-medium">Nenhum favorito {insideFolder ? 'nessa pasta' : 'ainda'}</p>
+      <p className="text-sm mt-2 text-center max-w-md">
+        {viewMode === ALL_VIEW
+          ? 'Abra um torrent no player e clique no ♥ no canto superior.'
+          : 'Arraste favoritos da view "Todos" pra esta pasta.'}
+      </p>
+    </div>
+  }
+  return null
 }
 
 export default function FavoritesPage() {
@@ -165,6 +221,17 @@ export default function FavoritesPage() {
 
   const favHasValidMagnet = (f: StreamFavorite) =>
     !!f.magnet && (f.magnet.startsWith('magnet:') || f.magnet.startsWith('http'))
+
+  const handleFavDragStart = (e: React.DragEvent, favName: string) => {
+    e.dataTransfer.setData('text/x-favorite-name', favName)
+    e.dataTransfer.effectAllowed = 'move'
+    const ghost = document.createElement('div')
+    ghost.textContent = favName
+    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
+    document.body.appendChild(ghost)
+    e.dataTransfer.setDragImage(ghost, 12, 12)
+    setTimeout(() => ghost.remove(), 0)
+  }
 
   const playFavorite = (f: StreamFavorite) => {
     if (!favHasValidMagnet(f)) {
@@ -218,7 +285,7 @@ export default function FavoritesPage() {
     const fails: string[] = []
     for (const magnet of lines) {
       try {
-        await streamImport({ magnet, folderId: viewMode !== ALL_VIEW ? viewMode : null })
+        await streamImport({ magnet, folderId: viewMode === ALL_VIEW ? null : viewMode })
         ok++
       } catch (e: unknown) {
         fails.push(e instanceof Error ? e.message : String(e))
@@ -228,7 +295,7 @@ export default function FavoritesPage() {
     setMagnetInput('')
     let msg: { kind: 'ok' | 'err'; text: string }
     if (fails.length === 0) {
-      const plural = ok !== 1 ? 's' : ''
+      const plural = ok === 1 ? '' : 's'
       msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}` }
     } else {
       msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}` }
@@ -246,35 +313,11 @@ export default function FavoritesPage() {
     }
     setImporting(true)
     setImportMsg(null)
-    let ok = 0
-    const fails: string[] = []
-    for (const file of torrents) {
-      try {
-        const buf = await file.arrayBuffer()
-        let bin = ''
-        const bytes = new Uint8Array(buf)
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
-        const torrentB64 = btoa(bin)
-        await streamImport({ torrentB64, folderId: viewMode !== ALL_VIEW ? viewMode : null })
-        ok++
-      } catch (e: unknown) {
-        fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
-      }
-    }
+    const { ok, fails } = await importTorrentB64(torrents, viewMode, ALL_VIEW)
     setImporting(false)
-    let suffix = ''
-    if (skipped > 0) {
-      const plural = skipped !== 1 ? 's' : ''
-      suffix = ` (${skipped} ignorado${plural} — não .torrent)`
-    }
-    let msg: { kind: 'ok' | 'err'; text: string }
-    if (fails.length === 0) {
-      const plural = ok !== 1 ? 's' : ''
-      msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
-    } else {
-      msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}${suffix}` }
-    }
-    setImportMsg(msg)
+    const pluralSuffix = skipped === 1 ? '' : 's'
+    const suffix = skipped > 0 ? ` (${skipped} ignorado${pluralSuffix} — não .torrent)` : ''
+    setImportMsg(buildImportMsg(ok, fails.length, fails[0], suffix))
     await load()
   }
 
@@ -288,7 +331,7 @@ export default function FavoritesPage() {
   // (favorites without folder); a positive id = that folder only.
   const filteredFavs = useMemo(() => {
     if (viewMode === ALL_VIEW) return favs
-    if (viewMode === null) return favs.filter(f => f.folderId == null)
+    if (viewMode === null) return favs.filter(f => f.folderId === null)
     return favs.filter(f => f.folderId === viewMode)
   }, [favs, viewMode])
 
@@ -342,7 +385,11 @@ export default function FavoritesPage() {
   const toggleSelected = (name: string) => {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(name) ? next.delete(name) : next.add(name)
+      if (next.has(name)) {
+        next.delete(name)
+      } else {
+        next.add(name)
+      }
       return next
     })
   }
@@ -378,6 +425,7 @@ export default function FavoritesPage() {
             <li>
               <button
                 onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null) }}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(ALL_VIEW); setSelectedFolderId(null) } }}
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
                   viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
                 }`}
@@ -397,7 +445,8 @@ export default function FavoritesPage() {
                   if (name) handleDropOnFolder(null, name)
                 }}
                 onClick={() => { setViewMode(null); setSelectedFolderId(null) }}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${semPastaButtonClass(viewMode === null, dropOnRoot)}`}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(null); setSelectedFolderId(null) } }}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${rootFolderClass(viewMode, dropOnRoot)}`}
               >
                 <Inbox className="w-3.5 h-3.5" />
                 Sem pasta
@@ -450,14 +499,10 @@ export default function FavoritesPage() {
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-3">
               <Heart className="w-5 h-5 text-pink-400 fill-current" />
-              <h1 className="text-lg font-semibold text-gray-100">
-                {viewMode === ALL_VIEW ? 'Todos os favoritos'
-                  : viewMode === null ? 'Sem pasta'
-                  : folders.find(f => f.id === viewMode)?.name || 'Favoritos'}
-              </h1>
+              <h1 className="text-lg font-semibold text-gray-100">{pageTitle(viewMode, ALL_VIEW, folders)}</h1>
               {!loading && (
                 <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">
-                  {filteredFavs.length} item{filteredFavs.length !== 1 ? 's' : ''}
+                  {filteredFavs.length} item{filteredFavs.length === 1 ? '' : 's'}
                 </span>
               )}
               {isAdmin && (
@@ -478,46 +523,18 @@ export default function FavoritesPage() {
             </div>
           </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-20 text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin" />
-            </div>
-          ) : error ? (
-            <div className="card text-red-400 text-sm">Erro: {error}</div>
-          ) : filteredFavs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-              <Heart className="w-16 h-16 mb-4 opacity-30" />
-              <p className="text-xl font-medium">Nenhum favorito {viewMode !== ALL_VIEW ? 'nessa pasta' : 'ainda'}</p>
-              <p className="text-sm mt-2 text-center max-w-md">
-                {viewMode === ALL_VIEW
-                  ? 'Abra um torrent no player e clique no ♥ no canto superior.'
-                  : 'Arraste favoritos da view "Todos" pra esta pasta.'}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {(() => {
+            const fallback = renderFavsContent(loading, error, filteredFavs, viewMode, ALL_VIEW, folders)
+            if (fallback) return fallback
+            return <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredFavs.map(fav => (
-                <div
+                <button
+                  type="button"
                   key={fav.name}
                   draggable
-                  onDragStart={e => {
-                    e.dataTransfer.setData('text/x-favorite-name', fav.name)
-                    e.dataTransfer.effectAllowed = 'move'
-                    // Use a small chip as the drag image instead of the full
-                    // card. The default ghost is a translucent copy of the whole
-                    // card, which sits on top of the drop target (folder) and
-                    // hides where you're dropping. A compact label follows the
-                    // cursor without obscuring the target.
-                    const ghost = document.createElement('div')
-                    ghost.textContent = fav.name
-                    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
-                    document.body.appendChild(ghost)
-                    e.dataTransfer.setDragImage(ghost, 12, 12)
-                    setTimeout(() => ghost.remove(), 0)
-                  }}
-                  role="button" tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContents(fav) } }}
-                  className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
+                  onDragStart={e => handleFavDragStart(e, fav.name)}
+                  onClick={() => openContents(fav)}
+                  className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative w-full text-left ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}
                 >
@@ -616,10 +633,10 @@ export default function FavoritesPage() {
                       </select>
                     )}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
-          )}
+          })()}
         </section>
       </main>
 
@@ -629,7 +646,7 @@ export default function FavoritesPage() {
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 open:flex"
           onClick={() => !importing && setShowImport(false)}
           onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
-          onFocus={() => {}}
+          onFocus={() => {}} tabIndex={-1}
           onClose={() => !importing && setShowImport(false)}
           open
         >
@@ -653,8 +670,9 @@ export default function FavoritesPage() {
 
             {/* Magnet textarea — one per line for batch */}
             <div>
-              <label className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
+              <label htmlFor="import-magnet" className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
               <textarea
+                id="import-magnet"
                 value={magnetInput}
                 onChange={e => setMagnetInput(e.target.value)}
                 placeholder="magnet:?xt=urn:btih:..."
@@ -705,14 +723,14 @@ export default function FavoritesPage() {
                 {importMsg.text}
               </p>
             )}
-          </div>
-        </dialog>
-      )}
+            </div>
+          </dialog>
+        )}
 
-      {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
+        {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-full shadow-2xl px-4 py-2 safe-bottom">
-          <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
           <select
             defaultValue=""
             onChange={e => { moveSelectedToFolder(e.target.value === '' ? null : Number(e.target.value)); e.target.value = '' }}

@@ -176,7 +176,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 }
 
 func (c *Client) GetIndexers() ([]Indexer, error) {
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
+	endpoint := c.URL + torznabAPIEndpoint
 
 	// Jackett's /api/v2.0/indexers only works for admin-cookie sessions; with
 	// apikey-only auth it returns 302 → /UI/Login. We try once, but if we hit
@@ -240,7 +240,7 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 // authorized" probe. A 200 means everything works; 302 means we hit the login
 // redirect (key invalid or Jackett misconfigured); other codes are real errors.
 func (c *Client) TestConnection() error {
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
+	endpoint := c.URL + torznabAPIEndpoint
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return fmt.Errorf(errFailedToCreateRequest, err)
@@ -298,7 +298,7 @@ type listIndexersResponse struct {
 // ListIndexers returns the configured indexers via Jackett's torznab `t=indexers` endpoint.
 // This works with API key (no admin cookie needed), unlike /api/v2.0/indexers.
 func (c *Client) ListIndexers() ([]Indexer, error) {
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/all/results/torznab/api", c.URL)
+	endpoint := c.URL + torznabAPIEndpoint
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)

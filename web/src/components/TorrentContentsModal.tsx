@@ -16,7 +16,7 @@ function formatSize(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 function parseEpisode(path: string): string | null {
@@ -46,7 +46,7 @@ function isPlayableFile(f: StreamFile): boolean {
 // DetailRow renders one labelled fact in the details grid, only when it has a
 // value — so synthetic results (favorites/library, which lack tracker/category)
 // simply show fewer rows instead of a wall of "—".
-function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: React.ReactNode }) {
+function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; readonly label: string; readonly value?: React.ReactNode }) {
   if (value === undefined || value === null || value === '' || value === 0) return null
   return (
     <div className="flex items-center gap-2 min-w-0">
@@ -107,8 +107,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      onFocus={() => {}}
       onClose={onClose}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
@@ -140,7 +140,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           )}
           {info && (
             <p className="text-xs text-gray-500 mt-1">
-              {info.files.length} arquivo{info.files.length !== 1 ? 's' : ''} · {formatSize(info.totalSize)}
+              {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
             </p>
           )}
 
@@ -156,7 +156,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               {info.peers > 0 && (
                 <span className="flex items-center gap-1 text-blue-400">
                   <Activity className="w-3 h-3" />
-                  {info.peers} peer{info.peers !== 1 ? 's' : ''} · {info.seeders ?? 0} seed{(info.seeders ?? 0) !== 1 ? 'ers' : 'er'}
+                  {info.peers} peer{info.peers === 1 ? '' : 's'} · {info.seeders ?? 0} seed{(info.seeders ?? 0) === 1 ? 'er' : 'ers'}
                 </span>
               )}
               {(info.progress ?? 0) > 0 && (info.progress ?? 0) < 1 && (
