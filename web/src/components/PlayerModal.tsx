@@ -6,8 +6,9 @@ import {
   Subtitle,
   StreamProbe,
   TranscodeOpts,
-  SidecarSubtitle,
   TranscodeCapabilities,
+  MediaTrack,
+  SidecarSubtitle,
   streamAdd,
   streamMetadata,
   pickTorrentSource,
@@ -36,6 +37,7 @@ import {
   favoritesList,
   libraryGet,
   libraryUpdateResume,
+  LibraryEntry,
   downloadCreate,
 } from '../api/client'
 import { formatRate } from '../lib/format'
@@ -47,18 +49,18 @@ import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
 
 type PlaylistMeta = {
-  name: string
-  items: { title: string }[]
-  currentIndex: number
+  readonly name: string
+  readonly items: readonly { title: string }[]
+  readonly currentIndex: number
 }
 
 // Per-file subtitle choice, persisted in localStorage so a video reopens with
 // the same subtitle the user picked. The three sources are mutually exclusive.
 type SubChoice = {
-  external: string | null // OpenSubtitles file id
-  embedded: number | null // embedded track index
-  sidecar: number | null  // sidecar .srt file index
-  offset: number          // sync offset in seconds
+  readonly external: string | null // OpenSubtitles file id
+  readonly embedded: number | null // embedded track index
+  readonly sidecar: number | null  // sidecar .srt file index
+  readonly offset: number          // sync offset in seconds
 }
 
 type PlayerModalProps = {
@@ -84,27 +86,430 @@ function formatSize(bytes: number): string {
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
-export default function PlayerModal(props: PlayerModalProps) {
-  const {
-    result,
-    onClose,
-    initialFileIndex,
-    initialSeek,
-    playlist = null,
-    onPlaylistAdvance,
-    onPlaylistPrevious,
-    repeat = 'none',
-    shuffle = false,
-    onCycleRepeat,
-    onToggleShuffle,
-    onPrefetchNextPlaylist,
-    onPrefetchNextNextPlaylist,
-    startMinimized = false,
-    audioMode = false,
-  } = props
+function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
+  if (peers === 0) {
+    return {
+      title: 'Sem seeds disponíveis',
+      detail: 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.',
+    }
+  }
+  if (starving) {
+    const suffix = peers === 1 ? '' : 's'
+    return {
+      title: 'Download muito lento para streaming',
+      detail: `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${suffix} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`,
+    }
+  }
+  return {
+    title: 'Formato não suportado pelo browser',
+    detail: 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.',
+  }
+}
+
+type MediaUrlInput = {
+  info: TorrentInfo | null
+  selectedFile: number
+  serverReady: boolean
+  mediaToken: string
+  transcodeAudio: number | null
+  forceH264: boolean
+  burnSubTrack: number | null
+  subActive: string | null
+  sidecarIdx: number | null
+  embeddedSub: number | null
+  caps: TranscodeCapabilities | null
+}
+
+function computeMediaUrls(input: MediaUrlInput) {
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps } = input
+  const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
+  const safariNeedsTranscode = isSafariBrowser() &&
+    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
+  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
+
+  const transcodeOpts: TranscodeOpts = {}
+  if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
+  if (forceH264) transcodeOpts.video = 'h264'
+  if (burnSubTrack !== null) {
+    transcodeOpts.burn = burnSubTrack
+    transcodeOpts.video = 'h264'
+  }
+  if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
+
+  const streamURL = (() => {
+    if (!info || selectedFile < 0 || !serverReady || !mediaToken) return ''
+    if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
+    if (isSafariBrowser()) return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
+    return streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken)
+  })()
+
+  const subtitleVttURL = (() => {
+    if (!mediaToken) return ''
+    if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
+    if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
+    if (subActive) return subtitleDownloadURL(subActive, mediaToken)
+    return ''
+  })()
+
+  let vlcURL = ''
+  if (info && selectedFile >= 0) {
+    const transcodeParam = forceH264 ? 'h264' : undefined
+    vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
+  }
+
+  let encoderLabel = 'CPU'
+  if (caps?.hasNvidia) {
+    encoderLabel = 'NVENC'
+  } else if (caps?.hasVaapi) {
+    encoderLabel = 'VAAPI'
+  } else if (caps?.hasQsv) {
+    encoderLabel = 'QSV'
+  }
+
+  return { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded }
+}
+
+function renderPlayerHeader(props: {
+  minimized: boolean
+  info: TorrentInfo | null
+  result: SearchResult
+  isTranscoded: boolean
+  caps: TranscodeCapabilities | null
+  encoderLabel: string
+  isFavorite: boolean
+  toggleFavorite: () => void
+  incognito: boolean
+  setIncognito: (v: boolean) => void
+  setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void
+  onClose: () => void
+}) {
+  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose } = props
+  if (minimized) return null
+  return (
+    <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
+      <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
+        <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
+        <span className="truncate">{info?.name || result.title}</span>
+        {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={`Encoder: ${caps.preferred}`}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
+        {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
+      </h2>
+      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
+        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+        <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-gray-400 hover:text-gray-200 transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors"><X className="w-5 h-5" /></button>
+      </div>
+    </div>
+  )
+}
+
+function renderPlaylistBar(
+  playlist: PlaylistMeta,
+  onPrev: (() => void) | undefined,
+  onToggleShuffle: (() => void) | undefined,
+  shuffle: boolean,
+  onCycleRepeat: (() => void) | undefined,
+  repeat: 'none' | 'one' | 'all',
+  onNext: (() => void) | undefined,
+) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-200 flex-shrink-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <ListMusic className="w-3.5 h-3.5 flex-shrink-0" />
+        <span className="font-medium truncate">{playlist.name}</span>
+        <span className="text-blue-400/80 flex-shrink-0">· {playlist.currentIndex + 1} de {playlist.items.length}</span>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button onClick={onPrev} className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
+        <button onClick={onToggleShuffle} className={`p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
+        <button onClick={onCycleRepeat} className={`p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`} title={`Repeat: ${repeat}`}>
+          <Repeat className="w-3.5 h-3.5" />
+          {repeat === 'one' && <span className="absolute -bottom-0.5 -right-0.5 text-[8px] font-bold text-green-300">1</span>}
+        </button>
+        <button onClick={onNext} className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
+      </div>
+    </div>
+  )
+}
+
+function tryPrefetchNext(props: {
+  v: HTMLVideoElement
+  now: number
+  nextVideoIdx: number
+  info: TorrentInfo | null
+  prefetchedNextEpRef: { current: boolean }
+  onPrefetchNextPlaylist: (() => void) | undefined
+  prefetchedPlaylistN1Ref: { current: boolean }
+  onPrefetchNextNextPlaylist: (() => void) | undefined
+  prefetchedPlaylistN2Ref: { current: boolean }
+}) {
+  const { v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref } = props
+  if (!v.duration || v.duration <= 0) return
+  const ratio = now / v.duration
+  if (ratio > 0.5) {
+    if (!prefetchedNextEpRef.current && nextVideoIdx >= 0 && info) {
+      prefetchedNextEpRef.current = true
+      streamPrefetch(info.infoHash, nextVideoIdx)
+    }
+    if (!prefetchedPlaylistN1Ref.current && onPrefetchNextPlaylist) {
+      prefetchedPlaylistN1Ref.current = true
+      onPrefetchNextPlaylist()
+    }
+  }
+  if (ratio > 0.85 && !prefetchedPlaylistN2Ref.current && onPrefetchNextNextPlaylist) {
+    prefetchedPlaylistN2Ref.current = true
+    onPrefetchNextNextPlaylist()
+  }
+}
+
+function updateBufferedRanges(
+  v: HTMLVideoElement,
+  now: number,
+  setRanges: (r: Array<[number, number]>) => void,
+  setEnd: (n: number) => void,
+) {
+  if (v.buffered.length === 0) return
+  const ranges: Array<[number, number]> = []
+  for (let i = 0; i < v.buffered.length; i++) ranges.push([v.buffered.start(i), v.buffered.end(i)])
+  setRanges(ranges)
+  let be = ranges[ranges.length - 1][1]
+  for (const [s, e] of ranges) { if (now >= s && now <= e) { be = e; break } }
+  setEnd(be)
+}
+
+function tryAutoFavorite(
+  watched: number,
+  isFavorite: boolean,
+  threshold: number,
+  info: TorrentInfo | null,
+  setIsFavorite: (v: boolean) => void,
+) {
+  if (!isFavorite && watched >= threshold && info) {
+    setIsFavorite(true)
+    favoriteAdd(info.name, info.infoHash, info.infoHash ? `magnet:?xt=urn:btih:${info.infoHash}` : '', 'auto-5min').catch(() => setIsFavorite(false))
+  }
+}
+
+function trySaveResume(
+  now: number,
+  incognito: boolean,
+  libraryEntryID: number | null,
+  lastSave: { current: number },
+  duration: number,
+) {
+  if (incognito || libraryEntryID === null || now <= 1) return
+  const elapsed = now - lastSave.current
+  if (elapsed > 15 || elapsed < -1) {
+    lastSave.current = now
+    libraryUpdateResume(libraryEntryID, now, duration).catch(() => {})
+  }
+}
+
+function trySyncUrlPlayhead(
+  now: number,
+  lastSync: { current: number },
+) {
+  if (now <= 3) return
+  const since = now - lastSync.current
+  if (since > 5 || since < -1) {
+    lastSync.current = now
+    const params = new URLSearchParams(globalThis.location.search)
+    params.set('t', String(Math.floor(now)))
+    globalThis.history.replaceState(null, '', `${globalThis.location.pathname}?${params.toString()}`)
+  }
+}
+
+function getSubtitleLabel(embeddedSub: number | null, subActive: string | null, autoSource: string | null, subLoading: boolean): string {
+  if (embeddedSub !== null) return 'Legenda embutida'
+  if (subActive) return autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
+  if (subLoading) return 'Buscando...'
+  return 'Legendas'
+}
+
+type VideoPlayerElementProps = {
+  readonly videoRef: React.RefObject<HTMLVideoElement | null>
+  readonly streamURL: string
+  readonly audioMode: boolean
+  readonly subtitleVttURL: string
+  readonly videoError: boolean
+  readonly serverReady: boolean
+  readonly currentTime: number
+  readonly bufferedEnd: number
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly showResumePrompt: boolean
+  readonly resumePosition: number | null
+  readonly isTranscoded: boolean
+  readonly transcodeFallbackAttempted: boolean
+  readonly mediaToken: string
+  readonly renderVideoError: () => React.ReactNode
+  readonly formatTime: (s: number) => string
+  readonly onVideoError: () => void
+  readonly onTimeUpdate: () => void
+  readonly onVideoEnded: () => void
+  readonly onVideoCanPlay: () => void
+  readonly videoDiagnostic: () => Record<string, unknown>
+  readonly onResumeContinue: (pos: number) => void
+  readonly onResumeRestart: () => void
+}
+
+function VideoPlayerElement({
+  videoRef,
+  streamURL,
+  audioMode,
+  subtitleVttURL,
+  videoError,
+  serverReady,
+  currentTime,
+  bufferedEnd,
+  info,
+  selectedFile,
+  showResumePrompt,
+  resumePosition,
+  isTranscoded,
+  transcodeFallbackAttempted,
+  mediaToken,
+  renderVideoError,
+  formatTime,
+  onVideoError,
+  onTimeUpdate,
+  onVideoEnded,
+  onVideoCanPlay,
+  videoDiagnostic,
+  onResumeContinue,
+  onResumeRestart,
+}: VideoPlayerElementProps) {
+  return (
+    <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
+      {audioMode && info && (
+        <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+          <Volume2 className="absolute w-12 h-12 text-gray-600" />
+          <img
+            src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
+            alt=""
+            className="relative max-h-full max-w-full object-contain"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+        </div>
+      )}
+      {showResumePrompt && resumePosition !== null && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
+            <p className="text-gray-300 text-sm text-center">Você parou em</p>
+            <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
+            <button
+              onClick={() => onResumeContinue(resumePosition)}
+              className="btn-primary w-full justify-center"
+            >
+              Continuar
+            </button>
+            <button
+              onClick={onResumeRestart}
+              className="btn-secondary w-full justify-center"
+            >
+              Começar do início
+            </button>
+          </div>
+        </div>
+      )}
+      {!videoError && currentTime === 0 && bufferedEnd === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
+          <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
+          <p className="text-gray-200 font-medium">
+            {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
+          </p>
+          {resumePosition !== null && (
+            <p className="text-xs text-blue-300 mt-2">
+              Continuando de {formatTime(resumePosition)}
+            </p>
+          )}
+          <p className="text-xs text-gray-400 mt-1">
+            {info && info.peers > 0
+              ? `${info.seeders} seeders / ${info.peers} peers conectados`
+              : 'Aguardando peers...'}
+          </p>
+          {info && info.downRate > 0 && (
+            <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
+              <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
+              {info.files?.[selectedFile] && (
+                <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
+              )}
+            </p>
+          )}
+          {isTranscoded && (
+            <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
+              <Cpu className="w-3 h-3" />
+              {transcodeFallbackAttempted
+                ? 'Convertendo via GPU — codec original incompatível (HEVC/AV1)'
+                : 'Transcoding ativo — primeiros frames demoram mais'}
+            </p>
+          )}
+        </div>
+      )}
+      {transcodeFallbackAttempted && !videoError && (
+        <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
+          <Cpu className="w-3 h-3" />
+          Convertendo via GPU
+        </div>
+      )}
+      {videoError ? null : (
+        <video
+          ref={videoRef}
+          src={streamURL || undefined}
+          controls
+          autoPlay
+          playsInline
+          {...{ 'webkit-playsinline': 'true' } as any}
+          className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
+          onError={onVideoError}
+          onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
+          onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
+          onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
+          onTimeUpdate={onTimeUpdate}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget
+            clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
+            onTimeUpdate()
+          }}
+          onProgress={onTimeUpdate}
+          onEnded={onVideoEnded}
+          onCanPlay={onVideoCanPlay}
+        >
+          <track
+            kind={subtitleVttURL ? 'subtitles' : 'metadata'}
+            src={subtitleVttURL || ''}
+            srcLang={subtitleVttURL ? 'pt' : ''}
+            label={subtitleVttURL ? 'Português (BR)' : ''}
+            default
+          />
+          <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
+        </video>
+      )}
+      {videoError && renderVideoError()}
+    </div>
+  )
+}
+
+export default function PlayerModal({
+  result,
+  onClose,
+  initialFileIndex,
+  initialSeek,
+  playlist = null,
+  onPlaylistAdvance,
+  onPlaylistPrevious,
+  repeat = 'none',
+  shuffle = false,
+  onCycleRepeat,
+  onToggleShuffle,
+  onPrefetchNextPlaylist,
+  onPrefetchNextNextPlaylist,
+  startMinimized = false,
+  audioMode = false,
+}: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -156,8 +561,18 @@ export default function PlayerModal(props: PlayerModalProps) {
   // button). Shown as an overlay over the video.
   const [showResumePrompt, setShowResumePrompt] = useState(false)
   const lastResumeSaveRef = useRef(0)
-  const lastUrlSyncRef = useRef(0)  // throttle for writing ?t= into the URL
-  const bufferRetryRef = useRef(0)  // bounded auto-retries while swarm still delivers
+  const lastUrlSyncRef = useRef(0)
+  const bufferRetryRef = useRef(0)
+
+  const loadLibraryEntry = (list: LibraryEntry[], infoHash: string) => {
+    const entry = list.find(e => e.infoHash === infoHash)
+    if (entry) {
+      setLibraryEntryID(entry.id)
+      if (entry.resumeSeconds > 30 && entry.durationSeconds > 0 && entry.resumeSeconds < entry.durationSeconds - 30) {
+        setResumePosition(entry.resumeSeconds)
+      }
+    }
+  }
 
   // Sidebar (file list) open/closed state. On lg+ screens the file picker
   // renders as a right column instead of a stacked panel below the video.
@@ -237,8 +652,8 @@ export default function PlayerModal(props: PlayerModalProps) {
   // the browser's built-in pitch-preservation (preservesPitch / webkitPreservesPitch)
   // so 1.5x/2x doesn't sound chipmunked.
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(() => {
-    const stored = parseFloat(localStorage.getItem('jackui.playbackSpeed') || '1')
-    return isFinite(stored) && stored > 0 ? stored : 1
+    const stored = Number.parseFloat(localStorage.getItem('jackui.playbackSpeed') || '1')
+    return Number.isFinite(stored) && stored > 0 ? stored : 1
   })
   const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
   // File list filter — for series packs with 30+ episodes the list pushes the
@@ -329,10 +744,12 @@ export default function PlayerModal(props: PlayerModalProps) {
       streamMetadata(result.infoHash).then(cached => {
         if (cached && !info) {
           setInfo(cached)
-          const chosen =
-            initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < cached.files.length
-              ? initialFileIndex
-              : (cached.primaryFile >= 0 ? cached.primaryFile : 0)
+          let chosen: number
+          if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < cached.files.length) {
+            chosen = initialFileIndex
+          } else {
+            chosen = Math.max(0, cached.primaryFile)
+          }
           setSelectedFile(chosen)
         }
       })
@@ -342,10 +759,12 @@ export default function PlayerModal(props: PlayerModalProps) {
       .then(t => {
         setInfo(t)
         // Honor explicit override; fall back to backend-suggested primary; else first file
-        const chosen =
-          initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length
-            ? initialFileIndex
-            : (t.primaryFile >= 0 ? t.primaryFile : 0)
+        let chosen: number
+        if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length) {
+          chosen = initialFileIndex
+        } else {
+          chosen = Math.max(0, t.primaryFile)
+        }
         setSelectedFile(chosen)
         // Streamer now has the torrent active — unblock <video src>.
         setServerReady(true)
@@ -396,12 +815,42 @@ export default function PlayerModal(props: PlayerModalProps) {
   // Diagnostic logs are intentionally verbose — Safari HEVC silent failures are
   // notoriously hard to reproduce locally and we want enough context to debug
   // from a single user report (paste the console output).
-  const onVideoError = () => {
-    // Spurious-error guard. If there's no resolved source yet (streamURL empty
-    // during startup, or the <video> hasn't latched a currentSrc), the browser
-    // fires onError with networkState=NO_SOURCE — that's not a playback failure.
-    // Surfacing the error UI here is what made the error flash on open/refresh
-    // even when the video then played fine. Ignore and wait for a real src.
+  const handleNoFallback = (diag: ReturnType<typeof videoDiagnostic>) => {
+    const downloadingNow = (info?.downRate ?? 0) > 30 * 1024
+    if (downloadingNow && bufferRetryRef.current < 6) {
+      bufferRetryRef.current++
+      clientLog('info', 'player', 'buffer retry — swarm still delivering, reloading playlist',
+        { retry: bufferRetryRef.current, downRate: info?.downRate, ...diag })
+      setVideoError(false)
+      globalThis.setTimeout(() => { videoRef.current?.load() }, 6000)
+      return
+    }
+    let reason: string
+    if (transcodeFallbackAttempted) {
+      reason = 'already-attempted'
+    } else if (forceH264) {
+      reason = 'h264-already-forced'
+    } else {
+      reason = 'no-caps'
+    }
+    clientLog('warn', 'player', 'surfacing error UI — no more fallbacks available',
+      { reason, retries: bufferRetryRef.current, ...diag })
+    setVideoError(true)
+  }
+
+  const handleNoGPU = () => {
+    clientLog('warn', 'player', 'no GPU encoder — surfacing manual UI', { caps })
+    setVideoError(true)
+  }
+
+  const handleAutoFallback = (diag: ReturnType<typeof videoDiagnostic>) => {
+    clientLog('info', 'player', 'auto-fallback engaging via onError', { willRetryVia: caps?.preferred, ...diag })
+    setTranscodeFallbackAttempted(true)
+    setForceH264(true)
+    setVideoError(false)
+  }
+
+  const handleVideoError = () => {
     const vEl = videoRef.current
     if (!streamURL || !vEl?.currentSrc) {
       clientLog('info', 'player', 'ignoring onError — no resolved source yet', { hasStreamURL: !!streamURL })
@@ -409,48 +858,75 @@ export default function PlayerModal(props: PlayerModalProps) {
     }
     const diag = videoDiagnostic()
     clientLog('warn', 'player', 'video onError fired', diag)
-    // Freeze a copy so the error UI (which re-renders after <video> unmounts)
-    // still has populated values instead of "—" placeholders.
     setLastErrorDiag(diag as Record<string, unknown>)
     if (transcodeFallbackAttempted || forceH264 || !caps) {
-      // We're already transcoding and it still errored. Before giving up:
-      // if the swarm is STILL delivering bytes, the HLS endpoint just needs
-      // more pieces (the encoder starved before the first segment). Reload
-      // the playlist instead of failing — by the next attempt more of the
-      // file is buffered. Bounded to 6 retries so a truly dead stream still
-      // surfaces an error rather than looping forever.
-      const downloadingNow = (info?.downRate ?? 0) > 30 * 1024 // > 30 KB/s
-      if (downloadingNow && bufferRetryRef.current < 6) {
-        bufferRetryRef.current++
-        clientLog('info', 'player', 'buffer retry — swarm still delivering, reloading playlist',
-          { retry: bufferRetryRef.current, downRate: info?.downRate, ...diag })
-        setVideoError(false)
-        window.setTimeout(() => { videoRef.current?.load() }, 6000)
-        return
-      }
-      let reason: string
-      if (transcodeFallbackAttempted) {
-        reason = 'already-attempted'
-      } else if (forceH264) {
-        reason = 'h264-already-forced'
-      } else {
-        reason = 'no-caps'
-      }
-      clientLog('warn', 'player', 'surfacing error UI — no more fallbacks available',
-        { reason, retries: bufferRetryRef.current, ...diag })
-      setVideoError(true)
+      handleNoFallback(diag)
       return
     }
     const hasGPU = caps.hasNvidia || caps.hasVaapi || caps.hasQsv
     if (!hasGPU) {
-      clientLog('warn', 'player', 'no GPU encoder — surfacing manual UI', { caps })
-      setVideoError(true)
+      handleNoGPU()
       return
     }
-    clientLog('info', 'player', 'auto-fallback engaging via onError', { willRetryVia: caps.preferred, ...diag })
-    setTranscodeFallbackAttempted(true)
-    setForceH264(true)
-    setVideoError(false)
+    handleAutoFallback(diag)
+  }
+
+  const renderDiagnosticChip = () => {
+    const diag = (lastErrorDiag ?? videoDiagnostic()) as Record<string, any>
+    const codeNames: Record<number, string> = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' }
+    const codeName = diag.errorCode ? codeNames[diag.errorCode] || `code ${diag.errorCode}` : '—'
+    return (
+      <div className="mt-3 text-[10px] text-gray-500 font-mono space-y-0.5">
+        <div>MediaError: <span className="text-yellow-400">{codeName}</span> {diag.errorMsg ? `· ${diag.errorMsg}` : ''}</div>
+        <div>ready={diag.readyState ?? '—'} net={diag.networkState ?? '—'} {diag.isTranscoded ? '· transcode ON' : '· direct play'}{diag.transcodeFallbackAttempted ? ' · fallback tried' : ''}</div>
+        <div className="text-gray-600">Full log: filtre por "[player]" no console</div>
+      </div>
+    )
+  }
+
+  const renderVideoError = () => {
+    const cf = info?.files?.[selectedFile]
+    const peers = info?.peers ?? 0
+    const fileDownloaded = cf?.downloaded ?? 0
+    const starving = fileDownloaded < 30 * 1024 * 1024
+    const kind: 'swarm' | 'codec' = (peers === 0 || starving) ? 'swarm' : 'codec'
+    const errorData = buildErrorInfo(peers, starving, info)
+    return (
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
+        <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
+        <p className="font-medium">{errorData.title}</p>
+        <p className="text-sm text-gray-500 mt-2 max-w-md">{errorData.detail}</p>
+        {renderDiagnosticChip()}
+        <button
+          onClick={() => setVideoError(false)}
+          className="mt-4 text-xs text-green-400 hover:underline"
+        >
+          Tentar de novo
+        </button>
+      </div>
+    )
+  }
+
+  const handleVideoEnded = () => {
+    console.debug('[player] video onEnded', {
+      repeat,
+      nextVideoIdx,
+      hasPlaylistAdvance: !!onPlaylistAdvance,
+      playlistName: playlist?.name,
+      audioMode,
+    })
+    if (repeat === 'one') {
+      const v = videoRef.current
+      if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+      return
+    }
+    if (nextVideoIdx >= 0) {
+      playFile(nextVideoIdx)
+      return
+    }
+    if (onPlaylistAdvance) {
+      onPlaylistAdvance()
+    }
   }
 
   // Safari HEVC silent-failure backstop. Safari on macOS does NOT fire
@@ -465,7 +941,7 @@ export default function PlayerModal(props: PlayerModalProps) {
     const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
     // Audio files don't need H264 transcoding — skip backstop entirely.
     if (audioMode || transcodingActive || transcodeFallbackAttempted || videoError) return
-    const timer = window.setTimeout(() => {
+    const timer = globalThis.setTimeout(() => {
       const v = videoRef.current
       if (!v) return
       // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
@@ -483,7 +959,7 @@ export default function PlayerModal(props: PlayerModalProps) {
         }
       }
     }, 20000)
-    return () => window.clearTimeout(timer)
+    return () => globalThis.clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps])
 
@@ -493,9 +969,9 @@ export default function PlayerModal(props: PlayerModalProps) {
     const tick = () => {
       streamInfo(info.infoHash).then(setInfo).catch(() => {})
     }
-    pollRef.current = window.setInterval(tick, 2000)
+    pollRef.current = globalThis.setInterval(tick, 2000)
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current)
+      if (pollRef.current) globalThis.clearInterval(pollRef.current)
     }
   }, [info?.infoHash])
 
@@ -505,7 +981,7 @@ export default function PlayerModal(props: PlayerModalProps) {
   // re-ran the cleanup the moment the library entry loaded mid-playback,
   // calling streamDrop() and KILLING the torrent we were actively streaming
   // (ffmpeg then died with "torrent closed" → "Sem seeds").
-  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null; fileIndex: number; incognito: boolean }>({ infoHash: '', libraryEntryID: null, fileIndex: -1, incognito: false })
+  const cleanupRef = useRef<{ readonly infoHash: string; readonly libraryEntryID: number | null; readonly fileIndex: number; readonly incognito: boolean }>({ infoHash: '', libraryEntryID: null, fileIndex: -1, incognito: false })
   useEffect(() => {
     cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID, fileIndex: selectedFile, incognito }
   })
@@ -517,6 +993,8 @@ export default function PlayerModal(props: PlayerModalProps) {
       const { infoHash, libraryEntryID: libID, fileIndex, incognito: wasIncognito } = cleanupRef.current
       const v = videoRef.current
       if (!wasIncognito && libID !== null && v && v.currentTime > 1) {
+        // Persist which file was watched so reopening a season pack resumes the
+        // same episode (not the torrent's primary file).
         libraryUpdateResume(libID, v.currentTime, v.duration || 0, fileIndex >= 0 ? fileIndex : undefined).catch(() => {})
       }
       if (infoHash) {
@@ -530,9 +1008,9 @@ export default function PlayerModal(props: PlayerModalProps) {
     const match = /[Ss](\d{1,2})[Ee](\d{1,3})/.exec(title)
     if (!match) return { cleanQuery: title }
     return {
-      season: parseInt(match[1]),
-      episode: parseInt(match[2]),
-      cleanQuery: title.slice(0, match.index).trim().replace(/[._]/g, ' '),
+      season: Number.parseInt(match[1]),
+      episode: Number.parseInt(match[2]),
+      cleanQuery: title.slice(0, match.index).trim().replaceAll(/[._]/g, ' '),
     }
   }
 
@@ -547,7 +1025,7 @@ export default function PlayerModal(props: PlayerModalProps) {
       setSubResults(resp.results || [])
       if (resp.osHash && !resp.hashErr) setAutoSource('hash')
       else setAutoSource('title')
-    } catch (e: any) {
+    } catch {
       // Fall back to plain title search if auto endpoint fails
       try {
         const baseTitle = info.name || result.title
@@ -555,8 +1033,8 @@ export default function PlayerModal(props: PlayerModalProps) {
         const data = await subtitlesSearch(cleanQuery || baseTitle, { season, episode, langs: 'pt-BR,pt' })
         setSubResults(data || [])
         setAutoSource('title')
-      } catch (e2: any) {
-        setSubError(e2?.response?.data?.error || e2.message || 'Erro ao buscar legendas')
+      } catch (error_: any) {
+        setSubError(error_?.response?.data?.error || error_.message || 'Erro ao buscar legendas')
       }
     } finally {
       setSubLoading(false)
@@ -570,7 +1048,7 @@ export default function PlayerModal(props: PlayerModalProps) {
     setSubActive(s.id)
   }
 
-  const requestFullscreen = () => {
+  const handleRequestFullscreen = () => {
     const v = videoRef.current as any
     if (!v) return
     // iOS Safari uses webkitEnterFullscreen on the <video> element
@@ -588,7 +1066,7 @@ export default function PlayerModal(props: PlayerModalProps) {
   // overlays fought its gestures. Skipped while minimized, while typing in an
   // input/select, and when the <video> itself has focus (let the browser's
   // native handler act, so we don't double-seek).
-  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen })
+  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen: handleRequestFullscreen })
 
   // iPhone landscape → native iOS fullscreen. The custom modal layout isn't
   // built to reflow for a short, wide phone viewport (it got cramped/garbled),
@@ -599,8 +1077,8 @@ export default function PlayerModal(props: PlayerModalProps) {
   // it outside a user gesture, so this is best-effort (rotate again if it
   // didn't catch, or tap the fullscreen button).
   useEffect(() => {
-    const mq = window.matchMedia('(orientation: landscape) and (max-height: 600px)')
-    const onOrient = () => {
+    const mq = globalThis.matchMedia('(orientation: landscape) and (max-height: 600px)')
+    const handleOrient = () => {
       const v = videoRef.current as any
       if (!v || !mq.matches || v.readyState < 1) return
       try {
@@ -611,11 +1089,11 @@ export default function PlayerModal(props: PlayerModalProps) {
         /* iOS may block fullscreen outside a user gesture — ignore */
       }
     }
-    mq.addEventListener?.('change', onOrient)
-    window.addEventListener('orientationchange', onOrient)
+    mq.addEventListener?.('change', handleOrient)
+    globalThis.addEventListener('orientationchange', handleOrient)
     return () => {
-      mq.removeEventListener?.('change', onOrient)
-      window.removeEventListener('orientationchange', onOrient)
+      mq.removeEventListener?.('change', handleOrient)
+      globalThis.removeEventListener('orientationchange', handleOrient)
     }
   }, [])
 
@@ -634,8 +1112,8 @@ export default function PlayerModal(props: PlayerModalProps) {
     if (!v || !subActive) return
 
     const applyOffset = () => {
-      const track = v.textTracks[0]
-      if (!track || !track.cues || track.cues.length === 0) return
+      const track = v.textTracks?.[0]
+      if (!track?.cues?.length) return
       // Save originals once per loaded sub
       if (origCuesRef.current.length !== track.cues.length) {
         origCuesRef.current = Array.from(track.cues).map((c: any) => ({
@@ -656,12 +1134,12 @@ export default function PlayerModal(props: PlayerModalProps) {
     applyOffset()
     const tracks = v.textTracks
     const onLoad = () => applyOffset()
-    for (let i = 0; i < tracks.length; i++) {
-      tracks[i].addEventListener('cuechange', onLoad)
+    for (const track of tracks) {
+      track.addEventListener('cuechange', onLoad)
     }
     return () => {
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].removeEventListener('cuechange', onLoad)
+      for (const track of tracks) {
+        track.removeEventListener('cuechange', onLoad)
       }
     }
   }, [subActive, subOffset])
@@ -674,19 +1152,10 @@ export default function PlayerModal(props: PlayerModalProps) {
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
     if (!info?.infoHash || incognito) return
-    libraryGet(0).catch(() => {}) // warmup (no-op)
-    // We don't know the library row ID upfront; the upsert happens in StreamAdd response chain.
-    // Instead, fetch the user's library and find the entry by info_hash.
+    libraryGet(0).catch(() => {})
+    const hash = info.infoHash
     import('../api/client').then(({ libraryList }) => {
-      libraryList({ limit: 100 }).then(list => {
-        const entry = list.find(e => e.infoHash === info.infoHash)
-        if (entry) {
-          setLibraryEntryID(entry.id)
-          if (entry.resumeSeconds > 30 && entry.durationSeconds > 0 && entry.resumeSeconds < entry.durationSeconds - 30) {
-            setResumePosition(entry.resumeSeconds)
-          }
-        }
-      }).catch(() => {})
+      libraryList({ limit: 100 }).then(list => loadLibraryEntry(list, hash)).catch(() => {})
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash])
@@ -711,7 +1180,7 @@ export default function PlayerModal(props: PlayerModalProps) {
   // Seek once the video can play. Priority:
   //   1. URL-supplied initialSeek (explicit, e.g. shared link with `t=120`)
   //   2. per-user library resumeSeconds (background-saved, silent)
-  const onVideoCanPlay = () => {
+  const handleVideoCanPlay = () => {
     const v = videoRef.current
     if (!v) return
     if (initialSeek !== undefined && initialSeek > 0 && !appliedInitialSeekRef.current) {
@@ -761,7 +1230,7 @@ export default function PlayerModal(props: PlayerModalProps) {
       .then(list => {
         setSidecars(list ?? [])
         // Auto-pick pt sidecar if no embedded already chosen and no saved choice
-        if (!hasSavedChoice && !subActive && embeddedSub === null && list?.length > 0) {
+        if (!hasSavedChoice && !subActive && embeddedSub === null && list && list.length > 0) {
           const pt = list.find(s => /^(pt|por)/i.test(s.language || ''))
           if (pt) {
             setSidecarIdx(pt.index)
@@ -828,89 +1297,20 @@ export default function PlayerModal(props: PlayerModalProps) {
   }, [subActive, embeddedSub, sidecarIdx, subOffset, subRestored, info?.infoHash, selectedFile])
 
   // Track playback state + accumulate watch time for auto-favorite
-  const onTimeUpdate = () => {
+  const handleTimeUpdate = () => {
     const v = videoRef.current
     if (!v) return
     const now = v.currentTime
-    // Delta-based accumulation — handles seeks correctly (don't count jumps)
     const delta = now - lastTickRef.current
-    if (delta > 0 && delta < 2) { // small forward step = normal playback
-      watchedRef.current += delta
-    }
+    if (delta > 0 && delta < 2) watchedRef.current += delta
     lastTickRef.current = now
-
     setCurrentTime(now)
     setDuration(v.duration || 0)
-    if (v.buffered.length > 0) {
-      const ranges: Array<[number, number]> = []
-      for (let i = 0; i < v.buffered.length; i++) {
-        ranges.push([v.buffered.start(i), v.buffered.end(i)])
-      }
-      setBufferedRanges(ranges)
-      // bufferedEnd = end of the island containing the playhead (for the
-      // "X à frente" label); fall back to the last island when the playhead
-      // sits in an as-yet-unbuffered gap (just after a seek).
-      let be = ranges[ranges.length - 1][1]
-      for (const [s, e] of ranges) {
-        if (now >= s && now <= e) {
-          be = e
-          break
-        }
-      }
-      setBufferedEnd(be)
-    }
-
-    // Auto-favorite once threshold passed
-    if (!isFavorite && watchedRef.current >= AUTO_FAV_THRESHOLD && info) {
-      setIsFavorite(true)
-      favoriteAdd(info.name, info.infoHash, info?.infoHash ? `magnet:?xt=urn:btih:${info.infoHash}` : '', 'auto-5min').catch(() => setIsFavorite(false))
-    }
-
-    // Persist resume position every 15s (skipped in incognito mode)
-    if (!incognito && libraryEntryID !== null && now > 1) {
-      const elapsed = now - lastResumeSaveRef.current
-      if (elapsed > 15 || elapsed < -1 /* seek backwards forces save too */) {
-        lastResumeSaveRef.current = now
-        libraryUpdateResume(libraryEntryID, now, v.duration || 0).catch(() => {})
-      }
-    }
-
-    // Mirror the playhead into the URL (?t=) every 5s so copying the browser
-    // URL — or hitting reload — resumes at this exact point, even across
-    // devices/users (the library-based resume is per-user and lags 15s).
-    // replaceState avoids polluting browser history; preserves ?play & ?f.
-    if (now > 3) {
-      const since = now - lastUrlSyncRef.current
-      if (since > 5 || since < -1 /* seek also refreshes the URL */) {
-        lastUrlSyncRef.current = now
-        const params = new URLSearchParams(window.location.search)
-        params.set('t', String(Math.floor(now)))
-        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
-      }
-    }
-
-    // Aggressive prefetch — eliminate the metadata + first-pieces wait at item boundaries.
-    // Heuristic: 50% triggers next-episode (same torrent) and next-playlist-item warm-up,
-    // 85% adds the N+2 playlist item for fast-sequence playlists.
-    if (v.duration && v.duration > 0) {
-      const ratio = now / v.duration
-      if (ratio > 0.5) {
-        // Next episode in the same torrent (priority head pieces for series packs)
-        if (!prefetchedNextEpRef.current && nextVideoIdx >= 0 && info) {
-          prefetchedNextEpRef.current = true
-          streamPrefetch(info.infoHash, nextVideoIdx)
-        }
-        // Next item in the playlist (different torrent — preloads metadata + first pieces)
-        if (!prefetchedPlaylistN1Ref.current && onPrefetchNextPlaylist) {
-          prefetchedPlaylistN1Ref.current = true
-          onPrefetchNextPlaylist()
-        }
-      }
-      if (ratio > 0.85 && !prefetchedPlaylistN2Ref.current && onPrefetchNextNextPlaylist) {
-        prefetchedPlaylistN2Ref.current = true
-        onPrefetchNextNextPlaylist()
-      }
-    }
+    updateBufferedRanges(v, now, setBufferedRanges, setBufferedEnd)
+    tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
+    trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
+    trySyncUrlPlayhead(now, lastUrlSyncRef)
+    tryPrefetchNext({ v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref })
   }
 
   // Apply playback speed + pitch preservation whenever the user changes it or
@@ -942,7 +1342,7 @@ export default function PlayerModal(props: PlayerModalProps) {
     if (!info) return
     favoritesList()
       .then(list => setIsFavorite(list.some(f =>
-        (info.infoHash && f.infoHash && f.infoHash.toLowerCase() === info.infoHash.toLowerCase())
+        (f.infoHash?.toLowerCase() === info.infoHash?.toLowerCase())
         || f.name === info.name
       )))
       .catch(() => {})
@@ -969,7 +1369,7 @@ export default function PlayerModal(props: PlayerModalProps) {
   }
 
   const formatTime = (s: number): string => {
-    if (!isFinite(s) || s < 0) return '0:00'
+    if (!Number.isFinite(s) || s < 0) return '0:00'
     const h = Math.floor(s / 3600)
     const m = Math.floor((s % 3600) / 60)
     const sec = Math.floor(s % 60)
@@ -1035,199 +1435,53 @@ export default function PlayerModal(props: PlayerModalProps) {
   // attempt fail, the auto-fallback overlay flash, then a retry loop ("tente
   // novamente até funcionar"). Detection by filename is best-effort; if it
   // misses, the auto-fallback flow on onError still rescues it like before.
-  const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
   // Route to HLS up-front on Safari for anything it likely can't direct-play:
   //   - HEVC/x265/AV1 by name (codec markers)
   //   - 2160p/4K/UHD: even "MP4" containers at 4K are usually HEVC or H264 at
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const safariNeedsTranscode = isSafariBrowser() &&
-    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
-  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
-  const transcodeOpts: TranscodeOpts = {}
-  if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
-  if (forceH264) transcodeOpts.video = 'h264'
-  if (burnSubTrack !== null) {
-    transcodeOpts.burn = burnSubTrack
-    transcodeOpts.video = 'h264' // burn-in requires video re-encode
+  const audioTrackTitle = (a: MediaTrack) => {
+    let t = a.title || a.codec
+    if (a.channels) t += ` (${a.channels}ch)`
+    return `${t} — clicar transcoda via FFmpeg, perde seek`
   }
-  // When changing audio track, also re-encode audio to AAC for browser compatibility
-  if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
-
-  // Only emit a real <video src> after the streamer has the torrent active.
-  // Premature srcs (during the metadata-cache hit phase) would 404 and cause
-  // the browser to surface "format not supported" prematurely.
-  //
-  // Route selection in transcoded mode:
-  //   - Safari/iOS → /api/stream/hls/.../index.m3u8 (HLS, natively supported)
-  //   - Other browsers → /api/stream/transcode/.../?video=h264 (progressive MP4)
-  //
-  // Why: Safari's MSE pipeline rejects progressive fragmented MP4 over
-  // chunked transfer with MediaError.SRC_NOT_SUPPORTED regardless of encoder
-  // tuning. Apple's documented streaming format is HLS — `<video src=*.m3u8>`
-  // is the only thing Safari treats as a first-class video source.
-  // Chromium/Edge don't have native HLS support so we keep progressive MP4
-  // for them (works fine with our current ffmpeg config).
-  // streamURL gateia em mediaToken também: a primeira vez que o <video> recebe
-  // src ele aciona loadstart + decode pipeline. Trocar src depois (mesmo path,
-  // query diferente) faz o browser resetar pra 0. Mantendo a string idêntica
-  // durante toda a sessão (mediaToken é estado estável até unmount), o React
-  // nunca causa re-attribute do src.
-  const streamURL = info && selectedFile >= 0 && serverReady && mediaToken
-    ? (isTranscoded
-        ? (isSafariBrowser()
-            ? streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
-            : streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken))
-        : streamFileURL(info.infoHash, selectedFile, mediaToken))
-    : ''
-  // Subtitle source priority: sidecar file (instant, perfect sync) > embedded track (extracted via ffmpeg) > OpenSubtitles external
-  const subtitleVttURL =
-    info && mediaToken && sidecarIdx !== null
-      ? streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
-      : info && mediaToken && embeddedSub !== null
-        ? streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
-        : mediaToken && subActive
-          ? subtitleDownloadURL(subActive, mediaToken)
-          : ''
-
-  // "Open in VLC" link — universal M3U download.
-  // The browser downloads /api/stream/playlist/HASH/IDX.m3u with the right content-type,
-  // and the OS opens it in the registered M3U handler (VLC on every platform).
-  // The previous vlc:// scheme broke on desktop VLC and iOS Safari produced "invalid address".
-  let vlcURL = ''
-  if (info && selectedFile >= 0) {
-    const transcodeParam = forceH264 ? 'h264' : undefined
-    vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
-  }
-
-  let encoderLabel = 'CPU'
-  if (caps?.hasNvidia) {
-    encoderLabel = 'NVENC'
-  } else if (caps?.hasVaapi) {
-    encoderLabel = 'VAAPI'
-  } else if (caps?.hasQsv) {
-    encoderLabel = 'QSV'
-  }
-
-  let subtitleLabel: string
-  if (embeddedSub !== null) {
-    subtitleLabel = 'Legenda embutida'
-  } else if (subActive) {
-    subtitleLabel = autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
-  } else if (subLoading) {
-    subtitleLabel = 'Buscando...'
-  } else {
-    subtitleLabel = 'Legendas'
-  }
-
-  const renderVideoElement = () => (
-    <video
-      ref={videoRef}
-      src={streamURL || undefined}
-      controls
-      autoPlay
-      playsInline
-      {...{ 'webkit-playsinline': 'true' } as any}
-      className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
-      onError={onVideoError}
-      onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
-      onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
-      onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
-      onTimeUpdate={onTimeUpdate}
-      onLoadedMetadata={(e) => {
-        const v = e.currentTarget
-        clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
-        onTimeUpdate()
-      }}
-      onProgress={onTimeUpdate}
-      onEnded={() => {
-        console.debug('[player] video onEnded', {
-          repeat,
-          nextVideoIdx,
-          hasPlaylistAdvance: !!onPlaylistAdvance,
-          playlistName: playlist?.name,
-          audioMode,
-        })
-        if (repeat === 'one') {
-          const v = videoRef.current
-          if (v) { v.currentTime = 0; v.play().catch(() => {}) }
-          return
-        }
-        if (nextVideoIdx >= 0) {
-          playFile(nextVideoIdx)
-          return
-        }
-        if (onPlaylistAdvance) {
-          onPlaylistAdvance()
-        }
-      }}
-      onCanPlay={onVideoCanPlay}
-    >
-      {subtitleVttURL ? (
-        <track
-          kind="subtitles"
-          src={subtitleVttURL}
-          srcLang="pt"
-          label="Português (BR)"
-          default
-        />
-      ) : (
-        <track kind="captions" src="" srcLang="pt" label="Legendas" />
-      )}
-    </video>
-  )
-
-  const renderVideoErrorOverlay = () => {
-    const cf = info?.files?.[selectedFile]
-    const peers = info?.peers ?? 0
-    const fileDownloaded = cf?.downloaded ?? 0
-    const starving = fileDownloaded < 30 * 1024 * 1024
-    let title: string
-    let detail: string
-    let kind: 'swarm' | 'codec'
-    if (peers === 0) {
-      kind = 'swarm'
-      title = 'Sem seeds disponíveis'
-      detail = 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.'
-    } else if (starving) {
-      kind = 'swarm'
-      title = 'Download muito lento para streaming'
-      detail = `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${peers !== 1 ? 's' : ''} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`
-    } else {
-      kind = 'codec'
-      title = 'Formato não suportado pelo browser'
-      detail = 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.'
+  const subBtnClass = (active: boolean, image: boolean | undefined) => {
+    if (active) {
+      return image
+        ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
     }
-    const diag = (lastErrorDiag ?? videoDiagnostic()) as Record<string, any>
-    const codeNames: Record<number, string> = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' }
-    const codeName = diag.errorCode ? codeNames[diag.errorCode] || `code ${diag.errorCode}` : '—'
-    return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
-        <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
-        <p className="font-medium">{title}</p>
-        <p className="text-sm text-gray-500 mt-2 max-w-md">{detail}</p>
-        <div className="mt-3 text-[10px] text-gray-500 font-mono space-y-0.5">
-          <div>MediaError: <span className="text-yellow-400">{codeName}</span> {diag.errorMsg ? `· ${diag.errorMsg}` : ''}</div>
-          <div>ready={diag.readyState ?? '—'} net={diag.networkState ?? '—'} {diag.isTranscoded ? '· transcode ON' : '· direct play'}{diag.transcodeFallbackAttempted ? ' · fallback tried' : ''}</div>
-          <div className="text-gray-600">Full log: filtre por "[player]" no console</div>
-        </div>
-        <button onClick={() => setVideoError(false)} className="mt-4 text-xs text-green-400 hover:underline">
-          Tentar de novo
-        </button>
-      </div>
-    )
+    return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
   }
+  const subtitleButtonTitle = (enabled: boolean, source: string | null) => {
+    if (!enabled) return 'Configure OpenSubtitles API key em Settings'
+    if (source === 'embedded') return 'Legenda embutida no arquivo (sync perfeito)'
+    if (source === 'hash') return 'Legenda casada por hash do arquivo (frame-exato)'
+    if (source === 'title') return 'Legenda encontrada pelo título'
+    return 'Buscar legendas em português'
+  }
+  const subtitleBtnClass = (active: string | null, embedded: number | null, source: string | null, enabled: boolean) => {
+    if (active || embedded !== null) {
+      if (source === 'embedded' || source === 'hash') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+      return 'bg-green-500/20 text-green-400 border-green-500/30'
+    }
+    if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+    return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
+  }
+
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps })
+  const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
+
+  const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
 
   return (
     <div
-      className={minimized
-        ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]'
-        : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
+      className={minimized ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]' : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
       onClick={minimized ? undefined : (e) => e.target === e.currentTarget && setMinimized(true)}
       onKeyDown={minimized ? undefined : (e) => e.key === 'Escape' && setMinimized(true)}
-      role={minimized ? undefined : "dialog"}
-      aria-modal={minimized ? undefined : "true"}
+      role={minimized ? undefined : 'dialog'}
+      aria-modal={minimized ? undefined : 'true'}
       tabIndex={minimized ? undefined : -1}
     >
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
@@ -1241,104 +1495,8 @@ export default function PlayerModal(props: PlayerModalProps) {
       <div className={minimized
         ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
         : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
-        {/* Header — safe-top on mobile so the title + close button clear the iOS
-            notch in PWA standalone mode. Bounded to mobile (sm:pt-0 via inline
-            class) because on sm+ the modal sits inside the page with margins
-            and the inset is always 0 anyway. */}
-        <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
-            <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
-            <span className="truncate">{info?.name || result.title}</span>
-            {isTranscoded && caps?.preferred && (
-              <span
-                className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"
-                title={`Encoder: ${caps.preferred}`}
-              >
-                <Cpu className="w-2.5 h-2.5" />
-                {encoderLabel}
-              </span>
-            )}
-            {isTranscoded && !caps?.preferred && (
-              <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0">
-                <Cpu className="w-2.5 h-2.5" />GPU
-              </span>
-            )}
-          </h2>
-          <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-            {info && (
-              <button
-                onClick={toggleFavorite}
-                title={isFavorite ? 'Remover dos favoritos (volta a ser elegível pra eviction)' : 'Marcar como favorito — preservado mesmo após "Limpar cache"'}
-                className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}
-              >
-                <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
-              </button>
-            )}
-            <button
-              onClick={() => setIncognito(!incognito)}
-              title={incognito ? 'Modo incógnito ativo — histórico e progresso não são salvos' : 'Ativar modo incógnito — não salva no Continuar Assistindo nem no histórico'}
-              className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}
-            >
-              {incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={() => setMinimized(m => !m)}
-              title={minimized ? 'Expandir player' : 'Minimizar (continua tocando ao navegar)'}
-              className="text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              {minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}
-            </button>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Playlist context bar */}
-        {playlist && (
-          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-200 flex-shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <ListMusic className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="font-medium truncate">{playlist.name}</span>
-              <span className="text-blue-400/80 flex-shrink-0">
-                · {playlist.currentIndex + 1} de {playlist.items.length}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={onPlaylistPrevious}
-                className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white"
-                title="Item anterior da playlist"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={onToggleShuffle}
-                className={`p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`}
-                title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}
-              >
-                <Shuffle className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={onCycleRepeat}
-                className={`p-1 rounded hover:bg-blue-500/20 ${repeat !== 'none' ? 'text-green-300' : 'text-blue-200/60'} hover:text-white relative`}
-                title={`Repeat: ${repeat}`}
-              >
-                <Repeat className="w-3.5 h-3.5" />
-                {repeat === 'one' && (
-                  <span className="absolute -bottom-0.5 -right-0.5 text-[8px] font-bold text-green-300">1</span>
-                )}
-              </button>
-              <button
-                onClick={onPlaylistAdvance}
-                className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white"
-                title="Próximo item da playlist"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose })}
+        {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent
@@ -1391,107 +1549,41 @@ export default function PlayerModal(props: PlayerModalProps) {
                   90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
                   centering + `mx-auto` keeps the <video> centered with letterbox
                   bars when the source aspect doesn't match the available area. */}
-              <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
-                {/* Audio cover art — the <video> element below plays the audio
-                    but shows a black frame, so for audio content we overlay the
-                    embedded cover (or a music glyph fallback). Pointer-events
-                    off so the native video controls underneath stay clickable. */}
-                {audioMode && info && (
-                  <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
-                    {/* Glyph sits behind; the cover <img> covers it when it loads,
-                        and is hidden on error so the glyph shows through. */}
-                    <Volume2 className="absolute w-12 h-12 text-gray-600" />
-                    <img
-                      src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
-                      alt=""
-                      className="relative max-h-full max-w-full object-contain"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-                    />
-                  </div>
-                )}
-                {/* Resume prompt — when a saved position exists, ask whether to
-                    continue or restart instead of auto-seeking. Replaces both the
-                    silent auto-resume and the permanent "back to start" button. */}
-                {showResumePrompt && resumePosition !== null && (
-                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
-                      <p className="text-gray-300 text-sm text-center">Você parou em</p>
-                      <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
-                      <button
-                        onClick={() => {
-                          const v = videoRef.current
-                          if (v) { v.currentTime = resumePosition; v.play().catch(() => {}) }
-                          setShowResumePrompt(false)
-                        }}
-                        className="btn-primary w-full justify-center"
-                      >
-                        Continuar
-                      </button>
-                      <button
-                        onClick={() => {
-                          const v = videoRef.current
-                          if (v) { v.currentTime = 0; v.play().catch(() => {}) }
-                          setShowResumePrompt(false)
-                          setResumePosition(null)
-                        }}
-                        className="btn-secondary w-full justify-center"
-                      >
-                        Começar do início
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {/* Buffering overlay — visible while either (a) the streamer
-                    hasn't activated the torrent yet (serverReady=false) or
-                    (b) pieces haven't reached the playhead yet. */}
-                {!videoError && currentTime === 0 && bufferedEnd === 0 && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
-                    <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
-                    <p className="text-gray-200 font-medium">
-                      {!serverReady ? 'Conectando ao swarm...' : 'Baixando primeiras peças do torrent...'}
-                    </p>
-                    {resumePosition !== null && (
-                      <p className="text-xs text-blue-300 mt-2">
-                        Continuando de {formatTime(resumePosition)}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400 mt-1">
-                      {info.peers > 0
-                        ? `${info.seeders} seeders / ${info.peers} peers conectados`
-                        : 'Aguardando peers...'}
-                    </p>
-                    {/* Honest progress: show download rate + bytes buffered so a
-                        slow swarm reads as "still working" instead of "frozen".
-                        ~30 MB is roughly the buffer the transcoder needs before
-                        the first segment lands for 4K. */}
-                    {info.downRate > 0 && (
-                      <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
-                        <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
-                        {info.files?.[selectedFile] && (
-                          <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
-                        )}
-                      </p>
-                    )}
-                    {isTranscoded && (
-                      <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
-                        <Cpu className="w-3 h-3" />
-                        {transcodeFallbackAttempted
-                          ? 'Convertendo via GPU — codec original incompatível (HEVC/AV1)'
-                          : 'Transcoding ativo — primeiros frames demoram mais'}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {/* Persistent corner badge while auto-fallback is active (after buffering) */}
-                {transcodeFallbackAttempted && !videoError && (
-                  <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
-                    <Cpu className="w-3 h-3" />
-                    Convertendo via GPU
-                  </div>
-                )}
-                {!videoError ? renderVideoElement() : null}
-                {videoError && renderVideoErrorOverlay()}
-              </div>
+              <VideoPlayerElement
+                videoRef={videoRef}
+                streamURL={streamURL}
+                audioMode={audioMode}
+                subtitleVttURL={subtitleVttURL}
+                videoError={videoError}
+                serverReady={serverReady}
+                currentTime={currentTime}
+                bufferedEnd={bufferedEnd}
+                info={info}
+                selectedFile={selectedFile}
+                showResumePrompt={showResumePrompt}
+                resumePosition={resumePosition}
+                isTranscoded={isTranscoded}
+                transcodeFallbackAttempted={transcodeFallbackAttempted}
+                mediaToken={mediaToken}
+                renderVideoError={renderVideoError}
+                formatTime={formatTime}
+                onVideoError={handleVideoError}
+                onTimeUpdate={handleTimeUpdate}
+                onVideoEnded={handleVideoEnded}
+                onVideoCanPlay={handleVideoCanPlay}
+                videoDiagnostic={videoDiagnostic}
+                onResumeContinue={(pos) => {
+                  const v = videoRef.current
+                  if (v) { v.currentTime = pos; v.play().catch(() => {}) }
+                  setShowResumePrompt(false)
+                }}
+                onResumeRestart={() => {
+                  const v = videoRef.current
+                  if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+                  setShowResumePrompt(false)
+                  setResumePosition(null)
+                }}
+              />
 
               {/* Minimized audio: show a slim time readout below the cover-art box
                   so the user knows where they are in the track without expanding.
@@ -1625,7 +1717,7 @@ export default function PlayerModal(props: PlayerModalProps) {
                     <FastForward className="w-3.5 h-3.5 text-gray-500" />
                     <select
                       value={playbackSpeed}
-                      onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
+                      onChange={e => setPlaybackSpeed(Number.parseFloat(e.target.value))}
                       className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-green-500"
                     >
                       {SPEED_OPTIONS.map(s => (
@@ -1708,14 +1800,12 @@ export default function PlayerModal(props: PlayerModalProps) {
                           <button
                             key={a.index}
                             onClick={() => setTranscodeAudio(a.index)}
-                            title={`${a.title || a.codec}${a.channels ? ` (${a.channels}ch)` : ''} — clicar transcoda via FFmpeg, perde seek`}
-                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                              transcodeAudio === a.index
-                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                                : a.default
-                                  ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
-                                  : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-                            }`}
+                            title={audioTrackTitle(a)}
+                            className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
+                              if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
+                              return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+                            })()}`}
                           >
                             {a.language ? a.language.toUpperCase() : '??'}
                             <span className="text-gray-500 ml-1">{a.codec}{a.channels ? `·${a.channels}ch` : ''}</span>
@@ -1840,13 +1930,7 @@ export default function PlayerModal(props: PlayerModalProps) {
                                   ? `${s.codec} (imagem) — burn-in via FFmpeg, vai forçar transcode do vídeo`
                                   : s.title || s.codec
                               }
-                              className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                                isActive
-                                  ? s.image
-                                    ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-                                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                                  : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
-                              }`}
+                              className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
                             >
                               {s.language ? s.language.toUpperCase() : '??'}
                               <span className="text-gray-500 ml-1">{s.codec}</span>
@@ -1866,28 +1950,14 @@ export default function PlayerModal(props: PlayerModalProps) {
                 <button
                   onClick={openSubtitlePanel}
                   disabled={!subEnabled}
-                  title={
-                    !subEnabled ? 'Configure OpenSubtitles API key em Settings'
-                    : autoSource === 'embedded' ? 'Legenda embutida no arquivo (sync perfeito)'
-                    : autoSource === 'hash' ? 'Legenda casada por hash do arquivo (frame-exato)'
-                    : autoSource === 'title' ? 'Legenda encontrada pelo título'
-                    : 'Buscar legendas em português'
-                  }
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
-                    (subActive || embeddedSub !== null)
-                      ? autoSource === 'embedded' || autoSource === 'hash'
-                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                        : 'bg-green-500/20 text-green-400 border-green-500/30'
-                      : subEnabled
-                        ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
-                        : 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
-                  }`}
+                  title={subtitleButtonTitle(subEnabled, autoSource)}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${subtitleBtnClass(subActive, embeddedSub, autoSource, subEnabled)}`}
                 >
                   {subLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Subtitles className="w-3.5 h-3.5" />}
                   {subtitleLabel}
                 </button>
                 <button
-                  onClick={requestFullscreen}
+                  onClick={handleRequestFullscreen}
                   title="Tela cheia"
                   className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors sm:hidden"
                 >
@@ -1912,13 +1982,11 @@ export default function PlayerModal(props: PlayerModalProps) {
                   }`}
                   title="Salvar download completo no servidor (Background Download)"
                 >
-                  {serverDownloadLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : serverDownloadSuccess ? (
-                    <Check className="w-3.5 h-3.5" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5 text-green-400" />
-                  )}
+{(() => {
+                    if (serverDownloadLoading) return <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    if (serverDownloadSuccess) return <Check className="w-3.5 h-3.5" />
+                    return <Download className="w-3.5 h-3.5 text-green-400" />
+                  })()}
                   <span>
                     {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
                   </span>
@@ -1933,7 +2001,7 @@ export default function PlayerModal(props: PlayerModalProps) {
                   <span className="sm:hidden">Baixar</span>
                 </a>
                 <span className="text-xs text-gray-600 ml-auto hidden sm:block">
-                  {info.files.length} arquivo{info.files.length !== 1 ? 's' : ''} • {formatSize(info.totalSize)}
+                  {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} • {formatSize(info.totalSize)}
                 </span>
               </div>
 
@@ -2013,14 +2081,15 @@ export default function PlayerModal(props: PlayerModalProps) {
                   bonus, behind-the-scenes) sort to the bottom with an EXTRA badge. */}
               {!minimized && info.files.length > 1 && sidebarOpen && (() => {
                 const filterLower = fileFilter.trim().toLowerCase()
-                const matches = (path: string, ep: string | null) =>
+                const matchesFile = (path: string, ep: string | null) =>
                   !filterLower ||
                   path.toLowerCase().includes(filterLower) ||
                   (ep || '').toLowerCase().includes(filterLower)
-                const extraRe = /\b(featurettes?|extras?|bonus|behind[\s\-]?the[\s\-]?scenes|deleted[\s\-]?scenes|making[\s\-]?of|samples?|trailers?|interviews?|gag[\s\-]?reel|outtakes?)\b/i
+                const SPACE_OR_DASH = String.raw`[\s-]?`
+const extraRe = new RegExp(String.raw`\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\b`, 'i')
                 const isExtra = (path: string) => extraRe.test(path)
                 const filteredFiles = info.files
-                  .filter(f => matches(f.path, parseEpisode(f.path)))
+                  .filter(f => matchesFile(f.path, parseEpisode(f.path)))
                   .slice()
                   .sort((a, b) => {
                     const ax = isExtra(a.path), bx = isExtra(b.path)
@@ -2031,6 +2100,15 @@ export default function PlayerModal(props: PlayerModalProps) {
                     if (be) return 1
                     return a.index - b.index
                   })
+                const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
+                  if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  if (isPlayable) {
+                    if (ext) return 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
+                    return 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
+                  }
+                  if (canPreview) return 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
+                  return 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
+                }
                 return (
                   <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
                     <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0">
@@ -2087,17 +2165,7 @@ export default function PlayerModal(props: PlayerModalProps) {
                               // else: dead row, click does nothing (download via long-press / context menu still available)
                             }}
                             title={f.path}
-                            className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${
-                              selectedFile === f.index
-                                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                : isPlayable
-                                  ? extra
-                                    ? 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
-                                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
-                                  : canPreview
-                                    ? 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
-                                    : 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
-                            }`}
+                            className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${fileBtnClass(f.index, isPlayable, canPreview, extra)}`}
                           >
                             <span className="flex items-center gap-1.5 min-w-0">
                               {ep && (

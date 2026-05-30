@@ -65,8 +65,8 @@ export default function DownloadsPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterTracker, setFilterTracker] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
-  const [sortCol, _setSortCol] = useState('created_at')
-  const [sortDir, _setSortDir] = useState('desc')
+  const [sortCol] = useState('created_at')
+  const [sortDir] = useState('desc')
   const [availableTrackers, setAvailableTrackers] = useState<string[]>([])
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
@@ -286,7 +286,7 @@ export default function DownloadsPage() {
     if (!fp) return
     const m = mounts.find(mt => fp === mt.path || fp.startsWith(mt.path + '/'))
     if (m) {
-      const rel = fp.slice(m.path.length).replace(/^\/+/, '')
+      const rel = fp.slice(m.path.length).replaceAll(/^\/+/g, '')
       const hash = buildLocalHash(m.name, rel)
       const synthetic: SearchResult = {
         title: d.name || rel.split('/').pop() || rel,
@@ -359,12 +359,9 @@ export default function DownloadsPage() {
     try { await downloadBatchDelete(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
   }
 
-  const toggleSelectAll = () => {
-    if (selected.size === items.length) {
-      setSelected(new Set())
-    } else {
-      setSelected(new Set(items.map(d => d.id)))
-    }
+  const handleToggleSelectAll = () => {
+    const next = selected.size === items.length ? new Set<number>() : new Set(items.map(d => d.id))
+    setSelected(next)
   }
   const onPromoted = (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => {
     setPromoteTargets(null)
@@ -408,25 +405,16 @@ export default function DownloadsPage() {
     setBusyHash(hash)
     try { await streamDrop(hash); await loadTorrents() } finally { setBusyHash(null) }
   }
-  const onPauseAll = async () => {
-    setBulkBusy(true)
-    try { await streamPauseAll(); await loadTorrents() } finally { setBulkBusy(false) }
-  }
-  const onResumeAll = async () => {
-    setBulkBusy(true)
-    try { await streamResumeAll(); await loadTorrents() } finally { setBulkBusy(false) }
-  }
-
   const onSaveLimits = async () => {
     setLimitsSaving(true); setLimitsMsg('')
     try {
       const down = limitDownKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitDownKB) * 1024))
       const up = limitUpKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitUpKB) * 1024))
-      if (!isFinite(down) || !isFinite(up)) { setLimitsMsg('Valores inválidos'); return }
+      if (!Number.isFinite(down) || !Number.isFinite(up)) { setLimitsMsg('Valores inválidos'); return }
       await streamSetLimits({ down, up })
       setLimitsMsg('Limites aplicados')
       await loadLimits()
-      window.setTimeout(() => { if (mountedRef.current) setLimitsMsg('') }, 2500)
+      globalThis.setTimeout(() => { if (mountedRef.current) setLimitsMsg('') }, 2500)
     } catch { setLimitsMsg('Falha ao salvar') } finally { setLimitsSaving(false) }
   }
 
@@ -461,9 +449,6 @@ export default function DownloadsPage() {
     completed:   items.filter(d => d.status === 'completed'),
     failed:      items.filter(d => d.status === 'failed'),
   }
-  // activeDownloads kept for backward compat with ActiveTab internal usage
-  const _activeDownloads = [...downloadsByStatus.downloading, ...downloadsByStatus.paused, ...downloadsByStatus.failed]
-  void _activeDownloads
   const completedDownloads = downloadsByStatus.completed
 
   // Stalled: downloading but no progress (downRate === 0 or null)
@@ -510,11 +495,12 @@ export default function DownloadsPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div 
+    <section
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      aria-label="Gerenciador de downloads — arraste arquivos .torrent ou links magnet"
       className="relative min-h-screen bg-gray-900"
     >
       {isDraggingPage && (
@@ -555,7 +541,7 @@ export default function DownloadsPage() {
           <StatCard
             icon={<Activity className="w-5 h-5" />}
             label="Fila"
-            value={`${activeCount} ativo${activeCount !== 1 ? 's' : ''}`}
+            value={`${activeCount} ativo${activeCount === 1 ? '' : 's'}`}
             subtitle={seedingCount > 0 ? `${seedingCount} semeando` : undefined}
             gradient="from-amber-500/20 to-orange-500/10"
             iconColor="text-amber-400"
@@ -769,14 +755,7 @@ export default function DownloadsPage() {
                 {tab.icon}
                 {tab.label}
                 {tabCounts[tab.key] > 0 && (
-                  <span className={`
-                    text-[10px] px-1.5 py-0.5 rounded-full font-semibold min-w-[18px] text-center
-                    ${activeTab === tab.key
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : tab.key === 'failed'
-                        ? 'bg-red-500/20 text-red-400'
-                        : 'bg-gray-700 text-gray-400'}
-                  `}>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold min-w-[18px] text-center ${tabBadgeClass(activeTab, tab.key)}`}>
                     {tabCounts[tab.key]}
                   </span>
                 )}
@@ -824,17 +803,13 @@ export default function DownloadsPage() {
                   loading={false}
                   busyHash={busyHash}
                   busyID={null}
-                  bulkBusy={bulkBusy}
                   onTorrentPause={onTorrentPause}
                   onTorrentResume={onTorrentResume}
                   onTorrentPriority={onTorrentPriority}
                   onTorrentDelete={onTorrentDelete}
-                  onPauseAll={onPauseAll}
-                  onResumeAll={onResumeAll}
                   onPause={onPause}
                   onResume={onResume}
                   onDelete={onDelete}
-                  hasTorrents={false}
                   onPlay={onPlay}
                   onInspect={setInspectTarget}
                 />
@@ -932,7 +907,7 @@ export default function DownloadsPage() {
       {/* Barra flutuante de bulk actions, só aparece com seleção ativa. */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-gray-800 border border-cyan-500/40 shadow-2xl rounded-full px-4 py-2 backdrop-blur">
-          <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
           <div className="w-px h-5 bg-gray-700" />
           <button
             onClick={onBatchPause}
@@ -964,7 +939,7 @@ export default function DownloadsPage() {
           </button>
           <div className="w-px h-5 bg-gray-700" />
           <button
-            onClick={toggleSelectAll}
+            onClick={handleToggleSelectAll}
             className="text-xs text-gray-400 hover:text-gray-200 px-1"
           >
             {selected.size === items.length ? 'desmarcar' : 'todos'}
@@ -977,7 +952,7 @@ export default function DownloadsPage() {
           </button>
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
@@ -986,13 +961,13 @@ export default function DownloadsPage() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  subtitle?: string
-  gradient: string
-  iconColor: string
-  pulse?: boolean
+  readonly icon: React.ReactNode
+  readonly label: string
+  readonly value: string
+  readonly subtitle?: string
+  readonly gradient: string
+  readonly iconColor: string
+  readonly pulse?: boolean
 }) {
   return (
     <div className={`
@@ -1017,33 +992,22 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
   onPause, onResume, onDelete, onPlay, onInspect,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  bulkBusy: _bulkBusy, onPauseAll: _onPauseAll, onResumeAll: _onResumeAll,
-  hasTorrents: _hasTorrents, onDownloadPauseAll: _dl1, onDownloadResumeAll: _dl2,
-  downloadBulkBusy: _dl3,
 }: {
-  torrents: TorrentInfo[]
-  downloads: DownloadEntry[]
-  torrentsLoaded: boolean
-  loading: boolean
-  busyHash: string | null
-  busyID: number | null
-  bulkBusy: boolean
-  onTorrentPause: (h: string) => void
-  onTorrentResume: (h: string) => void
-  onTorrentPriority: (h: string, p: StreamPriority) => void
-  onTorrentDelete: (h: string) => void
-  onPauseAll: () => void
-  onResumeAll: () => void
-  onPause: (id: number) => void
-  onResume: (id: number) => void
-  onDelete: (id: number) => void
-  hasTorrents: boolean
-  onPlay: (d: DownloadEntry) => void
-  onInspect: (d: DownloadEntry) => void
-  onDownloadPauseAll?: () => void
-  onDownloadResumeAll?: () => void
-  downloadBulkBusy?: boolean
+  readonly torrents: TorrentInfo[]
+  readonly downloads: DownloadEntry[]
+  readonly torrentsLoaded: boolean
+  readonly loading: boolean
+  readonly busyHash: string | null
+  readonly busyID: number | null
+  readonly onTorrentPause: (h: string) => void
+  readonly onTorrentResume: (h: string) => void
+  readonly onTorrentPriority: (h: string, p: StreamPriority) => void
+  readonly onTorrentDelete: (h: string) => void
+  readonly onPause: (id: number) => void
+  readonly onResume: (id: number) => void
+  readonly onDelete: (id: number) => void
+  readonly onPlay: (d: DownloadEntry) => void
+  readonly onInspect: (d: DownloadEntry) => void
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && torrentsLoaded && !loading
   const isLoading = (!torrentsLoaded || (loading && downloads.length === 0)) && torrents.length === 0 && downloads.length === 0
@@ -1105,25 +1069,25 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   onPause, onResume, onDelete, onPromote, onStopSeed,
   selected, onToggleSelected, onPlay, onInspect, loading,
 }: {
-  torrents: TorrentInfo[]
-  downloads: DownloadEntry[]
-  torrentsLoaded: boolean
-  busyHash: string | null
-  busyID: number | null
-  onTorrentPause: (h: string) => void
-  onTorrentResume: (h: string) => void
-  onTorrentPriority: (h: string, p: StreamPriority) => void
-  onTorrentDelete: (h: string) => void
-  onPause: (id: number) => void
-  onResume: (id: number) => void
-  onDelete: (id: number) => void
-  onPromote: (d: DownloadEntry) => void
-  onStopSeed: (id: number, name: string) => void
-  selected: Set<number>
-  onToggleSelected: (id: number) => void
-  onPlay: (d: DownloadEntry) => void
-  onInspect: (d: DownloadEntry) => void
-  loading?: boolean
+  readonly torrents: TorrentInfo[]
+  readonly downloads: DownloadEntry[]
+  readonly torrentsLoaded: boolean
+  readonly busyHash: string | null
+  readonly busyID: number | null
+  readonly onTorrentPause: (h: string) => void
+  readonly onTorrentResume: (h: string) => void
+  readonly onTorrentPriority: (h: string, p: StreamPriority) => void
+  readonly onTorrentDelete: (h: string) => void
+  readonly onPause: (id: number) => void
+  readonly onResume: (id: number) => void
+  readonly onDelete: (id: number) => void
+  readonly onPromote: (d: DownloadEntry) => void
+  readonly onStopSeed: (id: number, name: string) => void
+  readonly selected: Set<number>
+  readonly onToggleSelected: (id: number) => void
+  readonly onPlay: (d: DownloadEntry) => void
+  readonly onInspect: (d: DownloadEntry) => void
+  readonly loading?: boolean
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && !loading
 
@@ -1164,8 +1128,8 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
           busy={busyID === d.id}
           selected={selected.has(d.id)}
           onToggleSelected={() => onToggleSelected(d.id)}
-          onPause={() => onPause ? onPause(d.id) : {}}
-          onResume={() => onResume ? onResume(d.id) : {}}
+          onPause={() => onPause?.(d.id)}
+          onResume={() => onResume?.(d.id)}
           onDelete={() => onDelete(d.id)}
           onPromote={() => onPromote(d)}
           onStopSeed={() => onStopSeed(d.id, d.name || d.filePath)}
@@ -1184,16 +1148,16 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
 function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
   limitsSaving, limitsMsg, onSaveLimits, totalDown, totalUp, totalPeers,
 }: {
-  limitDownKB: string
-  limitUpKB: string
-  setLimitDownKB: (v: string) => void
-  setLimitUpKB: (v: string) => void
-  limitsSaving: boolean
-  limitsMsg: string
-  onSaveLimits: () => void
-  totalDown: number
-  totalUp: number
-  totalPeers: number
+  readonly limitDownKB: string
+  readonly limitUpKB: string
+  readonly setLimitDownKB: (v: string) => void
+  readonly setLimitUpKB: (v: string) => void
+  readonly limitsSaving: boolean
+  readonly limitsMsg: string
+  readonly onSaveLimits: () => void
+  readonly totalDown: number
+  readonly totalUp: number
+  readonly totalPeers: number
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -1282,7 +1246,7 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
 // EmptyState
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function EmptyState({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+function EmptyState({ icon, title, description }: { readonly icon: React.ReactNode; readonly title: string; readonly description: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <div className="text-gray-700 mb-3">{icon}</div>
@@ -1316,22 +1280,28 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   const priority: StreamPriority = (t.priority as StreamPriority) || 'normal'
 
   // Card border/glow color based on state
-  const borderClass = isSeeding
-    ? 'border-violet-500/30 hover:border-violet-500/50'
-    : isPaused
-      ? 'border-gray-600/50 hover:border-gray-500/60'
-      : isComplete
-        ? 'border-green-500/30 hover:border-green-500/50'
-        : 'border-emerald-500/30 hover:border-emerald-500/50'
+  let borderClass: string
+  if (isSeeding) {
+    borderClass = 'border-violet-500/30 hover:border-violet-500/50'
+  } else if (isPaused) {
+    borderClass = 'border-gray-600/50 hover:border-gray-500/60'
+  } else if (isComplete) {
+    borderClass = 'border-green-500/30 hover:border-green-500/50'
+  } else {
+    borderClass = 'border-emerald-500/30 hover:border-emerald-500/50'
+  }
 
   // Gradient bar colors
-  const barGradient = isComplete
-    ? 'from-green-500 to-emerald-400'
-    : isPaused
-      ? 'from-gray-600 to-gray-500'
-      : isSeeding
-        ? 'from-violet-500 to-indigo-400'
-        : 'from-emerald-500 to-teal-400'
+  let barGradient: string
+  if (isComplete) {
+    barGradient = 'from-green-500 to-emerald-400'
+  } else if (isPaused) {
+    barGradient = 'from-gray-600 to-gray-500'
+  } else if (isSeeding) {
+    barGradient = 'from-violet-500 to-indigo-400'
+  } else {
+    barGradient = 'from-emerald-500 to-teal-400'
+  }
 
   return (
     <div className={`
@@ -1434,6 +1404,20 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   )
 }
 
+function downloadBorderClass(completed: boolean, failed: boolean, paused: boolean): string {
+  if (completed) return 'border-green-500/30 hover:border-green-500/50'
+  if (failed) return 'border-red-500/30 hover:border-red-500/50'
+  if (paused) return 'border-gray-600/50 hover:border-gray-500/60'
+  return 'border-cyan-500/30 hover:border-cyan-500/50'
+}
+
+function downloadBarGradient(completed: boolean, failed: boolean, paused: boolean): string {
+  if (completed) return 'from-green-500 to-emerald-400'
+  if (failed) return 'from-red-500 to-rose-400'
+  if (paused) return 'from-gray-600 to-gray-500'
+  return 'from-cyan-500 to-blue-400'
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // DownloadCard — Premium redesigned background download card
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1463,24 +1447,8 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
   const isStalled = d.status === 'downloading' && (d.downRate ?? 0) === 0 && d.bytesDownloaded < d.fileSize
 
   const etaText = computeETA(d)
-
-  // Card border based on state
-  const borderClass = isCompleted
-    ? 'border-green-500/30 hover:border-green-500/50'
-    : isFailed
-      ? 'border-red-500/30 hover:border-red-500/50'
-      : isPaused
-        ? 'border-gray-600/50 hover:border-gray-500/60'
-        : 'border-cyan-500/30 hover:border-cyan-500/50'
-
-  // Gradient bar
-  const barGradient = isCompleted
-    ? 'from-green-500 to-emerald-400'
-    : isFailed
-      ? 'from-red-500 to-rose-400'
-      : isPaused
-        ? 'from-gray-600 to-gray-500'
-        : 'from-cyan-500 to-blue-400'
+  const borderClass = downloadBorderClass(isCompleted, isFailed, isPaused)
+  const barGradient = downloadBarGradient(isCompleted, isFailed, isPaused)
 
   return (
     <div className={`
@@ -1656,7 +1624,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
 // Shared sub-components
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function KindBadge({ kind }: { kind: 'streaming' | 'server' }) {
+function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
   if (kind === 'streaming') {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30">
@@ -1673,7 +1641,7 @@ function KindBadge({ kind }: { kind: 'streaming' | 'server' }) {
   )
 }
 
-function TorrentStatusBadge({ status }: { status: NonNullable<TorrentInfo['status']> }) {
+function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentInfo['status']> }) {
   const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
     downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-gray-300 border-gray-500/30',          icon: <Pause className="w-3 h-3" /> },
@@ -1688,7 +1656,7 @@ function TorrentStatusBadge({ status }: { status: NonNullable<TorrentInfo['statu
   )
 }
 
-function DownloadStatusBadge({ status }: { status: DownloadEntry['status'] }) {
+function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['status'] }) {
   const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
     queued:      { label: 'Na fila',     cls: 'bg-gray-700/50 text-gray-300 border-gray-600/50',         icon: <Clock className="w-3 h-3" /> },
     downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
@@ -1705,12 +1673,12 @@ function DownloadStatusBadge({ status }: { status: DownloadEntry['status'] }) {
 }
 
 function ActionButton({ onClick, disabled, variant, icon, label, className = '' }: {
-  onClick: () => void
-  disabled: boolean
-  variant: 'success' | 'danger' | 'neutral' | 'info'
-  icon: React.ReactNode
-  label: string
-  className?: string
+  readonly onClick: () => void
+  readonly disabled: boolean
+  readonly variant: 'success' | 'danger' | 'neutral' | 'info'
+  readonly icon: React.ReactNode
+  readonly label: string
+  readonly className?: string
 }) {
   const styles: Record<typeof variant, string> = {
     success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
@@ -1734,6 +1702,16 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '' 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Shared helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function tabBadgeClass(activeTab: Tab, tabKey: string): string {
+  if (activeTab === tabKey) return 'bg-emerald-500/20 text-emerald-300'
+  if (tabKey === 'failed') return 'bg-red-500/20 text-red-400'
+  return 'bg-gray-700 text-gray-400'
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // ETA helpers
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1743,7 +1721,7 @@ function computeTorrentETA(t: TorrentInfo): string {
   const remaining = t.totalSize - done
   if (remaining <= 0) return ''
   const sec = remaining / t.downRate
-  if (!isFinite(sec) || sec <= 0) return ''
+  if (!Number.isFinite(sec) || sec <= 0) return ''
   return `~${formatDurationShort(sec)}`
 }
 
@@ -1755,12 +1733,12 @@ function computeETA(d: DownloadEntry): string {
   if (!d.startedAt || d.fileSize <= 0 || d.bytesDownloaded <= 0) return ''
   if (d.bytesDownloaded >= d.fileSize) return ''
   const startMs = new Date(d.startedAt).getTime()
-  if (!isFinite(startMs) || startMs <= 0) return ''
+  if (!Number.isFinite(startMs) || startMs <= 0) return ''
   const elapsedSec = (Date.now() - startMs) / 1000
   if (elapsedSec < 2) return ''
   const rate = d.bytesDownloaded / elapsedSec
   if (rate <= 0) return ''
   const remainingSec = (d.fileSize - d.bytesDownloaded) / rate
-  if (!isFinite(remainingSec) || remainingSec <= 0) return ''
+  if (!Number.isFinite(remainingSec) || remainingSec <= 0) return ''
   return `~${formatDurationShort(remainingSec)} restantes`
 }

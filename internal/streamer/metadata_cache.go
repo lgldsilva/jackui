@@ -80,7 +80,7 @@ func ArtSourceRank(source string) int {
 }
 
 func NewMetadataCache(path string) (*MetadataCache, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL)
 	if err != nil {
 		return nil, err
 	}

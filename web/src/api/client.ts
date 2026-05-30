@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { isIncognito } from '../lib/incognito'
 
+export const MAGNET_PREFIX = 'magnet:?xt=urn:btih:'
+
 // Exported so diagnostic shippers (lib/diag.ts) can post without re-wiring
 // auth interceptors. Don't reach into this directly from feature code — keep
 // using the helper functions below; this is for cross-cutting infra only.
@@ -33,7 +35,7 @@ api.interceptors.request.use((config) => {
 export function withToken(url: string, override?: string): string {
   const raw = override ?? localStorage.getItem('jackui:auth.access')
   if (!raw) return url
-  const cleaned = String(raw).replace(/^"|"$/g, '') // localStorage values are JSON-stringified
+  const cleaned = String(raw).replaceAll(/^"|"$/g, '') // localStorage values are JSON-stringified
   const sep = url.includes('?') ? '&' : '?'
   return `${url}${sep}token=${encodeURIComponent(cleaned)}`
 }
@@ -50,24 +52,24 @@ export async function fetchMediaToken(): Promise<string> {
 }
 
 export type Quality = {
-  resolution?: string
-  codec?: string
-  source?: string
-  audio?: string[]
-  group?: string
-  year?: number
-  season?: number
-  episode?: number
-  hdr?: boolean
-  dv?: boolean
-  tenBit?: boolean
-  repack?: boolean
-  proper?: boolean
-  extended?: boolean
-  remux?: boolean
-  multi?: boolean
-  dubbed?: boolean
-  subbed?: boolean
+  readonly resolution?: string
+  readonly codec?: string
+  readonly source?: string
+  readonly audio?: readonly string[]
+  readonly group?: string
+  readonly year?: number
+  readonly season?: number
+  readonly episode?: number
+  readonly hdr?: boolean
+  readonly dv?: boolean
+  readonly tenBit?: boolean
+  readonly repack?: boolean
+  readonly proper?: boolean
+  readonly extended?: boolean
+  readonly remux?: boolean
+  readonly multi?: boolean
+  readonly dubbed?: boolean
+  readonly subbed?: boolean
 }
 
 export type SearchResult = {
@@ -99,31 +101,28 @@ export type SearchResult = {
   // Present when the result comes from a history endpoint — it's the
   // results.id primary key and unlocks per-row mutations like refresh.
   id?: number
-  // Origin search query — present on results returned by history/cache
-  // endpoints (lets the UI jump back to "see all results for this query").
-  query?: string
 }
 
 export type Indexer = {
-  id: string
-  name: string
-  description: string
-  language: string
-  type: string
-  configured: boolean
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly language: string
+  readonly type: string
+  readonly configured: boolean
 }
 
 export type DownloadClient = {
-  id: string
-  name: string
-  type: string
-  default: boolean
+  readonly id: string
+  readonly name: string
+  readonly type: string
+  readonly default: boolean
 }
 
 export type DownloadClientFull = DownloadClient & {
-  url: string
-  username: string
-  password: string
+  readonly url: string
+  readonly username: string
+  readonly password: string
 }
 
 export type JackettConfig = {
@@ -278,7 +277,10 @@ export function isLocalHash(hash: string): boolean {
 export function buildLocalHash(mount: string, path: string): string {
   const json = JSON.stringify({ mount, path })
   // base64url, no padding (URL-safe)
-  const b64 = btoa(unescape(encodeURIComponent(json)))
+  const bytes = new TextEncoder().encode(json)
+  let bin = ''
+  for (const byte of bytes) bin += String.fromCodePoint(byte)
+  const b64 = btoa(bin)
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replaceAll('=', '')
@@ -288,9 +290,12 @@ export function buildLocalHash(mount: string, path: string): string {
 export function parseLocalHash(hash: string): { mount: string; path: string } | null {
   if (!isLocalHash(hash)) return null
   try {
-    let b64 = hash.slice(LOCAL_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/')
+    let b64 = hash.slice(LOCAL_PREFIX.length).replaceAll('-', '+').replaceAll('_', '/')
     while (b64.length % 4) b64 += '='
-    const json = decodeURIComponent(escape(atob(b64)))
+    const raw = atob(b64)
+    const rawBytes = new Uint8Array(raw.length)
+    for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.codePointAt(i) ?? 0
+    const json = new TextDecoder().decode(rawBytes)
     const parsed = JSON.parse(json)
     if (typeof parsed.mount === 'string' && typeof parsed.path === 'string') return parsed
     return null
@@ -733,20 +738,20 @@ export const resetPassword = async (token: string, password: string): Promise<vo
 
 const b64urlToBuf = (s: string): ArrayBuffer => {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
-  const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'))
+  const bin = atob((s + pad).replaceAll('-', '+').replaceAll('_', '/'))
   const buf = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.codePointAt(i) ?? 0
   return buf.buffer
 }
 const bufToB64url = (buf: ArrayBuffer): string => {
   const bytes = new Uint8Array(buf)
   let bin = ''
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  for (const byte of bytes) bin += String.fromCodePoint(byte)
   return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
 }
 
 export function isPasskeySupported(): boolean {
-  return typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials?.create
+  return typeof globalThis !== 'undefined' && !!globalThis.PublicKeyCredential && !!navigator.credentials?.create
 }
 
 export type PasskeyInfo = { id: string }
@@ -1129,7 +1134,7 @@ export const favoriteRemove = async (name: string): Promise<void> => {
 // Import a torrent straight into favorites — magnet URI or a base64-encoded
 // .torrent file. Server resolves hash + name locally (no DHT) and caches the
 // metainfo so playback is instant. Returns the resolved entry.
-type ImportResult = { infoHash: string; name: string; magnet: string  }
+export type ImportResult = { infoHash: string; name: string; magnet: string }
 export const streamImport = async (
   payload: { magnet?: string; torrentB64?: string; name?: string; folderId?: number | null },
 ): Promise<ImportResult> => {

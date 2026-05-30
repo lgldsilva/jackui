@@ -74,7 +74,7 @@ func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.
 		}
 	}
 
-	targetPath := buildTargetPath(kind, cleanTitle, year, meta.Season, meta.Episode, epName, ext, rawName)
+	targetPath := buildTargetPath(targetPathInput{Kind: kind, CleanTitle: cleanTitle, Year: year, Season: meta.Season, Episode: meta.Episode, EpName: epName, Ext: ext, RawName: rawName})
 
 	return &PreviewResult{
 		OriginalName: rawName,
@@ -88,33 +88,45 @@ func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.
 	}, nil
 }
 
+// targetPathInput groups the parameters for buildTargetPath.
+type targetPathInput struct {
+	Kind       string
+	CleanTitle string
+	Year       int
+	Season     int
+	Episode    int
+	EpName     string
+	Ext        string
+	RawName    string
+}
+
 // buildTargetPath is the pure path-building step of GeneratePreview, extracted
 // so it can be unit-tested without an AI or TMDB client.
-func buildTargetPath(kind, cleanTitle string, year, season, episode int, epName, ext, rawName string) string {
-	if kind == "tv" {
-		if season <= 0 {
-			season = 1
+func buildTargetPath(in targetPathInput) string {
+	if in.Kind == "tv" {
+		if in.Season <= 0 {
+			in.Season = 1
 		}
-		sStr := fmt.Sprintf("S%02d", season)
-		eStr := fmt.Sprintf("E%02d", episode)
-		if episode > 0 {
+		sStr := fmt.Sprintf("S%02d", in.Season)
+		eStr := fmt.Sprintf("E%02d", in.Episode)
+		if in.Episode > 0 {
 			var filename string
-			if epName != "" {
-				filename = fmt.Sprintf("%s - %s%s - %s%s", cleanTitle, sStr, eStr, epName, ext)
+			if in.EpName != "" {
+				filename = fmt.Sprintf("%s - %s%s - %s%s", in.CleanTitle, sStr, eStr, in.EpName, in.Ext)
 			} else {
-				filename = fmt.Sprintf("%s - %s%s%s", cleanTitle, sStr, eStr, ext)
+				filename = fmt.Sprintf("%s - %s%s%s", in.CleanTitle, sStr, eStr, in.Ext)
 			}
-			return filepath.Join("Series", cleanTitle, fmt.Sprintf("Season %02d", season), filename)
+			return filepath.Join("Series", in.CleanTitle, fmt.Sprintf("Season %02d", in.Season), filename)
 		}
-		return filepath.Join("Series", cleanTitle, fmt.Sprintf("Season %02d", season), rawName)
+		return filepath.Join("Series", in.CleanTitle, fmt.Sprintf("Season %02d", in.Season), in.RawName)
 	}
 	var folderName string
-	if year > 0 {
-		folderName = fmt.Sprintf("%s (%d)", cleanTitle, year)
+	if in.Year > 0 {
+		folderName = fmt.Sprintf("%s (%d)", in.CleanTitle, in.Year)
 	} else {
-		folderName = cleanTitle
+		folderName = in.CleanTitle
 	}
-	return filepath.Join("Filmes", folderName, folderName+ext)
+	return filepath.Join("Filmes", folderName, folderName+in.Ext)
 }
 
 func sanitizeFilename(s string) string {

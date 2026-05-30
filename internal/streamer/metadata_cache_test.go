@@ -1,8 +1,11 @@
 package streamer
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func newTestCache(t *testing.T) *MetadataCache {
@@ -195,5 +198,68 @@ func TestMetadataCache_ColumnExists_True(t *testing.T) {
 	c := newTestCache(t)
 	if !columnExists(c.db, "metadata", "info_hash") {
 		t.Error("expected info_hash column to exist")
+	}
+}
+
+func TestNewMetadataCache_InvalidPath(t *testing.T) {
+	_, err := NewMetadataCache("/nonexistent/foo/meta.db")
+	if err == nil {
+		t.Error("expected error for invalid path")
+	}
+}
+
+func TestMetadataCache_ColumnExists_ErrorQuery(t *testing.T) {
+	// columnExists with a bad DB connection
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "bad.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if columnExists(db, "metadata", "any") {
+		t.Error("expected false for empty DB")
+	}
+}
+
+func TestMetadataCache_SetHealth_Nil(t *testing.T) {
+	var m *MetadataCache
+	err := m.SetHealth("hash", 1, 2)
+	if err != nil {
+		t.Errorf("unexpected error on nil cache: %v", err)
+	}
+}
+
+func TestMetadataCache_GetHealth_NoHealthData(t *testing.T) {
+	c := newTestCache(t)
+	c.SetHealth("hash1", 5, 10)
+	// hash2 has no health data
+	if got := c.GetHealth("hash2"); got != nil {
+		t.Error("expected nil for hash with no health data")
+	}
+}
+
+func TestMetadataCache_GetArt_NilSafe(t *testing.T) {
+	var m *MetadataCache
+	if got := m.GetArt("hash"); got != nil {
+		t.Error("expected nil from nil cache")
+	}
+}
+
+func TestMetadataCache_Get_NilSafe(t *testing.T) {
+	var m *MetadataCache
+	if got := m.Get("hash"); got != nil {
+		t.Error("expected nil from nil cache")
+	}
+}
+
+func TestMetadataCache_GetHealth_NilSafe(t *testing.T) {
+	var m *MetadataCache
+	if got := m.GetHealth("hash"); got != nil {
+		t.Error("expected nil from nil cache")
+	}
+}
+
+func TestArtSourceRank_Default(t *testing.T) {
+	if r := ArtSourceRank(""); r != 0 {
+		t.Errorf("expected 0 for empty source, got %d", r)
 	}
 }

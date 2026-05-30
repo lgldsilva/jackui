@@ -21,49 +21,6 @@ function extractTrackers(magnet: string | undefined): string[] {
  * announce list, so a "fattened" magnet from one tracker's listing can pull
  * peers from every other tracker that indexed the same infoHash.
  */
-function mergeBuckets<T extends SearchResult>(
-  finalBuckets: Map<string, T[]>,
-): T[] {
-  const out: T[] = []
-  for (const [, arr] of finalBuckets) {
-    if (arr.length === 1) { out.push(arr[0]); continue }
-    arr.sort((a, b) => {
-      const am = a.magnetUri ? 1 : 0
-      const bm = b.magnetUri ? 1 : 0
-      if (am !== bm) return bm - am
-      return b.seeders - a.seeders
-    })
-    const primary = arr[0]
-    const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
-    const extraTrackers = collectExtraTrackers(arr.slice(1))
-    let bestSeeders = primary.seeders
-    let bestLeechers = primary.leechers
-    for (const r of arr.slice(1)) {
-      if (r.tracker) mergedAlsoIn.add(r.tracker)
-      ;(r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
-      if (r.seeders > bestSeeders) bestSeeders = r.seeders
-      if (r.leechers > bestLeechers) bestLeechers = r.leechers
-    }
-    if (primary.tracker) mergedAlsoIn.delete(primary.tracker)
-    out.push({
-      ...primary,
-      magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
-      seeders: bestSeeders,
-      leechers: bestLeechers,
-      alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
-    })
-  }
-  return out
-}
-
-function collectExtraTrackers<T extends SearchResult>(items: T[]): string[] {
-  const extra: string[] = []
-  for (const r of items) {
-    for (const t of extractTrackers(r.magnetUri)) extra.push(t)
-  }
-  return extra
-}
-
 function mergeTrackersIntoMagnet(magnet: string, extraTrackers: string[]): string {
   if (!magnet || extraTrackers.length === 0) return magnet
   const qIdx = magnet.indexOf('?')
@@ -99,6 +56,67 @@ function mergeTrackersIntoMagnet(magnet: string, extraTrackers: string[]): strin
  * would visibly favorite the other (favorites cache keys on title). Bucketing
  * by `name|size` collapses those into one card with `alsoIn` filled in.
  */
+function mergeIntoBucket<T extends SearchResult>(
+  arr: T[],
+  extractTrackers: (magnet: string | undefined) => string[],
+  mergeTrackersIntoMagnet: (magnet: string, extraTrackers: string[]) => string,
+): T {
+  arr.sort((a, b) => {
+    const am = a.magnetUri ? 1 : 0
+    const bm = b.magnetUri ? 1 : 0
+    if (am !== bm) return bm - am
+    return b.seeders - a.seeders
+  })
+  const primary = arr[0]
+  const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
+  const extraTrackers: string[] = []
+  let bestSeeders = primary.seeders
+  let bestLeechers = primary.leechers
+  for (const r of arr.slice(1)) {
+    if (r.tracker) { mergedAlsoIn.add(r.tracker) }
+    (r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
+    for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
+    if (r.seeders > bestSeeders) bestSeeders = r.seeders
+    if (r.leechers > bestLeechers) bestLeechers = r.leechers
+  }
+  if (primary.tracker) mergedAlsoIn.delete(primary.tracker)
+  return {
+    ...primary,
+    magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
+    seeders: bestSeeders,
+    leechers: bestLeechers,
+    alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
+  }
+}
+
+function dedupNameSizeBuckets<T extends SearchResult>(
+  hashOut: T[], noHash: T[],
+  extractTrackers: (magnet: string | undefined) => string[],
+  mergeTrackersIntoMagnet: (magnet: string, extraTrackers: string[]) => string,
+): T[] {
+  const normalizeTitle = (s: string) =>
+    s.toLowerCase()
+      .normalize('NFD').replaceAll(/[\u0300-\u036f]/g, '')
+      .replaceAll(/[^a-z0-9]+/g, ' ')
+      .trim()
+  const sizeBucket = (bytes: number) => Math.floor(bytes / (10 * 1024 * 1024))
+  const finalBuckets = new Map<string, T[]>()
+  const seenKey = (r: T) => `${normalizeTitle(r.title)}|${sizeBucket(r.size)}`
+  for (const r of [...hashOut, ...noHash]) {
+    const k = seenKey(r)
+    const arr = finalBuckets.get(k) || []
+    arr.push(r)
+    finalBuckets.set(k, arr)
+  }
+
+  const out: T[] = []
+  for (const [, arr] of finalBuckets) {
+    if (arr.length === 1) { out.push(arr[0]); continue }
+    out.push(mergeIntoBucket(arr, extractTrackers, mergeTrackersIntoMagnet))
+  }
+  return out
+}
+
 export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
   const hashGroups = new Map<string, T[]>()
   const noHash: T[] = []
@@ -124,7 +142,12 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     })
     const primary = arr[0]
     const others = arr.slice(1).map(r => r.tracker).filter(Boolean)
-    const extraTrackers = collectExtraTrackers(arr.slice(1))
+    // Fold every secondary magnet's tr= URLs into the primary so Play/Download
+    // pulls peers from every tracker that indexed this infoHash.
+    const extraTrackers: string[] = []
+    for (const r of arr.slice(1)) {
+      for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
+    }
     hashOut.push({
       ...primary,
       magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
@@ -132,38 +155,6 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     })
   }
 
-  // Secondary pass: dedup hash-grouped + noHash entries by a NORMALIZED
-  // title plus a size-with-tolerance bucket. Two reasons each:
-  //
-  //   1) Title normalization: trackers publish the same release with cosmetic
-  //      differences in punctuation/whitespace — "Disturbed - Discography
-  //      2000-2019" vs "Disturbed Discography 2000 2019" are visibly the same.
-  //      Strip non-alphanumerics down to ASCII letters/digits + single spaces.
-  //
-  //   2) Size bucket of 10 MiB: trackers can report slightly different byte
-  //      counts for the same release (extra padding files, info dictionary
-  //      variations, BEP-47 padding rules). 3.86 GB on tracker A might be
-  //      4,144,987,136 bytes and on tracker B 4,144,985,088 — both display
-  //      "3.86 GB" but exact-match misses. Bucketing to 10 MiB groups them.
-  //
-  // Risk of false positives: two genuinely-different releases with similar
-  // title/size collapse. Unlikely in practice since size bucket is tight
-  // enough that re-rips with different bitrate (typical 50-200 MB delta)
-  // land in distinct buckets.
-  const normalizeTitle = (s: string) =>
-    s.toLowerCase()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim()
-  const sizeBucket = (bytes: number) => Math.floor(bytes / (10 * 1024 * 1024)) // 10 MiB granularity
-  const finalBuckets = new Map<string, T[]>()
-  const seenKey = (r: T) => `${normalizeTitle(r.title)}|${sizeBucket(r.size)}`
-  for (const r of [...hashOut, ...noHash]) {
-    const k = seenKey(r)
-    const arr = finalBuckets.get(k) || []
-    arr.push(r)
-    finalBuckets.set(k, arr)
-  }
-
-  return mergeBuckets(finalBuckets)
+  const out = dedupNameSizeBuckets(hashOut, noHash, extractTrackers, mergeTrackersIntoMagnet)
+  return out
 }

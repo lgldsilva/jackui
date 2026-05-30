@@ -39,7 +39,7 @@ export function usePullToRefresh({ onRefresh, threshold = 80, maxPull = 120, dis
     if (disabled) return
 
     const onTouchStart = (e: TouchEvent) => {
-      if (window.scrollY > 0) return        // only at the top
+      if (globalThis.scrollY > 0) return        // only at the top
       if (e.touches.length !== 1) return
       startYRef.current = e.touches[0].clientY
       trackingRef.current = true

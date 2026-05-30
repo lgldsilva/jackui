@@ -100,7 +100,7 @@ function hydrateTabs(): { tabs: TabState[]; activeId: string } {
     return { tabs: [newTab(id)], activeId: id }
   }
   // Restore counter so new tabs get unique IDs beyond persisted ones
-  const maxId = persisted.reduce((m, t) => Math.max(m, parseInt(t.id) || 0), 0)
+  const maxId = persisted.reduce((m, t) => Math.max(m, Number.parseInt(t.id) || 0), 0)
   tabCounter = maxId + 1
   const tabs = persisted.map(p => ({ ...newTab(p.id), ...p }))
   const savedActive = load<string>(ACTIVE_KEY, '')
@@ -131,6 +131,14 @@ function persistTabs(tabs: TabState[], activeId: string) {
   save(ACTIVE_KEY, activeId)
 }
 
+function appendResult(prev: TabState[], tabId: string, result: SearchResult): TabState[] {
+  return prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t)
+}
+
+function setErrorMsg(prev: TabState[], tabId: string, message: string): TabState[] {
+  return prev.map(t => t.id === tabId ? { ...t, error: message } : t)
+}
+
 function SkeletonCard() {
   return (
     <div className="card animate-pulse flex flex-col gap-3">
@@ -150,7 +158,7 @@ function SkeletonCard() {
   )
 }
 
-function PhaseIndicator({ phase }: { phase: SearchPhase }) {
+function PhaseIndicator({ phase }: { readonly phase: SearchPhase }) {
   if (phase === 'idle') return null
   if (phase === 'cache' || phase === 'live')
     return <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
@@ -190,7 +198,7 @@ export default function SearchPage() {
 
     let mutated = false
     allResults.forEach(r => {
-      const id = r.trackerId || r.tracker.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      const id = r.trackerId || r.tracker.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
       if (id && !discoveredMap.has(id)) {
         discoveredMap.set(id, {
           id,
@@ -275,6 +283,18 @@ export default function SearchPage() {
     return () => obs.disconnect()
   }, [activeId, tabs])
 
+  const closeActiveTab = useCallback(() => {
+    setTabs(prev => {
+      if (prev.length === 1) return prev
+      const es = esMap.current.get(activeId)
+      if (es) { es.close(); esMap.current.delete(activeId) }
+      const next = prev.filter(t => t.id !== activeId)
+      const idx = prev.findIndex(t => t.id === activeId)
+      setActiveId(next[Math.max(0, idx - 1)].id)
+      return next
+    })
+  }, [activeId])
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -291,20 +311,12 @@ export default function SearchPage() {
       // Cmd+W → close active tab
       if (cmd && e.key === 'w') {
         e.preventDefault()
-        setTabs(prev => {
-          if (prev.length === 1) return prev
-          const es = esMap.current.get(activeId)
-          if (es) { es.close(); esMap.current.delete(activeId) }
-          const idx = prev.findIndex(t => t.id === activeId)
-          const next = prev.filter(t => t.id !== activeId)
-          setActiveId(next[Math.max(0, idx - 1)].id)
-          return next
-        })
+        closeActiveTab()
         return
       }
       // Cmd+1..9 → switch tab by index
       if (cmd && /^[1-9]$/.test(e.key)) {
-        const idx = parseInt(e.key) - 1
+        const idx = Number.parseInt(e.key) - 1
         if (idx < tabs.length) {
           e.preventDefault()
           setActiveId(tabs[idx].id)
@@ -316,11 +328,10 @@ export default function SearchPage() {
         e.preventDefault()
         searchInputRef.current?.focus()
         searchInputRef.current?.select()
-        return
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, activeId])
 
@@ -356,7 +367,7 @@ export default function SearchPage() {
     // throw out of the listener (an uncaught exception there would leave the tab
     // stuck "searching" forever). Parse defensively; the generic `error` event
     // isn't even a MessageEvent (no .data), so guard that too.
-    const parseSSE = (raw: unknown): any | null => {
+    const parseSSE = (raw: unknown): any => {
       if (typeof raw !== 'string' || raw === '') return null
       try { return JSON.parse(raw) } catch { return null }
     }
@@ -364,7 +375,7 @@ export default function SearchPage() {
     es.addEventListener('result', (e) => {
       const result = parseSSE(e.data) as SearchResult | null
       if (!result) return
-      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t))
+      setTabs(prev => appendResult(prev, tabId, result))
     })
 
     es.addEventListener('progress', (e) => {
@@ -382,7 +393,7 @@ export default function SearchPage() {
     es.addEventListener('error', (e) => {
       const data = parseSSE((e as MessageEvent).data)
       if (data) {
-        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, error: data.message || 'Erro na busca' } : t))
+        setTabs(prev => setErrorMsg(prev, tabId, data.message || 'Erro na busca'))
       }
     })
 
@@ -452,7 +463,7 @@ export default function SearchPage() {
   const { filteredResults, groupedCount } = useFilteredResults(activeTab.results, {
     minSeeders: activeTab.minSeeders,
     minLeechers: activeTab.minLeechers,
-    maxBytes: activeTab.maxSizeGb ? parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity,
+    maxBytes: activeTab.maxSizeGb ? Number.parseFloat(activeTab.maxSizeGb) * 1024 ** 3 : Infinity,
     trackerFilter: activeTab.trackerFilter,
     titleFilter: activeTab.titleFilter,
     onlyPlayable: activeTab.onlyPlayable,
@@ -489,14 +500,14 @@ export default function SearchPage() {
                 {tab.query.trim() || 'Nova busca'}
               </span>
               {tabs.length > 1 && (
-                <span
+                <button
+                  type="button"
                   onClick={e => closeTab(tab.id, e)}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeTab(tab.id) } }}
-                  role="button" tabIndex={0}
                   className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0 cursor-pointer p-0.5"
                 >
                   <X className="w-3.5 h-3.5" />
-                </span>
+                </button>
               )}
             </button>
           ))}
@@ -605,7 +616,7 @@ export default function SearchPage() {
                 type="number" min={0}
                 value={activeTab.minSeeders || ''}
                 placeholder="0"
-                onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, parseInt(e.target.value) || 0) })}
+                onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
                 className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
               />
             </label>
@@ -617,7 +628,7 @@ export default function SearchPage() {
                 type="number" min={0}
                 value={activeTab.minLeechers || ''}
                 placeholder="0"
-                onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, parseInt(e.target.value) || 0) })}
+                onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
                 className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
               />
             </label>
@@ -711,7 +722,7 @@ export default function SearchPage() {
         {/* Loading skeletons */}
         {isSearching && !hasResults && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 9 }).map((_, i) => <SkeletonCard key={`skeleton-${i}`} />)}
+            {Array.from({ length: 9 }, () => crypto.randomUUID()).map(key => <SkeletonCard key={key} />)}
           </div>
         )}
 
@@ -743,7 +754,7 @@ export default function SearchPage() {
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <SearchX className="w-12 h-12 mb-3 opacity-30" />
             <p className="font-medium">Nenhum resultado com os filtros aplicados</p>
-            <p className="text-sm mt-1">{activeTab.results.length} resultado{activeTab.results.length !== 1 ? 's' : ''} disponíve{activeTab.results.length !== 1 ? 'is' : 'l'} antes dos filtros</p>
+            <p className="text-sm mt-1">{activeTab.results.length} resultado{(activeTab.results.length === 1 ? '' : 's')} disponíve{(activeTab.results.length === 1 ? 'l' : 'is')} antes dos filtros</p>
           </div>
         )}
 

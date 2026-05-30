@@ -329,8 +329,8 @@ const hlsVODEnabled = true
 // custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
 // back to "ffprobe" on PATH when the ffmpeg path doesn't end in "ffmpeg".
 func ffprobePathFrom(ffmpegPath string) string {
-	if strings.HasSuffix(ffmpegPath, "ffmpeg") {
-		return ffmpegPath[:len(ffmpegPath)-len("ffmpeg")] + "ffprobe"
+	if strings.HasSuffix(ffmpegPath, ffBinary) {
+		return ffmpegPath[:len(ffmpegPath)-len(ffBinary)] + "ffprobe"
 	}
 	return "ffprobe"
 }
@@ -807,6 +807,9 @@ func (s *HLSSession) stop() {
 // segment handler which must NOT race the playlist handler into creating
 // a duplicate ffmpeg. Returns an error when the session isn't tracked.
 func (m *HLSSessionManager) Peek(key string) (*HLSSession, error) {
+	if m == nil {
+		return nil, errors.New("nil manager")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.sess[key]

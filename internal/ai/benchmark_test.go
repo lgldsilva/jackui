@@ -28,68 +28,74 @@ func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
 	fastAccurate := compositeScore(0.9, 400, false)
 	slowAccurate := compositeScore(0.9, 4000, false)
 	fastSloppy := compositeScore(0.4, 400, false)
-	if !(fastAccurate > slowAccurate) {
+	if fastAccurate <= slowAccurate {
 		t.Fatalf("faster should score higher at equal accuracy: %v vs %v", fastAccurate, slowAccurate)
 	}
-	if !(fastAccurate > fastSloppy) {
+	if fastAccurate <= fastSloppy {
 		t.Fatalf("more accurate should score higher at equal latency: %v vs %v", fastAccurate, fastSloppy)
 	}
 }
 
 // ── Property-based tests ─────────────────────────────────────────────────────
 
-func TestPropCompositeScoreFreeBonus(t *testing.T) {
-	t.Run("free sempre maior que pago com mesmos valores", func(t *testing.T) {
-		for acc := 0.0; acc <= 1.0; acc += 0.1 {
-			for lat := int64(100); lat <= 10000; lat += 500 {
-				paid := compositeScore(acc, lat, false)
-				free := compositeScore(acc, lat, true)
-				if free < paid {
-					t.Fatalf("free=%.4f < paid=%.4f at acc=%.1f lat=%d", free, paid, acc, lat)
-				}
+func TestPropFreeBonusAlwaysHigher(t *testing.T) {
+	for acc := 0.0; acc <= 1.0; acc += 0.1 {
+		for lat := int64(100); lat <= 10000; lat += 500 {
+			paid := compositeScore(acc, lat, false)
+			free := compositeScore(acc, lat, true)
+			if free < paid {
+				t.Fatalf("free=%.4f < paid=%.4f at acc=%.1f lat=%d", free, paid, acc, lat)
 			}
 		}
-	})
+	}
+}
 
-	t.Run("score cresce com accuracy (mesma latencia)", func(t *testing.T) {
-		for lat := int64(200); lat <= 5000; lat += 500 {
-			prev := compositeScore(0.0, lat, false)
-			for acc := 0.1; acc <= 1.0; acc += 0.1 {
-				cur := compositeScore(acc, lat, false)
-				if cur < prev {
-					t.Fatalf("score decresceu acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
-				}
-				prev = cur
+func TestPropScoreIncreasesWithAccuracy(t *testing.T) {
+	for lat := int64(200); lat <= 5000; lat += 500 {
+		prev := compositeScore(0.0, lat, false)
+		for acc := 0.1; acc <= 1.0; acc += 0.1 {
+			cur := compositeScore(acc, lat, false)
+			if cur < prev {
+				t.Fatalf("score decresceu acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
 			}
+			prev = cur
 		}
-	})
+	}
+}
 
-	t.Run("score decresce com latencia (mesma accuracy)", func(t *testing.T) {
-		for acc := 0.1; acc <= 1.0; acc += 0.2 {
-			prev := compositeScore(acc, 100, false)
-			for lat := int64(200); lat <= 10000; lat += 500 {
-				cur := compositeScore(acc, lat, false)
-				if cur > prev {
-					t.Fatalf("score subiu com latencia maior acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
-				}
-				prev = cur
+func TestPropScoreDecreasesWithLatency(t *testing.T) {
+	for acc := 0.1; acc <= 1.0; acc += 0.2 {
+		prev := compositeScore(acc, 100, false)
+		for lat := int64(200); lat <= 10000; lat += 500 {
+			cur := compositeScore(acc, lat, false)
+			if cur > prev {
+				t.Fatalf("score subiu com latencia maior acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
 			}
+			prev = cur
 		}
-	})
+	}
+}
 
-	t.Run("score sempre finito e positivo", func(t *testing.T) {
-		for acc := 0.0; acc <= 1.0; acc += 0.1 {
-			for lat := int64(0); lat <= 30000; lat += 1000 {
-				s := compositeScore(acc, lat, false)
-				if s < 0 || math.IsInf(s, 0) || math.IsNaN(s) {
-					t.Fatalf("score invalido acc=%.1f lat=%d: %v", acc, lat, s)
-				}
+func TestPropScoreAlwaysFinite(t *testing.T) {
+	for acc := 0.0; acc <= 1.0; acc += 0.1 {
+		for lat := int64(0); lat <= 30000; lat += 1000 {
+			s := compositeScore(acc, lat, false)
+			if s < 0 || math.IsInf(s, 0) || math.IsNaN(s) {
+				t.Fatalf("score invalido acc=%.1f lat=%d: %v", acc, lat, s)
 			}
 		}
-	})
+	}
 }
 
 func TestPropTitleAccuracy(t *testing.T) {
+	testPropTitleAccuracyRange(t)
+	testPropTitleAccuracyExact(t)
+	testPropTitleAccuracyNoOverlap(t)
+	testPropTitleAccuracySymmetry(t)
+}
+
+func testPropTitleAccuracyRange(t *testing.T) {
+	t.Helper()
 	t.Run("resultado sempre em [0,1]", func(t *testing.T) {
 		cases := []struct{ a, b string }{
 			{"The Matrix", "The Matrix"},
@@ -111,7 +117,10 @@ func TestPropTitleAccuracy(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPropTitleAccuracyExact(t *testing.T) {
+	t.Helper()
 	t.Run("exato apos normalizacao = 1", func(t *testing.T) {
 		pairs := [][2]string{
 			{"The.Matrix.1999", "the matrix 1999"},
@@ -126,7 +135,10 @@ func TestPropTitleAccuracy(t *testing.T) {
 			}
 		}
 	})
+}
 
+func testPropTitleAccuracyNoOverlap(t *testing.T) {
+	t.Helper()
 	t.Run("sem overlap = 0", func(t *testing.T) {
 		if a := titleAccuracy("Matrix", "Inception"); a != 0 {
 			t.Errorf("sem overlap deveria ser 0, got %v", a)
@@ -135,7 +147,10 @@ func TestPropTitleAccuracy(t *testing.T) {
 			t.Errorf("sem overlap deveria ser 0, got %v", a)
 		}
 	})
+}
 
+func testPropTitleAccuracySymmetry(t *testing.T) {
+	t.Helper()
 	t.Run("simetria aproximada", func(t *testing.T) {
 		cases := [][2]string{
 			{"The Matrix", "Matrix"},

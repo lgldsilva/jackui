@@ -5,7 +5,7 @@ import {
   ArrowUpCircle, Activity, Globe, Play
 } from 'lucide-react'
 import {
-  DownloadEntry, DownloadDetails, StreamFile,
+  DownloadEntry, DownloadDetails, StreamFile, TorrentInfo,
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
@@ -32,6 +32,73 @@ function fileIcon(f: StreamFile, primary: boolean) {
     return <FileAudio className={`w-4 h-4 ${color} flex-shrink-0`} />
   }
   return <FileText className={`w-4 h-4 ${color} flex-shrink-0`} />
+}
+
+function filesTabLabel(torrent: TorrentInfo | null | undefined): string {
+  if (!torrent) return 'Arquivos'
+  return `Arquivos (${torrent.files.length})`
+}
+
+function trackersTabLabel(trackers: readonly string[]): string {
+  if (trackers.length === 0) return 'Trackers'
+  return `Trackers (${trackers.length})`
+}
+
+function renderFilesTab(
+  torrent: TorrentInfo | null | undefined,
+  syntheticFile: StreamFile | null,
+  filePath: string,
+  fileIndex: number,
+  fileIcon: (f: StreamFile, primary: boolean) => React.ReactNode,
+): React.ReactNode {
+  if (!torrent && !syntheticFile) {
+    return (
+      <p className="text-xs text-gray-500 italic py-2">
+        Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
+      </p>
+    )
+  }
+  if (!torrent && syntheticFile) {
+    return (
+      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
+        <li className="px-3 py-2 flex items-center gap-2.5 bg-green-500/5">
+          {fileIcon(syntheticFile, true)}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm truncate text-green-300 font-medium" title={syntheticFile.path}>{syntheticFile.path}</p>
+            {filePath && <p className="text-[10px] text-gray-500 font-mono truncate mt-0.5" title={filePath}>{filePath}</p>}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-xs text-gray-400">{formatBytes(syntheticFile.size)}</p>
+            <p className="text-[10px] text-green-400 uppercase tracking-wide">este download</p>
+          </div>
+        </li>
+      </ul>
+    )
+  }
+  if (!torrent || torrent.files.length === 0) {
+    return <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
+  }
+  return (
+    <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
+      {torrent.files.map(f => {
+        const isPrimary = f.index === fileIndex
+        return (
+          <li key={f.index} className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}>
+            {fileIcon(f, isPrimary)}
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>{f.path}</p>
+              {f.progress > 0 && f.progress < 1 && (
+                <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
+                  <div className="h-full bg-cyan-500" style={{ width: `${Math.round(f.progress * 100)}%` }} />
+                </div>
+              )}
+            </div>
+            {f.size > 0 && <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>}
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
 export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay }: Props) {
@@ -73,11 +140,11 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const fileStat = details?.file
 
   // Extract tracker URLs from the magnet URI as a client-side fallback.
-  const _mag = d.magnet ?? ''
-  const magnetTrackers: string[] = _mag
+  const magnetQ = d.magnet ?? ''
+  const magnetTrackers: string[] = magnetQ
     ? (() => {
         try {
-          const q = _mag.includes('?') ? _mag.split('?')[1] : _mag
+          const q = magnetQ.includes('?') ? magnetQ.split('?')[1] : magnetQ
           return new URLSearchParams(q).getAll('tr')
         } catch { return [] as string[] }
       })()
@@ -159,78 +226,15 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     priority: 'normal',
   } : null
 
-  let filesTabContent: React.ReactNode
-  if (!torrent && !syntheticFile) {
-    filesTabContent = (
-      <p className="text-xs text-gray-500 italic py-2">
-        Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
-      </p>
-    )
-  } else if (!torrent && syntheticFile) {
-    // Completed download — torrent was dropped but we know the primary file
-    filesTabContent = (
-      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
-        <li className="px-3 py-2 flex items-center gap-2.5 bg-green-500/5">
-          {fileIcon(syntheticFile, true)}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm truncate text-green-300 font-medium" title={syntheticFile.path}>
-              {syntheticFile.path}
-            </p>
-            {d.filePath && (
-              <p className="text-[10px] text-gray-500 font-mono truncate mt-0.5" title={d.filePath}>
-                {d.filePath}
-              </p>
-            )}
-          </div>
-          <div className="text-right flex-shrink-0">
-            <p className="text-xs text-gray-400">{formatBytes(syntheticFile.size)}</p>
-            <p className="text-[10px] text-green-400 uppercase tracking-wide">este download</p>
-          </div>
-        </li>
-      </ul>
-    )
-  } else if (!torrent || torrent.files.length === 0) {
-    filesTabContent = (
-      <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
-    )
-  } else {
-    filesTabContent = (
-      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
-        {torrent.files.map(f => {
-          const isPrimary = f.index === d.fileIndex
-          return (
-            <li
-              key={f.index}
-              className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}
-            >
-              {fileIcon(f, isPrimary)}
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>
-                  {f.path}
-                </p>
-                {f.progress > 0 && f.progress < 1 && (
-                  <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
-                    <div className="h-full bg-cyan-500" style={{ width: `${Math.round(f.progress * 100)}%` }} />
-                  </div>
-                )}
-              </div>
-              {f.size > 0 && (
-                <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    )
-  }
+  const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon)
 
   return (
     <dialog
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      onFocus={() => {}}
       onClose={onClose}
+      onFocus={() => {}} tabIndex={-1}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
@@ -248,8 +252,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
         <div className="flex border-b border-gray-700 px-2 bg-gray-900/40">
           {[
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
-            { id: 'files' as Tab, label: `Arquivos${torrent ? ` (${torrent.files.length})` : ''}`, icon: Files },
-            { id: 'trackers' as Tab, label: `Trackers${displayTrackers.length > 0 ? ` (${displayTrackers.length})` : ''}`, icon: Globe },
+            { id: 'files' as Tab, label: filesTabLabel(torrent), icon: Files },
+            { id: 'trackers' as Tab, label: trackersTabLabel(displayTrackers), icon: Globe },
             { id: 'actions' as Tab, label: 'Ações', icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
             <button
@@ -447,7 +451,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { readonly label: string; readonly children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[120px_1fr] gap-3 items-start">
       <span className="text-xs text-gray-500 uppercase tracking-wide pt-0.5">{label}</span>
@@ -456,7 +460,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function StatusPill({ status }: { status: string }) {
+function StatusPill({ status }: { readonly status: string }) {
   const cls: Record<string, string> = {
     queued: 'bg-gray-700 text-gray-300',
     downloading: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30',

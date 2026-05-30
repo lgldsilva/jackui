@@ -40,10 +40,8 @@ RUN go build -o jackui ./cmd/server
 # Stage 3: Final image
 FROM alpine:3.20
 
-RUN apk add --no-cache ca-certificates tzdata ffmpeg
-
-# Create a non-privileged group and user (UID/GID 1000 matches standard first host user)
-RUN addgroup -g 1000 jackui && \
+RUN apk add --no-cache ca-certificates tzdata ffmpeg && \
+    addgroup -g 1000 jackui && \
     adduser -u 1000 -G jackui -h /app -s /bin/sh -D jackui
 
 WORKDIR /app
@@ -55,5 +53,8 @@ RUN chown -R jackui:jackui /app
 USER jackui
 
 EXPOSE 8989
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:8989/healthz || exit 1
 
 ENTRYPOINT ["./jackui"]
