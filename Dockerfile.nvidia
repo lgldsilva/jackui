@@ -54,10 +54,8 @@ ENV NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       ffmpeg ca-certificates tzdata && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Create a non-privileged group and user (UID/GID 1000 matches standard first host user)
-RUN groupadd -g 1000 jackui && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    groupadd -g 1000 jackui && \
     useradd -u 1000 -g jackui -d /app -s /bin/bash -m jackui
 
 WORKDIR /app
