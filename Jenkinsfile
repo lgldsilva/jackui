@@ -1,17 +1,19 @@
 // JackUI — pipeline CI/CD (Jenkins @ oracle-desktop).
 //
-// Fluxo:  push na main (webhook Gitea) → test → build → SonarQube (quality gate)
-//         → SBOM → Dependency-Track → build imagem → Trivy → push no registry do
-//         Gitea. O **Watchtower** no raspberrypi-srv observa o registry e
-//         auto-redeploya o container (sem SSH de deploy, sem mudar env).
+// Fluxo:  push na main (webhook Gitea) → test → frontend → SonarQube (quality
+//         gate) → SBOM→Dependency-Track → build NATIVO amd64 no alvo (SSH) +
+//         push no registry do Gitea → Trivy → deploy imediato no raspberrypi-srv
+//         (SSH/WireGuard) → retenção das tags antigas.
+//
+// O Jenkins host (oracle-desktop) é arm64 e o alvo (raspberrypi-srv) é amd64;
+// como o alvo é o único consumidor, o build roda LÁ nativamente (sem qemu/OOM).
 //
 // Pré-requisitos no Jenkins (ver docs/CICD.md):
-//   - Plugins: Docker Pipeline, Credentials Binding, Git.
+//   - Plugins: Docker Pipeline, Credentials Binding, Git, SSH Agent.
 //   - Agent com /var/run/docker.sock (o controller no oracle-desktop já tem).
 //   - Credenciais no Jenkins: 'jackui-sonar-token' (secret text),
-//     'jackui-dt' (user/pass), 'jackui-gitea' (user/pass, com write:package).
-//   - Watchtower no raspberrypi-srv observando a imagem do registry (label
-//     com.centurylinklabs.watchtower.enable=true no compose do jackui).
+//     'jackui-dt' (user/pass), 'jackui-gitea' (user/pass, com write:package),
+//     'jackui-deploy' (ssh key — build E deploy no raspberrypi-srv).
 
 pipeline {
   agent any
@@ -19,7 +21,7 @@ pipeline {
   options {
     timestamps()
     disableConcurrentBuilds()
-    timeout(time: 120, unit: 'MINUTES')  // build amd64 emulado (qemu) é lento
+    timeout(time: 90, unit: 'MINUTES')  // SBOM/cdxgen (~20min) + Sonar são o gargalo
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
@@ -110,29 +112,34 @@ pipeline {
       }
     }
 
-    // Build MULTI-ARCH (amd64 + arm64) via buildx e push do manifesto pro
-    // registry. O deploy-target (raspberrypi-srv) é amd64; o Jenkins host é
-    // arm64 → o amd64 sai EMULADO (qemu/binfmt), por isso é lento. O manifesto
-    // serve a arch certa pra cada host no pull. Builder docker-container com
-    // config de registry HTTP inseguro (10.228.143.12:3000).
-    stage('Build & Push (multi-arch)') {
+    // Build NATIVO no alvo (raspberrypi-srv, x86_64) via SSH. O Jenkins host é
+    // arm64; emular amd64 (qemu) é lento e estourou a memória do host (4.6Gi
+    // livres, sem swap) buildando a imagem CUDA. Como o ÚNICO consumidor é o
+    // raspberrypi-srv (amd64, 11Gi livres, já com insecure-registry), buildamos
+    // lá nativamente: sem qemu, sem OOM, arch exata do deploy. O fonte do commit
+    // exato vai por `git archive`→tar via SSH (sem credenciais git no host).
+    stage('Build & Push (amd64 nativo no alvo)') {
       steps {
-        withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')]) {
+        withCredentials([
+          usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN'),
+          sshUserPrivateKey(credentialsId: 'jackui-deploy', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+        ]) {
           sh '''
-            echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
-            cat > buildkitd-jackui.toml <<EOF
-[registry."10.228.143.12:3000"]
-  http = true
-  insecure = true
-EOF
-            docker buildx inspect jackui-multi >/dev/null 2>&1 || \
-              docker buildx create --name jackui-multi --driver docker-container \
-                --driver-opt network=host --buildkitd-config buildkitd-jackui.toml --bootstrap
-            docker buildx build --builder jackui-multi \
-              --platform linux/amd64,linux/arm64 \
-              --build-arg BUILD_TIMESTAMP=$(date +%s) -f $DOCKERFILE \
-              -t $IMAGE:$TAG -t $IMAGE:nvidia --push .
-            docker logout $REGISTRY
+            SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@10.228.143.1"
+            # 1) envia o fonte do commit exato (HEAD do workspace) pro host
+            git archive --format=tar HEAD | $SSH "rm -rf /tmp/jackui-build && mkdir -p /tmp/jackui-build && tar -x -C /tmp/jackui-build"
+            # 2) builda nativo + push (token/refs expandidos aqui no agente; o host
+            #    roda o build). docker login via stdin pra não vazar token no ps.
+            $SSH "
+              set -e
+              cd /tmp/jackui-build
+              echo '$GITEA_TOKEN' | docker login $REGISTRY -u '$GITEA_USER' --password-stdin
+              docker build -f $DOCKERFILE --build-arg BUILD_TIMESTAMP=\\$(date +%s) -t $IMAGE:$TAG -t $IMAGE:nvidia .
+              docker push $IMAGE:$TAG
+              docker push $IMAGE:nvidia
+              docker logout $REGISTRY
+              rm -rf /tmp/jackui-build
+            "
           '''
         }
       }
