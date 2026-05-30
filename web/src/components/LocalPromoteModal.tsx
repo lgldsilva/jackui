@@ -3,7 +3,7 @@ import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home
 import { LocalEntry, downloadPromoteBrowse, localPromote, fetchPromoteDestinations, PromoteDestination, localPromotePreview, PromotePreviewEntry } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
   readonly onClose: () => void
@@ -104,6 +104,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
+      onFocus={() => {}}
       onClose={onClose}
       open
     >

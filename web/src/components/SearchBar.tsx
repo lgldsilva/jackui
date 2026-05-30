@@ -3,7 +3,7 @@ import { Search } from 'lucide-react'
 import { Indexer } from '../api/client'
 import IndexerMultiSelect from './IndexerMultiSelect'
 
-interface SearchBarProps {
+type SearchBarProps = {
   readonly query: string
   readonly onQueryChange: (q: string) => void
   readonly selectedIndexers: string[]

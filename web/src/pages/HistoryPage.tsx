@@ -19,6 +19,76 @@ type Mode = 'browse' | 'global'
 type EntrySortKey = 'recent' | 'oldest' | 'most' | 'alpha'
 type ResultSortKey = 'seeders' | 'size' | 'date' | 'title'
 
+type SortButtonDef = [ResultSortKey, string]
+
+const SORT_BUTTONS_GLOBAL: SortButtonDef[] = [['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Nome']]
+const SORT_BUTTONS_BROWSE: SortButtonDef[] = [['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Título']]
+
+function renderSortButton(
+  key: ResultSortKey,
+  label: string,
+  resultSort: ResultSortKey,
+  resultSortAsc: boolean,
+  setResultSort: (k: ResultSortKey) => void,
+  setResultSortAsc: (a: boolean | ((prev: boolean) => boolean)) => void,
+) {
+  return (
+    <button
+      key={key}
+      onClick={() => {
+        if (resultSort === key) setResultSortAsc(a => !a)
+        else { setResultSort(key); setResultSortAsc(false) }
+      }}
+      className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
+        resultSort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
+      }`}
+    >
+      {label}
+      {resultSort === key && (resultSortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
+    </button>
+  )
+}
+
+function renderGlobalResultCard(
+  result: SearchResult,
+  idx: number,
+  setDownloadTarget: (r: SearchResult | null) => void,
+  playSingle: (r: SearchResult, fileIndex?: number) => void,
+  setPlaylistTarget: (r: SearchResult | null) => void,
+  setPlaylistTargetFile: (v: { index: number; title: string } | null) => void,
+  setContentsTarget: (r: SearchResult | null) => void,
+  handleRefreshResult: (r: SearchResult) => Promise<void>,
+  refreshingIDs: Set<number>,
+  refreshedLabels: Map<number, string>,
+  handleSelect: (q: string) => Promise<void>,
+  setMode: (m: Mode) => void,
+) {
+  return (
+    <div key={`${result.infoHash || result.link}-${idx}`} className="flex flex-col gap-1">
+      <ResultCard
+        result={result}
+        onDownload={setDownloadTarget}
+        onPlay={(r) => playSingle(r)}
+        onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
+        onExploreContents={setContentsTarget}
+        onRefresh={handleRefreshResult}
+        refreshing={result.id !== undefined && refreshingIDs.has(result.id)}
+        refreshedAt={result.id !== undefined ? refreshedLabels.get(result.id) ?? null : null}
+      />
+      {result.query && (
+        <button
+          onClick={() => { setMode('browse'); handleSelect(result.query!) }}
+          className="text-[10px] text-gray-500 hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate"
+          title={`Ver todos os resultados da busca "${result.query}"`}
+        >
+          <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" />
+          <span className="truncate">de: {result.query}</span>
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function HistoryPage() {
   const navigate = useNavigate()
   const [entries, setEntries] = useState<HistoryEntry[]>([])
@@ -381,21 +451,9 @@ export default function HistoryPage() {
                   />
                 </label>
                 <div className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto">
-                  {([['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Nome']] as [ResultSortKey,string][]).map(([key, label]) => (
-                    <button
-                      key={key}
-                      onClick={() => {
-                        if (resultSort === key) setResultSortAsc(a => !a)
-                        else { setResultSort(key); setResultSortAsc(false) }
-                      }}
-                      className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
-                        resultSort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
-                      }`}
-                    >
-                      {label}
-                      {resultSort === key && (resultSortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
-                    </button>
-                  ))}
+                  {SORT_BUTTONS_GLOBAL.map(([key, label]) =>
+                    renderSortButton(key, label, resultSort, resultSortAsc, setResultSort, setResultSortAsc)
+                  )}
                 </div>
               </div>
             )}
@@ -407,7 +465,7 @@ export default function HistoryPage() {
               </div>
             )}
 
-            {globalSearched && !globalLoading && filteredGlobal.length === 0 && (
+            {globalSearched && filteredGlobal.length === 0 && !globalLoading && (
               <div className="flex flex-col items-center justify-center py-16 text-gray-500">
                 <Search className="w-12 h-12 mb-3 opacity-30" />
                 <p className="font-medium">Nenhum resultado encontrado no cache</p>
@@ -418,30 +476,16 @@ export default function HistoryPage() {
             {filteredGlobal.length > 0 && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {filteredGlobal.slice(0, globalVisible).map((result, i) => (
-                    <div key={`${result.infoHash || result.link}-${i}`} className="flex flex-col gap-1">
-                      <ResultCard
-                        result={result}
-                        onDownload={setDownloadTarget}
-                        onPlay={(r) => playSingle(r)}
-                        onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
-                        onExploreContents={setContentsTarget}
-                        onRefresh={handleRefreshResult}
-                        refreshing={result.id !== undefined && refreshingIDs.has(result.id)}
-                        refreshedAt={result.id !== undefined ? refreshedLabels.get(result.id) ?? null : null}
-                      />
-                      {result.query && (
-                        <button
-                          onClick={() => { setMode('browse'); handleSelect(result.query!) }}
-                          className="text-[10px] text-gray-500 hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate"
-                          title={`Ver todos os resultados da busca "${result.query}"`}
-                        >
-                          <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" />
-                          <span className="truncate">de: {result.query}</span>
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {filteredGlobal.slice(0, globalVisible).map((result, i) =>
+                    renderGlobalResultCard(
+                      result, i,
+                      setDownloadTarget, playSingle,
+                      setPlaylistTarget, setPlaylistTargetFile,
+                      setContentsTarget, handleRefreshResult,
+                      refreshingIDs, refreshedLabels,
+                      handleSelect, setMode,
+                    )
+                  )}
                 </div>
                 {globalVisible < filteredGlobal.length && (
                   <div ref={globalSentinelRef} className="text-center py-6 text-xs text-gray-500">
@@ -608,21 +652,9 @@ export default function HistoryPage() {
 
                     {/* Sort */}
                     <div className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
-                      {([['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Título']] as [ResultSortKey,string][]).map(([key, label]) => (
-                        <button
-                          key={key}
-                          onClick={() => {
-                            if (resultSort === key) setResultSortAsc(a => !a)
-                            else { setResultSort(key); setResultSortAsc(false) }
-                          }}
-                          className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
-                            resultSort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
-                          }`}
-                        >
-                          {label}
-                          {resultSort === key && (resultSortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
-                        </button>
-                      ))}
+                      {SORT_BUTTONS_BROWSE.map(([key, label]) =>
+                        renderSortButton(key, label, resultSort, resultSortAsc, setResultSort, setResultSortAsc)
+                      )}
                     </div>
                   </div>
 

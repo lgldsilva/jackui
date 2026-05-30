@@ -21,6 +21,51 @@ function extractTrackers(magnet: string | undefined): string[] {
  * announce list, so a "fattened" magnet from one tracker's listing can pull
  * peers from every other tracker that indexed the same infoHash.
  */
+function mergeBuckets<T extends SearchResult>(
+  hashOut: T[],
+  noHash: T[],
+  finalBuckets: Map<string, T[]>,
+): T[] {
+  const out: T[] = []
+  for (const [, arr] of finalBuckets) {
+    if (arr.length === 1) { out.push(arr[0]); continue }
+    arr.sort((a, b) => {
+      const am = a.magnetUri ? 1 : 0
+      const bm = b.magnetUri ? 1 : 0
+      if (am !== bm) return bm - am
+      return b.seeders - a.seeders
+    })
+    const primary = arr[0]
+    const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
+    const extraTrackers = collectExtraTrackers(arr.slice(1))
+    let bestSeeders = primary.seeders
+    let bestLeechers = primary.leechers
+    for (const r of arr.slice(1)) {
+      if (r.tracker) mergedAlsoIn.add(r.tracker)
+      ;(r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
+      if (r.seeders > bestSeeders) bestSeeders = r.seeders
+      if (r.leechers > bestLeechers) bestLeechers = r.leechers
+    }
+    if (primary.tracker) mergedAlsoIn.delete(primary.tracker)
+    out.push({
+      ...primary,
+      magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
+      seeders: bestSeeders,
+      leechers: bestLeechers,
+      alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
+    })
+  }
+  return out
+}
+
+function collectExtraTrackers<T extends SearchResult>(items: T[]): string[] {
+  const extra: string[] = []
+  for (const r of items) {
+    for (const t of extractTrackers(r.magnetUri)) extra.push(t)
+  }
+  return extra
+}
+
 function mergeTrackersIntoMagnet(magnet: string, extraTrackers: string[]): string {
   if (!magnet || extraTrackers.length === 0) return magnet
   const qIdx = magnet.indexOf('?')
@@ -81,12 +126,7 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     })
     const primary = arr[0]
     const others = arr.slice(1).map(r => r.tracker).filter(Boolean)
-    // Fold every secondary magnet's tr= URLs into the primary so Play/Download
-    // pulls peers from every tracker that indexed this infoHash.
-    const extraTrackers: string[] = []
-    for (const r of arr.slice(1)) {
-      for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
-    }
+    const extraTrackers = collectExtraTrackers(arr.slice(1))
     hashOut.push({
       ...primary,
       magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
@@ -127,40 +167,5 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
     finalBuckets.set(k, arr)
   }
 
-  const out: T[] = []
-  for (const [, arr] of finalBuckets) {
-    if (arr.length === 1) { out.push(arr[0]); continue }
-    arr.sort((a, b) => {
-      // Prefer entries with magnetUri (Play button works), then seeders.
-      const am = a.magnetUri ? 1 : 0
-      const bm = b.magnetUri ? 1 : 0
-      if (am !== bm) return bm - am
-      return b.seeders - a.seeders
-    })
-    const primary = arr[0]
-    const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
-    const extraTrackers: string[] = []
-    // Aggregate seeders/leechers across the bucket. The trackers don't
-    // necessarily expose the same swarm size — taking MAX is conservative
-    // (avoids double-counting peers seen by both) while still surfacing the
-    // best signal so the card surfaces the strongest source.
-    let bestSeeders = primary.seeders
-    let bestLeechers = primary.leechers
-    for (const r of arr.slice(1)) {
-      if (r.tracker) mergedAlsoIn.add(r.tracker)
-      ;(r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
-      for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
-      if (r.seeders > bestSeeders) bestSeeders = r.seeders
-      if (r.leechers > bestLeechers) bestLeechers = r.leechers
-    }
-    if (primary.tracker) mergedAlsoIn.delete(primary.tracker) // primary tracker is shown separately
-    out.push({
-      ...primary,
-      magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
-      seeders: bestSeeders,
-      leechers: bestLeechers,
-      alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
-    })
-  }
-  return out
+  return mergeBuckets(hashOut, noHash, finalBuckets)
 }
