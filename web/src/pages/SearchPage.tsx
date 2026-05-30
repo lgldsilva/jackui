@@ -21,6 +21,11 @@ const ACTIVE_KEY = 'activeTabId'
 // Last-used filter preferences, applied to every NEW tab/search so a setting
 // like "min 10 seeders" sticks instead of resetting to 0 on each fresh search.
 const FILTER_DEFAULTS_KEY = 'searchFilterDefaults'
+// One-shot flag: corrige filtros antigos persistidos no browser que escondiam
+// resultados — `onlyPlayable` ligado matava todo torrent sem magnet (trackers
+// privados como o jackui só expõem o .torrent), e `minSeeders=0` deixava
+// passar torrents mortos. Migra uma vez para os novos defaults.
+const FILTER_MIGRATION_KEY = 'searchFiltersMigratedV1'
 
 type FilterDefaults = {
   trackerFilter: string
@@ -33,7 +38,10 @@ type FilterDefaults = {
 }
 
 const FALLBACK_FILTERS: FilterDefaults = {
-  trackerFilter: 'all', minSeeders: 0, minLeechers: 0, maxSizeGb: '',
+  // minSeeders=1 é o único filtro ligado por padrão: esconde torrents mortos
+  // (0 seeds) sem mexer em mais nada. onlyPlayable nasce sempre desligado e não
+  // é persistido — antes ele escondia silenciosamente conteúdo sem magnet.
+  trackerFilter: 'all', minSeeders: 1, minLeechers: 0, maxSizeGb: '',
   resultSort: 'seeders', resultSortAsc: false, onlyPlayable: false,
 }
 
@@ -87,22 +95,41 @@ function newTab(id: string): TabState {
     trackerFilter: d.trackerFilter,
     minSeeders: d.minSeeders, minLeechers: d.minLeechers, maxSizeGb: d.maxSizeGb,
     resultSort: d.resultSort, resultSortAsc: d.resultSortAsc,
-    onlyPlayable: d.onlyPlayable,
+    // Nunca herdado/persistido: o toggle vale só para a sessão atual.
+    onlyPlayable: false,
   }
 }
 
 let tabCounter = 1
 
 function hydrateTabs(): { tabs: TabState[]; activeId: string } {
+  // Migração one-shot dos defaults: floor de minSeeders em 1 (não derrubamos um
+  // valor que o usuário tenha subido) e onlyPlayable desligado.
+  const migrated = load<boolean>(FILTER_MIGRATION_KEY, false)
+  if (!migrated) {
+    const d = load<FilterDefaults>(FILTER_DEFAULTS_KEY, FALLBACK_FILTERS)
+    if (d.minSeeders < 1 || d.onlyPlayable) {
+      save<FilterDefaults>(FILTER_DEFAULTS_KEY, { ...d, minSeeders: Math.max(1, d.minSeeders), onlyPlayable: false })
+    }
+  }
+
   const persisted = load<PersistedTab[]>(TABS_KEY, [])
   if (persisted.length === 0) {
+    if (!migrated) save(FILTER_MIGRATION_KEY, true)
     const id = String(tabCounter++)
     return { tabs: [newTab(id)], activeId: id }
   }
   // Restore counter so new tabs get unique IDs beyond persisted ones
   const maxId = persisted.reduce((m, t) => Math.max(m, Number.parseInt(t.id) || 0), 0)
   tabCounter = maxId + 1
-  const tabs = persisted.map(p => ({ ...newTab(p.id), ...p }))
+  // onlyPlayable nunca é restaurado (deixou de esconder sem-magnet); na migração
+  // inicial, abas que estavam em 0 seeds passam a 1 — sem mexer em valores >0.
+  const tabs = persisted.map(p => {
+    const t = { ...newTab(p.id), ...p, onlyPlayable: false }
+    if (!migrated && t.minSeeders < 1) t.minSeeders = 1
+    return t
+  })
+  if (!migrated) save(FILTER_MIGRATION_KEY, true)
   const savedActive = load<string>(ACTIVE_KEY, '')
   const activeId = tabs.some(t => t.id === savedActive) ? savedActive : tabs[0].id
   return { tabs, activeId }
@@ -688,11 +715,11 @@ export default function SearchPage() {
             </div>
 
             {/* Reset filters — only if any active */}
-            {(activeTab.titleFilter || activeTab.trackerFilter !== 'all' || activeTab.minSeeders > 0 || activeTab.minLeechers > 0 || activeTab.maxSizeGb || activeTab.onlyPlayable) && (
+            {(activeTab.titleFilter || activeTab.trackerFilter !== 'all' || activeTab.minSeeders !== 1 || activeTab.minLeechers > 0 || activeTab.maxSizeGb || activeTab.onlyPlayable) && (
               <button
                 onClick={() => updateTab(activeTab.id, {
                   titleFilter: '', trackerFilter: 'all',
-                  minSeeders: 0, minLeechers: 0, maxSizeGb: '',
+                  minSeeders: 1, minLeechers: 0, maxSizeGb: '',
                   onlyPlayable: false,
                 })}
                 className="text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
