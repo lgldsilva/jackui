@@ -105,7 +105,7 @@ function shuffledOrder(n: number, startIndex: number): number[] {
   return [startIndex, ...rest]
 }
 
-export default function PlayerProvider({ children }: { children: ReactNode }) {
+export default function PlayerProvider({ children }: { readonly children: ReactNode }) {
   const [current, setCurrent] = useState<{ result: SearchResult; fileIdx?: number; initialSeek?: number } | null>(null)
   const [playlist, setPlaylist] = useState<PlaylistState | null>(null)
   const [repeat, setRepeat] = useState<RepeatMode>('none')
@@ -300,7 +300,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     const hash = playUrlParam
     if (hash === lastSyncedHashRef.current) return
     if (!hash) {
-      // Double check window.location.search to prevent React Router race conditions on tab resume/hydration
+      // Double check location.search to prevent React Router race conditions on tab resume/hydration
       const realHash = new URLSearchParams(globalThis.location.search).get('play')
       if (realHash) {
         // The URL actually has the hash! It's just a router sync lag. Ignore it.
@@ -318,9 +318,9 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
       return
     }
     lastSyncedHashRef.current = hash
-    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : NaN
+    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : Number.NaN
     const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
-    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : NaN
+    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : Number.NaN
     const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
 
     // Best effort: lookup the library entry to get a proper title + magnet
@@ -344,7 +344,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
     const newHash = current?.result?.infoHash || null
     if (newHash === lastSyncedHashRef.current) return
     lastSyncedHashRef.current = newHash
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(globalThis.location.search)
     if (newHash) {
       params.set('play', newHash)
       if (current?.fileIdx !== undefined) params.set('f', String(current.fileIdx))

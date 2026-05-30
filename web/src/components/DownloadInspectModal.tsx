@@ -446,7 +446,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { readonly label: string; readonly children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[120px_1fr] gap-3 items-start">
       <span className="text-xs text-gray-500 uppercase tracking-wide pt-0.5">{label}</span>
@@ -455,7 +455,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function StatusPill({ status }: { status: string }) {
+function StatusPill({ status }: { readonly status: string }) {
   const cls: Record<string, string> = {
     queued: 'bg-gray-700 text-gray-300',
     downloading: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30',

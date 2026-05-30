@@ -6,7 +6,7 @@ export function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B'
   const k = 1024
   const i = Math.min(UNITS.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${UNITS[i]}`
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${UNITS[i]}`
 }
 
 export function formatRate(bytesPerSec: number): string {
@@ -15,7 +15,7 @@ export function formatRate(bytesPerSec: number): string {
 }
 
 export function formatDuration(totalSeconds: number): string {
-  if (!isFinite(totalSeconds) || totalSeconds <= 0) return '0:00'
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0:00'
   const s = Math.floor(totalSeconds)
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
@@ -27,7 +27,7 @@ export function formatDuration(totalSeconds: number): string {
 // Compact ETA-style duration: "45s" | "12m" | "2h 13m" | "5h". Used in card
 // chips where space is tight. Ceils to avoid showing "0s remaining".
 export function formatDurationShort(totalSeconds: number): string {
-  if (!isFinite(totalSeconds) || totalSeconds <= 0) return ''
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return ''
   if (totalSeconds < 60) return `${Math.ceil(totalSeconds)}s`
   if (totalSeconds < 3600) return `${Math.ceil(totalSeconds / 60)}m`
   const hours = Math.floor(totalSeconds / 3600)
@@ -42,7 +42,7 @@ export function formatDurationShort(totalSeconds: number): string {
 export function formatDate(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  if (isNaN(d.getTime())) return '—'
+  if (Number.isNaN(d.getTime())) return '—'
   const diffMs = Date.now() - d.getTime()
   const diffH = diffMs / 3_600_000
   if (diffH < 1) {

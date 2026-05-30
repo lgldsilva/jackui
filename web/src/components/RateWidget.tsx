@@ -20,11 +20,11 @@ export default function RateWidget() {
     let cancelled = false
 
     const clear = () => {
-      if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null }
+      if (timerRef.current) { globalThis.clearTimeout(timerRef.current); timerRef.current = null }
     }
     const schedule = (ms: number) => {
       if (cancelled || document.hidden) return
-      timerRef.current = window.setTimeout(tick, ms)
+      timerRef.current = globalThis.setTimeout(tick, ms)
     }
     const tick = async () => {
       try {

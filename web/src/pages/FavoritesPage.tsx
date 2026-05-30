@@ -149,6 +149,30 @@ function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteF
   return folders.find(f => f.id === viewMode)?.name || 'Favoritos'
 }
 
+function renderFavsContent(loading: boolean, error: string, filteredFavs: StreamFavorite[], viewMode: number | null, ALL_VIEW: number, _folders: FavoriteFolder[]): JSX.Element | null {
+  if (loading) {
+    return <div className="flex items-center justify-center py-20 text-gray-500">
+      <Loader2 className="w-8 h-8 animate-spin" />
+    </div>
+  }
+  if (error) {
+    return <div className="card text-red-400 text-sm">Erro: {error}</div>
+  }
+  if (filteredFavs.length === 0) {
+    const insideFolder = viewMode !== ALL_VIEW
+    return <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+      <Heart className="w-16 h-16 mb-4 opacity-30" />
+      <p className="text-xl font-medium">Nenhum favorito {insideFolder ? 'nessa pasta' : 'ainda'}</p>
+      <p className="text-sm mt-2 text-center max-w-md">
+        {viewMode === ALL_VIEW
+          ? 'Abra um torrent no player e clique no ♥ no canto superior.'
+          : 'Arraste favoritos da view "Todos" pra esta pasta.'}
+      </p>
+    </div>
+  }
+  return null
+}
+
 export default function FavoritesPage() {
   const { isAdmin } = useAuth()
   const [favs, setFavs] = useState<StreamFavorite[]>([])
@@ -493,24 +517,10 @@ export default function FavoritesPage() {
             </div>
           </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-20 text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin" />
-            </div>
-          ) : error ? (
-            <div className="card text-red-400 text-sm">Erro: {error}</div>
-          ) : filteredFavs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-              <Heart className="w-16 h-16 mb-4 opacity-30" />
-              <p className="text-xl font-medium">Nenhum favorito {viewMode !== ALL_VIEW ? 'nessa pasta' : 'ainda'}</p>
-              <p className="text-sm mt-2 text-center max-w-md">
-                {viewMode === ALL_VIEW
-                  ? 'Abra um torrent no player e clique no ♥ no canto superior.'
-                  : 'Arraste favoritos da view "Todos" pra esta pasta.'}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {(() => {
+            const fallback = renderFavsContent(loading, error, filteredFavs, viewMode, ALL_VIEW, folders)
+            if (fallback) return fallback
+            return <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredFavs.map(fav => (
                 <div
                   key={fav.name}
@@ -632,18 +642,17 @@ export default function FavoritesPage() {
                 </div>
               ))}
             </div>
-          )}
+          })()}
         </section>
       </main>
 
       {/* Import modal — paste magnet(s) or drop a .torrent file */}
       {showImport && (
-        <dialog
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 open:flex"
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
           onClick={() => !importing && setShowImport(false)}
           onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
-          onClose={() => !importing && setShowImport(false)}
-          open
+          role="dialog" aria-modal="true" tabIndex={-1}
         >
           <div
             className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
@@ -718,7 +727,7 @@ export default function FavoritesPage() {
               </p>
             )}
           </div>
-        </dialog>
+        </div>
       )}
 
       {/* Multi-select action bar — appears when ≥1 favorite is checked. */}

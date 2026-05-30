@@ -27,6 +27,26 @@ func TestTranscodeCapabilities_ReturnsJSON(t *testing.T) {
 	}
 }
 
+func TestParseIntOr(t *testing.T) {
+	tests := []struct {
+		s    string
+		def  int
+		want int
+	}{
+		{"", 5, 5},
+		{"42", 0, 42},
+		{"invalid", 99, 99},
+		{"0", 100, 0},
+		{"-1", 10, -1},
+	}
+	for _, tt := range tests {
+		got := parseIntOr(tt.s, tt.def)
+		if got != tt.want {
+			t.Errorf("parseIntOr(%q, %d) = %d, want %d", tt.s, tt.def, got, tt.want)
+		}
+	}
+}
+
 func TestTranscodeCapabilities_RefreshFlag(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

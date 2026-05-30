@@ -38,8 +38,8 @@ export function useIncognito(): [boolean, (next: boolean) => void] {
       const detail = (e as CustomEvent<boolean>).detail
       setOn(!!detail)
     }
-    window.addEventListener(EVT, handler as EventListener)
-    return () => window.removeEventListener(EVT, handler as EventListener)
+    globalThis.addEventListener(EVT, handler as EventListener)
+    return () => globalThis.removeEventListener(EVT, handler as EventListener)
   }, [])
 
   // Heartbeat while incognito is active
@@ -47,16 +47,16 @@ export function useIncognito(): [boolean, (next: boolean) => void] {
     if (!on) return
     // Immediate ping on activation
     api.post('/user/incognito/heartbeat').catch(() => {})
-    const id = window.setInterval(() => {
+    const id = globalThis.setInterval(() => {
       api.post('/user/incognito/heartbeat').catch(() => {})
     }, HEARTBEAT_INTERVAL)
-    return () => window.clearInterval(id)
+    return () => globalThis.clearInterval(id)
   }, [on])
 
   const set = (next: boolean) => {
     save(KEY, next)
     setOn(next)
-    window.dispatchEvent(new CustomEvent<boolean>(EVT, { detail: next }))
+    globalThis.dispatchEvent(new CustomEvent<boolean>(EVT, { detail: next }))
     // When turning OFF: trigger cleanup of incognito data
     if (!next) {
       clearIncognitoData().catch(() => {})

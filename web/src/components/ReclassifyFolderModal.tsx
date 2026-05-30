@@ -32,6 +32,31 @@ type DoneResult = {
   readonly destLabel?: string
 }
 
+function renderDirList(loading: boolean, dirs: string[], browsePath: string, setBrowsePath: (p: string) => void): JSX.Element {
+  if (loading) {
+    return <div className="flex items-center justify-center py-6 text-gray-500">
+      <Loader2 className="w-4 h-4 animate-spin" />
+    </div>
+  }
+  if (dirs.length === 0) {
+    return <p className="text-xs text-gray-500 text-center py-4">Sem subpastas. Crie uma abaixo ou organize na raiz.</p>
+  }
+  return <ul className="space-y-0.5">
+    {dirs.map(d => (
+      <li key={d}>
+        <button
+          onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d}` : d)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors"
+        >
+          <FolderOpen className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+          <span className="truncate text-left flex-1">{d}</span>
+          <ChevronRight className="w-4 h-4 text-gray-600" />
+        </button>
+      </li>
+    ))}
+  </ul>
+}
+
 export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }: Props) {
   useScrollLock(!!entry)
 
@@ -171,11 +196,12 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
   const breadcrumb = browsePath.split('/').filter(Boolean)
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+    <dialog
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      onClose={onClose}
+      open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
@@ -255,28 +281,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
 
             {/* Dir browser */}
             <div className="flex-1 overflow-y-auto min-h-[120px] p-3">
-              {dirsLoading ? (
-                <div className="flex items-center justify-center py-6 text-gray-500">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                </div>
-              ) : dirs.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-4">Sem subpastas. Crie uma abaixo ou organize na raiz.</p>
-              ) : (
-                <ul className="space-y-0.5">
-                  {dirs.map(d => (
-                    <li key={d}>
-                      <button
-                        onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d}` : d)}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors"
-                      >
-                        <FolderOpen className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                        <span className="truncate text-left flex-1">{d}</span>
-                        <ChevronRight className="w-4 h-4 text-gray-600" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {renderDirList(dirsLoading, dirs, browsePath, setBrowsePath)}
             </div>
 
             {/* Preview panel */}
@@ -419,6 +424,6 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
           </div>
         )}
       </div>
-    </div>
+    </dialog>
   )
 }

@@ -11,7 +11,7 @@ import { usePlayer } from '../components/PlayerProvider'
 export default function PlaylistDetailPage() {
   const { id } = useParams<{ id: string }>()
   const nav = useNavigate()
-  const playlistID = parseInt(id || '0', 10)
+  const playlistID = Number.parseInt(id || '0', 10)
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null)
   const [items, setItems] = useState<PlaylistItem[]>([])

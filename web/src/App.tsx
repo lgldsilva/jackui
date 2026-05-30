@@ -18,7 +18,7 @@ import { RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } 
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
   const location = useLocation()
 

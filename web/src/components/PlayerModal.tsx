@@ -353,7 +353,7 @@ export default function PlayerModal({
           if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < cached.files.length) {
             chosen = initialFileIndex
           } else {
-            chosen = cached.primaryFile >= 0 ? cached.primaryFile : 0
+            chosen = Math.max(0, cached.primaryFile)
           }
           setSelectedFile(chosen)
         }
@@ -368,7 +368,7 @@ export default function PlayerModal({
         if (initialFileIndex !== undefined && initialFileIndex >= 0 && initialFileIndex < t.files.length) {
           chosen = initialFileIndex
         } else {
-          chosen = t.primaryFile >= 0 ? t.primaryFile : 0
+          chosen = Math.max(0, t.primaryFile)
         }
         setSelectedFile(chosen)
         // Streamer now has the torrent active — unblock <video src>.
@@ -1682,7 +1682,7 @@ export default function PlayerModal({
                     <FastForward className="w-3.5 h-3.5 text-gray-500" />
                     <select
                       value={playbackSpeed}
-                      onChange={e => setPlaybackSpeed(parseFloat(e.target.value))}
+                      onChange={e => setPlaybackSpeed(Number.parseFloat(e.target.value))}
                       className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-green-500"
                     >
                       {SPEED_OPTIONS.map(s => (
@@ -2054,7 +2054,8 @@ export default function PlayerModal({
                   !filterLower ||
                   path.toLowerCase().includes(filterLower) ||
                   (ep || '').toLowerCase().includes(filterLower)
-                const extraRe = /\b(featurettes?|extras?|bonus|behind[\s\-]?the[\s\-]?scenes|deleted[\s\-]?scenes|making[\s\-]?of|samples?|trailers?|interviews?|gag[\s\-]?reel|outtakes?)\b/i
+                const SPACE_OR_DASH = '[\\s-]?'
+const extraRe = new RegExp(`\\b(featurettes?|extras?|bonus|behind${SPACE_OR_DASH}the${SPACE_OR_DASH}scenes|deleted${SPACE_OR_DASH}scenes|making${SPACE_OR_DASH}of|samples?|trailers?|interviews?|gag${SPACE_OR_DASH}reel|outtakes?)\\b`, 'i')
                 const isExtra = (path: string) => extraRe.test(path)
                 const filteredFiles = info.files
                   .filter(f => matchesFile(f.path, parseEpisode(f.path)))
