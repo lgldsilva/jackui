@@ -93,7 +93,11 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            docker run --rm --user 0 -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
+            # NODE_PATH/SWIFT_SIGNING_KEY vazios: silencia o "SECURE MODE:
+            # Environment audit" do cdxgen (auto-auditoria do ENV do agente, não
+            # vulnerabilidade da app) — apontava NODE_PATH HIGH + SWIFT LOW.
+            docker run --rm --user 0 -e NODE_PATH= -e SWIFT_SIGNING_KEY= \
+              -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o bom.json . || true
             JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
               --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
@@ -162,6 +166,24 @@ EOF
                 docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui &&
                 docker image prune -f >/dev/null 2>&1 || true
               "
+          '''
+        }
+      }
+    }
+
+    // Retenção: mantém :nvidia (rolling) + as 2 últimas tags :<sha> (atual +
+    // anterior, p/ rollback) e apaga as mais antigas no registry (API interna).
+    stage('Limpeza de versões antigas') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GU', passwordVariable: 'GT')]) {
+          sh '''
+            API=http://10.228.143.12:3000/api/v1
+            curl -sk -u "$GU:$GT" "$API/packages/lgldsilva?type=container&limit=100" \
+              | jq -r '[.[] | select(.name=="jackui" and .version!="nvidia")] | sort_by(.created_at) | reverse | .[2:][].version' \
+              | while read -r v; do
+                  [ -n "$v" ] && curl -sk -u "$GU:$GT" -X DELETE "$API/packages/lgldsilva/container/jackui/$v" -o /dev/null -w "  apagado jackui:$v -> %{http_code}\\n"
+                done
+            echo "retenção: mantidas :nvidia + 2 últimas :<sha>"
           '''
         }
       }
