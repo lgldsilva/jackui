@@ -166,6 +166,24 @@ EOF
         }
       }
     }
+
+    // Retenção: mantém :nvidia (rolling) + as 2 últimas tags :<sha> (atual +
+    // anterior, p/ rollback) e apaga as mais antigas no registry (API interna).
+    stage('Limpeza de versões antigas') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GU', passwordVariable: 'GT')]) {
+          sh '''
+            API=http://10.228.143.12:3000/api/v1
+            curl -sk -u "$GU:$GT" "$API/packages/lgldsilva?type=container&limit=100" \
+              | jq -r '[.[] | select(.name=="jackui" and .version!="nvidia")] | sort_by(.created_at) | reverse | .[2:][].version' \
+              | while read -r v; do
+                  [ -n "$v" ] && curl -sk -u "$GU:$GT" -X DELETE "$API/packages/lgldsilva/container/jackui/$v" -o /dev/null -w "  apagado jackui:$v -> %{http_code}\\n"
+                done
+            echo "retenção: mantidas :nvidia + 2 últimas :<sha>"
+          '''
+        }
+      }
+    }
   }
 
   post {
