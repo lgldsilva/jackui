@@ -37,6 +37,7 @@ import (
 	"github.com/luizg/jackui/internal/subtitles"
 	"github.com/luizg/jackui/internal/tmdb"
 	"github.com/luizg/jackui/internal/transcode"
+	"github.com/luizg/jackui/internal/transmissionrpc"
 	"github.com/luizg/jackui/internal/watchlist"
 	"github.com/luizg/jackui/ui"
 )
@@ -681,6 +682,18 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.GET("/api/auth/config", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"enabled": deps.cfg.Auth.Enabled})
 	})
+
+	// Transmission RPC compatibility — so Sonarr/Radarr/Prowlarr can talk to
+	// JackUI as if it were a Transmission daemon. Only registered when the
+	// downloads store is available (i.e. the streamer is running).
+	if deps.downloadsStore != nil && deps.streamSrv != nil {
+		trpc := transmissionrpc.NewHandler(
+			deps.downloadsStore, deps.streamSrv, deps.authStore,
+			deps.streamCfg.DataDir, deps.cfg.Stream.DownloadDir,
+		)
+		trpc.RegisterRoutes(router)
+		log.Printf("Transmission RPC: /transmission/rpc (compat layer for *arr stack)")
+	}
 
 	log.Printf("Email (SMTP): %s", emailStatus(deps.mlr))
 

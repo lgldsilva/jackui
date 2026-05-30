@@ -564,6 +564,13 @@ func (s *Store) UpdateName(userID, id int, name string) error {
 	return err
 }
 
+// SetCategory updates the download's category/label. Used pela Transmission RPC
+// (torrent-set "labels"). Scoped by user_id.
+func (s *Store) SetCategory(userID, id int, category string) error {
+	_, err := s.db.Exec(`UPDATE downloads SET category=? WHERE id=? AND user_id=?`, category, id, userID)
+	return err
+}
+
 // UpdateMetadata updates the resolved torrent name, file path inside the torrent, and file size in bytes.
 // Called by the background worker once torrent metadata is fully resolved.
 func (s *Store) UpdateMetadata(userID, id int, name string, filePath string, fileSize int64) error {
@@ -576,6 +583,13 @@ func (s *Store) UpdateMetadata(userID, id int, name string, filePath string, fil
 // user_id (worker passes the row's own UserID).
 func (s *Store) UpdateProgress(userID, id int, bytes int64) error {
 	_, err := s.db.Exec(`UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`, bytes, id, userID)
+	return err
+}
+
+// SetFileIndex updates the target file index after metadata resolves for
+// auto-picked downloads (FileIndex = -1 from Transmission RPC).
+func (s *Store) SetFileIndex(userID, id int, fileIndex int) error {
+	_, err := s.db.Exec(`UPDATE downloads SET file_index=? WHERE id=? AND user_id=?`, fileIndex, id, userID)
 	return err
 }
 
