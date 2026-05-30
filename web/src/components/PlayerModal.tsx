@@ -19,7 +19,6 @@ import {
   streamArtworkURL,
   isSafariBrowser,
   streamSubtrackURL,
-  streamTranscodeURL,
   streamSidecarURL,
   streamPlaylistM3UURL,
   streamPrefetch,
@@ -41,8 +40,10 @@ import {
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
+import Hls from 'hls.js'
 import { useScrollLock } from '../lib/useScrollLock'
 import { useIncognito } from '../lib/incognito'
+import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
 import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
@@ -85,6 +86,21 @@ const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
 // Variable playback speed for audiobooks / lectures.
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
+// canPlayNativeHls: o browser toca HLS (.m3u8) nativo? True no Safari e em todo
+// browser iOS (todos WebKit); false no Chrome/Firefox/Edge desktop → precisam do
+// hls.js. Cacheado porque não muda durante a sessão.
+let _nativeHlsSupport: boolean | null = null
+function canPlayNativeHls(): boolean {
+  if (_nativeHlsSupport === null) {
+    try {
+      _nativeHlsSupport = document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''
+    } catch {
+      _nativeHlsSupport = false
+    }
+  }
+  return _nativeHlsSupport
+}
+
 // fileType buckets a file for the sidebar type filter: video (backend flag or
 // extension) → audio (extension) → everything else.
 function fileType(f: { isVideo?: boolean; path: string }): Exclude<FileType, 'all'> {
@@ -126,10 +142,16 @@ type MediaUrlInput = {
   embeddedSub: number | null
   customSubURL: string | null
   caps: TranscodeCapabilities | null
+  authEnabled: boolean
 }
 
 function computeMediaUrls(input: MediaUrlInput) {
-  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps } = input
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled } = input
+  // O media token só é OBRIGATÓRIO com auth ligado (<video>/<track> não mandam
+  // header → carregam ?token=). Com auth off as rotas de mídia são públicas e
+  // /auth/media-token responde 404 — gatear no token aqui deixaria a streamURL
+  // vazia pra sempre e o player giraria sem nunca carregar.
+  const tokenMissing = authEnabled && !mediaToken
   const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
   const safariNeedsTranscode = isSafariBrowser() &&
     /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
@@ -145,15 +167,19 @@ function computeMediaUrls(input: MediaUrlInput) {
   if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
 
   const streamURL = (() => {
-    if (!info || selectedFile < 0 || !serverReady || !mediaToken) return ''
+    if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
     if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
-    if (isSafariBrowser()) return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
-    return streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken)
+    // Playback transcodificado → HLS-VOD pra TODOS os browsers (segmentado +
+    // seekável). Safari/iOS tocam nativo; os demais anexam via hls.js (ver o
+    // efeito em VideoPlayerElement). HLS substitui o antigo MP4 progressive, que
+    // não tinha seek e tinha o ffmpeg morto a cada byte-range (Chrome E iOS Edge).
+    void transcodeOpts
+    return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
   })()
 
   const subtitleVttURL = (() => {
     if (customSubURL) return customSubURL
-    if (!mediaToken) return ''
+    if (tokenMissing) return ''
     if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
     if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
     if (subActive) return subtitleDownloadURL(subActive, mediaToken)
@@ -388,6 +414,42 @@ function VideoPlayerElement({
   onResumeContinue,
   onResumeRestart,
 }: VideoPlayerElementProps) {
+  // HLS (.m3u8) toca nativo só no WebKit (Safari + todo browser iOS). Chrome/
+  // Firefox/Edge desktop precisam do hls.js pra tocar o MESMO HLS-VOD — é o que
+  // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
+  // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
+  // <video> pra nunca setar os dois ao mesmo tempo.
+  const useHlsJs = !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !useHlsJs || !streamURL) return
+    // Buffer dianteiro modesto: como é transcode sob demanda atrás de um servidor
+    // com seek-restart, pedir fragmentos muito à frente do que o transcoder já
+    // produziu força um seek-restart caro (a cascata vista no Chrome/Firefox).
+    const hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false,
+      startPosition: 0,
+      testBandwidth: false,
+      maxBufferLength: 20,
+      maxMaxBufferLength: 40,
+      backBufferLength: 30,
+      fragLoadingTimeOut: 60000,
+      manifestLoadingTimeOut: 30000,
+    })
+    // Recupera de erros transitórios (buracos enquanto o transcoder reinicia) em
+    // vez de mostrar a UI de erro fatal.
+    hls.on(Hls.Events.ERROR, (_evt, data) => {
+      if (!data.fatal) return
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
+      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
+      else hls.destroy()
+    })
+    hls.loadSource(streamURL)
+    hls.attachMedia(v)
+    return () => hls.destroy()
+  }, [videoRef, streamURL, useHlsJs])
+
   return (
     <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
       {audioMode && info && (
@@ -464,7 +526,7 @@ function VideoPlayerElement({
       {videoError ? null : (
         <video
           ref={videoRef}
-          src={streamURL || undefined}
+          src={useHlsJs ? undefined : (streamURL || undefined)}
           controls
           autoPlay
           playsInline
@@ -1619,6 +1681,9 @@ export default function PlayerModal({
   // entries as incognito=1; they are cleaned up when incognito is disabled or
   // the user logs out.
   const [incognito, setIncognito] = useIncognito()
+  // Auth ligado no servidor? Com auth off as rotas de mídia são públicas e não
+  // precisam de ?token= (e /auth/media-token nem existe → 404).
+  const { enabled: authEnabled } = useAuth()
 
   // serverReady — flips true the moment streamAdd resolves and the streamer has
   // actually loaded the torrent. The metadata cache lets us populate `info`
@@ -1671,8 +1736,24 @@ export default function PlayerModal({
   }
   // Transcoding options — any non-null value triggers `/api/stream/transcode` instead of raw stream
   const [transcodeAudio, setTranscodeAudio] = useState<number | null>(null)
+  // Dispara o auto-transcode do áudio incompatível no máximo uma vez por arquivo.
+  const audioAutoRef = useRef(false)
   const [forceH264, setForceH264] = useState(false)
   const [burnSubTrack, setBurnSubTrack] = useState<number | null>(null)
+  // Auto-transcode do áudio quando o codec da faixa DEFAULT não é decodável pelo
+  // browser (AC3/E-AC3/DDP/DTS/TrueHD/Atmos/PCM/WMA) — senão o vídeo toca MUDO
+  // (ex: MKV DDP5.1 Atmos). O Safari vai pelo caminho HLS, que já resolve isso →
+  // só não-Safari. Dispara uma vez por arquivo; o seletor de faixa ainda permite
+  // o usuário trocar.
+  useEffect(() => {
+    if (audioAutoRef.current || !probe || isSafariBrowser() || transcodeAudio !== null) return
+    const INCOMPATIBLE = /^(ac-?3|e-?ac-?3|eac3|ddp?|dts|dca|truehd|mlp|pcm|wmav?)/i
+    const def = probe.audio.find(a => a.default) ?? probe.audio[0]
+    if (def && INCOMPATIBLE.test(def.codec)) {
+      audioAutoRef.current = true
+      setTranscodeAudio(def.index)
+    }
+  }, [probe, transcodeAudio])
   // HEVC auto-fallback: on first <video> error, if a GPU encoder is available, retry via transcode.
   // The "Attempted" flag prevents an infinite loop if the transcoded stream also errors.
   const [transcodeFallbackAttempted, setTranscodeFallbackAttempted] = useState(false)
@@ -1756,6 +1837,7 @@ export default function PlayerModal({
     lastResumeSaveRef.current = 0
     setServerReady(false)
     setTranscodeAudio(null)
+    audioAutoRef.current = false
     setForceH264(false)
     setBurnSubTrack(null)
     setCustomSubURL(prev => {
@@ -2354,7 +2436,7 @@ export default function PlayerModal({
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled })
   const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
