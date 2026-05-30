@@ -81,7 +81,7 @@ func LocalProbe(b *local.Browser) gin.HandlerFunc {
 }
 
 func resolveLocalProbeFile(c *gin.Context, b *local.Browser, mount, path string) (string, os.FileInfo, bool) {
-	abs, err := b.ResolvePath(mount, path)
+	abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return "", nil, false
@@ -239,7 +239,7 @@ func LocalSidecars(b *local.Browser) gin.HandlerFunc {
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
+		abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -279,7 +279,7 @@ func LocalSidecarRead(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
+		abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -333,12 +333,14 @@ func LocalSubtitlesAuto(b *local.Browser, subClient *subtitles.Client) gin.Handl
 		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
 		hashRes, hashErr, query := computeOSHash(f, st, abs)
 		opts := buildSearchOpts(query, langs, hashRes, hashErr)
-		serveAutoSubtitles(ctx, subClient, query, opts, hashRes, hashErr)
+		// query is extension-stripped (for the search); the response's "file"
+		// field should carry the real filename with extension.
+		serveAutoSubtitles(ctx, subClient, filepath.Base(abs), opts, hashRes, hashErr)
 	}
 }
 
 func resolveLocalFileWithStat(ctx *gin.Context, b *local.Browser, mount, path string) (string, *os.File, os.FileInfo, bool) {
-	abs, err := b.ResolvePath(mount, path)
+	abs, err := b.ResolvePath(mount, scopePath(b, ctx, mount, path))
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return "", nil, nil, false
@@ -428,7 +430,7 @@ func LocalSubtitleExtract(b *local.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
 			return
 		}
-		abs, err := b.ResolvePath(mount, path)
+		abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return

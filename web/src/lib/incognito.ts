@@ -2,9 +2,11 @@
 // but marks them with incognito=1. They are visible during this session but
 // deleted when the user disables incognito mode or logs out.
 //
-// Heartbeat: while incognito is active, the frontend sends DELETE /api/user/incognito/heartbeat
+// Heartbeat: while incognito is active, the frontend sends POST /api/user/incognito/heartbeat
 // every HEARTBEAT_INTERVAL ms. The backend resets a per-user TTL; if the TTL
-// expires (tab closed / crash), the backend auto-cleans after 1 hour.
+// expires (tab closed / crash), the backend auto-cleans after 1 hour. On a
+// server restart the in-memory TTL map is gone, so any leftover incognito rows
+// are purged at startup (see StartIncognitoReaper boot sweep).
 
 import { useEffect, useState } from 'react'
 import { load, save } from './storage'

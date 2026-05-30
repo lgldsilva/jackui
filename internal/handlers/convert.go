@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -17,6 +19,53 @@ import (
 )
 
 const extTorrent = ".torrent"
+
+// ssrfSafeClient fetches the user-supplied .torrent URL. The download is capped
+// at maxTorrentBytes (shared with import.go) so a hostile URL can't stream
+// gigabytes into RAM. The Dialer.Control
+// hook runs AFTER DNS resolution with the concrete destination IP, so it blocks
+// loopback and link-local / cloud-metadata targets even under DNS rebinding,
+// while still allowing the private LAN (Jackett at 192.168.x and public
+// trackers keep working).
+var ssrfSafeClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+			Control: func(_, address string, _ syscall.RawConn) error {
+				host, _, err := net.SplitHostPort(address)
+				if err != nil {
+					return err
+				}
+				ip := net.ParseIP(host)
+				if ip == nil || isBlockedFetchIP(ip) {
+					return fmt.Errorf("endereço de destino não permitido")
+				}
+				return nil
+			},
+		}).DialContext,
+	},
+}
+
+// isBlockedFetchIP rejects loopback (127.0.0.0/8, ::1), link-local incl. the
+// 169.254.169.254 cloud-metadata endpoint (169.254.0.0/16, fe80::/10) and the
+// unspecified address. Private LAN ranges stay allowed on purpose.
+func isBlockedFetchIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+}
+
+// validateFetchScheme allows only http/https, blocking file://, gopher://, etc.
+func validateFetchScheme(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("URL inválida")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("esquema não permitido")
+	}
+	return nil
+}
 
 func ConvertTorrentToMagnet() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -49,7 +98,10 @@ type convertErr struct {
 }
 
 func downloadAndParseTorrent(torrentURL string) (*metainfo.MetaInfo, string, *convertErr) {
-	resp, err := proxyHTTP.Get(torrentURL)
+	if err := validateFetchScheme(torrentURL); err != nil {
+		return nil, "", &convertErr{http.StatusBadRequest, err.Error()}
+	}
+	resp, err := ssrfSafeClient.Get(torrentURL)
 	if err != nil {
 		return nil, "", &convertErr{http.StatusBadGateway, fmt.Sprintf("falha ao baixar .torrent: %v", err)}
 	}
@@ -57,7 +109,7 @@ func downloadAndParseTorrent(torrentURL string) (*metainfo.MetaInfo, string, *co
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", &convertErr{http.StatusBadGateway, fmt.Sprintf("servidor retornou erro %d", resp.StatusCode)}
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTorrentBytes))
 	if err != nil {
 		return nil, "", &convertErr{http.StatusInternalServerError, "falha ao ler bytes do torrent"}
 	}

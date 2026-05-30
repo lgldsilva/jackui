@@ -62,7 +62,12 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 			return
 		}
 		lockout.Reset(req.Username)
-		c.JSON(http.StatusOK, issueTokens(store, tm, user, req.Remember))
+		resp, err := issueTokens(store, tm, user, req.Remember)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
+			return
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -107,14 +112,20 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 	return false
 }
 
-func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool) tokenResp {
-	access, exp, _ := tm.SignAccess(user)
+func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool) (tokenResp, error) {
+	access, exp, err := tm.SignAccess(user)
+	if err != nil {
+		return tokenResp{}, err
+	}
 	ttl := refreshTTLNormal
 	if remember {
 		ttl = refreshTTLRemember
 	}
-	refresh, _ := store.CreateRefreshToken(user.ID, ttl, remember)
-	return tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user}
+	refresh, err := store.CreateRefreshToken(user.ID, ttl, remember)
+	if err != nil {
+		return tokenResp{}, err
+	}
+	return tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user}, nil
 }
 
 // Refresh handles POST /api/auth/refresh — body: {refresh}
@@ -193,6 +204,7 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 // incognitoCleanable is satisfied by history.Store and library.Store.
 type incognitoCleanable interface {
 	DeleteIncognito(userID int) error
+	DeleteAllIncognito() error
 }
 
 // incognitoHeartbeats tracks the last heartbeat time per userID.
@@ -208,6 +220,13 @@ var (
 // incognito sessions that have gone quiet (tab closed / crash) and deletes
 // their data after incognitoTTL. Call once at startup.
 func StartIncognitoReaper(cleaners ...incognitoCleanable) {
+	// Boot sweep: any incognito row still in the DB at startup is orphaned —
+	// its heartbeat lived only in memory and was lost on restart, so the
+	// reaper below would never reclaim it. Incognito data must not survive a
+	// restart, so purge it now.
+	for _, cl := range cleaners {
+		_ = cl.DeleteAllIncognito()
+	}
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
