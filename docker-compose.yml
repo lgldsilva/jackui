@@ -13,11 +13,7 @@ services:
         limits:
           memory: ${JACKUI_MEM_LIMIT:-4G}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8989/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      disable: true
     ports:
       - "127.0.0.1:8989:8989"
       - "51469:51469/tcp"   # BitTorrent peer port (TCP)

@@ -1,7 +1,12 @@
 package mailer
 
 import (
+	"fmt"
+	"net"
+	"net/textproto"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/luizg/jackui/internal/config"
 )
@@ -81,6 +86,125 @@ func TestSend_NotEnabled(t *testing.T) {
 	err := m.Send("to@test.com", "sub", "body")
 	if err == nil {
 		t.Fatal("expected error when SMTP not configured")
+	}
+}
+
+// fakeSMTPServer implements just enough SMTP to test the mailer's Send method.
+type fakeSMTPServer struct {
+	t        *testing.T
+	ln       net.Listener
+	addr     string
+	received string
+	done     chan struct{}
+}
+
+func startFakeSMTP(t *testing.T) *fakeSMTPServer {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	s := &fakeSMTPServer{
+		t:    t,
+		ln:   ln,
+		addr: ln.Addr().String(),
+		done: make(chan struct{}),
+	}
+	go s.serve()
+	return s
+}
+
+func (s *fakeSMTPServer) serve() {
+	defer close(s.done)
+	conn, err := s.ln.Accept()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	tp := textproto.NewConn(conn)
+	tp.PrintfLine("220 fake-smtp ESMTP")
+	for {
+		line, err := tp.ReadLine()
+		if err != nil {
+			return
+		}
+		upper := strings.ToUpper(line)
+		switch {
+		case strings.HasPrefix(upper, "EHLO"):
+			tp.PrintfLine("250-fake-smtp")
+			tp.PrintfLine("250 AUTH PLAIN LOGIN")
+		case strings.HasPrefix(upper, "AUTH"):
+			tp.PrintfLine("235 Authentication successful")
+		case strings.HasPrefix(upper, "MAIL FROM:"):
+			tp.PrintfLine("250 OK")
+		case strings.HasPrefix(upper, "RCPT TO:"):
+			tp.PrintfLine("250 OK")
+		case strings.HasPrefix(upper, "DATA"):
+			tp.PrintfLine("354 Start mail input")
+			msg, err := tp.ReadDotBytes()
+			if err != nil {
+				return
+			}
+			s.received = string(msg)
+			tp.PrintfLine("250 OK")
+		case strings.HasPrefix(upper, "QUIT"):
+			tp.PrintfLine("221 Bye")
+			return
+		default:
+			tp.PrintfLine("250 OK")
+		}
+	}
+}
+
+func (s *fakeSMTPServer) stop() {
+	s.ln.Close()
+	select {
+	case <-s.done:
+	case <-time.After(time.Second):
+	}
+}
+
+func TestSend_Success(t *testing.T) {
+	srv := startFakeSMTP(t)
+	defer srv.stop()
+	parts := strings.Split(srv.addr, ":")
+	host := parts[0]
+	port := 0
+	fmt.Sscanf(parts[1], "%d", &port)
+
+	m := New(config.SMTPConfig{
+		Host:     host,
+		Port:     port,
+		From:     "from@test.com",
+		Username: "user@test.com",
+		Password: "pass",
+	})
+	err := m.Send("to@test.com", "Hello", "<h1>World</h1>")
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if !contains(srv.received, "From: from@test.com") {
+		t.Error("expected From header in received message")
+	}
+	if !contains(srv.received, "To: to@test.com") {
+		t.Error("expected To header in received message")
+	}
+	if !contains(srv.received, "Subject: Hello") {
+		t.Error("expected Subject header in received message")
+	}
+	if !contains(srv.received, "<h1>World</h1>") {
+		t.Error("expected body in received message")
+	}
+}
+
+func TestSend_DialError(t *testing.T) {
+	m := New(config.SMTPConfig{
+		Host: "127.0.0.1",
+		Port: 1, // nothing listening here
+	})
+	err := m.Send("to@test.com", "sub", "body")
+	if err == nil {
+		t.Fatal("expected dial error")
 	}
 }
 

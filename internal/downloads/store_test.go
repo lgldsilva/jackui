@@ -157,3 +157,426 @@ func TestDeleteOwnership(t *testing.T) {
 		t.Fatal("expected Get after Delete to fail")
 	}
 }
+
+func TestGetCompletedPath_Found(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "comp-hash", FileIndex: 0, Magnet: "m", Name: "x", FilePath: "/done/movie.mkv"})
+	s.SetStatus(1, d.ID, StatusCompleted)
+	path, err := s.GetCompletedPath("comp-hash", 0)
+	if err != nil {
+		t.Fatalf("GetCompletedPath: %v", err)
+	}
+	if path != "/done/movie.mkv" {
+		t.Errorf("path = %q, want %q", path, "/done/movie.mkv")
+	}
+}
+
+func TestGetCompletedPath_NotFound(t *testing.T) {
+	s := newTestStore(t)
+	path, err := s.GetCompletedPath("nonexistent", 0)
+	if err != nil {
+		t.Fatalf("GetCompletedPath: %v", err)
+	}
+	if path != "" {
+		t.Errorf("expected empty path, got %q", path)
+	}
+}
+
+func TestGetCompletedPath_NilStore(t *testing.T) {
+	var nilS *Store
+	path, err := nilS.GetCompletedPath("hash", 0)
+	if err != nil {
+		t.Fatalf("GetCompletedPath nil: %v", err)
+	}
+	if path != "" {
+		t.Errorf("expected empty path, got %q", path)
+	}
+}
+
+func TestHashSetForUser(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "h1", FileIndex: 0, Magnet: "m1", Name: "a"})
+	s.Create(Download{UserID: 1, InfoHash: "h2", FileIndex: 0, Magnet: "m2", Name: "b"})
+	s.Create(Download{UserID: 2, InfoHash: "h3", FileIndex: 0, Magnet: "m3", Name: "c"})
+
+	set, err := s.HashSetForUser(1, false)
+	if err != nil {
+		t.Fatalf("HashSetForUser: %v", err)
+	}
+	if len(set) != 2 {
+		t.Errorf("expected 2 hashes for user 1, got %d", len(set))
+	}
+	if !set["h1"] || !set["h2"] {
+		t.Error("missing expected hashes for user 1")
+	}
+	if set["h3"] {
+		t.Error("user 1 should not see h3")
+	}
+}
+
+func TestHashSetForUser_IncludeAll(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "h1", FileIndex: 0, Magnet: "m1", Name: "a"})
+	s.Create(Download{UserID: 2, InfoHash: "h2", FileIndex: 0, Magnet: "m2", Name: "b"})
+
+	set, err := s.HashSetForUser(0, true)
+	if err != nil {
+		t.Fatalf("HashSetForUser all: %v", err)
+	}
+	if len(set) != 2 {
+		t.Errorf("expected 2 hashes with includeAll, got %d", len(set))
+	}
+}
+
+func TestHashSetForUser_NilStore(t *testing.T) {
+	var nilS *Store
+	set, err := nilS.HashSetForUser(1, false)
+	if err != nil {
+		t.Fatalf("HashSetForUser nil: %v", err)
+	}
+	if len(set) != 0 {
+		t.Errorf("expected empty set, got %d", len(set))
+	}
+}
+
+func TestList(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "first"})
+	s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "second"})
+	s.Create(Download{UserID: 2, InfoHash: "c", FileIndex: 0, Magnet: "m", Name: "other"})
+
+	list, err := s.List(1)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("expected 2 downloads for user 1, got %d", len(list))
+	}
+}
+
+func TestListAll(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+	s.Create(Download{UserID: 2, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y"})
+
+	all, err := s.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 downloads, got %d", len(all))
+	}
+}
+
+func TestListFiltered(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "Alpha", Tracker: "t1", Category: "movies"})
+	s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "Beta", Tracker: "t2", Category: "tv"})
+
+	filtered, err := s.ListFiltered(ListFilter{UserID: 1, Status: StatusDownloading})
+	if err != nil {
+		t.Fatalf("ListFiltered status: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Errorf("expected 2 downloading, got %d", len(filtered))
+	}
+
+	filtered, err = s.ListFiltered(ListFilter{UserID: 1, Tracker: "t1"})
+	if err != nil {
+		t.Fatalf("ListFiltered tracker: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Name != "Alpha" {
+		t.Errorf("expected 1 tracker=t1 result, got %d", len(filtered))
+	}
+
+	filtered, err = s.ListFiltered(ListFilter{UserID: 1, Category: "tv"})
+	if err != nil {
+		t.Fatalf("ListFiltered category: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].Name != "Beta" {
+		t.Errorf("expected 1 category=tv result, got %d", len(filtered))
+	}
+
+	filtered, err = s.ListFiltered(ListFilter{UserID: 1, Search: "Alpha"})
+	if err != nil {
+		t.Fatalf("ListFiltered search: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Errorf("expected 1 search result, got %d", len(filtered))
+	}
+
+	filtered, err = s.ListFiltered(ListFilter{UserID: 1, SortCol: "name", SortDir: "asc"})
+	if err != nil {
+		t.Fatalf("ListFiltered sort: %v", err)
+	}
+	if len(filtered) != 2 || filtered[0].Name != "Alpha" {
+		t.Errorf("expected Alpha first (asc), got %v", filtered)
+	}
+
+	// Sort by status to get deterministic order (both are "downloading", stable)
+	const sortByStatus = "status"
+	filtered, err = s.ListFiltered(ListFilter{UserID: 1, SortCol: sortByStatus, SortDir: "asc"})
+	if err != nil {
+		t.Fatalf("ListFiltered sort status: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Errorf("expected 2 results, got %d", len(filtered))
+	}
+	// Sort by size desc
+	filtered, err = s.ListFiltered(ListFilter{UserID: 1, SortCol: "size", SortDir: "desc"})
+	if err != nil {
+		t.Fatalf("ListFiltered sort size: %v", err)
+	}
+	if len(filtered) != 2 {
+		t.Errorf("expected 2 results, got %d", len(filtered))
+	}
+}
+
+func TestListFilteredAll(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x", Tracker: "t1", Category: "movies"})
+	s.Create(Download{UserID: 2, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y", Tracker: "t2", Category: "tv"})
+
+	all, err := s.ListFilteredAll(ListFilter{UserIDFilter: "1"})
+	if err != nil {
+		t.Fatalf("ListFilteredAll: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("expected 1 download for user 1, got %d", len(all))
+	}
+
+	all, err = s.ListFilteredAll(ListFilter{})
+	if err != nil {
+		t.Fatalf("ListFilteredAll empty: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 downloads, got %d", len(all))
+	}
+
+	all, err = s.ListFilteredAll(ListFilter{Status: StatusDownloading})
+	if err != nil {
+		t.Fatalf("ListFilteredAll status: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 downloading, got %d", len(all))
+	}
+
+	all, err = s.ListFilteredAll(ListFilter{Search: "x"})
+	if err != nil {
+		t.Fatalf("ListFilteredAll search: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("expected 1 search hit, got %d", len(all))
+	}
+
+	all, err = s.ListFilteredAll(ListFilter{SortCol: "name", SortDir: "asc"})
+	if err != nil {
+		t.Fatalf("ListFilteredAll sort name: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 results, got %d", len(all))
+	}
+
+	for _, sortCol := range []string{"size", "progress", "status", "tracker", "category", "user_id"} {
+		all, err = s.ListFilteredAll(ListFilter{SortCol: sortCol})
+		if err != nil {
+			t.Fatalf("ListFilteredAll sort %q: %v", sortCol, err)
+		}
+		if len(all) != 2 {
+			t.Errorf("sort %q: expected 2 results, got %d", sortCol, len(all))
+		}
+	}
+}
+
+func TestDistinctUsers(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+	s.Create(Download{UserID: 2, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y"})
+
+	users, err := s.DistinctUsers()
+	if err != nil {
+		t.Fatalf("DistinctUsers: %v", err)
+	}
+	if len(users) != 2 {
+		t.Errorf("expected 2 users, got %d", len(users))
+	}
+}
+
+func TestDistinctTrackers(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x", Tracker: "t1"})
+	s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y", Tracker: "t2"})
+
+	trackers, err := s.DistinctTrackers(1)
+	if err != nil {
+		t.Fatalf("DistinctTrackers: %v", err)
+	}
+	if len(trackers) != 2 {
+		t.Errorf("expected 2 trackers, got %d", len(trackers))
+	}
+}
+
+func TestDistinctCategories(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x", Category: "movies"})
+	s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y", Category: "tv"})
+
+	cats, err := s.DistinctCategories(1)
+	if err != nil {
+		t.Fatalf("DistinctCategories: %v", err)
+	}
+	if len(cats) != 2 {
+		t.Errorf("expected 2 categories, got %d", len(cats))
+	}
+}
+
+func TestSetStatusForUser(t *testing.T) {
+	s := newTestStore(t)
+	s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+	s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y"})
+
+	n, err := s.SetStatusForUser(1, StatusPaused)
+	if err != nil {
+		t.Fatalf("SetStatusForUser: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 rows affected, got %d", n)
+	}
+
+	got, _ := s.List(1)
+	if got[0].Status != StatusPaused {
+		t.Errorf("expected paused, got %q", got[0].Status)
+	}
+}
+
+func TestSetStatusForUser_InvalidStatus(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.SetStatusForUser(1, "bogus")
+	if err == nil {
+		t.Fatal("expected error for invalid status")
+	}
+}
+
+func TestSetStatusByIDs(t *testing.T) {
+	s := newTestStore(t)
+	d1, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+	d2, _ := s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "y"})
+
+	n, err := s.SetStatusByIDs(1, []int{d1.ID, d2.ID}, StatusPaused)
+	if err != nil {
+		t.Fatalf("SetStatusByIDs: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("expected 2 rows affected, got %d", n)
+	}
+}
+
+func TestSetStatusByIDs_Empty(t *testing.T) {
+	s := newTestStore(t)
+	n, err := s.SetStatusByIDs(1, []int{}, StatusPaused)
+	if err != nil {
+		t.Fatalf("SetStatusByIDs empty: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 rows, got %d", n)
+	}
+}
+
+func TestSetStatusByIDs_InvalidStatus(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.SetStatusByIDs(1, []int{1}, "bogus")
+	if err == nil {
+		t.Fatal("expected error for invalid status")
+	}
+}
+
+func TestSetError(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+
+	err := s.SetError(1, d.ID, "something went wrong")
+	if err != nil {
+		t.Fatalf("SetError: %v", err)
+	}
+	got, _ := s.Get(1, d.ID)
+	if got.Status != StatusFailed {
+		t.Errorf("expected failed status, got %q", got.Status)
+	}
+	if got.Error != "something went wrong" {
+		t.Errorf("expected error msg, got %q", got.Error)
+	}
+}
+
+func TestSetFilePath(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+
+	if err := s.SetFilePath(1, d.ID, "/new/path/file.mkv"); err != nil {
+		t.Fatalf("SetFilePath: %v", err)
+	}
+	got, _ := s.Get(1, d.ID)
+	if got.FilePath != "/new/path/file.mkv" {
+		t.Errorf("expected new path, got %q", got.FilePath)
+	}
+}
+
+func TestUpdateName(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "old-name"})
+
+	if err := s.UpdateName(1, d.ID, "new-name"); err != nil {
+		t.Fatalf("UpdateName: %v", err)
+	}
+	got, _ := s.Get(1, d.ID)
+	if got.Name != "new-name" {
+		t.Errorf("expected 'new-name', got %q", got.Name)
+	}
+}
+
+func TestUpdateMetadata(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+
+	if err := s.UpdateMetadata(1, d.ID, "new-name", "/path/file.mkv", 5000); err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+	got, _ := s.Get(1, d.ID)
+	if got.Name != "new-name" || got.FilePath != "/path/file.mkv" || got.FileSize != 5000 {
+		t.Errorf("metadata not updated: %+v", got)
+	}
+}
+
+func TestValidStatus(t *testing.T) {
+	for _, s := range []string{StatusQueued, StatusDownloading, StatusCompleted, StatusFailed, StatusPaused} {
+		if !validStatus(s) {
+			t.Errorf("validStatus(%q) should be true", s)
+		}
+	}
+	if validStatus("bogus") {
+		t.Error("validStatus('bogus') should be false")
+	}
+}
+
+func TestSetStatus_Invalid(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
+	err := s.SetStatus(1, d.ID, "bogus")
+	if err == nil {
+		t.Fatal("expected error for invalid status")
+	}
+}
+
+func TestCreate_MissingFields(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.Create(Download{UserID: 1})
+	if err == nil {
+		t.Fatal("expected error for missing infoHash/magnet")
+	}
+}
+
+func TestNilStore_SafeCalls(t *testing.T) {
+	var nilS *Store
+	if _, err := nilS.HashSetForUser(1, false); err != nil {
+		t.Errorf("HashSetForUser on nil: %v", err)
+	}
+}
