@@ -71,10 +71,17 @@ pipeline {
     stage('SonarQube') {
       // sonar-scanner-cli não serve como agente (entrypoint roda e sai); roda
       // via `docker run` montando o workspace, igual cdxgen/trivy.
+      //
+      // ⚠️ docker-in-docker: o controller do Jenkins é um container e
+      // `/var/jenkins_home` é bind de `/home/lgldsilva/docker/jenkins/data` no
+      // host. Um `docker run -v "$PWD"` (=/var/jenkins_home/...) é resolvido
+      // pelo daemon NO HOST, onde esse path está vazio → o scanner via
+      // /usr/src vazio e o gate passava FALSO. Traduz p/ o path do host.
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
-            docker run --rm --platform linux/amd64 -e SONAR_TOKEN -v "$PWD":/usr/src -w /usr/src \
+            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
+            docker run --rm --platform linux/amd64 -e SONAR_TOKEN -v "$HOST_WS":/usr/src -w /usr/src \
               sonarsource/sonar-scanner-cli:latest \
               -Dsonar.host.url=$SONAR_HOST \
               -Dsonar.token=$SONAR_TOKEN \
@@ -96,16 +103,16 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
             # cdxgen roda sobre uma ÁRVORE LIMPA (git archive HEAD), não sobre o
-            # workspace: o `-r` recursivo no workspace varria web/node_modules
-            # (do stage de frontend), .git e artefatos, e o cdxgen:latest (v24,
-            # com "SECURE MODE") abortava em ~3s gerando bom vazio. Na árvore
-            # limpa ele gera o SBOM normalmente (~300KB). Sem jq no controller →
-            # payload via printf/base64 (BOM grande por arquivo, não estoura
+            # workspace: o `-r` recursivo varreria web/node_modules/.git/artefatos.
+            # E o mount usa o PATH DO HOST (docker-in-docker: -v "$PWD" cairia num
+            # /src vazio no host → bom vazio; mesma armadilha do Sonar). Sem jq no
+            # controller → payload via printf/base64 (por arquivo, não estoura
             # ARG_MAX). Só sobe se o BOM existir e não for vazio.
+            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
             rm -rf .cdx-src && mkdir -p .cdx-src
             git archive --format=tar HEAD | tar -x -C .cdx-src
             docker run --rm --user 0 \
-              -v "$PWD/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
+              -v "$HOST_WS/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o /src/bom.json . || true
             if [ -s .cdx-src/bom.json ]; then
               JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
