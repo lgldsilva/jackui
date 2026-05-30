@@ -2123,7 +2123,7 @@ export default function PlayerModal({
   // fallback while ffmpeg was still producing, causing a reload storm.
   useHevcBackstop({
     videoRef, info, selectedFile, audioMode, transcodeAudio, forceH264, burnSubTrack,
-    transcodeFallbackAttempted, videoError, bufferedEnd, caps, videoDiagnostic,
+    transcodeFallbackAttempted, videoError, bufferedEnd, needsTranscode: probe?.needsTranscode, caps, videoDiagnostic,
     setTranscodeFallbackAttempted, setForceH264,
   })
 
