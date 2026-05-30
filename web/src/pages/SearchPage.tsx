@@ -739,7 +739,7 @@ export default function SearchPage() {
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <SearchX className="w-12 h-12 mb-3 opacity-30" />
             <p className="font-medium">Nenhum resultado com os filtros aplicados</p>
-            <p className="text-sm mt-1">{activeTab.results.length} resultado{(activeTab.results.length !== 1 ? 's' : '')} disponíve{(activeTab.results.length !== 1 ? 'is' : 'l')} antes dos filtros</p>
+            <p className="text-sm mt-1">{activeTab.results.length} resultado{(activeTab.results.length === 1 ? '' : 's')} disponíve{(activeTab.results.length === 1 ? 'l' : 'is')} antes dos filtros</p>
           </div>
         )}
 

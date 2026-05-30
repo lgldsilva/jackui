@@ -207,7 +207,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const target = pl.position + offset
     if (target < 0 || target >= pl.order.length) return
     const item = pl.items[pl.order[target]]
-    if (!item || !item.magnet) return
+    if (!item?.magnet) return
     const key = `${item.infoHash || item.magnet}:${item.fileIndex}`
     if (prefetchedHashes.current.has(key)) return
     prefetchedHashes.current.add(key)
@@ -347,8 +347,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const params = new URLSearchParams(globalThis.location.search)
     if (newHash) {
       params.set('play', newHash)
-      if (current?.fileIdx !== undefined) params.set('f', String(current.fileIdx))
-      else params.delete('f')
+      if (current?.fileIdx === undefined) params.delete('f')
+      else params.set('f', String(current.fileIdx))
       // We intentionally don't write `t` here — resume position comes from the
       // server's per-user library and updates every ~15s. Persisting it in the
       // URL on every tick would spam history and is the user's job (paste from

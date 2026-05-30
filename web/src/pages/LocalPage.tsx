@@ -38,8 +38,8 @@ import {
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
 
-const VIDEO_EXTS = ['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts']
-const AUDIO_EXTS = ['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus']
+const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts'])
+const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus'])
 
 function extOf(name: string): string {
   const i = name.lastIndexOf('.')
@@ -47,11 +47,11 @@ function extOf(name: string): string {
 }
 
 function isVideo(name: string): boolean {
-  return VIDEO_EXTS.includes(extOf(name))
+  return VIDEO_EXTS.has(extOf(name))
 }
 
 function isAudio(name: string): boolean {
-  return AUDIO_EXTS.includes(extOf(name))
+  return AUDIO_EXTS.has(extOf(name))
 }
 
 function formatSize(bytes: number): string {

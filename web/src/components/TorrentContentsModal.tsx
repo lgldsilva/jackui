@@ -139,7 +139,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           )}
           {info && (
             <p className="text-xs text-gray-500 mt-1">
-              {info.files.length} arquivo{info.files.length !== 1 ? 's' : ''} · {formatSize(info.totalSize)}
+              {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
             </p>
           )}
 
@@ -155,7 +155,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               {info.peers > 0 && (
                 <span className="flex items-center gap-1 text-blue-400">
                   <Activity className="w-3 h-3" />
-                  {info.peers} peer{info.peers !== 1 ? 's' : ''} · {info.seeders ?? 0} seed{(info.seeders ?? 0) !== 1 ? 'ers' : 'er'}
+                  {info.peers} peer{info.peers === 1 ? '' : 's'} · {info.seeders ?? 0} seed{(info.seeders ?? 0) === 1 ? 'er' : 'ers'}
                 </span>
               )}
               {(info.progress ?? 0) > 0 && (info.progress ?? 0) < 1 && (

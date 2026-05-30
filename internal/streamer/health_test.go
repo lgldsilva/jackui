@@ -31,18 +31,54 @@ func TestHealthSnapshot_WithCache(t *testing.T) {
 	s := NewForTesting()
 	s.cache = c
 
-	_ = c.SetHealth("knownhash", 5, 10)
+	_ = c.SetHealth("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 5, 10)
+
+	h := metainfo.Hash{0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA}
+	health, active := s.HealthSnapshot(h)
+	if active {
+		t.Error("expected active=false for non-loaded torrent")
+	}
+	if health == nil {
+		t.Fatal("expected non-nil health from cache")
+	}
+	if health.Seeders != 5 {
+		t.Errorf("seeders: want 5, got %d", health.Seeders)
+	}
+	if health.Peers != 10 {
+		t.Errorf("peers: want 10, got %d", health.Peers)
+	}
+}
+
+func TestHealthSnapshot_NoMatchInCache(t *testing.T) {
+	dir := t.TempDir()
+	c, err := NewMetadataCache(dir + "/meta.db")
+	if err != nil {
+		t.Fatalf("NewMetadataCache: %v", err)
+	}
+	t.Cleanup(func() { c.Close() })
+
+	s := NewForTesting()
+	s.cache = c
 
 	var h metainfo.Hash
-	if err := h.FromHexString("knownhash0000000000000000000000000000"); err == nil {
-		health, active := s.HealthSnapshot(h)
-		if active {
-			t.Error("expected active=false for non-loaded torrent")
-		}
-		if health != nil {
-			t.Logf("got health: seeders=%d peers=%d", health.Seeders, health.Peers)
-		}
+	h[0] = 0x01
+	health, active := s.HealthSnapshot(h)
+	if active {
+		t.Error("expected active=false")
 	}
+	if health != nil {
+		t.Error("expected nil health for cache miss")
+	}
+}
+
+func TestProbeHealthAsync_DedupeBusy(t *testing.T) {
+	s := NewForTesting()
+	var h metainfo.Hash
+	h[0] = 0xBB
+	healthInflight.Store(h, true)
+	t.Cleanup(func() { healthInflight.Delete(h) })
+
+	s.ProbeHealthAsync(h, "magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 }
 
 func TestProbeHealthAsync_EmptyMagnet(t *testing.T) {

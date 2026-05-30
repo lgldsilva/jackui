@@ -48,15 +48,10 @@ export default function DiscoverPage() {
           </div>
         </div>
 
-        {items === null ? (
-          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-        ) : items.length === 0 ? (
-          <div className="text-center py-20 text-gray-500">
-            <Flame className="w-16 h-16 mx-auto mb-4 opacity-30" />
-            <p>Nada pra mostrar</p>
-            <p className="text-xs mt-2">Configure a <code className="text-gray-400">tmdb.api_key</code> (ou <code className="text-gray-400">TMDB_API_KEY</code>) pra ver os títulos em alta.</p>
-          </div>
-        ) : (
+{(() => {
+          if (items === null) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
+          if (items.length === 0) return <div className="text-center py-20 text-gray-500"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada pra mostrar</p><p className="text-xs mt-2">Configure a <code className="text-gray-400">tmdb.api_key</code> (ou <code className="text-gray-400">TMDB_API_KEY</code>) pra ver os títulos em alta.</p></div>
+          return (
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {shown.map(m => (
               <button
@@ -88,7 +83,7 @@ export default function DiscoverPage() {
               </button>
             ))}
           </div>
-        )}
+        )})()}
       </main>
     </div>
   )

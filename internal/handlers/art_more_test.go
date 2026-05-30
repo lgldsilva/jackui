@@ -272,6 +272,164 @@ func TestResolveArtHandler_NoResolvers(t *testing.T) {
 	}
 }
 
+func TestResolveTorrentArt_ExistingRankTooHigh(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	w := httptest.NewRecorder()
+	cGin, _ := gin.CreateTestContext(w)
+	cGin.Request = httptest.NewRequest("POST", "/", nil)
+
+	a := &artResolveCtx{
+		c:            cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		existingRank: streamer.ArtSourceRank("torrent") + 1,
+	}
+	if resolveTorrentArt(a) {
+		t.Error("expected false when existingRank >= torrent rank")
+	}
+}
+
+func TestResolveTorrentArt_TorrentNotActive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	w := httptest.NewRecorder()
+	cGin, _ := gin.CreateTestContext(w)
+	cGin.Request = httptest.NewRequest("POST", "/", nil)
+
+	a := &artResolveCtx{
+		c:     cGin,
+		s:     s,
+		cache: cache,
+		hash:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ctx:   cGin.Request.Context(),
+	}
+	if resolveTorrentArt(a) {
+		t.Error("expected false when torrent is not active")
+	}
+}
+
+func TestResolveTMDBArt_NilClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	w := httptest.NewRecorder()
+	cGin, _ := gin.CreateTestContext(w)
+	cGin.Request = httptest.NewRequest("POST", "/", nil)
+
+	a := &artResolveCtx{
+		c:            cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		tmdbClient:   nil,
+		existingRank: streamer.ArtSourceRank("tmdb") - 1,
+		query:        "Test Movie",
+	}
+	if resolveTMDBArt(a) {
+		t.Error("expected false with nil tmdbClient")
+	}
+}
+
+func TestResolveTMDBArt_ExistingRankTooHigh(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	w := httptest.NewRecorder()
+	cGin, _ := gin.CreateTestContext(w)
+	cGin.Request = httptest.NewRequest("POST", "/", nil)
+
+	a := &artResolveCtx{
+		c:            cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		tmdbClient:   nil,
+		existingRank: streamer.ArtSourceRank("tmdb"),
+		query:        "Test",
+	}
+	if resolveTMDBArt(a) {
+		t.Error("expected false when existingRank >= tmdb rank")
+	}
+}
+
+func TestResolveWebArt_NilSearch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	w := httptest.NewRecorder()
+	cGin, _ := gin.CreateTestContext(w)
+	cGin.Request = httptest.NewRequest("POST", "/", nil)
+
+	a := &artResolveCtx{
+		c:            cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		webSearch:    nil,
+		existingRank: streamer.ArtSourceRank("web") - 1,
+		query:        "Test Movie",
+	}
+	if resolveWebArt(a) {
+		t.Error("expected false with nil webSearch")
+	}
+}
+
+func TestResolveWebArt_ExistingRankTooHigh(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cache.Close()
+
+	w := httptest.NewRecorder()
+	cGin, _ := gin.CreateTestContext(w)
+	cGin.Request = httptest.NewRequest("POST", "/", nil)
+
+	a := &artResolveCtx{
+		c:            cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		webSearch:    nil,
+		existingRank: streamer.ArtSourceRank("web"),
+		query:        "Test",
+	}
+	if resolveWebArt(a) {
+		t.Error("expected false when existingRank >= web rank")
+	}
+}
+
 func TestResolveFrameCapture_NegativeFileIdx(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()

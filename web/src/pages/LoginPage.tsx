@@ -75,8 +75,9 @@ export default function LoginPage() {
           className="bg-gray-800 border border-gray-700 rounded-2xl p-6 flex flex-col gap-4 shadow-2xl"
         >
           <div>
-            <label className="block text-sm text-gray-400 mb-1.5">Usuário</label>
+            <label htmlFor="login-username" className="block text-sm text-gray-400 mb-1.5">Usuário</label>
             <input
+              id="login-username"
               type="text"
               autoFocus
               autoComplete="username"
@@ -88,8 +89,9 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1.5">Senha</label>
+            <label htmlFor="login-password" className="block text-sm text-gray-400 mb-1.5">Senha</label>
             <input
+              id="login-password"
               type="password"
               autoComplete="current-password"
               value={password}
@@ -101,8 +103,9 @@ export default function LoginPage() {
 
           {mfaStep && (
             <div>
-              <label className="block text-sm text-gray-400 mb-1.5">Código MFA ou de recuperação</label>
+              <label htmlFor="login-totp" className="block text-sm text-gray-400 mb-1.5">Código MFA ou de recuperação</label>
               <input
+                id="login-totp"
                 type="text"
                 autoFocus
                 autoComplete="one-time-code"

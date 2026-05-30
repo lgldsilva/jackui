@@ -542,7 +542,7 @@ export default function DownloadsPage() {
           <StatCard
             icon={<Activity className="w-5 h-5" />}
             label="Fila"
-            value={`${activeCount} ativo${activeCount !== 1 ? 's' : ''}`}
+            value={`${activeCount} ativo${activeCount === 1 ? '' : 's'}`}
             subtitle={seedingCount > 0 ? `${seedingCount} semeando` : undefined}
             gradient="from-amber-500/20 to-orange-500/10"
             iconColor="text-amber-400"
@@ -908,7 +908,7 @@ export default function DownloadsPage() {
       {/* Barra flutuante de bulk actions, só aparece com seleção ativa. */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-gray-800 border border-cyan-500/40 shadow-2xl rounded-full px-4 py-2 backdrop-blur">
-          <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
           <div className="w-px h-5 bg-gray-700" />
           <button
             onClick={onBatchPause}

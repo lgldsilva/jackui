@@ -126,15 +126,10 @@ export default function LibraryPage() {
           </div>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-20 text-gray-500">
-            <LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" />
-            <p>Nada por aqui ainda</p>
-            <p className="text-xs mt-2">Assista algo no player — vai aparecer aqui pra continuar depois.</p>
-          </div>
-        ) : (
+        {(() => {
+          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
+          if (filtered.length === 0) return <div className="text-center py-20 text-gray-500"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada por aqui ainda</p><p className="text-xs mt-2">Assista algo no player — vai aparecer aqui pra continuar depois.</p></div>
+          return (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filtered.map(e => {
               const ratio = e.durationSeconds > 0 ? Math.min(1, e.resumeSeconds / e.durationSeconds) : 0
@@ -155,7 +150,7 @@ export default function LibraryPage() {
               )
             })}
           </div>
-        )}
+        )})()}
       </main>
 
       <TorrentContentsModal

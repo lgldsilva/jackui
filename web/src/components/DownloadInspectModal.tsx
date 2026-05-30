@@ -5,7 +5,7 @@ import {
   ArrowUpCircle, Activity, Globe, Play
 } from 'lucide-react'
 import {
-  DownloadEntry, DownloadDetails, StreamFile,
+  DownloadEntry, DownloadDetails, StreamFile, TorrentInfo,
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
@@ -32,6 +32,16 @@ function fileIcon(f: StreamFile, primary: boolean) {
     return <FileAudio className={`w-4 h-4 ${color} flex-shrink-0`} />
   }
   return <FileText className={`w-4 h-4 ${color} flex-shrink-0`} />
+}
+
+function filesTabLabel(torrent: TorrentInfo | null | undefined): string {
+  if (!torrent) return 'Arquivos'
+  return `Arquivos (${torrent.files.length})`
+}
+
+function trackersTabLabel(trackers: readonly string[]): string {
+  if (trackers.length === 0) return 'Trackers'
+  return `Trackers (${trackers.length})`
 }
 
 export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay }: Props) {
@@ -247,8 +257,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
         <div className="flex border-b border-gray-700 px-2 bg-gray-900/40">
           {[
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
-            { id: 'files' as Tab, label: `Arquivos${torrent ? ` (${torrent.files.length})` : ''}`, icon: Files },
-            { id: 'trackers' as Tab, label: `Trackers${displayTrackers.length > 0 ? ` (${displayTrackers.length})` : ''}`, icon: Globe },
+            { id: 'files' as Tab, label: filesTabLabel(torrent), icon: Files },
+            { id: 'trackers' as Tab, label: trackersTabLabel(displayTrackers), icon: Globe },
             { id: 'actions' as Tab, label: 'Ações', icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
             <button

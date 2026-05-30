@@ -415,6 +415,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
       onClose={onClose}
+      onFocus={() => {}}
       open
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
@@ -446,13 +447,14 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
           {view === 'drop_paste' ? (
             <>
               {/* Drag & Drop Area */}
-              <div
+              <button
+                type="button"
                 onDragEnter={handleDrag}
                 onDragOver={handleDrag}
                 onDragLeave={handleDrag}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
                 className={`
                   border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
                   ${dragActive 
@@ -474,7 +476,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   <p className="text-sm font-medium text-gray-200">Arraste e solte um ou mais arquivos .torrent aqui</p>
                   <p className="text-xs text-gray-500 mt-1">ou clique para navegar no seu computador</p>
                 </div>
-              </div>
+              </button>
 
               <div className="relative flex py-2 items-center">
                 <div className="flex-grow border-t border-gray-700"></div>

@@ -15,7 +15,7 @@ const INTERNAL_ID = '__internal__'
 // Pull the 40-hex btih out of a magnet URI. The internal download queue keys
 // on info hash; search results sometimes only carry the magnet.
 function hashFromMagnet(magnet: string): string {
-  const m = /btih:([a-fA-F0-9]{40})/i.exec(magnet)
+  const m = /btih:([a-f0-9]{40})/i.exec(magnet)
   return m ? m[1].toLowerCase() : ''
 }
 
@@ -255,10 +255,11 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
+            <label htmlFor="download-client" className="block text-sm font-medium text-gray-300 mb-1.5">
               Destino do download
             </label>
             <select
+              id="download-client"
               value={selectedClientId}
               onChange={(e) => setSelectedClientId(e.target.value)}
               className="input-field"

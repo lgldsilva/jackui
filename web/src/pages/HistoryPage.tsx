@@ -428,7 +428,7 @@ export default function HistoryPage() {
                         onExploreContents={setContentsTarget}
                         onRefresh={handleRefreshResult}
                         refreshing={result.id !== undefined && refreshingIDs.has(result.id)}
-                        refreshedAt={result.id !== undefined ? refreshedLabels.get(result.id) ?? null : null}
+                        refreshedAt={result.id === undefined ? null : refreshedLabels.get(result.id) ?? null}
                       />
                       {result.query && (
                         <button
@@ -633,7 +633,7 @@ export default function HistoryPage() {
                         <>
                           <span className="text-gray-300 font-medium">{filteredResults.length}</span>
                           {filteredResults.length !== results.length && <span> de {results.length}</span>}
-                          {' '}resultado{filteredResults.length !== 1 ? 's' : ''} em cache para{' '}
+                          {' '}resultado{filteredResults.length === 1 ? '' : 's'} em cache para{' '}
                           <span className="text-green-400 font-medium">"{selected}"</span>
                         </>
                       )}
@@ -690,7 +690,7 @@ export default function HistoryPage() {
                             onExploreContents={setContentsTarget}
                             onRefresh={handleRefreshResult}
                             refreshing={result.id !== undefined && refreshingIDs.has(result.id)}
-                            refreshedAt={result.id !== undefined ? refreshedLabels.get(result.id) ?? null : null}
+                            refreshedAt={result.id === undefined ? null : refreshedLabels.get(result.id) ?? null}
                           />
                         ))}
                       </div>
