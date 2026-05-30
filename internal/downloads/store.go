@@ -579,6 +579,13 @@ func (s *Store) UpdateProgress(userID, id int, bytes int64) error {
 	return err
 }
 
+// SetFileIndex updates the target file index after metadata resolves for
+// auto-picked downloads (FileIndex = -1 from Transmission RPC).
+func (s *Store) SetFileIndex(userID, id int, fileIndex int) error {
+	_, err := s.db.Exec(`UPDATE downloads SET file_index=? WHERE id=? AND user_id=?`, fileIndex, id, userID)
+	return err
+}
+
 // Delete removes a download row (used for user-initiated cancel).
 // Cancelling does NOT erase on-disk pieces — those are cleaned by the
 // streamer cache LRU once the torrent is no longer protected.
