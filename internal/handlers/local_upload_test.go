@@ -35,12 +35,12 @@ func TestLocalUpload(t *testing.T) {
 		c.Next()
 	})
 
-	router.POST("/api/local/upload", LocalUpload(b))
+	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
 
 	// Prepara multipart body
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", "teste.txt")
+	part, err := writer.CreateFormFile("file", "teste.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,12 +60,12 @@ func TestLocalUpload(t *testing.T) {
 	var resp map[string]interface{}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
-	if resp["uploaded"] != "teste.txt" {
-		t.Errorf("uploaded=%v, want 'teste.txt'", resp["uploaded"])
+	if resp["uploaded"] != "teste.mp4" {
+		t.Errorf("uploaded=%v, want 'teste.mp4'", resp["uploaded"])
 	}
 
 	// Verifica se o arquivo foi criado com sucesso no disco
-	createdFile := filepath.Join(tempDir, "subpasta", "teste.txt")
+	createdFile := filepath.Join(tempDir, "subpasta", "teste.mp4")
 	content, err := os.ReadFile(createdFile)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestLocalUpload_AutoRenameOnCollision(t *testing.T) {
 		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "u", Role: auth.RoleAdmin})
 		c.Next()
 	})
-	router.POST("/api/local/upload", LocalUpload(b))
+	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -136,7 +136,7 @@ func TestLocalUpload_ForbiddenForNonAdmin(t *testing.T) {
 		c.Set("jackui:claims", &auth.Claims{UserID: 2, Username: "comum", Role: auth.RoleUser})
 		c.Next()
 	})
-	router.POST("/api/local/upload", LocalUpload(b))
+	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -203,5 +203,66 @@ func TestLocalFile_SecurityHeaders(t *testing.T) {
 				t.Errorf("Content-Disposition=%q, want %q", got, tc.wantDisp)
 			}
 		})
+	}
+}
+
+// Uploads de tipos fora do allowlist (ex: .html) são barrados na entrada com
+// 415 — defesa em profundidade além da guarda anti-XSS do serving.
+func TestLocalUpload_RejectsDisallowedType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tempDir := t.TempDir()
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: tempDir}})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "u", Role: auth.RoleAdmin})
+		c.Next()
+	})
+	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "evil.html")
+	_, _ = part.Write([]byte("<script>alert(1)</script>"))
+	_ = writer.Close()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/local/upload?mount=Meus+downloads&path=", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status=%d body=%s, want 415", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "evil.html")); !os.IsNotExist(err) {
+		t.Error("arquivo não permitido foi gravado no disco")
+	}
+}
+
+// Upload acima do teto é rejeitado (MaxBytesReader corta o corpo → 400, ou o
+// Size já reportado grande → 413). Em ambos os casos, nunca 201.
+func TestLocalUpload_RejectsOversize(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tempDir := t.TempDir()
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: tempDir}})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "u", Role: auth.RoleAdmin})
+		c.Next()
+	})
+	router.POST("/api/local/upload", LocalUpload(b, 10)) // teto de 10 bytes
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "big.mp4")
+	_, _ = part.Write(bytes.Repeat([]byte("x"), 1024)) // 1KB >> 10 bytes
+	_ = writer.Close()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/local/upload?mount=Meus+downloads&path=", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(w, req)
+
+	if w.Code == http.StatusCreated {
+		t.Fatalf("upload grande foi aceito (status=%d); deveria ser rejeitado", w.Code)
 	}
 }

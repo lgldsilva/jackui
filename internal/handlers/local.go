@@ -713,7 +713,17 @@ func LocalWalk(b *local.Browser) gin.HandlerFunc {
 }
 
 // LocalUpload handles POST /api/local/upload?mount=NAME&path=REL
-func LocalUpload(b *local.Browser) gin.HandlerFunc {
+// allowedUploadExts restringe uploads locais a tipos de mídia + legenda. O
+// serving (LocalFile) já força download de não-mídia p/ barrar XSS armazenado;
+// isto é defesa em profundidade na entrada (rejeita .html/.js/.svg etc.).
+var allowedUploadExts = map[string]bool{
+	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true,
+	".webm": true, ".ts": true, ".m2ts": true, ".mpg": true, ".mpeg": true,
+	".wmv": true, ".flv": true, ".ogv": true, ".3gp": true,
+	".srt": true, ".vtt": true, ".ass": true, ".ssa": true, ".sub": true,
+}
+
+func LocalUpload(b *local.Browser, maxUploadBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -730,6 +740,12 @@ func LocalUpload(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 
+		// Teto de tamanho (anti disk-fill): MaxBytesReader corta a leitura do
+		// corpo inteiro (multipart incluso) antes de escrever no disco.
+		if maxUploadBytes > 0 {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes)
+		}
+
 		fileHeader, err := c.FormFile("file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required: " + err.Error()})
@@ -739,6 +755,18 @@ func LocalUpload(b *local.Browser) gin.HandlerFunc {
 		filename := filepath.Base(fileHeader.Filename)
 		if filename == "" || filename == "." || filename == "/" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+			return
+		}
+
+		if !allowedUploadExts[strings.ToLower(filepath.Ext(filename))] {
+			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "tipo de arquivo não permitido (apenas vídeo/legenda)"})
+			return
+		}
+
+		// Rejeição amigável e barata antes de ler o corpo (o MaxBytesReader
+		// acima é a garantia dura; isto evita gravar parcial p/ um Size já grande).
+		if maxUploadBytes > 0 && fileHeader.Size > maxUploadBytes {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("arquivo excede o limite de %d MB", maxUploadBytes/(1<<20))})
 			return
 		}
 

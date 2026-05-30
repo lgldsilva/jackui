@@ -440,6 +440,7 @@ export default function LocalPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
+                    accept=".mkv,.mp4,.m4v,.avi,.mov,.webm,.ts,.m2ts,.mpg,.mpeg,.wmv,.flv,.ogv,.3gp,.srt,.vtt,.ass,.ssa,.sub"
                     onChange={handleUploadPick}
                     className="hidden"
                   />
