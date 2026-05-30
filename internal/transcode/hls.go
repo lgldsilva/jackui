@@ -323,7 +323,7 @@ func parseRange(header string, totalSize int64) (int64, int64, bool) {
 // reliably played those HEVC sources before #61). Direct-play sources (H.264)
 // are unaffected either way; they never use HLS. Flip to true to resume the
 // seek work.
-const hlsVODEnabled = true
+const hlsVODEnabled = false
 
 // ffprobePathFrom derives the ffprobe binary path from the ffmpeg path so a
 // custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
@@ -463,7 +463,11 @@ func (e *encodeSpec) args(startSeg int) []string {
 			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
 		}
 	} else {
-		args = append(args, "-g", "60", "-bf", "0", "-vf", videoScaleFilter(e.encoder))
+		// EVENT/live: zera o PTS inicial AQUI também (mesmo motivo do ramo VOD —
+		// fontes HEVC/MKV com PTS≠0 deixam um buraco [0,offset] e o Safari trava
+		// no currentTime 0). setpts antes do scale; asetpts no áudio.
+		args = append(args, "-g", "60", "-bf", "0",
+			"-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", "asetpts=PTS-STARTPTS")
 	}
 	args = append(args,
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
