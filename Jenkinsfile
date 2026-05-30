@@ -108,14 +108,16 @@ pipeline {
       }
     }
 
-    // Falha o build se houver CVE CRITICAL na imagem (HIGH só avisa).
+    // Reporta HIGH+CRITICAL (visível, não bloqueia — HIGH de base-image é
+    // aceitável/documentado), e QUEBRA o build só se houver CVE CRITICAL.
     stage('Trivy') {
       steps {
         sh '''
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:latest image --scanners vuln --no-progress \
-            --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed \
-            $IMAGE:$TAG
+          TRIVY="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --scanners vuln --no-progress --ignore-unfixed"
+          echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
+          $TRIVY --severity HIGH,CRITICAL $IMAGE:$TAG || true
+          echo "=== Trivy: gate (falha em CRITICAL) ==="
+          $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:$TAG
         '''
       }
     }
