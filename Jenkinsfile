@@ -60,8 +60,8 @@ pipeline {
       }
     }
 
-    // Quality gate é obrigatório: o estágio QUEBRA o build se o gate falhar
-    // (-Dsonar.qualitygate.wait=true). Token vem do Vault.
+    // Quality gate obrigatório: o estágio QUEBRA o build se o gate falhar
+    // (-Dsonar.qualitygate.wait=true). Token via Jenkins credentials.
     stage('SonarQube') {
       // sonar-scanner-cli não serve como agente (entrypoint roda e sai); roda
       // via `docker run` montando o workspace, igual cdxgen/trivy.
@@ -78,6 +78,7 @@ pipeline {
               -Dsonar.go.coverage.reportPaths=coverage.out \
               -Dsonar.tests=. -Dsonar.test.inclusions='**/*_test.go' \
               -Dsonar.coverage.exclusions='web/**,cmd/**' \
+              -Dsonar.scm.disabled=true \
               -Dsonar.qualitygate.wait=true
           '''
         }
@@ -88,7 +89,7 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            docker run --rm -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
+            docker run --rm --user 0 -v "$PWD":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o bom.json . || true
             JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
               --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
