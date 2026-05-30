@@ -429,12 +429,15 @@ func validatePromote(c *gin.Context, b *local.Browser, sharedDir string, dests [
 		c.JSON(http.StatusForbidden, gin.H{"error": errOnlyMeusDownloads})
 		return nil, "", "", "", false
 	}
-	cleanPath := filepath.Clean(req.Path)
+	// Apply user subpath scoping — frontend strips the prefix via StripUserScope
+	// so we must re-add it before resolving the real filesystem path.
+	scopedPath := b.UserScopedPath(req.Mount, req.Path, userFromCtx(c))
+	cleanPath := filepath.Clean(scopedPath)
 	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot promote mount root"})
 		return nil, "", "", "", false
 	}
-	src, err := b.ResolvePath(req.Mount, req.Path)
+	src, err := b.ResolvePath(req.Mount, scopedPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return nil, "", "", "", false
@@ -474,7 +477,7 @@ func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb
 		if !ok {
 			return
 		}
-		paths := resolveLocalPaths(req)
+		paths := resolveLocalPaths(b, req, userFromCtx(c))
 		previews := buildLocalPreviews(&localPreviewDeps{c: c, b: b, aiClient: aiClient, tmdbClient: tmdbClient, mount: req.Mount, base: base}, paths)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
@@ -529,12 +532,17 @@ func extractLocalPromoteReq(c *gin.Context, b *local.Browser, sharedDir string, 
 	return &req, base, true
 }
 
-func resolveLocalPaths(req *localPromoteReq) []string {
+func resolveLocalPaths(b *local.Browser, req *localPromoteReq, username string) []string {
+	scope := func(p string) string { return b.UserScopedPath(req.Mount, p, username) }
 	if len(req.Paths) > 0 {
-		return req.Paths
+		out := make([]string, len(req.Paths))
+		for i, p := range req.Paths {
+			out[i] = scope(p)
+		}
+		return out
 	}
 	if req.Path != "" {
-		return []string{req.Path}
+		return []string{scope(req.Path)}
 	}
 	return nil
 }
