@@ -1256,6 +1256,14 @@ export type MediaTrack = {
 export type StreamProbe = {
   audio: MediaTrack[]
   subtitles: MediaTrack[]
+  // Decisão de transcode vinda do backend (ffprobe), navegador-agnóstica:
+  // MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum → HLS. O player
+  // decide por isto, não pelo nome do arquivo.
+  videoCodec?: string
+  container?: string
+  audioCodec?: string
+  needsTranscode?: boolean
+  transcodeReason?: string
 }
 
 export const streamProbe = async (hash: string, fileIdx: number): Promise<StreamProbe> => {
