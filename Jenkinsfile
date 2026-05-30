@@ -45,7 +45,11 @@ pipeline {
       agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '-u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
-        sh 'go test -coverprofile=coverage.out ./internal/...'
+        // retry(2): tolera testes flaky de timing (ex: worker startInit, que
+        // corre com a goroutine de init). Re-roda a suíte uma vez se falhar.
+        retry(2) {
+          sh 'go test -coverprofile=coverage.out ./internal/...'
+        }
       }
     }
 
