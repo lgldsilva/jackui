@@ -19,6 +19,8 @@ import (
 	"github.com/luizg/jackui/internal/streamer"
 )
 
+const errListDownloads = "failed to list downloads: %v"
+
 type rpcRequest struct {
 	Method    string                 `json:"method"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
@@ -426,30 +428,36 @@ func extractInfoHash(s string) string {
 	s = strings.TrimSpace(s)
 
 	if strings.HasPrefix(strings.ToLower(s), "magnet:") {
-		query := s
-		if idx := strings.Index(s, "?"); idx >= 0 {
-			query = s[idx+1:]
-		}
-		for _, p := range strings.Split(query, "&") {
-			lower := strings.ToLower(p)
-			if strings.HasPrefix(lower, "xt=urn:btih:") {
-				return strings.ToLower(strings.TrimPrefix(p, "xt=urn:btih:"))
-			}
-		}
-		return ""
+		return infoHashFromMagnet(s)
 	}
-
 	if len(s) == 40 {
-		lower := strings.ToLower(s)
-		for _, c := range lower {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-				return ""
-			}
-		}
-		return lower
+		return validHexHash(s)
 	}
-
 	return ""
+}
+
+func infoHashFromMagnet(s string) string {
+	query := s
+	if idx := strings.Index(s, "?"); idx >= 0 {
+		query = s[idx+1:]
+	}
+	for _, p := range strings.Split(query, "&") {
+		if strings.HasPrefix(strings.ToLower(p), "xt=urn:btih:") {
+			return strings.ToLower(strings.TrimPrefix(p, "xt=urn:btih:"))
+		}
+	}
+	return ""
+}
+
+// validHexHash returns the lowercased hash if it's 40 hex chars, else "".
+func validHexHash(s string) string {
+	lower := strings.ToLower(s)
+	for _, c := range lower {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return ""
+		}
+	}
+	return lower
 }
 
 func extractCategory(downloadDir string) string {
@@ -487,21 +495,10 @@ func (h *Handler) methodTorrentGet(args map[string]interface{}) rpcResponse {
 
 	all, err := h.store.ListAll()
 	if err != nil {
-		return failResp(fmt.Sprintf("failed to list downloads: %v", err))
+		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
 
-	activeHashes := make(map[string]*streamer.TorrentInfo)
-	if h.streamer != nil {
-		for _, d := range all {
-			var hh metainfo.Hash
-			if err := hh.FromHexString(d.InfoHash); err != nil {
-				continue
-			}
-			if info, err := h.streamer.Get(hh); err == nil && info != nil {
-				activeHashes[d.InfoHash] = info
-			}
-		}
-	}
+	activeHashes := h.activeTorrentInfo(all)
 
 	torrents := make([]interface{}, 0, len(all))
 	for _, d := range all {
@@ -516,6 +513,24 @@ func (h *Handler) methodTorrentGet(args map[string]interface{}) rpcResponse {
 	return successResp(map[string]interface{}{"torrents": torrents})
 }
 
+// activeTorrentInfo resolve, por infoHash, os torrents ativos no streamer.
+func (h *Handler) activeTorrentInfo(all []downloads.Download) map[string]*streamer.TorrentInfo {
+	active := make(map[string]*streamer.TorrentInfo)
+	if h.streamer == nil {
+		return active
+	}
+	for _, d := range all {
+		var hh metainfo.Hash
+		if err := hh.FromHexString(d.InfoHash); err != nil {
+			continue
+		}
+		if info, err := h.streamer.Get(hh); err == nil && info != nil {
+			active[d.InfoHash] = info
+		}
+	}
+	return active
+}
+
 var defaultTorrentFields = []string{
 	"id", "hashString", "name", "status", "totalSize",
 	"percentDone", "rateDownload", "rateUpload", "downloadDir",
@@ -525,214 +540,255 @@ var defaultTorrentFields = []string{
 	"uploadRatio", "uploadedEver", "downloadedEver",
 }
 
-func (h *Handler) buildTorrent(d downloads.Download, si *streamer.TorrentInfo, fields map[string]bool) map[string]interface{} {
-	t := make(map[string]interface{})
-	trStatus := mapJackUIStatusToTR(d, si)
+// torrentView agrega os valores derivados de um download (+ info do streamer)
+// usados pra montar os campos do protocolo Transmission.
+type torrentView struct {
+	d                  downloads.Download
+	trStatus           int
+	downRate, upRate   int64
+	peers              int
+	totalSize          int64
+	labels             []string
+	trackers           []interface{}
+	startTime          int64
+	doneTime           int64
+	addTime            int64
+	downloadDir        string
+	secondsDownloading int64
+	secondsSeeding     int64
+}
 
-	var downRate, upRate int64
-	var peers int
-	var totalSize int64
+func (h *Handler) newTorrentView(d downloads.Download, si *streamer.TorrentInfo) torrentView {
+	v := torrentView{
+		d:           d,
+		trStatus:    mapJackUIStatusToTR(d, si),
+		addTime:     d.CreatedAt.Unix(),
+		downloadDir: h.downloadDir,
+	}
 	if si != nil {
-		downRate = si.DownRate
-		upRate = si.UpRate
-		peers = si.Peers
-		totalSize = si.TotalSize
+		v.downRate = si.DownRate
+		v.upRate = si.UpRate
+		v.peers = si.Peers
+		v.totalSize = si.TotalSize
 	}
-	if totalSize <= 0 {
-		totalSize = d.FileSize
+	if v.totalSize <= 0 {
+		v.totalSize = d.FileSize
+	}
+	if v.downloadDir == "" {
+		v.downloadDir = h.dataDir
 	}
 
-	labels := make([]string, 0)
+	v.labels = make([]string, 0)
 	if d.Category != "" {
-		labels = append(labels, d.Category)
+		v.labels = append(v.labels, d.Category)
 	}
 	if d.Tracker != "" && d.Tracker != d.Category {
-		labels = append(labels, d.Tracker)
+		v.labels = append(v.labels, d.Tracker)
 	}
 
-	trackers := make([]interface{}, 0)
+	v.trackers = make([]interface{}, 0)
 	if d.Tracker != "" {
-		trackers = append(trackers, map[string]interface{}{
-			"announce":  d.Tracker,
-			"id":        0,
-			"scrape":    "",
-			"sitename":  "",
-			"tier":      0,
+		v.trackers = append(v.trackers, map[string]interface{}{
+			"announce": d.Tracker,
+			"id":       0,
+			"scrape":   "",
+			"sitename": "",
+			"tier":     0,
 		})
 	}
 
-	startTime := int64(0)
 	if d.StartedAt != nil {
-		startTime = d.StartedAt.Unix()
+		v.startTime = d.StartedAt.Unix()
 	}
-	doneTime := int64(0)
 	if d.CompletedAt != nil {
-		doneTime = d.CompletedAt.Unix()
-	}
-	addTime := d.CreatedAt.Unix()
-
-	downloadDir := h.downloadDir
-	if downloadDir == "" {
-		downloadDir = h.dataDir
+		v.doneTime = d.CompletedAt.Unix()
 	}
 
-	// Estimate durations
-	secondsDownloading := int64(0)
-	secondsSeeding := int64(0)
+	v.secondsDownloading, v.secondsSeeding = elapsedSeconds(d)
+	return v
+}
+
+// elapsedSeconds estima quanto tempo o download passou baixando e semeando.
+func elapsedSeconds(d downloads.Download) (downloading, seeding int64) {
 	now := time.Now().Unix()
 	if d.Status == downloads.StatusCompleted && d.CompletedAt != nil {
-		secondsSeeding = now - d.CompletedAt.Unix()
+		seeding = now - d.CompletedAt.Unix()
 		// StartedAt pode ser nil (import/boot sem início registrado) — guarda
 		// o deref p/ não dar panic.
 		if d.StartedAt != nil {
-			secondsDownloading = int64(d.CompletedAt.Sub(*d.StartedAt).Seconds())
+			downloading = int64(d.CompletedAt.Sub(*d.StartedAt).Seconds())
 		}
 	} else if d.StartedAt != nil {
-		secondsDownloading = now - d.StartedAt.Unix()
+		downloading = now - d.StartedAt.Unix()
 	}
-	if secondsDownloading < 0 {
-		secondsDownloading = 0
+	if downloading < 0 {
+		downloading = 0
 	}
-	if secondsSeeding < 0 {
-		secondsSeeding = 0
+	if seeding < 0 {
+		seeding = 0
 	}
+	return downloading, seeding
+}
 
+func (h *Handler) buildTorrent(d downloads.Download, si *streamer.TorrentInfo, fields map[string]bool) map[string]interface{} {
+	v := h.newTorrentView(d, si)
+	t := make(map[string]interface{})
 	for field := range fields {
-		switch field {
-		case "id":
-			t["id"] = d.ID
-		case "hashString":
-			t["hashString"] = d.InfoHash
-		case "name":
-			t["name"] = d.Name
-		case "status":
-			t["status"] = trStatus
-		case "totalSize":
-			t["totalSize"] = totalSize
-		case "percentDone":
-			t["percentDone"] = d.Progress
-		case "rateDownload":
-			t["rateDownload"] = downRate
-		case "rateUpload":
-			t["rateUpload"] = upRate
-		case "downloadDir":
-			t["downloadDir"] = downloadDir
-		case "addedDate":
-			t["addedDate"] = addTime
-		case "doneDate":
-			t["doneDate"] = doneTime
-		case "error":
-			errCode := 0
-			if d.Status == downloads.StatusFailed && d.Error != "" {
-				errCode = 1
-			}
-			t["error"] = errCode
-		case "errorString":
-			t["errorString"] = d.Error
-		case "leftUntilDone":
-			left := totalSize - d.BytesDownloaded
-			if left < 0 {
-				left = 0
-			}
-			t["leftUntilDone"] = left
-		case "haveValid":
-			t["haveValid"] = d.BytesDownloaded
-		case "peersConnected":
-			t["peersConnected"] = peers
-		case "eta":
-			eta := -1
-			if downRate > 0 && totalSize > 0 {
-				remaining := (totalSize - d.BytesDownloaded) / downRate
-				eta = int(remaining)
-			}
-			t["eta"] = eta
-		case "isFinished":
-			t["isFinished"] = d.Status == downloads.StatusCompleted
-		case "isStalled":
-			t["isStalled"] = d.Status == downloads.StatusDownloading && downRate == 0 && totalSize > 0 && d.BytesDownloaded < totalSize
-		case "labels":
-			t["labels"] = labels
-		case "trackers":
-			t["trackers"] = trackers
-		case "uploadRatio":
-			t["uploadRatio"] = 0.0
-		case "uploadedEver":
-			t["uploadedEver"] = 0
-		case "downloadedEver":
-			t["downloadedEver"] = d.BytesDownloaded
-		case "queuePosition":
-			if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
-				t["queuePosition"] = 0
-			} else {
-				t["queuePosition"] = d.ID
-			}
-		case "activityDate":
-			t["activityDate"] = startTime
-		case "corruptEver":
-			t["corruptEver"] = 0
-		case "desiredAvailable":
-			t["desiredAvailable"] = d.BytesDownloaded
-		case "haveUnchecked":
-			t["haveUnchecked"] = 0
-		case "peersGettingFromUs":
-			t["peersGettingFromUs"] = 0
-		case "peersSendingToUs":
-			t["peersSendingToUs"] = peers
-		case "seedRatioLimit":
-			t["seedRatioLimit"] = 2.0
-		case "seedRatioMode":
-			t["seedRatioMode"] = 0
-		case "sizeWhenDone":
-			t["sizeWhenDone"] = totalSize
-		case "startDate":
-			t["startDate"] = startTime
-		case "torrentFile":
-			t["torrentFile"] = ""
-		case "maxConnectedPeers":
-			t["maxConnectedPeers"] = 50
-		case "bandwidthPriority":
-			t["bandwidthPriority"] = 0
-		case "recheckProgress":
-			t["recheckProgress"] = 0.0
-		case "secondsDownloading":
-			t["secondsDownloading"] = secondsDownloading
-		case "secondsSeeding":
-			t["secondsSeeding"] = secondsSeeding
-		case "comment":
-			t["comment"] = ""
-		case "creator":
-			t["creator"] = ""
-		case "dateCreated":
-			t["dateCreated"] = 0
-		case "pieceCount":
-			t["pieceCount"] = 0
-		case "pieceSize":
-			t["pieceSize"] = 0
-		case "priorities":
-			t["priorities"] = []int{0}
-		case "wanted":
-			t["wanted"] = []int{1}
-		case "files":
-			t["files"] = []interface{}{
-				map[string]interface{}{
-					"begin_piece":     0,
-					"bytesCompleted":  d.BytesDownloaded,
-					"end_piece":       1,
-					"length":          totalSize,
-					"name":            d.Name,
-				},
-			}
-		case "fileStats":
-			t["fileStats"] = []interface{}{
-				map[string]interface{}{
-					"bytesCompleted": d.BytesDownloaded,
-					"priority":       0,
-					"wanted":         true,
-				},
-			}
+		if coreTorrentField(t, field, v) {
+			continue
 		}
+		extraTorrentField(t, field, v)
 	}
 	return t
+}
+
+// coreTorrentField popula os campos mais comuns (defaultTorrentFields).
+// Retorna true se o campo foi tratado aqui.
+func coreTorrentField(t map[string]interface{}, field string, v torrentView) bool {
+	d := v.d
+	switch field {
+	case "id":
+		t["id"] = d.ID
+	case "hashString":
+		t["hashString"] = d.InfoHash
+	case "name":
+		t["name"] = d.Name
+	case "status":
+		t["status"] = v.trStatus
+	case "totalSize":
+		t["totalSize"] = v.totalSize
+	case "percentDone":
+		t["percentDone"] = d.Progress
+	case "rateDownload":
+		t["rateDownload"] = v.downRate
+	case "rateUpload":
+		t["rateUpload"] = v.upRate
+	case "downloadDir":
+		t["downloadDir"] = v.downloadDir
+	case "addedDate":
+		t["addedDate"] = v.addTime
+	case "doneDate":
+		t["doneDate"] = v.doneTime
+	case "error":
+		errCode := 0
+		if d.Status == downloads.StatusFailed && d.Error != "" {
+			errCode = 1
+		}
+		t["error"] = errCode
+	case "errorString":
+		t["errorString"] = d.Error
+	case "leftUntilDone":
+		left := v.totalSize - d.BytesDownloaded
+		if left < 0 {
+			left = 0
+		}
+		t["leftUntilDone"] = left
+	case "haveValid":
+		t["haveValid"] = d.BytesDownloaded
+	case "peersConnected":
+		t["peersConnected"] = v.peers
+	case "eta":
+		eta := -1
+		if v.downRate > 0 && v.totalSize > 0 {
+			remaining := (v.totalSize - d.BytesDownloaded) / v.downRate
+			eta = int(remaining)
+		}
+		t["eta"] = eta
+	case "isFinished":
+		t["isFinished"] = d.Status == downloads.StatusCompleted
+	case "isStalled":
+		t["isStalled"] = d.Status == downloads.StatusDownloading && v.downRate == 0 && v.totalSize > 0 && d.BytesDownloaded < v.totalSize
+	case "labels":
+		t["labels"] = v.labels
+	case "trackers":
+		t["trackers"] = v.trackers
+	case "uploadRatio":
+		t["uploadRatio"] = 0.0
+	case "uploadedEver":
+		t["uploadedEver"] = 0
+	case "downloadedEver":
+		t["downloadedEver"] = d.BytesDownloaded
+	case "queuePosition":
+		if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
+			t["queuePosition"] = 0
+		} else {
+			t["queuePosition"] = d.ID
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// extraTorrentField popula os campos opcionais/menos usados do protocolo.
+func extraTorrentField(t map[string]interface{}, field string, v torrentView) {
+	d := v.d
+	switch field {
+	case "activityDate":
+		t["activityDate"] = v.startTime
+	case "corruptEver":
+		t["corruptEver"] = 0
+	case "desiredAvailable":
+		t["desiredAvailable"] = d.BytesDownloaded
+	case "haveUnchecked":
+		t["haveUnchecked"] = 0
+	case "peersGettingFromUs":
+		t["peersGettingFromUs"] = 0
+	case "peersSendingToUs":
+		t["peersSendingToUs"] = v.peers
+	case "seedRatioLimit":
+		t["seedRatioLimit"] = 2.0
+	case "seedRatioMode":
+		t["seedRatioMode"] = 0
+	case "sizeWhenDone":
+		t["sizeWhenDone"] = v.totalSize
+	case "startDate":
+		t["startDate"] = v.startTime
+	case "torrentFile":
+		t["torrentFile"] = ""
+	case "maxConnectedPeers":
+		t["maxConnectedPeers"] = 50
+	case "bandwidthPriority":
+		t["bandwidthPriority"] = 0
+	case "recheckProgress":
+		t["recheckProgress"] = 0.0
+	case "secondsDownloading":
+		t["secondsDownloading"] = v.secondsDownloading
+	case "secondsSeeding":
+		t["secondsSeeding"] = v.secondsSeeding
+	case "comment":
+		t["comment"] = ""
+	case "creator":
+		t["creator"] = ""
+	case "dateCreated":
+		t["dateCreated"] = 0
+	case "pieceCount":
+		t["pieceCount"] = 0
+	case "pieceSize":
+		t["pieceSize"] = 0
+	case "priorities":
+		t["priorities"] = []int{0}
+	case "wanted":
+		t["wanted"] = []int{1}
+	case "files":
+		t["files"] = []interface{}{
+			map[string]interface{}{
+				"begin_piece":    0,
+				"bytesCompleted": d.BytesDownloaded,
+				"end_piece":      1,
+				"length":         v.totalSize,
+				"name":           d.Name,
+			},
+		}
+	case "fileStats":
+		t["fileStats"] = []interface{}{
+			map[string]interface{}{
+				"bytesCompleted": d.BytesDownloaded,
+				"priority":       0,
+				"wanted":         true,
+			},
+		}
+	}
 }
 
 func mapJackUIStatusToTR(d downloads.Download, si *streamer.TorrentInfo) int {
@@ -801,40 +857,46 @@ func (h *Handler) methodTorrentSet(args map[string]interface{}) rpcResponse {
 
 	all, err := h.store.ListAll()
 	if err != nil {
-		return failResp(fmt.Sprintf("failed to list downloads: %v", err))
+		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
 
 	for _, d := range all {
 		if !ids[d.ID] {
 			continue
 		}
-		if v, ok := args["seedRatioLimit"]; ok {
-			_ = v
-		}
-		if v, ok := args["seedRatioMode"]; ok {
-			_ = v
-		}
-		if paused, ok := args["paused"]; ok {
-			if b, ok := paused.(bool); ok && b {
-				_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused)
-			} else if ok && !b {
-				if d.Status == downloads.StatusPaused {
-					_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusDownloading)
-				}
-			}
-		}
-		if rawLabels, ok := args["labels"]; ok {
-			if labels, ok := rawLabels.([]interface{}); ok && len(labels) > 0 {
-				if cat, ok := labels[0].(string); ok {
-					// Atualiza a categoria do download existente. Create exige
-					// Magnet e recriaria/reativaria o row — usar update dedicado.
-					_ = h.store.SetCategory(d.UserID, d.ID, cat)
-				}
-			}
-		}
+		h.applyPausedArg(d, args["paused"])
+		h.applyLabelsArg(d, args["labels"])
 	}
 
 	return successResp(nil)
+}
+
+// applyPausedArg traduz o arg "paused" do torrent-set em mudança de status.
+func (h *Handler) applyPausedArg(d downloads.Download, raw interface{}) {
+	b, ok := raw.(bool)
+	if !ok {
+		return
+	}
+	if b {
+		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused)
+	} else if d.Status == downloads.StatusPaused {
+		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusDownloading)
+	}
+}
+
+// applyLabelsArg aplica a primeira label como categoria do download.
+func (h *Handler) applyLabelsArg(d downloads.Download, raw interface{}) {
+	labels, ok := raw.([]interface{})
+	if !ok || len(labels) == 0 {
+		return
+	}
+	cat, ok := labels[0].(string)
+	if !ok {
+		return
+	}
+	// Atualiza a categoria do download existente. Create exige Magnet e
+	// recriaria/reativaria o row — usar update dedicado.
+	_ = h.store.SetCategory(d.UserID, d.ID, cat)
 }
 
 // ─── torrent-remove ────────────────────────────────────────────────────────
@@ -850,7 +912,7 @@ func (h *Handler) methodTorrentRemove(args map[string]interface{}) rpcResponse {
 
 	all, err := h.store.ListAll()
 	if err != nil {
-		return failResp(fmt.Sprintf("failed to list downloads: %v", err))
+		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
 	for _, d := range all {
 		if !ids[d.ID] {
