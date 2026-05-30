@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -149,35 +150,48 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 
-		stat, err := os.Stat(abs)
-		if err != nil {
-			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if stat.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrPathIsDir})
+		if !statLocalFile(c, abs) {
 			return
 		}
 
-		// Stored-XSS guard: this endpoint serves user-uploaded files same-origin,
-		// where the JWT lives in localStorage. Always disable MIME sniffing.
-		// Subtitles get the correct text/vtt so <track> renders them; actively
-		// rendered formats (html/svg/xml/js) are forced to download instead of
-		// executing in our origin. Media (video/audio) keeps ServeFile's type.
-		c.Header("X-Content-Type-Options", "nosniff")
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".vtt", ".srt":
-			c.Header("Content-Type", "text/vtt; charset=utf-8")
-		case ".html", ".htm", ".xhtml", ".svg", ".xml", ".js", ".mjs":
-			c.Header("Content-Type", "application/octet-stream")
-			c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(path)+"\"")
-		}
-
+		setLocalFileSecurityHeaders(c, path)
 		http.ServeFile(c.Writer, c.Request, abs)
+	}
+}
+
+// statLocalFile stats abs and writes the appropriate JSON error (returning
+// false) when it's missing, unreadable, or a directory. Returns true when abs
+// is a regular file ready to be served.
+func statLocalFile(c *gin.Context, abs string) bool {
+	stat, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
+			return false
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return false
+	}
+	if stat.IsDir() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrPathIsDir})
+		return false
+	}
+	return true
+}
+
+// setLocalFileSecurityHeaders applies the stored-XSS guard for files served
+// same-origin (where the JWT lives in localStorage). MIME sniffing is always
+// disabled. Subtitles get the correct text/vtt so <track> renders them;
+// actively rendered formats (html/svg/xml/js) are forced to download instead
+// of executing in our origin. Media (video/audio) keeps ServeFile's type.
+func setLocalFileSecurityHeaders(c *gin.Context, path string) {
+	c.Header("X-Content-Type-Options", "nosniff")
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".vtt", ".srt":
+		c.Header("Content-Type", "text/vtt; charset=utf-8")
+	case ".html", ".htm", ".xhtml", ".svg", ".xml", ".js", ".mjs":
+		c.Header("Content-Type", "application/octet-stream")
+		c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(path)+"\"")
 	}
 }
 
@@ -746,40 +760,13 @@ func LocalUpload(b *local.Browser, maxUploadBytes int64) gin.HandlerFunc {
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes)
 		}
 
-		fileHeader, err := c.FormFile("file")
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required: " + err.Error()})
+		fileHeader, filename, ok := validateUpload(c, maxUploadBytes)
+		if !ok {
 			return
 		}
 
-		filename := filepath.Base(fileHeader.Filename)
-		if filename == "" || filename == "." || filename == "/" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
-			return
-		}
-
-		if !allowedUploadExts[strings.ToLower(filepath.Ext(filename))] {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "tipo de arquivo não permitido (apenas vídeo/legenda)"})
-			return
-		}
-
-		// Rejeição amigável e barata antes de ler o corpo (o MaxBytesReader
-		// acima é a garantia dura; isto evita gravar parcial p/ um Size já grande).
-		if maxUploadBytes > 0 && fileHeader.Size > maxUploadBytes {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("arquivo excede o limite de %d MB", maxUploadBytes/(1<<20))})
-			return
-		}
-
-		scoped := b.UserScopedPath(mount, path, scopeUser(c))
-		absDir, err := b.ResolvePath(mount, scoped)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "caminho de destino inválido: " + err.Error()})
-			return
-		}
-
-		absPath := filepath.Join(absDir, filename)
-		if !strings.HasPrefix(absPath, absDir) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal detectado"})
+		absDir, absPath, ok := resolveUploadDest(c, b, mount, path, filename)
+		if !ok {
 			return
 		}
 
@@ -795,28 +782,9 @@ func LocalUpload(b *local.Browser, maxUploadBytes int64) gin.HandlerFunc {
 			return
 		}
 
-		// Auto-rename on collision so one user never clobbers another's file
-		// (the destination dir may be shared). O_EXCL makes claim+create atomic,
-		// so two concurrent uploads of the same name resolve to distinct files
-		// ("foo.mkv" → "foo (1).mkv" → ...) instead of one overwriting the other.
-		ext := filepath.Ext(filename)
-		stem := strings.TrimSuffix(filename, ext)
-		finalPath := absPath
-		var dstFile *os.File
-		for i := 1; ; i++ {
-			dstFile, err = os.OpenFile(finalPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
-			if err == nil {
-				break
-			}
-			if !os.IsExist(err) {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar arquivo no servidor: " + err.Error()})
-				return
-			}
-			if i > 9999 {
-				c.JSON(http.StatusConflict, gin.H{"error": "muitos arquivos com o mesmo nome neste diretório"})
-				return
-			}
-			finalPath = filepath.Join(absDir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
+		dstFile, finalPath, ok := createUploadFile(c, absDir, absPath, filename)
+		if !ok {
+			return
 		}
 		defer dstFile.Close()
 
@@ -828,6 +796,83 @@ func LocalUpload(b *local.Browser, maxUploadBytes int64) gin.HandlerFunc {
 
 		finalName := filepath.Base(finalPath)
 		c.JSON(http.StatusCreated, gin.H{"uploaded": finalName, "path": filepath.Join(path, finalName)})
+	}
+}
+
+// validateUpload pulls the "file" part, validates its name and extension, and
+// enforces the size ceiling. It writes the JSON error and returns ok=false on
+// any failure; on success returns the header and the sanitized base filename.
+func validateUpload(c *gin.Context, maxUploadBytes int64) (fileHeader *multipart.FileHeader, filename string, ok bool) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required: " + err.Error()})
+		return nil, "", false
+	}
+
+	filename = filepath.Base(fileHeader.Filename)
+	if filename == "" || filename == "." || filename == "/" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return nil, "", false
+	}
+
+	if !allowedUploadExts[strings.ToLower(filepath.Ext(filename))] {
+		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "tipo de arquivo não permitido (apenas vídeo/legenda)"})
+		return nil, "", false
+	}
+
+	// Rejeição amigável e barata antes de ler o corpo (o MaxBytesReader
+	// acima é a garantia dura; isto evita gravar parcial p/ um Size já grande).
+	if maxUploadBytes > 0 && fileHeader.Size > maxUploadBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("arquivo excede o limite de %d MB", maxUploadBytes/(1<<20))})
+		return nil, "", false
+	}
+
+	return fileHeader, filename, true
+}
+
+// resolveUploadDest resolves the user-scoped destination directory and the
+// target file path, guarding against path traversal. Writes the JSON error and
+// returns ok=false on failure.
+func resolveUploadDest(c *gin.Context, b *local.Browser, mount, path, filename string) (absDir, absPath string, ok bool) {
+	scoped := b.UserScopedPath(mount, path, scopeUser(c))
+	absDir, err := b.ResolvePath(mount, scoped)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "caminho de destino inválido: " + err.Error()})
+		return "", "", false
+	}
+
+	absPath = filepath.Join(absDir, filename)
+	if !strings.HasPrefix(absPath, absDir) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal detectado"})
+		return "", "", false
+	}
+
+	return absDir, absPath, true
+}
+
+// createUploadFile creates the destination file, auto-renaming on collision so
+// one user never clobbers another's file (the destination dir may be shared).
+// O_EXCL makes claim+create atomic, so two concurrent uploads of the same name
+// resolve to distinct files ("foo.mkv" → "foo (1).mkv" → ...) instead of one
+// overwriting the other. Writes the JSON error and returns ok=false on failure.
+func createUploadFile(c *gin.Context, absDir, absPath, filename string) (dstFile *os.File, finalPath string, ok bool) {
+	ext := filepath.Ext(filename)
+	stem := strings.TrimSuffix(filename, ext)
+	finalPath = absPath
+	for i := 1; ; i++ {
+		f, err := os.OpenFile(finalPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
+		if err == nil {
+			return f, finalPath, true
+		}
+		if !os.IsExist(err) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar arquivo no servidor: " + err.Error()})
+			return nil, "", false
+		}
+		if i > 9999 {
+			c.JSON(http.StatusConflict, gin.H{"error": "muitos arquivos com o mesmo nome neste diretório"})
+			return nil, "", false
+		}
+		finalPath = filepath.Join(absDir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
 	}
 }
 
