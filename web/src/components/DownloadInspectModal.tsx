@@ -11,7 +11,7 @@ import {
 import { formatBytes, formatRate } from '../lib/format'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly download: DownloadEntry | null
   readonly onClose: () => void
   readonly onMutated?: (d: DownloadEntry) => void
@@ -470,7 +470,7 @@ function StatusPill({ status }: { status: string }) {
   )
 }
 
-interface ActionRowProps {
+type ActionRowProps = {
   readonly icon: typeof RefreshCw
   readonly title: string
   readonly desc: string

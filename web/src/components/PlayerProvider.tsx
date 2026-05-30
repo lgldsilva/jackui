@@ -20,7 +20,7 @@ import PlayerModal from './PlayerModal'
  * the modal next.
  */
 
-export interface PlaylistContext {
+export type PlaylistContext = {
   readonly name: string
   readonly items: readonly PlaylistItem[]
   readonly currentIndex: number
@@ -28,7 +28,7 @@ export interface PlaylistContext {
 
 type RepeatMode = 'none' | 'one' | 'all'
 
-interface PlayerAPI {
+type PlayerAPI = {
   /** Plays a single item with no auto-advance logic. */
   readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
@@ -62,7 +62,7 @@ export function usePlayer(): PlayerAPI {
   return v
 }
 
-interface PlaylistState {
+type PlaylistState = {
   readonly name: string
   readonly items: readonly PlaylistItem[]
   // The "order" — when shuffle is on, this is a permutation of [0..items.length-1].

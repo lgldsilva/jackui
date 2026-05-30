@@ -14,7 +14,7 @@ import { TmdbMatch, tmdbMatch } from '../api/client'
 // We deliberately do NOT use a React Query / SWR dep — the project doesn't ship
 // one and the duplicate-request guard already lives in api/client.ts. Adding a
 // hook layer here keeps the per-card boilerplate to one line.
-export interface UseThumbnailResult<T extends HTMLElement> {
+export type UseThumbnailResult<T extends HTMLElement> = {
   ref: React.RefObject<T>
   match: TmdbMatch | null
   // `loaded` flips true once a fetch attempt completed (success OR null result).

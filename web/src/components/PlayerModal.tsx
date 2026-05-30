@@ -46,7 +46,7 @@ import { useIncognito } from '../lib/incognito'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
 
-interface PlaylistMeta {
+type PlaylistMeta = {
   readonly name: string
   readonly items: readonly { title: string }[]
   readonly currentIndex: number
@@ -54,14 +54,14 @@ interface PlaylistMeta {
 
 // Per-file subtitle choice, persisted in localStorage so a video reopens with
 // the same subtitle the user picked. The three sources are mutually exclusive.
-interface SubChoice {
+type SubChoice = {
   readonly external: string | null // OpenSubtitles file id
   readonly embedded: number | null // embedded track index
   readonly sidecar: number | null  // sidecar .srt file index
   readonly offset: number          // sync offset in seconds
 }
 
-interface PlayerModalProps {
+type PlayerModalProps = {
   readonly result: SearchResult | null
   readonly onClose: () => void
   readonly initialFileIndex?: number

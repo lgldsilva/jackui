@@ -5,7 +5,7 @@ import { TorrentInfo } from '../../api/client'
 // and make these self-contained side effects independently readable/testable.
 // Behavior is unchanged — same effect bodies, same dependency arrays.
 
-interface KeyboardShortcutsOpts {
+type KeyboardShortcutsOpts = {
   readonly videoRef: RefObject<HTMLVideoElement>
   readonly minimized: boolean
   readonly requestFullscreen: () => void
@@ -39,7 +39,7 @@ export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }:
   }, [minimized])
 }
 
-interface MediaSessionOpts {
+type MediaSessionOpts = {
   readonly videoRef: RefObject<HTMLVideoElement>
   readonly info: TorrentInfo | null
   readonly selectedFile: number

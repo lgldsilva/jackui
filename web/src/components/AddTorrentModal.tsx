@@ -13,7 +13,7 @@ import { useScrollLock } from '../lib/useScrollLock'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 
-interface Props {
+type Props = {
   readonly isOpen: boolean
   readonly onClose: () => void
   readonly onAdded: (result: SearchResult) => void
@@ -21,7 +21,7 @@ interface Props {
 }
 
 
-interface TorrentItem {
+type TorrentItem = {
   readonly id: string
   readonly name: string
   readonly file?: File

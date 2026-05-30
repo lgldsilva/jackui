@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-interface Options {
+type Options = {
   /** Called when user releases past the threshold. Should be async. */
   onRefresh: () => Promise<void> | void
   /** Distance (px) user must pull to trigger refresh. Default 80. */
@@ -11,7 +11,7 @@ interface Options {
   disabled?: boolean
 }
 
-interface Result {
+type Result = {
   /** Current pull displacement in px (0 if not pulling). */
   pull: number
   /** True while we're calling onRefresh after release. */

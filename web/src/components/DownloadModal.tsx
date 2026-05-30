@@ -51,7 +51,7 @@ function fileIcon(f: StreamFile) {
   return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
 }
 
-interface DownloadModalProps {
+type DownloadModalProps = {
   readonly result: SearchResult | null
   readonly onClose: () => void
 }

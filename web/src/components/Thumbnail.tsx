@@ -15,7 +15,7 @@ import { streamArtURL } from '../api/client'
 
 export type ThumbnailSize = 'sm' | 'md' | 'lg'
 
-interface ThumbnailProps {
+type ThumbnailProps = {
   readonly title: string
   readonly categoryId?: number
   readonly size?: ThumbnailSize

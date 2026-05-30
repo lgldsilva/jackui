@@ -22,7 +22,7 @@ import { streamFileURL, withToken } from '../api/client'
  *   - Images use `<img>` with `object-contain` so portrait/landscape both fit.
  */
 
-interface FilePreviewModalProps {
+type FilePreviewModalProps = {
   readonly infoHash: string
   readonly fileIdx: number
   readonly filePath: string

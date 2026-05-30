@@ -9,7 +9,7 @@ import {
 } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
   readonly onClose: () => void
@@ -18,7 +18,7 @@ interface Props {
 
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
 
-interface DoneResult {
+type DoneResult = {
   readonly moved: number
   readonly failed: readonly { path: string; error: string }[]
   readonly destLabel?: string

@@ -3,7 +3,7 @@ import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home
 import { LocalEntry, downloadPromoteBrowse, localPromote, fetchPromoteDestinations, PromoteDestination, localPromotePreview, PromotePreviewEntry } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
 
-interface Props {
+type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
   readonly onClose: () => void

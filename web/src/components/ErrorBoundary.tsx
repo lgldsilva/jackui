@@ -1,13 +1,13 @@
 import { Component, ReactNode } from 'react'
 import { AlertCircle, X } from 'lucide-react'
 
-interface Props {
+type Props = {
   readonly children: ReactNode
   readonly onReset?: () => void
   readonly title?: string
 }
 
-interface State {
+type State = {
   readonly error: Error | null
 }
 

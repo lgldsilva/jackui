@@ -11,7 +11,7 @@ import {
 import { formatBytes } from '../lib/format'
 import { usePlayer } from '../components/PlayerProvider'
 
-interface DraftWatchlist {
+type DraftWatchlist = {
   query: string
   category: string
   minSeeders: number

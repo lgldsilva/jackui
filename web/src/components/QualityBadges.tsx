@@ -1,6 +1,6 @@
 import { Quality } from '../api/client'
 
-interface Props {
+type Props = {
   readonly quality?: Quality
   readonly compact?: boolean
 }
