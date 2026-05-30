@@ -186,7 +186,7 @@ export default function SearchPage() {
 
     let mutated = false
     allResults.forEach(r => {
-      const id = r.trackerId || r.tracker.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      const id = r.trackerId || r.tracker.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
       if (id && !discoveredMap.has(id)) {
         discoveredMap.set(id, {
           id,

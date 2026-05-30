@@ -6,9 +6,9 @@ import { TorrentInfo } from '../../api/client'
 // Behavior is unchanged — same effect bodies, same dependency arrays.
 
 interface KeyboardShortcutsOpts {
-  videoRef: RefObject<HTMLVideoElement>
-  minimized: boolean
-  requestFullscreen: () => void
+  readonly videoRef: RefObject<HTMLVideoElement>
+  readonly minimized: boolean
+  readonly requestFullscreen: () => void
 }
 
 // useKeyboardShortcuts wires space/arrows/M/F to the <video>. Skipped while
@@ -17,7 +17,7 @@ interface KeyboardShortcutsOpts {
 export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }: KeyboardShortcutsOpts) {
   useEffect(() => {
     if (minimized) return
-    const onKey = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       const v = videoRef.current
       if (!v) return
       const tgt = e.target as HTMLElement | null
@@ -33,19 +33,19 @@ export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }:
         case 'f': case 'F': requestFullscreen(); break
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minimized])
 }
 
 interface MediaSessionOpts {
-  videoRef: RefObject<HTMLVideoElement>
-  info: TorrentInfo | null
-  selectedFile: number
-  playlistName?: string
-  onNext?: () => void
-  onPrev?: () => void
+  readonly videoRef: RefObject<HTMLVideoElement>
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly playlistName?: string
+  readonly onNext?: () => void
+  readonly onPrev?: () => void
 }
 
 // useMediaSession exposes "what's playing" + media keys / lock-screen controls

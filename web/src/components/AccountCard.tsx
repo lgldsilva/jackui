@@ -187,7 +187,7 @@ export default function AccountCard() {
             </div>
             <a href={enroll.uri} className="text-[11px] text-blue-400 hover:underline truncate" title={enroll.uri}>abrir no app (otpauth://)</a>
             <div className="flex items-center gap-2">
-              <input value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="000000" inputMode="numeric"
+              <input value={mfaCode} onChange={e => setMfaCode(e.target.value.replaceAll(/\D/g, '').slice(0, 6))} placeholder="000000" inputMode="numeric"
                 className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono tracking-widest w-28 text-center" />
               <button onClick={confirmEnroll} disabled={mfaCode.length !== 6} className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5">Confirmar</button>
               <button onClick={() => { setEnroll(null); setMfaCode('') }} className="text-xs text-gray-500 hover:text-gray-300">cancelar</button>

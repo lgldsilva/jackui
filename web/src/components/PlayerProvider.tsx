@@ -21,37 +21,37 @@ import PlayerModal from './PlayerModal'
  */
 
 export interface PlaylistContext {
-  name: string
-  items: PlaylistItem[]
-  currentIndex: number
+  readonly name: string
+  readonly items: readonly PlaylistItem[]
+  readonly currentIndex: number
 }
 
 type RepeatMode = 'none' | 'one' | 'all'
 
 interface PlayerAPI {
   /** Plays a single item with no auto-advance logic. */
-  playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
+  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
-  playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
+  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
   /** Close the player. Clears playlist state too. */
-  close: () => void
+  readonly close: () => void
   /** Move to the previous item respecting shuffle/repeat. */
-  previous: () => void
+  readonly previous: () => void
   /** Move to the next item respecting shuffle/repeat. */
-  next: () => void
+  readonly next: () => void
   /** Cycle 'none' → 'all' → 'one' → 'none'. */
-  cycleRepeat: () => void
+  readonly cycleRepeat: () => void
   /** Toggle shuffle. When turning on, regenerates the shuffle order. */
-  toggleShuffle: () => void
+  readonly toggleShuffle: () => void
   /** Begin warming up the next playlist item (called from PlayerModal at ~50% progress). */
-  prefetchNext: () => void
+  readonly prefetchNext: () => void
   /** Begin warming up the playlist item after the next (called at ~85% progress). */
-  prefetchNextNext: () => void
+  readonly prefetchNextNext: () => void
 
   // Read-only state for UI
-  playlist: PlaylistContext | null
-  repeat: RepeatMode
-  shuffle: boolean
+  readonly playlist: PlaylistContext | null
+  readonly repeat: RepeatMode
+  readonly shuffle: boolean
 }
 
 const Ctx = createContext<PlayerAPI | null>(null)
@@ -63,12 +63,12 @@ export function usePlayer(): PlayerAPI {
 }
 
 interface PlaylistState {
-  name: string
-  items: PlaylistItem[]
+  readonly name: string
+  readonly items: readonly PlaylistItem[]
   // The "order" — when shuffle is on, this is a permutation of [0..items.length-1].
   // When off, it's the identity sequence. The "position" cursor walks this array.
-  order: number[]
-  position: number
+  readonly order: readonly number[]
+  readonly position: number
 }
 
 function playlistItemToResult(item: PlaylistItem): { result: SearchResult; fileIdx?: number } {
@@ -135,7 +135,7 @@ export default function PlayerProvider({ children }: { children: ReactNode }) {
   }, [shuffle])
 
   const close = useCallback(() => {
-    if (current && current.result && current.result.infoHash) {
+    if (current?.result?.infoHash) {
       const hash = current.result.infoHash
       if (hash && typeof hash === 'string' && !hash.startsWith('local-')) {
         streamDrop(hash).catch(err => {

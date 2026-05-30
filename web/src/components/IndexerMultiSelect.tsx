@@ -25,13 +25,13 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
 
   useEffect(() => {
     if (!open) return
-    const onPointerDown = (e: PointerEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [open])
 
   const toggle = (id: string) => {
@@ -66,7 +66,7 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
           <button
             type="button"
             onClick={() => {
-              const newId = query.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+              const newId = query.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
               if (newId) {
                 toggle(newId)
                 setQuery('')

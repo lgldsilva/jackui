@@ -35,7 +35,7 @@ api.interceptors.request.use((config) => {
 export function withToken(url: string, override?: string): string {
   const raw = override ?? localStorage.getItem('jackui:auth.access')
   if (!raw) return url
-  const cleaned = String(raw).replace(/^"|"$/g, '') // localStorage values are JSON-stringified
+  const cleaned = String(raw).replaceAll(/^"|"$/g, '') // localStorage values are JSON-stringified
   const sep = url.includes('?') ? '&' : '?'
   return `${url}${sep}token=${encodeURIComponent(cleaned)}`
 }
@@ -277,7 +277,10 @@ export function isLocalHash(hash: string): boolean {
 export function buildLocalHash(mount: string, path: string): string {
   const json = JSON.stringify({ mount, path })
   // base64url, no padding (URL-safe)
-  const b64 = btoa(unescape(encodeURIComponent(json)))
+  const bytes = new TextEncoder().encode(json)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  const b64 = btoa(bin)
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replaceAll('=', '')
@@ -287,9 +290,12 @@ export function buildLocalHash(mount: string, path: string): string {
 export function parseLocalHash(hash: string): { mount: string; path: string } | null {
   if (!isLocalHash(hash)) return null
   try {
-    let b64 = hash.slice(LOCAL_PREFIX.length).replace(/-/g, '+').replace(/_/g, '/')
+    let b64 = hash.slice(LOCAL_PREFIX.length).replaceAll('-', '+').replaceAll('_', '/')
     while (b64.length % 4) b64 += '='
-    const json = decodeURIComponent(escape(atob(b64)))
+    const raw = atob(b64)
+    const rawBytes = new Uint8Array(raw.length)
+    for (let i = 0; i < raw.length; i++) rawBytes[i] = raw.charCodeAt(i)
+    const json = new TextDecoder().decode(rawBytes)
     const parsed = JSON.parse(json)
     if (typeof parsed.mount === 'string' && typeof parsed.path === 'string') return parsed
     return null
@@ -704,7 +710,7 @@ export const resetPassword = async (token: string, password: string): Promise<vo
 
 const b64urlToBuf = (s: string): ArrayBuffer => {
   const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4))
-  const bin = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'))
+  const bin = atob((s + pad).replaceAll('-', '+').replaceAll('_', '/'))
   const buf = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i)
   return buf.buffer

@@ -55,7 +55,7 @@ export default function ActiveTranscodesCard() {
     )
   }
 
-  const vramPercent = gpu && gpu.vramTotal && gpu.vramUsed
+  const vramPercent = gpu?.vramTotal && gpu?.vramUsed
     ? (gpu.vramUsed / gpu.vramTotal) * 100
     : 0
 
