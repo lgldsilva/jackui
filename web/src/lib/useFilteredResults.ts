@@ -14,17 +14,17 @@ import { isPlayable } from './playable'
 export type SortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'date' | 'age'
 
 export type ResultFilters = {
-  minSeeders?: number
-  minLeechers?: number
-  maxBytes?: number
-  trackerFilter?: string
-  titleFilter?: string
-  onlyPlayable?: boolean
+  readonly minSeeders?: number
+  readonly minLeechers?: number
+  readonly maxBytes?: number
+  readonly trackerFilter?: string
+  readonly titleFilter?: string
+  readonly onlyPlayable?: boolean
 }
 
 export type UseFilteredResultsOpts = ResultFilters & {
-  sortKey: SortKey
-  sortAsc: boolean
+  readonly sortKey: SortKey
+  readonly sortAsc: boolean
 }
 
 // Aplica groupByInfoHash + filtros + sort. Retorna também groupedCount pra

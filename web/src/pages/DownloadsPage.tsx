@@ -405,15 +405,6 @@ export default function DownloadsPage() {
     setBusyHash(hash)
     try { await streamDrop(hash); await loadTorrents() } finally { setBusyHash(null) }
   }
-  const onPauseAll = async () => {
-    setBulkBusy(true)
-    try { await streamPauseAll(); await loadTorrents() } finally { setBulkBusy(false) }
-  }
-  const onResumeAll = async () => {
-    setBulkBusy(true)
-    try { await streamResumeAll(); await loadTorrents() } finally { setBulkBusy(false) }
-  }
-
   const onSaveLimits = async () => {
     setLimitsSaving(true); setLimitsMsg('')
     try {
@@ -813,17 +804,13 @@ export default function DownloadsPage() {
                   loading={false}
                   busyHash={busyHash}
                   busyID={null}
-                  bulkBusy={bulkBusy}
                   onTorrentPause={onTorrentPause}
                   onTorrentResume={onTorrentResume}
                   onTorrentPriority={onTorrentPriority}
                   onTorrentDelete={onTorrentDelete}
-                  onPauseAll={onPauseAll}
-                  onResumeAll={onResumeAll}
                   onPause={onPause}
                   onResume={onResume}
                   onDelete={onDelete}
-                  hasTorrents={false}
                   onPlay={onPlay}
                   onInspect={setInspectTarget}
                 />
@@ -1006,8 +993,6 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
   onPause, onResume, onDelete, onPlay, onInspect,
-  bulkBusy: _bulkBusy, onPauseAll: _onPauseAll, onResumeAll: _onResumeAll,
-  hasTorrents: _hasTorrents,
 }: {
   torrents: TorrentInfo[]
   downloads: DownloadEntry[]
@@ -1015,17 +1000,13 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   loading: boolean
   busyHash: string | null
   busyID: number | null
-  bulkBusy: boolean
   onTorrentPause: (h: string) => void
   onTorrentResume: (h: string) => void
   onTorrentPriority: (h: string, p: StreamPriority) => void
   onTorrentDelete: (h: string) => void
-  onPauseAll: () => void
-  onResumeAll: () => void
   onPause: (id: number) => void
   onResume: (id: number) => void
   onDelete: (id: number) => void
-  hasTorrents: boolean
   onPlay: (d: DownloadEntry) => void
   onInspect: (d: DownloadEntry) => void
 }) {

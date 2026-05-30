@@ -15,12 +15,9 @@ import { TmdbMatch, tmdbMatch } from '../api/client'
 // one and the duplicate-request guard already lives in api/client.ts. Adding a
 // hook layer here keeps the per-card boilerplate to one line.
 export type UseThumbnailResult<T extends HTMLElement> = {
-  ref: React.RefObject<T>
-  match: TmdbMatch | null
-  // `loaded` flips true once a fetch attempt completed (success OR null result).
-  // Useful to swap fallback icons in only after we know there's no poster
-  // instead of flashing them while the request is still in flight.
-  loaded: boolean
+  readonly ref: React.RefObject<T>
+  readonly match: TmdbMatch | null
+  readonly loaded: boolean
 }
 
 export function useThumbnail<T extends HTMLElement = HTMLDivElement>(
