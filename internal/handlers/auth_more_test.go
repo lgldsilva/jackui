@@ -209,7 +209,10 @@ func TestIssueTokens(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	resp := issueTokens(store, tm, user, false)
+	resp, err := issueTokens(store, tm, user, false)
+	if err != nil {
+		t.Fatalf("issueTokens failed: %v", err)
+	}
 
 	if resp.Access == "" {
 		t.Error("expected non-empty access token")
@@ -230,7 +233,10 @@ func TestIssueTokens_Remember(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	resp := issueTokens(store, tm, user, true)
+	resp, err := issueTokens(store, tm, user, true)
+	if err != nil {
+		t.Fatalf("issueTokens failed: %v", err)
+	}
 
 	if resp.Refresh == "" {
 		t.Error("expected non-empty refresh token")

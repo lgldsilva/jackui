@@ -32,8 +32,8 @@ func TestConvertTorrentToMagnet_InvalidURL(t *testing.T) {
 
 	ConvertTorrentToMagnet()(c)
 
-	if w.Code != http.StatusBadGateway {
-		t.Errorf("status = %d, want 502; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
 }
 

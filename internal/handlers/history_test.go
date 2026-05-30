@@ -53,7 +53,7 @@ func TestGetHistory_WithEntries(t *testing.T) {
 
 	err = store.Save("test query", []jackett.Result{
 		{Title: "Test Result", InfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-	}, 1)
+	}, 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,10 +84,10 @@ func TestGetHistory_AdminAll(t *testing.T) {
 
 	_ = store.Save("user1 query", []jackett.Result{
 		{Title: "User1 Result", InfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-	}, 1)
+	}, 1, false)
 	_ = store.Save("user2 query", []jackett.Result{
 		{Title: "User2 Result", InfoHash: "cccccccccccccccccccccccccccccccccccccccc"},
-	}, 2)
+	}, 2, false)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -200,7 +200,7 @@ func TestDeleteHistory_WithoutQuery(t *testing.T) {
 	}
 	_ = store.Save("test", []jackett.Result{
 		{Title: "Test Result", InfoHash: "dddddddddddddddddddddddddddddddddddddddd"},
-	}, 1)
+	}, 1, false)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
