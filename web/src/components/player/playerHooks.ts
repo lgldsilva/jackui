@@ -1,5 +1,23 @@
-import { RefObject, useEffect } from 'react'
-import { TorrentInfo } from '../../api/client'
+import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect } from 'react'
+import {
+  StreamProbe,
+  TorrentInfo,
+  TranscodeCapabilities,
+  SidecarSubtitle,
+  streamProbe,
+  streamSidecars,
+} from '../../api/client'
+import { clientLog } from '../../lib/diag'
+import { load, save } from '../../lib/storage'
+
+// Per-file subtitle choice persisted in localStorage (mirrors the type in
+// PlayerModal). Kept local to avoid a circular import.
+type SubChoiceLite = {
+  readonly external: string | null
+  readonly embedded: number | null
+  readonly sidecar: number | null
+  readonly offset: number
+}
 
 // Hooks extracted verbatim from PlayerModal to shrink that 2000+ line component
 // and make these self-contained side effects independently readable/testable.
@@ -81,4 +99,219 @@ export function useMediaSession({ videoRef, info, selectedFile, playlistName, on
       } catch {}
     }
   }, [info?.infoHash, selectedFile, playlistName, onNext, onPrev])
+}
+
+type SubtitleOffsetOpts = {
+  readonly videoRef: RefObject<HTMLVideoElement>
+  readonly subActive: string | null
+  readonly subOffset: number
+  readonly origCuesRef: MutableRefObject<{ start: number; end: number }[]>
+}
+
+// useSubtitleOffset applies the user-chosen sync offset to every cue of the
+// active text track, snapshotting the original timings once per loaded sub so
+// repeated offset changes stay relative to the source. Also clears the snapshot
+// whenever the active subtitle changes. Extracted verbatim from PlayerModal.
+export function useSubtitleOffset({ videoRef, subActive, subOffset, origCuesRef }: SubtitleOffsetOpts) {
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !subActive) return
+
+    const applyOffset = () => {
+      const track = v.textTracks?.[0]
+      if (!track?.cues?.length) return
+      // Save originals once per loaded sub
+      if (origCuesRef.current.length !== track.cues.length) {
+        origCuesRef.current = Array.from(track.cues).map((c: any) => ({
+          start: c.startTime,
+          end: c.endTime,
+        }))
+      }
+      Array.from(track.cues).forEach((cue: any, i) => {
+        const orig = origCuesRef.current[i]
+        if (!orig) return
+        cue.startTime = Math.max(0, orig.start + subOffset)
+        cue.endTime = Math.max(0, orig.end + subOffset)
+      })
+      track.mode = 'showing'
+    }
+
+    // Try now, and again when the track finishes loading
+    applyOffset()
+    const tracks = v.textTracks
+    const onLoad = () => applyOffset()
+    for (const track of tracks) {
+      track.addEventListener('cuechange', onLoad)
+    }
+    return () => {
+      for (const track of tracks) {
+        track.removeEventListener('cuechange', onLoad)
+      }
+    }
+  }, [subActive, subOffset])
+
+  // Reset original cue timings when subtitle changes
+  useEffect(() => {
+    origCuesRef.current = []
+  }, [subActive])
+}
+
+type TrackProbeOpts = {
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly serverReady: boolean
+  readonly subActive: string | null
+  readonly embeddedSub: number | null
+  readonly setProbe: Dispatch<SetStateAction<StreamProbe | null>>
+  readonly setEmbeddedSub: Dispatch<SetStateAction<number | null>>
+  readonly setAutoSource: Dispatch<SetStateAction<'hash' | 'title' | 'embedded' | null>>
+  readonly setSidecars: Dispatch<SetStateAction<SidecarSubtitle[]>>
+  readonly setSidecarIdx: Dispatch<SetStateAction<number | null>>
+}
+
+// useTrackProbe runs ffprobe (embedded tracks) + sidecar discovery once the
+// torrent is live, auto-picking a pt subtitle unless the user already saved a
+// choice for this file. Extracted verbatim from PlayerModal — same gating,
+// same stale-closure-safe storage read, same deps.
+export function useTrackProbe(opts: TrackProbeOpts) {
+  const { info, selectedFile, serverReady, subActive, embeddedSub,
+    setProbe, setEmbeddedSub, setAutoSource, setSidecars, setSidecarIdx } = opts
+  useEffect(() => {
+    if (!info?.infoHash || selectedFile < 0 || !serverReady) return
+    // If the user previously chose a subtitle for THIS file, skip auto-load —
+    // the restore effect applies that choice and it must win over pt auto-pick.
+    // Read storage directly (not state) to avoid stale-closure races with the
+    // async probe callback.
+    const savedChoice = load<SubChoiceLite | null>(`sub.${info.infoHash}.${selectedFile}`, null)
+    const hasSavedChoice = !!savedChoice && (savedChoice.external !== null || savedChoice.embedded !== null || savedChoice.sidecar !== null)
+
+    streamProbe(info.infoHash, selectedFile)
+      .then(p => {
+        const safe = { audio: p.audio ?? [], subtitles: p.subtitles ?? [] }
+        setProbe(safe)
+        const ptSub = safe.subtitles.find(t => !t.image && /^(pt|por)/i.test(t.language || ''))
+        if (ptSub && !hasSavedChoice && !subActive) {
+          setEmbeddedSub(ptSub.index)
+          setAutoSource('embedded')
+        }
+      })
+      .catch(err => console.warn('probe failed:', err?.response?.data?.error || err.message))
+
+    // Sidecar subtitle files (separate .srt in the torrent) — cheap, parallel with probe
+    streamSidecars(info.infoHash, selectedFile)
+      .then(list => {
+        setSidecars(list ?? [])
+        // Auto-pick pt sidecar if no embedded already chosen and no saved choice
+        if (!hasSavedChoice && !subActive && embeddedSub === null && list && list.length > 0) {
+          const pt = list.find(s => /^(pt|por)/i.test(s.language || ''))
+          if (pt) {
+            setSidecarIdx(pt.index)
+            setAutoSource('embedded')
+          }
+        }
+      })
+      .catch(() => setSidecars([]))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.infoHash, selectedFile, serverReady])
+}
+
+type SubtitleChoicePersistOpts = {
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly subRestored: boolean
+  readonly subActive: string | null
+  readonly embeddedSub: number | null
+  readonly sidecarIdx: number | null
+  readonly subOffset: number
+  readonly setSubActive: Dispatch<SetStateAction<string | null>>
+  readonly setEmbeddedSub: Dispatch<SetStateAction<number | null>>
+  readonly setSidecarIdx: Dispatch<SetStateAction<number | null>>
+  readonly setSubOffset: Dispatch<SetStateAction<number>>
+  readonly setAutoSource: Dispatch<SetStateAction<'hash' | 'title' | 'embedded' | null>>
+  readonly setSubRestored: Dispatch<SetStateAction<boolean>>
+}
+
+// useSubtitleChoicePersist restores the saved subtitle choice for the current
+// file (before the pt auto-load can fire), then persists changes back to
+// localStorage. Extracted verbatim from PlayerModal — same deps & gating.
+export function useSubtitleChoicePersist(opts: SubtitleChoicePersistOpts) {
+  const { info, selectedFile, subRestored, subActive, embeddedSub, sidecarIdx, subOffset,
+    setSubActive, setEmbeddedSub, setSidecarIdx, setSubOffset, setAutoSource, setSubRestored } = opts
+
+  useEffect(() => {
+    if (!info?.infoHash || selectedFile < 0 || subRestored) return
+    const saved = load<SubChoiceLite | null>(`sub.${info.infoHash}.${selectedFile}`, null)
+    if (saved) {
+      setSubActive(saved.external)
+      setEmbeddedSub(saved.embedded)
+      setSidecarIdx(saved.sidecar)
+      setSubOffset(saved.offset || 0)
+      if (saved.external !== null || saved.embedded !== null || saved.sidecar !== null) {
+        setAutoSource(null)
+      }
+    }
+    setSubRestored(true)
+  }, [info?.infoHash, selectedFile, subRestored])
+
+  useEffect(() => {
+    if (!subRestored || !info?.infoHash || selectedFile < 0) return
+    save<SubChoiceLite>(`sub.${info.infoHash}.${selectedFile}`, {
+      external: subActive,
+      embedded: embeddedSub,
+      sidecar: sidecarIdx,
+      offset: subOffset,
+    })
+  }, [subActive, embeddedSub, sidecarIdx, subOffset, subRestored, info?.infoHash, selectedFile])
+}
+
+type HevcBackstopOpts = {
+  readonly videoRef: RefObject<HTMLVideoElement>
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly audioMode: boolean
+  readonly transcodeAudio: number | null
+  readonly forceH264: boolean
+  readonly burnSubTrack: number | null
+  readonly transcodeFallbackAttempted: boolean
+  readonly videoError: boolean
+  readonly bufferedEnd: number
+  readonly caps: TranscodeCapabilities | null
+  readonly videoDiagnostic: () => Record<string, unknown> | { reason: string }
+  readonly setTranscodeFallbackAttempted: Dispatch<SetStateAction<boolean>>
+  readonly setForceH264: Dispatch<SetStateAction<boolean>>
+}
+
+// useHevcBackstop is the Safari silent-HEVC-failure backstop: after 20s with no
+// playable frame it fires the same fallback <video onError> would. Extracted
+// verbatim from PlayerModal — same 20s window, same gating, same deps.
+export function useHevcBackstop(opts: HevcBackstopOpts) {
+  const { videoRef, info, selectedFile, audioMode, transcodeAudio, forceH264, burnSubTrack,
+    transcodeFallbackAttempted, videoError, bufferedEnd, caps, videoDiagnostic,
+    setTranscodeFallbackAttempted, setForceH264 } = opts
+  useEffect(() => {
+    if (!info?.infoHash || selectedFile < 0) return
+    const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
+    // Audio files don't need H264 transcoding — skip backstop entirely.
+    if (audioMode || transcodingActive || transcodeFallbackAttempted || videoError) return
+    const timer = globalThis.setTimeout(() => {
+      const v = videoRef.current
+      if (!v) return
+      // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
+      // moved a frame. Either condition alone could be benign during normal
+      // buffering, but BOTH together for 20s smells like a codec rejection.
+      const stuck = v.readyState < 2 && v.currentTime < 0.1 && bufferedEnd < 0.5
+      clientLog('info', 'player', '20s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
+      if (stuck) {
+        if (caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv)) {
+          clientLog('warn', 'player', 'backstop firing fallback — Safari silent HEVC path likely', videoDiagnostic())
+          setTranscodeFallbackAttempted(true)
+          setForceH264(true)
+        } else {
+          clientLog('warn', 'player', 'backstop wanted to fallback but no GPU encoder available', { caps })
+        }
+      }
+    }, 20000)
+    return () => globalThis.clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps])
 }

@@ -18,10 +18,8 @@ import {
   streamHLSMasterURL,
   streamArtworkURL,
   isSafariBrowser,
-  streamProbe,
   streamSubtrackURL,
   streamTranscodeURL,
-  streamSidecars,
   streamSidecarURL,
   streamPlaylistM3UURL,
   streamPrefetch,
@@ -44,25 +42,15 @@ import {
 import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
 import { useScrollLock } from '../lib/useScrollLock'
-import { load, save } from '../lib/storage'
 import { useIncognito } from '../lib/incognito'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
-import { useKeyboardShortcuts, useMediaSession } from './player/playerHooks'
+import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 
 type PlaylistMeta = {
   readonly name: string
   readonly items: readonly { title: string }[]
   readonly currentIndex: number
-}
-
-// Per-file subtitle choice, persisted in localStorage so a video reopens with
-// the same subtitle the user picked. The three sources are mutually exclusive.
-type SubChoice = {
-  readonly external: string | null // OpenSubtitles file id
-  readonly embedded: number | null // embedded track index
-  readonly sidecar: number | null  // sidecar .srt file index
-  readonly offset: number          // sync offset in seconds
 }
 
 type PlayerModalProps = {
@@ -1975,32 +1963,11 @@ export default function PlayerModal({
   // that onError would. 20s (not 10s) because HEVC 10-bit transcode legitimately
   // takes longer to emit the first segment — a tighter window fired the
   // fallback while ffmpeg was still producing, causing a reload storm.
-  useEffect(() => {
-    if (!info?.infoHash || selectedFile < 0) return
-    const transcodingActive = transcodeAudio !== null || forceH264 || burnSubTrack !== null
-    // Audio files don't need H264 transcoding — skip backstop entirely.
-    if (audioMode || transcodingActive || transcodeFallbackAttempted || videoError) return
-    const timer = globalThis.setTimeout(() => {
-      const v = videoRef.current
-      if (!v) return
-      // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
-      // moved a frame. Either condition alone could be benign during normal
-      // buffering, but BOTH together for 20s smells like a codec rejection.
-      const stuck = v.readyState < 2 && v.currentTime < 0.1 && bufferedEnd < 0.5
-      clientLog('info', 'player', '20s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
-      if (stuck) {
-        if (caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv)) {
-          clientLog('warn', 'player', 'backstop firing fallback — Safari silent HEVC path likely', videoDiagnostic())
-          setTranscodeFallbackAttempted(true)
-          setForceH264(true)
-        } else {
-          clientLog('warn', 'player', 'backstop wanted to fallback but no GPU encoder available', { caps })
-        }
-      }
-    }, 20000)
-    return () => globalThis.clearTimeout(timer)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps])
+  useHevcBackstop({
+    videoRef, info, selectedFile, audioMode, transcodeAudio, forceH264, burnSubTrack,
+    transcodeFallbackAttempted, videoError, bufferedEnd, caps, videoDiagnostic,
+    setTranscodeFallbackAttempted, setForceH264,
+  })
 
   // Poll progress every 2s while modal is open
   useEffect(() => {
@@ -2145,49 +2112,9 @@ export default function PlayerModal({
 
   const resetSubOffset = () => setSubOffset(0)
 
-  // Apply subtitle offset whenever active sub or offset changes.
-  // Strategy: snapshot the original cue timings on first sight, then re-offset relative to that.
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v || !subActive) return
-
-    const applyOffset = () => {
-      const track = v.textTracks?.[0]
-      if (!track?.cues?.length) return
-      // Save originals once per loaded sub
-      if (origCuesRef.current.length !== track.cues.length) {
-        origCuesRef.current = Array.from(track.cues).map((c: any) => ({
-          start: c.startTime,
-          end: c.endTime,
-        }))
-      }
-      Array.from(track.cues).forEach((cue: any, i) => {
-        const orig = origCuesRef.current[i]
-        if (!orig) return
-        cue.startTime = Math.max(0, orig.start + subOffset)
-        cue.endTime = Math.max(0, orig.end + subOffset)
-      })
-      track.mode = 'showing'
-    }
-
-    // Try now, and again when the track finishes loading
-    applyOffset()
-    const tracks = v.textTracks
-    const onLoad = () => applyOffset()
-    for (const track of tracks) {
-      track.addEventListener('cuechange', onLoad)
-    }
-    return () => {
-      for (const track of tracks) {
-        track.removeEventListener('cuechange', onLoad)
-      }
-    }
-  }, [subActive, subOffset])
-
-  // Reset original cue timings when subtitle changes
-  useEffect(() => {
-    origCuesRef.current = []
-  }, [subActive])
+  // Apply subtitle offset whenever active sub or offset changes (and reset the
+  // cue snapshot when the subtitle changes). Extracted to a hook.
+  useSubtitleOffset({ videoRef, subActive, subOffset, origCuesRef })
 
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
@@ -2244,43 +2171,10 @@ export default function PlayerModal({
   // Probe container for embedded audio + subtitle tracks (uses ffprobe on first ~16MB).
   // Gated by serverReady so we don't fire while the torrent is still warming up —
   // ffprobe needs a live Reader from the streamer's active map.
-  useEffect(() => {
-    if (!info?.infoHash || selectedFile < 0 || !serverReady) return
-    // If the user previously chose a subtitle for THIS file, skip auto-load —
-    // the restore effect applies that choice and it must win over pt auto-pick.
-    // Read storage directly (not state) to avoid stale-closure races with the
-    // async probe callback.
-    const savedChoice = load<SubChoice | null>(`sub.${info.infoHash}.${selectedFile}`, null)
-    const hasSavedChoice = !!savedChoice && (savedChoice.external !== null || savedChoice.embedded !== null || savedChoice.sidecar !== null)
-
-    streamProbe(info.infoHash, selectedFile)
-      .then(p => {
-        const safe = { audio: p.audio ?? [], subtitles: p.subtitles ?? [] }
-        setProbe(safe)
-        const ptSub = safe.subtitles.find(t => !t.image && /^(pt|por)/i.test(t.language || ''))
-        if (ptSub && !hasSavedChoice && !subActive) {
-          setEmbeddedSub(ptSub.index)
-          setAutoSource('embedded')
-        }
-      })
-      .catch(err => console.warn('probe failed:', err?.response?.data?.error || err.message))
-
-    // Sidecar subtitle files (separate .srt in the torrent) — cheap, parallel with probe
-    streamSidecars(info.infoHash, selectedFile)
-      .then(list => {
-        setSidecars(list ?? [])
-        // Auto-pick pt sidecar if no embedded already chosen and no saved choice
-        if (!hasSavedChoice && !subActive && embeddedSub === null && list && list.length > 0) {
-          const pt = list.find(s => /^(pt|por)/i.test(s.language || ''))
-          if (pt) {
-            setSidecarIdx(pt.index)
-            setAutoSource('embedded')
-          }
-        }
-      })
-      .catch(() => setSidecars([]))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.infoHash, selectedFile, serverReady])
+  useTrackProbe({
+    info, selectedFile, serverReady, subActive, embeddedSub,
+    setProbe, setEmbeddedSub, setAutoSource, setSidecars, setSidecarIdx,
+  })
 
   // Resolve + persist a per-torrent thumbnail once playback is live. Gated by
   // serverReady so the torrent is active (embedded image / frame capture need a
@@ -2310,31 +2204,10 @@ export default function PlayerModal({
   // hasSavedChoice in the probe effect), so the user's pick wins. subRestored
   // gates the save effect below so the file-switch reset can't persist an empty
   // choice before this runs.
-  useEffect(() => {
-    if (!info?.infoHash || selectedFile < 0 || subRestored) return
-    const saved = load<SubChoice | null>(`sub.${info.infoHash}.${selectedFile}`, null)
-    if (saved) {
-      setSubActive(saved.external)
-      setEmbeddedSub(saved.embedded)
-      setSidecarIdx(saved.sidecar)
-      setSubOffset(saved.offset || 0)
-      if (saved.external !== null || saved.embedded !== null || saved.sidecar !== null) {
-        setAutoSource(null)
-      }
-    }
-    setSubRestored(true)
-  }, [info?.infoHash, selectedFile, subRestored])
-
-  // Persist the active subtitle choice per file so it comes back on reopen.
-  useEffect(() => {
-    if (!subRestored || !info?.infoHash || selectedFile < 0) return
-    save<SubChoice>(`sub.${info.infoHash}.${selectedFile}`, {
-      external: subActive,
-      embedded: embeddedSub,
-      sidecar: sidecarIdx,
-      offset: subOffset,
-    })
-  }, [subActive, embeddedSub, sidecarIdx, subOffset, subRestored, info?.infoHash, selectedFile])
+  useSubtitleChoicePersist({
+    info, selectedFile, subRestored, subActive, embeddedSub, sidecarIdx, subOffset,
+    setSubActive, setEmbeddedSub, setSidecarIdx, setSubOffset, setAutoSource, setSubRestored,
+  })
 
   // Track playback state + accumulate watch time for auto-favorite
   const handleTimeUpdate = () => {
@@ -2486,15 +2359,205 @@ export default function PlayerModal({
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
 
+  // Container/overlay attributes for the modal shell. Extracted to a nested
+  // helper so the minimized-vs-fullscreen ternaries live in their own scope
+  // (keeps the component body's cognitive complexity down) — behavior unchanged.
+  const shellProps = (): React.HTMLAttributes<HTMLDivElement> => {
+    if (minimized) {
+      return { className: 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]' }
+    }
+    return {
+      className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4',
+      onClick: (e) => { if (e.target === e.currentTarget) setMinimized(true) },
+      onKeyDown: (e) => { if (e.key === 'Escape') setMinimized(true) },
+      role: 'dialog',
+      'aria-modal': 'true',
+      tabIndex: -1,
+    }
+  }
+
+  // The active-stream layout (video + controls + file picker). Extracted to a
+  // nested render fn so its conditional blocks don't inflate the component's
+  // cognitive complexity. Closes over all the local state — behavior identical.
+  const renderActiveStream = () => {
+    if (!info || selectedFile < 0) return null
+    return (
+      <div className="flex flex-col lg:flex-row flex-1 min-h-0">
+        {/* Main column: video + transport + status + panels. On lg+ the
+            file picker moves to a sidebar on the right — frees this
+            column to grow without forcing the page into outer scroll. */}
+        <div className="flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
+        {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
+            status bar, file picker, and panels below all fit inside the modal's
+            90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
+            centering + `mx-auto` keeps the <video> centered with letterbox
+            bars when the source aspect doesn't match the available area. */}
+        <VideoPlayerElement
+          videoRef={videoRef}
+          streamURL={streamURL}
+          audioMode={audioMode}
+          subtitleVttURL={subtitleVttURL}
+          videoError={videoError}
+          serverReady={serverReady}
+          currentTime={currentTime}
+          bufferedEnd={bufferedEnd}
+          info={info}
+          selectedFile={selectedFile}
+          showResumePrompt={showResumePrompt}
+          resumePosition={resumePosition}
+          isTranscoded={isTranscoded}
+          transcodeFallbackAttempted={transcodeFallbackAttempted}
+          mediaToken={mediaToken}
+          renderVideoError={renderVideoError}
+          formatTime={formatTime}
+          onVideoError={handleVideoError}
+          onTimeUpdate={handleTimeUpdate}
+          onVideoEnded={handleVideoEnded}
+          onVideoCanPlay={handleVideoCanPlay}
+          videoDiagnostic={videoDiagnostic}
+          onResumeContinue={(pos) => {
+            const v = videoRef.current
+            if (v) { v.currentTime = pos; v.play().catch(() => {}) }
+            setShowResumePrompt(false)
+          }}
+          onResumeRestart={() => {
+            const v = videoRef.current
+            if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+            setShowResumePrompt(false)
+            setResumePosition(null)
+          }}
+        />
+
+        {/* Minimized audio: show a slim time readout below the cover-art box
+            so the user knows where they are in the track without expanding.
+            Native <video controls> handle play/pause/seek (visible once the
+            video element is sized — see audioMode w-full h-full above). */}
+        {minimized && audioMode && duration > 0 && (
+          <MinimizedAudioProgress currentTime={currentTime} duration={duration} formatTime={formatTime} />
+        )}
+
+        {/* Everything below the video (transport, status, subtitle panel)
+            is hidden in minimized mode — the native <video> controls cover
+            play/pause/seek in the compact card. The <video> element itself
+            stays mounted above, so all the HEVC/HLS/buffer logic is intact. */}
+        {!minimized && (
+          <PlayerControlsPanel
+            info={info}
+            currentFile={currentFile}
+            videoFileIndices={videoFileIndices}
+            videoCursor={videoCursor}
+            prevVideoIdx={prevVideoIdx}
+            nextVideoIdx={nextVideoIdx}
+            currentEp={currentEp}
+            currentTime={currentTime}
+            duration={duration}
+            bufferedEnd={bufferedEnd}
+            bufferedRanges={bufferedRanges}
+            subActive={subActive}
+            subOffset={subOffset}
+            showMobileOpts={showMobileOpts}
+            playbackSpeed={playbackSpeed}
+            probe={probe}
+            sidecars={sidecars}
+            transcodeAudio={transcodeAudio}
+            forceH264={forceH264}
+            burnSubTrack={burnSubTrack}
+            isTranscoded={isTranscoded}
+            sidecarIdx={sidecarIdx}
+            embeddedSub={embeddedSub}
+            subEnabled={subEnabled}
+            autoSource={autoSource}
+            subLoading={subLoading}
+            subtitleLabel={subtitleLabel}
+            vlcURL={vlcURL}
+            streamURL={streamURL}
+            serverDownloadLoading={serverDownloadLoading}
+            serverDownloadSuccess={serverDownloadSuccess}
+            subOpen={subOpen}
+            customSubName={customSubName}
+            subError={subError}
+            subResults={subResults}
+            formatTime={formatTime}
+            playFile={playFile}
+            adjustSubOffset={adjustSubOffset}
+            resetSubOffset={resetSubOffset}
+            setShowMobileOpts={setShowMobileOpts}
+            setPlaybackSpeed={setPlaybackSpeed}
+            clearCustomSub={clearCustomSub}
+            setTranscodeAudio={setTranscodeAudio}
+            setForceH264={setForceH264}
+            setBurnSubTrack={setBurnSubTrack}
+            setSidecarIdx={setSidecarIdx}
+            setEmbeddedSub={setEmbeddedSub}
+            setSubActive={setSubActive}
+            setAutoSource={setAutoSource}
+            openSubtitlePanel={openSubtitlePanel}
+            handleRequestFullscreen={handleRequestFullscreen}
+            handleServerDownload={handleServerDownload}
+            setSubOpen={setSubOpen}
+            handleCustomSubtitleUpload={handleCustomSubtitleUpload}
+            pickSubtitle={pickSubtitle}
+          />
+        )}
+        </div>{/* end main column */}
+
+        {!minimized && info.files.length > 1 && sidebarOpen && (
+          <FilePickerSidebar
+            info={info}
+            videoFiles={videoFiles}
+            selectedFile={selectedFile}
+            selectedFileRef={selectedFileRef}
+            fileFilter={fileFilter}
+            fileTypeFilter={fileTypeFilter}
+            fileSortBySize={fileSortBySize}
+            fileSizeDesc={fileSizeDesc}
+            hoverThumb={hoverThumb}
+            parseEpisode={parseEpisode}
+            playFile={playFile}
+            setFileFilter={setFileFilter}
+            setFileTypeFilter={setFileTypeFilter}
+            setFileSortBySize={setFileSortBySize}
+            setFileSizeDesc={setFileSizeDesc}
+            setSidebarOpen={setSidebarOpen}
+            setPreviewFileIdx={setPreviewFileIdx}
+          />
+        )}
+
+        {/* Collapsed-sidebar reopen tab — two variants:
+            • lg+: slim vertical strip on the right edge of the modal.
+            • mobile: horizontal bar below the video. Without this, iOS
+              users who tap "Esconder lista" had no way to bring it back —
+              the list literally vanished. (See issue #50.) */}
+        {info.files.length > 1 && !sidebarOpen && (
+          <>
+            {/* Mobile (and tablet up to lg): full-width bar */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              title="Mostrar lista de arquivos"
+              className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-gray-700 bg-gray-850 hover:bg-gray-700 text-gray-400 hover:text-gray-200 text-xs flex-shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4 rotate-90" />
+              Mostrar lista de arquivos ({info.files.length})
+            </button>
+            {/* lg+: vertical strip on the right edge */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              title="Mostrar lista de arquivos"
+              className="hidden lg:flex flex-col items-center justify-center w-8 border-l border-gray-700 bg-gray-850 hover:bg-gray-700 text-gray-400 hover:text-gray-200 flex-shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
+                Arquivos ({info.files.length})
+              </span>
+            </button>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div
-      className={minimized ? 'fixed bottom-3 right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]' : 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4'}
-      onClick={minimized ? undefined : (e) => e.target === e.currentTarget && setMinimized(true)}
-      onKeyDown={minimized ? undefined : (e) => e.key === 'Escape' && setMinimized(true)}
-      role={minimized ? undefined : 'dialog'}
-      aria-modal={minimized ? undefined : 'true'}
-      tabIndex={minimized ? undefined : -1}
-    >
+    <div {...shellProps()}>
       {/* Responsive width: phones/tablets keep ~896px (max-w-4xl) for a tight focused
           modal. Laptops bump to ~1280px so the file list + side panels stop fighting
           for vertical space. Ultra-wide desktops (≥1536px) use 90vw — fills usable
@@ -2549,179 +2612,7 @@ export default function PlayerModal({
           )}
 
           {/* Active stream */}
-          {info && selectedFile >= 0 && (
-            <div className="flex flex-col lg:flex-row flex-1 min-h-0">
-              {/* Main column: video + transport + status + panels. On lg+ the
-                  file picker moves to a sidebar on the right — frees this
-                  column to grow without forcing the page into outer scroll. */}
-              <div className="flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
-              {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
-                  status bar, file picker, and panels below all fit inside the modal's
-                  90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
-                  centering + `mx-auto` keeps the <video> centered with letterbox
-                  bars when the source aspect doesn't match the available area. */}
-              <VideoPlayerElement
-                videoRef={videoRef}
-                streamURL={streamURL}
-                audioMode={audioMode}
-                subtitleVttURL={subtitleVttURL}
-                videoError={videoError}
-                serverReady={serverReady}
-                currentTime={currentTime}
-                bufferedEnd={bufferedEnd}
-                info={info}
-                selectedFile={selectedFile}
-                showResumePrompt={showResumePrompt}
-                resumePosition={resumePosition}
-                isTranscoded={isTranscoded}
-                transcodeFallbackAttempted={transcodeFallbackAttempted}
-                mediaToken={mediaToken}
-                renderVideoError={renderVideoError}
-                formatTime={formatTime}
-                onVideoError={handleVideoError}
-                onTimeUpdate={handleTimeUpdate}
-                onVideoEnded={handleVideoEnded}
-                onVideoCanPlay={handleVideoCanPlay}
-                videoDiagnostic={videoDiagnostic}
-                onResumeContinue={(pos) => {
-                  const v = videoRef.current
-                  if (v) { v.currentTime = pos; v.play().catch(() => {}) }
-                  setShowResumePrompt(false)
-                }}
-                onResumeRestart={() => {
-                  const v = videoRef.current
-                  if (v) { v.currentTime = 0; v.play().catch(() => {}) }
-                  setShowResumePrompt(false)
-                  setResumePosition(null)
-                }}
-              />
-
-              {/* Minimized audio: show a slim time readout below the cover-art box
-                  so the user knows where they are in the track without expanding.
-                  Native <video controls> handle play/pause/seek (visible once the
-                  video element is sized — see audioMode w-full h-full above). */}
-              {minimized && audioMode && duration > 0 && (
-                <MinimizedAudioProgress currentTime={currentTime} duration={duration} formatTime={formatTime} />
-              )}
-
-              {/* Everything below the video (transport, status, subtitle panel)
-                  is hidden in minimized mode — the native <video> controls cover
-                  play/pause/seek in the compact card. The <video> element itself
-                  stays mounted above, so all the HEVC/HLS/buffer logic is intact. */}
-              {!minimized && (
-                <PlayerControlsPanel
-                  info={info}
-                  currentFile={currentFile}
-                  videoFileIndices={videoFileIndices}
-                  videoCursor={videoCursor}
-                  prevVideoIdx={prevVideoIdx}
-                  nextVideoIdx={nextVideoIdx}
-                  currentEp={currentEp}
-                  currentTime={currentTime}
-                  duration={duration}
-                  bufferedEnd={bufferedEnd}
-                  bufferedRanges={bufferedRanges}
-                  subActive={subActive}
-                  subOffset={subOffset}
-                  showMobileOpts={showMobileOpts}
-                  playbackSpeed={playbackSpeed}
-                  probe={probe}
-                  sidecars={sidecars}
-                  transcodeAudio={transcodeAudio}
-                  forceH264={forceH264}
-                  burnSubTrack={burnSubTrack}
-                  isTranscoded={isTranscoded}
-                  sidecarIdx={sidecarIdx}
-                  embeddedSub={embeddedSub}
-                  subEnabled={subEnabled}
-                  autoSource={autoSource}
-                  subLoading={subLoading}
-                  subtitleLabel={subtitleLabel}
-                  vlcURL={vlcURL}
-                  streamURL={streamURL}
-                  serverDownloadLoading={serverDownloadLoading}
-                  serverDownloadSuccess={serverDownloadSuccess}
-                  subOpen={subOpen}
-                  customSubName={customSubName}
-                  subError={subError}
-                  subResults={subResults}
-                  formatTime={formatTime}
-                  playFile={playFile}
-                  adjustSubOffset={adjustSubOffset}
-                  resetSubOffset={resetSubOffset}
-                  setShowMobileOpts={setShowMobileOpts}
-                  setPlaybackSpeed={setPlaybackSpeed}
-                  clearCustomSub={clearCustomSub}
-                  setTranscodeAudio={setTranscodeAudio}
-                  setForceH264={setForceH264}
-                  setBurnSubTrack={setBurnSubTrack}
-                  setSidecarIdx={setSidecarIdx}
-                  setEmbeddedSub={setEmbeddedSub}
-                  setSubActive={setSubActive}
-                  setAutoSource={setAutoSource}
-                  openSubtitlePanel={openSubtitlePanel}
-                  handleRequestFullscreen={handleRequestFullscreen}
-                  handleServerDownload={handleServerDownload}
-                  setSubOpen={setSubOpen}
-                  handleCustomSubtitleUpload={handleCustomSubtitleUpload}
-                  pickSubtitle={pickSubtitle}
-                />
-              )}
-              </div>{/* end main column */}
-
-              {!minimized && info.files.length > 1 && sidebarOpen && (
-                <FilePickerSidebar
-                  info={info}
-                  videoFiles={videoFiles}
-                  selectedFile={selectedFile}
-                  selectedFileRef={selectedFileRef}
-                  fileFilter={fileFilter}
-                  fileTypeFilter={fileTypeFilter}
-                  fileSortBySize={fileSortBySize}
-                  fileSizeDesc={fileSizeDesc}
-                  hoverThumb={hoverThumb}
-                  parseEpisode={parseEpisode}
-                  playFile={playFile}
-                  setFileFilter={setFileFilter}
-                  setFileTypeFilter={setFileTypeFilter}
-                  setFileSortBySize={setFileSortBySize}
-                  setFileSizeDesc={setFileSizeDesc}
-                  setSidebarOpen={setSidebarOpen}
-                  setPreviewFileIdx={setPreviewFileIdx}
-                />
-              )}
-
-              {/* Collapsed-sidebar reopen tab — two variants:
-                  • lg+: slim vertical strip on the right edge of the modal.
-                  • mobile: horizontal bar below the video. Without this, iOS
-                    users who tap "Esconder lista" had no way to bring it back —
-                    the list literally vanished. (See issue #50.) */}
-              {info.files.length > 1 && !sidebarOpen && (
-                <>
-                  {/* Mobile (and tablet up to lg): full-width bar */}
-                  <button
-                    onClick={() => setSidebarOpen(true)}
-                    title="Mostrar lista de arquivos"
-                    className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-gray-700 bg-gray-850 hover:bg-gray-700 text-gray-400 hover:text-gray-200 text-xs flex-shrink-0"
-                  >
-                    <ChevronLeft className="w-4 h-4 rotate-90" />
-                    Mostrar lista de arquivos ({info.files.length})
-                  </button>
-                  {/* lg+: vertical strip on the right edge */}
-                  <button
-                    onClick={() => setSidebarOpen(true)}
-                    title="Mostrar lista de arquivos"
-                    className="hidden lg:flex flex-col items-center justify-center w-8 border-l border-gray-700 bg-gray-850 hover:bg-gray-700 text-gray-400 hover:text-gray-200 flex-shrink-0"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
-                      Arquivos ({info.files.length})
-                    </span>
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+          {renderActiveStream()}
 
           {/* No video files in torrent */}
           {info && videoFiles.length === 0 && (
