@@ -18,7 +18,7 @@ func TestStreamDrop_BadHash(t *testing.T) {
 	s := streamer.NewForTesting()
 
 	router := gin.New()
-	router.DELETE("/api/stream/:hash", StreamDrop(s))
+	router.DELETE("/api/stream/:hash", StreamDrop(s, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/stream/nothex", nil)
 	w := httptest.NewRecorder()
@@ -34,7 +34,7 @@ func TestStreamDrop_Valid(t *testing.T) {
 	s := streamer.NewForTesting()
 
 	router := gin.New()
-	router.DELETE("/api/stream/:hash", StreamDrop(s))
+	router.DELETE("/api/stream/:hash", StreamDrop(s, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/stream/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil)
 	w := httptest.NewRecorder()
