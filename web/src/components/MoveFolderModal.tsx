@@ -160,7 +160,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
                     <button onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d.name}` : d.name)}
                       className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors">
                       <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                      <span className="truncate text-left flex-1">{d.name}</span>
+                      <span className="truncate text-left flex-1 min-w-0">{d.name}</span>
                       <ChevronRight className="w-4 h-4 text-gray-600" />
                     </button>
                   </li>

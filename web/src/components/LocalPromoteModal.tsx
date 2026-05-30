@@ -174,7 +174,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
                 <button onClick={() => setPath(path ? `${path}/${d}` : d)}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors">
                   <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                  <span className="truncate text-left flex-1">{d}</span>
+                  <span className="truncate text-left flex-1 min-w-0">{d}</span>
                   <ChevronRight className="w-4 h-4 text-gray-600" />
                 </button>
               </li>

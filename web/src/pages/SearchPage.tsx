@@ -15,6 +15,8 @@ import { SearchResult, Indexer, getIndexers, favoritesList, withToken } from '..
 import { load, save } from '../lib/storage'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { isIncognito } from '../lib/incognito'
+import { useSwipe } from '../lib/useSwipe'
+import { uid } from '../lib/uid'
 
 const TABS_KEY = 'searchTabs'
 const ACTIVE_KEY = 'activeTabId'
@@ -22,7 +24,7 @@ const ACTIVE_KEY = 'activeTabId'
 // like "min 10 seeders" sticks instead of resetting to 0 on each fresh search.
 const FILTER_DEFAULTS_KEY = 'searchFilterDefaults'
 // One-shot flag: corrige filtros antigos persistidos no browser que escondiam
-// resultados — `onlyPlayable` ligado matava qualquer torrent sem magnet (trackers
+// resultados — `onlyPlayable` ligado matava todo torrent sem magnet (trackers
 // privados como o amigos-share só expõem o .torrent), e `minSeeders=0` deixava
 // passar torrents mortos. Migra uma vez para os novos defaults.
 const FILTER_MIGRATION_KEY = 'searchFiltersMigratedV1'
@@ -480,6 +482,25 @@ export default function SearchPage() {
   const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0]
   const isSearching = activeTab.phase === 'cache' || activeTab.phase === 'live'
 
+  // Mobile gesture: horizontal swipe over the content switches search tabs
+  // (left = next, right = previous). Edge band is reserved (ignoreEdgePx) so a
+  // right-swipe from the screen edge still opens the nav drawer instead.
+  const mainRef = useRef<HTMLElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
+  const activeTabRef = useRef<HTMLButtonElement>(null)
+  const switchTab = useCallback((delta: number) => {
+    const idx = tabs.findIndex(t => t.id === activeId)
+    const next = idx + delta
+    if (next >= 0 && next < tabs.length) setActiveId(tabs[next].id)
+  }, [tabs, activeId])
+  useSwipe(mainRef, { onLeft: () => switchTab(1), onRight: () => switchTab(-1) },
+    { enabled: tabs.length > 1, ignoreEdgePx: 28, threshold: 70 })
+  // Keep the selected tab visible in the horizontal strip when it changes
+  // (e.g. via swipe) — otherwise it can sit off-screen on a narrow phone.
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }, [activeId])
+
   // All trackers seen in current tab results
   const trackers = useMemo(() => {
     const set = new Set(activeTab.results.map(r => r.tracker).filter(Boolean))
@@ -511,19 +532,20 @@ export default function SearchPage() {
 
       {/* Tab strip */}
       <div className="bg-gray-800/60 border-b border-gray-700 px-4">
-        <div className="max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-end gap-0.5 overflow-x-auto">
+        <div ref={stripRef} className="max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-end gap-0.5 overflow-x-auto scroll-smooth snap-x safe-left">
           {tabs.map(tab => (
             <button
               key={tab.id}
+              ref={tab.id === activeId ? activeTabRef : undefined}
               onClick={() => setActiveId(tab.id)}
-              className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 ${
+              className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 snap-start ${
                 tab.id === activeId
                   ? 'bg-gray-900 border-gray-700 text-gray-100'
                   : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-gray-800'
               }`}
             >
               <PhaseIndicator phase={tab.phase} />
-              <span className="truncate flex-1 text-left">
+              <span className="truncate flex-1 min-w-0 text-left">
                 {tab.query.trim() || 'Nova busca'}
               </span>
               {tabs.length > 1 && (
@@ -548,7 +570,7 @@ export default function SearchPage() {
         </div>
       </div>
 
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         {/* Search bar */}
         <SearchBar
           ref={searchInputRef}
@@ -749,7 +771,7 @@ export default function SearchPage() {
         {/* Loading skeletons */}
         {isSearching && !hasResults && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 9 }, () => crypto.randomUUID()).map(key => <SkeletonCard key={key} />)}
+            {Array.from({ length: 9 }, () => uid()).map(key => <SkeletonCard key={key} />)}
           </div>
         )}
 

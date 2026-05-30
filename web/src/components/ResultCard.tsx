@@ -102,7 +102,10 @@ function renderCardTitle(
       </h3>
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
         <div className="flex items-center gap-1.5">
-          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-300' : 'text-gray-600 hover:text-pink-400'}`}>
+          {/* p-2/-m-2 widens the touch target (~30px) for the finger without
+              shifting the compact header layout — the negative margin cancels
+              the padding so neighbours stay put. */}
+          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-2 -m-2 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-300' : 'text-gray-600 hover:text-pink-400'}`}>
             <Heart className={`w-3.5 h-3.5 ${isFavorited ? 'fill-current' : ''}`} />
           </button>
           <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">{result.tracker}</span>

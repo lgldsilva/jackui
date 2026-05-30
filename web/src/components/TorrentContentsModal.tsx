@@ -149,14 +149,16 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   // component's cognitive complexity low.
   const { typeCounts, sortedFiles } = computeFileView(info?.files ?? [], filter, typeFilter, sortBySize, sizeDesc)
 
+  // Plain <div>, not native <dialog>: a <dialog> carries a UA `width: fit-content`
+  // that fights `inset-0`, so on mobile the modal sized to its content (up to
+  // max-w-2xl = 672px) and overflowed a ~390px viewport — pushing the Play button
+  // off-screen. A div with fixed inset-0 fills the viewport like every other modal.
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
-      open
+      role="dialog" aria-modal="true" tabIndex={-1}
     >
       <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
@@ -341,7 +343,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                     return (
                       <div
                         key={f.index}
-                        onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
+                        onMouseEnter={e => hoverThumb.show(thumbUrl, e, f.path)}
                         onMouseMove={hoverThumb.move}
                         onMouseLeave={hoverThumb.hide}
                         className={`flex flex-col px-3 py-2 rounded-lg group transition-colors ${
@@ -355,7 +357,11 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                               {ep}
                             </span>
                           )}
-                          <span className="text-sm text-gray-200 truncate flex-1" title={f.path}>
+                          {/* min-w-0 is REQUIRED for truncate to work inside a flex
+                              row: without it a flex-1 child keeps its content width
+                              and pushes the size + Play button off-screen to the
+                              right (unreachable in a fixed modal on mobile). */}
+                          <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={f.path}>
                             {f.path}
                           </span>
                           <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatSize(f.size)}</span>
@@ -407,6 +413,6 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
         </div>
       </div>
       {hoverThumb.popover}
-    </dialog>
+    </div>
   )
 }

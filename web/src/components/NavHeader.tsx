@@ -8,6 +8,7 @@ import {
 import UserBadge from './UserBadge'
 import RateWidget from './RateWidget'
 import { useIncognito } from '../lib/incognito'
+import { useSwipe } from '../lib/useSwipe'
 
 type Props = {
   readonly rightExtra?: React.ReactNode
@@ -75,6 +76,11 @@ export default function NavHeader({ rightExtra }: Props) {
   useEffect(() => {
     setDrawerOpen(false)
   }, [location.pathname])
+
+  // Edge-swipe from the left opens the mobile drawer (iOS/Android idiom). No-op
+  // on desktop where the rail is always visible; disabled while already open so
+  // it doesn't fight the backdrop tap-to-close.
+  useSwipe('document', { onRight: () => setDrawerOpen(true) }, { edge: 'left', enabled: !drawerOpen })
 
   const isActive = (to: string) =>
     to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
