@@ -79,6 +79,36 @@ export default function WatchlistPage() {
     link: '', infoHash: h.infoHash, publishDate: '',
   })
   const playHit = (h: WatchlistHit) => playSingle(hitToResult(h))
+  const openContents = (h: WatchlistHit) => setContentsTarget(hitToResult(h))
+  const copyMagnet = (magnet: string) => { navigator.clipboard?.writeText(magnet) }
+  const renderHitItem = (h: WatchlistHit) => (
+    <div key={h.infoHash} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-900/50 rounded">
+      <button onClick={() => playHit(h)} className="text-green-400 hover:text-green-300 px-1" title="Reproduzir">
+        ▶
+      </button>
+      <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
+      <div className="flex-1 min-w-0">
+        <button
+          onClick={() => openContents(h)}
+          className="text-gray-200 truncate block w-full text-left hover:text-green-400 transition-colors"
+          title="Ver conteúdo e detalhes"
+        >
+          {h.title}
+        </button>
+        <p className="text-gray-500 flex items-center gap-2 flex-wrap">
+          <SeedBadge infoHash={h.infoHash} magnet={h.magnet} />
+          <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
+        </p>
+      </div>
+      <button
+        onClick={() => copyMagnet(h.magnet)}
+        className="text-gray-500 hover:text-gray-200 p-1"
+        title="Copiar magnet"
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -173,35 +203,7 @@ export default function WatchlistPage() {
                       <div className="border-t border-gray-700 pt-2 flex flex-col gap-1 max-h-80 overflow-y-auto">
                         {hits.length === 0 ? (
                           <p className="text-xs text-gray-500 text-center py-3">Nenhuma detecção ainda. O worker passa a cada 15 min.</p>
-                        ) : hits.map(h => (
-                          <div key={h.infoHash} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-900/50 rounded">
-                            <button onClick={() => playHit(h)} className="text-green-400 hover:text-green-300 px-1" title="Reproduzir">
-                              ▶
-                            </button>
-                            {/* Lazy poster — shared session cache prevents N hits triggering N requests. */}
-                            <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
-                            <div className="flex-1 min-w-0">
-                              <button
-                                onClick={() => setContentsTarget(hitToResult(h))}
-                                className="text-gray-200 truncate block w-full text-left hover:text-green-400 transition-colors"
-                                title="Ver conteúdo e detalhes"
-                              >
-                                {h.title}
-                              </button>
-                              <p className="text-gray-500 flex items-center gap-2 flex-wrap">
-                                <SeedBadge infoHash={h.infoHash} magnet={h.magnet} />
-                                <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => { navigator.clipboard?.writeText(h.magnet) }}
-                              className="text-gray-500 hover:text-gray-200 p-1"
-                              title="Copiar magnet"
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                        ) : hits.map(h => renderHitItem(h))}
                       </div>
                     )}
                   </>

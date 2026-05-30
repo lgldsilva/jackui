@@ -29,7 +29,6 @@ export type UseFilteredResultsOpts = ResultFilters & {
 
 // Aplica groupByInfoHash + filtros + sort. Retorna também groupedCount pra
 // distinguir "reduzido por filtro" de "reduzido por dedup".
-// TODO(onda 6): quando o backend agrupar no SSE, remover o groupByInfoHash daqui.
 export function useFilteredResults<T extends SearchResult>(
   input: T[],
   opts: UseFilteredResultsOpts,

@@ -306,12 +306,12 @@ export default function LocalPage() {
             Mounts
           </h2>
           {mounts.length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <><p className="text-sm text-gray-500">
               Nenhum mount configurado. Adicione em <code>config.yaml</code>:
-              <code className="block mt-2 p-2 bg-gray-800 rounded text-xs">
-                external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
-              </code>
             </p>
+            <code className="block mt-2 p-2 bg-gray-800 rounded text-xs">
+                external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
+              </code></>
           ) : (
             <ul className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-visible md:space-y-1 -mx-1 px-1 md:mx-0 md:px-0">
               {mounts.map((m) => {

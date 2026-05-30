@@ -133,20 +133,7 @@ func TestWorkerNewSkipsFailedAndCompleted(t *testing.T) {
 
 func TestMoveFile_SameFS(t *testing.T) {
 	dir := t.TempDir()
-	src := filepath.Join(dir, "src.txt")
-	dst := filepath.Join(dir, "dst.txt")
-	os.WriteFile(src, []byte("hello"), 0644)
-
-	if err := moveFile(src, dst); err != nil {
-		t.Fatalf("moveFile: %v", err)
-	}
-	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("source should be gone after move")
-	}
-	data, _ := os.ReadFile(dst)
-	if string(data) != "hello" {
-		t.Errorf("content: want 'hello', got %q", string(data))
-	}
+	testMoveFile(t, filepath.Join(dir, "src.txt"), filepath.Join(dir, "dst.txt"), "hello")
 }
 
 func TestMoveFile_SourceNotFound(t *testing.T) {
@@ -685,12 +672,8 @@ func TestWorkerTick_CleansUpRemovedDownloads(t *testing.T) {
 	}
 }
 
-func TestWorkerMoveFile_SameFS(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.txt")
-	dst := filepath.Join(dir, "dst.txt")
-	os.WriteFile(src, []byte("hello"), 0644)
-
+func testMoveFile(t *testing.T, src, dst, content string) {
+	os.WriteFile(src, []byte(content), 0644)
 	if err := moveFile(src, dst); err != nil {
 		t.Fatalf("moveFile: %v", err)
 	}
@@ -698,7 +681,12 @@ func TestWorkerMoveFile_SameFS(t *testing.T) {
 		t.Error("source should be gone after move")
 	}
 	data, _ := os.ReadFile(dst)
-	if string(data) != "hello" {
-		t.Errorf("content: want 'hello', got %q", string(data))
+	if string(data) != content {
+		t.Errorf("content: want %q, got %q", content, string(data))
 	}
+}
+
+func TestWorkerMoveFile_SameFS(t *testing.T) {
+	dir := t.TempDir()
+	testMoveFile(t, filepath.Join(dir, "src.txt"), filepath.Join(dir, "dst.txt"), "hello")
 }

@@ -127,6 +127,14 @@ function persistTabs(tabs: TabState[], activeId: string) {
   save(ACTIVE_KEY, activeId)
 }
 
+function appendResult(prev: TabState[], tabId: string, result: SearchResult): TabState[] {
+  return prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t)
+}
+
+function setErrorMsg(prev: TabState[], tabId: string, message: string): TabState[] {
+  return prev.map(t => t.id === tabId ? { ...t, error: message } : t)
+}
+
 function SkeletonCard() {
   return (
     <div className="card animate-pulse flex flex-col gap-3">
@@ -271,6 +279,18 @@ export default function SearchPage() {
     return () => obs.disconnect()
   }, [activeId, tabs])
 
+  const closeActiveTab = useCallback(() => {
+    setTabs(prev => {
+      if (prev.length === 1) return prev
+      const es = esMap.current.get(activeId)
+      if (es) { es.close(); esMap.current.delete(activeId) }
+      const next = prev.filter(t => t.id !== activeId)
+      const idx = prev.findIndex(t => t.id === activeId)
+      setActiveId(next[Math.max(0, idx - 1)].id)
+      return next
+    })
+  }, [activeId])
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -287,15 +307,7 @@ export default function SearchPage() {
       // Cmd+W → close active tab
       if (cmd && e.key === 'w') {
         e.preventDefault()
-        setTabs(prev => {
-          if (prev.length === 1) return prev
-          const es = esMap.current.get(activeId)
-          if (es) { es.close(); esMap.current.delete(activeId) }
-          const idx = prev.findIndex(t => t.id === activeId)
-          const next = prev.filter(t => t.id !== activeId)
-          setActiveId(next[Math.max(0, idx - 1)].id)
-          return next
-        })
+        closeActiveTab()
         return
       }
       // Cmd+1..9 → switch tab by index
@@ -312,7 +324,6 @@ export default function SearchPage() {
         e.preventDefault()
         searchInputRef.current?.focus()
         searchInputRef.current?.select()
-        return
       }
     }
     globalThis.addEventListener('keydown', onKey)
@@ -360,7 +371,7 @@ export default function SearchPage() {
     es.addEventListener('result', (e) => {
       const result = parseSSE(e.data) as SearchResult | null
       if (!result) return
-      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t))
+      setTabs(prev => appendResult(prev, tabId, result))
     })
 
     es.addEventListener('progress', (e) => {
@@ -378,7 +389,7 @@ export default function SearchPage() {
     es.addEventListener('error', (e) => {
       const data = parseSSE((e as MessageEvent).data)
       if (data) {
-        setTabs(prev => prev.map(t => t.id === tabId ? { ...t, error: data.message || 'Erro na busca' } : t))
+        setTabs(prev => setErrorMsg(prev, tabId, data.message || 'Erro na busca'))
       }
     })
 
@@ -485,14 +496,14 @@ export default function SearchPage() {
                 {tab.query.trim() || 'Nova busca'}
               </span>
               {tabs.length > 1 && (
-                <span
+                <button
+                  type="button"
                   onClick={e => closeTab(tab.id, e)}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeTab(tab.id) } }}
-                  role="button" tabIndex={0}
                   className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0 cursor-pointer p-0.5"
                 >
                   <X className="w-3.5 h-3.5" />
-                </span>
+                </button>
               )}
             </button>
           ))}
@@ -707,7 +718,7 @@ export default function SearchPage() {
         {/* Loading skeletons */}
         {isSearching && !hasResults && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 9 }).map((_, i) => <SkeletonCard key={`skeleton-${i}`} />)}
+            {Array.from({ length: 9 }, () => crypto.randomUUID()).map(key => <SkeletonCard key={key} />)}
           </div>
         )}
 
