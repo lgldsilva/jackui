@@ -264,35 +264,6 @@ func appendContainerArgs(args []string, container string) []string {
 	return append(args, "-f", container)
 }
 
-// shouldUseHWDecode returns true only when GPU decode is safe + compatible with chosen encoder.
-// For most cases (already-H.264 source going through h264_nvenc), CPU decode is safer.
-func shouldUseHWDecode(sourceCodec, encoder string) bool {
-	// We only set up CUDA decode when source is clearly HEVC and encoder is NVENC.
-	// For H.264 sources, software decode pipes into NVENC just fine.
-	if !strings.HasSuffix(encoder, "_nvenc") {
-		return false
-	}
-	switch strings.ToLower(sourceCodec) {
-	case "hevc", "h265", "vp9", "av1":
-		return true
-	}
-	return false
-}
-
-func hwaccelDecodeArgs(encoder string) []string {
-	switch {
-	case strings.HasSuffix(encoder, "_nvenc"):
-		return []string{ffHWAccel, "cuda", ffHWAccelOutFormat, "cuda"}
-	case strings.HasSuffix(encoder, "_vaapi"):
-		return []string{ffHWAccel, "vaapi", "-hwaccel_device", "/dev/dri/renderD128", ffHWAccelOutFormat, "vaapi"}
-	case strings.HasSuffix(encoder, "_qsv"):
-		return []string{ffHWAccel, "qsv", ffHWAccelOutFormat, "qsv"}
-	case strings.HasSuffix(encoder, "_videotoolbox"):
-		return []string{ffHWAccel, "videotoolbox"}
-	}
-	return nil
-}
-
 func encoderPresetArgs(encoder string) []string {
 	switch {
 	case strings.HasSuffix(encoder, "_nvenc"):

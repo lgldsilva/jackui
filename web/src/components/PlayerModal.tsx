@@ -5,7 +5,6 @@ import {
   TorrentInfo,
   Subtitle,
   StreamProbe,
-  TranscodeOpts,
   TranscodeCapabilities,
   MediaTrack,
   SidecarSubtitle,
@@ -158,15 +157,6 @@ function computeMediaUrls(input: MediaUrlInput) {
     /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
   const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
 
-  const transcodeOpts: TranscodeOpts = {}
-  if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
-  if (forceH264) transcodeOpts.video = 'h264'
-  if (burnSubTrack !== null) {
-    transcodeOpts.burn = burnSubTrack
-    transcodeOpts.video = 'h264'
-  }
-  if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
-
   const streamURL = (() => {
     if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
     if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
@@ -174,7 +164,8 @@ function computeMediaUrls(input: MediaUrlInput) {
     // seekável). Safari/iOS tocam nativo; os demais anexam via hls.js (ver o
     // efeito em VideoPlayerElement). HLS substitui o antigo MP4 progressive, que
     // não tinha seek e tinha o ffmpeg morto a cada byte-range (Chrome E iOS Edge).
-    void transcodeOpts
+    // (HLS usa a faixa de áudio default → AAC; seleção de faixa não-default e
+    // burn de legenda image-based não passam por aqui — tradeoff do HLS-everywhere.)
     return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
   })()
 

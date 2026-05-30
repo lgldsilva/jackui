@@ -1,4 +1,4 @@
-import { RefObject, useEffect } from 'react'
+import { RefObject, useEffect, useRef } from 'react'
 
 export type SwipeHandlers = {
   readonly onLeft?: () => void
@@ -42,7 +42,11 @@ export function useSwipe(
   opts: SwipeOptions = {},
 ): void {
   const { threshold = 60, restraint = 80, edge, edgeSize = 28, ignoreEdgePx = 0, enabled = true } = opts
-  const { onLeft, onRight, onUp, onDown } = handlers
+  // Handlers num ref (atualizado a cada render) pra o efeito NÃO re-anexar os
+  // listeners quando os callbacks são arrow inline (nova referência todo render).
+  // Também evita abortar um gesto em curso quando o handler muda (ex: troca de aba).
+  const handlersRef = useRef(handlers)
+  handlersRef.current = handlers
 
   useEffect(() => {
     if (!enabled) return
@@ -83,14 +87,15 @@ export function useSwipe(
       const dy = t.clientY - startY
       const absX = Math.abs(dx)
       const absY = Math.abs(dy)
+      const h = handlersRef.current
       if (absX >= absY) {
         if (absX < threshold || absY > restraint) return
-        if (dx < 0) onLeft?.()
-        else onRight?.()
+        if (dx < 0) h.onLeft?.()
+        else h.onRight?.()
       } else {
         if (absY < threshold || absX > restraint) return
-        if (dy < 0) onUp?.()
-        else onDown?.()
+        if (dy < 0) h.onUp?.()
+        else h.onDown?.()
       }
     }
 
@@ -102,5 +107,5 @@ export function useSwipe(
       node.removeEventListener('touchmove', onMove as EventListener)
       node.removeEventListener('touchend', onEnd as EventListener)
     }
-  }, [target, enabled, threshold, restraint, edge, edgeSize, ignoreEdgePx, onLeft, onRight, onUp, onDown])
+  }, [target, enabled, threshold, restraint, edge, edgeSize, ignoreEdgePx])
 }
