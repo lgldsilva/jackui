@@ -19,7 +19,7 @@ pipeline {
   options {
     timestamps()
     disableConcurrentBuilds()
-    timeout(time: 40, unit: 'MINUTES')
+    timeout(time: 120, unit: 'MINUTES')  // build amd64 emulado (qemu) é lento
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
@@ -106,40 +106,45 @@ pipeline {
       }
     }
 
-    stage('Build imagem') {
-      steps {
-        sh 'docker build --build-arg BUILD_TIMESTAMP=$(date +%s) -f $DOCKERFILE -t $IMAGE:$TAG -t $IMAGE:nvidia .'
-      }
-    }
-
-    // Reporta HIGH+CRITICAL (visível, não bloqueia — HIGH de base-image é
-    // aceitável/documentado), e QUEBRA o build só se houver CVE CRITICAL.
-    stage('Trivy') {
-      steps {
-        sh '''
-          TRIVY="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --scanners vuln --no-progress --ignore-unfixed"
-          echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
-          $TRIVY --severity HIGH,CRITICAL $IMAGE:$TAG || true
-          echo "=== Trivy: gate (falha em CRITICAL) ==="
-          $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:$TAG
-        '''
-      }
-    }
-
-    // Só publica na main. O push dispara o Watchtower no raspberrypi-srv.
-    // Sem when { branch 'main' }: este job só faz checkout da main (BRANCH_NAME
-    // não é setado em pipeline-from-SCM, então o when pulava o push). O job só
-    // builda main, então publicar sempre é correto.
-    stage('Push (Gitea registry)') {
+    // Build MULTI-ARCH (amd64 + arm64) via buildx e push do manifesto pro
+    // registry. O deploy-target (raspberrypi-srv) é amd64; o Jenkins host é
+    // arm64 → o amd64 sai EMULADO (qemu/binfmt), por isso é lento. O manifesto
+    // serve a arch certa pra cada host no pull. Builder docker-container com
+    // config de registry HTTP inseguro (10.228.143.12:3000).
+    stage('Build & Push (multi-arch)') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')]) {
           sh '''
             echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
-            docker push $IMAGE:$TAG
-            docker push $IMAGE:nvidia
+            cat > buildkitd-jackui.toml <<EOF
+[registry."10.228.143.12:3000"]
+  http = true
+  insecure = true
+EOF
+            docker buildx inspect jackui-multi >/dev/null 2>&1 || \
+              docker buildx create --name jackui-multi --driver docker-container \
+                --driver-opt network=host --buildkitd-config buildkitd-jackui.toml --bootstrap
+            docker buildx build --builder jackui-multi \
+              --platform linux/amd64,linux/arm64 \
+              --build-arg BUILD_TIMESTAMP=$(date +%s) -f $DOCKERFILE \
+              -t $IMAGE:$TAG -t $IMAGE:nvidia --push .
             docker logout $REGISTRY
           '''
         }
+      }
+    }
+
+    // Escaneia a variante amd64 (a que roda no deploy-target) direto do registry
+    // (TRIVY_INSECURE=true p/ HTTP). Reporta HIGH+CRITICAL; QUEBRA só em CRITICAL.
+    stage('Trivy') {
+      steps {
+        sh '''
+          TRIVY="docker run --rm -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
+          echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
+          $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
+          echo "=== Trivy: gate (falha em CRITICAL) ==="
+          $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:nvidia
+        '''
       }
     }
 
