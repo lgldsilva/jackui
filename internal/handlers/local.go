@@ -375,25 +375,34 @@ func LocalDelete(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) g
 func purgeLinkedTorrents(dls *downloads.Store, s *streamer.Streamer, linked []downloads.Download) int {
 	removed := 0
 	for _, d := range linked {
-		if s != nil {
-			if d.InfoHash != "" {
-				var h metainfo.Hash
-				if err := h.FromHexString(d.InfoHash); err == nil {
-					s.Drop(h)
-				}
-			}
-			if d.Name != "" {
-				_ = s.ClearEntry(d.Name) // wipe pieces from the cache (DataDir/<name>)
-			}
-			if favs := s.Favorites(); favs != nil && d.Name != "" {
-				_ = favs.Remove(d.Name, d.UserID, true)
-			}
-		}
+		dropTorrentFromStreamer(s, d)
 		if err := dls.Delete(d.UserID, d.ID); err == nil {
 			removed++
 		}
 	}
 	return removed
+}
+
+// dropTorrentFromStreamer tears down a single torrent's streamer-side state:
+// drops the active torrent, wipes its piece cache, and clears the favorite.
+// Best-effort — each step is independent.
+func dropTorrentFromStreamer(s *streamer.Streamer, d downloads.Download) {
+	if s == nil {
+		return
+	}
+	if d.InfoHash != "" {
+		var h metainfo.Hash
+		if err := h.FromHexString(d.InfoHash); err == nil {
+			s.Drop(h)
+		}
+	}
+	if d.Name == "" {
+		return
+	}
+	_ = s.ClearEntry(d.Name) // wipe pieces from the cache (DataDir/<name>)
+	if favs := s.Favorites(); favs != nil {
+		_ = favs.Remove(d.Name, d.UserID, true)
+	}
 }
 
 func canModifyMount(c *gin.Context, mount string) bool {
