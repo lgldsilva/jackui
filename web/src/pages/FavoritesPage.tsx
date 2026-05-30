@@ -316,7 +316,8 @@ export default function FavoritesPage() {
     setImportMsg(null)
     const { ok, fails } = await importTorrentB64(torrents, viewMode, ALL_VIEW)
     setImporting(false)
-    const suffix = skipped > 0 ? ` (${skipped} ignorado${skipped === 1 ? '' : 's'} — não .torrent)` : ''
+    const pluralSuffix = skipped === 1 ? '' : 's'
+    const suffix = skipped > 0 ? ` (${skipped} ignorado${pluralSuffix} — não .torrent)` : ''
     setImportMsg(buildImportMsg(ok, fails.length, fails[0], suffix))
     await load()
   }
@@ -532,6 +533,9 @@ export default function FavoritesPage() {
                   key={fav.name}
                   draggable
                   onDragStart={e => handleFavDragStart(e, fav.name)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContents(fav) } }}
                   className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}

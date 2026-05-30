@@ -109,20 +109,84 @@ function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | nu
   }
 }
 
-function renderPlayerHeader(
-  minimized: boolean,
-  info: TorrentInfo | null,
-  result: SearchResult,
-  isTranscoded: boolean,
-  caps: TranscodeCapabilities | null,
-  encoderLabel: string,
-  isFavorite: boolean,
-  toggleFavorite: () => void,
-  incognito: boolean,
-  setIncognito: (v: boolean) => void,
-  setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void,
-  onClose: () => void,
-) {
+type MediaUrlInput = {
+  info: TorrentInfo | null
+  selectedFile: number
+  serverReady: boolean
+  mediaToken: string
+  transcodeAudio: number | null
+  forceH264: boolean
+  burnSubTrack: number | null
+  subActive: string | null
+  sidecarIdx: number | null
+  embeddedSub: number | null
+  caps: TranscodeCapabilities | null
+}
+
+function computeMediaUrls(input: MediaUrlInput) {
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps } = input
+  const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
+  const safariNeedsTranscode = isSafariBrowser() &&
+    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
+  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
+
+  const transcodeOpts: TranscodeOpts = {}
+  if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
+  if (forceH264) transcodeOpts.video = 'h264'
+  if (burnSubTrack !== null) {
+    transcodeOpts.burn = burnSubTrack
+    transcodeOpts.video = 'h264'
+  }
+  if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
+
+  const streamURL = (() => {
+    if (!info || selectedFile < 0 || !serverReady || !mediaToken) return ''
+    if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
+    if (isSafariBrowser()) return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
+    return streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken)
+  })()
+
+  const subtitleVttURL = (() => {
+    if (!mediaToken) return ''
+    if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
+    if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
+    if (subActive) return subtitleDownloadURL(subActive, mediaToken)
+    return ''
+  })()
+
+  let vlcURL = ''
+  if (info && selectedFile >= 0) {
+    const transcodeParam = forceH264 ? 'h264' : undefined
+    vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
+  }
+
+  let encoderLabel = 'CPU'
+  if (caps?.hasNvidia) {
+    encoderLabel = 'NVENC'
+  } else if (caps?.hasVaapi) {
+    encoderLabel = 'VAAPI'
+  } else if (caps?.hasQsv) {
+    encoderLabel = 'QSV'
+  }
+
+  return { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded }
+}
+
+function renderPlayerHeader(props: {
+  minimized: boolean
+  info: TorrentInfo | null
+  result: SearchResult
+  isTranscoded: boolean
+  caps: TranscodeCapabilities | null
+  encoderLabel: string
+  isFavorite: boolean
+  toggleFavorite: () => void
+  incognito: boolean
+  setIncognito: (v: boolean) => void
+  setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void
+  onClose: () => void
+}) {
+  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose } = props
   if (minimized) return null
   return (
     <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
@@ -171,17 +235,18 @@ function renderPlaylistBar(
   )
 }
 
-function tryPrefetchNext(
-  v: HTMLVideoElement,
-  now: number,
-  nextVideoIdx: number,
-  info: TorrentInfo | null,
-  prefetchedNextEpRef: { current: boolean },
-  onPrefetchNextPlaylist: (() => void) | undefined,
-  prefetchedPlaylistN1Ref: { current: boolean },
-  onPrefetchNextNextPlaylist: (() => void) | undefined,
-  prefetchedPlaylistN2Ref: { current: boolean },
-) {
+function tryPrefetchNext(props: {
+  v: HTMLVideoElement
+  now: number
+  nextVideoIdx: number
+  info: TorrentInfo | null
+  prefetchedNextEpRef: { current: boolean }
+  onPrefetchNextPlaylist: (() => void) | undefined
+  prefetchedPlaylistN1Ref: { current: boolean }
+  onPrefetchNextNextPlaylist: (() => void) | undefined
+  prefetchedPlaylistN2Ref: { current: boolean }
+}) {
+  const { v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref } = props
   if (!v.duration || v.duration <= 0) return
   const ratio = now / v.duration
   if (ratio > 0.5) {
@@ -1074,7 +1139,7 @@ export default function PlayerModal({
     tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
     trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
     trySyncUrlPlayhead(now, lastUrlSyncRef)
-    tryPrefetchNext(v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref)
+    tryPrefetchNext({ v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref })
   }
 
   // Apply playback speed + pitch preservation whenever the user changes it or
@@ -1199,16 +1264,12 @@ export default function PlayerModal({
   // attempt fail, the auto-fallback overlay flash, then a retry loop ("tente
   // novamente até funcionar"). Detection by filename is best-effort; if it
   // misses, the auto-fallback flow on onError still rescues it like before.
-  const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
   // Route to HLS up-front on Safari for anything it likely can't direct-play:
   //   - HEVC/x265/AV1 by name (codec markers)
   //   - 2160p/4K/UHD: even "MP4" containers at 4K are usually HEVC or H264 at
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const safariNeedsTranscode = isSafariBrowser() &&
-    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
-  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
   const audioTrackTitle = (a: MediaTrack) => {
     let t = a.title || a.codec
     if (a.channels) t += ` (${a.channels}ch)`
@@ -1237,62 +1298,9 @@ export default function PlayerModal({
     if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
     return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
   }
-  const transcodeOpts: TranscodeOpts = {}
-  if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
-  if (forceH264) transcodeOpts.video = 'h264'
-  if (burnSubTrack !== null) {
-    transcodeOpts.burn = burnSubTrack
-    transcodeOpts.video = 'h264' // burn-in requires video re-encode
-  }
-  // When changing audio track, also re-encode audio to AAC for browser compatibility
-  if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
 
-  // Only emit a real <video src> after the streamer has the torrent active.
-  // Premature srcs (during the metadata-cache hit phase) would 404 and cause
-  // the browser to surface "format not supported" prematurely.
-  //
-  // Route selection in transcoded mode:
-  //   - Safari/iOS → /api/stream/hls/.../index.m3u8 (HLS, natively supported)
-  //   - Other browsers → /api/stream/transcode/.../?video=h264 (progressive MP4)
-  //
-  // Why: Safari's MSE pipeline rejects progressive fragmented MP4 over
-  // chunked transfer with MediaError.SRC_NOT_SUPPORTED regardless of encoder
-  // tuning. Apple's documented streaming format is HLS — `<video src=*.m3u8>`
-  // is the only thing Safari treats as a first-class video source.
-  // Chromium/Edge don't have native HLS support so we keep progressive MP4
-  // for them (works fine with our current ffmpeg config).
-  const streamURL = (() => {
-    if (!info || selectedFile < 0 || !serverReady || !mediaToken) return ''
-    if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
-    if (isSafariBrowser()) return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
-    return streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken)
-  })()
-  const subtitleVttURL = (() => {
-    if (!mediaToken) return ''
-    if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
-    if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
-    if (subActive) return subtitleDownloadURL(subActive, mediaToken)
-    return ''
-  })()
-
-  // "Open in VLC" link — universal M3U download.
-  // The browser downloads /api/stream/playlist/HASH/IDX.m3u with the right content-type,
-  // and the OS opens it in the registered M3U handler (VLC on every platform).
-  // The previous vlc:// scheme broke on desktop VLC and iOS Safari produced "invalid address".
-  let vlcURL = ''
-  if (info && selectedFile >= 0) {
-    const transcodeParam = forceH264 ? 'h264' : undefined
-  vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
-  }
-
-  let encoderLabel = 'CPU'
-  if (caps?.hasNvidia) {
-    encoderLabel = 'NVENC'
-  } else if (caps?.hasVaapi) {
-    encoderLabel = 'VAAPI'
-  } else if (caps?.hasQsv) {
-    encoderLabel = 'QSV'
-  }
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps })
+  const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
   let subtitleLabel: string
   if (embeddedSub !== null) {
@@ -1325,7 +1333,7 @@ export default function PlayerModal({
       <div className={minimized
         ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
         : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
-        {renderPlayerHeader(minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose)}
+        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose })}
         {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
@@ -1525,6 +1533,7 @@ export default function PlayerModal({
                       label={subtitleVttURL ? 'Português (BR)' : ''}
                       default
                     />
+                    <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
                   </video>
                 )}
                 {/* Native HTML5 controls render the play/pause button + the

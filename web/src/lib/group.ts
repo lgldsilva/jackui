@@ -56,6 +56,39 @@ function mergeTrackersIntoMagnet(magnet: string, extraTrackers: string[]): strin
  * would visibly favorite the other (favorites cache keys on title). Bucketing
  * by `name|size` collapses those into one card with `alsoIn` filled in.
  */
+function mergeIntoBucket<T extends SearchResult>(
+  arr: T[],
+  extractTrackers: (magnet: string | undefined) => string[],
+  mergeTrackersIntoMagnet: (magnet: string, extraTrackers: string[]) => string,
+): T {
+  arr.sort((a, b) => {
+    const am = a.magnetUri ? 1 : 0
+    const bm = b.magnetUri ? 1 : 0
+    if (am !== bm) return bm - am
+    return b.seeders - a.seeders
+  })
+  const primary = arr[0]
+  const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
+  const extraTrackers: string[] = []
+  let bestSeeders = primary.seeders
+  let bestLeechers = primary.leechers
+  for (const r of arr.slice(1)) {
+    if (r.tracker) { mergedAlsoIn.add(r.tracker) }
+    (r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
+    for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
+    if (r.seeders > bestSeeders) bestSeeders = r.seeders
+    if (r.leechers > bestLeechers) bestLeechers = r.leechers
+  }
+  if (primary.tracker) mergedAlsoIn.delete(primary.tracker)
+  return {
+    ...primary,
+    magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
+    seeders: bestSeeders,
+    leechers: bestLeechers,
+    alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
+  }
+}
+
 function dedupNameSizeBuckets<T extends SearchResult>(
   hashOut: T[], noHash: T[],
   extractTrackers: (magnet: string | undefined) => string[],
@@ -79,32 +112,7 @@ function dedupNameSizeBuckets<T extends SearchResult>(
   const out: T[] = []
   for (const [, arr] of finalBuckets) {
     if (arr.length === 1) { out.push(arr[0]); continue }
-    arr.sort((a, b) => {
-      const am = a.magnetUri ? 1 : 0
-      const bm = b.magnetUri ? 1 : 0
-      if (am !== bm) return bm - am
-      return b.seeders - a.seeders
-    })
-    const primary = arr[0]
-    const mergedAlsoIn = new Set<string>(primary.alsoIn || [])
-    const extraTrackers: string[] = []
-    let bestSeeders = primary.seeders
-    let bestLeechers = primary.leechers
-    for (const r of arr.slice(1)) {
-      if (r.tracker) { mergedAlsoIn.add(r.tracker) }
-      (r.alsoIn || []).forEach(t => mergedAlsoIn.add(t))
-      for (const t of extractTrackers(r.magnetUri)) extraTrackers.push(t)
-      if (r.seeders > bestSeeders) bestSeeders = r.seeders
-      if (r.leechers > bestLeechers) bestLeechers = r.leechers
-    }
-    if (primary.tracker) mergedAlsoIn.delete(primary.tracker)
-    out.push({
-      ...primary,
-      magnetUri: mergeTrackersIntoMagnet(primary.magnetUri, extraTrackers),
-      seeders: bestSeeders,
-      leechers: bestLeechers,
-      alsoIn: mergedAlsoIn.size > 0 ? Array.from(mergedAlsoIn) : undefined,
-    })
+    out.push(mergeIntoBucket(arr, extractTrackers, mergeTrackersIntoMagnet))
   }
   return out
 }
