@@ -65,8 +65,8 @@ export default function DownloadsPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterTracker, setFilterTracker] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
-  const [sortCol, _setSortCol] = useState('created_at')
-  const [sortDir, _setSortDir] = useState('desc')
+  const [sortCol] = useState('created_at')
+  const [sortDir] = useState('desc')
   const [availableTrackers, setAvailableTrackers] = useState<string[]>([])
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
@@ -458,9 +458,6 @@ export default function DownloadsPage() {
     completed:   items.filter(d => d.status === 'completed'),
     failed:      items.filter(d => d.status === 'failed'),
   }
-  // activeDownloads kept for backward compat with ActiveTab internal usage
-  const _activeDownloads = [...downloadsByStatus.downloading, ...downloadsByStatus.paused, ...downloadsByStatus.failed]
-  void _activeDownloads
   const completedDownloads = downloadsByStatus.completed
 
   // Stalled: downloading but no progress (downRate === 0 or null)
@@ -768,14 +765,7 @@ export default function DownloadsPage() {
                 {tab.icon}
                 {tab.label}
                 {tabCounts[tab.key] > 0 && (
-                  <span className={`
-                    text-[10px] px-1.5 py-0.5 rounded-full font-semibold min-w-[18px] text-center
-                    ${activeTab === tab.key
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : tab.key === 'failed'
-                        ? 'bg-red-500/20 text-red-400'
-                        : 'bg-gray-700 text-gray-400'}
-                  `}>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold min-w-[18px] text-center ${tabBadgeClass(activeTab, tab.key)}`}>
                     {tabCounts[tab.key]}
                   </span>
                 )}
@@ -1016,10 +1006,8 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
   onPause, onResume, onDelete, onPlay, onInspect,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   bulkBusy: _bulkBusy, onPauseAll: _onPauseAll, onResumeAll: _onResumeAll,
-  hasTorrents: _hasTorrents, onDownloadPauseAll: _dl1, onDownloadResumeAll: _dl2,
-  downloadBulkBusy: _dl3,
+  hasTorrents: _hasTorrents,
 }: {
   torrents: TorrentInfo[]
   downloads: DownloadEntry[]
@@ -1040,9 +1028,6 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   hasTorrents: boolean
   onPlay: (d: DownloadEntry) => void
   onInspect: (d: DownloadEntry) => void
-  onDownloadPauseAll?: () => void
-  onDownloadResumeAll?: () => void
-  downloadBulkBusy?: boolean
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && torrentsLoaded && !loading
   const isLoading = (!torrentsLoaded || (loading && downloads.length === 0)) && torrents.length === 0 && downloads.length === 0
@@ -1163,8 +1148,8 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
           busy={busyID === d.id}
           selected={selected.has(d.id)}
           onToggleSelected={() => onToggleSelected(d.id)}
-          onPause={() => onPause ? onPause(d.id) : {}}
-          onResume={() => onResume ? onResume(d.id) : {}}
+          onPause={() => onPause?.(d.id)}
+          onResume={() => onResume?.(d.id)}
           onDelete={() => onDelete(d.id)}
           onPromote={() => onPromote(d)}
           onStopSeed={() => onStopSeed(d.id, d.name || d.filePath)}
@@ -1730,6 +1715,16 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '' 
       {icon} {label}
     </button>
   )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Shared helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function tabBadgeClass(activeTab: Tab, tabKey: string): string {
+  if (activeTab === tabKey) return 'bg-emerald-500/20 text-emerald-300'
+  if (tabKey === 'failed') return 'bg-red-500/20 text-red-400'
+  return 'bg-gray-700 text-gray-400'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

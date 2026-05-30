@@ -16,6 +16,14 @@ type Props = {
   readonly onDone: () => void
 }
 
+function fileCountLabel(entry: LocalEntry | null, files: LocalEntry[]): React.ReactNode {
+  if (entry?.isDir) {
+    const s = files.length !== 1 ? 's' : ''
+    return <><span className="text-white font-semibold">{files.length}</span> arquivo{s} de mídia encontrado{s}</>
+  }
+  return <><span className="text-white font-semibold">1</span> arquivo selecionado</>
+}
+
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
 
 type DoneResult = {
@@ -47,7 +55,8 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
   const finalTarget = (() => {
     const trimmed = newFolder.trim()
     if (!trimmed) return browsePath
-    return browsePath ? `${browsePath}/${trimmed}` : trimmed
+    if (browsePath) return `${browsePath}/${trimmed}`
+    return trimmed
   })()
 
   // Reset on open
@@ -157,7 +166,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
 
   if (!entry) return null
 
-  const currentDest = dests.find(d => d.path === selectedBase) || dests[0]
+  const currentDest = dests.find(d => d.path === selectedBase) ?? dests[0]
   const destLabel = currentDest?.name || 'Biblioteca'
   const breadcrumb = browsePath.split('/').filter(Boolean)
 
@@ -200,12 +209,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
           <>
             {/* File count + destination selector */}
             <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3 text-sm flex-wrap">
-              <span className="text-gray-400">
-                {entry?.isDir
-                  ? <><span className="text-white font-semibold">{files.length}</span> arquivo{files.length !== 1 ? 's' : ''} de mídia encontrado{files.length !== 1 ? 's' : ''}</>
-                  : <><span className="text-white font-semibold">1</span> arquivo selecionado</>
-                }
-              </span>
+              <span className="text-gray-400">{fileCountLabel(entry, files)}</span>
             </div>
 
             {/* Destination chips */}
@@ -217,7 +221,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                     key={d.path}
                     onClick={() => { setSelectedBase(d.path); setBrowsePath('') }}
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                      selectedBase === d.path || (!selectedBase && d === dests[0])
+                      selectedBase === d.path || (!selectedBase && d.path === dests[0]?.path)
                         ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                         : 'bg-gray-700 text-gray-400 border border-gray-600 hover:bg-gray-600'
                     }`}

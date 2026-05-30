@@ -87,6 +87,26 @@ function formatSize(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
+function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
+  if (peers === 0) {
+    return {
+      title: 'Sem seeds disponíveis',
+      detail: 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.',
+    }
+  }
+  if (starving) {
+    const suffix = peers !== 1 ? 's' : ''
+    return {
+      title: 'Download muito lento para streaming',
+      detail: `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${suffix} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`,
+    }
+  }
+  return {
+    title: 'Formato não suportado pelo browser',
+    detail: 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.',
+  }
+}
+
 export default function PlayerModal({
   result,
   onClose,
@@ -469,27 +489,13 @@ export default function PlayerModal({
     const peers = info?.peers ?? 0
     const fileDownloaded = cf?.downloaded ?? 0
     const starving = fileDownloaded < 30 * 1024 * 1024
-    let title: string
-    let detail: string
-    let kind: 'swarm' | 'codec'
-    if (peers === 0) {
-      kind = 'swarm'
-      title = 'Sem seeds disponíveis'
-      detail = 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.'
-    } else if (starving) {
-      kind = 'swarm'
-      title = 'Download muito lento para streaming'
-      detail = `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${peers !== 1 ? 's' : ''} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`
-    } else {
-      kind = 'codec'
-      title = 'Formato não suportado pelo browser'
-      detail = 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.'
-    }
+    const kind: 'swarm' | 'codec' = (peers === 0 || starving) ? 'swarm' : 'codec'
+    const errorData = buildErrorInfo(peers, starving, info)
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
         <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
-        <p className="font-medium">{title}</p>
-        <p className="text-sm text-gray-500 mt-2 max-w-md">{detail}</p>
+        <p className="font-medium">{errorData.title}</p>
+        <p className="text-sm text-gray-500 mt-2 max-w-md">{errorData.detail}</p>
         {renderDiagnosticChip()}
         <button
           onClick={() => setVideoError(false)}
@@ -575,7 +581,7 @@ export default function PlayerModal({
   // re-ran the cleanup the moment the library entry loaded mid-playback,
   // calling streamDrop() and KILLING the torrent we were actively streaming
   // (ffmpeg then died with "torrent closed" → "Sem seeds").
-  const cleanupRef = useRef<{ infoHash: string; libraryEntryID: number | null; fileIndex: number; incognito: boolean }>({ infoHash: '', libraryEntryID: null, fileIndex: -1, incognito: false })
+  const cleanupRef = useRef<{ readonly infoHash: string; readonly libraryEntryID: number | null; readonly fileIndex: number; readonly incognito: boolean }>({ infoHash: '', libraryEntryID: null, fileIndex: -1, incognito: false })
   useEffect(() => {
     cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID, fileIndex: selectedFile, incognito }
   })
@@ -1174,16 +1180,10 @@ export default function PlayerModal({
     encoderLabel = 'QSV'
   }
 
-  let subtitleLabel: string
-  if (embeddedSub !== null) {
-    subtitleLabel = 'Legenda embutida'
-  } else if (subActive) {
-    subtitleLabel = autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
-  } else if (subLoading) {
-    subtitleLabel = 'Buscando...'
-  } else {
-    subtitleLabel = 'Legendas'
-  }
+  const subtitleLabel = embeddedSub !== null ? 'Legenda embutida'
+    : subActive ? (autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa')
+    : subLoading ? 'Buscando...'
+    : 'Legendas'
 
   return (
     <div
@@ -2031,14 +2031,14 @@ export default function PlayerModal({
                   bonus, behind-the-scenes) sort to the bottom with an EXTRA badge. */}
               {!minimized && info.files.length > 1 && sidebarOpen && (() => {
                 const filterLower = fileFilter.trim().toLowerCase()
-                const matches = (path: string, ep: string | null) =>
+                const matchesFile = (path: string, ep: string | null) =>
                   !filterLower ||
                   path.toLowerCase().includes(filterLower) ||
                   (ep || '').toLowerCase().includes(filterLower)
                 const extraRe = /\b(featurettes?|extras?|bonus|behind[\s\-]?the[\s\-]?scenes|deleted[\s\-]?scenes|making[\s\-]?of|samples?|trailers?|interviews?|gag[\s\-]?reel|outtakes?)\b/i
                 const isExtra = (path: string) => extraRe.test(path)
                 const filteredFiles = info.files
-                  .filter(f => matches(f.path, parseEpisode(f.path)))
+                  .filter(f => matchesFile(f.path, parseEpisode(f.path)))
                   .slice()
                   .sort((a, b) => {
                     const ax = isExtra(a.path), bx = isExtra(b.path)
@@ -2049,6 +2049,15 @@ export default function PlayerModal({
                     if (be) return 1
                     return a.index - b.index
                   })
+                const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
+                  if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  if (isPlayable) {
+                    if (ext) return 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
+                    return 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
+                  }
+                  if (canPreview) return 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
+                  return 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
+                }
                 return (
                   <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
                     <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0">
@@ -2105,17 +2114,7 @@ export default function PlayerModal({
                               // else: dead row, click does nothing (download via long-press / context menu still available)
                             }}
                             title={f.path}
-                            className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${
-                              selectedFile === f.index
-                                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                                : isPlayable
-                                  ? extra
-                                    ? 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
-                                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
-                                  : canPreview
-                                    ? 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
-                                    : 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
-                            }`}
+                            className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${fileBtnClass(f.index, isPlayable, canPreview, extra)}`}
                           >
                             <span className="flex items-center gap-1.5 min-w-0">
                               {ep && (
