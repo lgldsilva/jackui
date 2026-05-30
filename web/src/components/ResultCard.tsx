@@ -70,6 +70,13 @@ function renderMagnetIcon(copied: boolean, resolvingMagnet: boolean): JSX.Elemen
   return <Clipboard className="w-3.5 h-3.5" />
 }
 
+function renderArtSection(tmdb: TmdbMatch | null): React.ReactNode {
+  if (!tmdb?.posterUrl) return null
+  return (
+    <img src={tmdb.posterUrl} alt={tmdb.title} loading="lazy" className="w-12 h-[72px] sm:w-14 sm:h-[84px] rounded object-cover flex-shrink-0 border border-gray-700 bg-gray-900" />
+  )
+}
+
 function renderCardTitle(
   tmdb: TmdbMatch | null,
   result: SearchResult,
@@ -80,9 +87,7 @@ function renderCardTitle(
 ): React.ReactNode {
   return (
     <div className="flex items-start justify-between gap-2">
-      {tmdb?.posterUrl && (
-        <img src={tmdb.posterUrl} alt={tmdb.title} loading="lazy" className="w-12 h-[72px] sm:w-14 sm:h-[84px] rounded object-cover flex-shrink-0 border border-gray-700 bg-gray-900" />
-      )}
+      {renderArtSection(tmdb)}
       <h3 className={`text-sm font-medium text-gray-100 line-clamp-2 flex-1 ${cardClickable ? 'hover:text-green-400' : ''}`} title={titleAttr}>
         {result.title}
         {tmdb && (

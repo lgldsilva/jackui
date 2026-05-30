@@ -322,6 +322,177 @@ function trySyncUrlPlayhead(
   }
 }
 
+function getSubtitleLabel(embeddedSub: number | null, subActive: string | null, autoSource: string | null, subLoading: boolean): string {
+  if (embeddedSub !== null) return 'Legenda embutida'
+  if (subActive) return autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
+  if (subLoading) return 'Buscando...'
+  return 'Legendas'
+}
+
+type VideoPlayerElementProps = {
+  readonly videoRef: React.RefObject<HTMLVideoElement | null>
+  readonly streamURL: string
+  readonly audioMode: boolean
+  readonly subtitleVttURL: string
+  readonly videoError: boolean
+  readonly serverReady: boolean
+  readonly currentTime: number
+  readonly bufferedEnd: number
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly showResumePrompt: boolean
+  readonly resumePosition: number | null
+  readonly isTranscoded: boolean
+  readonly transcodeFallbackAttempted: boolean
+  readonly mediaToken: string
+  readonly renderVideoError: () => React.ReactNode
+  readonly formatTime: (s: number) => string
+  readonly onVideoError: () => void
+  readonly onTimeUpdate: () => void
+  readonly onVideoEnded: () => void
+  readonly onVideoCanPlay: () => void
+  readonly videoDiagnostic: () => Record<string, unknown>
+  readonly onResumeContinue: (pos: number) => void
+  readonly onResumeRestart: () => void
+}
+
+function VideoPlayerElement({
+  videoRef,
+  streamURL,
+  audioMode,
+  subtitleVttURL,
+  videoError,
+  serverReady,
+  currentTime,
+  bufferedEnd,
+  info,
+  selectedFile,
+  showResumePrompt,
+  resumePosition,
+  isTranscoded,
+  transcodeFallbackAttempted,
+  mediaToken,
+  renderVideoError,
+  formatTime,
+  onVideoError,
+  onTimeUpdate,
+  onVideoEnded,
+  onVideoCanPlay,
+  videoDiagnostic,
+  onResumeContinue,
+  onResumeRestart,
+}: VideoPlayerElementProps) {
+  return (
+    <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
+      {audioMode && info && (
+        <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+          <Volume2 className="absolute w-12 h-12 text-gray-600" />
+          <img
+            src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
+            alt=""
+            className="relative max-h-full max-w-full object-contain"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          />
+        </div>
+      )}
+      {showResumePrompt && resumePosition !== null && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
+            <p className="text-gray-300 text-sm text-center">Você parou em</p>
+            <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
+            <button
+              onClick={() => onResumeContinue(resumePosition)}
+              className="btn-primary w-full justify-center"
+            >
+              Continuar
+            </button>
+            <button
+              onClick={onResumeRestart}
+              className="btn-secondary w-full justify-center"
+            >
+              Começar do início
+            </button>
+          </div>
+        </div>
+      )}
+      {!videoError && currentTime === 0 && bufferedEnd === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
+          <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
+          <p className="text-gray-200 font-medium">
+            {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
+          </p>
+          {resumePosition !== null && (
+            <p className="text-xs text-blue-300 mt-2">
+              Continuando de {formatTime(resumePosition)}
+            </p>
+          )}
+          <p className="text-xs text-gray-400 mt-1">
+            {info && info.peers > 0
+              ? `${info.seeders} seeders / ${info.peers} peers conectados`
+              : 'Aguardando peers...'}
+          </p>
+          {info && info.downRate > 0 && (
+            <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
+              <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
+              {info.files?.[selectedFile] && (
+                <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
+              )}
+            </p>
+          )}
+          {isTranscoded && (
+            <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
+              <Cpu className="w-3 h-3" />
+              {transcodeFallbackAttempted
+                ? 'Convertendo via GPU — codec original incompatível (HEVC/AV1)'
+                : 'Transcoding ativo — primeiros frames demoram mais'}
+            </p>
+          )}
+        </div>
+      )}
+      {transcodeFallbackAttempted && !videoError && (
+        <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
+          <Cpu className="w-3 h-3" />
+          Convertendo via GPU
+        </div>
+      )}
+      {videoError ? null : (
+        <video
+          ref={videoRef}
+          src={streamURL || undefined}
+          controls
+          autoPlay
+          playsInline
+          {...{ 'webkit-playsinline': 'true' } as any}
+          className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
+          onError={onVideoError}
+          onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
+          onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
+          onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
+          onTimeUpdate={onTimeUpdate}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget
+            clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
+            onTimeUpdate()
+          }}
+          onProgress={onTimeUpdate}
+          onEnded={onVideoEnded}
+          onCanPlay={onVideoCanPlay}
+        >
+          <track
+            kind={subtitleVttURL ? 'subtitles' : 'metadata'}
+            src={subtitleVttURL || ''}
+            srcLang={subtitleVttURL ? 'pt' : ''}
+            label={subtitleVttURL ? 'Português (BR)' : ''}
+            default
+          />
+          <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
+        </video>
+      )}
+      {videoError && renderVideoError()}
+    </div>
+  )
+}
+
 export default function PlayerModal({
   result,
   onClose,
@@ -1302,16 +1473,7 @@ export default function PlayerModal({
   const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps })
   const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
-  let subtitleLabel: string
-  if (embeddedSub !== null) {
-    subtitleLabel = 'Legenda embutida'
-  } else if (subActive) {
-    subtitleLabel = autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
-  } else if (subLoading) {
-    subtitleLabel = 'Buscando...'
-  } else {
-    subtitleLabel = 'Legendas'
-  }
+  const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
 
   return (
     <div
@@ -1387,160 +1549,41 @@ export default function PlayerModal({
                   90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
                   centering + `mx-auto` keeps the <video> centered with letterbox
                   bars when the source aspect doesn't match the available area. */}
-              <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
-                {/* Audio cover art — the <video> element below plays the audio
-                    but shows a black frame, so for audio content we overlay the
-                    embedded cover (or a music glyph fallback). Pointer-events
-                    off so the native video controls underneath stay clickable. */}
-                {audioMode && info && (
-                  <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
-                    {/* Glyph sits behind; the cover <img> covers it when it loads,
-                        and is hidden on error so the glyph shows through. */}
-                    <Volume2 className="absolute w-12 h-12 text-gray-600" />
-                    <img
-                      src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
-                      alt=""
-                      className="relative max-h-full max-w-full object-contain"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-                    />
-                  </div>
-                )}
-                {/* Resume prompt — when a saved position exists, ask whether to
-                    continue or restart instead of auto-seeking. Replaces both the
-                    silent auto-resume and the permanent "back to start" button. */}
-                {showResumePrompt && resumePosition !== null && (
-                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
-                      <p className="text-gray-300 text-sm text-center">Você parou em</p>
-                      <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
-                      <button
-                        onClick={() => {
-                          const v = videoRef.current
-                          if (v) { v.currentTime = resumePosition; v.play().catch(() => {}) }
-                          setShowResumePrompt(false)
-                        }}
-                        className="btn-primary w-full justify-center"
-                      >
-                        Continuar
-                      </button>
-                      <button
-                        onClick={() => {
-                          const v = videoRef.current
-                          if (v) { v.currentTime = 0; v.play().catch(() => {}) }
-                          setShowResumePrompt(false)
-                          setResumePosition(null)
-                        }}
-                        className="btn-secondary w-full justify-center"
-                      >
-                        Começar do início
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {/* Buffering overlay — visible while either (a) the streamer
-                    hasn't activated the torrent yet (serverReady=false) or
-                    (b) pieces haven't reached the playhead yet. */}
-                {!videoError && currentTime === 0 && bufferedEnd === 0 && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
-                    <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
-                    <p className="text-gray-200 font-medium">
-                      {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
-                    </p>
-                    {resumePosition !== null && (
-                      <p className="text-xs text-blue-300 mt-2">
-                        Continuando de {formatTime(resumePosition)}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400 mt-1">
-                      {info.peers > 0
-                        ? `${info.seeders} seeders / ${info.peers} peers conectados`
-                        : 'Aguardando peers...'}
-                    </p>
-                    {/* Honest progress: show download rate + bytes buffered so a
-                        slow swarm reads as "still working" instead of "frozen".
-                        ~30 MB is roughly the buffer the transcoder needs before
-                        the first segment lands for 4K. */}
-                    {info.downRate > 0 && (
-                      <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
-                        <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
-                        {info.files?.[selectedFile] && (
-                          <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
-                        )}
-                      </p>
-                    )}
-                    {isTranscoded && (
-                      <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
-                        <Cpu className="w-3 h-3" />
-                        {transcodeFallbackAttempted
-                          ? 'Convertendo via GPU — codec original incompatível (HEVC/AV1)'
-                          : 'Transcoding ativo — primeiros frames demoram mais'}
-                      </p>
-                    )}
-                  </div>
-                )}
-                {/* Persistent corner badge while auto-fallback is active (after buffering) */}
-                {transcodeFallbackAttempted && !videoError && (
-                  <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
-                    <Cpu className="w-3 h-3" />
-                    Convertendo via GPU
-                  </div>
-                )}
-                {videoError ? null : (
-                  <video
-                    ref={videoRef}
-                    /* `|| undefined` so an unresolved streamURL never becomes
-                       src="" — an empty src makes the browser fire onError
-                       (networkState=NO_SOURCE), flashing the error UI on every
-                       open and after refresh before the real URL is ready. */
-                    src={streamURL || undefined}
-                    /* Native HTML5 controls. Custom overlays (central play
-                       button, hover-fullscreen corner, tap-to-toggle on the
-                       video area) conflicted with iOS Safari's touch gestures
-                       and the custom fullscreen affordance was invisible on
-                       touch (relied on :hover). Native controls give us
-                       touch-correct behaviour, AirPlay, PiP, and the iOS lock
-                       screen integration for free — at the cost of the
-                       hover-thumbnail preview (desktop-only feature, useless
-                       on touch anyway). */
-                    controls
-                    autoPlay
-                    playsInline
-                    /* iOS-legacy attribute for inline playback before fullscreen */
-                    {...{ 'webkit-playsinline': 'true' } as any}
-                    /* Audio-only streams have 0 intrinsic video dimensions — Chrome
-                       collapses the element to 0×0 and the native controls vanish.
-                       w-full h-full forces the element to fill the 16:9 container so
-                       controls appear in the bottom 48px left by the audio overlay. */
-                    className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
-                    onError={handleVideoError}
-                    onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
-                    onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
-                    onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
-                    onTimeUpdate={handleTimeUpdate}
-                    onLoadedMetadata={(e) => {
-                      const v = e.currentTarget
-                      clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
-                      handleTimeUpdate()
-                    }}
-                    onProgress={handleTimeUpdate}
-                    onEnded={handleVideoEnded}
-                    onCanPlay={handleVideoCanPlay}
-                  >
-                    <track
-                      kind={subtitleVttURL ? 'subtitles' : 'metadata'}
-                      src={subtitleVttURL || ''}
-                      srcLang={subtitleVttURL ? 'pt' : ''}
-                      label={subtitleVttURL ? 'Português (BR)' : ''}
-                      default
-                    />
-                    <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
-                  </video>
-                )}
-                {/* Native HTML5 controls render the play/pause button + the
-                    fullscreen affordance inside the video element. No custom
-                    overlays needed. */}
-                {videoError && renderVideoError()}
-              </div>
+              <VideoPlayerElement
+                videoRef={videoRef}
+                streamURL={streamURL}
+                audioMode={audioMode}
+                subtitleVttURL={subtitleVttURL}
+                videoError={videoError}
+                serverReady={serverReady}
+                currentTime={currentTime}
+                bufferedEnd={bufferedEnd}
+                info={info}
+                selectedFile={selectedFile}
+                showResumePrompt={showResumePrompt}
+                resumePosition={resumePosition}
+                isTranscoded={isTranscoded}
+                transcodeFallbackAttempted={transcodeFallbackAttempted}
+                mediaToken={mediaToken}
+                renderVideoError={renderVideoError}
+                formatTime={formatTime}
+                onVideoError={handleVideoError}
+                onTimeUpdate={handleTimeUpdate}
+                onVideoEnded={handleVideoEnded}
+                onVideoCanPlay={handleVideoCanPlay}
+                videoDiagnostic={videoDiagnostic}
+                onResumeContinue={(pos) => {
+                  const v = videoRef.current
+                  if (v) { v.currentTime = pos; v.play().catch(() => {}) }
+                  setShowResumePrompt(false)
+                }}
+                onResumeRestart={() => {
+                  const v = videoRef.current
+                  if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+                  setShowResumePrompt(false)
+                  setResumePosition(null)
+                }}
+              />
 
               {/* Minimized audio: show a slim time readout below the cover-art box
                   so the user knows where they are in the track without expanding.
