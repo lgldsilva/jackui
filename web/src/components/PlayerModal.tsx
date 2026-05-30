@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -134,11 +134,12 @@ type MediaUrlInput = {
   subActive: string | null
   sidecarIdx: number | null
   embeddedSub: number | null
+  customSubURL: string | null
   caps: TranscodeCapabilities | null
 }
 
 function computeMediaUrls(input: MediaUrlInput) {
-  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps } = input
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps } = input
   const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
   const safariNeedsTranscode = isSafariBrowser() &&
     /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
@@ -161,6 +162,7 @@ function computeMediaUrls(input: MediaUrlInput) {
   })()
 
   const subtitleVttURL = (() => {
+    if (customSubURL) return customSubURL
     if (!mediaToken) return ''
     if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
     if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
@@ -562,6 +564,55 @@ export default function PlayerModal({
   // Embedded tracks discovered via ffprobe
   const [probe, setProbe] = useState<StreamProbe | null>(null)
   const [embeddedSub, setEmbeddedSub] = useState<number | null>(null) // selected embedded sub track index
+  const [customSubURL, setCustomSubURL] = useState<string | null>(null)
+  const [customSubName, setCustomSubName] = useState<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      setCustomSubURL(prev => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [])
+
+  const handleCustomSubtitleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string
+      let vttContent = ''
+
+      if (file.name.endsWith('.srt')) {
+        vttContent = 'WEBVTT\n\n' + text.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
+      } else {
+        vttContent = text
+      }
+
+      setCustomSubURL(prev => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+
+      const blob = new Blob([vttContent], { type: 'text/vtt' })
+      const url = URL.createObjectURL(blob)
+      setCustomSubURL(url)
+      setCustomSubName(file.name)
+      
+      setSubActive(null)
+      setSidecarIdx(null)
+      setEmbeddedSub(null)
+      setAutoSource(null)
+    }
+    
+    reader.onerror = () => {
+      alert('Erro ao ler o arquivo de legenda.')
+    }
+
+    reader.readAsText(file)
+  }
 
   // Sidecar subtitle files (separate .srt/.vtt inside the torrent)
   const [sidecars, setSidecars] = useState<SidecarSubtitle[]>([])
@@ -743,6 +794,11 @@ export default function PlayerModal({
     setTranscodeAudio(null)
     setForceH264(false)
     setBurnSubTrack(null)
+    setCustomSubURL(prev => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+    setCustomSubName(null)
     setTranscodeFallbackAttempted(false)
     prefetchedNextEpRef.current = false
     prefetchedPlaylistN1Ref.current = false
@@ -1066,6 +1122,8 @@ export default function PlayerModal({
     // and the user can switch or remove it without reopening. They close it via
     // the ✕ (or the "Legendas" toggle) when done.
     setSubActive(s.id)
+    setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+    setCustomSubName(null)
   }
 
   const handleRequestFullscreen = () => {
@@ -1490,7 +1548,7 @@ export default function PlayerModal({
     return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
   }
 
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, caps })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps })
   const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
@@ -1870,7 +1928,11 @@ export default function PlayerModal({
                       </p>
                       <div className="flex flex-wrap gap-1">
                         <button
-                          onClick={() => setSidecarIdx(null)}
+                          onClick={() => {
+                            setSidecarIdx(null)
+                            setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+                            setCustomSubName(null)
+                          }}
                           className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                             sidecarIdx === null
                               ? 'bg-gray-700 text-gray-200 border-gray-600'
@@ -1887,6 +1949,8 @@ export default function PlayerModal({
                               setEmbeddedSub(null)
                               setSubActive(null)
                               setAutoSource('embedded')
+                              setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+                              setCustomSubName(null)
                             }}
                             title={s.path}
                             className={`text-[11px] px-2 py-1 rounded border transition-colors ${
@@ -1917,11 +1981,16 @@ export default function PlayerModal({
                       </p>
                       <div className="flex flex-wrap gap-1">
                         <button
-                          onClick={() => { setEmbeddedSub(null); setBurnSubTrack(null) }}
+                          onClick={() => {
+                            setEmbeddedSub(null)
+                            setBurnSubTrack(null)
+                            setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+                            setCustomSubName(null)
+                          }}
                           className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                             embeddedSub === null && burnSubTrack === null
                               ? 'bg-gray-700 text-gray-200 border-gray-600'
-                              : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+                              : 'bg-gray-850 text-gray-500 border-gray-700 hover:text-gray-300'
                           }`}
                         >
                           Nenhuma
@@ -1933,6 +2002,8 @@ export default function PlayerModal({
                             <button
                               key={s.index}
                               onClick={() => {
+                                setCustomSubURL(prev => { if (prev) URL.revokeObjectURL(prev); return null })
+                                setCustomSubName(null)
                                 if (s.image) {
                                   // Image sub → burn-in (forces video re-encode)
                                   setBurnSubTrack(s.index)
@@ -2036,6 +2107,41 @@ export default function PlayerModal({
                     <button onClick={() => setSubOpen(false)} className="text-gray-500 hover:text-gray-300">
                       <X className="w-4 h-4" />
                     </button>
+                  </div>
+
+                  {/* Carregar Legenda Local */}
+                  <div className="mb-3 pb-3 border-b border-gray-700/50 flex flex-col gap-2">
+                    <div>
+                      <label className="inline-flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors border border-gray-600">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Carregar Legenda Local (.srt/.vtt)</span>
+                        <input
+                          type="file"
+                          accept=".srt,.vtt"
+                          onChange={handleCustomSubtitleUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                    {customSubName && (
+                      <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-lg">
+                        <Check className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="truncate flex-1">Ativa: {customSubName}</span>
+                        <button
+                          onClick={() => {
+                            setCustomSubURL(prev => {
+                              if (prev) URL.revokeObjectURL(prev)
+                              return null
+                            })
+                            setCustomSubName(null)
+                          }}
+                          className="text-gray-400 hover:text-red-400 font-bold ml-1 p-0.5"
+                          title="Remover legenda"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {subLoading && (
                     <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
