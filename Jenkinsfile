@@ -142,11 +142,30 @@ pipeline {
         }
       }
     }
+
+    // Deploy imediato no raspberrypi-srv via SSH (WireGuard) — sem esperar o
+    // ciclo do Watchtower. Puxa a imagem do registry, re-tag pro nome local que
+    // o compose do servidor espera (jackui:nvidia), e recria o container.
+    stage('Deploy (raspberrypi-srv)') {
+      steps {
+        withCredentials([sshUserPrivateKey(credentialsId: 'jackui-deploy', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
+          sh '''
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              "$SSH_USER"@10.228.143.1 "
+                docker pull ${IMAGE}:nvidia &&
+                docker tag ${IMAGE}:nvidia jackui:nvidia &&
+                docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui &&
+                docker image prune -f >/dev/null 2>&1 || true
+              "
+          '''
+        }
+      }
+    }
   }
 
   post {
     always  { sh 'docker image prune -f >/dev/null 2>&1 || true' }
-    success { echo "OK — $IMAGE:nvidia publicado; Watchtower fará o rollout no raspberrypi-srv." }
+    success { echo "OK — $IMAGE:nvidia publicado e deployado no raspberrypi-srv." }
     failure { echo 'FALHOU — veja o estágio acima (quality gate / Trivy / build).' }
   }
 }
