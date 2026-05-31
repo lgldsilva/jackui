@@ -275,10 +275,32 @@ type HevcBackstopOpts = {
   readonly transcodeFallbackAttempted: boolean
   readonly videoError: boolean
   readonly bufferedEnd: number
+  // From the ffprobe (#16): true=codec needs transcode, false=browser-safe,
+  // undefined=probe ainda não chegou. Trava o backstop quando já se sabe que o
+  // codec é browser-safe — aí um stall é rede/moov, não rejeição de codec.
+  readonly needsTranscode?: boolean
   readonly caps: TranscodeCapabilities | null
   readonly videoDiagnostic: () => Record<string, unknown> | { reason: string }
   readonly setTranscodeFallbackAttempted: Dispatch<SetStateAction<boolean>>
   readonly setForceH264: Dispatch<SetStateAction<boolean>>
+}
+
+// backstopStuck: depois de 20s, readyState < 2 (nada tocável) + currentTime < 0.1
+// (não andou um frame) + buffered ~0. Cada condição sozinha é benigna durante
+// buffering normal; as três juntas por 20s cheiram a problema.
+export function backstopStuck(readyState: number, currentTime: number, bufferedEnd: number): boolean {
+  return readyState < 2 && currentTime < 0.1 && bufferedEnd < 0.5
+}
+
+// backstopShouldFire decide se o backstop deve FORÇAR transcode (h264) num stall.
+// Regra (#16): se o probe já confirmou codec browser-safe (needsTranscode===false),
+// o stall é de rede/moov — transcodar H264→H264 da mesma fonte fria não ajuda →
+// NÃO dispara. Se o codec precisa de transcode (true) ou é desconhecido
+// (undefined, probe ainda não chegou), dispara — desde que haja encoder de GPU.
+export function backstopShouldFire(stuck: boolean, needsTranscode: boolean | undefined, hasEncoder: boolean): boolean {
+  if (!stuck) return false
+  if (needsTranscode === false) return false
+  return hasEncoder
 }
 
 // useHevcBackstop is the Safari silent-HEVC-failure backstop: after 20s with no
@@ -286,7 +308,7 @@ type HevcBackstopOpts = {
 // verbatim from PlayerModal — same 20s window, same gating, same deps.
 export function useHevcBackstop(opts: HevcBackstopOpts) {
   const { videoRef, info, selectedFile, audioMode, transcodeAudio, forceH264, burnSubTrack,
-    transcodeFallbackAttempted, videoError, bufferedEnd, caps, videoDiagnostic,
+    transcodeFallbackAttempted, videoError, bufferedEnd, needsTranscode, caps, videoDiagnostic,
     setTranscodeFallbackAttempted, setForceH264 } = opts
   useEffect(() => {
     if (!info?.infoHash || selectedFile < 0) return
@@ -296,13 +318,20 @@ export function useHevcBackstop(opts: HevcBackstopOpts) {
     const timer = globalThis.setTimeout(() => {
       const v = videoRef.current
       if (!v) return
-      // readyState < 2 = nothing playable yet; currentTime < 0.1 = we haven't
-      // moved a frame. Either condition alone could be benign during normal
-      // buffering, but BOTH together for 20s smells like a codec rejection.
-      const stuck = v.readyState < 2 && v.currentTime < 0.1 && bufferedEnd < 0.5
-      clientLog('info', 'player', '20s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, src: v.currentSrc })
+      const stuck = backstopStuck(v.readyState, v.currentTime, bufferedEnd)
+      const hasEncoder = !!(caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv))
+      clientLog('info', 'player', '20s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, needsTranscode, src: v.currentSrc })
       if (stuck) {
-        if (caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv)) {
+        // O probe (#16) já confirmou codec browser-safe (H264/AAC/MP4)? Então
+        // este stall (readyState 0, buffered ~0) é problema de rede/moov — ex:
+        // moov do MP4 ainda não baixou —, NÃO a falha silenciosa de HEVC do
+        // Safari. Transcodar H264→H264 lendo a MESMA fonte fria não acelera
+        // nada e só adiciona latência. Não dispara o fallback.
+        if (needsTranscode === false) {
+          clientLog('info', 'player', 'backstop skipped — codec browser-safe (probe); stall é rede/moov, não codec', { needsTranscode, readyState: v.readyState, bufferedEnd })
+          return
+        }
+        if (backstopShouldFire(stuck, needsTranscode, hasEncoder)) {
           clientLog('warn', 'player', 'backstop firing fallback — Safari silent HEVC path likely', videoDiagnostic())
           setTranscodeFallbackAttempted(true)
           setForceH264(true)
@@ -313,5 +342,5 @@ export function useHevcBackstop(opts: HevcBackstopOpts) {
     }, 20000)
     return () => globalThis.clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps])
+  }, [info?.infoHash, selectedFile, transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, needsTranscode, caps])
 }
