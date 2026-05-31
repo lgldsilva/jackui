@@ -74,7 +74,7 @@ func TestEmitCachedResults_NilStore(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
 	enricher := &resultEnricher{}
-	seen, count := emitCachedResults(c, nil, "query", 0, false, enricher)
+	seen, count := emitCachedResults(c, nil, "query", 0, false, nil, enricher)
 	if len(seen) != 0 {
 		t.Errorf("seen = %v, want empty", seen)
 	}
