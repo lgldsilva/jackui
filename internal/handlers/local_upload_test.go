@@ -266,3 +266,53 @@ func TestLocalUpload_RejectsOversize(t *testing.T) {
 		t.Fatalf("upload grande foi aceito (status=%d); deveria ser rejeitado", w.Code)
 	}
 }
+
+// Upload com path de destino inválido (traversal) → 400 (cobre resolveUploadDest).
+func TestLocalUpload_RejectsBadDestPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tempDir := t.TempDir()
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: tempDir}})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "u", Role: auth.RoleAdmin})
+		c.Next()
+	})
+	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, _ := writer.CreateFormFile("file", "ok.mp4")
+	_, _ = part.Write([]byte("data"))
+	_ = writer.Close()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/local/upload?mount=Meus+downloads&path=../../etc", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(w, req)
+	if w.Code == http.StatusCreated {
+		t.Fatalf("path traversal no destino foi aceito (status=%d)", w.Code)
+	}
+}
+
+// Upload sem o campo "file" → 400 (cobre validateUpload sem arquivo).
+func TestLocalUpload_MissingFile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tempDir := t.TempDir()
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: tempDir}})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "u", Role: auth.RoleAdmin})
+		c.Next()
+	})
+	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("nada", "x")
+	_ = writer.Close()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/local/upload?mount=Meus+downloads&path=", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("esperava 400 sem arquivo, got %d", w.Code)
+	}
+}
