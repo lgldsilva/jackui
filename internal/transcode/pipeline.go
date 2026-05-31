@@ -108,8 +108,18 @@ func resolveContainer(container string) string {
 func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Options) []string {
 	args := []string{ffHideBanner, ffLogLevel, "warning"}
 
-	if opts.VideoCodec != "" && shouldUseHWDecode(opts.SourceVCodec, preferred) {
-		args = append(args, hwaccelDecodeArgs(preferred)...)
+	// VAAPI encoders (h264_vaapi/hevc_vaapi) need their input as VAAPI surfaces.
+	// We decode on the GPU and scale_vaapi to ≤1080p + NV12 (8-bit) below. This is
+	// REQUIRED so a 10-bit HDR source (p010 — e.g. a 4K HEVC Dolby Vision file) can
+	// feed the 8-bit h264_vaapi encoder; without it ffmpeg dies with
+	// "Error reinitializing filters" / "Invalid argument". The downscale also keeps
+	// realtime 4K transcodes light. SubBurn uses a CPU overlay path, so skip there.
+	encoder := encoderForCodec(caps, opts.VideoCodec)
+	// Video transcode (not subtitle-burn, which uses a CPU overlay path): decode
+	// on the matching backend so frames feed the scale_* filter added below.
+	transcodeVideo := opts.VideoCodec != "" && opts.SubBurnTrack < 0
+	if transcodeVideo {
+		args = append(args, hwDecodeArgsFor(encoder)...)
 	}
 
 	args = append(args, "-i", pipe0)
@@ -130,6 +140,10 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 		if opts.VideoCodec == "" {
 			opts.VideoCodec = "h264"
 		}
+	} else if transcodeVideo {
+		// Downscale ≤1080p + 8-bit pixel format for the chosen backend (fixes 10-bit
+		// HDR sources that the HW h264 encoders can't ingest, and keeps 4K light).
+		args = append(args, "-vf", videoScaleFilter(encoder))
 	}
 
 	args = appendVideoCodecArgs(args, caps, preferred, opts.VideoCodec)
@@ -139,6 +153,69 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 	return args
 }
 
+// encoderForCodec returns the concrete ffmpeg encoder that will be used for the
+// requested transcode codec ("" if no video transcode), so callers can branch on
+// the backend (e.g. VAAPI needs a hwupload/scale_vaapi filter chain).
+func encoderForCodec(caps *Capabilities, videoCodec string) string {
+	switch videoCodec {
+	case "h264":
+		return caps.Preferred
+	case "hevc":
+		return caps.PreferredHE
+	}
+	return ""
+}
+
+// hwDecodeArgsFor returns the `-hwaccel` decode flags matching the encoder's
+// backend, so decoded frames land as the HW surface type its scale_* filter
+// expects. Empty for CPU encoders (software decode).
+//   - AMD VAAPI:  tested on Radeon RX 6700.
+//   - NVIDIA/Intel: analogous to VAAPI but NOT validated on real hardware here.
+func hwDecodeArgsFor(encoder string) []string {
+	switch {
+	case strings.HasSuffix(encoder, "_vaapi"):
+		// Keep frames on the GPU (vaapi surfaces) for scale_vaapi.
+		return []string{ffHWAccel, "vaapi", "-hwaccel_device", "/dev/dri/renderD128", ffHWAccelOutFormat, "vaapi"}
+	case strings.HasSuffix(encoder, "_nvenc"):
+		// HW-decode on the GPU but let frames download to system memory (NO
+		// -hwaccel_output_format cuda): the container's ffmpeg 4.4.2 lacks
+		// scale_cuda's `format=` option, so we scale + convert to 8-bit in
+		// software (cheap at ≤1080p) and h264_nvenc re-uploads to encode. Validated
+		// inside jackui:nvidia on a GTX 1070.
+		return []string{ffHWAccel, "cuda"}
+	case strings.HasSuffix(encoder, "_qsv"):
+		return []string{ffHWAccel, "qsv", ffHWAccelOutFormat, "qsv"}
+	}
+	return nil
+}
+
+// isHWEncoder reports whether the encoder runs on a GPU/ASIC (so its frames are
+// HW surfaces and -pix_fmt yuv420p must NOT be forced).
+func isHWEncoder(enc string) bool {
+	return strings.HasSuffix(enc, "_vaapi") || strings.HasSuffix(enc, "_nvenc") ||
+		strings.HasSuffix(enc, "_qsv") || strings.HasSuffix(enc, "_videotoolbox")
+}
+
+// videoScaleFilter caps height at 1080p AND converts to the 8-bit pixel format
+// the encoder needs. This is REQUIRED for 10-bit HDR sources (p010 — 4K HEVC
+// Dolby Vision): the HW h264 encoders only take 8-bit NV12, and feeding p010
+// crashes ffmpeg with "Error reinitializing filters". The downscale also keeps
+// realtime 4K transcodes light. min(1080,ih) never upscales smaller sources.
+func videoScaleFilter(encoder string) string {
+	switch {
+	case strings.HasSuffix(encoder, "_vaapi"):
+		// Frames are on the GPU (vaapi surfaces) → scale + convert on the GPU.
+		return `scale_vaapi=w=-2:h=min(1080\,ih):format=nv12`
+	case strings.HasSuffix(encoder, "_qsv"):
+		return `scale_qsv=w=-2:h=min(1080\,ih):format=nv12`
+	default:
+		// NVENC (frames downloaded to sysmem), libx264/libx265, videotoolbox:
+		// software scale + 8-bit yuv420p. h264_nvenc uploads sysmem frames itself,
+		// so this avoids scale_cuda's `format=` option (missing on ffmpeg 4.4.2).
+		return `scale=-2:'min(1080,ih)',format=yuv420p`
+	}
+}
+
 func appendVideoCodecArgs(args []string, caps *Capabilities, preferred, videoCodec string) []string {
 	switch videoCodec {
 	case "":
@@ -146,7 +223,11 @@ func appendVideoCodecArgs(args []string, caps *Capabilities, preferred, videoCod
 	case "h264":
 		args = append(args, "-c:v", caps.Preferred)
 		args = append(args, encoderPresetArgs(caps.Preferred)...)
-		args = append(args, "-pix_fmt", "yuv420p")
+		// HW encoders receive NV12 surfaces from their scale_* filter; forcing
+		// -pix_fmt yuv420p would clash with the hardware surface format. CPU keeps it.
+		if !isHWEncoder(caps.Preferred) {
+			args = append(args, "-pix_fmt", "yuv420p")
+		}
 		args = append(args, "-profile:v", "main", "-level:v", "4.0")
 		args = append(args, "-g", "60", "-bf", "0")
 		return args
@@ -181,35 +262,6 @@ func appendContainerArgs(args []string, container string) []string {
 		)
 	}
 	return append(args, "-f", container)
-}
-
-// shouldUseHWDecode returns true only when GPU decode is safe + compatible with chosen encoder.
-// For most cases (already-H.264 source going through h264_nvenc), CPU decode is safer.
-func shouldUseHWDecode(sourceCodec, encoder string) bool {
-	// We only set up CUDA decode when source is clearly HEVC and encoder is NVENC.
-	// For H.264 sources, software decode pipes into NVENC just fine.
-	if !strings.HasSuffix(encoder, "_nvenc") {
-		return false
-	}
-	switch strings.ToLower(sourceCodec) {
-	case "hevc", "h265", "vp9", "av1":
-		return true
-	}
-	return false
-}
-
-func hwaccelDecodeArgs(encoder string) []string {
-	switch {
-	case strings.HasSuffix(encoder, "_nvenc"):
-		return []string{ffHWAccel, "cuda", ffHWAccelOutFormat, "cuda"}
-	case strings.HasSuffix(encoder, "_vaapi"):
-		return []string{ffHWAccel, "vaapi", "-hwaccel_device", "/dev/dri/renderD128", ffHWAccelOutFormat, "vaapi"}
-	case strings.HasSuffix(encoder, "_qsv"):
-		return []string{ffHWAccel, "qsv", ffHWAccelOutFormat, "qsv"}
-	case strings.HasSuffix(encoder, "_videotoolbox"):
-		return []string{ffHWAccel, "videotoolbox"}
-	}
-	return nil
 }
 
 func encoderPresetArgs(encoder string) []string {

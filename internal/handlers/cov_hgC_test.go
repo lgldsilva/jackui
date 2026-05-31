@@ -147,7 +147,7 @@ func Test_hgC_EmitCachedResults_WithStore(t *testing.T) {
 	setSSEHeaders(c)
 
 	enricher := buildEnricher(nil, nil, 0, false)
-	seen, count := emitCachedResults(c, store, "dune", 0, false, enricher)
+	seen, count := emitCachedResults(c, store, "dune", 0, false, nil, enricher)
 	if count != 2 {
 		t.Errorf("count = %d, want 2", count)
 	}
@@ -157,6 +157,37 @@ func Test_hgC_EmitCachedResults_WithStore(t *testing.T) {
 	}
 	if len(seen) != 1 {
 		t.Errorf("len(seen) = %d, want 1", len(seen))
+	}
+}
+
+func Test_hgC_EmitCachedResults_SkipsWhenIndexersScoped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := history.New(t.TempDir() + "/hist.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save("dune", []jackett.Result{
+		{Title: "Dune A", InfoHash: "h1"},
+		{Title: "Dune B", InfoHash: "h2"},
+	}, 0, false); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	setSSEHeaders(c)
+
+	enricher := buildEnricher(nil, nil, 0, false)
+	// Scoped to specific indexers → cache phase is skipped (cached rows carry no
+	// indexer id, so emitting them would leak other providers). Live search
+	// handles the scoped query instead.
+	seen, count := emitCachedResults(c, store, "dune", 0, false, []string{"knaben"}, enricher)
+	if count != 0 {
+		t.Errorf("count = %d, want 0 (cache skipped when indexers scoped)", count)
+	}
+	if len(seen) != 0 {
+		t.Errorf("len(seen) = %d, want 0", len(seen))
 	}
 }
 

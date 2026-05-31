@@ -92,9 +92,19 @@ func setSSEHeaders(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 }
 
-func emitCachedResults(c *gin.Context, store *history.Store, query string, userID int, includeAll bool, enricher *resultEnricher) (map[string]bool, int) {
+func emitCachedResults(c *gin.Context, store *history.Store, query string, userID int, includeAll bool, indexers []string, enricher *resultEnricher) (map[string]bool, int) {
 	seen := make(map[string]bool)
 	if store == nil {
+		return seen, 0
+	}
+	// When the user scoped the search to specific indexers, skip the cache phase.
+	// Cached rows only persist the tracker *display name*, not its indexer id, so
+	// we can't reliably filter them to the selection — and emitting all cached
+	// rows would leak results from OTHER providers (from a past broader search),
+	// which is exactly the "I picked one indexer but got several" bug. The live
+	// phase below already queries only the selected indexers, so a scoped search
+	// still returns the right results (just without the instant-cache shortcut).
+	if len(indexers) > 0 {
 		return seen, 0
 	}
 	count := 0
@@ -130,7 +140,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		includeAll := isAdmin && c.Query("all") == "1"
 		enricher := buildEnricher(favs, dls, userID, includeAll)
 
-		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, enricher)
+		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, indexers, enricher)
 		writeSSE(c, "progress", gin.H{"phase": "live", "cached": cachedCount})
 
 		state := &liveSearchState{

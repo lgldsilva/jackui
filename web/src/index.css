@@ -38,8 +38,11 @@
     @apply bg-gray-700 hover:bg-gray-600 text-gray-100 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
   }
 
+  /* text-base (16px) is deliberate: iOS Safari auto-zooms the page whenever a
+     focused input has font-size < 16px. Keeping every .input-field at 16px
+     stops that jarring zoom-on-tap on iPhone/iPad. */
   .input-field {
-    @apply bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent w-full;
+    @apply bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent w-full;
   }
 
   .card {

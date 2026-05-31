@@ -12,6 +12,7 @@ import {
 import { useScrollLock } from '../lib/useScrollLock'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
+import { uid } from '../lib/uid'
 
 type Props = {
   readonly isOpen: boolean
@@ -225,7 +226,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
   const addFilesToResolve = (files: File[]) => {
     setView('configure')
     const newItems: TorrentItem[] = files.map(f => ({
-      id: crypto.randomUUID(),
+      id: uid(),
       name: f.name,
       file: f,
       loading: true,
@@ -280,7 +281,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       const name = nameMatch ? decodeURIComponent(nameMatch[1].replaceAll('+', ' ')) : `Magnet (hash: ${hash || '?'})`
 
       return {
-        id: crypto.randomUUID(),
+        id: uid(),
         name,
         magnet: line,
         infoHash: hash || undefined,
@@ -613,7 +614,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                                     className="accent-cyan-500 flex-shrink-0"
                                   />
                                   {fileIcon(f)}
-                                  <span className="flex-1 text-gray-300 truncate" title={f.path}>
+                                  <span className="flex-1 min-w-0 text-gray-300 truncate" title={f.path}>
                                     {f.path}
                                   </span>
                                   <span className="text-gray-500 flex-shrink-0 font-mono">

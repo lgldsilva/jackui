@@ -87,7 +87,7 @@ export default function UsersAdminCard() {
         </div>
         {inviteLink && (
           <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
-            <span className="text-xs text-gray-300 font-mono truncate flex-1" title={inviteLink}>{inviteLink}</span>
+            <span className="text-xs text-gray-300 font-mono truncate flex-1 min-w-0" title={inviteLink}>{inviteLink}</span>
             <button onClick={() => { navigator.clipboard?.writeText(inviteLink); setCopied(true) }} title="Copiar"
               className="text-gray-400 hover:text-gray-100 flex-shrink-0">{copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</button>
           </div>

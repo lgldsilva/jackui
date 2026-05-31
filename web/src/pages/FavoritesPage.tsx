@@ -126,7 +126,7 @@ function FolderTree(p: TreeProps) {
                 <button
                   onClick={() => p.onSelect(node.folder.id)}
                   onDoubleClick={() => p.onStartEdit(node.folder.id)}
-                  className="flex-1 text-left truncate"
+                  className="flex-1 min-w-0 text-left truncate"
                   title={node.folder.name}
                 >
                   {node.folder.name}
@@ -642,13 +642,11 @@ export default function FavoritesPage() {
 
       {/* Import modal — paste magnet(s) or drop a .torrent file */}
       {showImport && (
-        <dialog
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 open:flex"
-          onClick={() => !importing && setShowImport(false)}
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={e => { if (e.target === e.currentTarget && !importing) setShowImport(false) }}
           onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
-          onFocus={() => {}} tabIndex={-1}
-          onClose={() => !importing && setShowImport(false)}
-          open
+          role="dialog" aria-modal="true" tabIndex={-1}
         >
           <div
             className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
@@ -724,7 +722,7 @@ export default function FavoritesPage() {
               </p>
             )}
             </div>
-          </dialog>
+          </div>
         )}
 
         {/* Multi-select action bar — appears when ≥1 favorite is checked. */}

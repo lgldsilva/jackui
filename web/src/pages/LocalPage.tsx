@@ -562,7 +562,7 @@ export default function LocalPage() {
                       }`}
                     >
                       <EntryIcon entry={e} mount={activeMount} />
-                      <span className="flex-1 truncate text-gray-100 font-medium">
+                      <span className="flex-1 min-w-0 truncate text-gray-100 font-medium">
                         {e.name}
                       </span>
                       {!e.isDir && (

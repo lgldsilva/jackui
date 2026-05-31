@@ -179,7 +179,7 @@ export default function AccountCard() {
           if (enroll) return <div className="flex flex-col gap-2">
             <p className="text-xs text-gray-400">Adicione no app autenticador (escaneie ou digite o segredo), depois informe o código:</p>
             <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
-              <code className="text-xs text-gray-200 font-mono truncate flex-1">{enroll.secret}</code>
+              <code className="text-xs text-gray-200 font-mono truncate flex-1 min-w-0">{enroll.secret}</code>
               <button onClick={() => { navigator.clipboard?.writeText(enroll.secret); setCopied(true) }} title="Copiar segredo"
                 className="text-gray-400 hover:text-gray-100 flex-shrink-0">{copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</button>
             </div>
@@ -237,7 +237,7 @@ export default function AccountCard() {
             <ul className="flex flex-col gap-1">
               {passkeys.map(pk => (
                 <li key={pk.id} className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
-                  <code className="text-[11px] text-gray-300 font-mono truncate flex-1" title={pk.id}>{pk.id.slice(0, 24)}…</code>
+                  <code className="text-[11px] text-gray-300 font-mono truncate flex-1 min-w-0" title={pk.id}>{pk.id.slice(0, 24)}…</code>
                   <button onClick={() => removePasskey(pk.id)} title="Remover" className="text-gray-500 hover:text-red-400 flex-shrink-0">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
