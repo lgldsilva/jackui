@@ -74,6 +74,8 @@ type AIChainSlot struct {
 // the Local Files page lists what's already on disk.
 type ExternalConfig struct {
 	Mounts []ExternalMount `yaml:"mounts"`
+	// MaxUploadMB caps a single local upload (anti disk-fill DoS). 0 = default.
+	MaxUploadMB int `yaml:"max_upload_mb"`
 }
 
 type ExternalMount struct {
@@ -187,6 +189,15 @@ func applyEnvOverrides(cfg *Config) {
 	applySMTPEnv(cfg)
 	applyAIEnv(cfg)
 
+	if v := os.Getenv("JACKUI_MAX_UPLOAD_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.External.MaxUploadMB = n
+		}
+	}
+	if cfg.External.MaxUploadMB <= 0 {
+		cfg.External.MaxUploadMB = 65536 // 64 GiB — generoso p/ remux 4K, mas limitado
+	}
+
 	if cfg.Stream.IdleMinutes == 0 {
 		cfg.Stream.IdleMinutes = 30
 	}
@@ -280,11 +291,22 @@ func applyExternalMountsEnv(cfg *Config) {
 		if i <= 0 || i == len(spec)-1 {
 			continue
 		}
-		name, path := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+		name, rest := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+		// Optional trailing ":usersubpath" flag turns the mount into per-user
+		// private subdirs (mount/{username}/...). Backward compatible: specs
+		// without the flag keep the shared-root behavior.
+		userSubpath := false
+		if j := strings.LastIndex(rest, ":"); j >= 0 {
+			if flag := strings.ToLower(strings.TrimSpace(rest[j+1:])); flag == "usersubpath" || flag == "subpath" {
+				userSubpath = true
+				rest = strings.TrimSpace(rest[:j])
+			}
+		}
+		path := rest
 		if name == "" || path == "" || seen[path] {
 			continue
 		}
-		cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path})
+		cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path, UserSubpath: userSubpath})
 		seen[path] = true
 	}
 }

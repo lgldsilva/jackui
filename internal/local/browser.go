@@ -176,6 +176,100 @@ func (b *Browser) StripUserScope(mountName, username string, entries []Entry) []
 	return entries
 }
 
+// MigratedEntry records one relocated root entry during a UserSubpath migration.
+type MigratedEntry struct {
+	Name     string // the entry's filename at the (old) mount root
+	ToUser   string // the username subdir it was moved into
+	Fallback bool   // true when attribution failed and it went to fallbackUser
+}
+
+// MigrationResult summarizes a MigrateToUserSubpath run.
+type MigrationResult struct {
+	Mount   string
+	Moved   []MigratedEntry
+	Skipped int // entries already inside a known user's subdir (idempotency)
+}
+
+// MigrateToUserSubpath relocates loose entries at a UserSubpath mount's root
+// into per-user subdirs (mount/{username}/...), so flipping a previously-shared
+// mount to per-user doesn't orphan existing files.
+//
+// attribute maps an entry's absolute path to (username, true) when an owner is
+// known; entries it can't attribute (or whose owner isn't a known user) go to
+// fallbackUser. knownUsers is the set of valid usernames: a root *directory*
+// whose name is a known user is treated as already-scoped and left untouched,
+// which makes the operation idempotent (safe to run on every boot). Moves use
+// os.Rename — atomic and copy-free since source and dest share the mount root.
+func (b *Browser) MigrateToUserSubpath(mountName string, knownUsers map[string]bool, fallbackUser string, attribute func(absPath string) (string, bool)) (MigrationResult, error) {
+	res := MigrationResult{Mount: mountName}
+	m, ok := b.findMount(mountName)
+	if !ok {
+		return res, fmt.Errorf("mount %q not found", mountName)
+	}
+	if !m.UserSubpath {
+		return res, nil // mount is shared — nothing to scope
+	}
+	mountAbs, err := filepath.Abs(m.Path)
+	if err != nil {
+		return res, fmt.Errorf("invalid mount path: %w", err)
+	}
+	entries, err := os.ReadDir(mountAbs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return res, nil
+		}
+		return res, err
+	}
+
+	for _, de := range entries {
+		name := de.Name()
+		// An existing user's subdir is already scoped → leave it (idempotency).
+		if de.IsDir() && knownUsers[name] {
+			res.Skipped++
+			continue
+		}
+		abs := filepath.Join(mountAbs, name)
+
+		user, attributed := attribute(abs)
+		fallback := false
+		if !attributed || user == "" || !knownUsers[user] {
+			user, fallback = fallbackUser, true
+		}
+		if user == "" {
+			// No owner and no fallback — leave in place rather than lose track.
+			continue
+		}
+
+		destDir := filepath.Join(mountAbs, user)
+		if err := os.MkdirAll(destDir, 0o755); err != nil {
+			return res, err
+		}
+		if err := os.Rename(abs, nonCollidingPath(destDir, name)); err != nil {
+			return res, err
+		}
+		res.Moved = append(res.Moved, MigratedEntry{Name: name, ToUser: user, Fallback: fallback})
+	}
+	return res, nil
+}
+
+// nonCollidingPath returns dir/name, or dir/name (n).ext if that already exists,
+// so a migration never overwrites a file already in the destination subdir.
+func nonCollidingPath(dir, name string) string {
+	dest := filepath.Join(dir, name)
+	if _, err := os.Stat(dest); os.IsNotExist(err) {
+		return dest
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	for i := 1; i < 10000; i++ {
+		cand := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
+		if _, err := os.Stat(cand); os.IsNotExist(err) {
+			return cand
+		}
+	}
+	return dest
+}
+
 func hasPathTraversal(relPath string) bool {
 	if relPath == "" {
 		return false

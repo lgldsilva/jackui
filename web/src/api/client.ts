@@ -1391,6 +1391,28 @@ export const localDelete = async (mount: string, path: string): Promise<void> =>
   await api.delete(`/local/file?${params}`)
 }
 
+export type LocalUploadResult = { uploaded: string; path: string }
+
+// localUpload streams a file to the destination folder via multipart/form-data.
+// axios sets the multipart boundary automatically when handed a FormData; the
+// auth interceptor injects the Bearer token. onProgress reports bytes for the
+// progress bar; signal lets the caller cancel an in-flight transfer.
+export const localUpload = async (
+  mount: string,
+  path: string,
+  file: File,
+  onProgress?: (loaded: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<LocalUploadResult> => {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<LocalUploadResult>(`/local/upload?${localQS(mount, path)}`, form, {
+    onUploadProgress: (e) => onProgress?.(e.loaded, e.total ?? file.size),
+    signal,
+  })
+  return data
+}
+
 export type PromoteResult = {
   moved: number
   failed: number

@@ -89,31 +89,31 @@ func watchForwardedPort(ctrl string, current int) {
 }
 
 type appDeps struct {
-	cfg             *config.Config
-	configPath      string
-	jackettClient   *jackett.Client
-	localBrowser    *local.Browser
-	historyStore    *history.Store
-	streamSrv       *streamer.Streamer
-	streamCfg       streamer.Config
-	stateDir        string
-	libraryStore    *library.Store
-	playlistsStore  *playlists.Store
-	downloadsStore  *downloads.Store
-	tmdbClient      *tmdb.Client
-	aiClient        *ai.Client
-	aiBench         *ai.BenchmarkStore
-	webSearch       *imagesearch.Chain
-	watchlistStore  *watchlist.Store
-	subtitleClient  *subtitles.Client
-	authStore       *auth.Store
-	tokenMgr        *auth.TokenManager
-	waManager       *auth.WAManager
-	loginLockout    *auth.Lockout
-	mlr             *mailer.Mailer
-	promoteDests    []handlers.PromoteDest
-	hlsMgr          *transcode.HLSSessionManager
-	cleanup         []func()
+	cfg            *config.Config
+	configPath     string
+	jackettClient  *jackett.Client
+	localBrowser   *local.Browser
+	historyStore   *history.Store
+	streamSrv      *streamer.Streamer
+	streamCfg      streamer.Config
+	stateDir       string
+	libraryStore   *library.Store
+	playlistsStore *playlists.Store
+	downloadsStore *downloads.Store
+	tmdbClient     *tmdb.Client
+	aiClient       *ai.Client
+	aiBench        *ai.BenchmarkStore
+	webSearch      *imagesearch.Chain
+	watchlistStore *watchlist.Store
+	subtitleClient *subtitles.Client
+	authStore      *auth.Store
+	tokenMgr       *auth.TokenManager
+	waManager      *auth.WAManager
+	loginLockout   *auth.Lockout
+	mlr            *mailer.Mailer
+	promoteDests   []handlers.PromoteDest
+	hlsMgr         *transcode.HLSSessionManager
+	cleanup        []func()
 }
 
 func (d *appDeps) addCleanup(fn func()) {
@@ -146,6 +146,7 @@ func main() {
 	initWatchlistStore(deps)
 	deps.subtitleClient = initSubtitles(deps.cfg)
 	initAuth(deps)
+	migrateUserSubpathMounts(deps)
 	deps.promoteDests = buildPromoteDests(deps.cfg)
 	initHLSManager(deps)
 
@@ -371,6 +372,62 @@ func initDownloadsStore(deps *appDeps) {
 	worker.Start()
 	deps.addCleanup(worker.Stop)
 	log.Printf("Downloads worker started (tick=2s, ntfy=%q)", deps.cfg.Notifications.NtfyDefaultTopic)
+}
+
+// migrateUserSubpathMounts relocates loose files at the root of any per-user
+// (UserSubpath) mount into the owner's subdir, so turning a previously-shared
+// mount into per-user doesn't hide existing files. Ownership comes from the
+// downloads store (file_path → user_id → username); files with no download
+// record (manual uploads, external sources) fall back to the admin's subdir.
+// Idempotent and logged — runs every boot, a no-op once everything is scoped.
+func migrateUserSubpathMounts(deps *appDeps) {
+	if deps.localBrowser == nil || deps.downloadsStore == nil || deps.authStore == nil {
+		return
+	}
+	users, err := deps.authStore.ListUsers()
+	if err != nil {
+		log.Printf("Warning: usersubpath migration skipped (list users: %v)", err)
+		return
+	}
+	known := make(map[string]bool, len(users))
+	for _, u := range users {
+		known[u.Username] = true
+	}
+	fallback := deps.cfg.Auth.AdminUsername
+
+	attribute := func(abs string) (string, bool) {
+		dls, err := deps.downloadsStore.FindByPathPrefix(abs)
+		if err != nil || len(dls) == 0 {
+			return "", false
+		}
+		u, err := deps.authStore.GetUserByID(dls[0].UserID)
+		if err != nil || u == nil {
+			return "", false
+		}
+		return u.Username, true
+	}
+
+	for _, m := range deps.cfg.External.Mounts {
+		if !m.UserSubpath {
+			continue
+		}
+		res, err := deps.localBrowser.MigrateToUserSubpath(m.Name, known, fallback, attribute)
+		if err != nil {
+			log.Printf("Warning: usersubpath migration for %q failed: %v", m.Name, err)
+			continue
+		}
+		if len(res.Moved) == 0 {
+			continue
+		}
+		log.Printf("UserSubpath migration %q: moved %d entr(ies), %d already scoped", m.Name, len(res.Moved), res.Skipped)
+		for _, e := range res.Moved {
+			suffix := ""
+			if e.Fallback {
+				suffix = " (sem dono → admin)"
+			}
+			log.Printf("  • %s → %s/%s", e.Name, e.ToUser, e.Name+suffix)
+		}
+	}
 }
 
 func initTMDBClient(deps *appDeps) {
@@ -765,6 +822,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
 	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser))
+	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
 	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser))
 	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
