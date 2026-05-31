@@ -40,6 +40,11 @@ coverage.out
 # Runtime data — SQLite DBs, stream cache, HLS sessions, thumbnails
 /data/
 data/
+# SQLite DBs criados ao rodar o backend dentro do checkout (jamais versionar)
+*.db
+*.db-shm
+*.db-wal
+internal/streamer/streams/
 
 # Allow docker-compose variants that aren't secrets (override the *.yaml rule)
 !docker-compose.nvidia.yml
