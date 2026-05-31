@@ -1,0 +1,70 @@
+# STAGING — instância paralela pra validar playback (#16/#17/#19) sem tocar na prod.
+# Standalone (NÃO herda docker-compose.yml) pra não concatenar portas/volumes.
+# Sobe com:
+#   docker --context homeserver compose -p jackui-staging -f docker-compose.staging.yml up -d
+# (SEM --remove-orphans — a prod `jackui` continua intacta.)
+#
+# Diferenças vs prod: container jackui-staging, imagem jackui:staging-nvidia,
+# host port 8990→8989, peer 51470→51469, dirs de estado/cache SEPARADOS.
+# Alcançável no iPhone/Mac (mesma WiFi) em http://192.168.86.24:8990
+services:
+  jackui-staging:
+    image: jackui:staging-nvidia
+    container_name: jackui-staging
+    restart: unless-stopped
+    user: "1000:1000"
+    stop_grace_period: 30s
+    runtime: nvidia
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+        reservations:
+          memory: 256m
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu", "video", "compute", "utility"]
+    healthcheck:
+      disable: true
+    ports:
+      - "0.0.0.0:8990:8989"
+      - "51470:51469/tcp"
+      - "51470:51469/udp"
+    volumes:
+      - /portainer/Files/AppData/Config/jackui-staging/config.yaml:/app/config.yaml
+      - /portainer/Files/AppData/Config/jackui-staging:/data
+      - /mnt/lvm1-storage/jacktrack/cache-staging:/data/streams
+      # Biblioteca/mounts compartilhados com a prod (somente leitura aqui — staging não promove)
+      - /mnt/lvm1-storage:/mnt/storage:ro
+      - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:ro
+      - /mnt/rclone/gdrive/pessoal/sensitive:/mnt/gdrive/sensitive:ro
+    environment:
+      - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
+      - JACKETT_API_KEY=${JACKETT_API_KEY}
+      - JACKUI_PORT=8989
+      - JACKUI_DB_PATH=/data/jackui.db
+      - JACKUI_STREAM_DIR=/data/streams
+      - JACKUI_STATE_DIR=/data
+      - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-30}
+      - JACKUI_DOWNLOAD_DIR=/data/downloads
+      - JACKUI_SHARED_DIR=/data/shared
+      - JACKUI_EXTERNAL_MOUNTS=GDrive Media:/mnt/gdrive/media
+      - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
+      - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
+      - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}
+      - JACKUI_JWT_SECRET=${JACKUI_JWT_SECRET}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - OMDB_API_KEY=${OMDB_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      # staging sem domínio NPM — base url aponta pro host:porta direto
+      - JACKUI_BASE_URL=http://192.168.86.24:8990
+    networks:
+      - vpn-gateway_vpn-net
+
+networks:
+  vpn-gateway_vpn-net:
+    external: true

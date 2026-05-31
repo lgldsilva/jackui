@@ -709,3 +709,29 @@ func TestStreamerFavorites_Nil(t *testing.T) {
 		t.Error("nil streamer should return nil Favorites")
 	}
 }
+
+// TestClassifyTranscode é o guard do #16: a decisão de transcode é por CODEC
+// (navegador-agnóstica), não por nome de arquivo. MKV/HEVC/AV1/AC3/DTS → HLS;
+// MP4/H.264/AAC → direct-play.
+func TestClassifyTranscode(t *testing.T) {
+	cases := []struct {
+		container, vcodec, acodec string
+		want                      bool
+	}{
+		{"mov", "h264", "aac", false},       // MP4/H.264/AAC → direct
+		{"mp4", "h264", "aac", false},       //
+		{"matroska", "h264", "aac", true},   // MKV → HLS
+		{"mp4", "hevc", "aac", true},        // HEVC → HLS
+		{"mp4", "av1", "aac", true},         // AV1 → HLS
+		{"mp4", "h264", "ac3", true},        // AC3 → HLS
+		{"mp4", "h264", "dts", true},        // DTS → HLS
+		{"webm", "vp9", "opus", false},      // VP9/Opus/webm → direct
+		{"", "", "", false},                 // desconhecido → não força
+	}
+	for _, c := range cases {
+		got, reason := classifyTranscode(c.container, c.vcodec, c.acodec)
+		if got != c.want {
+			t.Errorf("classifyTranscode(%q,%q,%q)=%v(%q), want %v", c.container, c.vcodec, c.acodec, got, reason, c.want)
+		}
+	}
+}

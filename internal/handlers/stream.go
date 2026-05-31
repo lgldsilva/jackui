@@ -18,6 +18,7 @@ import (
 	"github.com/luizg/jackui/internal/middleware"
 	"github.com/luizg/jackui/internal/streamer"
 	"github.com/luizg/jackui/internal/subtitles"
+	"github.com/luizg/jackui/internal/transcode"
 )
 
 const errInvalidFileIndex = "invalid file index"
@@ -308,7 +309,9 @@ func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 }
 
 // StreamDrop handles DELETE /api/stream/:hash — manually stop a torrent.
-func StreamDrop(s *streamer.Streamer) gin.HandlerFunc {
+// Também encerra as sessões HLS daquele torrent (#17): fechar o player não pode
+// deixar o ffmpeg do transcode órfão consumindo CPU até o idle-reaper.
+func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -316,6 +319,9 @@ func StreamDrop(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		s.Drop(h)
+		if hlsMgr != nil {
+			hlsMgr.CloseForHash(h.HexString())
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "dropped"})
 	}
 }

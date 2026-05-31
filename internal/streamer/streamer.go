@@ -973,12 +973,27 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 }
 
 // Drop forcibly removes a torrent (stops download, keeps files until GC).
+// activeReadGuard: a torrent read within this window is treated as still being
+// watched, so an explicit Drop() (player close) is skipped. trackingReader bumps
+// lastAccess on every read, including the HLS transcode's source reads.
+const activeReadGuard = 60 * time.Second
+
 func (s *Streamer) Drop(hash metainfo.Hash) {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	if ok {
 		// Do not drop if it is registered as an active background download
 		if _, protected := s.downloads[e.t.Name()]; protected {
+			s.mu.Unlock()
+			return
+		}
+		// Do not drop a torrent another reader is actively streaming. The player
+		// calls Drop() on close, but with MULTIPLE sessions on the same torrent
+		// (e.g. two browsers, or an HLS transcode still pulling segments for
+		// another viewer), an eager drop killed the survivors' ffmpeg mid-playback
+		// ("torrent closed" → demux I/O error → segment 404). A recent read means
+		// someone is still watching — leave eviction to the idle reaper.
+		if time.Since(e.lastAccess) < activeReadGuard {
 			s.mu.Unlock()
 			return
 		}

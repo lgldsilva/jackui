@@ -319,7 +319,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                           className="accent-cyan-500 flex-shrink-0"
                         />
                         {fileIcon(f)}
-                        <span className="flex-1 text-sm text-gray-200 truncate" title={f.path}>
+                        <span className="flex-1 min-w-0 text-sm text-gray-200 truncate" title={f.path}>
                           {f.path}
                         </span>
                         <span className="text-xs text-gray-500 flex-shrink-0">

@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload, Info, Hash, Server, Copy } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
   Subtitle,
   StreamProbe,
-  TranscodeOpts,
   TranscodeCapabilities,
   MediaTrack,
   SidecarSubtitle,
@@ -19,7 +18,6 @@ import {
   streamArtworkURL,
   isSafariBrowser,
   streamSubtrackURL,
-  streamTranscodeURL,
   streamSidecarURL,
   streamPlaylistM3UURL,
   streamPrefetch,
@@ -41,8 +39,11 @@ import {
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
+import Hls from 'hls.js'
 import { useScrollLock } from '../lib/useScrollLock'
+import { useSwipe } from '../lib/useSwipe'
 import { useIncognito } from '../lib/incognito'
+import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
 import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
@@ -85,6 +86,21 @@ const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
 // Variable playback speed for audiobooks / lectures.
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
+// canPlayNativeHls: o browser toca HLS (.m3u8) nativo? True no Safari e em todo
+// browser iOS (todos WebKit); false no Chrome/Firefox/Edge desktop → precisam do
+// hls.js. Cacheado porque não muda durante a sessão.
+let _nativeHlsSupport: boolean | null = null
+function canPlayNativeHls(): boolean {
+  if (_nativeHlsSupport === null) {
+    try {
+      _nativeHlsSupport = document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''
+    } catch {
+      _nativeHlsSupport = false
+    }
+  }
+  return _nativeHlsSupport
+}
+
 // fileType buckets a file for the sidebar type filter: video (backend flag or
 // extension) → audio (extension) → everything else.
 function fileType(f: { isVideo?: boolean; path: string }): Exclude<FileType, 'all'> {
@@ -126,34 +142,44 @@ type MediaUrlInput = {
   embeddedSub: number | null
   customSubURL: string | null
   caps: TranscodeCapabilities | null
+  authEnabled: boolean
+  probe: StreamProbe | null
 }
 
 function computeMediaUrls(input: MediaUrlInput) {
-  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps } = input
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled, probe } = input
+  // O media token só é OBRIGATÓRIO com auth ligado (<video>/<track> não mandam
+  // header → carregam ?token=). Com auth off as rotas de mídia são públicas e
+  // /auth/media-token responde 404 — gatear no token aqui deixaria a streamURL
+  // vazia pra sempre e o player giraria sem nunca carregar.
+  const tokenMissing = authEnabled && !mediaToken
   const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
-  const safariNeedsTranscode = isSafariBrowser() &&
-    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
-  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
-
-  const transcodeOpts: TranscodeOpts = {}
-  if (transcodeAudio !== null) transcodeOpts.audio = transcodeAudio
-  if (forceH264) transcodeOpts.video = 'h264'
-  if (burnSubTrack !== null) {
-    transcodeOpts.burn = burnSubTrack
-    transcodeOpts.video = 'h264'
-  }
-  if (transcodeAudio !== null) transcodeOpts.acodec = 'aac'
+  // Decide transcode pelo CODEC REAL (probe do backend, navegador-agnóstico:
+  // MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum). Antes era por NOME,
+  // o que mandava incompatível pro direct-play → errorCode 4 no Safari. O probe
+  // (useTrackProbe) chega logo; enquanto não chega, cai numa heurística de nome
+  // só pra reduzir a janela — o probe sobrescreve assim que disponível.
+  const nameSuggestsTranscode =
+    /(x265|h\.?265|hevc|av1|vp9|2160p?|4k|uhd)/i.test(selectedFilename) ||
+    /\.(mkv|avi|ts|m2ts|wmv|flv|mpg|mpeg|ogv)$/i.test(selectedFilename)
+  const needsTranscode = probe?.needsTranscode ?? nameSuggestsTranscode
+  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || needsTranscode
 
   const streamURL = (() => {
-    if (!info || selectedFile < 0 || !serverReady || !mediaToken) return ''
+    if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
     if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
-    if (isSafariBrowser()) return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
-    return streamTranscodeURL(info.infoHash, selectedFile, transcodeOpts, mediaToken)
+    // Playback transcodificado → HLS-VOD pra TODOS os browsers (segmentado +
+    // seekável). Safari/iOS tocam nativo; os demais anexam via hls.js (ver o
+    // efeito em VideoPlayerElement). HLS substitui o antigo MP4 progressive, que
+    // não tinha seek e tinha o ffmpeg morto a cada byte-range (Chrome E iOS Edge).
+    // (HLS usa a faixa de áudio default → AAC; seleção de faixa não-default e
+    // burn de legenda image-based não passam por aqui — tradeoff do HLS-everywhere.)
+    return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
   })()
 
   const subtitleVttURL = (() => {
     if (customSubURL) return customSubURL
-    if (!mediaToken) return ''
+    if (tokenMissing) return ''
     if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
     if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
     if (subActive) return subtitleDownloadURL(subActive, mediaToken)
@@ -191,11 +217,13 @@ function renderPlayerHeader(props: {
   setIncognito: (v: boolean) => void
   setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void
   onClose: () => void
+  onShowInfo: () => void
+  headerRef: React.RefObject<HTMLDivElement>
 }) {
-  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose } = props
+  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef } = props
   if (minimized) return null
   return (
-    <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
+    <div ref={headerRef} className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0 touch-pan-y">
       <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
         <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
         <span className="truncate">{info?.name || result.title}</span>
@@ -203,10 +231,68 @@ function renderPlayerHeader(props: {
         {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
       </h2>
       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-gray-400 hover:text-gray-200 transition-colors"><Info className="w-5 h-5" /></button>}
         {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
         <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
         <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-gray-400 hover:text-gray-200 transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors"><X className="w-5 h-5" /></button>
+      </div>
+    </div>
+  )
+}
+
+// Torrent-info overlay opened from the player header. Rendered ABOVE the player
+// (z-[60] > the modal's z-50) so it floats over the video. Reads the live `info`
+// so swarm stats update while open.
+function renderTorrentInfoModal(props: {
+  info: TorrentInfo
+  result: SearchResult
+  isTranscoded: boolean
+  encoderLabel: string
+  onClose: () => void
+  onCopyHash: () => void
+  hashCopied: boolean
+}) {
+  const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied } = props
+  const pct = info.progress !== undefined ? `${(info.progress * 100).toFixed(1)}%` : null
+  const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
+    <div className="flex items-start gap-2 py-1.5 border-b border-gray-700/40 last:border-0">
+      <span className="text-gray-500 text-xs w-28 flex-shrink-0 flex items-center gap-1.5">{icon}{label}</span>
+      <span className="text-gray-200 text-sm min-w-0 break-words flex-1">{children}</span>
+    </div>
+  )
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
+      role="dialog" aria-modal="true" tabIndex={-1}
+    >
+      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
+          <h3 className="text-sm font-semibold text-gray-100 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400" />Informações do torrent</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-200"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-4 py-2 overflow-y-auto">
+          <Row icon={<FileVideo className="w-3.5 h-3.5" />} label="Nome">{info.name || result.title}</Row>
+          {info.name && info.name !== result.title && <Row label="Release">{result.title}</Row>}
+          <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
+          <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
+          {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
+          {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
+          {result.category && <Row label="Categoria">{result.category}</Row>}
+          {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label="Encoder">{encoderLabel || 'GPU'}</Row>}
+          {info.infoHash && (
+            <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="font-mono text-xs truncate min-w-0">{info.infoHash}</span>
+                <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-gray-500 hover:text-gray-200">
+                  {hashCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </span>
+            </Row>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -388,8 +474,52 @@ function VideoPlayerElement({
   onResumeContinue,
   onResumeRestart,
 }: VideoPlayerElementProps) {
+  // HLS (.m3u8) toca nativo só no WebKit (Safari + todo browser iOS). Chrome/
+  // Firefox/Edge desktop precisam do hls.js pra tocar o MESMO HLS-VOD — é o que
+  // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
+  // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
+  // <video> pra nunca setar os dois ao mesmo tempo.
+  const useHlsJs = !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !useHlsJs || !streamURL) return
+    // Buffer dianteiro modesto: como é transcode sob demanda atrás de um servidor
+    // com seek-restart, pedir fragmentos muito à frente do que o transcoder já
+    // produziu força um seek-restart caro (a cascata vista no Chrome/Firefox).
+    const hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false,
+      startPosition: 0,
+      testBandwidth: false,
+      maxBufferLength: 20,
+      maxMaxBufferLength: 40,
+      backBufferLength: 30,
+      fragLoadingTimeOut: 60000,
+      manifestLoadingTimeOut: 30000,
+    })
+    // Recupera de erros transitórios (buracos enquanto o transcoder reinicia) em
+    // vez de mostrar a UI de erro fatal.
+    hls.on(Hls.Events.ERROR, (_evt, data) => {
+      if (!data.fatal) return
+      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
+      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
+      else hls.destroy()
+    })
+    // Autoplay: o atributo autoPlay não dispara sozinho no hls.js (a fonte é
+    // anexada via MSE de forma async, fora do gesto de abertura). Ao parsear o
+    // manifest, tenta tocar; se o browser bloquear sem áudio mudo (NotAllowed),
+    // tenta de novo mudado (autoplay mudo é sempre permitido) — aí o usuário só
+    // dá unmute, em vez de ter que clicar em play.
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      tryAutoplayMutedFallback(v)
+    })
+    hls.loadSource(streamURL)
+    hls.attachMedia(v)
+    return () => hls.destroy()
+  }, [videoRef, streamURL, useHlsJs])
+
   return (
-    <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
+    <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70dvh] sm:max-h-[58dvh]" style={{ aspectRatio: '16 / 9' }}>
       {audioMode && info && (
         <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
           <Volume2 className="absolute w-12 h-12 text-gray-600" />
@@ -464,7 +594,7 @@ function VideoPlayerElement({
       {videoError ? null : (
         <video
           ref={videoRef}
-          src={streamURL || undefined}
+          src={useHlsJs ? undefined : (streamURL || undefined)}
           controls
           autoPlay
           playsInline
@@ -497,6 +627,19 @@ function VideoPlayerElement({
       {videoError && renderVideoError()}
     </div>
   )
+}
+
+// tryAutoplayMutedFallback: o iOS/Safari ignora o atributo autoPlay quando há
+// faixa de áudio (política de auto-play da Apple — só toca sozinho mudo, sem som
+// ou após gesto). Tenta play() com som; se a política bloquear (NotAllowed sem
+// gesto), cai pra MUDO (sempre permitido inline) e o usuário só dá unmute. No
+// desktop, onde autoplay com som é permitido, o primeiro play() já passa e o
+// vídeo NÃO fica mudo. Usado tanto no hls.js (desktop) quanto no <video> nativo.
+function tryAutoplayMutedFallback(v: HTMLVideoElement) {
+  v.play().catch(() => {
+    v.muted = true
+    v.play().catch(() => {})
+  })
 }
 
 // Resolve the file to auto-select when (re)opening a torrent: an explicit
@@ -693,7 +836,7 @@ function FilePickerSidebar({
                 else if (canPreview) setPreviewFileIdx(f.index)
                 // else: dead row, click does nothing (download via long-press / context menu still available)
               }}
-              onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
+              onMouseEnter={e => hoverThumb.show(thumbUrl, e, f.path)}
               onMouseMove={hoverThumb.move}
               onMouseLeave={hoverThumb.hide}
               title={f.path}
@@ -1619,6 +1762,9 @@ export default function PlayerModal({
   // entries as incognito=1; they are cleaned up when incognito is disabled or
   // the user logs out.
   const [incognito, setIncognito] = useIncognito()
+  // Auth ligado no servidor? Com auth off as rotas de mídia são públicas e não
+  // precisam de ?token= (e /auth/media-token nem existe → 404).
+  const { enabled: authEnabled } = useAuth()
 
   // serverReady — flips true the moment streamAdd resolves and the streamer has
   // actually loaded the torrent. The metadata cache lets us populate `info`
@@ -1671,12 +1817,31 @@ export default function PlayerModal({
   }
   // Transcoding options — any non-null value triggers `/api/stream/transcode` instead of raw stream
   const [transcodeAudio, setTranscodeAudio] = useState<number | null>(null)
+  // Dispara o auto-transcode do áudio incompatível no máximo uma vez por arquivo.
+  const audioAutoRef = useRef(false)
   const [forceH264, setForceH264] = useState(false)
   const [burnSubTrack, setBurnSubTrack] = useState<number | null>(null)
+  // Auto-transcode do áudio quando o codec da faixa DEFAULT não é decodável pelo
+  // browser (AC3/E-AC3/DDP/DTS/TrueHD/Atmos/PCM/WMA) — senão o vídeo toca MUDO
+  // (ex: MKV DDP5.1 Atmos). O Safari vai pelo caminho HLS, que já resolve isso →
+  // só não-Safari. Dispara uma vez por arquivo; o seletor de faixa ainda permite
+  // o usuário trocar.
+  useEffect(() => {
+    if (audioAutoRef.current || !probe || isSafariBrowser() || transcodeAudio !== null) return
+    const INCOMPATIBLE = /^(ac-?3|e-?ac-?3|eac3|ddp?|dts|dca|truehd|mlp|pcm|wmav?)/i
+    const def = probe.audio.find(a => a.default) ?? probe.audio[0]
+    if (def && INCOMPATIBLE.test(def.codec)) {
+      audioAutoRef.current = true
+      setTranscodeAudio(def.index)
+    }
+  }, [probe, transcodeAudio])
   // HEVC auto-fallback: on first <video> error, if a GPU encoder is available, retry via transcode.
   // The "Attempted" flag prevents an infinite loop if the transcoded stream also errors.
   const [transcodeFallbackAttempted, setTranscodeFallbackAttempted] = useState(false)
   const [caps, setCaps] = useState<TranscodeCapabilities | null>(null)
+  // Torrent-info overlay (opened from the header Info button).
+  const [showInfo, setShowInfo] = useState(false)
+  const [hashCopied, setHashCopied] = useState(false)
   // Variable playback speed for audiobooks / lectures. We persist this in
   // localStorage so it survives modal close and across sessions. We rely on
   // the browser's built-in pitch-preservation (preservesPitch / webkitPreservesPitch)
@@ -1708,6 +1873,11 @@ export default function PlayerModal({
   // a single left-anchored fill.
   const [bufferedRanges, setBufferedRanges] = useState<Array<[number, number]>>([])
   const videoRef = useRef<HTMLVideoElement>(null)
+  // Swipe down on the header bar minimizes the player to its PiP card — the same
+  // non-destructive dismiss as tapping the backdrop or pressing Escape (keeps
+  // playback alive), the iOS idiom for "push this sheet away".
+  const headerRef = useRef<HTMLDivElement>(null)
+  useSwipe(headerRef, { onDown: () => setMinimized(true) }, { enabled: !minimized, threshold: 50 })
   const pollRef = useRef<number | null>(null)
   // Prefetch fire-once flags. Reset whenever the underlying selected file
   // changes so re-watching a playlist item or switching files starts fresh.
@@ -1756,6 +1926,7 @@ export default function PlayerModal({
     lastResumeSaveRef.current = 0
     setServerReady(false)
     setTranscodeAudio(null)
+    audioAutoRef.current = false
     setForceH264(false)
     setBurnSubTrack(null)
     setCustomSubURL(prev => {
@@ -1965,7 +2136,7 @@ export default function PlayerModal({
   // fallback while ffmpeg was still producing, causing a reload storm.
   useHevcBackstop({
     videoRef, info, selectedFile, audioMode, transcodeAudio, forceH264, burnSubTrack,
-    transcodeFallbackAttempted, videoError, bufferedEnd, caps, videoDiagnostic,
+    transcodeFallbackAttempted, videoError, bufferedEnd, needsTranscode: probe?.needsTranscode, caps, videoDiagnostic,
     setTranscodeFallbackAttempted, setForceH264,
   })
 
@@ -2135,18 +2306,31 @@ export default function PlayerModal({
   // and then keep `resumePosition` populated so the "Continuar" button can use
   // it after the user goes back to the start.
   const appliedAutoResumeRef = useRef(false)
+  // Autoplay nativo (iOS): dispara uma vez por fonte, no canplay sem-resume.
+  const autoplayTriedRef = useRef(false)
   useEffect(() => {
     // Reset whenever a new file is selected so a future URL-driven re-play
     // (e.g., navigating to ?play=X&t=...) re-applies the seek instead of
     // remembering "already done" from the previous file.
     appliedInitialSeekRef.current = false
     appliedAutoResumeRef.current = false
+    autoplayTriedRef.current = false
     setShowResumePrompt(false)
   }, [selectedFile, info?.infoHash])
 
   // Seek once the video can play. Priority:
   //   1. URL-supplied initialSeek (explicit, e.g. shared link with `t=120`)
   //   2. per-user library resumeSeconds (background-saved, silent)
+  // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
+  // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
+  // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
+  // — aí o usuário escolhe continuar/recomeçar. (O caminho hls.js já trata o
+  // autoplay no MANIFEST_PARSED; um play() extra aqui seria no-op idempotente.)
+  const maybeAutoplayNative = (v: HTMLVideoElement) => {
+    if (autoplayTriedRef.current) return
+    autoplayTriedRef.current = true
+    tryAutoplayMutedFallback(v)
+  }
   const handleVideoCanPlay = () => {
     const v = videoRef.current
     if (!v) return
@@ -2157,15 +2341,18 @@ export default function PlayerModal({
       appliedInitialSeekRef.current = true
       // Clear DB resume to avoid the second branch firing on the same canplay
       setResumePosition(null)
+      maybeAutoplayNative(v)
       return
     }
-    if (resumePosition === null) return
-    if (v.currentTime < 1 && resumePosition > 30 && !appliedAutoResumeRef.current) {
+    if (resumePosition !== null && v.currentTime < 1 && resumePosition > 30 && !appliedAutoResumeRef.current) {
       appliedAutoResumeRef.current = true
       // Ask instead of silently jumping: the user picks "continue" or "restart"
       // via the overlay (see resume prompt). Mark applied so it only asks once.
       setShowResumePrompt(true)
+      return
     }
+    // Sem seek explícito nem prompt de resume → começa a tocar sozinho.
+    maybeAutoplayNative(v)
   }
 
   // Probe container for embedded audio + subtitle tracks (uses ffprobe on first ~16MB).
@@ -2354,7 +2541,7 @@ export default function PlayerModal({
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled, probe })
   const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
@@ -2569,7 +2756,25 @@ export default function PlayerModal({
       <div className={minimized
         ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
         : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
-        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose })}
+        {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
+            minimized, which previously left the little card with NO way back to the
+            full player. This bar restores the expand + close affordances. */}
+        {minimized && (
+          <div className="flex items-center justify-between gap-2 px-2 py-1 bg-gray-900/80 border-b border-gray-700 flex-shrink-0">
+            <span className="text-[11px] text-gray-300 truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700/60"><Maximize2 className="w-4 h-4" /></button>
+              <button onClick={onClose} title="Fechar" className="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700/60"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+        )}
+        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo: () => setShowInfo(true), headerRef })}
+        {!minimized && showInfo && info && renderTorrentInfoModal({
+          info, result, isTranscoded, encoderLabel,
+          onClose: () => setShowInfo(false),
+          onCopyHash: () => { if (info.infoHash) { navigator.clipboard?.writeText(info.infoHash); setHashCopied(true); globalThis.setTimeout(() => setHashCopied(false), 2000) } },
+          hashCopied,
+        })}
         {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage

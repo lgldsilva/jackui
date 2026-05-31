@@ -386,19 +386,40 @@ func TestEncodeSpecArgsNvencForcesIDR(t *testing.T) {
 	}
 }
 
-// TestEncodeSpecArgsEventUnchanged ensures the non-VOD path keeps the proven
-// EVENT flags (-g 60, no forced keyframes, no setpts) so a duration-unknown
-// source behaves EXACTLY as before #61 — none of the VOD timestamp surgery
-// must leak into the stable live path.
-func TestEncodeSpecArgsEventUnchanged(t *testing.T) {
+// TestEncodeSpecZeroesPTSBothModes é o GUARD do stall do Safari no t=0: AMBOS os
+// caminhos (EVENT/live e VOD) DEVEM zerar o PTS inicial (setpts/asetpts=PTS-STARTPTS).
+// Validado na prática: torrent HEVC no Safari/macOS (VideoToolbox) com PTS≠0 deixa
+// um buraco [0,offset] e o player trava em currentTime 0 (buffera mas não toca).
+// Se alguém remover o setpts de qualquer ramo, ESTE teste quebra — exatamente o que
+// queremos pra não regredir o playback no Safari/iOS.
+func TestEncodeSpecZeroesPTSBothModes(t *testing.T) {
+	for _, vod := range []bool{false, true} {
+		spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: vod}
+		joined := strings.Join(spec.args(0), " ")
+		if !strings.Contains(joined, "setpts=PTS-STARTPTS") || !strings.Contains(joined, "asetpts=PTS-STARTPTS") {
+			t.Errorf("vod=%v: precisa zerar o PTS inicial no filtro (guard do stall do Safari no t=0); got:\n%s", vod, joined)
+		}
+		// CAUSA RAIZ real do stall: sem -muxdelay 0 -muxpreload 0 o muxer MPEG-TS
+		// re-adiciona ~1.4s e o seg0 sai começando em 1.4s (verificado por ffprobe).
+		// Se alguém remover, o Safari volta a travar em currentTime 0.
+		if !strings.Contains(joined, "-muxdelay 0") || !strings.Contains(joined, "-muxpreload 0") {
+			t.Errorf("vod=%v: precisa de -muxdelay 0 -muxpreload 0 (senão o muxer TS começa em ~1.4s → Safari trava); got:\n%s", vod, joined)
+		}
+	}
+}
+
+// TestEncodeSpecArgsEventKeepsProvenFlags garante que o EVENT/live mantém os flags
+// provados (-g 60) e NÃO leva a cirurgia de seek exclusiva do VOD (forced keyframes
+// + output_ts_offset), que regrediu o seek-restart antes.
+func TestEncodeSpecArgsEventKeepsProvenFlags(t *testing.T) {
 	spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: false}
 	joined := strings.Join(spec.args(0), " ")
 	if !strings.Contains(joined, "-g 60") {
 		t.Errorf("EVENT mode must keep -g 60; got:\n%s", joined)
 	}
-	for _, forbidden := range []string{"-force_key_frames", "setpts", "-output_ts_offset", "-forced-idr"} {
+	for _, forbidden := range []string{"-force_key_frames", "-output_ts_offset", "-forced-idr"} {
 		if strings.Contains(joined, forbidden) {
-			t.Errorf("EVENT mode must not contain %q (VOD-only); got:\n%s", forbidden, joined)
+			t.Errorf("EVENT mode must not contain VOD-only %q; got:\n%s", forbidden, joined)
 		}
 	}
 }

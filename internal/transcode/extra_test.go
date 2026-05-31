@@ -402,10 +402,21 @@ func TestBuildTranscodeArgsWithSubBurn(t *testing.T) {
 
 func TestBuildTranscodeArgsWithHWDecode(t *testing.T) {
 	caps := &Capabilities{Preferred: "h264_nvenc"}
-	args := buildTranscodeArgs(caps, "h264_nvenc", "mp4", Options{VideoCodec: "h264", SourceVCodec: "hevc"})
+	// AudioTrack/SubBurnTrack -1 = "none" (what the real handlers pass); SubBurnTrack
+	// 0 would wrongly select the CPU subtitle-burn overlay path instead of HW decode.
+	args := buildTranscodeArgs(caps, "h264_nvenc", "mp4", Options{VideoCodec: "h264", SourceVCodec: "hevc", AudioTrack: -1, SubBurnTrack: -1})
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "-hwaccel cuda") {
 		t.Errorf("expected hwaccel, got %s", joined)
+	}
+	// NVENC downloads to sysmem + software scale/8-bit (scale_cuda's format= is
+	// missing on the container's ffmpeg 4.4.2). So: -hwaccel cuda but NOT
+	// -hwaccel_output_format cuda, and an sw scale+format filter.
+	if strings.Contains(joined, "-hwaccel_output_format cuda") {
+		t.Errorf("nvenc must let frames download to sysmem on old ffmpeg, got %s", joined)
+	}
+	if !strings.Contains(joined, "format=yuv420p") {
+		t.Errorf("expected software scale+8-bit filter for nvenc, got %s", joined)
 	}
 }
 

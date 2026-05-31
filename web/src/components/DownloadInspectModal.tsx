@@ -375,7 +375,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                   <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden font-mono text-xs max-h-[50vh] overflow-y-auto">
                     {displayTrackers.map(trackerUrl => (
                       <li key={trackerUrl} className="px-3 py-2 flex items-center justify-between gap-3 text-gray-300 hover:bg-gray-800/40">
-                        <span className="truncate flex-1" title={trackerUrl}>{trackerUrl}</span>
+                        <span className="truncate flex-1 min-w-0" title={trackerUrl}>{trackerUrl}</span>
                         <button
                           onClick={async () => {
                             try {
