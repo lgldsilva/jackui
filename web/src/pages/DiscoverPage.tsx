@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flame, Loader2, Search, Star, Film, Tv } from 'lucide-react'
+import { Flame, Loader2, Search, Star, Film, Tv, X } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { tmdbTrending, TmdbMatch } from '../api/client'
 
@@ -14,6 +14,7 @@ type Filter = 'all' | 'movie' | 'tv'
 export default function DiscoverPage() {
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
+  const [query, setQuery] = useState('')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -25,7 +26,10 @@ export default function DiscoverPage() {
     navigate(`/?q=${encodeURIComponent(q)}`)
   }
 
-  const shown = (items || []).filter(m => filter === 'all' || m.kind === filter)
+  const q = query.trim().toLowerCase()
+  const shown = (items || []).filter(
+    m => (filter === 'all' || m.kind === filter) && (!q || m.title.toLowerCase().includes(q)),
+  )
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -48,11 +52,34 @@ export default function DiscoverPage() {
           </div>
         </div>
 
+        {/* Busca por título dentro da grade trending */}
+        {items !== null && items.length > 0 && (
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Filtrar por título..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500/50"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                aria-label="Limpar"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 p-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
+
 {(() => {
           if (items === null) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
           if (items.length === 0) return <div className="text-center py-20 text-gray-500"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada pra mostrar</p><p className="text-xs mt-2">Configure a <code className="text-gray-400">tmdb.api_key</code> (ou <code className="text-gray-400">TMDB_API_KEY</code>) pra ver os títulos em alta.</p></div>
           return (
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {shown.map(m => (
               <button
                 key={`${m.kind}-${m.tmdbId}`}
@@ -71,8 +98,9 @@ export default function DiscoverPage() {
                       <Star className="w-3 h-3 fill-current" />{m.voteAverage.toFixed(1)}
                     </span>
                   )}
-                  {/* Hover overlay hints the click action */}
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Dica de clique — no mobile aparece ao tocar (group-active) sem
+                      escurecer os pôsteres permanentemente; no desktop, no hover. */}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
                     <Search className="w-7 h-7 text-green-400" />
                   </div>
                 </div>

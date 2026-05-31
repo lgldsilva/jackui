@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   ChevronRight,
+  ChevronDown,
   Folder,
   FileVideo,
   FileAudio,
@@ -15,12 +16,18 @@ import {
   FolderSync,
   FolderInput,
   Upload,
+  Search,
+  Check,
   X,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
 import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
+import { useConfirm } from '../components/ConfirmDialog'
+import { useLongPress } from '../lib/useLongPress'
+import { Sheet } from '../components/Sheet'
+import { BatchActionBar } from '../components/BatchActionBar'
 import LocalPromoteModal from '../components/LocalPromoteModal'
 import ReclassifyFolderModal from '../components/ReclassifyFolderModal'
 import MoveFolderModal from '../components/MoveFolderModal'
@@ -140,6 +147,100 @@ function Breadcrumbs({
   )
 }
 
+type EntryRowProps = {
+  readonly entry: LocalEntry
+  readonly mount: string
+  readonly selectMode: boolean
+  readonly selected: boolean
+  readonly canManipulate: boolean
+  readonly isAdmin: boolean
+  readonly onOpen: (e: LocalEntry) => void
+  readonly onEnterSelect: (e: LocalEntry) => void
+  readonly onToggleSelect: (e: LocalEntry) => void
+  readonly onPromote: (e: LocalEntry) => void
+  readonly onReclassify: (e: LocalEntry) => void
+  readonly onMove: (e: LocalEntry) => void
+  readonly onDelete: (e: LocalEntry) => void
+}
+
+// Uma linha da lista. Extraída pra poder usar useLongPress por item (hooks não
+// podem ser chamados dentro de um .map). Long-press entra no modo seleção.
+function EntryRow(props: EntryRowProps) {
+  const { entry: e, mount, selectMode, selected, canManipulate, isAdmin } = props
+  const clickable = e.isDir || e.isPlayable
+  const canAct = canManipulate || isAdmin
+  const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct })
+  const pressHandlers = selectMode || !canAct ? {} : lp
+
+  return (
+    <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-gray-700/20'}`}>
+      <button
+        onClick={() => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))}
+        disabled={!selectMode && !clickable}
+        {...pressHandlers}
+        className={`flex-1 min-w-0 flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+          selectMode || clickable ? 'cursor-pointer' : 'cursor-default opacity-70'
+        }`}
+      >
+        {selectMode && (
+          <span className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
+            selected ? 'bg-green-500 border-green-500' : 'border-gray-500'
+          }`}>
+            {selected && <Check className="w-3.5 h-3.5 text-white" />}
+          </span>
+        )}
+        <EntryIcon entry={e} mount={mount} />
+        <span className="flex-1 min-w-0 truncate text-gray-100 font-medium">{e.name}</span>
+        {!e.isDir && (
+          <span className="text-xs text-gray-500 w-20 text-right flex-shrink-0">{formatSize(e.size)}</span>
+        )}
+        <span className="text-xs text-gray-500 w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
+      </button>
+
+      {/* Ações rápidas individuais (escondidas no modo seleção) */}
+      {!selectMode && canAct && (
+        <div className="flex items-center gap-1.5 px-2 sm:px-4 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          {canAct && !e.isDir && (
+            <button
+              onClick={(evt) => { evt.stopPropagation(); props.onPromote(e) }}
+              title="Promover / Organizar via IA"
+              className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
+            >
+              <ArrowUpCircle className="w-5 h-5" />
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={(evt) => { evt.stopPropagation(); props.onReclassify(e) }}
+              title={e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA'}
+              className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all"
+            >
+              <FolderSync className="w-5 h-5" />
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={(evt) => { evt.stopPropagation(); props.onMove(e) }}
+              title="Mover para outro mount"
+              className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
+            >
+              <FolderInput className="w-5 h-5" />
+            </button>
+          )}
+          {canAct && (
+            <button
+              onClick={(evt) => { evt.stopPropagation(); props.onDelete(e) }}
+              title={e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente'}
+              className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
 
 export default function LocalPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -155,10 +256,18 @@ export default function LocalPage() {
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
 
   const [promoteItem, setPromoteItem] = useState<LocalEntry | null>(null)
-  const [deleteConfirmItem, setDeleteConfirmItem] = useState<LocalEntry | null>(null)
-  const [deleting, setDeleting] = useState(false)
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
+  const confirm = useConfirm()
+
+  // Busca textual por nome (filtra a lista visível) + seleção múltipla / lote.
+  const [search, setSearch] = useState('')
+  const [mountSheetOpen, setMountSheetOpen] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchMoveOpen, setBatchMoveOpen] = useState(false)
+  const [promoteQueue, setPromoteQueue] = useState<LocalEntry[]>([])
 
   // Upload state: tracks the in-flight transfer for the progress banner. The
   // AbortController lets the user cancel mid-stream; the hidden <input> is reset
@@ -191,8 +300,10 @@ export default function LocalPage() {
   // Folders always show (so navigation never gets filtered away); the kind
   // filter + sort apply within each group, folders kept on top.
   const visible = useMemo(() => {
-    const dirs = entries.filter((e) => e.isDir)
-    let files = entries.filter((e) => !e.isDir)
+    const q = search.trim().toLowerCase()
+    const matchesSearch = (e: LocalEntry) => !q || e.name.toLowerCase().includes(q)
+    const dirs = entries.filter((e) => e.isDir && matchesSearch(e))
+    let files = entries.filter((e) => !e.isDir && matchesSearch(e))
     if (kind === 'video') files = files.filter((e) => isVideo(e.name))
     else if (kind === 'audio') files = files.filter((e) => isAudio(e.name))
     else if (kind === 'other') files = files.filter((e) => !isVideo(e.name) && !isAudio(e.name))
@@ -205,11 +316,59 @@ export default function LocalPage() {
       return sortDir === 'asc' ? r : -r
     }
     return [...dirs.sort(cmp), ...files.sort(cmp)]
-  }, [entries, kind, sortKey, sortDir])
+  }, [entries, kind, sortKey, sortDir, search])
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     else { setSortKey(key); setSortDir(key === 'name' ? 'asc' : 'desc') }
+  }
+
+  // Sair do modo seleção ao trocar de mount/pasta — evita lote acidental
+  // cross-folder (as APIs são scoped a mount+path relativo).
+  useEffect(() => {
+    setSelectMode(false)
+    setSelected(new Set())
+  }, [activeMount, path])
+
+  const selectedEntries = useMemo(
+    () => entries.filter((e) => selected.has(e.path)),
+    [entries, selected],
+  )
+
+  const clearSelection = () => { setSelectMode(false); setSelected(new Set()) }
+  const toggleSelect = (e: LocalEntry) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(e.path)) next.delete(e.path)
+    else next.add(e.path)
+    return next
+  })
+  const enterSelect = (e: LocalEntry) => { setSelectMode(true); setSelected(new Set([e.path])) }
+  // "Selecionar tudo" age sobre a lista visível (respeita filtro/busca atuais).
+  const selectAllVisible = () => setSelected(new Set(visible.map((e) => e.path)))
+
+  const runBatchDelete = async () => {
+    if (selectedEntries.length === 0) return
+    const ok = await confirm({
+      title: 'Apagar permanentemente?',
+      message: `Tem certeza que deseja apagar ${selectedEntries.length} ${selectedEntries.length === 1 ? 'item' : 'itens'}? Esta ação é irreversível. O torrent vinculado (se houver) também é removido: download, pieces no cache e favorito.`,
+      confirmLabel: 'Apagar',
+      destructive: true,
+    })
+    if (!ok) return
+    setBatchRunning(true)
+    setError('')
+    const results = await Promise.allSettled(selectedEntries.map((e) => localDelete(activeMount, e.path)))
+    const failed = results.filter((r) => r.status === 'rejected').length
+    if (failed > 0) setError(`${failed} de ${selectedEntries.length} itens não puderam ser apagados.`)
+    setBatchRunning(false)
+    clearSelection()
+    refresh()
+  }
+
+  // Promover em lote = fila item a item (o LocalPromoteModal é um fluxo de IA rico).
+  const runBatchPromote = () => {
+    if (selectedEntries.length === 0) return
+    setPromoteQueue(selectedEntries.filter((e) => !e.isDir))
   }
 
   useEffect(() => {
@@ -279,18 +438,29 @@ export default function LocalPage() {
     return () => setLocalViewAsUser('')
   }, [])
 
-  const handleDelete = async () => {
-    if (!deleteConfirmItem || !activeMount) return
-    setDeleting(true)
+  const requestDelete = async (item: LocalEntry) => {
+    if (!activeMount) return
+    const ok = await confirm({
+      title: 'Apagar permanentemente?',
+      message: (
+        <>
+          Tem certeza que deseja apagar <span className="text-red-400 font-medium">"{item.name}"</span>? Esta ação é
+          irreversível e excluirá o {item.isDir ? 'diretório' : 'arquivo'} de forma permanente no servidor.
+          <span className="block mt-2 text-xs text-amber-400/80">
+            O torrent vinculado (se houver) também será removido: registro do download, pieces no cache e marcação de favorito.
+          </span>
+        </>
+      ),
+      confirmLabel: 'Apagar',
+      destructive: true,
+    })
+    if (!ok) return
     setError('')
     try {
-      await localDelete(activeMount, deleteConfirmItem.path)
-      setDeleteConfirmItem(null)
+      await localDelete(activeMount, item.path)
       refresh()
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao apagar arquivo')
-    } finally {
-      setDeleting(false)
     }
   }
 
@@ -372,9 +542,10 @@ export default function LocalPage() {
     <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
       <NavHeader />
       <main className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4 md:gap-6">
-        {/* Sidebar — desktop é coluna fixa à esquerda; mobile vira faixa horizontal
-            no topo (chips de mount) pra não roubar metade da tela do conteúdo. */}
-        <aside className="md:w-56 flex-shrink-0 md:overflow-y-auto">
+        {/* Sidebar — desktop é coluna fixa à esquerda. No mobile some por completo
+            (hidden) e dá lugar a um dropdown de mount na barra do breadcrumb, que
+            não rouba altura nem força scroll horizontal de chips. */}
+        <aside className="hidden md:block md:w-56 flex-shrink-0 md:overflow-y-auto">
           <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-2 md:mb-3">
             Mounts
           </h2>
@@ -386,7 +557,7 @@ export default function LocalPage() {
                 external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
               </code></>
           ) : (
-            <ul className="flex md:flex-col gap-2 md:gap-1 overflow-x-auto md:overflow-visible md:space-y-1 -mx-1 px-1 md:mx-0 md:px-0">
+            <ul className="flex flex-col gap-1 space-y-1">
               {mounts.map((m) => {
                 const active = m.name === activeMount
                 return (
@@ -434,7 +605,18 @@ export default function LocalPage() {
         <section className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {activeMount && (
             <div className="flex-shrink-0 flex items-center justify-between gap-3">
-              <Breadcrumbs mountName={activeMount} path={path} onNavigate={(p) => updateNavigation(activeMount, p)} />
+              <div className="flex items-center gap-2 min-w-0">
+                {/* Dropdown de mount — só no mobile (a sidebar some em <md) */}
+                <button
+                  onClick={() => setMountSheetOpen(true)}
+                  className="md:hidden flex-shrink-0 flex items-center gap-1.5 px-2.5 min-h-[40px] rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 max-w-[45vw]"
+                >
+                  <HardDrive className="w-4 h-4 text-green-400 flex-shrink-0" />
+                  <span className="truncate">{activeMount}</span>
+                  <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                </button>
+                <Breadcrumbs mountName={activeMount} path={path} onNavigate={(p) => updateNavigation(activeMount, p)} />
+              </div>
               {(canManipulate || isAdmin) && (
                 <>
                   <input
@@ -494,39 +676,70 @@ export default function LocalPage() {
             </div>
           )}
 
-          {/* Toolbar: kind filter chips + sort controls (flex-shrink-0 so it
-              stays put while the list below scrolls). */}
+          {/* Toolbar: busca + selecionar; chips de tipo + ordenação (flex-shrink-0
+              pra ficar fixa enquanto a lista abaixo rola). */}
           {activeMount && entries.length > 0 && (
-            <div className="flex-shrink-0 flex flex-wrap items-center gap-2 text-xs">
-              {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => setKind(k)}
-                  className={`px-2.5 py-1 rounded-full border transition-colors ${
-                    kind === k
-                      ? 'bg-green-500/15 text-green-400 border-green-500/40'
-                      : 'text-gray-400 border-gray-700 hover:border-gray-600'
-                  }`}
-                >
-                  {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
-                </button>
-              ))}
-              <span className="mx-1 h-4 w-px bg-gray-700" />
-              <span className="text-gray-500">Ordenar:</span>
-              {(['name', 'size', 'date'] as SortKey[]).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => toggleSort(k)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
-                    sortKey === k
-                      ? 'bg-gray-700 text-gray-100 border-gray-600'
-                      : 'text-gray-400 border-gray-700 hover:border-gray-600'
-                  }`}
-                >
-                  {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
-                  {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-                </button>
-              ))}
+            <div className="flex-shrink-0 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Buscar arquivo..."
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500/50"
+                  />
+                  {search && (
+                    <button
+                      onClick={() => setSearch('')}
+                      aria-label="Limpar busca"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 p-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                {(canManipulate || isAdmin) && !selectMode && (
+                  <button
+                    onClick={() => setSelectMode(true)}
+                    className="flex-shrink-0 text-sm px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-700 transition-colors"
+                  >
+                    Selecionar
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setKind(k)}
+                    className={`px-2.5 py-1 rounded-full border transition-colors ${
+                      kind === k
+                        ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                        : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                    }`}
+                  >
+                    {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
+                  </button>
+                ))}
+                <span className="mx-1 h-4 w-px bg-gray-700 hidden sm:block" />
+                <span className="text-gray-500 hidden sm:inline">Ordenar:</span>
+                {(['name', 'size', 'date'] as SortKey[]).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => toggleSort(k)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
+                      sortKey === k
+                        ? 'bg-gray-700 text-gray-100 border-gray-600'
+                        : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                    }`}
+                  >
+                    {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
+                    {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -547,126 +760,41 @@ export default function LocalPage() {
           )}
 
           {!loading && visible.length > 0 && (
-            <ul className="flex-1 min-h-0 overflow-y-auto divide-y divide-gray-800 bg-gray-800/50 rounded-xl border border-gray-700">
-              {visible.map((e) => {
-                const clickable = e.isDir || e.isPlayable
-                return (
-                  <li key={e.path} className="flex items-center justify-between hover:bg-gray-700/20 group">
-                    <button
-                      onClick={() => handleEntryClick(e)}
-                      disabled={!clickable}
-                      className={`flex-1 flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                        clickable
-                          ? 'cursor-pointer'
-                          : 'cursor-default opacity-70'
-                      }`}
-                    >
-                      <EntryIcon entry={e} mount={activeMount} />
-                      <span className="flex-1 min-w-0 truncate text-gray-100 font-medium">
-                        {e.name}
-                      </span>
-                      {!e.isDir && (
-                        <span className="text-xs text-gray-500 w-20 text-right">
-                          {formatSize(e.size)}
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-500 w-24 text-right hidden sm:block">
-                        {formatDate(e.modTime)}
-                      </span>
-                    </button>
-
-                    {/* Ações rápidas */}
-                    {(canManipulate || isAdmin) && (
-                      <div className="flex items-center gap-1.5 px-4 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        {/* Promover: usuário em Meus downloads OU admin em qualquer mount */}
-                        {(canManipulate || isAdmin) && !e.isDir && (
-                          <button
-                            onClick={(evt) => { evt.stopPropagation(); setPromoteItem(e) }}
-                            title="Promover / Organizar via IA"
-                            className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
-                          >
-                            <ArrowUpCircle className="w-4.5 h-4.5" />
-                          </button>
-                        )}
-                        {/* Reclassificar: admin em dirs E arquivos */}
-                        {isAdmin && (
-                          <button
-                            onClick={(evt) => { evt.stopPropagation(); setReclassifyItem(e) }}
-                            title={e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA'}
-                            className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all"
-                          >
-                            <FolderSync className="w-4.5 h-4.5" />
-                          </button>
-                        )}
-                        {/* Mover entre mounts: admin */}
-                        {isAdmin && (
-                          <button
-                            onClick={(evt) => { evt.stopPropagation(); setMoveItem(e) }}
-                            title="Mover para outro mount"
-                            className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
-                          >
-                            <FolderInput className="w-4.5 h-4.5" />
-                          </button>
-                        )}
-                        {/* Apagar: usuário em Meus downloads OU admin em qualquer
-                            mount (pastas e arquivos). Alinha com o backend
-                            canModifyMount, que libera admin em qualquer mount. */}
-                        {(canManipulate || isAdmin) && (
-                          <button
-                            onClick={(evt) => { evt.stopPropagation(); setDeleteConfirmItem(e) }}
-                            title={e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente'}
-                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
-                          >
-                            <Trash2 className="w-4.5 h-4.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                )
-              })}
+            <ul className={`flex-1 min-h-0 overflow-y-auto divide-y divide-gray-800 bg-gray-800/50 rounded-xl border border-gray-700 ${selectMode ? 'pb-20' : ''}`}>
+              {visible.map((e) => (
+                <EntryRow
+                  key={e.path}
+                  entry={e}
+                  mount={activeMount}
+                  selectMode={selectMode}
+                  selected={selected.has(e.path)}
+                  canManipulate={canManipulate}
+                  isAdmin={isAdmin}
+                  onOpen={handleEntryClick}
+                  onEnterSelect={enterSelect}
+                  onToggleSelect={toggleSelect}
+                  onPromote={setPromoteItem}
+                  onReclassify={setReclassifyItem}
+                  onMove={setMoveItem}
+                  onDelete={requestDelete}
+                />
+              ))}
             </ul>
           )}
 
-          {/* Confirmação de Deleção */}
-          {deleteConfirmItem && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl p-6 flex flex-col gap-4">
-                <h3 className="text-base font-semibold text-gray-100 flex items-center gap-2">
-                  <Trash2 className="w-5 h-5 text-red-400" />
-                  Apagar permanentemente?
-                </h3>
-                <p className="text-sm text-gray-300">
-                  Tem certeza que deseja apagar <span className="text-red-400 font-medium">"{deleteConfirmItem.name}"</span>? Esta ação é irreversível e excluirá o arquivo de forma permanente no servidor.
-                </p>
-                <p className="text-xs text-amber-400/80">
-                  O torrent vinculado (se houver) também será removido: registro do download, pieces no cache e marcação de favorito.
-                </p>
-                <div className="flex items-center gap-2 justify-end mt-2">
-                  <button
-                    onClick={() => setDeleteConfirmItem(null)}
-                    disabled={deleting}
-                    className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="text-sm bg-red-500/20 hover:bg-red-500/30 disabled:opacity-50 text-red-300 border border-red-500/30 px-4 py-1.5 rounded transition-colors flex items-center gap-1.5 font-medium"
-                  >
-                    {deleting ? 'Apagando...' : 'Apagar'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modal de Promoção */}
+          {/* Modal de Promoção — `promoteItem` (individual) ou a fila do lote */}
           <LocalPromoteModal
             mount={activeMount}
-            entry={promoteItem}
-            onClose={() => setPromoteItem(null)}
+            entry={promoteItem ?? (promoteQueue.length > 0 ? promoteQueue[0] : null)}
+            onClose={() => {
+              if (promoteItem) { setPromoteItem(null); return }
+              // Avança a fila do lote; ao esvaziar, sai do modo seleção.
+              setPromoteQueue((q) => {
+                const next = q.slice(1)
+                if (next.length === 0) clearSelection()
+                return next
+              })
+            }}
             onPromoted={refresh}
           />
 
@@ -678,15 +806,76 @@ export default function LocalPage() {
             onDone={() => { setReclassifyItem(null); refresh() }}
           />
 
-          {/* Modal de Mover entre mounts */}
+          {/* Modal de Mover entre mounts — individual (moveItem) ou lote (selectedEntries) */}
           <MoveFolderModal
             mount={activeMount}
             entry={moveItem}
-            onClose={() => setMoveItem(null)}
-            onMoved={() => { setMoveItem(null); refresh() }}
+            entries={batchMoveOpen ? selectedEntries : undefined}
+            onClose={() => {
+              setMoveItem(null)
+              if (batchMoveOpen) { setBatchMoveOpen(false); clearSelection() }
+            }}
+            onMoved={refresh}
           />
         </section>
       </main>
+
+      {/* Barra de ações em lote (modo seleção) */}
+      {selectMode && (
+        <BatchActionBar
+          count={selected.size}
+          onCancel={clearSelection}
+          onSelectAll={selectAllVisible}
+          canMove={isAdmin}
+          canPromote={canManipulate || isAdmin}
+          onDelete={runBatchDelete}
+          onMove={() => setBatchMoveOpen(true)}
+          onPromote={runBatchPromote}
+          running={batchRunning}
+        />
+      )}
+
+      {/* Dropdown de mounts (mobile) */}
+      <Sheet
+        open={mountSheetOpen}
+        onClose={() => setMountSheetOpen(false)}
+        title="Mounts"
+        icon={<HardDrive className="w-4 h-4 text-green-400 flex-shrink-0" />}
+        size="sm"
+      >
+        <ul className="space-y-1">
+          {mounts.map((m) => (
+            <li key={m.name}>
+              <button
+                onClick={() => { handleSelectMount(m.name); setMountSheetOpen(false) }}
+                className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
+                  m.name === activeMount
+                    ? 'bg-green-500/10 text-green-400 border border-green-500/30'
+                    : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+                }`}
+              >
+                <HardDrive className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">{m.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {canViewAsUser && (
+          <div className="mt-4 pt-4 border-t border-gray-700">
+            <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Ver como</h3>
+            <select
+              value={viewAsUser}
+              onChange={(e) => { handleViewAsUser(e.target.value); setMountSheetOpen(false) }}
+              className="w-full px-3 py-2 rounded-lg text-base bg-gray-800 border border-gray-700 text-gray-200 focus:border-green-500/50 focus:outline-none"
+            >
+              <option value="">Meu espaço (admin)</option>
+              {adminUsers.map((u) => (
+                <option key={u.id} value={u.username}>{u.username}</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </Sheet>
     </div>
   )
 }

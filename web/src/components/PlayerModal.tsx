@@ -46,6 +46,7 @@ import { useIncognito } from '../lib/incognito'
 import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
+import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, hlsFatalAction } from './player/playerHooks'
 import type { ErrorData } from 'hls.js'
 
@@ -263,39 +264,34 @@ function renderTorrentInfoModal(props: {
     </div>
   )
   return (
-    <div
-      className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      tabIndex={-1}
+    <Sheet
+      open
+      onClose={onClose}
+      zClass="z-[60]"
+      lockScroll={false}
+      size="md"
+      title="Informações do torrent"
+      icon={<Info className="w-4 h-4 text-blue-400 flex-shrink-0" />}
     >
-      <dialog open aria-modal="true" className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col p-0 m-0 text-inherit">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
-          <h3 className="text-sm font-semibold text-gray-100 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400" />Informações do torrent</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-200"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="px-4 py-2 overflow-y-auto">
-          <Row icon={<FileVideo className="w-3.5 h-3.5" />} label="Nome">{info.name || result.title}</Row>
-          {info.name && info.name !== result.title && <Row label="Release">{result.title}</Row>}
-          <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
-          <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
-          {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
-          {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
-          {result.category && <Row label="Categoria">{result.category}</Row>}
-          {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label="Encoder">{encoderLabel || 'GPU'}</Row>}
-          {info.infoHash && (
-            <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
-              <span className="flex items-center gap-2 min-w-0">
-                <span className="font-mono text-xs truncate min-w-0">{info.infoHash}</span>
-                <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-gray-500 hover:text-gray-200">
-                  {hashCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </span>
-            </Row>
-          )}
-        </div>
-      </dialog>
-    </div>
+      <Row icon={<FileVideo className="w-3.5 h-3.5" />} label="Nome">{info.name || result.title}</Row>
+      {info.name && info.name !== result.title && <Row label="Release">{result.title}</Row>}
+      <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
+      <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
+      {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
+      {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
+      {result.category && <Row label="Categoria">{result.category}</Row>}
+      {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label="Encoder">{encoderLabel || 'GPU'}</Row>}
+      {info.infoHash && (
+        <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="font-mono text-xs truncate min-w-0">{info.infoHash}</span>
+            <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-gray-500 hover:text-gray-200">
+              {hashCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </span>
+        </Row>
+      )}
+    </Sheet>
   )
 }
 
@@ -316,13 +312,13 @@ function renderPlaylistBar(
         <span className="text-blue-400/80 flex-shrink-0">· {playlist.currentIndex + 1} de {playlist.items.length}</span>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={onPrev} className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
-        <button onClick={onToggleShuffle} className={`p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
-        <button onClick={onCycleRepeat} className={`p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`} title={`Repeat: ${repeat}`}>
+        <button onClick={onPrev} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
+        <button onClick={onToggleShuffle} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
+        <button onClick={onCycleRepeat} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`} title={`Repeat: ${repeat}`}>
           <Repeat className="w-3.5 h-3.5" />
-          {repeat === 'one' && <span className="absolute -bottom-0.5 -right-0.5 text-[8px] font-bold text-green-300">1</span>}
+          {repeat === 'one' && <span className="absolute bottom-0.5 right-0.5 text-[8px] font-bold text-green-300">1</span>}
         </button>
-        <button onClick={onNext} className="p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
+        <button onClick={onNext} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
       </div>
     </div>
   )
@@ -808,7 +804,14 @@ function FilePickerSidebar({
   }
   return (
     <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0">
+      {/* A barra inteira retrai a lista — clicar em qualquer parte funciona,
+          não só no chevron (o botão vira só indicador via pointer-events-none). */}
+      <button
+        type="button"
+        onClick={() => setSidebarOpen(false)}
+        title="Esconder lista de arquivos"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0 text-left cursor-pointer hover:bg-gray-700/40 transition-colors"
+      >
         <p className="text-xs text-gray-400 flex items-center gap-2 min-w-0">
           <FileVideo className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
           <span className="truncate">
@@ -816,14 +819,10 @@ function FilePickerSidebar({
             {videoFiles.length > 0 && <span className="text-blue-400"> · {videoFiles.length} vídeo{videoFiles.length === 1 ? '' : 's'}</span>}
           </span>
         </p>
-        <button
-          onClick={() => setSidebarOpen(false)}
-          title="Esconder lista de arquivos"
-          className="text-gray-500 hover:text-gray-200 p-1 rounded hover:bg-gray-700 flex-shrink-0"
-        >
+        <span className="text-gray-500 p-1 flex-shrink-0 pointer-events-none">
           <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
+        </span>
+      </button>
       {info.files.length > 6 && (
         <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0">
           <input

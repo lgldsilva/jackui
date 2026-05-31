@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { X, ListMusic, Plus, Check, Loader2 } from 'lucide-react'
+import { ListMusic, Plus, Check, Loader2 } from 'lucide-react'
 import {
   playlistsList, playlistsCreate, playlistsAddItem, pickTorrentSource,
   Playlist, SearchResult,
 } from '../api/client'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 
 type Props = {
   readonly result: SearchResult | null
@@ -18,7 +18,6 @@ type Props = {
  * Lists existing playlists + lets create a new one inline.
  */
 export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTitle }: Props) {
-  useScrollLock(!!result)
   const [lists, setLists] = useState<Playlist[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -83,26 +82,14 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
   if (!result) return null
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
+    <Sheet
       open
+      onClose={onClose}
+      size="lg"
+      title="Adicionar à playlist"
+      icon={<ListMusic className="w-4 h-4 text-blue-400 flex-shrink-0" />}
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between p-5 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-            <ListMusic className="w-5 h-5 text-blue-400" />
-            Adicionar à playlist
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-200">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-5 flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
           <p className="text-xs text-gray-400 line-clamp-2 bg-gray-900 rounded p-2">
             {result.title}
           </p>
@@ -168,8 +155,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
               </button>
             </form>
           )}
-        </div>
       </div>
-    </dialog>
+    </Sheet>
   )
 }

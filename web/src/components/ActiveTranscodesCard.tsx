@@ -1,8 +1,25 @@
 import { useState, useEffect } from 'react'
 import { Loader2, Trash2, Zap, Server, ShieldAlert } from 'lucide-react'
 import { fetchActiveTranscodes, killTranscodeSession, HLSSessionSnapshot, GPUInfo } from '../api/client'
+import { useConfirm } from './ConfirmDialog'
+
+type CodecStyle = { readonly cls: string; readonly label: string }
+
+function codecStyle(codec: string): CodecStyle {
+  if (codec === 'nvidia') return { cls: 'bg-green-500/10 text-green-300 border-green-500/20', label: 'NVIDIA HW' }
+  if (codec === 'vaapi') return { cls: 'bg-red-500/10 text-red-300 border-red-500/20', label: 'VAAPI HW' }
+  return { cls: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20', label: 'CPU SW' }
+}
+
+function sessionLabels(key: string) {
+  const parts = key.split('-')
+  const displayKey = parts.length > 0 ? parts[0].slice(0, 8) + '...' : key
+  const fileIndex = parts.length > 1 ? ` (Arq: ${parts[1]})` : ''
+  return { displayKey, fileIndex }
+}
 
 export default function ActiveTranscodesCard() {
+  const confirm = useConfirm()
   const [sessions, setSessions] = useState<HLSSessionSnapshot[]>([])
   const [gpu, setGpu] = useState<GPUInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -32,9 +49,13 @@ export default function ActiveTranscodesCard() {
   }, [])
 
   const handleKill = async (key: string) => {
-    if (!confirm('Deseja realmente derrubar e encerrar esta sessão de transcodificação? O player do usuário irá parar.')) {
-      return
-    }
+    const ok = await confirm({
+      title: 'Encerrar transcode',
+      message: 'Deseja realmente derrubar e encerrar esta sessão de transcodificação? O player do usuário irá parar.',
+      confirmLabel: 'Encerrar',
+      destructive: true,
+    })
+    if (!ok) return
     setKillingKey(key)
     try {
       await killTranscodeSession(key)
@@ -116,87 +137,109 @@ export default function ActiveTranscodesCard() {
           Sessões de Transcode HLS
         </h3>
         
-        {sessions.length === 0 ? (
+        {sessions.length === 0 && (
           <p className="text-sm text-gray-500 py-4 text-center bg-gray-900/20 rounded-xl border border-dashed border-gray-800/40">
             Nenhuma sessão de transcodificação ativa no momento.
           </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-800 text-xs text-gray-500 font-medium">
-                  <th className="py-2 px-3">Sessão / Arquivo</th>
-                  <th className="py-2 px-3">Codificador</th>
-                  <th className="py-2 px-3">Buffer (.ts)</th>
-                  <th className="py-2 px-3">Iniciado</th>
-                  <th className="py-2 px-3 text-right">Ação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800/40">
-                {sessions.map(s => {
-                  const parts = s.key.split('-')
-                  const displayKey = parts.length > 0 ? parts[0].slice(0, 8) + '...' : s.key
-                  const fileIndex = parts.length > 1 ? ` (Arq: ${parts[1]})` : ''
+        )}
 
-                  let codecClass: string
-                  if (s.codec === 'nvidia') {
-                    codecClass = 'bg-green-500/10 text-green-300 border-green-500/20'
-                  } else if (s.codec === 'vaapi') {
-                    codecClass = 'bg-red-500/10 text-red-300 border-red-500/20'
-                  } else {
-                    codecClass = 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20'
-                  }
+        {sessions.length > 0 && (
+          <>
+            {/* Desktop: table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-800 text-xs text-gray-500 font-medium">
+                    <th className="py-2 px-3">Sessão / Arquivo</th>
+                    <th className="py-2 px-3">Codificador</th>
+                    <th className="py-2 px-3">Buffer (.ts)</th>
+                    <th className="py-2 px-3">Iniciado</th>
+                    <th className="py-2 px-3 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/40">
+                  {sessions.map(s => {
+                    const { displayKey, fileIndex } = sessionLabels(s.key)
+                    const codec = codecStyle(s.codec)
+                    return (
+                      <tr key={s.key} className="hover:bg-gray-800/30 transition-colors group">
+                        <td className="py-3 px-3 font-mono text-xs text-gray-300">
+                          <div className="font-semibold text-gray-200">{displayKey}</div>
+                          <div className="text-[10px] text-gray-500">
+                            Hash {s.key.slice(0, 32)}...{fileIndex}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${codec.cls}`}>
+                            {codec.label}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-mono text-xs text-gray-400">
+                          {s.segmentsReady} segs
+                        </td>
+                        <td className="py-3 px-3 text-xs text-gray-400">
+                          {new Date(s.startedAt).toLocaleTimeString('pt-BR')}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <button
+                            onClick={() => handleKill(s.key)}
+                            disabled={killingKey === s.key}
+                            title="Derrubar Sessão (Kill)"
+                            className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
+                          >
+                            {killingKey === s.key ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-                  let codecLabel: string
-                  if (s.codec === 'nvidia') {
-                    codecLabel = 'NVIDIA HW'
-                  } else if (s.codec === 'vaapi') {
-                    codecLabel = 'VAAPI HW'
-                  } else {
-                    codecLabel = 'CPU SW'
-                  }
-
-                  return (
-                    <tr key={s.key} className="hover:bg-gray-800/30 transition-colors group">
-                      <td className="py-3 px-3 font-mono text-xs text-gray-300">
-                        <div className="font-semibold text-gray-200">
-                          {displayKey}
-                        </div>
-                        <div className="text-[10px] text-gray-500">
+            {/* Mobile: stacked cards */}
+            <div className="flex flex-col gap-2 sm:hidden">
+              {sessions.map(s => {
+                const { displayKey, fileIndex } = sessionLabels(s.key)
+                const codec = codecStyle(s.codec)
+                return (
+                  <div key={s.key} className="rounded-xl border border-gray-800 bg-gray-900/40 p-3 flex flex-col gap-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono font-semibold text-sm text-gray-200 truncate">{displayKey}</div>
+                        <div className="font-mono text-[10px] text-gray-500 break-all">
                           Hash {s.key.slice(0, 32)}...{fileIndex}
                         </div>
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${codecClass}`}>
-                          {codecLabel}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 font-mono text-xs text-gray-400">
-                        {s.segmentsReady} segs
-                      </td>
-                      <td className="py-3 px-3 text-xs text-gray-400">
-                        {new Date(s.startedAt).toLocaleTimeString('pt-BR')}
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => handleKill(s.key)}
-                          disabled={killingKey === s.key}
-                          title="Derrubar Sessão (Kill)"
-                          className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
-                        >
-                          {killingKey === s.key ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                      <button
+                        onClick={() => handleKill(s.key)}
+                        disabled={killingKey === s.key}
+                        title="Derrubar Sessão (Kill)"
+                        className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
+                      >
+                        {killingKey === s.key ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${codec.cls}`}>
+                        {codec.label}
+                      </span>
+                      <span className="font-mono">{s.segmentsReady} segs</span>
+                      <span>· {new Date(s.startedAt).toLocaleTimeString('pt-BR')}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
       

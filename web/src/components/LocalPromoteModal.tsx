@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
+import { ArrowUpCircle, Folder, Loader2, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
 import { LocalEntry, downloadPromoteBrowse, localPromote, fetchPromoteDestinations, PromoteDestination, localPromotePreview, PromotePreviewEntry } from '../api/client'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 
 type Props = {
   readonly mount: string
@@ -15,7 +15,6 @@ type Props = {
  * promover para arquivos/pastas locais.
  */
 export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }: Props) {
-  useScrollLock(!!entry)
   const [dests, setDests] = useState<PromoteDestination[]>([])
   const [selectedBase, setSelectedBase] = useState('')
   const [path, setPath] = useState('')
@@ -100,26 +99,34 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
   const breadcrumb = path.split('/').filter(Boolean)
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
+    <Sheet
       open
-    >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
-        <header className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
-            <ArrowUpCircle className="w-5 h-5 text-cyan-400" />
-            Promover {entry.isDir ? 'pasta' : 'arquivo'} local
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-100">
-            <X className="w-5 h-5" />
+      onClose={onClose}
+      size="lg"
+      title={`Promover ${entry.isDir ? 'pasta' : 'arquivo'} local`}
+      icon={<ArrowUpCircle className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
+      footer={
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded"
+          >
+            Cancelar
           </button>
-        </header>
-
-        <div className="px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
+          <button
+            onClick={handlePromote}
+            disabled={submitting || previewLoading}
+            className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
+          >
+            {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
+            Promover
+          </button>
+        </div>
+      }
+    >
+      <>
+        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
           <p className="text-xs text-gray-400 truncate" title={entry.name}>
             Origem: <span className="text-gray-300 font-mono">{entry.name}</span>
           </p>
@@ -127,7 +134,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
 
         {/* Seletor de destino */}
         {dests.length > 1 && (
-          <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
+          <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
             <HardDrive className="w-4 h-4 text-gray-500 flex-shrink-0" />
             {dests.map(d => (
               <button
@@ -145,7 +152,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
           </div>
         )}
 
-        <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
+        <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
           <button
             onClick={() => setPath('')}
             className={`flex items-center gap-1 px-2 py-0.5 rounded ${path === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
@@ -165,7 +172,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 min-h-[150px]">
+        <div className="py-4 min-h-[150px]">
           {(() => {
             if (loading) return <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="w-5 h-5 animate-spin" /></div>
             if (dirs.length === 0) return <p className="text-sm text-gray-500 text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
@@ -182,7 +189,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
           })()}
         </div>
 
-        <div className="border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
+        <div className="-mx-4 -mb-4 mt-2 border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
           <label className="flex items-center gap-2 text-sm text-gray-300">
             <Plus className="w-4 h-4 text-gray-500 flex-shrink-0" />
             <input
@@ -249,26 +256,8 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
           {error && (
             <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-2 py-1.5">{error}</p>
           )}
-
-          <div className="flex items-center gap-2 justify-end">
-            <button
-              onClick={onClose}
-              disabled={submitting}
-              className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handlePromote}
-              disabled={submitting || previewLoading}
-              className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
-            >
-              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
-              Promover
-            </button>
-          </div>
         </div>
-      </div>
-    </dialog>
+      </>
+    </Sheet>
   )
 }

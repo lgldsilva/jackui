@@ -1,6 +1,6 @@
 import { useState, useRef, DragEvent, useEffect } from 'react'
 import {
-  X, UploadCloud, Link2, Loader2, AlertCircle, Trash2,
+  UploadCloud, Link2, Loader2, AlertCircle, Trash2,
   ChevronDown, ChevronUp, CheckCircle2, Server, Clock,
   FileVideo, FileAudio, FileText
 } from 'lucide-react'
@@ -9,7 +9,7 @@ import {
   downloadCreate, downloadTorrent, getClients,
   SearchResult, StreamFile, DownloadClient
 } from '../api/client'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 import { uid } from '../lib/uid'
@@ -121,8 +121,6 @@ function notifyAdded(readyItems: TorrentItem[], onAdded: (r: SearchResult) => vo
 }
 
 export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles }: Props) {
-  useScrollLock(isOpen)
-  
   const [view, setView] = useState<'drop_paste' | 'configure'>('drop_paste')
   const [magnets, setMagnets] = useState('')
   const [items, setItems] = useState<TorrentItem[]>([])
@@ -364,26 +362,63 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
   }
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
+    <Sheet
       open
-    >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-        <header className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-850">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
-            <Link2 className="w-5 h-5 text-cyan-400" />
-            {view === 'drop_paste' ? 'Adicionar Novo Torrent / Magnet' : `Configurar Downloads (${items.length})`}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-100">
-            <X className="w-5 h-5" />
-          </button>
-        </header>
+      onClose={onClose}
+      size="xl"
+      title={view === 'drop_paste' ? 'Adicionar Novo Torrent / Magnet' : `Configurar Downloads (${items.length})`}
+      icon={<Link2 className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
+      footer={
+        <div className="flex items-center justify-between">
+          <div>
+            {view === 'configure' && (
+              <button
+                onClick={() => setView('drop_paste')}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+              >
+                Voltar
+              </button>
+            )}
+          </div>
 
-        <div className="p-5 flex-1 overflow-y-auto space-y-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              Fechar
+            </button>
+
+            {view === 'drop_paste' ? (
+              <button
+                onClick={handleAddMagnets}
+                disabled={magnets.trim().length === 0}
+                className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-gray-900 px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10"
+              >
+                Configurar Magnet
+              </button>
+            ) : (
+              <button
+                onClick={handleConfirmDownloads}
+                disabled={loading || items.filter(i => !i.loading && !i.error).length === 0 || success}
+                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-gray-900 px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-emerald-500/10"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Iniciando downloads...
+                  </>
+                ) : (
+                  'Confirmar Downloads'
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-4">
           {error && (
             <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-3 py-2.5 text-xs">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
@@ -633,56 +668,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               </div>
             </div>
           )}
-        </div>
-
-        <footer className="p-4 border-t border-gray-700 flex items-center justify-between bg-gray-850">
-          <div>
-            {view === 'configure' && (
-              <button
-                onClick={() => setView('drop_paste')}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
-              >
-                Voltar
-              </button>
-            )}
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              Fechar
-            </button>
-            
-            {view === 'drop_paste' ? (
-              <button
-                onClick={handleAddMagnets}
-                disabled={magnets.trim().length === 0}
-                className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-gray-900 px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10"
-              >
-                Configurar Magnet
-              </button>
-            ) : (
-              <button
-                onClick={handleConfirmDownloads}
-                disabled={loading || items.filter(i => !i.loading && !i.error).length === 0 || success}
-                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-gray-900 px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-emerald-500/10"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Iniciando downloads...
-                  </>
-                ) : (
-                  'Confirmar Downloads'
-                )}
-              </button>
-            )}
-          </div>
-        </footer>
       </div>
-    </dialog>
+    </Sheet>
   )
 }

@@ -10,6 +10,8 @@ import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
+import { SwipeRow } from '../components/SwipeRow'
+import { useConfirm } from '../components/ConfirmDialog'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { formatDate } from '../lib/format'
@@ -73,6 +75,7 @@ type BrowseEntryListProps = {
   readonly filteredEntries: HistoryEntry[]
   readonly onSelect: (q: string) => void
   readonly onDeleteEntry: (q: string, e: React.MouseEvent) => void
+  readonly onDeleteEntryByQuery: (q: string) => void
   readonly navigate: ReturnType<typeof useNavigate>
 }
 
@@ -81,13 +84,13 @@ type BrowseEntryListProps = {
 // entry-row `map` alone nested several `selected === entry.query` ternaries).
 function BrowseEntryList({
   selected, queryFilter, setQueryFilter, entrySort, setEntrySort,
-  filteredEntries, onSelect, onDeleteEntry, navigate,
+  filteredEntries, onSelect, onDeleteEntry, onDeleteEntryByQuery, navigate,
 }: BrowseEntryListProps) {
   return (
     <div className={`flex-col gap-2 ${selected ? 'hidden lg:flex' : 'flex'}`}>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-        <input type="text" placeholder="Filtrar buscas..." value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
+        <input type="text" placeholder="Filtrar buscas..." value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
         {queryFilter && (<button onClick={() => setQueryFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>)}
       </div>
       <div className="flex gap-1">
@@ -99,19 +102,22 @@ function BrowseEntryList({
         {filteredEntries.length === 0 ? (
           <p className="text-gray-500 text-sm text-center py-8">Nenhuma busca encontrada</p>
         ) : filteredEntries.map((entry) => (
-          <button key={entry.query} onClick={() => onSelect(entry.query)} className={`w-full flex items-start justify-between gap-2 px-4 py-3 text-sm transition-colors border-b border-gray-700/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-gray-700/50'}`}>
+          <SwipeRow key={entry.query} onDelete={() => onDeleteEntryByQuery(entry.query)} deleteLabel="Apagar">
+          <button onClick={() => onSelect(entry.query)} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-gray-700/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-gray-700/50'}`}>
             <div className="flex-1 min-w-0">
               <p className={`truncate font-medium ${selected === entry.query ? 'text-green-400' : 'text-gray-200'}`} title={entry.query}>{entry.query}</p>
-              <div className="flex items-center gap-2 mt-0.5">
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 <span className="flex items-center gap-1 text-xs text-gray-500"><Database className="w-2.5 h-2.5" />{entry.resultCount.toLocaleString()}</span>
                 <span className="flex items-center gap-1 text-xs text-gray-500"><Calendar className="w-2.5 h-2.5" />{formatDate(entry.lastSaved)}</span>
               </div>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
-              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title="Nova busca" className="text-gray-600 hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
-              <button onClick={e => onDeleteEntry(entry.query, e)} title="Remover do cache" className="text-gray-600 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title="Nova busca" aria-label="Nova busca" className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-gray-600 hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
+              {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
+              <button onClick={e => onDeleteEntry(entry.query, e)} title="Remover do cache" aria-label="Remover do cache" className="hidden sm:flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </button>
+          </SwipeRow>
         ))}
       </div>
     </div>
@@ -185,7 +191,7 @@ function BrowseResultsDetail({
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-          <input type="text" placeholder="Filtrar títulos..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
+          <input type="text" placeholder="Filtrar títulos..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
           {resultFilter && (<button onClick={() => setResultFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>)}
         </div>
         <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-green-500">
@@ -243,6 +249,7 @@ export default function HistoryPage() {
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const [playlistTarget, setPlaylistTarget] = useState<SearchResult | null>(null)
   const [playlistTargetFile, setPlaylistTargetFile] = useState<{ index: number; title: string } | null>(null)
+  const confirm = useConfirm()
 
   // Filters for the query list. Sort persists; the text filter is transient
   // (reopening with a stale text filter would be confusing).
@@ -350,6 +357,8 @@ export default function HistoryPage() {
   }, [mode, selected, globalResults.length, results.length])
 
   const handleClear = async () => {
+    const ok = await confirm({ title: 'Limpar cache', message: `Apagar TODAS as ${entries.length} buscas em cache do histórico?`, confirmLabel: 'Limpar', destructive: true })
+    if (!ok) return
     await clearHistory()
     setEntries([])
     setSelected(null)
@@ -380,14 +389,17 @@ export default function HistoryPage() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [globalQuery, mode])
 
-  const handleDeleteEntry = async (q: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const deleteEntry = async (q: string) => {
     await deleteHistoryEntry(q)
     setEntries(prev => prev.filter(en => en.query !== q))
     if (selected === q) {
       setSelected(null)
       setResults([])
     }
+  }
+  const handleDeleteEntry = (q: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    return deleteEntry(q)
   }
 
   // Per-card refresh: re-polls Jackett for fresh seeders/leechers. We update
@@ -509,7 +521,7 @@ export default function HistoryPage() {
       {globalResults.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
           <Filter className="w-3.5 h-3.5 text-gray-500" />
-          <input type="text" placeholder="Filtrar título..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-44" />
+          <input type="text" placeholder="Filtrar título..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-44" />
           <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-green-500">
             {globalTrackers.map(t => (<option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>))}
           </select>
@@ -584,6 +596,7 @@ export default function HistoryPage() {
           filteredEntries={filteredEntries}
           onSelect={handleSelect}
           onDeleteEntry={handleDeleteEntry}
+          onDeleteEntryByQuery={deleteEntry}
           navigate={navigate}
         />
         <div className={`flex-col gap-3 ${selected ? 'flex' : 'hidden lg:flex'}`}>

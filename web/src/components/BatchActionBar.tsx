@@ -1,0 +1,54 @@
+import { Trash2, FolderInput, ArrowUpCircle, X, CheckCheck, Loader2 } from 'lucide-react'
+
+export type BatchActionBarProps = {
+  readonly count: number
+  readonly onCancel: () => void
+  readonly onSelectAll?: () => void
+  readonly canMove: boolean
+  readonly canPromote: boolean
+  readonly onDelete: () => void
+  readonly onMove: () => void
+  readonly onPromote: () => void
+  readonly running?: boolean
+}
+
+/**
+ * Barra de ações em lote fixa no rodapé (modo de seleção do LocalPage). z-40 fica
+ * abaixo dos Sheets/modais (z-50) e acima da lista. `safe-bottom` respeita a
+ * home-indicator do iPhone. A lista recebe `pb-20` enquanto a barra está aberta.
+ */
+export function BatchActionBar({
+  count, onCancel, onSelectAll, canMove, canPromote, onDelete, onMove, onPromote, running = false,
+}: BatchActionBarProps) {
+  const actionBtn = 'flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-lg text-sm font-medium transition-colors disabled:opacity-40'
+  return (
+    <div className="fixed bottom-0 inset-x-0 z-40 bg-gray-800 border-t border-gray-700 px-3 pt-2 safe-bottom shadow-2xl">
+      <div className="max-w-7xl mx-auto flex items-center gap-2">
+        <button onClick={onCancel} aria-label="Cancelar seleção" className={`${actionBtn} text-gray-300 hover:bg-gray-700`}>
+          <X className="w-4 h-4" />
+        </button>
+        <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{count} selec.</span>
+        {onSelectAll && (
+          <button onClick={onSelectAll} title="Selecionar tudo" className={`${actionBtn} text-gray-400 hover:bg-gray-700`}>
+            <CheckCheck className="w-4 h-4" />
+          </button>
+        )}
+        <div className="flex-1" />
+        {running && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+        {canPromote && (
+          <button onClick={onPromote} disabled={count === 0 || running} className={`${actionBtn} text-cyan-300 hover:bg-cyan-500/15`}>
+            <ArrowUpCircle className="w-4 h-4" /><span className="hidden min-[400px]:inline">Promover</span>
+          </button>
+        )}
+        {canMove && (
+          <button onClick={onMove} disabled={count === 0 || running} className={`${actionBtn} text-amber-300 hover:bg-amber-500/15`}>
+            <FolderInput className="w-4 h-4" /><span className="hidden min-[400px]:inline">Mover</span>
+          </button>
+        )}
+        <button onClick={onDelete} disabled={count === 0 || running} className={`${actionBtn} text-red-300 hover:bg-red-500/15`}>
+          <Trash2 className="w-4 h-4" /><span className="hidden min-[400px]:inline">Apagar</span>
+        </button>
+      </div>
+    </div>
+  )
+}
