@@ -505,6 +505,14 @@ function VideoPlayerElement({
       else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
       else hls.destroy()
     })
+    // Autoplay: o atributo autoPlay não dispara sozinho no hls.js (a fonte é
+    // anexada via MSE de forma async, fora do gesto de abertura). Ao parsear o
+    // manifest, tenta tocar; se o browser bloquear sem áudio mudo (NotAllowed),
+    // tenta de novo mudado (autoplay mudo é sempre permitido) — aí o usuário só
+    // dá unmute, em vez de ter que clicar em play.
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      v.play().catch(() => { v.muted = true; v.play().catch(() => {}) })
+    })
     hls.loadSource(streamURL)
     hls.attachMedia(v)
     return () => hls.destroy()
