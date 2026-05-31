@@ -11,6 +11,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/streamer"
+	"github.com/luizg/jackui/internal/transcode"
 )
 
 func TestStreamDrop_BadHash(t *testing.T) {
@@ -35,6 +36,35 @@ func TestStreamDrop_Valid(t *testing.T) {
 
 	router := gin.New()
 	router.DELETE("/api/stream/:hash", StreamDrop(s, nil))
+
+	req := httptest.NewRequest("DELETE", "/api/stream/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["message"] != "dropped" {
+		t.Errorf("message = %q, want 'dropped'", resp["message"])
+	}
+}
+
+// TestStreamDrop_WithHLSManager exercises the hlsMgr != nil branch: a real
+// HLSSessionManager is passed so hlsMgr.CloseForHash(...) runs. The manager has
+// no sessions for this hash, so CloseForHash is a safe no-op.
+func TestStreamDrop_WithHLSManager(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+
+	hlsMgr, err := transcode.NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+
+	router := gin.New()
+	router.DELETE("/api/stream/:hash", StreamDrop(s, hlsMgr))
 
 	req := httptest.NewRequest("DELETE", "/api/stream/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil)
 	w := httptest.NewRecorder()

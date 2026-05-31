@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { backstopStuck, backstopShouldFire } from './playerHooks'
+import { backstopStuck, backstopShouldFire, hlsFatalAction } from './playerHooks'
 
 // Regressão do bug do Star Wars (a376440b): um H264/AAC/MP4 (browser-safe) que
 // trava por falta de dados (moov do MP4 ainda não baixou → readyState 0,
@@ -20,7 +20,7 @@ describe('backstopStuck', () => {
     expect(backstopStuck(0, 0.5, 0)).toBe(false)
   })
   it('não é stall quando já há buffer suficiente', () => {
-    expect(backstopStuck(1, 0, 1.0)).toBe(false)
+    expect(backstopStuck(1, 0, 1)).toBe(false)
   })
 })
 
@@ -50,5 +50,22 @@ describe('backstopShouldFire', () => {
     expect(backstopShouldFire(false, true, true)).toBe(false)
     expect(backstopShouldFire(false, undefined, true)).toBe(false)
     expect(backstopShouldFire(false, false, true)).toBe(false)
+  })
+})
+
+describe('hlsFatalAction', () => {
+  // Espelha o enum Hls.ErrorTypes do hls.js (string literals).
+  const TYPES = { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' }
+
+  it('NETWORK_ERROR → startLoad (recarrega o stream)', () => {
+    expect(hlsFatalAction(TYPES.NETWORK_ERROR, TYPES)).toBe('startLoad')
+  })
+  it('MEDIA_ERROR → recoverMedia', () => {
+    expect(hlsFatalAction(TYPES.MEDIA_ERROR, TYPES)).toBe('recoverMedia')
+  })
+  it('qualquer outro tipo → destroy', () => {
+    expect(hlsFatalAction('muxError', TYPES)).toBe('destroy')
+    expect(hlsFatalAction('otherError', TYPES)).toBe('destroy')
+    expect(hlsFatalAction('', TYPES)).toBe('destroy')
   })
 })

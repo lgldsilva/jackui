@@ -303,6 +303,19 @@ export function backstopShouldFire(stuck: boolean, needsTranscode: boolean | und
   return hasEncoder
 }
 
+// hlsFatalAction decide, sem tocar no objeto Hls, qual recuperação aplicar a um
+// erro FATAL do hls.js: NETWORK_ERROR → recarrega (startLoad), MEDIA_ERROR →
+// recoverMediaError, qualquer outro → destrói. `types` é o enum Hls.ErrorTypes
+// (passado pra evitar acoplar este módulo puro/testável ao import de hls.js).
+export function hlsFatalAction(
+  type: string,
+  types: { NETWORK_ERROR: string; MEDIA_ERROR: string },
+): 'startLoad' | 'recoverMedia' | 'destroy' {
+  if (type === types.NETWORK_ERROR) return 'startLoad'
+  if (type === types.MEDIA_ERROR) return 'recoverMedia'
+  return 'destroy'
+}
+
 // useHevcBackstop is the Safari silent-HEVC-failure backstop: after 20s with no
 // playable frame it fires the same fallback <video onError> would. Extracted
 // verbatim from PlayerModal — same 20s window, same gating, same deps.

@@ -572,6 +572,104 @@ func TestClose_NotFound(t *testing.T) {
 	// Should not panic
 }
 
+// fakeSession builds an HLSSession in a state where stop() is safe to call —
+// no ffmpeg process, no loopback server. stop() then only RemoveAll's the dir.
+func fakeSession(t *testing.T, key string) *HLSSession {
+	t.Helper()
+	return &HLSSession{
+		Key: key,
+		Dir: t.TempDir(),
+		// Cmd / Cancel / sourceSrv left nil → stop() is a no-op kill + RemoveAll.
+	}
+}
+
+func TestCloseForHash_StopsOnlyMatchingHash(t *testing.T) {
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+
+	// Two files of hash "aaaa" plus one file of an unrelated hash "bbbb".
+	// Keys follow the "<hashHex>-<fileIdx>" convention CloseForHash matches on.
+	mgr.sess["aaaa-0"] = fakeSession(t, "aaaa-0")
+	mgr.sess["aaaa-1"] = fakeSession(t, "aaaa-1")
+	bbbb := fakeSession(t, "bbbb-0")
+	mgr.sess["bbbb-0"] = bbbb
+
+	mgr.CloseForHash("aaaa")
+
+	mgr.mu.Lock()
+	_, hasA0 := mgr.sess["aaaa-0"]
+	_, hasA1 := mgr.sess["aaaa-1"]
+	_, hasB0 := mgr.sess["bbbb-0"]
+	remaining := len(mgr.sess)
+	mgr.mu.Unlock()
+
+	if hasA0 || hasA1 {
+		t.Errorf("expected aaaa-* sessions removed, sess=%v", mgr.sess)
+	}
+	if !hasB0 {
+		t.Error("expected bbbb-0 to remain after CloseForHash(\"aaaa\")")
+	}
+	if remaining != 1 {
+		t.Errorf("expected exactly 1 session left, got %d", remaining)
+	}
+
+	// Sanity: prefix match must not over-match. "aaaa" must NOT have eaten
+	// a hypothetical "bbbb-0", whose dir should still exist (stop() not called).
+	if _, statErr := os.Stat(bbbb.Dir); statErr != nil {
+		t.Errorf("bbbb-0 dir should still exist (not stopped): %v", statErr)
+	}
+}
+
+func TestCloseForHash_NoMatchIsNoOp(t *testing.T) {
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	keep := fakeSession(t, "cccc-0")
+	mgr.sess["cccc-0"] = keep
+
+	// Hash with no sessions → idempotent no-op, nothing removed, no panic.
+	mgr.CloseForHash("zzzz")
+
+	mgr.mu.Lock()
+	_, ok := mgr.sess["cccc-0"]
+	n := len(mgr.sess)
+	mgr.mu.Unlock()
+	if !ok || n != 1 {
+		t.Errorf("expected unrelated session untouched, ok=%v n=%d", ok, n)
+	}
+	if _, statErr := os.Stat(keep.Dir); statErr != nil {
+		t.Errorf("untouched session dir should exist: %v", statErr)
+	}
+
+	// Empty hash short-circuits before touching the map.
+	mgr.CloseForHash("")
+	mgr.mu.Lock()
+	n = len(mgr.sess)
+	mgr.mu.Unlock()
+	if n != 1 {
+		t.Errorf("empty hash should be no-op, got %d sessions", n)
+	}
+}
+
+func TestCloseForHash_RemovesDirOfMatched(t *testing.T) {
+	mgr, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	s := fakeSession(t, "dead-0")
+	mgr.sess["dead-0"] = s
+
+	mgr.CloseForHash("dead")
+
+	// stop() ran → the session's segment dir must be gone.
+	if _, statErr := os.Stat(s.Dir); !os.IsNotExist(statErr) {
+		t.Errorf("expected stopped session dir removed, stat err=%v", statErr)
+	}
+}
+
 func TestNewLogWriter(t *testing.T) {
 	lw := newLogWriter("test: ")
 	if lw == nil {

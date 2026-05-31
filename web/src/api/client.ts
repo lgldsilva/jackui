@@ -1353,7 +1353,7 @@ export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?
  * `Android` (Chrome Mobile). Browsers exposing themselves as `Edg` or
  * `Edge` also fall under non-Safari (Chromium-based, plays MP4 fine).
  */
-// CRITICAL: iOS/iPadOS força TODO browser no WebKit, então Chrome/Edge/Firefox
+// CRITICAL: iOS/iPadOS força qualquer browser a usar WebKit, então Chrome/Edge/Firefox
 // no iOS (CriOS/EdgiOS/FxiOS) rejeitam MP4 progressive chunked igual ao Safari e
 // PRECISAM de HLS — mesmo com "CriOS"/"Edg" na UA. Por isso detecta iOS PRIMEIRO,
 // antes da exclusão de Chrome/Edg. Também pega o iPadOS em "desktop mode", que se

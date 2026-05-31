@@ -45,9 +45,9 @@ export function useHoverThumb(delayMs = 320) {
 
 function FloatingThumb({ url, label, x, y }: ThumbState) {
   const [broken, setBroken] = useState(false)
-  const showImg = !!url && !broken
+  const imgUrl = !broken && url ? url : null
   // Nothing to show (image failed AND no caption) → render nothing.
-  if (!showImg && !label) return null
+  if (!imgUrl && !label) return null
 
   // Follow the cursor, flipping to the left and clamping vertically so the
   // preview never spills off-screen on long lists near the viewport edges.
@@ -66,9 +66,9 @@ function FloatingThumb({ url, label, x, y }: ThumbState) {
       className="fixed z-[70] pointer-events-none rounded-lg overflow-hidden border border-gray-600 shadow-2xl bg-gray-900"
       style={{ left, top, width: W }}
     >
-      {showImg && (
+      {imgUrl && (
         <img
-          src={url!}
+          src={imgUrl}
           alt=""
           className="block w-full h-auto"
           onError={() => setBroken(true)}
