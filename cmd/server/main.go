@@ -822,7 +822,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
 	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser))
-	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser))
+	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
 	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser))
 	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
