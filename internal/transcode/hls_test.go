@@ -397,7 +397,13 @@ func TestEncodeSpecZeroesPTSBothModes(t *testing.T) {
 		spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: vod}
 		joined := strings.Join(spec.args(0), " ")
 		if !strings.Contains(joined, "setpts=PTS-STARTPTS") || !strings.Contains(joined, "asetpts=PTS-STARTPTS") {
-			t.Errorf("vod=%v: precisa zerar o PTS inicial (guard do stall do Safari no t=0); got:\n%s", vod, joined)
+			t.Errorf("vod=%v: precisa zerar o PTS inicial no filtro (guard do stall do Safari no t=0); got:\n%s", vod, joined)
+		}
+		// CAUSA RAIZ real do stall: sem -muxdelay 0 -muxpreload 0 o muxer MPEG-TS
+		// re-adiciona ~1.4s e o seg0 sai começando em 1.4s (verificado por ffprobe).
+		// Se alguém remover, o Safari volta a travar em currentTime 0.
+		if !strings.Contains(joined, "-muxdelay 0") || !strings.Contains(joined, "-muxpreload 0") {
+			t.Errorf("vod=%v: precisa de -muxdelay 0 -muxpreload 0 (senão o muxer TS começa em ~1.4s → Safari trava); got:\n%s", vod, joined)
 		}
 	}
 }

@@ -323,7 +323,7 @@ func parseRange(header string, totalSize int64) (int64, int64, bool) {
 // reliably played those HEVC sources before #61). Direct-play sources (H.264)
 // are unaffected either way; they never use HLS. Flip to true to resume the
 // seek work.
-const hlsVODEnabled = false
+const hlsVODEnabled = true
 
 // ffprobePathFrom derives the ffprobe binary path from the ffmpeg path so a
 // custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
@@ -471,6 +471,13 @@ func (e *encodeSpec) args(startSeg int) []string {
 	}
 	args = append(args,
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
+		// CAUSA RAIZ do stall do Safari no t=0: o muxer MPEG-TS do ffmpeg adiciona
+		// um initial_offset default de ~1.4s, então o seg_00000 sai começando em
+		// 1.4s (não 0) — buraco [0,1.4] e o Safari/iOS travam em currentTime 0.
+		// O setpts zera o FILTRO, mas o muxer re-adiciona o offset DEPOIS; só
+		// -muxdelay 0 -muxpreload 0 zera no muxer. (Verificado por ffprobe:
+		// seg0 start_time 1.423s → 0.) Resolve o VOD no Safari — não precisa live.
+		"-muxdelay", "0", "-muxpreload", "0",
 		"-f", "hls",
 		"-hls_time", strconv.Itoa(hlsSegDur),
 		"-hls_list_size", "0",
