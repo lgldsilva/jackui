@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, SortAsc, SortDesc, Globe, FolderOpen, Loader2, RefreshCw } from 'lucide-react'
+import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, SortAsc, SortDesc, Globe, FolderOpen, Loader2, RefreshCw, ArrowLeft } from 'lucide-react'
 import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, historyRefresh, searchTorrents, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
 import ResultCard from '../components/ResultCard'
 import DownloadModal from '../components/DownloadModal'
@@ -13,6 +13,7 @@ import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { formatDate } from '../lib/format'
+import { uid } from '../lib/uid'
 
 type SortDef = { key: ResultSortKey; label: string }
 
@@ -398,7 +399,11 @@ export default function HistoryPage() {
     }
     return (
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 flex-1">
-        <div className="flex flex-col gap-2">
+        {/* Master-detail on mobile: once a query is selected the list hides and
+            the results take the screen (with a back button). On lg+ both columns
+            stay side by side. Without this, mobile stacked the results BELOW a
+            full-height list, so a tap looked like "nothing happened". */}
+        <div className={`flex-col gap-2 ${selected ? 'hidden lg:flex' : 'flex'}`}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
             <input type="text" placeholder="Filtrar buscas..." value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
@@ -429,9 +434,15 @@ export default function HistoryPage() {
             ))}
           </div>
         </div>
-        <div className="flex flex-col gap-3">
+        <div className={`flex-col gap-3 ${selected ? 'flex' : 'hidden lg:flex'}`}>
           {selected ? (
             <>
+              <button
+                onClick={() => { setSelected(null); setResults([]) }}
+                className="lg:hidden flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 self-start"
+              >
+                <ArrowLeft className="w-4 h-4" /> Voltar às buscas
+              </button>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative flex-1 min-w-[180px]">
                   <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
@@ -464,7 +475,7 @@ export default function HistoryPage() {
               </div>
               {loadingResults && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {Array.from({ length: 6 }, () => crypto.randomUUID()).map(key => (
+                  {Array.from({ length: 6 }, () => uid()).map(key => (
                     <div key={key} className="card animate-pulse flex flex-col gap-3">
                       <div className="h-4 bg-gray-700 rounded w-3/4" /><div className="h-3 bg-gray-700 rounded w-1/4" />
                       <div className="grid grid-cols-2 gap-2"><div className="h-3 bg-gray-700 rounded" /><div className="h-3 bg-gray-700 rounded" /></div>

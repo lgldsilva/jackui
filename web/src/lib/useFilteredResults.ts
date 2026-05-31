@@ -44,14 +44,22 @@ export function useFilteredResults<T extends SearchResult>(
     sortAsc,
   } = opts
   return useMemo(() => {
-    const grouped = groupByInfoHash(input)
+    // Tracker filter is applied BEFORE grouping. groupByInfoHash folds the same
+    // release from multiple trackers into one card (with the rest in `alsoIn`),
+    // so filtering AFTER grouping only matched the primary tracker yet still
+    // surfaced the others — "filtered by one provider, got several". Pre-filtering
+    // means only the chosen provider's listings survive, the merge has nothing
+    // cross-provider to fold, and each card shows just that provider.
+    const scoped = trackerFilter === 'all'
+      ? input
+      : input.filter(res => res.tracker === trackerFilter)
+    const grouped = groupByInfoHash(scoped)
     const titleLower = titleFilter.toLowerCase()
 
     let r = grouped.filter(res => {
       if (res.seeders < minSeeders) return false
       if (res.leechers < minLeechers) return false
       if (res.size > maxBytes) return false
-      if (trackerFilter !== 'all' && res.tracker !== trackerFilter) return false
       if (titleLower && !res.title.toLowerCase().includes(titleLower)) return false
       if (onlyPlayable && !isPlayable(res)) return false
       return true

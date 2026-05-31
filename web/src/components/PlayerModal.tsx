@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload, Info, Hash, Server, Copy } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -42,6 +42,7 @@ import { formatRate } from '../lib/format'
 import { clientLog } from '../lib/diag'
 import Hls from 'hls.js'
 import { useScrollLock } from '../lib/useScrollLock'
+import { useSwipe } from '../lib/useSwipe'
 import { useIncognito } from '../lib/incognito'
 import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
@@ -217,11 +218,13 @@ function renderPlayerHeader(props: {
   setIncognito: (v: boolean) => void
   setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void
   onClose: () => void
+  onShowInfo: () => void
+  headerRef: React.RefObject<HTMLDivElement>
 }) {
-  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose } = props
+  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef } = props
   if (minimized) return null
   return (
-    <div className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0">
+    <div ref={headerRef} className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0 touch-pan-y">
       <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
         <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
         <span className="truncate">{info?.name || result.title}</span>
@@ -229,10 +232,68 @@ function renderPlayerHeader(props: {
         {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
       </h2>
       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-gray-400 hover:text-gray-200 transition-colors"><Info className="w-5 h-5" /></button>}
         {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
         <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
         <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-gray-400 hover:text-gray-200 transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors"><X className="w-5 h-5" /></button>
+      </div>
+    </div>
+  )
+}
+
+// Torrent-info overlay opened from the player header. Rendered ABOVE the player
+// (z-[60] > the modal's z-50) so it floats over the video. Reads the live `info`
+// so swarm stats update while open.
+function renderTorrentInfoModal(props: {
+  info: TorrentInfo
+  result: SearchResult
+  isTranscoded: boolean
+  encoderLabel: string
+  onClose: () => void
+  onCopyHash: () => void
+  hashCopied: boolean
+}) {
+  const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied } = props
+  const pct = info.progress !== undefined ? `${(info.progress * 100).toFixed(1)}%` : null
+  const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
+    <div className="flex items-start gap-2 py-1.5 border-b border-gray-700/40 last:border-0">
+      <span className="text-gray-500 text-xs w-28 flex-shrink-0 flex items-center gap-1.5">{icon}{label}</span>
+      <span className="text-gray-200 text-sm min-w-0 break-words flex-1">{children}</span>
+    </div>
+  )
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}
+      onKeyDown={e => e.key === 'Escape' && onClose()}
+      role="dialog" aria-modal="true" tabIndex={-1}
+    >
+      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
+          <h3 className="text-sm font-semibold text-gray-100 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400" />Informações do torrent</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-200"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="px-4 py-2 overflow-y-auto">
+          <Row icon={<FileVideo className="w-3.5 h-3.5" />} label="Nome">{info.name || result.title}</Row>
+          {info.name && info.name !== result.title && <Row label="Release">{result.title}</Row>}
+          <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
+          <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
+          {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
+          {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
+          {result.category && <Row label="Categoria">{result.category}</Row>}
+          {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label="Encoder">{encoderLabel || 'GPU'}</Row>}
+          {info.infoHash && (
+            <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="font-mono text-xs truncate min-w-0">{info.infoHash}</span>
+                <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-gray-500 hover:text-gray-200">
+                  {hashCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </span>
+            </Row>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -451,7 +512,7 @@ function VideoPlayerElement({
   }, [videoRef, streamURL, useHlsJs])
 
   return (
-    <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70vh] sm:max-h-[58vh]" style={{ aspectRatio: '16 / 9' }}>
+    <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70dvh] sm:max-h-[58dvh]" style={{ aspectRatio: '16 / 9' }}>
       {audioMode && info && (
         <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
           <Volume2 className="absolute w-12 h-12 text-gray-600" />
@@ -755,7 +816,7 @@ function FilePickerSidebar({
                 else if (canPreview) setPreviewFileIdx(f.index)
                 // else: dead row, click does nothing (download via long-press / context menu still available)
               }}
-              onMouseEnter={e => hoverThumb.show(thumbUrl, e)}
+              onMouseEnter={e => hoverThumb.show(thumbUrl, e, f.path)}
               onMouseMove={hoverThumb.move}
               onMouseLeave={hoverThumb.hide}
               title={f.path}
@@ -1758,6 +1819,9 @@ export default function PlayerModal({
   // The "Attempted" flag prevents an infinite loop if the transcoded stream also errors.
   const [transcodeFallbackAttempted, setTranscodeFallbackAttempted] = useState(false)
   const [caps, setCaps] = useState<TranscodeCapabilities | null>(null)
+  // Torrent-info overlay (opened from the header Info button).
+  const [showInfo, setShowInfo] = useState(false)
+  const [hashCopied, setHashCopied] = useState(false)
   // Variable playback speed for audiobooks / lectures. We persist this in
   // localStorage so it survives modal close and across sessions. We rely on
   // the browser's built-in pitch-preservation (preservesPitch / webkitPreservesPitch)
@@ -1789,6 +1853,11 @@ export default function PlayerModal({
   // a single left-anchored fill.
   const [bufferedRanges, setBufferedRanges] = useState<Array<[number, number]>>([])
   const videoRef = useRef<HTMLVideoElement>(null)
+  // Swipe down on the header bar minimizes the player to its PiP card — the same
+  // non-destructive dismiss as tapping the backdrop or pressing Escape (keeps
+  // playback alive), the iOS idiom for "push this sheet away".
+  const headerRef = useRef<HTMLDivElement>(null)
+  useSwipe(headerRef, { onDown: () => setMinimized(true) }, { enabled: !minimized, threshold: 50 })
   const pollRef = useRef<number | null>(null)
   // Prefetch fire-once flags. Reset whenever the underlying selected file
   // changes so re-watching a playlist item or switching files starts fresh.
@@ -2651,7 +2720,25 @@ export default function PlayerModal({
       <div className={minimized
         ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
         : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
-        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose })}
+        {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
+            minimized, which previously left the little card with NO way back to the
+            full player. This bar restores the expand + close affordances. */}
+        {minimized && (
+          <div className="flex items-center justify-between gap-2 px-2 py-1 bg-gray-900/80 border-b border-gray-700 flex-shrink-0">
+            <span className="text-[11px] text-gray-300 truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700/60"><Maximize2 className="w-4 h-4" /></button>
+              <button onClick={onClose} title="Fechar" className="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700/60"><X className="w-4 h-4" /></button>
+            </div>
+          </div>
+        )}
+        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo: () => setShowInfo(true), headerRef })}
+        {!minimized && showInfo && info && renderTorrentInfoModal({
+          info, result, isTranscoded, encoderLabel,
+          onClose: () => setShowInfo(false),
+          onCopyHash: () => { if (info.infoHash) { navigator.clipboard?.writeText(info.infoHash); setHashCopied(true); globalThis.setTimeout(() => setHashCopied(false), 2000) } },
+          hashCopied,
+        })}
         {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import {
   ChevronRight,
   Folder,
@@ -14,8 +13,6 @@ import {
   ArrowUpCircle,
   FolderSync,
   FolderInput,
-  Upload,
-  X,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
@@ -34,7 +31,6 @@ import {
   localList,
   localMounts,
   localDelete,
-  localUpload,
   adminListUsers,
   setLocalViewAsUser,
 } from '../api/client'
@@ -142,10 +138,9 @@ function Breadcrumbs({
 
 
 export default function LocalPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
   const [mounts, setMounts] = useState<LocalMount[]>([])
-  const activeMount = searchParams.get('mount') || ''
-  const path = searchParams.get('path') || ''
+  const [activeMount, setActiveMount] = useState<string>('')
+  const [path, setPath] = useState<string>('')
   const [entries, setEntries] = useState<LocalEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -159,25 +154,6 @@ export default function LocalPage() {
   const [deleting, setDeleting] = useState(false)
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
-
-  // Upload state: tracks the in-flight transfer for the progress banner. The
-  // AbortController lets the user cancel mid-stream; the hidden <input> is reset
-  // after each pick so re-selecting the same file fires onChange again.
-  const [upload, setUpload] = useState<{ name: string; loaded: number; total: number } | null>(null)
-  const [uploadError, setUploadError] = useState('')
-  const uploadAbortRef = useRef<AbortController | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-
-  const updateNavigation = (newMount: string, newPath: string, replace = false) => {
-    const params = new URLSearchParams(globalThis.location.search)
-    if (newMount) params.set('mount', newMount)
-    else params.delete('mount')
-    
-    if (newPath) params.set('path', newPath)
-    else params.delete('path')
-    
-    setSearchParams(params, { replace })
-  }
 
   const { isGuest, isAdmin } = useAuth()
   // Admin "view as user": '' = own space. When set, every /api/local/* call
@@ -216,12 +192,8 @@ export default function LocalPage() {
     localMounts()
       .then((ms) => {
         setMounts(ms)
-        const params = new URLSearchParams(globalThis.location.search)
-        const mountFromUrl = params.get('mount')
-        if (ms.length > 0 && !mountFromUrl) {
-          params.set('mount', ms[0].name)
-          params.set('path', '')
-          setSearchParams(params, { replace: true })
+        if (ms.length > 0 && !activeMount) {
+          setActiveMount(ms[0].name)
         }
       })
       .catch((e: unknown) => {
@@ -294,53 +266,21 @@ export default function LocalPage() {
     }
   }
 
-  const handleUploadPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    // Reset the input so picking the same file again re-fires onChange.
-    e.target.value = ''
-    if (!file || !activeMount) return
-
-    const controller = new AbortController()
-    uploadAbortRef.current = controller
-    setUploadError('')
-    setUpload({ name: file.name, loaded: 0, total: file.size })
-    setLocalViewAsUser(viewAsUser) // keep admin "view as user" scoping consistent
-    try {
-      await localUpload(
-        activeMount,
-        path,
-        file,
-        (loaded, total) => setUpload({ name: file.name, loaded, total }),
-        controller.signal,
-      )
-      setUpload(null)
-      refresh()
-    } catch (err: any) {
-      if (controller.signal.aborted) {
-        setUploadError('Upload cancelado.')
-      } else {
-        setUploadError(err?.response?.data?.error || err?.message || 'Erro ao enviar arquivo')
-      }
-      setUpload(null)
-    } finally {
-      uploadAbortRef.current = null
-    }
-  }
-
   const handleSelectMount = (name: string) => {
-    updateNavigation(name, '')
+    setActiveMount(name)
+    setPath('')
     setViewAsUser('') // back to own space when switching mounts
   }
 
   const handleViewAsUser = (username: string) => {
     setLocalViewAsUser(username) // module state — takes effect on the next call
     setViewAsUser(username)
-    updateNavigation(activeMount, '') // jump to the root of the selected user's space
+    setPath('') // jump to the root of the selected user's space
   }
 
   const handleEntryClick = (e: LocalEntry) => {
     if (e.isDir) {
-      updateNavigation(activeMount, e.path)
+      setPath(e.path)
       return
     }
     if (!e.isPlayable || !activeMount) return
@@ -433,65 +373,7 @@ export default function LocalPage() {
         {/* Content */}
         <section className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {activeMount && (
-            <div className="flex-shrink-0 flex items-center justify-between gap-3">
-              <Breadcrumbs mountName={activeMount} path={path} onNavigate={(p) => updateNavigation(activeMount, p)} />
-              {(canManipulate || isAdmin) && (
-                <>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".mkv,.mp4,.m4v,.avi,.mov,.webm,.ts,.m2ts,.mpg,.mpeg,.wmv,.flv,.ogv,.3gp,.srt,.vtt,.ass,.ssa,.sub"
-                    onChange={handleUploadPick}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={!!upload}
-                    title="Enviar arquivo para esta pasta"
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-green-500/15 hover:bg-green-500/25 disabled:opacity-50 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <span className="hidden sm:inline">Upload</span>
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Banner de progresso do upload (streaming direto pro disco no backend) */}
-          {upload && (
-            <div className="flex-shrink-0 bg-gray-800 border border-green-500/30 rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-sm text-gray-200">
-                <Upload className="w-4 h-4 text-green-400 flex-shrink-0 animate-pulse" />
-                <span className="truncate flex-1">{upload.name}</span>
-                <span className="text-xs text-gray-400 tabular-nums">
-                  {formatSize(upload.loaded)} / {formatSize(upload.total)}
-                  {upload.total > 0 && ` (${Math.round((upload.loaded / upload.total) * 100)}%)`}
-                </span>
-                <button
-                  onClick={() => uploadAbortRef.current?.abort()}
-                  title="Cancelar upload"
-                  className="p-1 rounded text-gray-400 hover:text-red-400 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-green-500 transition-all duration-150"
-                  style={{ width: `${upload.total > 0 ? (upload.loaded / upload.total) * 100 : 0}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {uploadError && (
-            <div className="flex-shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-2">
-              <span>{uploadError}</span>
-              <button onClick={() => setUploadError('')} className="text-amber-400/70 hover:text-amber-300">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <Breadcrumbs mountName={activeMount} path={path} onNavigate={setPath} />
           )}
 
           {/* Toolbar: kind filter chips + sort controls (flex-shrink-0 so it
@@ -562,7 +444,7 @@ export default function LocalPage() {
                       }`}
                     >
                       <EntryIcon entry={e} mount={activeMount} />
-                      <span className="flex-1 truncate text-gray-100 font-medium">
+                      <span className="flex-1 min-w-0 truncate text-gray-100 font-medium">
                         {e.name}
                       </span>
                       {!e.isDir && (
