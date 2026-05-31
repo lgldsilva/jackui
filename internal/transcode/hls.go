@@ -400,6 +400,10 @@ func (e *encodeSpec) args(startSeg int) []string {
 		"-seekable", "1", "-multiple_requests", "1",
 		"-probesize", "10M", "-analyzeduration", "3M",
 	}
+	// HW decode matching the encoder backend so frames feed the scale_* filter
+	// (≤1080p + 8-bit NV12) below — required for 10-bit HDR sources, which the
+	// HW h264 encoders can't ingest directly. No-op for CPU (software decode).
+	args = append(args, hwDecodeArgsFor(e.encoder)...)
 	if e.vod && startSeg > 0 {
 		// Input seek (before -i) so ffmpeg jumps via Range to the keyframe at
 		// or before the requested time instead of decoding from byte 0.
@@ -412,10 +416,12 @@ func (e *encodeSpec) args(startSeg int) []string {
 		"-c:v", e.encoder,
 	)
 	args = append(args, encoderPresetArgs(e.encoder)...)
-	args = append(args,
-		"-pix_fmt", "yuv420p",
-		"-profile:v", "main", "-level:v", "5.2",
-	)
+	// HW encoders receive NV12 surfaces from their scale_* filter; -pix_fmt yuv420p
+	// would clash with the hardware surface format. CPU (libx264) keeps it.
+	if !isHWEncoder(e.encoder) {
+		args = append(args, "-pix_fmt", "yuv420p")
+	}
+	args = append(args, "-profile:v", "main", "-level:v", "5.2")
 	if e.vod {
 		// Keyframe EXACTLY every hlsSegDur seconds so each segment starts on a
 		// clean IDR — required for both standalone-decodable segments and for
@@ -446,12 +452,18 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// nothing renders; user-visible symptom: "aparece tudo mas não toca").
 		// scale=-2:min(1080,ih) preserves aspect ratio (width auto, multiple of
 		// 2 required by yuv420p) and is a near no-op for sub-1080p sources.
-		args = append(args, "-vf", "scale=-2:'min(1080,ih)',setpts=PTS-STARTPTS", "-af", "asetpts=PTS-STARTPTS")
+		// setpts MUST come FIRST (on the decoded frames) — after scale_vaapi it
+		// runs on VAAPI hwframes and silently fails to capture STARTPTS, leaving
+		// the source's non-zero first PTS (e.g. 1.4s on many HEVC/MKV files). That
+		// left a [0,1.4] hole so Safari/iOS stalled at currentTime 0 buffering only
+		// the first segment, AND it broke seek-restart's output_ts_offset math
+		// (the cascade). Zeroing up front fixes both, for every backend.
+		args = append(args, "-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", "asetpts=PTS-STARTPTS")
 		if startSeg > 0 {
 			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
 		}
 	} else {
-		args = append(args, "-g", "60", "-bf", "0")
+		args = append(args, "-g", "60", "-bf", "0", "-vf", videoScaleFilter(e.encoder))
 	}
 	args = append(args,
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
@@ -477,6 +489,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 func (s *HLSSession) launch(startSeg int) error {
 	ffctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
+	log.Printf("hls: ffmpeg %s", strings.Join(s.spec.args(startSeg), " "))
 	cmd.Stderr = newLogWriter("hls/" + s.Key + " ")
 	if err := cmd.Start(); err != nil {
 		cancel()
