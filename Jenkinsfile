@@ -1,19 +1,26 @@
 // JackUI — pipeline CI/CD (Jenkins @ oracle-desktop).
 //
-// Fluxo:  push na main (webhook Gitea) → test → frontend → SonarQube (quality
-//         gate) → SBOM→Dependency-Track → build NATIVO amd64 no alvo (SSH) +
-//         push no registry do Gitea → Trivy → deploy imediato no raspberrypi-srv
-//         (SSH/WireGuard) → retenção das tags antigas.
+// Dois modos (multibranch):
+//  • PULL REQUEST  → só os GATES: backend test + frontend build/tsc. Se passar,
+//    o ci-bot aprova o PR automaticamente (post success). Sem deploy/Sonar/SBOM
+//    (SonarQube Community não faz análise de PR; o gate completo roda na main).
+//  • main (merge)  → pipeline completo: test → frontend → SonarQube (quality
+//    gate) → SBOM→Dependency-Track → build NATIVO amd64 no alvo (SSH) + push no
+//    registry do Gitea → Trivy → deploy no raspberrypi-srv → retenção de tags.
+//
+// Compat: num job single-branch legado (sem BRANCH_NAME) os stages de entrega
+// ainda rodam (a condição trata BRANCH_NAME==null como "main"), então a migração
+// pro multibranch não derruba o deploy no intervalo.
 //
 // O Jenkins host (oracle-desktop) é arm64 e o alvo (raspberrypi-srv) é amd64;
 // como o alvo é o único consumidor, o build roda LÁ nativamente (sem qemu/OOM).
 //
 // Pré-requisitos no Jenkins (ver docs/CICD.md):
-//   - Plugins: Docker Pipeline, Credentials Binding, Git, SSH Agent.
+//   - Plugins: Docker Pipeline, Credentials Binding, Git, SSH Agent, Gitea.
 //   - Agent com /var/run/docker.sock (o controller no oracle-desktop já tem).
-//   - Credenciais no Jenkins: 'jackui-sonar-token' (secret text),
-//     'jackui-dt' (user/pass), 'jackui-gitea' (user/pass, com write:package),
-//     'jackui-deploy' (ssh key — build E deploy no raspberrypi-srv).
+//   - Credenciais: 'jackui-sonar-token' (secret text), 'jackui-dt' (user/pass),
+//     'jackui-gitea' (user/pass, write:package), 'jackui-deploy' (ssh key),
+//     'jackui-ci-bot' (secret text — token do ci-bot p/ aprovar PRs).
 
 pipeline {
   agent any
@@ -26,29 +33,23 @@ pipeline {
   }
 
   environment {
-    // Endereços INTERNOS via WireGuard (10.228.143.12 = oracle-desktop) — o
-    // container do Jenkins não resolve *.raspberrypi.lan; Gitea/Sonar/DT vivem
-    // no mesmo host. Registry em HTTP → exige 10.228.143.12:3000 em
-    // insecure-registries do daemon (Jenkins host E raspberrypi-srv p/ o pull).
     REGISTRY    = '10.228.143.12:3000'
     IMAGE       = "10.228.143.12:3000/lgldsilva/jackui"
     TAG         = "${env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER}"
     SONAR_HOST  = 'http://10.228.143.12:9100'
     DT_API      = 'http://10.228.143.12:8081'
+    GITEA_API   = 'http://10.228.143.12:3000/api/v1'
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
 
   stages {
     stage('Backend test') {
       // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
-      // exigem, como no ambiente dev). GOCACHE/GOPATH em /tmp. Só ./internal/...
-      // — cmd/server importa o pacote ui (//go:embed all:dist), que não compila
-      // antes do frontend build; e não tem testes próprios.
+      // exigem). GOCACHE/GOPATH em /tmp. Só ./internal/... — cmd/server importa o
+      // pacote ui (//go:embed all:dist), que não compila antes do frontend build.
       agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '-u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
-        // retry(2): tolera testes flaky de timing (ex: worker startInit, que
-        // corre com a goroutine de init). Re-roda a suíte uma vez se falhar.
         retry(2) {
           sh 'go test -coverprofile=coverage.out ./internal/...'
         }
@@ -66,17 +67,12 @@ pipeline {
       }
     }
 
-    // Quality gate obrigatório: o estágio QUEBRA o build se o gate falhar
+    // ───────── A PARTIR DAQUI: só entrega (main / single-branch legado) ─────────
+
+    // Quality gate obrigatório: QUEBRA o build se o gate falhar
     // (-Dsonar.qualitygate.wait=true). Token via Jenkins credentials.
     stage('SonarQube') {
-      // sonar-scanner-cli não serve como agente (entrypoint roda e sai); roda
-      // via `docker run` montando o workspace, igual cdxgen/trivy.
-      //
-      // ⚠️ docker-in-docker: o controller do Jenkins é um container e
-      // `/var/jenkins_home` é bind de `/home/lgldsilva/docker/jenkins/data` no
-      // host. Um `docker run -v "$PWD"` (=/var/jenkins_home/...) é resolvido
-      // pelo daemon NO HOST, onde esse path está vazio → o scanner via
-      // /usr/src vazio e o gate passava FALSO. Traduz p/ o path do host.
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
@@ -99,15 +95,10 @@ pipeline {
     }
 
     stage('SBOM → Dependency-Track') {
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            # cdxgen roda sobre uma ÁRVORE LIMPA (git archive HEAD), não sobre o
-            # workspace: o `-r` recursivo varreria web/node_modules/.git/artefatos.
-            # E o mount usa o PATH DO HOST (docker-in-docker: -v "$PWD" cairia num
-            # /src vazio no host → bom vazio; mesma armadilha do Sonar). Sem jq no
-            # controller → payload via printf/base64 (por arquivo, não estoura
-            # ARG_MAX). Só sobe se o BOM existir e não for vazio.
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
             rm -rf .cdx-src && mkdir -p .cdx-src
             git archive --format=tar HEAD | tar -x -C .cdx-src
@@ -131,13 +122,8 @@ pipeline {
       }
     }
 
-    // Build NATIVO no alvo (raspberrypi-srv, x86_64) via SSH. O Jenkins host é
-    // arm64; emular amd64 (qemu) é lento e estourou a memória do host (4.6Gi
-    // livres, sem swap) buildando a imagem CUDA. Como o ÚNICO consumidor é o
-    // raspberrypi-srv (amd64, 11Gi livres, já com insecure-registry), buildamos
-    // lá nativamente: sem qemu, sem OOM, arch exata do deploy. O fonte do commit
-    // exato vai por `git archive`→tar via SSH (sem credenciais git no host).
     stage('Build & Push (amd64 nativo no alvo)') {
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([
           usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN'),
@@ -145,10 +131,7 @@ pipeline {
         ]) {
           sh '''
             SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@10.228.143.1"
-            # 1) envia o fonte do commit exato (HEAD do workspace) pro host
             git archive --format=tar HEAD | $SSH "rm -rf /tmp/jackui-build && mkdir -p /tmp/jackui-build && tar -x -C /tmp/jackui-build"
-            # 2) builda nativo + push (token/refs expandidos aqui no agente; o host
-            #    roda o build). docker login via stdin pra não vazar token no ps.
             $SSH "
               set -e
               cd /tmp/jackui-build
@@ -164,9 +147,8 @@ pipeline {
       }
     }
 
-    // Escaneia a variante amd64 (a que roda no deploy-target) direto do registry
-    // (TRIVY_INSECURE=true p/ HTTP). Reporta HIGH+CRITICAL; QUEBRA só em CRITICAL.
     stage('Trivy') {
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         sh '''
           TRIVY="docker run --rm -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
@@ -178,10 +160,8 @@ pipeline {
       }
     }
 
-    // Deploy imediato no raspberrypi-srv via SSH (WireGuard) — sem esperar o
-    // ciclo do Watchtower. Puxa a imagem do registry, re-tag pro nome local que
-    // o compose do servidor espera (jackui:nvidia), e recria o container.
     stage('Deploy (raspberrypi-srv)') {
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([sshUserPrivateKey(credentialsId: 'jackui-deploy', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
           sh '''
@@ -197,17 +177,12 @@ pipeline {
       }
     }
 
-    // Retenção: mantém :nvidia (rolling) + as 2 últimas tags :<sha> (atual +
-    // anterior, p/ rollback) e apaga as mais antigas no registry (API interna).
     stage('Limpeza de versões antigas') {
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GU', passwordVariable: 'GT')]) {
           sh '''
             API=http://10.228.143.12:3000/api/v1
-            # Sem jq no controller → roda jq num container. O filtro considera
-            # APENAS tags de git-sha (8-40 hex): ignora :nvidia e os manifests
-            # :sha256:... que o Gitea lista como "versões". Mantém as 2 mais
-            # recentes (atual + anterior p/ rollback) e apaga as antigas.
             curl -sk -u "$GU:$GT" "$API/packages/lgldsilva?type=container&limit=100" \
               | docker run -i --rm ghcr.io/jqlang/jq:latest -r \
                   '[.[] | select(.name=="jackui" and (.version|test("^[0-9a-f]{8,40}$")))] | sort_by(.created_at) | reverse | .[2:][].version' \
@@ -223,7 +198,24 @@ pipeline {
 
   post {
     always  { sh 'docker image prune -f >/dev/null 2>&1 || true' }
-    success { echo "OK — $IMAGE:nvidia publicado e deployado no raspberrypi-srv." }
-    failure { echo 'FALHOU — veja o estágio acima (quality gate / Trivy / build).' }
+    success {
+      script {
+        // PR com gates verdes → o ci-bot aprova automaticamente (o Gitea não
+        // deixa o autor aprovar o próprio PR; o bot é o "segundo aprovador").
+        if (env.CHANGE_ID) {
+          withCredentials([string(credentialsId: 'jackui-ci-bot', variable: 'BOTK')]) {
+            sh '''
+              curl -sf -X POST -H "Authorization: token $BOTK" -H 'Content-Type: application/json' \
+                "$GITEA_API/repos/lgldsilva/jackui/pulls/$CHANGE_ID/reviews" \
+                -d '{"event":"APPROVED","body":"Gates do CI verdes (backend test + frontend build) — aprovado automaticamente pelo ci-bot."}' \
+                -w '\\n[bot approve HTTP %{http_code}]\\n' || echo "aviso: falha ao aprovar via bot (segue sem bloquear)"
+            '''
+          }
+        } else {
+          echo "OK — $IMAGE:nvidia publicado e deployado no raspberrypi-srv."
+        }
+      }
+    }
+    failure { echo 'FALHOU — veja o estágio acima (gate / Trivy / build / deploy).' }
   }
 }
