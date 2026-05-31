@@ -770,33 +770,42 @@ func LocalUpload(b *local.Browser, maxUploadBytes int64) gin.HandlerFunc {
 			return
 		}
 
-		srcFile, err := fileHeader.Open()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao abrir arquivo enviado: " + err.Error()})
-			return
-		}
-		defer srcFile.Close()
-
-		if err := os.MkdirAll(absDir, 0o755); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar diretório: " + err.Error()})
-			return
-		}
-
-		dstFile, finalPath, ok := createUploadFile(c, absDir, absPath, filename)
+		finalName, ok := streamUploadToDisk(c, fileHeader, absDir, absPath, filename)
 		if !ok {
 			return
 		}
-		defer dstFile.Close()
-
-		if _, err = io.Copy(dstFile, srcFile); err != nil {
-			_ = os.Remove(finalPath)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gravar arquivo: " + err.Error()})
-			return
-		}
-
-		finalName := filepath.Base(finalPath)
 		c.JSON(http.StatusCreated, gin.H{"uploaded": finalName, "path": filepath.Join(path, finalName)})
 	}
+}
+
+// streamUploadToDisk abre o arquivo enviado, garante o diretório de destino e
+// grava em disco com claim atômico (createUploadFile faz o auto-rename em
+// colisão). Em erro responde o JSON apropriado e retorna ok=false.
+func streamUploadToDisk(c *gin.Context, fileHeader *multipart.FileHeader, absDir, absPath, filename string) (string, bool) {
+	srcFile, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao abrir arquivo enviado: " + err.Error()})
+		return "", false
+	}
+	defer srcFile.Close()
+
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar diretório: " + err.Error()})
+		return "", false
+	}
+
+	dstFile, finalPath, ok := createUploadFile(c, absDir, absPath, filename)
+	if !ok {
+		return "", false
+	}
+	defer dstFile.Close()
+
+	if _, err = io.Copy(dstFile, srcFile); err != nil {
+		_ = os.Remove(finalPath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gravar arquivo: " + err.Error()})
+		return "", false
+	}
+	return filepath.Base(finalPath), true
 }
 
 // validateUpload pulls the "file" part, validates its name and extension, and
