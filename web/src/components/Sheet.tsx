@@ -95,7 +95,16 @@ export function Sheet({
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 overscroll-contain">{children}</div>
+        {/* Sem footer, o corpo é a última zona — então ele reserva a safe-area
+            inferior do iOS (home-indicator), senão o último item (ex: botão de
+            play na lista do TorrentContentsModal) fica atrás da barra do sistema.
+            Com footer, é o footer que carrega a safe-area (abaixo). */}
+        <div
+          className="flex-1 overflow-y-auto px-4 pt-4 overscroll-contain"
+          style={{ paddingBottom: footer != null ? '1rem' : 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+        >
+          {children}
+        </div>
 
         {footer != null && (
           <div className="flex-shrink-0 border-t border-gray-700 p-4 safe-bottom sm:pb-4">{footer}</div>
