@@ -860,6 +860,28 @@ func (m *HLSSessionManager) Close(key string) {
 	}
 }
 
+// CloseForHash para TODAS as sessões HLS de um torrent (keys "<hash>-<fileIdx>").
+// Chamado quando o player fecha (Drop) pra não deixar o ffmpeg do transcode
+// órfão consumindo CPU até o idle-reaper (5min). Idempotente; no-op se não houver.
+func (m *HLSSessionManager) CloseForHash(hashHex string) {
+	if hashHex == "" {
+		return
+	}
+	prefix := hashHex + "-"
+	m.mu.Lock()
+	var stopping []*HLSSession
+	for k, s := range m.sess {
+		if strings.HasPrefix(k, prefix) {
+			stopping = append(stopping, s)
+			delete(m.sess, k)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range stopping {
+		s.stop()
+	}
+}
+
 // logWriter routes ffmpeg stderr lines to log.Printf with a stable prefix.
 type logWriter struct {
 	prefix string
