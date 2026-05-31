@@ -1,9 +1,15 @@
 package transmissionrpc
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/auth"
 	"github.com/luizg/jackui/internal/downloads"
 )
 
@@ -139,5 +145,45 @@ func TestRPC_TorrentAdd_Variants(t *testing.T) {
 	// não-magnet, não-URL, não-hash → unsupported
 	if r := h.methodTorrentAdd(map[string]interface{}{"filename": "qualquer-coisa-invalida"}, 1); r.Result == "success" {
 		t.Error("filename não suportado deveria falhar")
+	}
+}
+
+// Handshake com auth habilitado: 1º request (BasicAuth, sem session-id) → 409
+// com X-Transmission-Session-Id; 2º com o session-id → processa. Cobre o ramo
+// authStore != nil do rpcHandler + emit409.
+func TestRPC_AuthHandshake(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	st := newTestStore(t)
+	as, err := auth.New(filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer as.Close()
+	if _, err := as.CreateUser("bob", "secret123!", auth.RoleUser); err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(st, nil, as, "/data", "/data")
+	router := gin.New()
+	h.RegisterRoutes(router)
+
+	// 1) BasicAuth, sem session-id → 409 + header
+	req := httptest.NewRequest("POST", "/transmission/rpc", bytes.NewBufferString(`{"method":"session-get"}`))
+	req.SetBasicAuth("bob", "secret123!")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("esperava 409 no handshake, got %d", w.Code)
+	}
+	sid := w.Header().Get("X-Transmission-Session-Id")
+	if sid == "" {
+		t.Fatal("409 sem X-Transmission-Session-Id")
+	}
+	// 2) com o session-id → 200
+	req2 := httptest.NewRequest("POST", "/transmission/rpc", bytes.NewBufferString(`{"method":"session-get"}`))
+	req2.Header.Set("X-Transmission-Session-Id", sid)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("esperava 200 com session-id, got %d", w2.Code)
 	}
 }
