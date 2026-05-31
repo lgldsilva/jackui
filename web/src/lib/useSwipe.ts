@@ -43,7 +43,7 @@ export function useSwipe(
 ): void {
   const { threshold = 60, restraint = 80, edge, edgeSize = 28, ignoreEdgePx = 0, enabled = true } = opts
   // Handlers num ref (atualizado a cada render) pra o efeito NÃO re-anexar os
-  // listeners quando os callbacks são arrow inline (nova referência todo render).
+  // listeners quando os callbacks são arrow inline (nova referência a cada render).
   // Também evita abortar um gesto em curso quando o handler muda (ex: troca de aba).
   const handlersRef = useRef(handlers)
   handlersRef.current = handlers

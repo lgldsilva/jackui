@@ -149,18 +149,18 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   // component's cognitive complexity low.
   const { typeCounts, sortedFiles } = computeFileView(info?.files ?? [], filter, typeFilter, sortBySize, sizeDesc)
 
-  // Plain <div>, not native <dialog>: a <dialog> carries a UA `width: fit-content`
-  // that fights `inset-0`, so on mobile the modal sized to its content (up to
-  // max-w-2xl = 672px) and overflowed a ~390px viewport — pushing the Play button
-  // off-screen. A div with fixed inset-0 fills the viewport like every other modal.
+  // O backdrop fixo (inset-0) continua sendo um <div> — quem captura o clique-fora
+  // e o Escape. O painel interno é o <dialog> semântico: o `w-full` anula a UA
+  // `width: fit-content` (que sozinha estourava o viewport de ~390px no mobile),
+  // e `p-0 m-0` neutralizam padding/margin default do user-agent.
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      tabIndex={-1}
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
+      <dialog open aria-modal="true" className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col p-0 m-0 text-inherit">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
@@ -411,7 +411,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
             </p>
           )}
         </div>
-      </div>
+      </dialog>
       {hoverThumb.popover}
     </div>
   )

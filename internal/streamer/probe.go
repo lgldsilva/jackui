@@ -152,79 +152,98 @@ func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, err
 	return out, nil
 }
 
-func parseProbeOutput(out []byte) (*ProbeResult, error) {
-	var parsed struct {
-		Streams []struct {
-			Index       int               `json:"index"`
-			CodecType   string            `json:"codec_type"`
-			CodecName   string            `json:"codec_name"`
-			Channels    int               `json:"channels"`
-			Tags        map[string]string `json:"tags"`
-			Disposition struct {
-				Default int `json:"default"`
-				Forced  int `json:"forced"`
-			} `json:"disposition"`
-		} `json:"streams"`
-		Format struct {
-			Duration   string `json:"duration"`
-			FormatName string `json:"format_name"`
-		} `json:"format"`
+type ffprobeStream struct {
+	Index       int               `json:"index"`
+	CodecType   string            `json:"codec_type"`
+	CodecName   string            `json:"codec_name"`
+	Channels    int               `json:"channels"`
+	Tags        map[string]string `json:"tags"`
+	Disposition struct {
+		Default int `json:"default"`
+		Forced  int `json:"forced"`
+	} `json:"disposition"`
+}
+
+type ffprobeOutput struct {
+	Streams []ffprobeStream `json:"streams"`
+	Format  struct {
+		Duration   string `json:"duration"`
+		FormatName string `json:"format_name"`
+	} `json:"format"`
+}
+
+func streamToTrack(st ffprobeStream) Track {
+	t := Track{
+		Index:    st.Index,
+		Codec:    st.CodecName,
+		Channels: st.Channels,
+		Default:  st.Disposition.Default == 1,
+		Forced:   st.Disposition.Forced == 1,
 	}
+	if st.Tags != nil {
+		t.Language = st.Tags["language"]
+		t.Title = st.Tags["title"]
+	}
+	return t
+}
+
+// classifyStreams separa as faixas por tipo e captura o codec do primeiro
+// stream de vídeo (ignora capa/thumbnail anexada depois).
+func classifyStreams(streams []ffprobeStream) (audio, subs []Track, videoCodec string) {
+	audio, subs = []Track{}, []Track{}
+	for _, st := range streams {
+		t := streamToTrack(st)
+		switch st.CodecType {
+		case "audio":
+			t.Type = "audio"
+			audio = append(audio, t)
+		case "subtitle":
+			t.Type = "subtitle"
+			t.Image = isImageSubtitle(st.CodecName)
+			subs = append(subs, t)
+		case "video":
+			if videoCodec == "" {
+				videoCodec = strings.ToLower(st.CodecName)
+			}
+		}
+	}
+	return audio, subs, videoCodec
+}
+
+// defaultAudioCodec devolve o codec da faixa de áudio default (ou a primeira).
+func defaultAudioCodec(audio []Track) string {
+	codec := ""
+	for _, a := range audio {
+		codec = strings.ToLower(a.Codec)
+		if a.Default {
+			break
+		}
+	}
+	return codec
+}
+
+func parseProbeOutput(out []byte) (*ProbeResult, error) {
+	var parsed ffprobeOutput
 	if err := json.Unmarshal(out, &parsed); err != nil {
 		return nil, err
 	}
 
+	audio, subs, videoCodec := classifyStreams(parsed.Streams)
 	result := &ProbeResult{
-		Audio:     []Track{},
-		Subtitles: []Track{},
+		Audio:      audio,
+		Subtitles:  subs,
+		VideoCodec: videoCodec,
 	}
-	for _, st := range parsed.Streams {
-		t := Track{
-			Index:    st.Index,
-			Codec:    st.CodecName,
-			Channels: st.Channels,
-			Default:  st.Disposition.Default == 1,
-			Forced:   st.Disposition.Forced == 1,
-		}
-		if st.Tags != nil {
-			t.Language = st.Tags["language"]
-			t.Title = st.Tags["title"]
-		}
-		switch st.CodecType {
-		case "audio":
-			t.Type = "audio"
-			result.Audio = append(result.Audio, t)
-		case "subtitle":
-			t.Type = "subtitle"
-			if isImageSubtitle(st.CodecName) {
-				t.Image = true
-			}
-			result.Subtitles = append(result.Subtitles, t)
-		case "video":
-			// Primeiro stream de vídeo (ignora capa/thumbnail anexada depois).
-			if result.VideoCodec == "" {
-				result.VideoCodec = strings.ToLower(st.CodecName)
-			}
-		}
-	}
-
 	if parsed.Format.Duration != "" {
 		if d, perr := strconv.ParseFloat(parsed.Format.Duration, 64); perr == nil {
 			result.DurationSec = d
 		}
 	}
-
 	// Container = primeiro nome do format_name (ex: "matroska,webm" → "matroska").
 	if fn := parsed.Format.FormatName; fn != "" {
 		result.Container = strings.ToLower(strings.SplitN(fn, ",", 2)[0])
 	}
-	// Codec da faixa de áudio default (ou a primeira) — base da decisão de áudio.
-	for _, a := range result.Audio {
-		result.AudioCodec = strings.ToLower(a.Codec)
-		if a.Default {
-			break
-		}
-	}
+	result.AudioCodec = defaultAudioCodec(result.Audio)
 	result.NeedsTranscode, result.TranscodeReason = classifyTranscode(result.Container, result.VideoCodec, result.AudioCodec)
 	return result, nil
 }

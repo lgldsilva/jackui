@@ -46,7 +46,8 @@ import { useIncognito } from '../lib/incognito'
 import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
-import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
+import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, hlsFatalAction } from './player/playerHooks'
+import type { ErrorData } from 'hls.js'
 
 type PlaylistMeta = {
   readonly name: string
@@ -86,8 +87,8 @@ const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
 // Variable playback speed for audiobooks / lectures.
 const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
-// canPlayNativeHls: o browser toca HLS (.m3u8) nativo? True no Safari e em todo
-// browser iOS (todos WebKit); false no Chrome/Firefox/Edge desktop → precisam do
+// canPlayNativeHls: o browser toca HLS (.m3u8) nativo? True no Safari e em
+// qualquer browser iOS (WebKit); false no Chrome/Firefox/Edge desktop → precisam do
 // hls.js. Cacheado porque não muda durante a sessão.
 let _nativeHlsSupport: boolean | null = null
 function canPlayNativeHls(): boolean {
@@ -254,7 +255,7 @@ function renderTorrentInfoModal(props: {
   hashCopied: boolean
 }) {
   const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied } = props
-  const pct = info.progress !== undefined ? `${(info.progress * 100).toFixed(1)}%` : null
+  const pct = info.progress === undefined ? null : `${(info.progress * 100).toFixed(1)}%`
   const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
     <div className="flex items-start gap-2 py-1.5 border-b border-gray-700/40 last:border-0">
       <span className="text-gray-500 text-xs w-28 flex-shrink-0 flex items-center gap-1.5">{icon}{label}</span>
@@ -266,9 +267,9 @@ function renderTorrentInfoModal(props: {
       className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
-      role="dialog" aria-modal="true" tabIndex={-1}
+      tabIndex={-1}
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col">
+      <dialog open aria-modal="true" className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col p-0 m-0 text-inherit">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 flex-shrink-0">
           <h3 className="text-sm font-semibold text-gray-100 flex items-center gap-2"><Info className="w-4 h-4 text-blue-400" />Informações do torrent</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-200"><X className="w-5 h-5" /></button>
@@ -293,7 +294,7 @@ function renderTorrentInfoModal(props: {
             </Row>
           )}
         </div>
-      </div>
+      </dialog>
     </div>
   )
 }
@@ -448,6 +449,18 @@ type VideoPlayerElementProps = {
   readonly onResumeRestart: () => void
 }
 
+// recoverHlsFatal trata erro FATAL do hls.js fora do componente (mantém a
+// complexidade cognitiva de VideoPlayerElement baixa). A DECISÃO é pura
+// (hlsFatalAction, testável); aqui só aplica o efeito no objeto Hls.
+function recoverHlsFatal(hls: Hls, data: ErrorData) {
+  if (!data.fatal) return
+  switch (hlsFatalAction(data.type, Hls.ErrorTypes)) {
+    case 'startLoad': hls.startLoad(); break
+    case 'recoverMedia': hls.recoverMediaError(); break
+    default: hls.destroy()
+  }
+}
+
 function VideoPlayerElement({
   videoRef,
   streamURL,
@@ -474,7 +487,7 @@ function VideoPlayerElement({
   onResumeContinue,
   onResumeRestart,
 }: VideoPlayerElementProps) {
-  // HLS (.m3u8) toca nativo só no WebKit (Safari + todo browser iOS). Chrome/
+  // HLS (.m3u8) toca nativo só no WebKit (Safari + qualquer browser iOS). Chrome/
   // Firefox/Edge desktop precisam do hls.js pra tocar o MESMO HLS-VOD — é o que
   // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
   // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
@@ -499,12 +512,7 @@ function VideoPlayerElement({
     })
     // Recupera de erros transitórios (buracos enquanto o transcoder reinicia) em
     // vez de mostrar a UI de erro fatal.
-    hls.on(Hls.Events.ERROR, (_evt, data) => {
-      if (!data.fatal) return
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad()
-      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
-      else hls.destroy()
-    })
+    hls.on(Hls.Events.ERROR, (_evt, data) => recoverHlsFatal(hls, data))
     // Autoplay: o atributo autoPlay não dispara sozinho no hls.js (a fonte é
     // anexada via MSE de forma async, fora do gesto de abertura). Ao parsear o
     // manifest, tenta tocar; se o browser bloquear sem áudio mudo (NotAllowed),
