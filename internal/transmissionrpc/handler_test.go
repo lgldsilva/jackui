@@ -278,3 +278,53 @@ func TestBuildTorrent_NilStartedAt_NoPanic(t *testing.T) {
 	}
 	_ = h.buildTorrent(d, nil, map[string]bool{"id": true, "activityDate": true, "secondsDownloading": true})
 }
+
+// allTorrentFields cobre todos os campos suportados pelo buildTorrent (core +
+// extras), garantindo que o split do switch não derruba nenhum campo.
+var allTorrentFields = []string{
+	"id", "hashString", "name", "status", "totalSize", "percentDone",
+	"rateDownload", "rateUpload", "downloadDir", "addedDate", "doneDate",
+	"error", "errorString", "leftUntilDone", "haveValid", "peersConnected",
+	"eta", "isFinished", "isStalled", "labels", "trackers", "uploadRatio",
+	"uploadedEver", "downloadedEver", "queuePosition",
+	"activityDate", "corruptEver", "desiredAvailable", "haveUnchecked",
+	"peersGettingFromUs", "peersSendingToUs", "seedRatioLimit", "seedRatioMode",
+	"sizeWhenDone", "startDate", "torrentFile", "maxConnectedPeers",
+	"bandwidthPriority", "recheckProgress", "secondsDownloading",
+	"secondsSeeding", "comment", "creator", "dateCreated", "pieceCount",
+	"pieceSize", "priorities", "wanted", "files", "fileStats",
+}
+
+func TestBuildTorrent_AllFieldsPresent(t *testing.T) {
+	h := &Handler{dataDir: "/data", downloadDir: "/downloads", sessions: make(map[string]int)}
+	started := time.Now().Add(-time.Hour)
+	now := time.Now()
+	d := downloads.Download{
+		ID: 7, InfoHash: "abc", Name: "Movie", Status: downloads.StatusCompleted,
+		Progress: 1.0, FileSize: 1000, BytesDownloaded: 1000, Category: "movies",
+		Tracker: "https://tr.example", CreatedAt: started, StartedAt: &started,
+		CompletedAt: &now,
+	}
+
+	fields := make(map[string]bool, len(allTorrentFields))
+	for _, f := range allTorrentFields {
+		fields[f] = true
+	}
+
+	got := h.buildTorrent(d, nil, fields)
+
+	if len(got) != len(allTorrentFields) {
+		t.Fatalf("got %d fields, want %d", len(got), len(allTorrentFields))
+	}
+	for _, f := range allTorrentFields {
+		if _, ok := got[f]; !ok {
+			t.Errorf("missing field %q", f)
+		}
+	}
+	if got["id"] != 7 {
+		t.Errorf("id=%v, want 7", got["id"])
+	}
+	if got["downloadDir"] != "/downloads" {
+		t.Errorf("downloadDir=%v, want /downloads", got["downloadDir"])
+	}
+}
