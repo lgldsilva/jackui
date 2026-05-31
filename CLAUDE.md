@@ -49,7 +49,9 @@ internal/
 
 ## Notas críticas (gotchas que já morderam)
 
+- **Premissa de playback**: **VOD (seekbar) é o padrão; EVENT/live é ÚLTIMO RECURSO** (só quando duração desconhecida ou sem dado baixado à frente). Com dado baixado, sempre VOD. NÃO consertar bug de VOD trocando pra live — fazer o VOD funcionar. Suportar N faixas de áudio/legenda + multi-resolução (Fase 2: HLS master playlist).
 - **HLS para Safari**: progressive MP4 via chunked é rejeitado (`SRC_NOT_SUPPORTED`). Use HLS. Sem `append_list` (gera `EXT-X-DISCONTINUITY` que o Safari recusa). `-hls_playlist_type event` (não `vod` — o ffmpeg adia o m3u8 até o fim do transcode).
+- **Stall do Safari no `currentTime 0` (CAUSA RAIZ)**: o muxer MPEG-TS do ffmpeg adiciona ~1.4s de `initial_offset`, então `seg_00000.ts` sai começando em 1.4s (buraco [0,1.4] → Safari/iOS travam no t=0). **`-muxdelay 0 -muxpreload 0`** zera isso no muxer (o `setpts`/`asetpts=PTS-STARTPTS` zera só o filtro — o muxer re-adiciona depois). Guard: `TestEncodeSpecZeroesPTSBothModes`.
 - **Source seekável obrigatório**: ffmpeg lê o torrent via servidor HTTP loopback com Range (`serveSource`), não via pipe — senão MP4 com `moov` no fim quebra. Seek+Read são atômicos sob mutex (corrida STSC/STCO).
 - **Token de mídia**: `<video>/<track>` não mandam header → usam `?token=`. O middleware só aceita `?token=` em rotas de mídia (`/api/stream/*`, `/api/subtitles/download/*`, `/api/local/file`, `/api/local/hls/*`).
 - **VOD/seek (#61)** está atrás da flag `hlsVODEnabled` em `internal/transcode/hls.go` — instável no Safari (em avaliação); quando off, cai no EVENT/live estável.
