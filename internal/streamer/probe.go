@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -44,6 +45,41 @@ type ProbeResult struct {
 	// couldn't determine it (e.g. MP4 with moov-at-end whose tail isn't
 	// downloaded yet). Callers must treat 0 as "unknown" and fall back.
 	DurationSec float64 `json:"durationSec"`
+	// VideoCodec / Container / AudioCodec são os fatos da fonte; NeedsTranscode é
+	// a DECISÃO (navegador-agnóstica): MKV/HEVC/AV1/AC3/DTS não tocam direto em
+	// browser nenhum → tem que transcodificar pra HLS. O front decide por isto
+	// (não mais pelo NOME do arquivo, que errava e mandava incompatível pro
+	// direct-play → errorCode 4 no Safari). Mesma lógica do classifyForBrowser
+	// dos arquivos locais. Vazio até o ffprobe rodar.
+	VideoCodec     string `json:"videoCodec"`
+	Container      string `json:"container"`
+	AudioCodec     string `json:"audioCodec"`
+	NeedsTranscode bool   `json:"needsTranscode"`
+	TranscodeReason string `json:"transcodeReason,omitempty"`
+}
+
+// Conjuntos que o <video> dos browsers toca DIRETO (sem transcode). Fora deles →
+// HLS. Espelha browserSafe* do internal/handlers/local_play.go.
+var (
+	browserSafeContainers  = map[string]bool{"mp4": true, "m4v": true, "mov": true, "webm": true, "isom": true, "mp42": true, "qt": true}
+	browserSafeVideoCodecs = map[string]bool{"h264": true, "vp8": true, "vp9": true}
+	browserSafeAudioCodecs = map[string]bool{"aac": true, "mp3": true, "opus": true, "vorbis": true}
+)
+
+// classifyTranscode decide se a fonte precisa de transcode→HLS (true) ou pode
+// tocar direto, e o porquê. Navegador-agnóstico: os codecs/containers "unsafe"
+// falham em todos os browsers.
+func classifyTranscode(container, vcodec, acodec string) (bool, string) {
+	if container != "" && !browserSafeContainers[container] {
+		return true, "container=" + container
+	}
+	if vcodec != "" && !browserSafeVideoCodecs[vcodec] {
+		return true, "vcodec=" + vcodec
+	}
+	if acodec != "" && !browserSafeAudioCodecs[acodec] {
+		return true, "acodec=" + acodec
+	}
+	return false, ""
 }
 
 var (
@@ -130,7 +166,8 @@ func parseProbeOutput(out []byte) (*ProbeResult, error) {
 			} `json:"disposition"`
 		} `json:"streams"`
 		Format struct {
-			Duration string `json:"duration"`
+			Duration   string `json:"duration"`
+			FormatName string `json:"format_name"`
 		} `json:"format"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
@@ -163,6 +200,11 @@ func parseProbeOutput(out []byte) (*ProbeResult, error) {
 				t.Image = true
 			}
 			result.Subtitles = append(result.Subtitles, t)
+		case "video":
+			// Primeiro stream de vídeo (ignora capa/thumbnail anexada depois).
+			if result.VideoCodec == "" {
+				result.VideoCodec = strings.ToLower(st.CodecName)
+			}
 		}
 	}
 
@@ -171,6 +213,19 @@ func parseProbeOutput(out []byte) (*ProbeResult, error) {
 			result.DurationSec = d
 		}
 	}
+
+	// Container = primeiro nome do format_name (ex: "matroska,webm" → "matroska").
+	if fn := parsed.Format.FormatName; fn != "" {
+		result.Container = strings.ToLower(strings.SplitN(fn, ",", 2)[0])
+	}
+	// Codec da faixa de áudio default (ou a primeira) — base da decisão de áudio.
+	for _, a := range result.Audio {
+		result.AudioCodec = strings.ToLower(a.Codec)
+		if a.Default {
+			break
+		}
+	}
+	result.NeedsTranscode, result.TranscodeReason = classifyTranscode(result.Container, result.VideoCodec, result.AudioCodec)
 	return result, nil
 }
 

@@ -143,19 +143,27 @@ type MediaUrlInput = {
   customSubURL: string | null
   caps: TranscodeCapabilities | null
   authEnabled: boolean
+  probe: StreamProbe | null
 }
 
 function computeMediaUrls(input: MediaUrlInput) {
-  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled } = input
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled, probe } = input
   // O media token só é OBRIGATÓRIO com auth ligado (<video>/<track> não mandam
   // header → carregam ?token=). Com auth off as rotas de mídia são públicas e
   // /auth/media-token responde 404 — gatear no token aqui deixaria a streamURL
   // vazia pra sempre e o player giraria sem nunca carregar.
   const tokenMissing = authEnabled && !mediaToken
   const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
-  const safariNeedsTranscode = isSafariBrowser() &&
-    /\b(x265|h\.?265|hevc|av1|2160p?|4k|uhd)\b/i.test(selectedFilename)
-  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || safariNeedsTranscode
+  // Decide transcode pelo CODEC REAL (probe do backend, navegador-agnóstico:
+  // MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum). Antes era por NOME,
+  // o que mandava incompatível pro direct-play → errorCode 4 no Safari. O probe
+  // (useTrackProbe) chega logo; enquanto não chega, cai numa heurística de nome
+  // só pra reduzir a janela — o probe sobrescreve assim que disponível.
+  const nameSuggestsTranscode =
+    /(x265|h\.?265|hevc|av1|vp9|2160p?|4k|uhd)/i.test(selectedFilename) ||
+    /\.(mkv|avi|ts|m2ts|wmv|flv|mpg|mpeg|ogv)$/i.test(selectedFilename)
+  const needsTranscode = probe?.needsTranscode ?? nameSuggestsTranscode
+  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || needsTranscode
 
   const streamURL = (() => {
     if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
@@ -2496,7 +2504,7 @@ export default function PlayerModal({
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled, probe })
   const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
