@@ -228,28 +228,40 @@ func (b *Browser) MigrateToUserSubpath(mountName string, knownUsers map[string]b
 			res.Skipped++
 			continue
 		}
-		abs := filepath.Join(mountAbs, name)
 
-		user, attributed := attribute(abs)
-		fallback := false
-		if !attributed || user == "" || !knownUsers[user] {
-			user, fallback = fallbackUser, true
-		}
+		user, fallback := resolveOwner(filepath.Join(mountAbs, name), knownUsers, fallbackUser, attribute)
 		if user == "" {
 			// No owner and no fallback — leave in place rather than lose track.
 			continue
 		}
 
-		destDir := filepath.Join(mountAbs, user)
-		if err := os.MkdirAll(destDir, 0o755); err != nil {
-			return res, err
-		}
-		if err := os.Rename(abs, nonCollidingPath(destDir, name)); err != nil {
+		if err := moveIntoUserSubdir(mountAbs, user, name); err != nil {
 			return res, err
 		}
 		res.Moved = append(res.Moved, MigratedEntry{Name: name, ToUser: user, Fallback: fallback})
 	}
 	return res, nil
+}
+
+// resolveOwner attributes abs to a known user, falling back to fallbackUser
+// (with fallback=true) when attribution fails or names an unknown user. Returns
+// an empty user when there's neither an owner nor a fallback.
+func resolveOwner(abs string, knownUsers map[string]bool, fallbackUser string, attribute func(absPath string) (string, bool)) (user string, fallback bool) {
+	user, attributed := attribute(abs)
+	if !attributed || user == "" || !knownUsers[user] {
+		return fallbackUser, true
+	}
+	return user, false
+}
+
+// moveIntoUserSubdir relocates mountAbs/name into mountAbs/user/, creating the
+// subdir and avoiding collisions with any file already there.
+func moveIntoUserSubdir(mountAbs, user, name string) error {
+	destDir := filepath.Join(mountAbs, user)
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return err
+	}
+	return os.Rename(filepath.Join(mountAbs, name), nonCollidingPath(destDir, name))
 }
 
 // nonCollidingPath returns dir/name, or dir/name (n).ext if that already exists,
