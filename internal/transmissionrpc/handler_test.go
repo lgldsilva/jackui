@@ -6,10 +6,24 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/luizg/jackui/internal/downloads"
 )
+
+func newTestStore(t *testing.T) *downloads.Store {
+	t.Helper()
+	st, err := downloads.New(filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(st.Close)
+	return st
+}
 
 func TestSessionGet(t *testing.T) {
 	h := &Handler{
@@ -186,4 +200,81 @@ func TestRPCHandlerNoAuth(t *testing.T) {
 	if rpcResp.Result != "success" {
 		t.Errorf("expected success, got %q", rpcResp.Result)
 	}
+}
+
+// SSRF: a URL do torrent vem do cliente RPC; IPs internos devem ser barrados.
+func TestFetchTorrentHash_BlocksInternalIP(t *testing.T) {
+	for _, u := range []string{
+		"http://127.0.0.1/x.torrent",
+		"http://169.254.169.254/latest/meta-data", // metadata cloud
+		"http://127.0.0.1/x.torrent",
+		"http://192.168.0.10/x.torrent",
+	} {
+		if _, err := fetchTorrentHash(u); err == nil {
+			t.Errorf("fetchTorrentHash(%q) deveria falhar (IP interno)", u)
+		}
+	}
+	if _, err := fetchTorrentHash("ftp://example.com/x"); err == nil {
+		t.Error("esquema não-http deveria ser rejeitado")
+	}
+}
+
+// torrent-add deve atribuir o download ao usuário autenticado (não ao 0).
+func TestTorrentAdd_SetsUserID(t *testing.T) {
+	st := newTestStore(t)
+	h := NewHandler(st, nil, nil, "/data", "/data")
+	hash := strings.Repeat("a", 40)
+	resp := h.methodTorrentAdd(map[string]interface{}{
+		"filename": "magnet:?xt=urn:btih:" + hash,
+	}, 7)
+	if resp.Result != "success" {
+		t.Fatalf("torrent-add falhou: %q", resp.Result)
+	}
+	all, err := st.ListAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0].UserID != 7 {
+		t.Fatalf("esperava 1 download com UserID=7, got %+v", all)
+	}
+}
+
+// torrent-set "labels" deve atualizar a categoria do download existente
+// (antes chamava Create sem Magnet e nunca funcionava).
+func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {
+	st := newTestStore(t)
+	hash := strings.Repeat("b", 40)
+	d, err := st.Create(downloads.Download{
+		UserID: 3, InfoHash: hash, FileIndex: -1,
+		Magnet: "magnet:?xt=urn:btih:" + hash,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(st, nil, nil, "/data", "/data")
+	resp := h.methodTorrentSet(map[string]interface{}{
+		"ids":    []interface{}{float64(d.ID)},
+		"labels": []interface{}{"tv-sonarr"},
+	})
+	if resp.Result != "success" {
+		t.Fatalf("torrent-set: %q", resp.Result)
+	}
+	got, err := st.Get(3, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Category != "tv-sonarr" {
+		t.Errorf("category=%q, want tv-sonarr", got.Category)
+	}
+}
+
+// buildTorrent não deve dar panic quando StartedAt é nil num download completo.
+func TestBuildTorrent_NilStartedAt_NoPanic(t *testing.T) {
+	h := &Handler{dataDir: "/data", downloadDir: "/data", sessions: make(map[string]int)}
+	now := time.Now()
+	d := downloads.Download{
+		ID: 1, Status: downloads.StatusCompleted,
+		CreatedAt: now, CompletedAt: &now, // StartedAt nil de propósito
+	}
+	_ = h.buildTorrent(d, nil, map[string]bool{"id": true, "activityDate": true, "secondsDownloading": true})
 }
