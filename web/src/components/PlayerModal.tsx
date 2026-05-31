@@ -461,6 +461,98 @@ function recoverHlsFatal(hls: Hls, data: ErrorData) {
   }
 }
 
+// Resume-from-position prompt shown over the video when reopening a torrent
+// with a saved playhead. Extracted to keep VideoPlayerElement's cognitive
+// complexity low (zero visual change vs the inline block).
+type ResumePromptProps = {
+  readonly resumePosition: number
+  readonly formatTime: (s: number) => string
+  readonly onContinue: (pos: number) => void
+  readonly onRestart: () => void
+}
+
+function ResumePrompt({ resumePosition, formatTime, onContinue, onRestart }: ResumePromptProps) {
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
+        <p className="text-gray-300 text-sm text-center">Você parou em</p>
+        <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
+        <button
+          onClick={() => onContinue(resumePosition)}
+          className="btn-primary w-full justify-center"
+        >
+          Continuar
+        </button>
+        <button
+          onClick={onRestart}
+          className="btn-secondary w-full justify-center"
+        >
+          Começar do início
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type PlayerLoadingOverlayProps = {
+  readonly serverReady: boolean
+  readonly resumePosition: number | null
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly isTranscoded: boolean
+  readonly transcodeFallbackAttempted: boolean
+  readonly formatTime: (s: number) => string
+}
+
+// Loading overlay shown while the first pieces download (currentTime/bufferedEnd
+// still 0). Extracted from VideoPlayerElement — it concentrated ~7 nested
+// conditionals/ternaries (swarm stats, downRate, transcode hint) that inflated
+// the cognitive complexity. JSX/classes/texts kept IDENTICAL.
+function PlayerLoadingOverlay({
+  serverReady,
+  resumePosition,
+  info,
+  selectedFile,
+  isTranscoded,
+  transcodeFallbackAttempted,
+  formatTime,
+}: PlayerLoadingOverlayProps) {
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
+      <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
+      <p className="text-gray-200 font-medium">
+        {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
+      </p>
+      {resumePosition !== null && (
+        <p className="text-xs text-blue-300 mt-2">
+          Continuando de {formatTime(resumePosition)}
+        </p>
+      )}
+      <p className="text-xs text-gray-400 mt-1">
+        {info && info.peers > 0
+          ? `${info.seeders} seeders / ${info.peers} peers conectados`
+          : 'Aguardando peers...'}
+      </p>
+      {info && info.downRate > 0 && (
+        <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
+          <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
+          {info.files?.[selectedFile] && (
+            <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
+          )}
+        </p>
+      )}
+      {isTranscoded && (
+        <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
+          <Cpu className="w-3 h-3" />
+          {transcodeFallbackAttempted
+            ? 'Convertendo via GPU — codec original incompatível (HEVC/AV1)'
+            : 'Transcoding ativo — primeiros frames demoram mais'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function VideoPlayerElement({
   videoRef,
   streamURL,
@@ -540,58 +632,23 @@ function VideoPlayerElement({
         </div>
       )}
       {showResumePrompt && resumePosition !== null && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
-            <p className="text-gray-300 text-sm text-center">Você parou em</p>
-            <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
-            <button
-              onClick={() => onResumeContinue(resumePosition)}
-              className="btn-primary w-full justify-center"
-            >
-              Continuar
-            </button>
-            <button
-              onClick={onResumeRestart}
-              className="btn-secondary w-full justify-center"
-            >
-              Começar do início
-            </button>
-          </div>
-        </div>
+        <ResumePrompt
+          resumePosition={resumePosition}
+          formatTime={formatTime}
+          onContinue={onResumeContinue}
+          onRestart={onResumeRestart}
+        />
       )}
       {!videoError && currentTime === 0 && bufferedEnd === 0 && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
-          <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
-          <p className="text-gray-200 font-medium">
-            {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
-          </p>
-          {resumePosition !== null && (
-            <p className="text-xs text-blue-300 mt-2">
-              Continuando de {formatTime(resumePosition)}
-            </p>
-          )}
-          <p className="text-xs text-gray-400 mt-1">
-            {info && info.peers > 0
-              ? `${info.seeders} seeders / ${info.peers} peers conectados`
-              : 'Aguardando peers...'}
-          </p>
-          {info && info.downRate > 0 && (
-            <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
-              <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
-              {info.files?.[selectedFile] && (
-                <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
-              )}
-            </p>
-          )}
-          {isTranscoded && (
-            <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
-              <Cpu className="w-3 h-3" />
-              {transcodeFallbackAttempted
-                ? 'Convertendo via GPU — codec original incompatível (HEVC/AV1)'
-                : 'Transcoding ativo — primeiros frames demoram mais'}
-            </p>
-          )}
-        </div>
+        <PlayerLoadingOverlay
+          serverReady={serverReady}
+          resumePosition={resumePosition}
+          info={info}
+          selectedFile={selectedFile}
+          isTranscoded={isTranscoded}
+          transcodeFallbackAttempted={transcodeFallbackAttempted}
+          formatTime={formatTime}
+        />
       )}
       {transcodeFallbackAttempted && !videoError && (
         <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
