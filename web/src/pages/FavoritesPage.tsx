@@ -646,10 +646,12 @@ export default function FavoritesPage() {
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
           onClick={e => { if (e.target === e.currentTarget && !importing) setShowImport(false) }}
           onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
-          role="dialog" aria-modal="true" tabIndex={-1}
+          tabIndex={-1}
         >
-          <div
-            className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4"
+          <dialog
+            open
+            aria-modal="true"
+            className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4 m-0 text-inherit"
           >
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
@@ -721,7 +723,7 @@ export default function FavoritesPage() {
                 {importMsg.text}
               </p>
             )}
-            </div>
+            </dialog>
           </div>
         )}
 

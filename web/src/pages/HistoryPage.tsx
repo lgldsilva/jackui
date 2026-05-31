@@ -17,6 +17,19 @@ import { uid } from '../lib/uid'
 
 type SortDef = { key: ResultSortKey; label: string }
 
+// Estado vazio do modo "browse" (nenhuma busca em cache). Extraído pra fora de
+// renderBrowseContent pra manter a complexidade cognitiva daquele render baixa.
+function BrowseEmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+      <History className="w-16 h-16 mb-4 opacity-30" />
+      <p className="text-xl font-medium">Nenhuma busca salva</p>
+      <p className="text-sm mt-2">Faça uma busca para começar a acumular o cache</p>
+      <Link to="/" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">Ir para busca</Link>
+    </div>
+  )
+}
+
 function ResultSortButtons({
   sort, sortAsc, onChange, defs, className,
 }: {
@@ -387,16 +400,7 @@ export default function HistoryPage() {
   )
 
   const renderBrowseContent = () => {
-    if (entries.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-500">
-          <History className="w-16 h-16 mb-4 opacity-30" />
-          <p className="text-xl font-medium">Nenhuma busca salva</p>
-          <p className="text-sm mt-2">Faça uma busca para começar a acumular o cache</p>
-          <Link to="/" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">Ir para busca</Link>
-        </div>
-      )
-    }
+    if (entries.length === 0) return <BrowseEmptyState />
     return (
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 flex-1">
         {/* Master-detail on mobile: once a query is selected the list hides and
