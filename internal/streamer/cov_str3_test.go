@@ -377,6 +377,42 @@ func str3FreePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
+// Test_str3_DropActiveReadGuard covers the activeReadGuard branch in Drop():
+// a torrent read within activeReadGuard is treated as still being watched, so an
+// explicit Drop() (player close) must be a no-op — the entry stays in s.active.
+func Test_str3_DropActiveReadGuard(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Config{DataDir: dir, ListenPort: str3FreePort(t)})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+
+	spec := str3TorrentSpec(t)
+	tor, _, err := s.client.AddTorrentSpec(spec)
+	if err != nil {
+		t.Fatalf("AddTorrentSpec: %v", err)
+	}
+	hash := tor.InfoHash()
+
+	// Insert an active entry with a RECENT lastAccess (within activeReadGuard) and
+	// no background-download protection, so Drop() reaches the lastAccess guard.
+	s.mu.Lock()
+	s.active[hash] = &entry{t: tor, lastAccess: time.Now()}
+	s.mu.Unlock()
+
+	s.Drop(hash)
+
+	// Guard held: the recent read means someone is still watching, so the entry
+	// must NOT have been removed from s.active.
+	s.mu.Lock()
+	_, stillActive := s.active[hash]
+	s.mu.Unlock()
+	if !stillActive {
+		t.Error("Drop removed a recently-read torrent; activeReadGuard should have skipped it")
+	}
+}
+
 // str3TorrentSpec builds an info-complete single-file torrent spec in memory so
 // AddTorrentSpec yields an immediately-usable *torrent.Torrent (Stats() valid).
 func str3TorrentSpec(t *testing.T) *torrent.TorrentSpec {
