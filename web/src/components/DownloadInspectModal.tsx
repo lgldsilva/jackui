@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  X, Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
+  Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
   Loader2, AlertCircle, Trash2, Square,
   ArrowUpCircle, Activity, Globe, Play
 } from 'lucide-react'
@@ -9,7 +9,7 @@ import {
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 
 type Props = {
   readonly download: DownloadEntry | null
@@ -102,7 +102,6 @@ function renderFilesTab(
 }
 
 export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay }: Props) {
-  useScrollLock(!!download)
   const [tab, setTab] = useState<Tab>('overview')
   const [details, setDetails] = useState<DownloadDetails | null>(null)
   const [loading, setLoading] = useState(false)
@@ -229,27 +228,15 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon)
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
+    <Sheet
       open
+      onClose={onClose}
+      size="2xl"
+      title={<span className="truncate" title={d.name}>{d.name}</span>}
+      icon={<Info className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
-        <header className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 truncate">
-            <Info className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-            <span className="truncate" title={d.name}>{d.name}</span>
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-100 flex-shrink-0">
-            <X className="w-5 h-5" />
-          </button>
-        </header>
-
-        {/* Tabs */}
-        <div className="flex border-b border-gray-700 px-2 bg-gray-900/40">
+        {/* Tabs — cola no topo do corpo (compensa o p-4 do Sheet) */}
+        <div className="-mx-4 -mt-4 mb-4 flex border-b border-gray-700 px-2 bg-gray-900/40">
           {[
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
             { id: 'files' as Tab, label: filesTabLabel(torrent), icon: Files },
@@ -271,7 +258,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 text-sm">
+        <div className="text-sm">
           {loading && !details && (
             <div className="flex items-center justify-center py-8 text-gray-500">
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -446,8 +433,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
             </div>
           )}
         </div>
-      </div>
-    </dialog>
+    </Sheet>
   )
 }
 

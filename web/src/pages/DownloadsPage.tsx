@@ -3,9 +3,11 @@ import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
   Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive, AlertTriangle,
-  ListFilter, Download, CheckSquare,
+  ListFilter, Download, CheckSquare, MoreHorizontal,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
+import { Sheet } from '../components/Sheet'
+import { useConfirm } from '../components/ConfirmDialog'
 import {
   DownloadEntry, DownloadFilterParams, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
   downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
@@ -54,6 +56,8 @@ export default function DownloadsPage() {
   const [torrentsLoaded, setTorrentsLoaded] = useState(false)
   const [busyHash, setBusyHash] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
+  const confirm = useConfirm()
 
   const [limitDownKB, setLimitDownKB] = useState<string>('')
   const [limitUpKB, setLimitUpKB] = useState<string>('')
@@ -322,7 +326,7 @@ export default function DownloadsPage() {
     try { await downloadResume(id); await load() } finally { setBusyID(null) }
   }
   const onDelete = async (id: number) => {
-    if (!confirm('Cancelar e remover este download? Os bytes já baixados podem ser apagados pelo cache LRU.')) return
+    if (!await confirm({ title: 'Remover download?', message: 'Cancelar e remover este download? Os bytes já baixados podem ser apagados pelo cache LRU.', confirmLabel: 'Remover', destructive: true })) return
     setBusyID(id)
     try { await downloadDelete(id); await load() } finally { setBusyID(null) }
   }
@@ -354,7 +358,7 @@ export default function DownloadsPage() {
   const onBatchDelete = async () => {
     const ids = items.filter(d => selected.has(d.id)).map(d => d.id)
     if (ids.length === 0) return
-    if (!confirm(`Remover ${ids.length} download(s) da lista?`)) return
+    if (!await confirm({ title: 'Remover downloads?', message: `Remover ${ids.length} download(s) da lista?`, confirmLabel: 'Remover', destructive: true })) return
     setBulkBusy(true)
     try { await downloadBatchDelete(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
   }
@@ -382,7 +386,7 @@ export default function DownloadsPage() {
     void loadTorrents()
   }
   const onStopSeed = async (id: number, name: string) => {
-    if (!confirm(`Parar de seedar "${name}"? O arquivo permanece no lugar.`)) return
+    if (!await confirm({ title: 'Parar de seedar?', message: `Parar de seedar "${name}"? O arquivo permanece no lugar.`, confirmLabel: 'Parar', destructive: true })) return
     setBusyID(id)
     try { await downloadStopSeed(id); await load(); await loadTorrents() }
     finally { setBusyID(null) }
@@ -401,7 +405,7 @@ export default function DownloadsPage() {
     try { await streamSetPriority(hash, priority); await loadTorrents() } finally { setBusyHash(null) }
   }
   const onTorrentDelete = async (hash: string) => {
-    if (!confirm('Parar e remover este torrent da fila de streaming?')) return
+    if (!await confirm({ title: 'Remover torrent?', message: 'Parar e remover este torrent da fila de streaming?', confirmLabel: 'Remover', destructive: true })) return
     setBusyHash(hash)
     try { await streamDrop(hash); await loadTorrents() } finally { setBusyHash(null) }
   }
@@ -450,6 +454,31 @@ export default function DownloadsPage() {
     failed:      items.filter(d => d.status === 'failed'),
   }
   const completedDownloads = downloadsByStatus.completed
+
+  // Ações em lote globais (reusadas pela barra inline do desktop e pelo Sheet
+  // de "Ações" do mobile).
+  const doResumeAll = async () => {
+    setBulkBusy(true)
+    try { await Promise.all([downloadResumeAll(), streamResumeAll()]); await load() }
+    finally { setBulkBusy(false) }
+  }
+  const doPauseAll = async () => {
+    setBulkBusy(true)
+    try { await Promise.all([downloadPauseAll(), streamPauseAll()]); await load() }
+    finally { setBulkBusy(false) }
+  }
+  const doRemoveCompleted = async () => {
+    const ok = await confirm({
+      title: 'Remover concluídos?',
+      message: `Remover ${completedDownloads.length} download(s) concluído(s)? Os arquivos no disco NÃO serão apagados.`,
+      confirmLabel: 'Remover',
+      destructive: true,
+    })
+    if (!ok) return
+    setBulkBusy(true)
+    try { await downloadBatchDelete(completedDownloads.map(d => d.id)); await load() }
+    finally { setBulkBusy(false) }
+  }
 
   // Stalled: downloading but no progress (downRate === 0 or null)
   const stalledCount = items.filter(
@@ -586,53 +615,45 @@ export default function DownloadsPage() {
 
           {/* Global controls */}
           {!isGuest && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={async () => {
-                  setBulkBusy(true)
-                  try {
-                    await Promise.all([downloadResumeAll(), streamResumeAll()])
-                    await load()
-                  } finally { setBulkBusy(false) }
-                }}
-                disabled={bulkBusy}
-                title="Iniciar todos os downloads e torrents pausados"
-                className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                <Play className="w-3 h-3" /> Iniciar todos
-              </button>
-              <button
-                onClick={async () => {
-                  setBulkBusy(true)
-                  try {
-                    await Promise.all([downloadPauseAll(), streamPauseAll()])
-                    await load()
-                  } finally { setBulkBusy(false) }
-                }}
-                disabled={bulkBusy}
-                title="Pausar todos os downloads e torrents ativos"
-                className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                <Pause className="w-3 h-3" /> Pausar todos
-              </button>
-              {completedDownloads.length > 0 && (
+            <>
+              {/* Desktop: ações inline */}
+              <div className="hidden sm:flex items-center gap-2">
                 <button
-                  onClick={async () => {
-                    if (!confirm(`Remover ${completedDownloads.length} download(s) concluído(s)?\nOs arquivos no disco NÃO serão apagados.`)) return
-                    setBulkBusy(true)
-                    try {
-                      await downloadBatchDelete(completedDownloads.map(d => d.id))
-                      await load()
-                    } finally { setBulkBusy(false) }
-                  }}
+                  onClick={doResumeAll}
                   disabled={bulkBusy}
-                  title="Remover da fila todos os downloads concluídos (arquivos não são apagados)"
-                  className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                  title="Iniciar todos os downloads e torrents pausados"
+                  className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
                 >
-                  <Trash2 className="w-3 h-3" /> Remover concluídos
+                  <Play className="w-3 h-3" /> Iniciar todos
                 </button>
-              )}
-            </div>
+                <button
+                  onClick={doPauseAll}
+                  disabled={bulkBusy}
+                  title="Pausar todos os downloads e torrents ativos"
+                  className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Pause className="w-3 h-3" /> Pausar todos
+                </button>
+                {completedDownloads.length > 0 && (
+                  <button
+                    onClick={doRemoveCompleted}
+                    disabled={bulkBusy}
+                    title="Remover da fila todos os downloads concluídos (arquivos não são apagados)"
+                    className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-3 h-3" /> Remover concluídos
+                  </button>
+                )}
+              </div>
+              {/* Mobile: agrupadas num Sheet de "Ações" */}
+              <button
+                onClick={() => setBulkSheetOpen(true)}
+                disabled={bulkBusy}
+                className="sm:hidden flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-lg border border-gray-700 bg-gray-800 text-gray-300 disabled:opacity-50"
+              >
+                <MoreHorizontal className="w-4 h-4" /> Ações
+              </button>
+            </>
           )}
         </div>
 
@@ -902,6 +923,40 @@ export default function DownloadsPage() {
           void loadTorrents()
         }}
       />
+
+      {/* Ações globais (mobile) */}
+      <Sheet
+        open={bulkSheetOpen}
+        onClose={() => setBulkSheetOpen(false)}
+        title="Ações"
+        size="sm"
+      >
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => { setBulkSheetOpen(false); void doResumeAll() }}
+            disabled={bulkBusy}
+            className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 disabled:opacity-50"
+          >
+            <Play className="w-4 h-4" /> Iniciar todos
+          </button>
+          <button
+            onClick={() => { setBulkSheetOpen(false); void doPauseAll() }}
+            disabled={bulkBusy}
+            className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-gray-700/60 text-gray-200 border border-gray-700 disabled:opacity-50"
+          >
+            <Pause className="w-4 h-4" /> Pausar todos
+          </button>
+          {completedDownloads.length > 0 && (
+            <button
+              onClick={() => { setBulkSheetOpen(false); void doRemoveCompleted() }}
+              disabled={bulkBusy}
+              className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-300 border border-red-500/30 disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" /> Remover concluídos ({completedDownloads.length})
+            </button>
+          )}
+        </div>
+      </Sheet>
 
 
       {/* Barra flutuante de bulk actions, só aparece com seleção ativa. */}

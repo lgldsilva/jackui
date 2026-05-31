@@ -121,7 +121,7 @@ export default function NavHeader({ rightExtra }: Props) {
       <div className="flex items-center justify-between px-3 h-14 flex-shrink-0 border-b border-gray-700/60">
         {/* Logo — hidden on the DESKTOP collapsed rail (no room beside the toggle);
             always shown on mobile (drawer) and on the expanded desktop rail. */}
-        <Link to="/" className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title="Início">
+        <Link to="/" onClick={() => setDrawerOpen(false)} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title="Início">
           <span className="text-xl font-bold text-green-500">Jack</span>
           <span className="text-xl font-bold text-gray-100">UI</span>
         </Link>
@@ -151,6 +151,7 @@ export default function NavHeader({ rightExtra }: Props) {
             key={to}
             to={to}
             title={label}
+            onClick={() => setDrawerOpen(false)}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm transition-colors
               ${isActive(to)
                 ? 'bg-gray-700 text-gray-100'
@@ -199,7 +200,7 @@ export default function NavHeader({ rightExtra }: Props) {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <Link to="/" className="flex items-center gap-1 flex-1 min-w-0" title="Início">
+          <Link to="/" onClick={() => setDrawerOpen(false)} className="flex items-center gap-1 flex-1 min-w-0" title="Início">
             <span className="text-xl font-bold text-green-500">Jack</span>
             <span className="text-xl font-bold text-gray-100">UI</span>
             {incognito && (

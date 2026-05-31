@@ -4,6 +4,7 @@ import {
   aiBenchmarkStatus, runAIBenchmark, saveAICases,
   AIStatus, AISlotScore, AIBenchmarkCase,
 } from '../api/client'
+import { useConfirm } from './ConfirmDialog'
 
 // AIBenchmarkCard lets an admin measure each model in the title-identification
 // chain (accuracy + latency → composite score), re-rank the chain by that
@@ -28,10 +29,16 @@ function textToCases(text: string): AIBenchmarkCase[] {
     .filter((c): c is AIBenchmarkCase => c !== null)
 }
 
+function scoreCells(s: AISlotScore) {
+  return {
+    acc: `${Math.round(s.accuracy * 100)}%`,
+    lat: s.avgLatencyMs > 0 ? `${s.avgLatencyMs} ms` : '—',
+    comp: s.composite > 0 ? s.composite.toFixed(3) : '—',
+  }
+}
+
 function scoreRow(s: AISlotScore) {
-  const acc = `${Math.round(s.accuracy * 100)}%`
-  const lat = s.avgLatencyMs > 0 ? `${s.avgLatencyMs} ms` : '—'
-  const comp = s.composite > 0 ? s.composite.toFixed(3) : '—'
+  const { acc, lat, comp } = scoreCells(s)
   return (
     <tr key={s.slotId} className="border-t border-gray-700/60">
       <td className="py-1.5 pr-3 text-gray-200">{s.model}<span className="text-gray-500 text-xs block">{s.provider}</span></td>
@@ -43,7 +50,37 @@ function scoreRow(s: AISlotScore) {
   )
 }
 
+function scoreCard(s: AISlotScore) {
+  const { acc, lat, comp } = scoreCells(s)
+  return (
+    <div key={s.slotId} className="rounded-lg border border-gray-700/60 bg-gray-900/40 p-3 flex flex-col gap-2">
+      <div className="min-w-0">
+        <div className="text-gray-200 text-sm truncate">{s.model}</div>
+        <div className="text-gray-500 text-xs">{s.provider}</div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <div className="text-gray-500">Acurácia</div>
+          <div className="tabular-nums text-gray-200">{acc}</div>
+        </div>
+        <div>
+          <div className="text-gray-500">Latência</div>
+          <div className="tabular-nums text-gray-200">{lat}</div>
+        </div>
+        <div>
+          <div className="text-gray-500">Score</div>
+          <div className="tabular-nums font-medium text-green-400">{comp}</div>
+        </div>
+      </div>
+      {s.failureReason && (
+        <div className="text-gray-500 text-xs break-words">Falha: {s.failureReason}</div>
+      )}
+    </div>
+  )
+}
+
 export default function AIBenchmarkCard() {
+  const confirm = useConfirm()
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [running, setRunning] = useState(false)
   const [casesText, setCasesText] = useState('')
@@ -81,7 +118,13 @@ export default function AIBenchmarkCard() {
 
   const run = async () => {
     // Intentional: each run spends free-tier quota (remote models are rate-limited).
-    if (!confirm('Rodar o benchmark consome cota dos modelos free (testa cada modelo várias vezes). Continuar?')) return
+    const ok = await confirm({
+      title: 'Rodar benchmark',
+      message: 'Rodar o benchmark consome cota dos modelos free (testa cada modelo várias vezes). Continuar?',
+      confirmLabel: 'Rodar',
+      destructive: false,
+    })
+    if (!ok) return
     setRunning(true); setMsg('')
     try {
       const results = await runAIBenchmark()
@@ -123,20 +166,27 @@ export default function AIBenchmarkCard() {
       </p>
 
       {status.results.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-gray-400 text-xs text-left">
-                <th className="py-1 pr-3 font-medium">Modelo</th>
-                <th className="py-1 pr-3 font-medium text-right">Acurácia</th>
-                <th className="py-1 pr-3 font-medium text-right">Latência</th>
-                <th className="py-1 pr-3 font-medium text-right">Score</th>
-                <th className="py-1 font-medium">Falha</th>
-              </tr>
-            </thead>
-            <tbody>{status.results.map(scoreRow)}</tbody>
-          </table>
-        </div>
+        <>
+          {/* Desktop: table */}
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 text-xs text-left">
+                  <th className="py-1 pr-3 font-medium">Modelo</th>
+                  <th className="py-1 pr-3 font-medium text-right">Acurácia</th>
+                  <th className="py-1 pr-3 font-medium text-right">Latência</th>
+                  <th className="py-1 pr-3 font-medium text-right">Score</th>
+                  <th className="py-1 font-medium">Falha</th>
+                </tr>
+              </thead>
+              <tbody>{status.results.map(scoreRow)}</tbody>
+            </table>
+          </div>
+          {/* Mobile: stacked cards */}
+          <div className="flex flex-col gap-2 sm:hidden">
+            {status.results.map(scoreCard)}
+          </div>
+        </>
       )}
 
       <div className="flex flex-col gap-1.5">
@@ -147,7 +197,7 @@ export default function AIBenchmarkCard() {
           onChange={e => setCasesText(e.target.value)}
           rows={6}
           spellCheck={false}
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-sm font-mono text-gray-200 resize-y"
+          className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-base sm:text-sm font-mono text-gray-200 resize-y"
         />
         <div className="flex items-center gap-3">
           <button
