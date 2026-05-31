@@ -350,12 +350,26 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	}
 
 	files := t.Files()
-	if d.FileIndex < 0 || d.FileIndex >= len(files) {
-		// Permanent error — bad index won't fix itself on retry.
-		_ = w.store.SetError(d.UserID, d.ID, "file index fora do intervalo")
-		return
+	fileIdx := d.FileIndex
+	if fileIdx < 0 || fileIdx >= len(files) {
+		// Auto-pick: FileIndex == -1 means "pick the best file".
+		// We prefer the largest video/media file, or fall back to the
+		// largest file overall. This mirrors Transmission's "download
+		// all files" — for now we download the single best file so the
+		// existing per-file worker model works without modification.
+		fileIdx = pickBestFile(files)
+		if fileIdx < 0 {
+			_ = w.store.SetError(d.UserID, d.ID, "no files in torrent")
+			return
+		}
+		// Persist the resolved FileIndex so subsequent ticks don't
+		// re-pick (and so the store reflects the actual target).
+		if d.FileIndex != fileIdx {
+			_ = w.store.SetFileIndex(d.UserID, d.ID, fileIdx)
+			d.FileIndex = fileIdx
+		}
 	}
-	f := files[d.FileIndex]
+	f := files[fileIdx]
 	// Hash-check pieces no disco ANTES de marcar como wanted. Sem isso,
 	// se o shutdown anterior foi ungraceful (SIGKILL pelo Docker antes do
 	// graceful-shutdown ficar pronto), o bolt DB do anacrolix está stale —
@@ -363,7 +377,7 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// abaixo iria pedir esses bytes do swarm. VerifyFile faz o hash de cada
 	// piece e marca como Complete os que casam, eliminando re-download. Idempotente
 	// (sync.Map dedupe entre streaming e download). Custo: ~1 hash por piece.
-	_ = w.streamer.VerifyFile(hash, d.FileIndex)
+	_ = w.streamer.VerifyFile(hash, fileIdx)
 	// File.Download() sets piece priority to Normal across the file's piece
 	// range — anacrolix then schedules a full download to completion.
 	f.Download()
@@ -490,6 +504,54 @@ func (w *Worker) SnapshotActiveCount() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return len(w.tracked)
+}
+
+// pickBestFile selects the best file to download from a torrent file list.
+// It prefers the largest video/media file (by extension), falling back to
+// the largest file overall. Returns -1 if the list is empty.
+func pickBestFile(files []*torrent.File) int {
+	if len(files) == 0 {
+		return -1
+	}
+	videoExt := map[string]bool{
+		".mkv": true, ".mp4": true, ".avi": true, ".mov": true,
+		".wmv": true, ".flv": true, ".webm": true, ".m4v": true,
+		".ts": true, ".m2ts": true,
+	}
+	audioExt := map[string]bool{
+		".mp3": true, ".flac": true, ".wav": true, ".m4a": true,
+		".aac": true, ".ogg": true, ".opus": true,
+	}
+
+	bestIdx := 0
+	bestScore := int64(-1)
+
+	for i, f := range files {
+		p := strings.ToLower(f.Path())
+		score := f.Length()
+
+		// Video files get a massive boost so they always win.
+		for ext := range videoExt {
+			if strings.HasSuffix(p, ext) {
+				score += 1 << 40 // 1TB boost — video trumps everything
+				break
+			}
+		}
+		// Audio files get a moderate boost.
+		for ext := range audioExt {
+			if strings.HasSuffix(p, ext) {
+				score += 1 << 30 // 1GB boost — audio over generic data
+				break
+			}
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+
+	return bestIdx
 }
 
 // moveFile moves src to dst. Tries os.Rename first (cheap, same-filesystem);
