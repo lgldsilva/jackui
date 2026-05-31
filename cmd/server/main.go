@@ -395,18 +395,7 @@ func migrateUserSubpathMounts(deps *appDeps) {
 		known[u.Username] = true
 	}
 	fallback := deps.cfg.Auth.AdminUsername
-
-	attribute := func(abs string) (string, bool) {
-		dls, err := deps.downloadsStore.FindByPathPrefix(abs)
-		if err != nil || len(dls) == 0 {
-			return "", false
-		}
-		u, err := deps.authStore.GetUserByID(dls[0].UserID)
-		if err != nil || u == nil {
-			return "", false
-		}
-		return u.Username, true
-	}
+	attribute := buildOwnerAttributor(deps)
 
 	for _, m := range deps.cfg.External.Mounts {
 		if !m.UserSubpath {
@@ -417,17 +406,39 @@ func migrateUserSubpathMounts(deps *appDeps) {
 			log.Printf("Warning: usersubpath migration for %q failed: %v", m.Name, err)
 			continue
 		}
-		if len(res.Moved) == 0 {
-			continue
+		logMigrationResult(m.Name, res)
+	}
+}
+
+// buildOwnerAttributor returns an attribute func mapping an absolute path to
+// its owner's username via the downloads store (file_path → user_id → username).
+func buildOwnerAttributor(deps *appDeps) func(abs string) (string, bool) {
+	return func(abs string) (string, bool) {
+		dls, err := deps.downloadsStore.FindByPathPrefix(abs)
+		if err != nil || len(dls) == 0 {
+			return "", false
 		}
-		log.Printf("UserSubpath migration %q: moved %d entr(ies), %d already scoped", m.Name, len(res.Moved), res.Skipped)
-		for _, e := range res.Moved {
-			suffix := ""
-			if e.Fallback {
-				suffix = " (sem dono → admin)"
-			}
-			log.Printf("  • %s → %s/%s", e.Name, e.ToUser, e.Name+suffix)
+		u, err := deps.authStore.GetUserByID(dls[0].UserID)
+		if err != nil || u == nil {
+			return "", false
 		}
+		return u.Username, true
+	}
+}
+
+// logMigrationResult logs a per-mount migration summary and each moved entry;
+// a no-op when nothing was moved.
+func logMigrationResult(mount string, res local.MigrationResult) {
+	if len(res.Moved) == 0 {
+		return
+	}
+	log.Printf("UserSubpath migration %q: moved %d entr(ies), %d already scoped", mount, len(res.Moved), res.Skipped)
+	for _, e := range res.Moved {
+		suffix := ""
+		if e.Fallback {
+			suffix = " (sem dono → admin)"
+		}
+		log.Printf("  • %s → %s/%s", e.Name, e.ToUser, e.Name+suffix)
 	}
 }
 
