@@ -114,9 +114,13 @@ func (m *HLSSessionManager) gcLoop() {
 		for k, s := range m.sess {
 			s.mu.Lock()
 			idle := now.Sub(s.LastAccess)
-			closed := s.closed
 			s.mu.Unlock()
-			if closed || idle > hlsIdleReapAfter {
+			// NÃO reapar só por `closed`: em VOD o ffmpeg pode ter TERMINADO de
+			// transcodificar (segmentos válidos no disco) e o player ainda assiste
+			// — ou pode seekar pra um buraco e ressuscitar o encoder via
+			// EnsureSegment. Reapa só por inatividade real; qualquer requisição de
+			// segmento renova o LastAccess (ver WaitForSegment).
+			if idle > hlsIdleReapAfter {
 				log.Printf("hls: reaping idle session %s (idle=%s)", k, idle)
 				s.stop()
 				delete(m.sess, k)
@@ -510,6 +514,10 @@ func (s *HLSSession) launch(startSeg int) error {
 	s.Cmd = cmd
 	s.Cancel = cancel
 	s.startSeg = startSeg
+	// Relançar limpa o flag de "encoder morto": um run anterior pode ter terminado
+	// (closed=true) e este o ressuscita (ex: seek pra um buraco após o ffmpeg
+	// completar perto do fim). Sem isso a sessão segue marcada closed e o GC a reapa.
+	s.closed = false
 	s.gen++
 	myGen := s.gen
 	s.mu.Unlock()
@@ -558,8 +566,15 @@ func (s *HLSSession) EnsureSegment(idx int) {
 	}
 	s.mu.Lock()
 	start := s.startSeg
+	closed := s.closed
 	s.mu.Unlock()
-	if idx < start || idx > s.highestSeg()+hlsForwardSeekThreshold {
+	// Relança quando: o encoder morreu (closed — ex: terminou de transcodificar
+	// após um seek perto do fim, deixando o miolo sem segmentos); seek pra trás
+	// (idx < start, o encoder sequencial já passou e não volta); ou seek pra
+	// frente além da janela de read-ahead. Sem o caso `closed`, um segmento num
+	// buraco deixado por seeks dá 404 pra sempre — e o Safari, em VOD, não
+	// refetcha a playlist estática pra respawnar a sessão → playback congela.
+	if closed || idx < start || idx > s.highestSeg()+hlsForwardSeekThreshold {
 		_ = s.RestartAt(idx)
 	}
 }
@@ -616,19 +631,23 @@ func (s *HLSSession) RestartAt(seg int) error {
 	cur := s.startSeg
 	cancel := s.Cancel
 	since := time.Since(s.lastRestart)
+	closed := s.closed
 	s.mu.Unlock()
-	if seg == cur {
+	// Encoder VIVO já produzindo daqui: nada a fazer. Mas se está closed (morto),
+	// precisa ressuscitar mesmo que seg == cur — os segmentos podem não existir.
+	if seg == cur && !closed {
 		return nil // already encoding from here
 	}
 	// Debounce: a single seek fires several segment requests near the target.
 	// The first restart wins; the rest (different seg numbers) are absorbed so
 	// they don't kill the just-launched encoder. A genuine later seek (after the
-	// cooldown) still restarts.
-	if since < hlsRestartCooldown {
+	// cooldown) still restarts. Um encoder MORTO (closed) ignora o cooldown —
+	// senão o playback fica 404 até o cooldown vencer.
+	if since < hlsRestartCooldown && !closed {
 		return nil
 	}
 
-	log.Printf("hls: seek-restart session %s from seg %d → %d", s.Key, cur, seg)
+	log.Printf("hls: seek-restart session %s from seg %d → %d (closed=%v)", s.Key, cur, seg, closed)
 	if cancel != nil {
 		cancel() // kill the current ffmpeg; gen bump in launch() guards the watcher
 	}
@@ -784,6 +803,12 @@ func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string,
 		return "", errors.New("invalid segment name")
 	}
 	path := filepath.Join(s.Dir, name)
+	// Qualquer requisição de segmento conta como atividade — mesmo se ainda não
+	// existe (404) — senão o GC reapa a sessão durante a janela de buracos
+	// pós-seek em que o player insiste pedindo segmentos ainda não gerados.
+	s.mu.Lock()
+	s.LastAccess = time.Now()
+	s.mu.Unlock()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		s.mu.Lock()
