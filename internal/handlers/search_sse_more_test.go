@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"encoding/base32"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -196,6 +199,50 @@ func TestHandleHit_EmptyInfoHash(t *testing.T) {
 
 	if state.liveCount != 1 {
 		t.Errorf("liveCount = %d, want 1 (empty infohash still counted)", state.liveCount)
+	}
+}
+
+// TestHandleHit_DedupesAcrossHashEncodings is the defense-in-depth guard for the
+// SSE dedup layer. Item #1 canonicalizes infoHash at the Jackett-client source,
+// so the normal flow never reaches here with divergent encodings — but a legacy
+// cache row (saved before canonicalization), or any future code path that feeds
+// handleHit directly, could. The same torrent expressed as UPPER-case hex, as
+// base32, and as magnet-only must collapse to ONE emitted result, never several
+// duplicate cards.
+func TestHandleHit_DedupesAcrossHashEncodings(t *testing.T) {
+	const canonical = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a"
+	raw, err := hex.DecodeString(canonical)
+	if err != nil {
+		t.Fatalf("bad fixture: %v", err)
+	}
+	b32 := base32.StdEncoding.EncodeToString(raw)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	setSSEHeaders(c)
+
+	state := &liveSearchState{
+		c:          c,
+		enricher:   &resultEnricher{},
+		cachedSeen: map[string]bool{},
+		liveSeen:   map[string]bool{},
+	}
+
+	hit := jackett.IndexerHit{
+		IndexerName: "test-indexer",
+		Duration:    50 * time.Millisecond,
+		Results: []jackett.Result{
+			{Title: "upper hex", InfoHash: strings.ToUpper(canonical)},
+			{Title: "base32", InfoHash: b32},
+			{Title: "magnet only", MagnetURI: "magnet:?xt=urn:btih:" + canonical},
+		},
+	}
+	state.handleHit(hit)
+
+	if state.liveCount != 1 {
+		t.Errorf("liveCount = %d, want 1 — same torrent across 3 encodings must dedupe", state.liveCount)
 	}
 }
 

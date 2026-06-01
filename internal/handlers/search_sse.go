@@ -17,6 +17,18 @@ import (
 	"github.com/luizg/jackui/internal/streamer"
 )
 
+// dedupKey returns the canonical dedup key for a result. The Jackett client
+// already canonicalizes infoHash at the source, but cached rows saved before
+// that change (or any other path) may carry a raw/upper/base32 hash — so we
+// re-canonicalize here. Falls back to the raw infoHash when it isn't a valid
+// btih (keeps non-standard identifiers deduping by exact match).
+func dedupKey(r jackett.Result) string {
+	if h := jackett.CanonicalInfoHash(r.InfoHash, r.MagnetURI); h != "" {
+		return h
+	}
+	return r.InfoHash
+}
+
 func writeSSE(c *gin.Context, event string, data any) {
 	b, _ := json.Marshal(data)
 	_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, b)
@@ -52,11 +64,11 @@ func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 	}
 	emitted := 0
 	for _, r := range hit.Results {
-		if r.InfoHash != "" {
-			if s.cachedSeen[r.InfoHash] || s.liveSeen[r.InfoHash] {
+		if key := dedupKey(r); key != "" {
+			if s.cachedSeen[key] || s.liveSeen[key] {
 				continue
 			}
-			s.liveSeen[r.InfoHash] = true
+			s.liveSeen[key] = true
 		}
 		s.liveResults = append(s.liveResults, r)
 		writeSSE(s.c, "result", s.enricher.enrich(r, false))
@@ -112,8 +124,8 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 	for _, r := range cached {
 		writeSSE(c, "result", enricher.enrich(r.Result, true))
 		count++
-		if r.InfoHash != "" {
-			seen[r.InfoHash] = true
+		if key := dedupKey(r.Result); key != "" {
+			seen[key] = true
 		}
 	}
 	return seen, count

@@ -117,9 +117,9 @@ func TestSearch_ParsesResults(t *testing.T) {
 			Size:         1024 * 1024 * 1024,
 			Seeders:      100,
 			Peers:        115,
-			MagnetUri:    "magnet:?xt=urn:btih:abc123",
+			MagnetUri:    "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
 			Link:         "http://tracker.example.com/abc.torrent",
-			InfoHash:     "abc123",
+			InfoHash:     "c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
 			PublishDate:  publishDate,
 		},
 	})
@@ -152,10 +152,10 @@ func TestSearch_ParsesResults(t *testing.T) {
 	if r.Leechers != 15 {
 		t.Errorf("Leechers = %d, want 15 (peers 115 - seeders 100)", r.Leechers)
 	}
-	if r.MagnetURI != "magnet:?xt=urn:btih:abc123" {
+	if r.MagnetURI != "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a" {
 		t.Errorf("MagnetURI = %q", r.MagnetURI)
 	}
-	if r.InfoHash != "abc123" {
+	if r.InfoHash != "c12fe1c06bba254a9dc9f519b335aa7c1367a88a" {
 		t.Errorf("InfoHash = %q", r.InfoHash)
 	}
 	if !strings.Contains(r.Age, "ago") {
