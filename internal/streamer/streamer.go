@@ -1563,6 +1563,10 @@ func (s *Streamer) RateLimits() (down, up int64) {
 	return limiterBytes(s.dlLimiter), limiterBytes(s.upLimiter)
 }
 
+func (s *Streamer) ListenPort() int {
+	return s.cfg.ListenPort
+}
+
 // SetRateLimits updates the global download/upload bandwidth caps in bytes/sec.
 // 0 = unlimited. Takes effect immediately — anacrolix re-reads the limiter on
 // every chunk transfer.
