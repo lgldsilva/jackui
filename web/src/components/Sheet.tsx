@@ -101,7 +101,7 @@ export function Sheet({
             Com footer, é o footer que carrega a safe-area (abaixo). */}
         <div
           className="flex-1 overflow-y-auto px-4 pt-4 overscroll-contain"
-          style={{ paddingBottom: footer != null ? '1rem' : 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+          style={{ paddingBottom: footer == null ? 'calc(1rem + env(safe-area-inset-bottom, 0px))' : '1rem' }}
         >
           {children}
         </div>
