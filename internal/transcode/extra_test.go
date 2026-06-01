@@ -306,6 +306,51 @@ func TestEnsureSegmentNoRestartIfWithinRange(t *testing.T) {
 	s.EnsureSegment(3)
 }
 
+// Um encoder morto (closed) deve RESSUSCITAR quando o player pede um segmento
+// que não existe — senão o miolo não-transcodificado (buracos deixados por seeks)
+// dá 404 pra sempre e o Safari, em VOD, não refetcha a playlist estática.
+// ffmpegPath="true" sai limpo (sem precisar do ffmpeg real); launch atualiza
+// startSeg de forma síncrona, então o relançamento é observável.
+func TestEnsureSegmentClosedRelaunches(t *testing.T) {
+	dir := t.TempDir()
+	s := &HLSSession{
+		spec:     &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
+		Dir:      dir,
+		startSeg: 0,
+		closed:   true, // ffmpeg terminou; seg pedido está num buraco
+	}
+	s.EnsureSegment(5) // closed → RestartAt(5) → launch(5)
+	s.mu.Lock()
+	got := s.startSeg
+	s.mu.Unlock()
+	if got != 5 {
+		t.Errorf("encoder morto não ressuscitou no seg pedido: startSeg=%d, queria 5", got)
+	}
+	s.stop()
+}
+
+// RestartAt com seg == cur mas closed ainda relança (o run anterior morreu e os
+// segmentos podem não existir) — diferente do caso vivo, que é no-op.
+func TestRestartAtClosedSameSegRelaunches(t *testing.T) {
+	dir := t.TempDir()
+	s := &HLSSession{
+		spec:     &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
+		Dir:      dir,
+		startSeg: 7,
+		closed:   true,
+	}
+	if err := s.RestartAt(7); err != nil {
+		t.Fatalf("RestartAt closed: %v", err)
+	}
+	s.mu.Lock()
+	cmd := s.Cmd
+	s.mu.Unlock()
+	if cmd == nil {
+		t.Error("RestartAt(closed, seg==cur) deveria ter relançado o ffmpeg, mas Cmd é nil")
+	}
+	s.stop()
+}
+
 func TestHighestSeg(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "seg_00003.ts"), []byte("data"), 0644)
