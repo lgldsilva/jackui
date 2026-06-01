@@ -1,17 +1,23 @@
 import { useEffect, useState } from 'react'
-import { FolderInput, X, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 
 type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
+  /** Modo lote: quando preenchido (e não-vazio), move todos os itens de uma vez. */
+  readonly entries?: readonly LocalEntry[]
   readonly onClose: () => void
   readonly onMoved: () => void
 }
 
-export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Props) {
-  useScrollLock(!!entry)
+export default function MoveFolderModal({ mount, entry, entries, onClose, onMoved }: Props) {
+  // Unifica os dois modos: lista de itens a mover (1 no modo single, N no lote).
+  let items: readonly LocalEntry[] = []
+  if (entries && entries.length > 0) items = entries
+  else if (entry) items = [entry]
+  const active = items.length > 0
 
   const [mounts, setMounts] = useState<LocalMount[]>([])
   const [dstMount, setDstMount] = useState('')
@@ -24,7 +30,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
 
   // Load available mounts on open
   useEffect(() => {
-    if (!entry) return
+    if (!active) return
     setDone(false)
     setError('')
     setBrowsePath('')
@@ -34,20 +40,21 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
       const other = ms.find(m => m.name !== mount) || ms[0]
       setDstMount(other?.name || '')
     }).catch(() => {})
-  }, [entry, mount])
+  }, [active, mount])
 
   // Browse directories in selected mount
   useEffect(() => {
-    if (!dstMount || !entry) return
+    if (!dstMount || !active) return
     setDirsLoading(true)
     localList(dstMount, browsePath)
       .then(entries => setDirs(entries.filter(e => e.isDir)))
       .catch(() => setDirs([]))
       .finally(() => setDirsLoading(false))
-  }, [dstMount, browsePath, entry])
+  }, [dstMount, browsePath, active])
 
-  if (!entry) return null
+  if (!active) return null
 
+  const isBatch = items.length > 1
   const breadcrumb = browsePath.split('/').filter(Boolean)
 
   const handleMove = async () => {
@@ -55,7 +62,15 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
     setSubmitting(true)
     setError('')
     try {
-      await localMove(mount, entry.path, dstMount, browsePath)
+      // allSettled: um item que falha (ex: colisão de nome) não aborta os outros.
+      const results = await Promise.allSettled(items.map(it => localMove(mount, it.path, dstMount, browsePath)))
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      if (failed.length === items.length) {
+        const first = failed[0]
+        setError(first.reason?.response?.data?.error || first.reason?.message || 'Erro ao mover')
+        return
+      }
+      if (failed.length > 0) setError(`${failed.length} de ${items.length} itens não puderam ser movidos.`)
       setDone(true)
       onMoved()
     } catch (e: any) {
@@ -65,34 +80,31 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
     }
   }
 
-  const isSameLoc = dstMount === mount && browsePath === (entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '')
+  // No lote, não há uma única "localização atual"; deixa o backend validar cada item.
+  const singlePath = items[0].path
+  const isSameLoc = !isBatch && dstMount === mount &&
+    browsePath === (singlePath.includes('/') ? singlePath.slice(0, singlePath.lastIndexOf('/')) : '')
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onFocus={() => {}} tabIndex={-1}
-      onClose={onClose}
+    <Sheet
       open
+      onClose={onClose}
+      size="lg"
+      title="Mover para…"
+      icon={<FolderInput className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <header className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
-            <FolderInput className="w-5 h-5 text-cyan-400 flex-shrink-0" />
-            Mover para…
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-100">
-            <X className="w-5 h-5" />
-          </button>
-        </header>
-
+      <>
         {/* Source */}
-        <div className="px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
-          <p className="text-xs text-gray-400 truncate" title={entry.path}>
-            De: <span className="text-gray-300 font-mono">{mount} / {entry.path}</span>
-          </p>
+        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
+          {isBatch ? (
+            <p className="text-xs text-gray-400">
+              De: <span className="text-gray-300 font-medium">{items.length} itens</span> em <span className="text-gray-300 font-mono">{mount}</span>
+            </p>
+          ) : (
+            <p className="text-xs text-gray-400 truncate" title={singlePath}>
+              De: <span className="text-gray-300 font-mono">{mount} / {singlePath}</span>
+            </p>
+          )}
         </div>
 
         {done ? (
@@ -112,7 +124,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
         ) : (
           <>
             {/* Mount selector */}
-            <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
+            <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
               <HardDrive className="w-4 h-4 text-gray-500 flex-shrink-0" />
               {mounts.map(m => (
                 <button
@@ -130,7 +142,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
             </div>
 
             {/* Breadcrumb */}
-            <div className="px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
+            <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
               <button
                 onClick={() => setBrowsePath('')}
                 className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
@@ -151,7 +163,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
             </div>
 
             {/* Dir browser */}
-            <div className="flex-1 overflow-y-auto min-h-[150px] p-3">
+            <div className="min-h-[150px] py-3">
               {(() => {
                 if (dirsLoading) return <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="w-5 h-5 animate-spin" /></div>
                 if (dirs.length === 0) return <p className="text-sm text-gray-500 text-center py-6">Sem subpastas — mover aqui na raiz.</p>
@@ -169,7 +181,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
             </div>
 
             {/* Footer */}
-            <div className="border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
+            <div className="-mx-4 -mb-4 mt-2 border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
               <div className="text-xs text-gray-500">
                 Destino: <span className="text-gray-300 font-mono">{dstMount}/{browsePath || ''}</span>
               </div>
@@ -202,7 +214,7 @@ export default function MoveFolderModal({ mount, entry, onClose, onMoved }: Prop
             </div>
           </>
         )}
-      </div>
-    </dialog>
+      </>
+    </Sheet>
   )
 }

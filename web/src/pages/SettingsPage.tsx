@@ -15,6 +15,7 @@ import AIBenchmarkCard from '../components/AIBenchmarkCard'
 import AccountCard from '../components/AccountCard'
 import UsersAdminCard from '../components/UsersAdminCard'
 import ErrorBoundary from '../components/ErrorBoundary'
+import { Sheet } from '../components/Sheet'
 
 const DEFAULT_CLIENT: DownloadClientFull = {
   id: '',
@@ -364,22 +365,27 @@ export default function SettingsPage() {
 
       {/* Client edit modal */}
       {editingClient && (
-        <dialog
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-          onClick={(e) => e.target === e.currentTarget && setEditingClient(null)}
-          onKeyDown={e => e.key === 'Escape' && setEditingClient(null)}
-          onClose={() => setEditingClient(null)}
-          onFocus={() => {}} tabIndex={-1}
+        <Sheet
           open
-        >
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between p-5 border-b border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-100">
-                {editingIndex === null ? 'Novo Cliente' : 'Editar Cliente'}
-              </h3>
+          onClose={() => setEditingClient(null)}
+          size="md"
+          title={editingIndex === null ? 'Novo Cliente' : 'Editar Cliente'}
+          footer={
+            <div className="flex gap-3">
+              <button onClick={() => setEditingClient(null)} className="btn-secondary flex-1">
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveClient}
+                disabled={!editingClient.name || !editingClient.url}
+                className="btn-primary flex-1 disabled:opacity-50"
+              >
+                Salvar
+              </button>
             </div>
-
-            <div className="p-5 flex flex-col gap-4">
+          }
+        >
+          <div className="flex flex-col gap-4">
               <div>
                 <label htmlFor="client-name" className="block text-sm font-medium text-gray-300 mb-1.5">Nome</label>
                 <input
@@ -417,7 +423,7 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="client-username" className="block text-sm font-medium text-gray-300 mb-1.5">
                     Usuario
@@ -461,22 +467,8 @@ export default function SettingsPage() {
                 />
                 <span className="text-sm text-gray-300">Cliente padrao</span>
               </label>
-            </div>
-
-            <div className="flex gap-3 p-5 border-t border-gray-700">
-              <button onClick={() => setEditingClient(null)} className="btn-secondary flex-1">
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveClient}
-                disabled={!editingClient.name || !editingClient.url}
-                className="btn-primary flex-1 disabled:opacity-50"
-              >
-                Salvar
-              </button>
-            </div>
           </div>
-        </dialog>
+        </Sheet>
       )}
     </div>
   )
