@@ -1508,7 +1508,7 @@ func TestTorrentSetLocation_WithPath(t *testing.T) {
 
 	resp := h.methodTorrentSetLocation(map[string]interface{}{
 		"ids":      []interface{}{float64(d.ID)},
-		"location": "/new/location",
+		"location": "/data/new/location",
 		"move":     true,
 	})
 	if resp.Result != "success" {
@@ -1518,8 +1518,38 @@ func TestTorrentSetLocation_WithPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.FilePath != "/new/location" {
-		t.Errorf("filePath=%q, want /new/location", got.FilePath)
+	if got.FilePath != "/data/new/location" {
+		t.Errorf("filePath=%q, want /data/new/location", got.FilePath)
+	}
+}
+
+// Segurança: set-location com path FORA dos diretórios permitidos (traversal)
+// deve ser rejeitado e NÃO alterar o file_path persistido.
+func TestTorrentSetLocation_RejectsTraversal(t *testing.T) {
+	st := newTestStore(t)
+	h := NewHandler(st, nil, nil, "/data", "/data")
+	gin.SetMode(gin.ReleaseMode)
+
+	d, err := st.Create(downloads.Download{
+		UserID: 1, InfoHash: strings.Repeat("x", 40),
+		FileIndex: -1, FilePath: "/data/orig",
+		Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("x", 40),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, loc := range []string{"/etc", "/data/../etc/passwd", "../../root"} {
+		resp := h.methodTorrentSetLocation(map[string]interface{}{
+			"ids":      []interface{}{float64(d.ID)},
+			"location": loc,
+		})
+		if resp.Result == "success" {
+			t.Errorf("location %q deveria ser rejeitada (fora do downloadDir)", loc)
+		}
+	}
+	got, _ := st.Get(1, d.ID)
+	if got.FilePath != "/data/orig" {
+		t.Errorf("file_path foi alterado por path traversal: %q", got.FilePath)
 	}
 }
 
