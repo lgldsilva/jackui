@@ -450,24 +450,38 @@ func TestParseMagnetTrackers_BadQuery(t *testing.T) {
 }
 
 func TestEnrichETA_NilStreamer(t *testing.T) {
-	d := &downloads.Download{InfoHash: "abc", FileSize: 1000}
+	d := &downloads.Download{InfoHash: "abc", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, nil)
+	if d.ETA != 42 || d.DownRate != 7 {
+		t.Errorf("streamer nil deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+	}
 }
 
 func TestEnrichETA_EmptyHash(t *testing.T) {
 	s := streamer.NewForTesting()
-	d := &downloads.Download{InfoHash: "", FileSize: 1000}
+	d := &downloads.Download{InfoHash: "", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
+	if d.ETA != 42 || d.DownRate != 7 {
+		t.Errorf("hash vazio deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+	}
 }
 
 func TestEnrichETA_InvalidHash(t *testing.T) {
 	s := streamer.NewForTesting()
-	d := &downloads.Download{InfoHash: "nothex", FileSize: 1000}
+	d := &downloads.Download{InfoHash: "nothex", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
+	if d.ETA != 42 || d.DownRate != 7 {
+		t.Errorf("hash inválido deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+	}
 }
 
 func TestEnrichETAList_NilStreamer(t *testing.T) {
-	enrichETAList(nil, nil)
+	enrichETAList(nil, nil) // não deve dar panic com lista/streamer nil
+	list := []downloads.Download{{InfoHash: "abc", FileSize: 1000, ETA: 5, DownRate: 9}}
+	enrichETAList(list, nil)
+	if list[0].ETA != 5 || list[0].DownRate != 9 {
+		t.Errorf("streamer nil deveria deixar a lista intacta: %+v", list[0])
+	}
 }
 
 func TestMarkPromoted_EmptyDir(t *testing.T) {

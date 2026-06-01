@@ -113,7 +113,33 @@ type StreamConfig struct {
 	MetadataSeconds int          `yaml:"metadata_seconds"` // metadata fetch timeout
 	MaxCacheGB      int          `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
 	PromoteDirs     []PromoteDir `yaml:"promote_dirs"`     // additional promote destinations (name + path)
+
+	// ── Performance / hardware tuning (0/"" = usar default; aplicado no streamer) ──
+	// Banda: caps de peer em bytes/seg; 0 = ilimitado. Aplicados AO VIVO via
+	// Streamer.SetRateLimits (não exigem reinício).
+	MaxDownloadRate int64 `yaml:"max_download_rate"`
+	MaxUploadRate   int64 `yaml:"max_upload_rate"`
+	// ReadaheadMB é o buffer de leitura à frente por sessão de streaming. 0 → 32.
+	// Mais readahead = playback mais suave em rede/disco lento, porém mais RAM por
+	// stream simultâneo. Aplicado ao vivo (vale no próximo play).
+	ReadaheadMB int `yaml:"readahead_mb"`
+	// StorageBackend escolhe como os pieces são abertos no disco: "file" (padrão,
+	// grava direto) ou "mmap" (mapeia em memória via page cache; random-access/seek
+	// mais rápido). Mudança exige REINÍCIO (o anacrolix lê isso na construção).
+	StorageBackend string `yaml:"storage_backend"`
+	// Tuning de peers/CPU — todos exigem REINÍCIO. 0 = default da lib anacrolix
+	// (conns=50, half-open=25, peersHighWater=500, pieceHashers=2).
+	MaxConnsPerTorrent int `yaml:"max_conns_per_torrent"`
+	HalfOpenConns      int `yaml:"half_open_conns"`
+	PeersHighWater     int `yaml:"peers_high_water"`
+	PieceHashers       int `yaml:"piece_hashers"`
 }
+
+// StorageBackendFile/Mmap são os valores válidos de StreamConfig.StorageBackend.
+const (
+	StorageBackendFile = "file"
+	StorageBackendMmap = "mmap"
+)
 
 type PromoteDir struct {
 	Name string `yaml:"name"`
@@ -241,6 +267,54 @@ func applyStreamEnv(cfg *Config) {
 			cfg.Stream.MaxCacheGB = n
 		}
 	}
+	applyStreamPerfEnv(cfg)
+}
+
+// applyStreamPerfEnv lê os knobs de performance/hardware do ambiente e sanitiza
+// o backend de storage. Rates vêm em MB/s no env (mais legível) e são convertidos
+// para bytes/seg na config.
+func applyStreamPerfEnv(cfg *Config) {
+	if mbps, ok := envInt("JACKUI_STREAM_DOWN_MBPS"); ok && mbps >= 0 {
+		cfg.Stream.MaxDownloadRate = int64(mbps) * 1024 * 1024
+	}
+	if mbps, ok := envInt("JACKUI_STREAM_UP_MBPS"); ok && mbps >= 0 {
+		cfg.Stream.MaxUploadRate = int64(mbps) * 1024 * 1024
+	}
+	if n, ok := envInt("JACKUI_READAHEAD_MB"); ok && n >= 0 {
+		cfg.Stream.ReadaheadMB = n
+	}
+	if v := os.Getenv("JACKUI_STORAGE_BACKEND"); v != "" {
+		cfg.Stream.StorageBackend = v
+	}
+	if n, ok := envInt("JACKUI_MAX_CONNS"); ok && n >= 0 {
+		cfg.Stream.MaxConnsPerTorrent = n
+	}
+	if n, ok := envInt("JACKUI_HALF_OPEN"); ok && n >= 0 {
+		cfg.Stream.HalfOpenConns = n
+	}
+	if n, ok := envInt("JACKUI_PEERS_HIGH"); ok && n >= 0 {
+		cfg.Stream.PeersHighWater = n
+	}
+	if n, ok := envInt("JACKUI_PIECE_HASHERS"); ok && n >= 0 {
+		cfg.Stream.PieceHashers = n
+	}
+	// Sanitiza: qualquer valor fora de {file,mmap} (incl. vazio) vira "file".
+	if cfg.Stream.StorageBackend != StorageBackendMmap {
+		cfg.Stream.StorageBackend = StorageBackendFile
+	}
+}
+
+// envInt lê uma env var inteira. Retorna (0,false) se ausente ou inválida.
+func envInt(name string) (int, bool) {
+	v := os.Getenv(name)
+	if v == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func applyAuthEnv(cfg *Config) {
