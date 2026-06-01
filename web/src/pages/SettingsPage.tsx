@@ -9,6 +9,7 @@ import {
   testJackettConnection,
 } from '../api/client'
 import StreamCacheCard from '../components/StreamCacheCard'
+import StreamSettingsCard from '../components/StreamSettingsCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 import ActiveTranscodesCard from '../components/ActiveTranscodesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
@@ -358,6 +359,9 @@ export default function SettingsPage() {
 
         {/* AI title identification + benchmark */}
         <ErrorBoundary title="Erro no card IA"><AIBenchmarkCard /></ErrorBoundary>
+
+        {/* Streamer & Performance settings */}
+        <ErrorBoundary title="Erro no card de performance"><StreamSettingsCard /></ErrorBoundary>
 
         {/* Streaming cache */}
         <StreamCacheCard />
