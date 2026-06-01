@@ -11,6 +11,7 @@ import { usePlayer } from '../components/PlayerProvider'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import NavHeader from '../components/NavHeader'
+import { Sheet } from '../components/Sheet'
 import { SearchResult, Indexer, getIndexers, favoritesList, withToken } from '../api/client'
 import { load, save } from '../lib/storage'
 import { useFilteredResults } from '../lib/useFilteredResults'
@@ -260,6 +261,7 @@ export default function SearchPage() {
   const [playlistTarget, setPlaylistTarget] = useState<SearchResult | null>(null)
   const [playlistTargetFile, setPlaylistTargetFile] = useState<{ index: number; title: string } | null>(null)
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const esMap = useRef<Map<string, EventSource>>(new Map())
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Infinite scroll pagination (grows as user scrolls)
@@ -526,6 +528,122 @@ export default function SearchPage() {
   const isFiltered = filteredResults.length !== groupedCount
   const hasDuplicates = groupedCount !== activeTab.results.length
 
+  const activeFilterCount = [
+    activeTab.titleFilter,
+    activeTab.trackerFilter !== 'all',
+    activeTab.minSeeders !== 1,
+    activeTab.minLeechers > 0,
+    activeTab.maxSizeGb,
+    activeTab.onlyPlayable,
+  ].filter(Boolean).length
+
+  // Campos de filtro compartilhados entre a barra inline (desktop) e o Sheet
+  // (mobile). `stacked` controla a largura: no desktop os campos fluem no
+  // flex-wrap (display:contents nos numéricos); no Sheet ficam full-width.
+  const filterFields = (stacked: boolean) => (
+    <>
+      <input
+        type="text"
+        placeholder="Filtrar título..."
+        value={activeTab.titleFilter}
+        onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
+        className={`bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : 'w-full sm:w-44'}`}
+      />
+      <select
+        value={activeTab.trackerFilter}
+        onChange={e => updateTab(activeTab.id, { trackerFilter: e.target.value })}
+        className={`bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-gray-300 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
+      >
+        {trackers.map(t => (
+          <option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>
+        ))}
+      </select>
+      <div className={stacked ? 'grid grid-cols-3 gap-2' : 'contents'}>
+        <label className={`flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+          <span className="text-xs text-gray-500 whitespace-nowrap">Seeds ≥</span>
+          <input
+            type="number" min={0}
+            value={activeTab.minSeeders || ''}
+            placeholder="0"
+            onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
+            className="w-12 bg-transparent text-base sm:text-sm text-gray-200 focus:outline-none"
+          />
+        </label>
+        <label className={`flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+          <span className="text-xs text-gray-500 whitespace-nowrap">Leech ≥</span>
+          <input
+            type="number" min={0}
+            value={activeTab.minLeechers || ''}
+            placeholder="0"
+            onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
+            className="w-12 bg-transparent text-base sm:text-sm text-gray-200 focus:outline-none"
+          />
+        </label>
+        <label className={`flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+          <span className="text-xs text-gray-500 whitespace-nowrap">Máx GB</span>
+          <input
+            type="number" min={0} step={0.1}
+            value={activeTab.maxSizeGb}
+            placeholder="∞"
+            onChange={e => updateTab(activeTab.id, { maxSizeGb: e.target.value })}
+            className="w-14 bg-transparent text-base sm:text-sm text-gray-200 focus:outline-none"
+          />
+        </label>
+      </div>
+      <button
+        onClick={() => updateTab(activeTab.id, { onlyPlayable: !activeTab.onlyPlayable })}
+        title="Mostrar apenas resultados que podem ser reproduzidos no player (vídeo)"
+        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
+          activeTab.onlyPlayable
+            ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+            : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border-gray-600'
+        }`}
+      >
+        <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
+        Playable
+      </button>
+      <div className={`flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ${stacked ? 'w-full justify-between' : 'ml-auto'}`}>
+        {SORT_OPTIONS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => {
+              if (activeTab.resultSort === key) {
+                updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
+              } else {
+                updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
+              }
+            }}
+            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
+              activeTab.resultSort === key
+                ? 'bg-green-500/20 text-green-400'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {label}
+            {activeTab.resultSort === key && (
+              activeTab.resultSortAsc
+                ? <SortAsc className="w-3 h-3" />
+                : <SortDesc className="w-3 h-3" />
+            )}
+          </button>
+        ))}
+      </div>
+      {activeFilterCount > 0 && (
+        <button
+          onClick={() => updateTab(activeTab.id, {
+            titleFilter: '', trackerFilter: 'all',
+            minSeeders: 1, minLeechers: 0, maxSizeGb: '',
+            onlyPlayable: false,
+          })}
+          className={`text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
+          title="Limpar filtros"
+        >
+          <X className="w-3.5 h-3.5" />Limpar
+        </button>
+      )}
+    </>
+  )
+
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
       <NavHeader />
@@ -633,124 +751,28 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* Filter + Sort toolbar — shown once results start arriving */}
+        {/* Filter + Sort toolbar — shown once results start arriving.
+            Desktop: barra inline. Mobile: um botão "Filtros" que abre um Sheet
+            com os mesmos campos empilhados (a barra densa quebrava feio no <sm). */}
         {hasResults && (
-          <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
-            <Filter className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-
-            {/* Title filter */}
-            <input
-              type="text"
-              placeholder="Filtrar título..."
-              value={activeTab.titleFilter}
-              onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-full sm:w-44"
-            />
-
-            {/* Tracker dropdown */}
-            <select
-              value={activeTab.trackerFilter}
-              onChange={e => updateTab(activeTab.id, { trackerFilter: e.target.value })}
-              className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-green-500"
-            >
-              {trackers.map(t => (
-                <option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>
-              ))}
-            </select>
-
-            {/* Min seeders */}
-            <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-gray-500 whitespace-nowrap">Seeds ≥</span>
-              <input
-                type="number" min={0}
-                value={activeTab.minSeeders || ''}
-                placeholder="0"
-                onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-                className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
-              />
-            </label>
-
-            {/* Min leechers */}
-            <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-gray-500 whitespace-nowrap">Leech ≥</span>
-              <input
-                type="number" min={0}
-                value={activeTab.minLeechers || ''}
-                placeholder="0"
-                onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-                className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none"
-              />
-            </label>
-
-            {/* Max size */}
-            <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
-              <span className="text-xs text-gray-500 whitespace-nowrap">Máx GB</span>
-              <input
-                type="number" min={0} step={0.1}
-                value={activeTab.maxSizeGb}
-                placeholder="∞"
-                onChange={e => updateTab(activeTab.id, { maxSizeGb: e.target.value })}
-                className="w-14 bg-transparent text-sm text-gray-200 focus:outline-none"
-              />
-            </label>
-
-            {/* Only playable toggle */}
-            <button
-              onClick={() => updateTab(activeTab.id, { onlyPlayable: !activeTab.onlyPlayable })}
-              title="Mostrar apenas resultados que podem ser reproduzidos no player (vídeo)"
-              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
-                activeTab.onlyPlayable
-                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border-gray-600'
-              }`}
-            >
-              <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
-              Playable
-            </button>
-
-            {/* Sort buttons */}
-            <div className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto">
-              {SORT_OPTIONS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => {
-                    if (activeTab.resultSort === key) {
-                      updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
-                    } else {
-                      updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
-                    }
-                  }}
-                  className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
-                    activeTab.resultSort === key
-                      ? 'bg-green-500/20 text-green-400'
-                      : 'text-gray-400 hover:text-gray-200'
-                  }`}
-                >
-                  {label}
-                  {activeTab.resultSort === key && (
-                    activeTab.resultSortAsc
-                      ? <SortAsc className="w-3 h-3" />
-                      : <SortDesc className="w-3 h-3" />
-                  )}
-                </button>
-              ))}
+          <>
+            <div className="hidden sm:flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
+              <Filter className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+              {filterFields(false)}
             </div>
-
-            {/* Reset filters — only if any active */}
-            {(activeTab.titleFilter || activeTab.trackerFilter !== 'all' || activeTab.minSeeders !== 1 || activeTab.minLeechers > 0 || activeTab.maxSizeGb || activeTab.onlyPlayable) && (
-              <button
-                onClick={() => updateTab(activeTab.id, {
-                  titleFilter: '', trackerFilter: 'all',
-                  minSeeders: 1, minLeechers: 0, maxSizeGb: '',
-                  onlyPlayable: false,
-                })}
-                className="text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
-                title="Limpar filtros"
-              >
-                <X className="w-3.5 h-3.5" />Limpar
-              </button>
-            )}
-          </div>
+            <button
+              onClick={() => setFilterSheetOpen(true)}
+              className="sm:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-gray-700 bg-gray-800/60 text-sm text-gray-300"
+            >
+              <Filter className="w-4 h-4" />
+              Filtros e ordenação
+              {activeFilterCount > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </>
         )}
 
         {/* Soft error with results */}
@@ -823,6 +845,17 @@ export default function SearchPage() {
           </div>
         )}
       </main>
+
+      {/* Filtros (mobile) — campos empilhados num Sheet */}
+      <Sheet
+        open={filterSheetOpen}
+        onClose={() => setFilterSheetOpen(false)}
+        title="Filtros e ordenação"
+        icon={<Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+        size="md"
+      >
+        <div className="flex flex-col gap-3">{filterFields(true)}</div>
+      </Sheet>
 
       <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
       <PlaylistPickerModal

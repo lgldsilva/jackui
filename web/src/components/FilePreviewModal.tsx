@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, FileText, FileImage, FileType2, Download, Loader2, AlertCircle } from 'lucide-react'
 import { streamFileURL, withToken } from '../api/client'
+import { Sheet } from './Sheet'
 
 /**
  * FilePreviewModal — inline read-only viewer for non-playable files that
@@ -105,16 +106,19 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
   }
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[60] p-4 open:flex"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
+    // hideHeader: o preview é edge-to-edge (texto/PDF/imagem) com uma barra
+    // própria que carrega o botão de download + o fechar; o título sozinho não
+    // agregava. zClass z-[60] preserva a sobreposição original sobre o player.
+    <Sheet
       open
+      onClose={onClose}
+      size="4xl"
+      zClass="z-[60]"
+      hideHeader
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-4xl lg:max-w-5xl shadow-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-3 border-b border-gray-700 flex-shrink-0">
+      <>
+        {/* Barra do preview — cola no topo do corpo (compensa o p-4 do Sheet) */}
+        <div className="-mx-4 -mt-4 mb-4 flex items-center justify-between p-3 border-b border-gray-700">
           <h3 className="text-sm font-semibold text-gray-100 flex items-center gap-2 min-w-0">
             <Icon className="w-4 h-4 text-blue-400 flex-shrink-0" />
             <span className="truncate" title={filePath}>{fileName}</span>
@@ -141,7 +145,7 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden min-h-0 bg-gray-900 rounded-b-2xl">
+        <div className="-mx-4 -mb-4 min-h-[50vh] bg-gray-900 rounded-b-2xl">
           {kind === 'text' && (
             <div className="h-full overflow-auto">
               {loading && (
@@ -179,11 +183,11 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
           )}
 
           {kind === 'image' && (
-            <div className="flex items-center justify-center p-4 h-full">
+            <div className="flex items-center justify-center p-4 min-h-[50vh]">
               <img
                 src={withToken(streamURL)}
                 alt={fileName}
-                className="max-w-full max-h-full object-contain"
+                className="max-w-full max-h-[75vh] object-contain"
               />
             </div>
           )}
@@ -194,7 +198,7 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
             </div>
           )}
         </div>
-      </div>
-    </dialog>
+      </>
+    </Sheet>
   )
 }

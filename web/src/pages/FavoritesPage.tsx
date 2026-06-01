@@ -10,6 +10,8 @@ import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import Thumbnail from '../components/Thumbnail'
 import SeedBadge from '../components/SeedBadge'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import { Sheet } from '../components/Sheet'
+import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
@@ -36,6 +38,15 @@ function buildTree(folders: FavoriteFolder[]): FolderNode[] {
     }
   })
   return roots
+}
+
+// Achata a árvore em uma lista ordenada (DFS) com a profundidade de cada nó —
+// usada pelo dropdown de pasta no mobile pra indentar visualmente as subpastas.
+function flattenTree(nodes: FolderNode[], depth = 0): { folder: FavoriteFolder; depth: number }[] {
+  return nodes.flatMap(node => [
+    { folder: node.folder, depth },
+    ...flattenTree(node.children, depth + 1),
+  ])
 }
 
 async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW: number): Promise<{ ok: number; fails: string[] }> {
@@ -199,6 +210,10 @@ export default function FavoritesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const { playSingle } = usePlayer()
+  const confirm = useConfirm()
+  // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
+  // pra trocar de pasta no celular).
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false)
 
   // Tree UI state
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null)
@@ -322,7 +337,8 @@ export default function FavoritesPage() {
   }
 
   const handleRemove = async (name: string) => {
-    if (!confirm(`Remover "${name}" dos favoritos?`)) return
+    const ok = await confirm({ title: 'Remover favorito', message: `Remover "${name}" dos favoritos?`, confirmLabel: 'Remover', destructive: true })
+    if (!ok) return
     await favoriteRemove(name)
     setFavs(favs.filter(f => f.name !== name))
   }
@@ -365,7 +381,8 @@ export default function FavoritesPage() {
 
   const handleDeleteFolder = async (id: number) => {
     const target = folders.find(f => f.id === id)
-    if (!confirm(`Excluir pasta "${target?.name}"? Favoritos dentro voltam pra raiz.`)) return
+    const ok = await confirm({ title: 'Excluir pasta', message: `Excluir pasta "${target?.name}"? Favoritos dentro voltam pra raiz.`, confirmLabel: 'Excluir', destructive: true })
+    if (!ok) return
     await folderDelete(id)
     setFolders(folders.filter(f => f.id !== id))
     // Favoritos: server fez SET NULL, recarrego pra refletir
@@ -496,6 +513,15 @@ export default function FavoritesPage() {
 
         {/* Main — favorites grid */}
         <section className="flex-1 min-w-0">
+          {/* Dropdown de pasta — só no mobile (a sidebar é hidden md:block). */}
+          <button
+            onClick={() => setFolderSheetOpen(true)}
+            className="md:hidden w-full flex items-center gap-2 px-3 min-h-[44px] mb-3 rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200"
+          >
+            <Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />
+            <span className="truncate flex-1 text-left">{pageTitle(viewMode, ALL_VIEW, folders)}</span>
+            <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          </button>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-3">
               <Heart className="w-5 h-5 text-pink-400 fill-current" />
@@ -754,6 +780,57 @@ export default function FavoritesPage() {
         onClose={() => setContentsTarget(null)}
         onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
       />
+
+      {/* Dropdown de pastas no mobile — navega entre pastas sem a sidebar. */}
+      <Sheet
+        open={folderSheetOpen}
+        onClose={() => setFolderSheetOpen(false)}
+        title="Pastas"
+        icon={<Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />}
+        size="sm"
+      >
+        <ul className="flex flex-col gap-1">
+          <li>
+            <button
+              onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null); setFolderSheetOpen(false) }}
+              className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
+                viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+              }`}
+            >
+              <Heart className="w-4 h-4 fill-current flex-shrink-0" />
+              <span className="flex-1 text-left">Todos</span>
+              <span className="text-[10px] text-gray-500">{favs.length}</span>
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => { setViewMode(null); setSelectedFolderId(null); setFolderSheetOpen(false) }}
+              className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
+                viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+              }`}
+            >
+              <Inbox className="w-4 h-4 flex-shrink-0" />
+              <span className="flex-1 text-left">Sem pasta</span>
+              <span className="text-[10px] text-gray-500">{favs.filter(f => f.folderId == null).length}</span>
+            </button>
+          </li>
+          {flattenTree(tree).map(({ folder, depth }) => (
+            <li key={folder.id}>
+              <button
+                onClick={() => { setViewMode(folder.id); setSelectedFolderId(folder.id); setFolderSheetOpen(false) }}
+                className={`w-full flex items-center gap-2 min-h-[44px] rounded-lg text-sm transition-colors ${
+                  viewMode === folder.id ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+                }`}
+                style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
+              >
+                <Folder className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <span className="flex-1 text-left truncate">{folder.name}</span>
+                <span className="text-[10px] text-gray-500">{favs.filter(f => f.folderId === folder.id).length}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Sheet>
     </div>
   )
 }

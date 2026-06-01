@@ -203,7 +203,7 @@ export default function AccountCard() {
             <p className="text-xs text-amber-300 flex items-center gap-1.5">
               <LifeBuoy className="w-3.5 h-3.5" /> Guarde estes códigos agora — cada um serve uma vez e não serão mostrados de novo.
             </p>
-            <div className="grid grid-cols-2 gap-1 font-mono text-sm text-gray-100">
+            <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-1 font-mono text-sm text-gray-100">
               {backupCodes.map(code => <span key={code} className="bg-gray-900 rounded px-2 py-1 text-center tracking-wider">{code}</span>)}
             </div>
             <div className="flex items-center gap-3">

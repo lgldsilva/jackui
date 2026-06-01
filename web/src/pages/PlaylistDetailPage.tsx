@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil, GripVertical } from 'lucide-react'
+import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
 import {
   playlistsGet, playlistsUpdate, playlistsRemoveItem, playlistsReorderItem,
   Playlist, PlaylistItem,
@@ -63,7 +63,14 @@ export default function PlaylistDetailPage() {
   const handleReorderDrop = async (to: number) => {
     const from = dragIdx
     setDragIdx(null)
+    await moveTo(from, to)
+  }
+
+  // Núcleo do reorder (compartilhado por drag-drop e pelos botões ↑/↓ do mobile):
+  // move otimisticamente, persiste via PATCH, rola de volta no erro.
+  const moveTo = async (from: number | null, to: number) => {
     if (from === null || from === to || !playlist) return
+    if (to < 0 || to >= items.length) return
     const reordered = [...items]
     const [moved] = reordered.splice(from, 1)
     reordered.splice(to, 0, moved)
@@ -145,7 +152,29 @@ export default function PlaylistDetailPage() {
                 onClick={() => startAt(idx)}
                 className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
-                <GripVertical className="w-4 h-4 text-gray-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
+                {/* ↑/↓ — reorder por toque no mobile (a alça de drag é ruim no
+                    touch). No desktop fica a alça GripVertical de sempre. */}
+                <div className="md:hidden flex flex-col flex-shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); moveTo(idx, idx - 1) }}
+                    disabled={idx === 0}
+                    title="Mover para cima"
+                    aria-label="Mover para cima"
+                    className="flex items-center justify-center w-11 h-[22px] text-gray-400 hover:text-gray-100 disabled:opacity-30 disabled:hover:text-gray-400"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); moveTo(idx, idx + 1) }}
+                    disabled={idx === items.length - 1}
+                    title="Mover para baixo"
+                    aria-label="Mover para baixo"
+                    className="flex items-center justify-center w-11 h-[22px] text-gray-400 hover:text-gray-100 disabled:opacity-30 disabled:hover:text-gray-400"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
+                <GripVertical className="hidden md:block w-4 h-4 text-gray-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <div className="flex-1 min-w-0">
                   <button
                     onClick={() => startAt(idx)}
@@ -161,16 +190,18 @@ export default function PlaylistDetailPage() {
                   )}
                 </div>
                 <button
-                  onClick={() => startAt(idx)}
+                  onClick={(e) => { e.stopPropagation(); startAt(idx) }}
                   title="Reproduzir a partir deste item"
-                  className="text-green-400 hover:text-green-300 p-1"
+                  aria-label="Reproduzir a partir deste item"
+                  className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-green-400 hover:text-green-300 flex-shrink-0"
                 >
                   <Play className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => removeItem(it)}
+                  onClick={(e) => { e.stopPropagation(); removeItem(it) }}
                   title="Remover da playlist"
-                  className="text-gray-600 hover:text-red-400 p-1 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Remover da playlist"
+                  className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-gray-600 hover:text-red-400 flex-shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

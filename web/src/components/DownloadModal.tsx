@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText } from 'lucide-react'
+import { Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   streamAdd, streamMetadata, StreamFile, TorrentInfo,
 } from '../api/client'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 
@@ -92,7 +92,6 @@ const KEY_PATH = 'lastSavePath'
 const KEY_RECENT_PATHS = 'recentSavePaths'
 
 export default function DownloadModal({ result, onClose }: DownloadModalProps) {
-  useScrollLock(!!result)
   const [clients, setClients] = useState<DownloadClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
   const [savePath, setSavePath] = useState('')
@@ -206,26 +205,29 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   if (!result) return null
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
+    <Sheet
       open
-    >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between p-5 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
-            <Download className="w-5 h-5 text-green-500" />
-            Enviar para Download
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors">
-            <X className="w-5 h-5" />
+      onClose={onClose}
+      size="lg"
+      title="Enviar para Download"
+      icon={<Download className="w-4 h-4 text-green-500 flex-shrink-0" />}
+      footer={
+        <div className="flex gap-3">
+          <button onClick={onClose} className="btn-secondary flex-1">
+            Cancelar
+          </button>
+          <button
+            onClick={handleDownload}
+            disabled={loading || !selectedClientId || success}
+            className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Confirmar
           </button>
         </div>
-
-        <div className="p-5 flex flex-col gap-4 overflow-y-auto flex-1">
+      }
+    >
+      <div className="flex flex-col gap-4">
           <div className="bg-gray-900 rounded-lg p-3">
             <p className="text-sm text-gray-300 line-clamp-2">{result.title}</p>
             <p className="text-xs text-gray-500 mt-1">{result.tracker}</p>
@@ -389,22 +391,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
               Torrent enviado com sucesso!
             </div>
           )}
-        </div>
-
-        <div className="flex gap-3 p-5 border-t border-gray-700">
-          <button onClick={onClose} className="btn-secondary flex-1">
-            Cancelar
-          </button>
-          <button
-            onClick={handleDownload}
-            disabled={loading || !selectedClientId || success}
-            className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Confirmar
-          </button>
-        </div>
       </div>
-    </dialog>
+    </Sheet>
   )
 }

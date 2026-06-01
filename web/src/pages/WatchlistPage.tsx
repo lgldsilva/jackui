@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Bell, Loader2, Plus, Trash2, Save, Copy, Clock } from 'lucide-react'
+import { Bell, Loader2, Plus, Trash2, Save, Copy, Clock, Play, Search, X } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import Thumbnail from '../components/Thumbnail'
 import SeedBadge from '../components/SeedBadge'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
+import { usePullToRefresh } from '../lib/usePullToRefresh'
+import { useConfirm } from '../components/ConfirmDialog'
 import {
   Watchlist, WatchlistHit, SearchResult,
   watchlistsList, watchlistsCreate, watchlistsUpdate, watchlistsDelete, watchlistsHits,
@@ -29,8 +32,10 @@ export default function WatchlistPage() {
   const [editing, setEditing] = useState<DraftWatchlist>(EMPTY_DRAFT)
   const [hitsFor, setHitsFor] = useState<number | null>(null)
   const [hits, setHits] = useState<WatchlistHit[]>([])
+  const [hitFilter, setHitFilter] = useState('')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
+  const confirm = useConfirm()
 
   const load = async () => {
     setLoading(true)
@@ -41,6 +46,8 @@ export default function WatchlistPage() {
     }
   }
   useEffect(() => { load() }, [])
+
+  const ptr = usePullToRefresh({ onRefresh: load, disabled: loading })
 
   const create = async () => {
     if (!draft.query.trim()) return
@@ -61,14 +68,21 @@ export default function WatchlistPage() {
     await load()
   }
   const removeOne = async (id: number) => {
-    if (!confirm('Apagar essa watchlist? Todos os registros de "já visto" serão perdidos.')) return
+    const ok = await confirm({
+      title: 'Apagar watchlist',
+      message: 'Apagar essa watchlist? Todos os registros de "já visto" serão perdidos.',
+      confirmLabel: 'Apagar',
+      destructive: true,
+    })
+    if (!ok) return
     await watchlistsDelete(id)
     if (hitsFor === id) { setHitsFor(null); setHits([]) }
     await load()
   }
   const toggleHits = async (id: number) => {
-    if (hitsFor === id) { setHitsFor(null); setHits([]); return }
+    if (hitsFor === id) { setHitsFor(null); setHits([]); setHitFilter(''); return }
     setHitsFor(id)
+    setHitFilter('')
     setHits(await watchlistsHits(id))
   }
 
@@ -83,8 +97,12 @@ export default function WatchlistPage() {
   const copyMagnet = (magnet: string) => { navigator.clipboard?.writeText(magnet) }
   const renderHitItem = (h: WatchlistHit) => (
     <div key={h.infoHash} className="flex items-center gap-2 text-xs p-1.5 hover:bg-gray-900/50 rounded">
-      <button onClick={() => playHit(h)} className="text-green-400 hover:text-green-300 px-1" title="Reproduzir">
-        ▶
+      <button
+        onClick={() => playHit(h)}
+        className="flex items-center justify-center w-11 h-11 sm:w-auto sm:h-auto sm:p-1 flex-shrink-0 rounded-lg text-green-400 hover:text-green-300 hover:bg-green-500/10 sm:hover:bg-transparent transition-colors"
+        title="Reproduzir"
+      >
+        <Play className="w-4 h-4" />
       </button>
       <Thumbnail title={h.title} size="sm" infoHash={h.infoHash} />
       <div className="flex-1 min-w-0">
@@ -95,23 +113,28 @@ export default function WatchlistPage() {
         >
           {h.title}
         </button>
-        <p className="text-gray-500 flex items-center gap-2 flex-wrap">
+        <p className="text-gray-500 flex items-center gap-x-2 gap-y-1 flex-wrap">
           <SeedBadge infoHash={h.infoHash} magnet={h.magnet} />
           <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
         </p>
       </div>
       <button
         onClick={() => copyMagnet(h.magnet)}
-        className="text-gray-500 hover:text-gray-200 p-1"
+        className="flex items-center justify-center w-11 h-11 sm:w-auto sm:h-auto sm:p-1 flex-shrink-0 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-700/40 sm:hover:bg-transparent transition-colors"
         title="Copiar magnet"
       >
-        <Copy className="w-3.5 h-3.5" />
+        <Copy className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
       </button>
     </div>
   )
 
+  const filteredHits = hitFilter.trim()
+    ? hits.filter(h => h.title.toLowerCase().includes(hitFilter.trim().toLowerCase()))
+    : hits
+
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
+      <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
@@ -132,21 +155,21 @@ export default function WatchlistPage() {
         {creating && (
           <div className="card flex flex-col gap-2">
             <input
-              className="input-field" placeholder="Busca (ex: Breaking Bad S07 1080p)"
+              className="input-field text-base sm:text-sm" placeholder="Busca (ex: Breaking Bad S07 1080p)"
               value={draft.query} onChange={e => setDraft({ ...draft, query: e.target.value })} autoFocus
             />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
-                className="input-field text-sm" placeholder="Categoria opcional (ex: 5030)"
+                className="input-field text-base sm:text-sm" placeholder="Categoria opcional (ex: 5030)"
                 value={draft.category} onChange={e => setDraft({ ...draft, category: e.target.value })}
               />
               <input
-                type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders"
+                type="number" min={0} className="input-field text-base sm:text-sm" placeholder="Mín. seeders"
                 value={draft.minSeeders} onChange={e => setDraft({ ...draft, minSeeders: Number.parseInt(e.target.value || '0', 10) })}
               />
             </div>
             <input
-              className="input-field text-sm" placeholder="Tópico ntfy.sh (em branco = usa o padrão do servidor)"
+              className="input-field text-base sm:text-sm" placeholder="Tópico ntfy.sh (em branco = usa o padrão do servidor)"
               value={draft.ntfyTopic} onChange={e => setDraft({ ...draft, ntfyTopic: e.target.value })}
             />
             <div className="flex gap-2">
@@ -165,12 +188,12 @@ export default function WatchlistPage() {
               <div key={w.id} className="card flex flex-col gap-2">
                 {editingID === w.id ? (
                   <>
-                    <input className="input-field" value={editing.query} onChange={e => setEditing({ ...editing, query: e.target.value })} />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input className="input-field text-sm" placeholder="Categoria" value={editing.category} onChange={e => setEditing({ ...editing, category: e.target.value })} />
-                      <input type="number" min={0} className="input-field text-sm" placeholder="Mín. seeders" value={editing.minSeeders} onChange={e => setEditing({ ...editing, minSeeders: Number.parseInt(e.target.value || '0', 10) })} />
+                    <input className="input-field text-base sm:text-sm" value={editing.query} onChange={e => setEditing({ ...editing, query: e.target.value })} />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input className="input-field text-base sm:text-sm" placeholder="Categoria" value={editing.category} onChange={e => setEditing({ ...editing, category: e.target.value })} />
+                      <input type="number" min={0} className="input-field text-base sm:text-sm" placeholder="Mín. seeders" value={editing.minSeeders} onChange={e => setEditing({ ...editing, minSeeders: Number.parseInt(e.target.value || '0', 10) })} />
                     </div>
-                    <input className="input-field text-sm" placeholder="ntfy topic" value={editing.ntfyTopic} onChange={e => setEditing({ ...editing, ntfyTopic: e.target.value })} />
+                    <input className="input-field text-base sm:text-sm" placeholder="ntfy topic" value={editing.ntfyTopic} onChange={e => setEditing({ ...editing, ntfyTopic: e.target.value })} />
                     <div className="flex gap-2">
                       <button onClick={saveEdit} className="btn-primary flex items-center gap-1.5"><Save className="w-4 h-4" /> Salvar</button>
                       <button onClick={() => setEditingID(null)} className="btn-secondary">Cancelar</button>
@@ -191,19 +214,42 @@ export default function WatchlistPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <button onClick={() => toggleHits(w.id)} className="btn-secondary text-xs">
+                        <button onClick={() => toggleHits(w.id)} className="btn-secondary text-xs min-h-[44px] sm:min-h-0 px-3 sm:px-2.5">
                           {w.hitCount || 0} hits
                         </button>
-                        <button onClick={() => beginEdit(w)} className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1">Editar</button>
-                        <button onClick={() => removeOne(w.id)} className="text-gray-500 hover:text-red-400 p-1"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => beginEdit(w)} className="text-xs text-gray-400 hover:text-gray-200 min-h-[44px] sm:min-h-0 px-3 py-1 flex items-center">Editar</button>
+                        <button onClick={() => removeOne(w.id)} className="flex items-center justify-center text-gray-500 hover:text-red-400 w-11 h-11 sm:w-auto sm:h-auto sm:p-1"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </div>
 
                     {hitsFor === w.id && (
-                      <div className="border-t border-gray-700 pt-2 flex flex-col gap-1 max-h-80 overflow-y-auto">
-                        {hits.length === 0 ? (
-                          <p className="text-xs text-gray-500 text-center py-3">Nenhuma detecção ainda. O worker passa a cada 15 min.</p>
-                        ) : hits.map(h => renderHitItem(h))}
+                      <div className="border-t border-gray-700 pt-2 flex flex-col gap-2">
+                        {hits.length > 0 && (
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                            <input
+                              type="text"
+                              value={hitFilter}
+                              onChange={e => setHitFilter(e.target.value)}
+                              placeholder="Filtrar por título..."
+                              className="w-full bg-gray-800/80 border border-gray-700 rounded-lg pl-9 pr-9 py-2 text-base sm:text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-colors"
+                            />
+                            {hitFilter && (
+                              <button onClick={() => setHitFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 text-gray-500 hover:text-gray-300" title="Limpar">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-1 max-h-80 overflow-y-auto">
+                          {hits.length === 0 && (
+                            <p className="text-xs text-gray-500 text-center py-3">Nenhuma detecção ainda. O worker passa a cada 15 min.</p>
+                          )}
+                          {hits.length > 0 && filteredHits.length === 0 && (
+                            <p className="text-xs text-gray-500 text-center py-3">Nenhum hit corresponde ao filtro.</p>
+                          )}
+                          {filteredHits.map(h => renderHitItem(h))}
+                        </div>
                       </div>
                     )}
                   </>

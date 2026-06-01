@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { X, FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
+import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL } from '../api/client'
 import { formatRate } from '../lib/format'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 import { useHoverThumb } from './FileThumbHover'
 
 type Props = {
@@ -106,7 +106,6 @@ function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; rea
 }
 
 export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist }: Props) {
-  useScrollLock(!!result)
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -154,26 +153,17 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   // `width: fit-content` (que sozinha estourava o viewport de ~390px no mobile),
   // e `p-0 m-0` neutralizam padding/margin default do user-agent.
   return (
-    <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
-      tabIndex={-1}
-    >
-      <dialog open aria-modal="true" className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col p-0 m-0 text-inherit">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
-            <FolderOpen className="w-4 h-4 text-blue-400 flex-shrink-0" />
-            <span className="truncate">Conteúdo do torrent</span>
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-200">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Title bar */}
-        <div className="px-4 py-3 border-b border-gray-700 bg-gray-900/50">
+    <>
+      <Sheet
+        open
+        onClose={onClose}
+        size="2xl"
+        title="Conteúdo do torrent"
+        icon={<FolderOpen className="w-4 h-4 text-blue-400 flex-shrink-0" />}
+      >
+        {/* Title bar — cola no topo do corpo (compensa o p-4 do Sheet) e rola
+            junto com a lista, como no layout original. */}
+        <div className="-mx-4 -mt-4 mb-3 px-4 py-3 border-b border-gray-700 bg-gray-900/50">
           {/* Tracker's release title (matches the search result card) */}
           <p className="text-sm text-gray-200 line-clamp-2" title={result.title}>
             {result.title}
@@ -246,8 +236,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           </div>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Body — o Sheet já provê o container rolável (flex-1 overflow-y-auto p-4) */}
+        <>
           {loading && (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400">
               <Loader2 className="w-8 h-8 animate-spin mb-3" />
@@ -410,9 +400,9 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               Esse torrent está vazio ou ainda não tem metadados disponíveis
             </p>
           )}
-        </div>
-      </dialog>
+        </>
+      </Sheet>
       {hoverThumb.popover}
-    </div>
+    </>
   )
 }

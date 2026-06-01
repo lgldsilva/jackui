@@ -17,6 +17,7 @@ import LoginPage from './pages/LoginPage'
 import { RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from './pages/AuthFlows'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
+import { ConfirmProvider } from './components/ConfirmDialog'
 
 function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -101,12 +102,14 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <PlayerProvider>
-        <div className="min-h-screen bg-gray-900">
-          <RouteRestorer />
-          <AppRoutes />
-        </div>
-      </PlayerProvider>
+      <ConfirmProvider>
+        <PlayerProvider>
+          <div className="min-h-screen bg-gray-900">
+            <RouteRestorer />
+            <AppRoutes />
+          </div>
+        </PlayerProvider>
+      </ConfirmProvider>
     </AuthProvider>
   )
 }
