@@ -889,7 +889,7 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.hlsMgr))
+	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr))
 	api.GET("/local/hls/seg", handlers.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
 	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
