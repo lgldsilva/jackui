@@ -298,12 +298,26 @@ func TestEnsureSegmentNonVOD(t *testing.T) {
 func TestEnsureSegmentNoRestartIfWithinRange(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "seg_00003.ts"), []byte("data"), 0644)
+	// ffmpegPath="true" tornaria um relançamento observável (Cmd != nil); como o
+	// seg pedido está DENTRO da janela (highestSeg=3, threshold=30), o encoder
+	// sequencial chega sozinho e NÃO deve relançar.
 	s := &HLSSession{
-		spec:     &encodeSpec{vod: true},
+		spec:     &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
 		Dir:      dir,
 		startSeg: 0,
 	}
-	s.EnsureSegment(3)
+	s.EnsureSegment(3) // dentro do range → NÃO relança
+	s.mu.Lock()
+	cmd := s.Cmd
+	got := s.startSeg
+	s.mu.Unlock()
+	if cmd != nil {
+		s.stop()
+		t.Fatal("seg dentro do range NÃO deveria relançar o ffmpeg, mas Cmd != nil")
+	}
+	if got != 0 {
+		t.Errorf("startSeg mudou para %d — houve relançamento indevido", got)
+	}
 }
 
 // Um encoder morto (closed) deve RESSUSCITAR quando o player pede um segmento
@@ -506,8 +520,22 @@ func TestReadSeekerContentReadAt(t *testing.T) {
 }
 
 func TestNewHLSManagerInvalidDir(t *testing.T) {
-	mgr, err := NewHLSManager("/nonexistent/deep/path/we/cannot/create")
-	if err == nil && mgr != nil {
-		mgr.Close("test")
+	// Um ARQUIVO no lugar do diretório-pai força MkdirAll a falhar com ENOTDIR
+	// mesmo rodando como root no CI (um path tipo /nonexistent só falha sem root,
+	// e o teste antigo tolerava os dois desfechos — não verificava nada).
+	parent := t.TempDir()
+	notADir := filepath.Join(parent, "iamafile")
+	if err := os.WriteFile(notADir, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := NewHLSManager(notADir) // baseDir é arquivo → join "hls" → MkdirAll ENOTDIR
+	if err == nil {
+		if mgr != nil {
+			mgr.Close("test")
+		}
+		t.Fatal("NewHLSManager deveria falhar quando baseDir não é um diretório")
+	}
+	if mgr != nil {
+		t.Errorf("mgr deveria ser nil no erro, got %v", mgr)
 	}
 }
