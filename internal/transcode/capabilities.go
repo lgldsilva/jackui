@@ -199,6 +199,14 @@ func Probe(ctx context.Context, force bool) (*Capabilities, error) {
 	return &c, nil
 }
 
+// ResetCachedForTesting zera o cache de capabilities. Só para testes que
+// precisam exercitar o caminho "caps ainda não probadas".
+func ResetCachedForTesting() {
+	cacheMu.Lock()
+	cached = nil
+	cacheMu.Unlock()
+}
+
 // Cached returns the last probe result without re-running it. nil if never probed.
 func Cached() *Capabilities {
 	cacheMu.RLock()

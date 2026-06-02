@@ -146,7 +146,7 @@ func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
 	return data
 }
 
-func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
+func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
@@ -159,7 +159,7 @@ func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 			return
 		}
 		segName := c.Param("seg")
-		sess := resolveHLSSession(c, mgr, h, fileIdx)
+		sess := resolveHLSSession(c, s, mgr, store, h, fileIdx, segName)
 		if sess == nil {
 			return
 		}
@@ -168,12 +168,38 @@ func StreamHLSSegment(mgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	}
 }
 
-func resolveHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, h metainfo.Hash, fileIdx int) *transcode.HLSSession {
+// resolveHLSSession busca a sessão ativa; se ela sumiu (reapada/fechada),
+// RESSUSCITA-A a partir do segmento pedido em vez de retornar 404. Sem isso, o
+// Safari (VOD, playlist estática) responde ao 404 percorrendo a playlist INTEIRA
+// em 404 — um burst de centenas de requisições — antes de refetchar a playlist.
+// Respawnar no servidor torna a recuperação transparente: o segmento pedido é
+// gerado e servido (200) na própria requisição.
+func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	key := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
-	sess, err := getSession(mgr, key)
-	if err != nil {
+	if sess, err := getSession(mgr, key); err == nil {
+		return sess
+	}
+	// Sem streamer (caminho degradado/teste) não há como respawnar → 404 e o
+	// cliente refetcha a playlist.
+	if s == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
 		return nil
+	}
+	// Sessão ausente → respawn. resolveTranscodeSource resolve do store ou do
+	// torrent (e já responde 404 se a fonte sumiu de vez).
+	hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
+	source, size := resolveTranscodeSource(hc)
+	if source == nil {
+		return nil
+	}
+	sess, err := startHLSSession(hc, source, size)
+	if err != nil {
+		return nil
+	}
+	// O respawn começa no segmento 0; reposiciona o encoder no segmento pedido
+	// pra não obrigar o player a esperar o transcode chegar lá sequencialmente.
+	if idx, ok := transcode.ParseSegIndex(segName); ok && idx > 0 && sess.IsVOD() {
+		_ = sess.RestartAt(idx)
 	}
 	return sess
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -85,7 +86,7 @@ func Test_hgB_StreamHLSSegment_BadHash(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/s/:hash/:file/:seg", StreamHLSSegment(mgr))
+	r.GET("/s/:hash/:file/:seg", StreamHLSSegment(nil, mgr, nil))
 
 	w := hgBGET(t, r, "/s/nothex/0/seg_00000.ts")
 	if w.Code != http.StatusBadRequest {
@@ -97,7 +98,7 @@ func Test_hgB_StreamHLSSegment_BadFileIndex(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/s/:hash/:file/:seg", StreamHLSSegment(mgr))
+	r.GET("/s/:hash/:file/:seg", StreamHLSSegment(nil, mgr, nil))
 
 	w := hgBGET(t, r, "/s/"+hgBHexHash+"/xx/seg_00000.ts")
 	if w.Code != http.StatusBadRequest {
@@ -110,7 +111,7 @@ func Test_hgB_StreamHLSSegment_SessionNotActive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/s/:hash/:file/:seg", StreamHLSSegment(mgr))
+	r.GET("/s/:hash/:file/:seg", StreamHLSSegment(nil, mgr, nil))
 
 	w := hgBGET(t, r, "/s/"+hgBHexHash+"/0/seg_00000.ts")
 	if w.Code != http.StatusNotFound {
@@ -133,11 +134,72 @@ func Test_hgB_ResolveHLSSession_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseHash: %v", err)
 	}
-	if sess := resolveHLSSession(c, mgr, h, 0); sess != nil {
+	if sess := resolveHLSSession(c, nil, mgr, nil, h, 0, "seg_00000.ts"); sess != nil {
 		t.Fatal("expected nil session for unknown key")
 	}
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status=%d want 404", w.Code)
+	}
+}
+
+// Quando a sessão sumiu (drop/reap), o handler RESSUSCITA-A a partir do arquivo
+// completo em vez de 404 — evitando o burst de 404 que o Safari (VOD) dispara
+// percorrendo a playlist inteira. Precisa de encoder (skip sem ffmpeg).
+func Test_hgB_ResolveHLSSession_RespawnsFromCompletedFile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	if _, err := transcode.Probe(context.Background(), true); err != nil || transcode.Cached() == nil {
+		t.Skip("caps de transcode indisponíveis (sem ffmpeg?); respawn precisa do encoder")
+	}
+	mgr := hgBManager(t)
+	store := newDownloadsStore(t)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(file, []byte("payload-bytes"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+	t.Cleanup(func() { mgr.Close(hgBHexHash + "-0") })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	h, _ := parseHash(hgBHexHash)
+	// Sem sessão ativa, mas com streamer + fonte completa → respawn (não 404).
+	sess := resolveHLSSession(c, streamer.NewForTesting(), mgr, store, h, 0, "seg_00000.ts")
+	if sess == nil {
+		t.Fatal("esperava respawn da sessão a partir do arquivo completo, veio nil")
+	}
+}
+
+// Respawn com fonte disponível mas encoder indisponível (caps não probadas) →
+// startHLSSession falha e o handler retorna nil (404). Cobre o ramo de erro do
+// respawn sem depender de ffmpeg.
+func Test_hgB_ResolveHLSSession_RespawnEncoderUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	transcode.ResetCachedForTesting() // força GetOrStart a falhar ("caps not probed")
+	mgr := hgBManager(t)
+	store := newDownloadsStore(t)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(file, []byte("payload-bytes"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	h, _ := parseHash(hgBHexHash)
+	if sess := resolveHLSSession(c, streamer.NewForTesting(), mgr, store, h, 0, "seg_00000.ts"); sess != nil {
+		t.Fatal("sem caps de encoder o respawn deve falhar (nil)")
 	}
 }
 
