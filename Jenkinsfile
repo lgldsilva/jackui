@@ -47,7 +47,7 @@ pipeline {
       // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
       // exigem). GOCACHE/GOPATH em /tmp. Só ./internal/... — cmd/server importa o
       // pacote ui (//go:embed all:dist), que não compila antes do frontend build.
-      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '-u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
+      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '--platform linux/arm64 -u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
         retry(2) {
@@ -63,7 +63,7 @@ pipeline {
     }
 
     stage('Frontend build') {
-      agent { docker { image 'node:22-alpine'; reuseNode true; args '-e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
+      agent { docker { image 'node:22-alpine'; reuseNode true; args '--platform linux/arm64 -e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
       steps {
         dir('web') {
           sh 'npm ci'
@@ -78,23 +78,37 @@ pipeline {
     // Quality gate obrigatório: QUEBRA o build se o gate falhar
     // (-Dsonar.qualitygate.wait=true). Token via Jenkins credentials.
     stage('SonarQube') {
-      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
+      when { anyOf { branch 'main'; branch 'PR-53'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
-            docker run --rm --platform linux/amd64 -e SONAR_TOKEN -v "$HOST_WS":/usr/src -w /usr/src \
-              sonarsource/sonar-scanner-cli:latest \
-              -Dsonar.host.url=$SONAR_HOST \
-              -Dsonar.token=$SONAR_TOKEN \
-              -Dsonar.projectKey=jackui \
-              -Dsonar.sources=. \
-              -Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**,**/streamer/streams/**' \
-              -Dsonar.go.coverage.reportPaths=coverage.out \
-              -Dsonar.tests=. -Dsonar.test.inclusions='**/*_test.go' \
-              -Dsonar.coverage.exclusions='web/**,cmd/**,electron/**' \
-              -Dsonar.scm.disabled=true \
-              -Dsonar.qualitygate.wait=true
+            docker run --rm --user 0 --platform linux/arm64 -e SONAR_TOKEN -e SONAR_HOST -v "$HOST_WS":/usr/src -w /usr/src \
+              eclipse-temurin:21 \
+              sh -c '
+                echo "Installing Node.js..."
+                apt-get update -q && apt-get install -y -q nodejs >/dev/null
+                if [ ! -d .sonar-scanner ]; then
+                  echo "Installing unzip..."
+                  apt-get install -y -q unzip wget >/dev/null
+                  echo "Downloading native arm64 SonarScanner..."
+                  wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-aarch64.zip -O /tmp/sonar-scanner.zip
+                  unzip -q /tmp/sonar-scanner.zip -d .
+                  mv sonar-scanner-8.0.1.6346-linux-aarch64 .sonar-scanner
+                  rm -f /tmp/sonar-scanner.zip
+                fi
+                ./.sonar-scanner/bin/sonar-scanner \
+                  -Dsonar.host.url=$SONAR_HOST \
+                  -Dsonar.token=$SONAR_TOKEN \
+                  -Dsonar.projectKey=jackui \
+                  -Dsonar.sources=. \
+                  -Dsonar.exclusions="**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**,**/streamer/streams/**" \
+                  -Dsonar.go.coverage.reportPaths=coverage.out \
+                  -Dsonar.tests=. -Dsonar.test.inclusions="**/*_test.go" \
+                  -Dsonar.coverage.exclusions="web/**,cmd/**,electron/**" \
+                  -Dsonar.scm.disabled=true \
+                  -Dsonar.qualitygate.wait=true
+              '
           '''
         }
       }
@@ -108,7 +122,7 @@ pipeline {
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
             rm -rf .cdx-src && mkdir -p .cdx-src
             git archive --format=tar HEAD | tar -x -C .cdx-src
-            docker run --rm --user 0 \
+            docker run --rm --user 0 --platform linux/arm64 \
               -v "$HOST_WS/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               --spec-version 1.6 -r -o /src/bom.json . || true
             if [ -s .cdx-src/bom.json ]; then
@@ -157,7 +171,7 @@ pipeline {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         sh '''
-          TRIVY="docker run --rm -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
+          TRIVY="docker run --rm --platform linux/arm64 -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
           echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
           $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
           echo "=== Trivy: gate (falha em CRITICAL) ==="
