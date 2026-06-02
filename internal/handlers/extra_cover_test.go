@@ -60,14 +60,20 @@ func TestUserCacheGetWithMissingUser(t *testing.T) {
 
 func TestEnrichETASkipsEmptyHash(t *testing.T) {
 	s := streamer.NewForTesting()
-	d := &downloads.Download{InfoHash: "", FileSize: 1000}
+	d := &downloads.Download{InfoHash: "", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
+	if d.ETA != 42 || d.DownRate != 7 {
+		t.Errorf("hash vazio deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+	}
 }
 
 func TestEnrichETASkipsZeroSize(t *testing.T) {
 	s := streamer.NewForTesting()
-	d := &downloads.Download{InfoHash: "abc", FileSize: 0}
+	d := &downloads.Download{InfoHash: "abc", FileSize: 0, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
+	if d.ETA != 42 || d.DownRate != 7 {
+		t.Errorf("FileSize zero deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+	}
 }
 
 func TestMarkPromotedWithEmptyDir(t *testing.T) {
@@ -111,8 +117,11 @@ func TestMarkPromotedOutsideDownloadDir(t *testing.T) {
 }
 
 func TestEnrichETAListNilStreamer(t *testing.T) {
-	list := []downloads.Download{{InfoHash: "abc"}}
+	list := []downloads.Download{{InfoHash: "abc", ETA: 5, DownRate: 9}}
 	enrichETAList(list, nil)
+	if list[0].ETA != 5 || list[0].DownRate != 9 {
+		t.Errorf("streamer nil deveria deixar a lista intacta: %+v", list[0])
+	}
 }
 
 func TestBuildVODPlaylist(t *testing.T) {
