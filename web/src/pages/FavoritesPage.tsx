@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud } from 'lucide-react'
+import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, favoriteSetFolder,
@@ -226,46 +226,22 @@ export default function FavoritesPage() {
   const newFolderInput = useRef<HTMLInputElement>(null)
   const [creatingRoot, setCreatingRoot] = useState(false)
 
-  // favToResult builds the SearchResult shape the player/contents modal expect.
-  // Favorites only persist name/magnet/infoHash, so tracker/category stay empty
-  // (the details modal hides the rows it has no data for).
-  const favToResult = (f: StreamFavorite): SearchResult => ({
-    title: f.name, tracker: '', categoryId: 0, category: '', size: 0, seeders: 0, leechers: 0,
-    age: '', magnetUri: f.magnet, link: '', infoHash: f.infoHash, publishDate: '',
-  })
+  // Search
+  const [searchQuery, setSearchQuery] = useState('')
 
-  const favHasValidMagnet = (f: StreamFavorite) =>
-    !!f.magnet && (f.magnet.startsWith('magnet:') || f.magnet.startsWith('http'))
-
-  const handleFavDragStart = (e: React.DragEvent, favName: string) => {
-    e.dataTransfer.setData('text/x-favorite-name', favName)
-    e.dataTransfer.effectAllowed = 'move'
-    const ghost = document.createElement('div')
-    ghost.textContent = favName
-    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
-    document.body.appendChild(ghost)
-    e.dataTransfer.setDragImage(ghost, 12, 12)
-    setTimeout(() => ghost.remove(), 0)
-  }
-
-  const playFavorite = (f: StreamFavorite) => {
-    if (!favHasValidMagnet(f)) {
-      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
-      return
+  // Filter favorites by current view AND search query
+  const filteredFavs = useMemo(() => {
+    let list = favs
+    if (viewMode !== ALL_VIEW) {
+      if (viewMode === null) list = list.filter(f => f.folderId === null)
+      else list = list.filter(f => f.folderId === viewMode)
     }
-    playSingle(favToResult(f))
-  }
-
-  // Card click opens the contents/details modal (files + torrent details)
-  // WITHOUT playing — matching the search/history flow. The Play button stays
-  // the quick direct path.
-  const openContents = (f: StreamFavorite) => {
-    if (!favHasValidMagnet(f)) {
-      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
-      return
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter(f => f.name.toLowerCase().includes(q))
     }
-    setContentsTarget(favToResult(f))
-  }
+    return list
+  }, [favs, viewMode, searchQuery])
 
   const load = async () => {
     setLoading(true)
@@ -280,9 +256,41 @@ export default function FavoritesPage() {
       setLoading(false)
     }
   }
+
+  // Infinite scroll
+  const PAGE_SIZE = 40
+  const [visible, setVisible] = useState(PAGE_SIZE)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  // IntersectionObserver for infinite scroll
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisible(prev => Math.min(prev + PAGE_SIZE, filteredFavs.length))
+      }
+    }, { rootMargin: '200px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [filteredFavs.length])
+
+  // Load data on mount
   useEffect(() => { load() }, [])
 
   const ptr = usePullToRefresh({ onRefresh: load, disabled: loading })
+
+  const tree = useMemo(() => buildTree(folders), [folders])
+
+  const handleCreateRoot = async () => {
+    if (!newFolderInput.current) return
+    const name = newFolderInput.current.value.trim()
+    if (!name) { setCreatingRoot(false); return }
+    const f = await folderCreate(name, null)
+    setFolders([...folders, f])
+    setCreatingRoot(false)
+    if (newFolderInput.current) newFolderInput.current.value = ''
+  }
 
   // ─── Import (magnet / .torrent) ──────────────────────────────────────────
   const [showImport, setShowImport] = useState(false)
@@ -343,24 +351,40 @@ export default function FavoritesPage() {
     setFavs(favs.filter(f => f.name !== name))
   }
 
-  // Filter favorites by current view: ALL_VIEW shows everything; null = root
-  // (favorites without folder); a positive id = that folder only.
-  const filteredFavs = useMemo(() => {
-    if (viewMode === ALL_VIEW) return favs
-    if (viewMode === null) return favs.filter(f => f.folderId === null)
-    return favs.filter(f => f.folderId === viewMode)
-  }, [favs, viewMode])
+  // favToResult builds the SearchResult shape the player/contents modal expect.
+  const favToResult = (f: StreamFavorite): SearchResult => ({
+    title: f.name, tracker: '', categoryId: 0, category: '', size: 0, seeders: 0, leechers: 0,
+    age: '', magnetUri: f.magnet, link: '', infoHash: f.infoHash, publishDate: '',
+  })
 
-  const tree = useMemo(() => buildTree(folders), [folders])
+  const favHasValidMagnet = (f: StreamFavorite) =>
+    !!f.magnet && (f.magnet.startsWith('magnet:') || f.magnet.startsWith('http'))
 
-  const handleCreateRoot = async () => {
-    if (!newFolderInput.current) return
-    const name = newFolderInput.current.value.trim()
-    if (!name) { setCreatingRoot(false); return }
-    const f = await folderCreate(name, null)
-    setFolders([...folders, f])
-    setCreatingRoot(false)
-    if (newFolderInput.current) newFolderInput.current.value = ''
+  const handleFavDragStart = (e: React.DragEvent, favName: string) => {
+    e.dataTransfer.setData('text/x-favorite-name', favName)
+    e.dataTransfer.effectAllowed = 'move'
+    const ghost = document.createElement('div')
+    ghost.textContent = favName
+    ghost.style.cssText = 'position:fixed;top:-1000px;left:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 12px;background:#16a34a;color:#fff;font-size:12px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.4);pointer-events:none'
+    document.body.appendChild(ghost)
+    e.dataTransfer.setDragImage(ghost, 12, 12)
+    setTimeout(() => ghost.remove(), 0)
+  }
+
+  const playFavorite = (f: StreamFavorite) => {
+    if (!favHasValidMagnet(f)) {
+      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
+      return
+    }
+    playSingle(favToResult(f))
+  }
+
+  const openContents = (f: StreamFavorite) => {
+    if (!favHasValidMagnet(f)) {
+      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
+      return
+    }
+    setContentsTarget(favToResult(f))
   }
 
   const handleCreateSub = async (parentId: number) => {
@@ -549,17 +573,57 @@ export default function FavoritesPage() {
             </div>
           </div>
 
+          {/* Search bar */}
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setVisible(PAGE_SIZE) }}
+                placeholder="Buscar nos favoritos…"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-pink-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setVisible(PAGE_SIZE) }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                if (selected.size === filteredFavs.length) {
+                  clearSelection()
+                } else {
+                  setSelected(new Set(filteredFavs.map(f => f.name)))
+                }
+              }}
+              className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-lg transition-colors flex-shrink-0"
+              title={selected.size === filteredFavs.length ? 'Desmarcar todos' : 'Selecionar todos'}
+            >
+              {selected.size === filteredFavs.length ? <Square className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
+              {selected.size === filteredFavs.length ? 'Limpar' : 'Selecionar'}
+            </button>
+          </div>
+
           {(() => {
             const fallback = renderFavsContent(loading, error, filteredFavs, viewMode, ALL_VIEW, folders)
             if (fallback) return fallback
-            return <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredFavs.map(fav => (
-                <button
-                  type="button"
+            const shown = filteredFavs.slice(0, visible)
+            return <>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {shown.map(fav => (
+                <div
                   key={fav.name}
+                  role="button"
+                  tabIndex={0}
                   draggable
                   onDragStart={e => handleFavDragStart(e, fav.name)}
                   onClick={() => openContents(fav)}
+                  onKeyDown={e => { if (e.key === 'Enter') openContents(fav) }}
                   className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative w-full text-left ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}
@@ -585,7 +649,7 @@ export default function FavoritesPage() {
                       {fav.name}
                     </h3>
                     <button
-                      onClick={() => handleRemove(fav.name)}
+                      onClick={(e) => { e.stopPropagation(); handleRemove(fav.name) }}
                       title="Remover dos favoritos"
                       className="text-gray-600 hover:text-red-400 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex-shrink-0"
                     >
@@ -616,7 +680,7 @@ export default function FavoritesPage() {
 
                   <div className="flex gap-1.5 mt-auto pt-2 border-t border-gray-700">
                     <button
-                      onClick={() => playFavorite(fav)}
+                      onClick={e => { e.stopPropagation(); playFavorite(fav) }}
                       disabled={!fav.magnet}
                       title={fav.magnet ? 'Play (usa magnet salvo)' : 'Magnet não salvo — refavorite'}
                       className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg flex-1 justify-center transition-colors ${
@@ -631,7 +695,7 @@ export default function FavoritesPage() {
                     {/* Details/contents — view files + torrent details without
                         committing to play (consistent with search/history). */}
                     <button
-                      onClick={() => openContents(fav)}
+                      onClick={e => { e.stopPropagation(); openContents(fav) }}
                       disabled={!fav.magnet}
                       title="Ver conteúdo e detalhes"
                       className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
@@ -648,6 +712,7 @@ export default function FavoritesPage() {
                     {folders.length > 0 && (
                       <select
                         value={fav.folderId ?? ''}
+                        onClick={e => e.stopPropagation()}
                         onChange={e => handleDropOnFolder(e.target.value === '' ? null : Number(e.target.value), fav.name)}
                         title="Mover para pasta"
                         className="text-xs px-2 py-1.5 rounded-lg bg-gray-700/40 text-gray-300 border border-gray-700 focus:outline-none focus:border-green-500 cursor-pointer max-w-[45%]"
@@ -659,99 +724,100 @@ export default function FavoritesPage() {
                       </select>
                     )}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
+              {visible < filteredFavs.length && (
+                <div ref={sentinelRef} className="h-12 flex items-center justify-center text-gray-500 text-xs">
+                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  Carregando mais…
+                </div>
+              )}
+              {visible >= filteredFavs.length && filteredFavs.length > PAGE_SIZE && (
+                <p className="text-center text-gray-600 text-xs py-4">Todos os {filteredFavs.length} itens carregados.</p>
+              )}
+            </>
           })()}
         </section>
       </main>
 
-      {/* Import modal — paste magnet(s) or drop a .torrent file */}
-      {showImport && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
-          onClick={e => { if (e.target === e.currentTarget && !importing) setShowImport(false) }}
-          onKeyDown={e => e.key === 'Escape' && !importing && setShowImport(false)}
-          tabIndex={-1}
-        >
-          <dialog
-            open
-            aria-modal="true"
-            className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4 m-0 text-inherit"
-          >
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
-                <Download className="w-4 h-4 text-pink-400" />
-                Importar torrent
-                {viewMode !== ALL_VIEW && (
-                  <span className="text-[10px] text-gray-400 font-normal">
-                    → {folders.find(f => f.id === viewMode)?.name || 'pasta'}
-                  </span>
-                )}
-              </h2>
-              <button onClick={() => !importing && setShowImport(false)} className="text-gray-500 hover:text-gray-300">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Magnet textarea — one per line for batch */}
-            <div>
-              <label htmlFor="import-magnet" className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
-              <textarea
-                id="import-magnet"
-                value={magnetInput}
-                onChange={e => setMagnetInput(e.target.value)}
-                placeholder="magnet:?xt=urn:btih:..."
-                rows={3}
-                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono resize-y focus:border-pink-500 focus:outline-none"
-              />
-              <button
-                onClick={importMagnets}
-                disabled={importing || !magnetInput.trim()}
-                className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
-              >
-                {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                Importar magnet{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 text-[10px] text-gray-600 uppercase tracking-wider">
-              <div className="flex-1 h-px bg-gray-700" /> ou <div className="flex-1 h-px bg-gray-700" />
-            </div>
-
-            {/* .torrent dropzone */}
-            <label
-              onDragOver={e => { e.preventDefault(); setDragOverDrop(true) }}
-              onDragLeave={() => setDragOverDrop(false)}
-              onDrop={e => {
-                e.preventDefault()
-                setDragOverDrop(false)
-                const fs = Array.from(e.dataTransfer.files || [])
-                if (fs.length) importTorrentFiles(fs)
-              }}
-              className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer transition-colors ${
-                dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-gray-700 hover:border-gray-600'
-              }`}
-            >
-              <UploadCloud className="w-7 h-7 text-gray-500" />
-              <span className="text-sm text-gray-400">Arraste arquivos .torrent ou clique pra escolher (vários)</span>
-              <input
-                type="file"
-                accept=".torrent"
-                multiple
-                className="hidden"
-                onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) importTorrentFiles(fs) }}
-              />
-            </label>
-
-            {importMsg && (
-              <p className={`text-sm ${importMsg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
-                {importMsg.text}
-              </p>
+      {/* Import modal — paste magnet(s) or drop a .torrent file.
+          Usa o Sheet (mesmo padrão dos demais modais): centraliza certo no
+          desktop/Safari e vira bottom-sheet no mobile. */}
+      <Sheet
+        open={showImport}
+        onClose={() => { if (!importing) setShowImport(false) }}
+        size="lg"
+        icon={<Download className="w-4 h-4 text-pink-400 flex-shrink-0" />}
+        title={
+          <>
+            Importar torrent
+            {viewMode !== ALL_VIEW && (
+              <span className="text-[10px] text-gray-400 font-normal ml-1">
+                → {folders.find(f => f.id === viewMode)?.name || 'pasta'}
+              </span>
             )}
-            </dialog>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {/* Magnet textarea — one per line for batch */}
+          <div>
+            <label htmlFor="import-magnet" className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
+            <textarea
+              id="import-magnet"
+              value={magnetInput}
+              onChange={e => setMagnetInput(e.target.value)}
+              placeholder="magnet:?xt=urn:btih:..."
+              rows={3}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono resize-y focus:border-pink-500 focus:outline-none"
+            />
+            <button
+              onClick={importMagnets}
+              disabled={importing || !magnetInput.trim()}
+              className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
+            >
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              Importar magnet{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
+            </button>
           </div>
-        )}
+
+          <div className="flex items-center gap-2 text-[10px] text-gray-600 uppercase tracking-wider">
+            <div className="flex-1 h-px bg-gray-700" /> ou <div className="flex-1 h-px bg-gray-700" />
+          </div>
+
+          {/* .torrent dropzone */}
+          <label
+            onDragOver={e => { e.preventDefault(); setDragOverDrop(true) }}
+            onDragLeave={() => setDragOverDrop(false)}
+            onDrop={e => {
+              e.preventDefault()
+              setDragOverDrop(false)
+              const fs = Array.from(e.dataTransfer.files || [])
+              if (fs.length) importTorrentFiles(fs)
+            }}
+            className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors ${
+              dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-gray-700 hover:border-gray-600'
+            }`}
+          >
+            <UploadCloud className="w-7 h-7 text-gray-500" />
+            <span className="text-sm text-gray-400">Arraste arquivos .torrent ou clique pra escolher (vários)</span>
+            <input
+              type="file"
+              accept=".torrent"
+              multiple
+              className="hidden"
+              onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) importTorrentFiles(fs) }}
+            />
+          </label>
+
+          {importMsg && (
+            <p className={`text-sm ${importMsg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+              {importMsg.text}
+            </p>
+          )}
+        </div>
+      </Sheet>
 
         {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
@@ -768,6 +834,21 @@ export default function FavoritesPage() {
               <option key={f.id} value={f.id}>{f.name}</option>
             ))}
           </select>
+          <button
+            onClick={async () => {
+              const names = [...selected]
+              const ok = await confirm({ title: 'Excluir favoritos', message: `Remover ${names.length} favorito${names.length === 1 ? '' : 's'} selecionado${names.length === 1 ? '' : 's'}?`, confirmLabel: 'Excluir', destructive: true })
+              if (!ok) return
+              await Promise.all(names.map(n => favoriteRemove(n).catch(() => {})))
+              setFavs(favs.filter(f => !selected.has(f.name)))
+              clearSelection()
+            }}
+            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1"
+            title="Excluir selecionados"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Excluir
+          </button>
           <button onClick={clearSelection} title="Limpar seleção" className="text-gray-400 hover:text-gray-100">
             <X className="w-4 h-4" />
           </button>
