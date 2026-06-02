@@ -227,6 +227,13 @@ func initHistoryStore(deps *appDeps) {
 	}()
 }
 
+// transmissionRPCEnabled diz se a camada de compat Transmission RPC deve ser
+// exposta. Opt-in (default OFF) por ser uma superfície RPC sensível.
+func transmissionRPCEnabled() bool {
+	v := os.Getenv("JACKUI_TRANSMISSION_RPC_ENABLED")
+	return v == "1" || v == "true"
+}
+
 func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
 	sc := streamer.Config{
 		DataDir:       cfg.Stream.DataDir,
@@ -704,9 +711,11 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	})
 
 	// Transmission RPC compatibility — so Sonarr/Radarr/Prowlarr can talk to
-	// JackUI as if it were a Transmission daemon. Only registered when the
-	// downloads store is available (i.e. the streamer is running).
-	if deps.downloadsStore != nil && deps.streamSrv != nil {
+	// JackUI as if it were a Transmission daemon. OPT-IN via
+	// JACKUI_TRANSMISSION_RPC_ENABLED=1 (default OFF): é uma superfície RPC e,
+	// com JACKUI_AUTH_ENABLED desligado, ficaria sem autenticação — habilite só
+	// em LAN e/ou com auth ligada. Só registra com streamer/downloads disponíveis.
+	if transmissionRPCEnabled() && deps.downloadsStore != nil && deps.streamSrv != nil {
 		trpc := transmissionrpc.NewHandler(
 			deps.downloadsStore, deps.streamSrv, deps.authStore,
 			deps.streamCfg.DataDir, deps.cfg.Stream.DownloadDir,
