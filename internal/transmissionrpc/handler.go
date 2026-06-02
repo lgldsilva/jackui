@@ -2198,16 +2198,12 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcRespo
 
 func (h *Handler) methodFreeSpace(args map[string]interface{}) rpcResponse {
 	path, _ := args["path"].(string)
-	if path == "" {
-		path = h.downloadDir
-		if path == "" {
-			path = h.dataDir
-		}
-	} else if clean, ok := h.confinePath(path); ok {
+	// Confina o path do cliente aos diretórios permitidos. Vazio OU fora dos
+	// diretórios cai no mesmo fallback seguro (downloadDir/dataDir) — não expõe
+	// statfs de caminho arbitrário do host.
+	if clean, ok := h.confinePath(path); ok {
 		path = clean
 	} else {
-		// path fora dos diretórios permitidos → não exponha statfs de caminho
-		// arbitrário do host; cai pro downloadDir.
 		path = h.downloadDir
 		if path == "" {
 			path = h.dataDir

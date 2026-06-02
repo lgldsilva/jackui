@@ -8,6 +8,59 @@ import (
 	"github.com/luizg/jackui/internal/streamer"
 )
 
+// session-set aplica alt-speed + queue + speed-limits (estado do handler observável).
+func TestMethodSessionSet(t *testing.T) {
+	s := streamer.NewForTesting()
+	h := NewHandler(nil, s, nil, "/data", "/data")
+	r := h.methodSessionSet(map[string]interface{}{
+		keyAltSpeedEn: true, keyAltSpeedDown: float64(100), keyAltSpeedUp: float64(50),
+		keyStartAdded: false,
+		keyDLQueueEn:  true, keyDLQueueSize: float64(7),
+		keySeedQueueEn: true, keySeedQueueSize: float64(3),
+		keySpeedLimitDown: float64(800), keySpeedLimitDownEn: true,
+	})
+	if r.Result != "success" {
+		t.Fatalf("session-set: %q", r.Result)
+	}
+	if !h.altSpeedEnabled || h.altSpeedDown != 100 || h.altSpeedUp != 50 || h.startAddedTorrents {
+		t.Error("alt-speed não aplicou")
+	}
+	if !h.downloadQueueEnabled || h.downloadQueueSize != 7 || !h.seedQueueEnabled || h.seedQueueSize != 3 {
+		t.Error("queue não aplicou")
+	}
+	if down, _ := s.RateLimits(); down != 800*1024/8 {
+		t.Errorf("speed limit não aplicou: %d", down)
+	}
+}
+
+func TestResolveCategory(t *testing.T) {
+	h := NewHandler(nil, nil, nil, "/data", "/data")
+	if got := h.resolveCategory("/data/Filmes", map[string]interface{}{"labels": []interface{}{"Series"}}); got != "Series" {
+		t.Errorf("resolveCategory(labels) = %q, want Series", got)
+	}
+	// sem labels → deriva do downloadDir (não vazio)
+	if got := h.resolveCategory("/data/Filmes", map[string]interface{}{}); got == "" {
+		t.Error("resolveCategory sem labels deveria derivar do dir")
+	}
+}
+
+func TestMethodGroupGetSet(t *testing.T) {
+	s := streamer.NewForTesting()
+	h := NewHandler(nil, s, nil, "/data", "/data")
+	if r := h.methodGroupGet(map[string]interface{}{}); r.Result != "success" {
+		t.Errorf("group-get: %q", r.Result)
+	}
+	if r := h.methodGroupGet(map[string]interface{}{"name": "Outro"}); r.Result != "success" {
+		t.Errorf("group-get(filtro): %q", r.Result)
+	}
+	if r := h.methodGroupSet(map[string]interface{}{}); r.Result == "success" {
+		t.Error("group-set sem name deveria falhar")
+	}
+	if r := h.methodGroupSet(map[string]interface{}{"name": "Default", keySpeedLimitDown: float64(800)}); r.Result != "success" {
+		t.Errorf("group-set Default: %q", r.Result)
+	}
+}
+
 // parseKbps: kbps do Transmission → bytes/seg (v*1024/8); 0 p/ ausente/tipo errado.
 func TestParseKbps(t *testing.T) {
 	if got := parseKbps(map[string]interface{}{"x": float64(800)}, "x"); got != 800*1024/8 {
