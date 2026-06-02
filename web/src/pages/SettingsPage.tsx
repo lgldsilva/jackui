@@ -131,6 +131,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null)
+  const [testMsg, setTestMsg] = useState('')
   const [saveResult, setSaveResult] = useState<'success' | 'error' | null>(null)
   const [error, setError] = useState('')
   const [editingClient, setEditingClient] = useState<DownloadClientFull | null>(null)
@@ -156,10 +157,18 @@ export default function SettingsPage() {
   }, [])
 
   const handleTestJackett = async () => {
-    setTesting(true); setTestResult(null)
-    try { const r = await testJackettConnection(); setTestResult(r.success ? 'success' : 'error') }
-    catch { setTestResult('error') }
-    finally { setTesting(false) }
+    if (!config) return
+    setTesting(true); setTestResult(null); setTestMsg('')
+    try {
+      // Test the URL/key currently in the form (not yet saved); an empty apiKey
+      // tells the server to reuse the stored one.
+      const r = await testJackettConnection({ url: config.jackett.url, apiKey: config.jackett.apiKey })
+      setTestResult(r.success ? 'success' : 'error')
+      if (!r.success) setTestMsg(r.error || r.message || '')
+    } catch (e) {
+      setTestResult('error')
+      setTestMsg(e instanceof Error ? e.message : '')
+    } finally { setTesting(false) }
   }
 
   const handleSave = async () => {
@@ -271,7 +280,7 @@ export default function SettingsPage() {
                 <label htmlFor="jackett-apikey" className="block text-sm font-medium text-gray-300 mb-1.5">
                   API Key {config.envOverrides?.JACKETT_API_KEY && <EnvBadge envVar="JACKETT_API_KEY" />}
                 </label>
-                <input id="jackett-apikey" type="text" value={config.jackett.apiKey}
+                <input id="jackett-apikey" type="password" autoComplete="off" value={config.jackett.apiKey}
                   onChange={e => setConfig({ ...config, jackett: { ...config.jackett, apiKey: e.target.value } })}
                   placeholder={config.jackett.apiKeySet ? 'API key configurada — deixe vazio para manter' : 'Sua API key do Jackett'}
                   className="input-field font-mono" />
@@ -280,12 +289,14 @@ export default function SettingsPage() {
                 <button onClick={handleTestJackett} disabled={testing}
                   className="btn-secondary flex items-center gap-2 disabled:opacity-50">
                   {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-                  Testar conexao
+                  Testar conexão
                 </button>
                 {testResult && (
-                  <div className={`flex items-center gap-1.5 text-sm ${testResult === 'success' ? 'text-green-400' : 'text-red-400'}`}>
-                    {testResult === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                    {testResult === 'success' ? 'Conexao OK' : 'Falha na conexao'}
+                  <div className={`flex items-start gap-1.5 text-sm ${testResult === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                    {testResult === 'success'
+                      ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      : <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
+                    <span>{testResult === 'success' ? 'Conexão OK' : `Falha na conexão${testMsg ? ': ' + testMsg : ''}`}</span>
                   </div>
                 )}
               </div>

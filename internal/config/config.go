@@ -88,6 +88,7 @@ type ExternalMount struct {
 type NotificationsConfig struct {
 	NtfyBaseURL       string `yaml:"ntfy_base_url"`      // default https://ntfy.sh
 	NtfyDefaultTopic  string `yaml:"ntfy_default_topic"` // used when a watchlist has no override
+	NtfyToken         string `yaml:"ntfy_token"`         // access token for protected/self-hosted topics (sent as Authorization: Bearer)
 	WatchlistInterval int    `yaml:"watchlist_minutes"`  // poll interval in minutes (default 15)
 }
 
@@ -233,6 +234,15 @@ func applyEnvOverrides(cfg *Config) {
 
 // ActiveEnvOverrides returns which env vars are set and override the YAML config.
 // Used by the frontend to show "managed by environment" badges.
+// maskedEnvKeys are env overrides that hold secrets: their presence is reported
+// to the admin UI (so it can show "set via env") but the value is masked, never
+// echoed back in GET /api/config.
+var maskedEnvKeys = map[string]bool{
+	"JACKETT_API_KEY": true, "JACKUI_ADMIN_PASSWORD": true, "JACKUI_JWT_SECRET": true,
+	"JACKUI_SMTP_PASS": true, "GROQ_API_KEY": true, "OPENROUTER_API_KEY": true,
+	"TMDB_API_KEY": true, "OMDB_API_KEY": true, "JACKUI_NTFY_TOKEN": true,
+}
+
 func ActiveEnvOverrides() map[string]string {
 	keys := []string{
 		"JACKETT_URL", "JACKETT_API_KEY",
@@ -241,7 +251,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_STATE_DIR", "JACKUI_SHARED_DIR",
 		"JACKUI_STREAM_MAX_GB",
 		"JACKUI_AUTH_ENABLED", "JACKUI_ADMIN_PASSWORD", "JACKUI_ADMIN_USERNAME", "JACKUI_JWT_SECRET",
-		"JACKUI_NTFY_TOPIC", "JACKUI_NTFY_URL",
+		"JACKUI_NTFY_TOPIC", "JACKUI_NTFY_URL", "JACKUI_NTFY_TOKEN",
 		"TMDB_API_KEY", "OMDB_API_KEY",
 		"JACKUI_SMTP_HOST", "JACKUI_SMTP_PORT", "JACKUI_SMTP_USER", "JACKUI_SMTP_PASS", "JACKUI_SMTP_FROM",
 		"JACKUI_BASE_URL",
@@ -252,8 +262,7 @@ func ActiveEnvOverrides() map[string]string {
 	out := make(map[string]string, len(keys))
 	for _, k := range keys {
 		if v, ok := os.LookupEnv(k); ok {
-			if k == "JACKETT_API_KEY" || k == "JACKUI_ADMIN_PASSWORD" || k == "JACKUI_JWT_SECRET" ||
-				k == "JACKUI_SMTP_PASS" || k == "GROQ_API_KEY" || k == "OPENROUTER_API_KEY" {
+			if maskedEnvKeys[k] {
 				v = "••••••"
 			}
 			out[k] = v
@@ -368,6 +377,9 @@ func applyNotificationsEnv(cfg *Config) {
 	}
 	if v := os.Getenv("JACKUI_NTFY_URL"); v != "" {
 		cfg.Notifications.NtfyBaseURL = v
+	}
+	if v := os.Getenv("JACKUI_NTFY_TOKEN"); v != "" {
+		cfg.Notifications.NtfyToken = v
 	}
 }
 

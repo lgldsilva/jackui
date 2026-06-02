@@ -177,6 +177,7 @@ func humanSize(n int64) string {
 // Uses the public ntfy.sh by default; can point to a self-hosted instance.
 type NtfyPoster struct {
 	BaseURL string // default "https://ntfy.sh"
+	Token   string // optional access token for protected topics (Authorization: Bearer)
 	Client  *http.Client
 }
 
@@ -199,6 +200,9 @@ func (n *NtfyPoster) Notify(ctx context.Context, topic, title, body, magnet stri
 	}
 	req.Header.Set("Title", title)
 	req.Header.Set("Tags", "jackui,torrent")
+	if n.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+n.Token)
+	}
 	if magnet != "" {
 		req.Header.Set("Actions", fmt.Sprintf("view, Abrir magnet, %s", magnet))
 	}

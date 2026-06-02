@@ -13,6 +13,69 @@ import (
 	"github.com/luizg/jackui/internal/config"
 )
 
+// TestJackett accepts an optional {url, apiKey} body so the UI can validate
+// credentials BEFORE saving them. The body must override the saved config.
+func TestTestJackett_BodyCredentialsOverrideSaved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var gotKey string
+	jk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.URL.Query().Get("apikey")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer jk.Close()
+
+	cfg := &config.Config{}
+	cfg.Jackett.URL = "http://127.0.0.1:1" // would fail the probe if used
+	cfg.Jackett.APIKey = "stored-key"
+
+	router := gin.New()
+	router.POST("/api/config/test", TestJackett(cfg))
+
+	bodyJSON, _ := json.Marshal(map[string]string{"url": jk.URL, "apiKey": "typed-key"})
+	req := httptest.NewRequest("POST", "/api/config/test", bytes.NewReader(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body url must be probed, not saved): %s", w.Code, w.Body.String())
+	}
+	if gotKey != "typed-key" {
+		t.Errorf("apikey = %q, want typed-key (body apiKey must override saved)", gotKey)
+	}
+}
+
+// An empty apiKey in the body means "reuse the stored key" (matching save semantics).
+func TestTestJackett_EmptyBodyApiKeyReusesStored(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var gotKey string
+	jk := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.URL.Query().Get("apikey")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer jk.Close()
+
+	cfg := &config.Config{}
+	cfg.Jackett.URL = "http://127.0.0.1:1"
+	cfg.Jackett.APIKey = "stored-key"
+
+	router := gin.New()
+	router.POST("/api/config/test", TestJackett(cfg))
+
+	bodyJSON, _ := json.Marshal(map[string]string{"url": jk.URL, "apiKey": ""})
+	req := httptest.NewRequest("POST", "/api/config/test", bytes.NewReader(bodyJSON))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if gotKey != "stored-key" {
+		t.Errorf("apikey = %q, want stored-key (empty body apiKey reuses stored)", gotKey)
+	}
+}
+
 func TestGetConfig_ReturnsExpectedStructure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
