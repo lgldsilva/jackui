@@ -139,10 +139,27 @@ func resolveClientPassword(password, id string, existing []config.DownloadClient
 	return ""
 }
 
-// TestJackett handles POST /api/config/test
+// TestJackett handles POST /api/config/test. An optional {url, apiKey} body lets
+// the UI probe credentials BEFORE saving them (so the search/settings "Testar"
+// button can validate without a destructive write); when absent — or a field is
+// empty — it falls back to the saved config, so an empty apiKey means "use the
+// stored key" (matching the save semantics).
 func TestJackett(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		client := jackett.New(cfg.Jackett.URL, cfg.Jackett.APIKey)
+		url, apiKey := cfg.Jackett.URL, cfg.Jackett.APIKey
+		var body struct {
+			URL    string `json:"url"`
+			APIKey string `json:"apiKey"`
+		}
+		if err := c.ShouldBindJSON(&body); err == nil {
+			if body.URL != "" {
+				url = body.URL
+			}
+			if body.APIKey != "" {
+				apiKey = body.APIKey
+			}
+		}
+		client := jackett.New(url, apiKey)
 		if err := client.TestConnection(); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "success": false})
 			return

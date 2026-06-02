@@ -31,8 +31,9 @@ type WorkerConfig struct {
 	DataDir         string // streamer DataDir — where anacrolix stores pieces
 	DownloadDir     string // destination for completed files (empty = keep in DataDir)
 	Interval        time.Duration
-	NtfyBaseURL     string          // default https://ntfy.sh
-	NtfyTopic       string          // global default topic; per-user override via store
+	NtfyBaseURL     string           // default https://ntfy.sh
+	NtfyTopic       string           // global default topic; per-user override via store
+	NtfyToken       string           // optional access token for protected topics (Authorization: Bearer)
 	ResolveUsername func(int) string // optional username resolver for per-user subdir
 }
 
@@ -64,9 +65,10 @@ type Worker struct {
 	doneWG sync.WaitGroup
 
 	// ntfy notification config
-	ntfyBaseURL  string // default https://ntfy.sh
-	ntfyTopic    string // global default topic; per-user override via store
-	ntfyClient   *http.Client
+	ntfyBaseURL string // default https://ntfy.sh
+	ntfyTopic   string // global default topic; per-user override via store
+	ntfyToken   string // optional access token for protected topics (Authorization: Bearer)
+	ntfyClient  *http.Client
 
 	// resolveUsername returns the username for a given userID (for per-user subdir).
 	// nil or returning "" disables per-user isolation (legacy flat dir).
@@ -105,6 +107,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		stop:            make(chan struct{}),
 		ntfyBaseURL:     cfg.NtfyBaseURL,
 		ntfyTopic:       cfg.NtfyTopic,
+		ntfyToken:       cfg.NtfyToken,
 		ntfyClient:      &http.Client{Timeout: 10 * time.Second},
 		resolveUsername: cfg.ResolveUsername,
 	}
@@ -476,6 +479,9 @@ func (w *Worker) sendNtfy(ctx context.Context, title, body, tags string) {
 		}
 		req.Header.Set("Title", title)
 		req.Header.Set("Tags", tags)
+		if w.ntfyToken != "" {
+			req.Header.Set("Authorization", "Bearer "+w.ntfyToken)
+		}
 		resp, err := w.ntfyClient.Do(req)
 		if err == nil {
 			resp.Body.Close()
