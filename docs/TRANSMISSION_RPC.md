@@ -11,6 +11,29 @@ Isso elimina a necessidade de rodar o Transmission separadamente — o JackUI
 gerencia os downloads diretamente via seu worker interno (anacrolix/torrent),
 compartilhando o mesmo storage.
 
+## Habilitando o endpoint (opt-in — default OFF)
+
+⚠️ **A camada RPC NÃO é exposta por padrão** — é uma superfície RPC sensível, então
+nasce desligada. Sem habilitar, `POST /transmission/rpc` responde **404** e o *arr
+não conecta. Para ligar, defina a env var no JackUI e re-deploy:
+
+```yaml
+# docker-compose.yml (serviço jackui)
+environment:
+  - JACKUI_TRANSMISSION_RPC_ENABLED=1   # aceita "1" ou "true"
+```
+
+Depois `make deploy-auto`. Confirme que ligou:
+
+```bash
+# 200/409 = ligado; 404 = ainda desligado (flag não aplicada / sem redeploy)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://jackui:8989/transmission/rpc \
+  -d '{"method":"session-get"}'
+```
+
+O endpoint só sobe quando a flag está ligada **e** os stores de downloads/streamer
+existem (sempre presentes num deploy normal).
+
 ## Arquitetura
 
 ```
@@ -149,20 +172,27 @@ O método `torrent-add` cria um registro no `internal/downloads/` com
 
 ## Configuração no Sonarr/Radarr
 
+Settings → Download Clients → **+** → **Transmission**:
+
 | Campo | Valor |
 |-------|-------|
 | **Tipo** | Transmission |
-| **Host** | IP do servidor JackUI |
-| **Porta** | 8989 (ou a porta configurada) |
-| **Url Path** | `/transmission/rpc` |
-| **Usuário** | (credenciais do JackUI, se auth ligado) |
-| **Senha** | (credenciais do JackUI, se auth ligado) |
-| **Category** | Ex: `tv-sonarr` (mapeado do `download-dir`) |
+| **Host** | host/IP do JackUI (ex: `jackui` na bridge do NPM, ou o IP do servidor) |
+| **Porta** | `8989` (a porta do JackUI; **não** uma porta de Transmission separada) |
+| **Url Base** | `/transmission/` — o *arr faz POST em `<UrlBase>rpc`, resultando em `/transmission/rpc`. ⚠️ **Não** coloque `/transmission/rpc` aqui (vira `/transmission/rpc/rpc` → 404). |
+| **Use SSL** | ligado só se você alcança o JackUI por HTTPS (ex: via NPM com TLS) |
+| **Usuário / Senha** | credenciais de um usuário JackUI **se** `JACKUI_AUTH_ENABLED=1`; em branco se o auth está desligado |
+| **Category** | ex: `tv-sonarr` / `radarr` (vira o `download-dir` → subpasta/categoria) |
+
+Clique em **Test** — o *arr faz o handshake 409 → session-id e um `session-get`.
+Verde = OK. Se der "Unable to connect", quase sempre é a flag desligada (404) ou
+Url Base errado.
 
 ## Configuração no Prowlarr
 
-Prowlarr usa `session-stats` e `session-get` para testar conectividade.
-A configuração é idêntica ao Sonarr/Radarr.
+Prowlarr usa `session-stats`/`session-get` só pra testar conectividade — os mesmos
+campos do Sonarr/Radarr (Settings → Apps, ou como download client de teste). O fluxo
+real de download acontece no Sonarr/Radarr que recebem o release do Prowlarr.
 
 ## Arquivos Modificados/Criados
 
