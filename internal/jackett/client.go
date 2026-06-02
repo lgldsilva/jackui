@@ -167,7 +167,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 			Age:         age,
 			MagnetURI:   r.MagnetUri,
 			Link:        stripAPIKey(r.Link),
-			InfoHash:    r.InfoHash,
+			InfoHash:    CanonicalInfoHash(r.InfoHash, r.MagnetUri),
 			PublishDate: r.PublishDate,
 		})
 	}
@@ -387,7 +387,7 @@ func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category
 			Age:         formatAge(r.PublishDate),
 			MagnetURI:   r.MagnetUri,
 			Link:        stripAPIKey(r.Link),
-			InfoHash:    r.InfoHash,
+			InfoHash:    CanonicalInfoHash(r.InfoHash, r.MagnetUri),
 			PublishDate: r.PublishDate,
 		})
 	}
