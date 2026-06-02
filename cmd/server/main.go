@@ -234,6 +234,15 @@ func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
 		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
 		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
 		JackettAPIKey: cfg.Jackett.APIKey,
+		// Performance / hardware tuning (ver config.StreamConfig).
+		MaxDownloadRate:    cfg.Stream.MaxDownloadRate,
+		MaxUploadRate:      cfg.Stream.MaxUploadRate,
+		Readahead:          int64(cfg.Stream.ReadaheadMB) << 20,
+		StorageBackend:     cfg.Stream.StorageBackend,
+		MaxConnsPerTorrent: cfg.Stream.MaxConnsPerTorrent,
+		HalfOpenConns:      cfg.Stream.HalfOpenConns,
+		PeersHighWater:     cfg.Stream.PeersHighWater,
+		PieceHashers:       cfg.Stream.PieceHashers,
 	}
 	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
 		sc.JackettHost = u.Hostname()
@@ -744,6 +753,8 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		}
 		adminAPI.GET("/config", handlers.GetConfig(deps.cfg, deps.configPath))
 		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath))
+		adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
+		adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
 		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
 		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench))
 		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))
