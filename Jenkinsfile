@@ -53,6 +53,12 @@ pipeline {
         retry(2) {
           sh 'go test -coverprofile=coverage.out ./internal/...'
         }
+        // Streamer tests leave a root-owned runtime dir (internal/streamer/streams,
+        // gitignored) that the non-root Sonar scanner can't read (drwx------ root) →
+        // AccessDeniedException aborts the analysis. cleanWs (uid 1000) can't delete a
+        // root-owned dir either, so it persists and breaks every later build. Remove it
+        // here, in the root container that created it, before the scan runs.
+        sh 'rm -rf internal/streamer/streams 2>/dev/null || true'
       }
     }
 
@@ -83,7 +89,7 @@ pipeline {
               -Dsonar.token=$SONAR_TOKEN \
               -Dsonar.projectKey=jackui \
               -Dsonar.sources=. \
-              -Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**' \
+              -Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**,**/streamer/streams/**' \
               -Dsonar.go.coverage.reportPaths=coverage.out \
               -Dsonar.tests=. -Dsonar.test.inclusions='**/*_test.go' \
               -Dsonar.coverage.exclusions='web/**,cmd/**,electron/**' \
