@@ -1878,24 +1878,30 @@ export const killTranscodeSession = async (key: string): Promise<void> => {
 // user's local machine (Save dialog → filesystem). Falls back to browser
 // download (anchor element) when not in Electron.
 // apiPath: relative path starting with /api/... (withToken() already applied).
+
+// Fallback de navegador: dispara o download via <a download>. Compartilhado
+// pelas duas funções de download local (sem duplicar — usa globalThis + remove()).
+function browserAnchorDownload(apiPath: string, suggestedName: string): { success: true } {
+  const a = document.createElement('a')
+  a.href = apiPath.startsWith('http') ? apiPath : `${globalThis.location.origin}${apiPath}`
+  a.download = suggestedName
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  return { success: true }
+}
+
 export async function downloadLocalFile(
   apiPath: string,
   suggestedName: string,
   category?: string,
   mediaKind?: string,
 ): Promise<{ success?: boolean; cancelled?: boolean; error?: string; filePath?: string }> {
-  if (window.electronAPI) {
-    return window.electronAPI.downloadFile(apiPath, suggestedName, category, mediaKind)
+  if (globalThis.electronAPI) {
+    return globalThis.electronAPI.downloadFile(apiPath, suggestedName, category, mediaKind)
   }
-  // Browser fallback — build absolute URL from current origin
-  const a = document.createElement('a')
-  a.href = apiPath.startsWith('http') ? apiPath : `${window.location.origin}${apiPath}`
-  a.download = suggestedName
-  a.style.display = 'none'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  return { success: true }
+  return browserAnchorDownload(apiPath, suggestedName)
 }
 
 /** Asks the backend to classify a title into a category.
@@ -1926,18 +1932,10 @@ export async function downloadLocalFileDirect(
   category?: string,
   mediaKind?: string,
 ): Promise<{ success?: boolean; error?: string; filePath?: string }> {
-  if (window.electronAPI) {
-    return window.electronAPI.downloadFileDirect(apiPath, suggestedName, category, mediaKind)
+  if (globalThis.electronAPI) {
+    return globalThis.electronAPI.downloadFileDirect(apiPath, suggestedName, category, mediaKind)
   }
-  // Browser fallback
-  const a = document.createElement('a')
-  a.href = apiPath.startsWith('http') ? apiPath : `${window.location.origin}${apiPath}`
-  a.download = suggestedName
-  a.style.display = 'none'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  return { success: true }
+  return browserAnchorDownload(apiPath, suggestedName)
 }
 
 export default api
