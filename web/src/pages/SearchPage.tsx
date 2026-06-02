@@ -275,14 +275,14 @@ export default function SearchPage() {
     for (const idx of map.values()) {
       const key = idx.name.toLowerCase().trim()
       const existing = byName.get(key)
-      if (!existing) {
-        byName.set(key, idx)
-      } else {
+      if (existing) {
         // Prefer the entry whose ID is NOT the synthetic derivation of the name
         const synthetic = idx.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
         if (existing.id === synthetic && idx.id !== synthetic) {
           byName.set(key, idx)
         }
+      } else {
+        byName.set(key, idx)
       }
     }
     return Array.from(byName.values())
