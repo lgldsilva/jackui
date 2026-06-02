@@ -6,6 +6,14 @@ import (
 	"github.com/anacrolix/torrent"
 )
 
+// ListenPort expõe a porta de peer BitTorrent (usada pelo session-get do RPC).
+func TestListenPortGetter(t *testing.T) {
+	s := &Streamer{cfg: Config{ListenPort: 51470}}
+	if got := s.ListenPort(); got != 51470 {
+		t.Errorf("ListenPort() = %d, want 51470", got)
+	}
+}
+
 func TestStreamReadaheadDefaultAndSetter(t *testing.T) {
 	s := NewForTesting()
 	if got := s.streamReadahead(); got != streamReadaheadDefault {
