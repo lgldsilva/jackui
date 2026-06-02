@@ -83,10 +83,10 @@ pipeline {
               -Dsonar.token=$SONAR_TOKEN \
               -Dsonar.projectKey=jackui \
               -Dsonar.sources=. \
-              -Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**' \
+              -Dsonar.exclusions='**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**' \
               -Dsonar.go.coverage.reportPaths=coverage.out \
               -Dsonar.tests=. -Dsonar.test.inclusions='**/*_test.go' \
-              -Dsonar.coverage.exclusions='web/**,cmd/**' \
+              -Dsonar.coverage.exclusions='web/**,cmd/**,electron/**' \
               -Dsonar.scm.disabled=true \
               -Dsonar.qualitygate.wait=true
           '''
