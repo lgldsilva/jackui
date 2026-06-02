@@ -12,7 +12,7 @@ import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
-import { SearchResult, Indexer, getIndexers, favoritesList, withToken } from '../api/client'
+import { SearchResult, Indexer, getIndexers, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { isIncognito } from '../lib/incognito'
@@ -262,6 +262,35 @@ export default function SearchPage() {
   const [playlistTargetFile, setPlaylistTargetFile] = useState<{ index: number; title: string } | null>(null)
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
+
+  // Jackett connection status — for first-run / config prompt
+  const [showJackettSetup, setShowJackettSetup] = useState(false)
+  const [setupUrl, setSetupUrl] = useState('')
+  const [setupKey, setSetupKey] = useState('')
+  const [setupTesting, setSetupTesting] = useState(false)
+  const [setupError, setSetupError] = useState('')
+
+  useEffect(() => {
+    // Check if Jackett is actually configured before showing the setup prompt.
+    // If the network request fails (transient Electron GPU crash), don't prompt —
+    // the config might already be saved.
+    fetch('/api/status')
+      .then(r => r.json())
+      .then(d => {
+        if (d.jackett !== 'ok') {
+          // Only prompt if there's truly no config saved
+          fetch('/api/config')
+            .then(r => r.json())
+            .then(cfg => {
+              if (!cfg.jackett?.url || cfg.jackett.url === 'http://localhost:9117') {
+                setShowJackettSetup(true)
+              }
+            })
+            .catch(() => {})
+        }
+      })
+      .catch(() => {}) // network error — don't prompt, config might be saved
+  }, [])
   const esMap = useRef<Map<string, EventSource>>(new Map())
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Infinite scroll pagination (grows as user scrolls)
@@ -689,6 +718,86 @@ export default function SearchPage() {
       </div>
 
       <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+        {/* Jackett setup prompt */}
+        {showJackettSetup && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 sm:p-6">
+            <div className="flex items-start gap-3">
+              <WifiOff className="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-amber-300 font-medium text-sm mb-1">Jackett não configurado</h3>
+                <p className="text-gray-400 text-xs mb-4">
+                  Informe a URL e a API key do seu servidor Jackett (local ou remoto)
+                  para começar a buscar torrents.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2 mb-3">
+                  <input
+                    className="input-field flex-1 text-sm"
+                    placeholder="URL do Jackett (ex: http://localhost:9117)"
+                    value={setupUrl}
+                    onChange={e => setSetupUrl(e.target.value)}
+                  />
+                  <input
+                    className="input-field flex-1 text-sm"
+                    placeholder="API Key"
+                    value={setupKey}
+                    onChange={e => setSetupKey(e.target.value)}
+                  />
+                </div>
+                {setupError && <p className="text-red-400 text-xs mb-2">{setupError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      if (!setupUrl.trim()) { setSetupError('Informe a URL do Jackett'); return }
+                      setSetupTesting(true)
+                      setSetupError('')
+                      const isNetErr = (e: unknown) => e instanceof Error && e.message.includes('Network Error')
+                      // saveConfig + testJackettConnection numa só função, reusada no
+                      // retry (1x) — sem duplicar o bloco.
+                      const saveAndTest = async () => {
+                        await saveConfig({
+                          port: 8989,
+                          jackett: { url: setupUrl.trim(), apiKey: setupKey.trim() },
+                          downloadClients: [],
+                        })
+                        return testJackettConnection()
+                      }
+                      try {
+                        let d
+                        try {
+                          d = await saveAndTest()
+                        } catch (err) {
+                          // Network Error pode ser transitório (restart do serviço) → 1 retry.
+                          if (!isNetErr(err)) throw err
+                          await new Promise(r => setTimeout(r, 3000))
+                          d = await saveAndTest()
+                        }
+                        if (d.success) {
+                          setShowJackettSetup(false)
+                          getIndexers().then(setIndexers).catch(() => {})
+                        } else {
+                          setSetupError(d.error || 'Falha ao conectar — verifique URL e API key')
+                        }
+                      } catch (err) {
+                        setSetupError(err instanceof Error ? err.message : 'Erro ao salvar configuração')
+                      }
+                      setSetupTesting(false)
+                    }}
+                    disabled={setupTesting}
+                    className="btn-primary text-sm px-4 py-2"
+                  >
+                    {setupTesting ? 'Testando…' : 'Salvar e Testar'}
+                  </button>
+                  <button
+                    onClick={() => setShowJackettSetup(false)}
+                    className="text-xs text-gray-500 hover:text-gray-300 px-3 py-2"
+                  >
+                    Ignorar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Search bar */}
         <SearchBar
           ref={searchInputRef}

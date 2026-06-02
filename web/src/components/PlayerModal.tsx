@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload, Info, Hash, Server, Copy } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload, Info, Hash, Server, Copy, Laptop } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -35,6 +35,8 @@ import {
   libraryUpdateResume,
   LibraryEntry,
   downloadCreate,
+  downloadLocalFileDirect,
+  classifyCategory,
   streamThumbnailURL,
 } from '../api/client'
 import { formatRate } from '../lib/format'
@@ -254,8 +256,12 @@ function renderTorrentInfoModal(props: {
   onClose: () => void
   onCopyHash: () => void
   hashCopied: boolean
+  effectiveCategory: string
+  setOverrideCategory: (v: string | null) => void
+  handleClassifyCategory: () => void
+  classifyingCat: boolean
 }) {
-  const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied } = props
+  const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied, effectiveCategory, setOverrideCategory, handleClassifyCategory, classifyingCat } = props
   const pct = info.progress === undefined ? null : `${(info.progress * 100).toFixed(1)}%`
   const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
     <div className="flex items-start gap-2 py-1.5 border-b border-gray-700/40 last:border-0">
@@ -279,7 +285,37 @@ function renderTorrentInfoModal(props: {
       <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
       {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
       {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
-      {result.category && <Row label="Categoria">{result.category}</Row>}
+      {typeof window !== 'undefined' && window.electronAPI ? (
+        <Row label="Categoria">
+          <div className="flex items-center gap-1.5">
+            <select
+              className="bg-gray-700 text-gray-200 text-xs rounded px-2 py-1 border border-gray-600"
+              value={effectiveCategory}
+              onChange={(e) => setOverrideCategory(e.target.value === 'default' ? null : e.target.value)}
+            >
+              <option value="default">{result?.category || 'Auto'}</option>
+              <option value="movies">Filmes</option>
+              <option value="tv">Séries</option>
+              <option value="music">Música</option>
+              <option value="games">Jogos</option>
+              <option value="software">Software</option>
+              <option value="adult">Adulto</option>
+              <option value="books">Livros</option>
+              <option value="other">Outros</option>
+            </select>
+            <button
+              onClick={handleClassifyCategory}
+              disabled={classifyingCat}
+              className="text-[10px] bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 px-1.5 py-0.5 rounded"
+              title="Detectar categoria automaticamente (IA)"
+            >
+              {classifyingCat ? '…' : 'IA'}
+            </button>
+          </div>
+        </Row>
+      ) : (
+        result.category && <Row label="Categoria">{result.category}</Row>
+      )}
       {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label="Encoder">{encoderLabel || 'GPU'}</Row>}
       {info.infoHash && (
         <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
@@ -1276,6 +1312,8 @@ type PlayerControlsPanelProps = {
   readonly openSubtitlePanel: () => void
   readonly handleRequestFullscreen: () => void
   readonly handleServerDownload: () => void
+  readonly handleLocalDownload: () => void
+  readonly localDownloadLoading: boolean
   readonly setSubOpen: (v: boolean) => void
   readonly handleCustomSubtitleUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
   readonly pickSubtitle: (s: Subtitle) => void
@@ -1338,6 +1376,8 @@ function PlayerControlsPanel({
   openSubtitlePanel,
   handleRequestFullscreen,
   handleServerDownload,
+  handleLocalDownload,
+  localDownloadLoading,
   setSubOpen,
   handleCustomSubtitleUpload,
   pickSubtitle,
@@ -1567,6 +1607,17 @@ function PlayerControlsPanel({
               {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
             </span>
           </button>
+          {typeof window !== 'undefined' && window.electronAPI && (
+            <button
+              onClick={handleLocalDownload}
+              disabled={localDownloadLoading}
+              className="flex items-center gap-1.5 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              title="Baixar para o computador local (com categorização automática)"
+            >
+              <Laptop className="w-3.5 h-3.5" />
+              {localDownloadLoading ? 'Baixando…' : 'Baixar Local'}
+            </button>
+          )}
           <a
             href={streamURL}
             download
@@ -1879,6 +1930,44 @@ export default function PlayerModal({
       setServerDownloadLoading(false)
     }
   }
+  // Local (Electron) download with automatic categorization
+  const [localDownloadLoading, setLocalDownloadLoading] = useState(false)
+  const [overrideCategory, setOverrideCategory] = useState<string | null>(null)
+  const [classifyingCat, setClassifyingCat] = useState(false)
+
+  // 'default' = não forçar categoria (deixa o backend categorizar). O <select>
+  // tem uma <option value="default">; mapear o estado nela evita o value órfão
+  // (a string crua do Jackett, ex. "Movies/HD", não casa com nenhuma option →
+  // warning do React + categoria errada no download).
+  const effectiveCategory = overrideCategory ?? 'default'
+
+  const handleLocalDownload = async () => {
+    if (!info || selectedFile < 0) return
+    setLocalDownloadLoading(true)
+    try {
+      const file = info.files[selectedFile]
+      const name = file.path.split('/').pop() || info.name
+      const apiPath = streamFileURL(info.infoHash, selectedFile)
+      const categoryArg = effectiveCategory === 'default' ? undefined : effectiveCategory
+      await downloadLocalFileDirect(apiPath, name, categoryArg)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao baixar localmente')
+    } finally {
+      setLocalDownloadLoading(false)
+    }
+  }
+
+  const handleClassifyCategory = async () => {
+    if (!info) return
+    setClassifyingCat(true)
+    try {
+      const res = await classifyCategory(info.name, result?.category ? String(result.category) : undefined)
+      if (res.category && res.category !== 'other') {
+        setOverrideCategory(res.category)
+      }
+    } catch { /* silent */ }
+    setClassifyingCat(false)
+  }
   // Transcoding options — any non-null value triggers `/api/stream/transcode` instead of raw stream
   const [transcodeAudio, setTranscodeAudio] = useState<number | null>(null)
   // Dispara o auto-transcode do áudio incompatível no máximo uma vez por arquivo.
@@ -1942,7 +2031,7 @@ export default function PlayerModal({
   // playback alive), the iOS idiom for "push this sheet away".
   const headerRef = useRef<HTMLDivElement>(null)
   useSwipe(headerRef, { onDown: () => setMinimized(true) }, { enabled: !minimized, threshold: 50 })
-  const pollRef = useRef<number | null>(null)
+  const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null)
   // Prefetch fire-once flags. Reset whenever the underlying selected file
   // changes so re-watching a playlist item or switching files starts fresh.
   const prefetchedNextEpRef = useRef(false)
@@ -2745,6 +2834,8 @@ export default function PlayerModal({
             openSubtitlePanel={openSubtitlePanel}
             handleRequestFullscreen={handleRequestFullscreen}
             handleServerDownload={handleServerDownload}
+            handleLocalDownload={handleLocalDownload}
+            localDownloadLoading={localDownloadLoading}
             setSubOpen={setSubOpen}
             handleCustomSubtitleUpload={handleCustomSubtitleUpload}
             pickSubtitle={pickSubtitle}
@@ -2838,6 +2929,10 @@ export default function PlayerModal({
           onClose: () => setShowInfo(false),
           onCopyHash: () => { if (info.infoHash) { navigator.clipboard?.writeText(info.infoHash); setHashCopied(true); globalThis.setTimeout(() => setHashCopied(false), 2000) } },
           hashCopied,
+          effectiveCategory,
+          setOverrideCategory,
+          handleClassifyCategory,
+          classifyingCat,
         })}
         {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 

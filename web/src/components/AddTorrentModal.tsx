@@ -445,8 +445,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 onClick={() => fileInputRef.current?.click()}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
                 className={`
-                  border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
-                  ${dragActive 
+                  w-full border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
+                  ${dragActive
                     ? 'border-cyan-400 bg-cyan-500/5' 
                     : 'border-gray-700 hover:border-gray-600 bg-gray-900/40 hover:bg-gray-900/60'
                   }

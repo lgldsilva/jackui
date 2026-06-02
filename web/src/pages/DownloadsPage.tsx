@@ -326,9 +326,18 @@ export default function DownloadsPage() {
     try { await downloadResume(id); await load() } finally { setBusyID(null) }
   }
   const onDelete = async (id: number) => {
-    if (!await confirm({ title: 'Remover download?', message: 'Cancelar e remover este download? Os bytes já baixados podem ser apagados pelo cache LRU.', confirmLabel: 'Remover', destructive: true })) return
+    if (!await confirm({ title: 'Remover download?', message: 'Parar e remover este download da fila? A sessão de streaming/transcode aberta pelo Play também é encerrada.', confirmLabel: 'Remover', destructive: true })) return
+    const target = items.find(x => x.id === id)
     setBusyID(id)
-    try { await downloadDelete(id); await load() } finally { setBusyID(null) }
+    try {
+      await downloadPause(id).catch(() => {}) // pausa antes de remover
+      // Play de um download cria uma sessão de stream/transcode no anacrolix pro
+      // MESMO hash, separada da row. Sem derrubá-la, o torrent "tocado" reaparece
+      // como card de Streaming após o delete (sintoma: "permaneceu mesmo após excluir").
+      if (target?.infoHash) await streamDrop(target.infoHash).catch(() => {})
+      await downloadDelete(id)
+      await load(); await loadTorrents()
+    } finally { setBusyID(null) }
   }
   // Abre o modal de promove (single ou batch). Single: passa só esse item;
   // batch: passa todos os selected. UI faz o resto.
@@ -356,11 +365,19 @@ export default function DownloadsPage() {
   }
 
   const onBatchDelete = async () => {
-    const ids = items.filter(d => selected.has(d.id)).map(d => d.id)
+    const targets = items.filter(d => selected.has(d.id))
+    const ids = targets.map(d => d.id)
     if (ids.length === 0) return
-    if (!await confirm({ title: 'Remover downloads?', message: `Remover ${ids.length} download(s) da lista?`, confirmLabel: 'Remover', destructive: true })) return
+    if (!await confirm({ title: 'Remover downloads?', message: `Parar e remover ${ids.length} download(s) da lista? Sessões de streaming/transcode abertas pelo Play também são encerradas.`, confirmLabel: 'Remover', destructive: true })) return
     setBulkBusy(true)
-    try { await downloadBatchDelete(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
+    try {
+      await downloadBatchPause(ids).catch(() => {}) // pausa todos antes de remover
+      // Encerra qualquer sessão de stream/transcode aberta pelo Play (ver onDelete).
+      await Promise.all(targets.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
+      await downloadBatchDelete(ids)
+      await load(); await loadTorrents()
+      setSelected(new Set())
+    } finally { setBulkBusy(false) }
   }
 
   const handleToggleSelectAll = () => {
@@ -476,7 +493,11 @@ export default function DownloadsPage() {
     })
     if (!ok) return
     setBulkBusy(true)
-    try { await downloadBatchDelete(completedDownloads.map(d => d.id)); await load() }
+    try {
+      // Encerra sessões de seed/stream antes de remover as rows concluídas.
+      await Promise.all(completedDownloads.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
+      await downloadBatchDelete(completedDownloads.map(d => d.id)); await load(); await loadTorrents()
+    }
     finally { setBulkBusy(false) }
   }
 
@@ -1436,9 +1457,9 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
       {/* Action bar */}
       <div className="flex items-center gap-2 flex-wrap pt-1">
         {isPaused ? (
-          <ActionButton onClick={onResume} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5" />} label="Retomar" />
+          <ActionButton onClick={onResume} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5" />} label="Retomar" title="Retoma o torrent de onde parou" />
         ) : (
-          <ActionButton onClick={onPause} disabled={busy || isComplete} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" />
+          <ActionButton onClick={onPause} disabled={busy || isComplete} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" title="Pausa o torrent (retomável; o que já baixou fica no cache)" />
         )}
 
         <label className="flex items-center gap-1.5 text-xs text-gray-400">
@@ -1456,7 +1477,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
         </label>
 
         {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
-        <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label="Parar" className="ml-auto" />
+        <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label="Parar" title="Encerra e remove o torrent do streaming (diferente de Pausar; o cache já baixado não é apagado)" className="ml-auto" />
       </div>
     </div>
   )
@@ -1631,7 +1652,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
           />
         )}
         {!isGuest && isActive && (
-          <ActionButton onClick={onPause} disabled={busy} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" />
+          <ActionButton onClick={onPause} disabled={busy} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" title="Pausa o download (retomável; mantém o que já baixou)" />
         )}
         {!isGuest && (isPaused || isFailed) && (
           <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? 'Tentar novamente' : 'Resumir'} />
@@ -1730,13 +1751,14 @@ function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['statu
   )
 }
 
-function ActionButton({ onClick, disabled, variant, icon, label, className = '' }: {
+function ActionButton({ onClick, disabled, variant, icon, label, className = '', title }: {
   readonly onClick: () => void
   readonly disabled: boolean
   readonly variant: 'success' | 'danger' | 'neutral' | 'info'
   readonly icon: React.ReactNode
   readonly label: string
   readonly className?: string
+  readonly title?: string
 }) {
   const styles: Record<typeof variant, string> = {
     success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
@@ -1748,6 +1770,7 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '' 
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`
         flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-lg
         disabled:opacity-50 transition-all duration-200 font-medium

@@ -1,0 +1,26 @@
+{
+  "name": "jackui-desktop",
+  "version": "0.1.0",
+  "description": "JackUI Desktop — streaming de torrents com transcode por hardware",
+  "homepage": "https://github.com/luizg/jackui",
+  "main": "electron/dist/main.js",
+  "type": "module",
+  "scripts": {
+    "postinstall": "bash scripts/version.sh && npm run build:electron-ts",
+    "build:electron-ts": "tsc -p electron/tsconfig.json",
+    "dev:electron": "npm run build:electron-ts && npx electron . --dev",
+    "dev:backend": "go run ./cmd/server",
+    "dev": "concurrently --kill-others \"npm run dev:backend\" \"sleep 2 && npm run dev:electron\"",
+    "build:frontend": "cd web && npm run build",
+    "build:go": "mkdir -p dist-electron && go build -o dist-electron/jackui-server ./cmd/server",
+    "build:electron": "npm run build:go && npm run build:frontend && npx electron-builder --config electron/builder.config.ts",
+    "pack": "npm run build:go && npm run build:frontend && npx electron-builder --config electron/builder.config.ts --dir"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -58,4 +58,10 @@ internal/streamer/streams/
 *.out
 node_modules/
 package-lock.json
-package.json
+
+# Electron build output
+dist-electron/
+electron/dist/
+electron/version.json
+*.icns
+*.ico

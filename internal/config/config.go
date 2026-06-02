@@ -195,15 +195,45 @@ func applyEnvOverrides(cfg *Config) {
 		}
 	}
 	if cfg.External.MaxUploadMB <= 0 {
-		cfg.External.MaxUploadMB = 65536 // 64 GiB — generoso p/ remux 4K, mas limitado
+		cfg.External.MaxUploadMB = 65536 // 64 GiB
 	}
-
 	if cfg.Stream.IdleMinutes == 0 {
 		cfg.Stream.IdleMinutes = 30
 	}
 	if cfg.Stream.MetadataSeconds == 0 {
 		cfg.Stream.MetadataSeconds = 60
 	}
+}
+
+// ActiveEnvOverrides returns which env vars are set and override the YAML config.
+// Used by the frontend to show "managed by environment" badges.
+func ActiveEnvOverrides() map[string]string {
+	keys := []string{
+		"JACKETT_URL", "JACKETT_API_KEY",
+		"JACKUI_PORT", "JACKUI_DB_PATH",
+		"JACKUI_STREAM_DIR", "JACKUI_DOWNLOAD_DIR",
+		"JACKUI_STATE_DIR", "JACKUI_SHARED_DIR",
+		"JACKUI_STREAM_MAX_GB",
+		"JACKUI_AUTH_ENABLED", "JACKUI_ADMIN_PASSWORD", "JACKUI_ADMIN_USERNAME", "JACKUI_JWT_SECRET",
+		"JACKUI_NTFY_TOPIC", "JACKUI_NTFY_URL",
+		"TMDB_API_KEY", "OMDB_API_KEY",
+		"JACKUI_SMTP_HOST", "JACKUI_SMTP_PORT", "JACKUI_SMTP_USER", "JACKUI_SMTP_PASS", "JACKUI_SMTP_FROM",
+		"JACKUI_BASE_URL",
+		"JACKUI_EXTERNAL_MOUNTS",
+		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL",
+		"JACKUI_MAX_UPLOAD_MB",
+	}
+	out := make(map[string]string, len(keys))
+	for _, k := range keys {
+		if v, ok := os.LookupEnv(k); ok {
+			if k == "JACKETT_API_KEY" || k == "JACKUI_ADMIN_PASSWORD" || k == "JACKUI_JWT_SECRET" ||
+				k == "JACKUI_SMTP_PASS" || k == "GROQ_API_KEY" || k == "OPENROUTER_API_KEY" {
+				v = "••••••"
+			}
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func applyJackettEnv(cfg *Config) {

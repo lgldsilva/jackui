@@ -86,7 +86,7 @@ func TestUpdateConfig_SavesToFile(t *testing.T) {
 	cfg.Jackett.URL = "http://localhost:9117"
 
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, configPath))
+	router.PUT("/api/config", UpdateConfig(cfg, configPath, nil, nil))
 
 	body := configUpdateRequest{
 		Port: 9000,
@@ -118,7 +118,7 @@ func TestUpdateConfig_InvalidBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{}
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, ""))
+	router.PUT("/api/config", UpdateConfig(cfg, "", nil, nil))
 
 	req := httptest.NewRequest("PUT", "/api/config", bytes.NewReader([]byte("not json")))
 	req.Header.Set("Content-Type", "application/json")
@@ -140,7 +140,7 @@ func TestUpdateConfig_KeepsApiKeyWhenOmitted(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, configPath))
+	router.PUT("/api/config", UpdateConfig(cfg, configPath, nil, nil))
 
 	body := configUpdateRequest{
 		Port: 9000,
@@ -172,7 +172,7 @@ func TestUpdateConfig_OverwritesApiKeyWhenProvided(t *testing.T) {
 	configPath := filepath.Join(dir, "config.json")
 
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, configPath))
+	router.PUT("/api/config", UpdateConfig(cfg, configPath, nil, nil))
 
 	body := configUpdateRequest{
 		Jackett: jackettConfigResponse{
@@ -205,7 +205,7 @@ func TestUpdateConfig_ClientPasswordPreserved(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, configPath))
+	router.PUT("/api/config", UpdateConfig(cfg, configPath, nil, nil))
 
 	body := configUpdateRequest{
 		Clients: []downloadClientResponse{
@@ -237,7 +237,7 @@ func TestUpdateConfig_ClientPasswordOverwritten(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, configPath))
+	router.PUT("/api/config", UpdateConfig(cfg, configPath, nil, nil))
 
 	body := configUpdateRequest{
 		Clients: []downloadClientResponse{
@@ -266,7 +266,7 @@ func TestUpdateConfig_NewClientAdded(t *testing.T) {
 	cfg := &config.Config{Port: 8989}
 
 	router := gin.New()
-	router.PUT("/api/config", UpdateConfig(cfg, configPath))
+	router.PUT("/api/config", UpdateConfig(cfg, configPath, nil, nil))
 
 	body := configUpdateRequest{
 		Clients: []downloadClientResponse{
