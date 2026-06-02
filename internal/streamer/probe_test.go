@@ -589,7 +589,7 @@ func TestActiveList_Empty(t *testing.T) {
 
 func TestPauseAll_Empty(t *testing.T) {
 	s := NewForTesting()
-	s.PauseAll()
+	s.PauseAll() // sem torrents ativos: não deve dar panic
 }
 
 func TestResumeAll_Empty(t *testing.T) {
@@ -599,32 +599,42 @@ func TestResumeAll_Empty(t *testing.T) {
 
 func TestPause_Empty(t *testing.T) {
 	s := NewForTesting()
-	_ = s.Pause(metainfo.Hash{})
+	if err := s.Pause(metainfo.Hash{}); err == nil {
+		t.Error("Pause de hash inativa deveria retornar erro 'not active'")
+	}
 }
 
 func TestResume_Empty(t *testing.T) {
 	s := NewForTesting()
-	_ = s.Resume(metainfo.Hash{})
+	if err := s.Resume(metainfo.Hash{}); err == nil {
+		t.Error("Resume de hash inativa deveria retornar erro 'not active'")
+	}
 }
 
 func TestSetPriority_Empty(t *testing.T) {
 	s := NewForTesting()
-	_ = s.SetPriority(metainfo.Hash{}, "normal")
+	if err := s.SetPriority(metainfo.Hash{}, "normal"); err == nil {
+		t.Error("SetPriority de hash inativa deveria retornar erro 'not active'")
+	}
 }
 
 func TestDrop_Empty(t *testing.T) {
 	s := NewForTesting()
-	s.Drop(metainfo.Hash{})
+	s.Drop(metainfo.Hash{}) // hash inativa: no-op sem panic
 }
 
 func TestClearAll_Empty(t *testing.T) {
 	s := NewForTesting()
-	_ = s.ClearAll()
+	if err := s.ClearAll(); err != nil {
+		t.Errorf("ClearAll sem DataDir/torrents deveria ser no-op limpo, got %v", err)
+	}
 }
 
 func TestClearEntry_Empty(t *testing.T) {
 	s := NewForTesting()
-	_ = s.ClearEntry("nonexistent")
+	if err := s.ClearEntry("nonexistent"); err != nil {
+		t.Errorf("ClearEntry de entrada inexistente deveria ser no-op limpo, got %v", err)
+	}
 }
 
 func TestStreamerNilMethods(t *testing.T) {

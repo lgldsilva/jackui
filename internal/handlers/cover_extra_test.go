@@ -75,14 +75,18 @@ func TestClearIncognito_Success_Extra(t *testing.T) {
 }
 
 type mockCleanable2 struct {
-	deletedUserID int
+	deletedUserID  int
+	deleteAllCalls int
 }
 
 func (m *mockCleanable2) DeleteIncognito(userID int) error {
 	m.deletedUserID = userID
 	return nil
 }
-func (m *mockCleanable2) DeleteAllIncognito() error { return nil }
+func (m *mockCleanable2) DeleteAllIncognito() error {
+	m.deleteAllCalls++
+	return nil
+}
 
 func TestCollectExpiredIncognito_Extra(t *testing.T) {
 	incognitoMu.Lock()
@@ -112,13 +116,19 @@ func TestPurgeIncognito_Extra(t *testing.T) {
 
 func TestStartIncognitoReaper_CallsDeleteAll(t *testing.T) {
 	mc := &mockCleanable2{}
-	StartIncognitoReaper(mc)
+	StartIncognitoReaper(mc) // purga síncrona no boot antes do ticker
+	if mc.deleteAllCalls != 1 {
+		t.Errorf("DeleteAllIncognito chamado %d vezes, queria 1 (purga de boot)", mc.deleteAllCalls)
+	}
 }
 
 func TestStartIncognitoReaper_MultipleCleaners(t *testing.T) {
 	mc1 := &mockCleanable2{}
 	mc2 := &mockCleanable2{}
 	StartIncognitoReaper(mc1, mc2)
+	if mc1.deleteAllCalls != 1 || mc2.deleteAllCalls != 1 {
+		t.Errorf("cada cleaner deveria ser purgado 1x no boot: mc1=%d mc2=%d", mc1.deleteAllCalls, mc2.deleteAllCalls)
+	}
 }
 
 func TestNtfyBaseURL_Default_Extra(t *testing.T) {
