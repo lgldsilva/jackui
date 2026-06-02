@@ -223,6 +223,14 @@ func (s *Streamer) SetMetadataCache(c *MetadataCache) { s.cache = c }
 // MetadataCache returns the attached cache (may be nil).
 func (s *Streamer) MetadataCache() *MetadataCache { return s.cache }
 
+// UpdateJackettHost refreshes the trusted Jackett hostname used by the SSRF
+// guard. Called after the user changes the Jackett URL via the API.
+func (s *Streamer) UpdateJackettHost(rawURL string) {
+	if u, err := url.Parse(rawURL); err == nil {
+		s.cfg.JackettHost = u.Hostname()
+	}
+}
+
 type entry struct {
 	t          *torrent.Torrent
 	lastAccess time.Time

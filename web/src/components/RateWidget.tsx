@@ -14,7 +14,7 @@ import { formatRate } from '../lib/format'
  */
 export default function RateWidget() {
   const [rate, setRate] = useState({ downRate: 0, upRate: 0, activeTorrents: 0 })
-  const timerRef = useRef<number | null>(null)
+  const timerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null)
 
   useEffect(() => {
     let cancelled = false
