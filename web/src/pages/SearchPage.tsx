@@ -18,6 +18,7 @@ import { useFilteredResults } from '../lib/useFilteredResults'
 import { isIncognito } from '../lib/incognito'
 import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
+import { shouldPromptJackettSetup } from '../lib/jackettSetup'
 
 const TABS_KEY = 'searchTabs'
 const ACTIVE_KEY = 'activeTabId'
@@ -269,6 +270,7 @@ export default function SearchPage() {
   const [setupKey, setSetupKey] = useState('')
   const [setupTesting, setSetupTesting] = useState(false)
   const [setupError, setSetupError] = useState('')
+  const [setupTestOk, setSetupTestOk] = useState(false)
 
   useEffect(() => {
     // Check if Jackett is actually configured before showing the setup prompt.
@@ -277,20 +279,48 @@ export default function SearchPage() {
     fetch('/api/status')
       .then(r => r.json())
       .then(d => {
-        if (d.jackett !== 'ok') {
-          // Only prompt if there's truly no config saved
-          fetch('/api/config')
-            .then(r => r.json())
-            .then(cfg => {
-              if (!cfg.jackett?.url || cfg.jackett.url === 'http://localhost:9117') {
-                setShowJackettSetup(true)
-              }
-            })
-            .catch(() => {})
-        }
+        if (d.jackett === 'ok') return
+        // Only prompt if there's truly no config saved. /api/config is admin-only,
+        // so capture response.ok: an unreadable config (non-admin 403, transient
+        // error) must NOT be misread as "unconfigured" — see lib/jackettSetup.ts.
+        fetch('/api/config')
+          .then(async r => ({ ok: r.ok, body: r.ok ? await r.json() : {} }))
+          .then(({ ok, body }) => {
+            if (shouldPromptJackettSetup(d.jackett, { ok, jackettUrl: body?.jackett?.url })) {
+              setShowJackettSetup(true)
+            }
+          })
+          .catch(() => {})
       })
       .catch(() => {}) // network error — don't prompt, config might be saved
   }, [])
+
+  // Shared runner for the Jackett setup prompt's "Testar" / "Salvar e Testar"
+  // buttons: validates the URL, runs `action` (test-only or save+test) with one
+  // transient-network retry, and manages the shared setup* UI state — so the two
+  // buttons stay a single skeleton instead of duplicating the retry/try-catch.
+  const runJackettSetup = async (
+    action: () => Promise<{ success: boolean; error?: string }>,
+    onSuccess: () => void,
+  ) => {
+    if (!setupUrl.trim()) { setSetupError('Informe a URL do Jackett'); return }
+    setSetupTesting(true); setSetupError(''); setSetupTestOk(false)
+    const isNetErr = (e: unknown) => e instanceof Error && e.message.includes('Network Error')
+    try {
+      let d
+      try { d = await action() }
+      catch (err) {
+        if (!isNetErr(err)) throw err
+        await new Promise(r => setTimeout(r, 3000))
+        d = await action()
+      }
+      if (d.success) onSuccess()
+      else setSetupError(d.error || 'Falha ao conectar — verifique a URL e a porta')
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : 'Erro ao testar conexão')
+    }
+    setSetupTesting(false)
+  }
   const esMap = useRef<Map<string, EventSource>>(new Map())
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Infinite scroll pagination (grows as user scrolls)
@@ -744,44 +774,28 @@ export default function SearchPage() {
                   />
                 </div>
                 {setupError && <p className="text-red-400 text-xs mb-2">{setupError}</p>}
+                {setupTestOk && <p className="text-green-400 text-xs mb-2">Conexão OK — porta acessível e Jackett respondeu.</p>}
                 <div className="flex gap-2">
                   <button
-                    onClick={async () => {
-                      if (!setupUrl.trim()) { setSetupError('Informe a URL do Jackett'); return }
-                      setSetupTesting(true)
-                      setSetupError('')
-                      const isNetErr = (e: unknown) => e instanceof Error && e.message.includes('Network Error')
-                      // saveConfig + testJackettConnection numa só função, reusada no
-                      // retry (1x) — sem duplicar o bloco.
-                      const saveAndTest = async () => {
-                        await saveConfig({
-                          port: 8989,
-                          jackett: { url: setupUrl.trim(), apiKey: setupKey.trim() },
-                          downloadClients: [],
-                        })
+                    onClick={() => runJackettSetup(
+                      // Test-only: validate URL+key WITHOUT saving, so the user can
+                      // confirm the port is reachable before committing config.
+                      () => testJackettConnection({ url: setupUrl.trim(), apiKey: setupKey.trim() }),
+                      () => setSetupTestOk(true),
+                    )}
+                    disabled={setupTesting}
+                    className="btn-secondary text-sm px-4 py-2"
+                  >
+                    {setupTesting ? 'Testando…' : 'Testar'}
+                  </button>
+                  <button
+                    onClick={() => runJackettSetup(
+                      async () => {
+                        await saveConfig({ port: 8989, jackett: { url: setupUrl.trim(), apiKey: setupKey.trim() }, downloadClients: [] })
                         return testJackettConnection()
-                      }
-                      try {
-                        let d
-                        try {
-                          d = await saveAndTest()
-                        } catch (err) {
-                          // Network Error pode ser transitório (restart do serviço) → 1 retry.
-                          if (!isNetErr(err)) throw err
-                          await new Promise(r => setTimeout(r, 3000))
-                          d = await saveAndTest()
-                        }
-                        if (d.success) {
-                          setShowJackettSetup(false)
-                          getIndexers().then(setIndexers).catch(() => {})
-                        } else {
-                          setSetupError(d.error || 'Falha ao conectar — verifique URL e API key')
-                        }
-                      } catch (err) {
-                        setSetupError(err instanceof Error ? err.message : 'Erro ao salvar configuração')
-                      }
-                      setSetupTesting(false)
-                    }}
+                      },
+                      () => { setShowJackettSetup(false); getIndexers().then(setIndexers).catch(() => {}) },
+                    )}
                     disabled={setupTesting}
                     className="btn-primary text-sm px-4 py-2"
                   >
