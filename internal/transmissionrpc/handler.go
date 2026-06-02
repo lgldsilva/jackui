@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,6 +28,13 @@ import (
 )
 
 const errListDownloads = "failed to list downloads: %v"
+
+// Limites anti-DoS: o corpo do RPC e o .torrent baixado de uma URL são pequenos
+// por natureza; capamos generosamente p/ evitar alocação sob controle do cliente.
+const (
+	maxRPCBodyBytes     = 16 << 20 // 16 MiB
+	maxTorrentFileBytes = 16 << 20 // 16 MiB
+)
 
 // Constantes para literais duplicados (evita S1192 no Sonar e erros de digitação).
 const (
@@ -139,6 +149,33 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	router.POST("/transmission/rpc", h.rpcHandler)
 }
 
+// confinePath limpa um caminho vindo do cliente RPC e exige que ele esteja
+// dentro de um dos diretórios permitidos (downloadDir/dataDir). Sem isso, um
+// cliente poderia apontar set-location/free-space pra fora da árvore de download
+// (path traversal) e influenciar quais arquivos o streamer abre depois.
+func (h *Handler) confinePath(p string) (string, bool) {
+	if p == "" {
+		return "", false
+	}
+	abs, err := filepath.Abs(filepath.Clean(p))
+	if err != nil {
+		return "", false
+	}
+	for _, root := range []string{h.downloadDir, h.dataDir} {
+		if root == "" {
+			continue
+		}
+		rabs, rerr := filepath.Abs(root)
+		if rerr != nil {
+			continue
+		}
+		if abs == rabs || strings.HasPrefix(abs, rabs+string(os.PathSeparator)) {
+			return abs, true
+		}
+	}
+	return "", false
+}
+
 func newSessionID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -186,6 +223,7 @@ func (h *Handler) rpcHandler(c *gin.Context) {
 		return
 	}
 
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRPCBodyBytes)
 	body, err := c.GetRawData()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, rpcResponse{Result: "invalid request"})
@@ -1018,7 +1056,7 @@ func fetchTorrentHash(url string) (string, error) {
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	mi, err := metainfo.Load(resp.Body)
+	mi, err := metainfo.Load(io.LimitReader(resp.Body, maxTorrentFileBytes))
 	if err != nil {
 		return "", fmt.Errorf("parse torrent: %w", err)
 	}
@@ -2128,6 +2166,10 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcRespo
 	if location == "" {
 		return successResp(nil)
 	}
+	cleanLoc, okLoc := h.confinePath(location)
+	if !okLoc {
+		return failResp("location outside allowed download directory")
+	}
 	move, _ := args["move"].(bool)
 
 	if h.store == nil {
@@ -2142,7 +2184,7 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcRespo
 		if !ids[d.ID] {
 			continue
 		}
-		_ = h.store.SetFilePath(d.UserID, d.ID, location)
+		_ = h.store.SetFilePath(d.UserID, d.ID, cleanLoc)
 		if move && h.streamer != nil {
 			if hh, herr := hashFromDownload(d); herr == nil {
 				h.streamer.Drop(hh)
@@ -2157,6 +2199,15 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcRespo
 func (h *Handler) methodFreeSpace(args map[string]interface{}) rpcResponse {
 	path, _ := args["path"].(string)
 	if path == "" {
+		path = h.downloadDir
+		if path == "" {
+			path = h.dataDir
+		}
+	} else if clean, ok := h.confinePath(path); ok {
+		path = clean
+	} else {
+		// path fora dos diretórios permitidos → não exponha statfs de caminho
+		// arbitrário do host; cai pro downloadDir.
 		path = h.downloadDir
 		if path == "" {
 			path = h.dataDir

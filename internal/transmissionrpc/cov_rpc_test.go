@@ -111,7 +111,7 @@ func TestRPC_FreeSpace_And_SetLocation(t *testing.T) {
 	if r := h.dispatch(rpcRequest{Method: "free-space", Arguments: map[string]interface{}{"path": "/data"}}, 1); r.Result != "success" {
 		t.Errorf("free-space: %q", r.Result)
 	}
-	if r := h.dispatch(rpcRequest{Method: "torrent-set-location", Arguments: map[string]interface{}{"ids": []interface{}{float64(1)}, "location": "/x"}}, 1); r.Result != "success" {
+	if r := h.dispatch(rpcRequest{Method: "torrent-set-location", Arguments: map[string]interface{}{"ids": []interface{}{float64(1)}, "location": "/data/x"}}, 1); r.Result != "success" {
 		t.Errorf("torrent-set-location: %q", r.Result)
 	}
 }
