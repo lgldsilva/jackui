@@ -44,6 +44,27 @@ async function copyToClipboard(text: string) {
   }
 }
 
+async function resolveMagnetIfNeeded(
+  result: SearchResult,
+  setResolving: (r: boolean) => void
+): Promise<string | undefined> {
+  let magnet = result.magnetUri
+  if (!magnet && result.link) {
+    setResolving(true)
+    try {
+      const conv = await convertTorrentToMagnet(result.link)
+      result.magnetUri = conv.magnet
+      result.infoHash = conv.infoHash
+      magnet = conv.magnet
+    } catch (err: any) {
+      alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
+    } finally {
+      setResolving(false)
+    }
+  }
+  return magnet
+}
+
 function RatingBadge({ tmdb }: { readonly tmdb: TmdbMatch | null }): React.ReactNode {
   if (!tmdb) return null
   if (tmdb.imdbRating && tmdb.imdbRating > 0) {
@@ -264,22 +285,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   }
 
   const handleCopyMagnet = async () => {
-    let magnet = result.magnetUri
-    if (!magnet && result.link) {
-      setResolvingMagnet(true)
-      try {
-        const conv = await convertTorrentToMagnet(result.link)
-        magnet = conv.magnet
-        result.magnetUri = conv.magnet
-        result.infoHash = conv.infoHash
-      } catch (err: any) {
-        alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
-        setResolvingMagnet(false)
-        return
-      }
-      setResolvingMagnet(false)
-    }
-
+    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
     if (!magnet) return
     await copyToClipboard(magnet)
     setCopied(true)
@@ -288,22 +294,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
 
   // Opens the magnet link in the OS-registered handler (qBittorrent, Transmission, etc.)
   const handleOpenMagnet = async () => {
-    let magnet = result.magnetUri
-    if (!magnet && result.link) {
-      setResolvingMagnet(true)
-      try {
-        const conv = await convertTorrentToMagnet(result.link)
-        magnet = conv.magnet
-        result.magnetUri = conv.magnet
-        result.infoHash = conv.infoHash
-      } catch (err: any) {
-        alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
-        setResolvingMagnet(false)
-        return
-      }
-      setResolvingMagnet(false)
-    }
-
+    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
     if (magnet) {
       globalThis.location.href = magnet
     }

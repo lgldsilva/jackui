@@ -210,6 +210,10 @@ export default function SettingsPage() {
     finally { setSaving(false) }
   }
 
+  const connectionMsg = testResult === 'success'
+    ? 'Conexão OK'
+    : 'Falha na conexão' + (testMsg ? `: ${testMsg}` : '')
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -296,7 +300,7 @@ export default function SettingsPage() {
                     {testResult === 'success'
                       ? <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                       : <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />}
-                    <span>{testResult === 'success' ? 'Conexão OK' : `Falha na conexão${testMsg ? ': ' + testMsg : ''}`}</span>
+                    <span>{connectionMsg}</span>
                   </div>
                 )}
               </div>
