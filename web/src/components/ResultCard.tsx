@@ -99,7 +99,7 @@ async function handleToggleFavorite(
     if (wasFavorited) {
       await favoriteRemove(title)
     } else {
-      await favoriteAdd(title, infoHash, magnetUri, 'manual')
+      await favoriteAdd(title, infoHash || '', magnetUri || '', 'manual')
     }
   } catch {
     setFavOpt(wasFavorited)
