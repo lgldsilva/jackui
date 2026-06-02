@@ -59,6 +59,9 @@ help:
 	@printf "  $(GREEN)make restart$(RESET)           restart jackui\n"
 	@printf "  $(GREEN)make probe-gpu$(RESET)         query /api/transcode/capabilities\n"
 	@printf "  $(GREEN)make down$(RESET)              stop container\n"
+	@printf "\n$(CYAN)Desktop (Electron):$(RESET)\n"
+	@printf "  $(GREEN)make dev-electron$(RESET)      Start Go backend + Electron dev mode\n"
+	@printf "  $(GREEN)make build-electron$(RESET)     Build Electron app package (.dmg/.exe/.AppImage)\n"
 
 # ─────────────────────────────────────────
 # setup — roda uma vez antes do primeiro deploy
@@ -250,6 +253,34 @@ dev-frontend:
 
 dev-backend:
 	@go run ./cmd/server
+
+# ─────────────────────────────────────────
+# Electron (Desktop)
+# ─────────────────────────────────────────
+
+# dev-electron: start Go backend + Electron in dev mode.
+# 1. Build the React frontend (so Go embeds the latest)
+# 2. Run Go server in background
+# 3. Run Electron pointing to Go server
+dev-electron:
+	$(call step,[1/3] Compilando frontend...)
+	@cd web && npm run build
+	$(call ok,Frontend pronto)
+	$(call step,[2/3] Instalando deps do Electron se necessário...)
+	@npm install --silent 2>/dev/null || true
+	$(call ok,Deps prontas)
+	$(call step,[3/3] Iniciando Go + Electron...)
+	@npm run dev
+
+# build-electron: produce distributable packages (.dmg / .exe / .AppImage).
+# Cross-compile Go for the target platform, build React, then run
+# electron-builder. Accepts PLATFORM and ARCH as optional args:
+#   make build-electron           (current OS + arch)
+#   make build-electron linux amd64
+build-electron:
+	$(call step,Compilando para $(or $(filter-out $@,$(MAKECMDGOALS)),$(shell uname -s | tr A-Z a-z))/$(or $(word 2,$(MAKECMDGOALS)),$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')))
+	@bash scripts/build-electron.sh $(or $(filter-out $@,$(MAKECMDGOALS)),$(shell uname -s | tr A-Z a-z))
+	$(call ok,Electron package gerado em dist-electron/)
 
 # ─────────────────────────────────────────
 # testes

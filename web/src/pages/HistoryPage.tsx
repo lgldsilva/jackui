@@ -277,7 +277,7 @@ export default function HistoryPage() {
   const [globalResults, setGlobalResults] = useState<CachedSearchResult[]>([])
   const [globalLoading, setGlobalLoading] = useState(false)
   const [globalSearched, setGlobalSearched] = useState(false)
-  const debounceRef = useRef<number | null>(null)
+  const debounceRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null)
 
   // Per-row refresh state — keyed by results.id. We track:
   //   refreshingIDs:  currently-in-flight POST /api/history/:id/refresh

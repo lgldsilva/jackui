@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
+import { formatBytes } from '../lib/format'
 import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -83,6 +84,25 @@ function formatDate(iso: string): string {
   } catch {
     return ''
   }
+}
+
+// Barra de espaço livre/total do filesystem do mount (discos físicos, rclone).
+// Some quando o backend não conseguiu medir (mount quebrado → totalBytes 0).
+function MountSpaceLabel({ m }: { readonly m: LocalMount }) {
+  if (!m.totalBytes || m.totalBytes <= 0) return null
+  const free = m.freeBytes ?? 0
+  const pctUsed = Math.min(100, Math.max(0, Math.round(((m.totalBytes - free) / m.totalBytes) * 100)))
+  let barColor = 'bg-green-500'
+  if (pctUsed > 90) barColor = 'bg-red-500'
+  else if (pctUsed > 75) barColor = 'bg-amber-500'
+  return (
+    <div className="px-3 pb-1 -mt-0.5">
+      <div className="h-1 rounded-full bg-gray-700/80 overflow-hidden">
+        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pctUsed}%` }} />
+      </div>
+      <p className="text-[10px] text-gray-500 mt-0.5">{formatBytes(free)} livres de {formatBytes(m.totalBytes)}</p>
+    </div>
+  )
 }
 
 function EntryIcon({ entry, mount }: { readonly entry: LocalEntry; readonly mount: string }) {
@@ -573,6 +593,7 @@ export default function LocalPage() {
                       <HardDrive className="w-4 h-4 flex-shrink-0" />
                       <span className="truncate">{m.name}</span>
                     </button>
+                    <MountSpaceLabel m={m} />
                   </li>
                 )
               })}
@@ -857,6 +878,7 @@ export default function LocalPage() {
                 <HardDrive className="w-4 h-4 flex-shrink-0" />
                 <span className="truncate">{m.name}</span>
               </button>
+              <MountSpaceLabel m={m} />
             </li>
           ))}
         </ul>

@@ -6,12 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/config"
 	"github.com/luizg/jackui/internal/jackett"
+	"github.com/luizg/jackui/internal/streamer"
 )
 
 type configResponse struct {
-	Port    int                      `json:"port"`
-	Jackett jackettConfigResponse    `json:"jackett"`
-	Clients []downloadClientResponse `json:"downloadClients"`
+	Port         int                      `json:"port"`
+	Jackett      jackettConfigResponse    `json:"jackett"`
+	Clients      []downloadClientResponse `json:"downloadClients"`
+	EnvOverrides map[string]string        `json:"envOverrides,omitempty"`
 }
 
 type jackettConfigResponse struct {
@@ -63,13 +65,14 @@ func GetConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 				// Never echo the key back; just signal whether one is set.
 				APIKeySet: cfg.Jackett.APIKey != "",
 			},
-			Clients: clients,
+			Clients:      clients,
+			EnvOverrides: config.ActiveEnvOverrides(),
 		})
 	}
 }
 
 // UpdateConfig handles PUT /api/config
-func UpdateConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
+func UpdateConfig(cfg *config.Config, configPath string, jackettClient *jackett.Client, streamSrv *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req configUpdateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -83,6 +86,16 @@ func UpdateConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 		if err := cfg.Save(configPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
 			return
+		}
+
+		// Update live Jackett client so searches use the new URL/key.
+		if jackettClient != nil {
+			jackettClient.URL = cfg.Jackett.URL
+			jackettClient.APIKey = cfg.Jackett.APIKey
+		}
+		// Update the SSRF guard's trusted host so torrent fetches aren't blocked.
+		if streamSrv != nil && req.Jackett.URL != "" {
+			streamSrv.UpdateJackettHost(req.Jackett.URL)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "config saved successfully"})

@@ -746,6 +746,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	}
 	api.Use(middleware.Incognito())
 	{
+		api.GET("/classify", handlers.ClassifyCategory(deps.aiClient))
 		api.POST("/diag/log", handlers.ClientLog())
 		api.GET("/search", handlers.Search(deps.jackettClient, deps.historyStore, deps.streamSrv.Favorites(), deps.downloadsStore))
 		api.GET("/search/stream", handlers.SearchSSE(deps.jackettClient, deps.historyStore, deps.streamSrv.Favorites(), deps.downloadsStore))
@@ -761,7 +762,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 			adminAPI.Use(auth.AdminOnly())
 		}
 		adminAPI.GET("/config", handlers.GetConfig(deps.cfg, deps.configPath))
-		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath))
+		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath, deps.jackettClient, deps.streamSrv))
 		adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
 		adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
 		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))

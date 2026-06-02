@@ -137,6 +137,7 @@ export type AppConfig = {
   port: number
   jackett: JackettConfig
   downloadClients: DownloadClientFull[]
+  envOverrides?: Record<string, string>
 }
 
 export const searchTorrents = async (
@@ -1420,7 +1421,7 @@ export const deleteHistoryEntry = async (q: string): Promise<void> => {
 // without going through anacrolix. http.ServeFile handles HTTP Range for
 // progressive playback; HEVC files still need browser support locally.
 
-export type LocalMount = { name: string; path: string; userSubpath?: boolean }
+export type LocalMount = { name: string; path: string; userSubpath?: boolean; freeBytes?: number; totalBytes?: number }
 export type LocalEntry = {
   name: string
   path: string       // relative to mount root
@@ -1870,6 +1871,73 @@ export const fetchActiveTranscodes = async (): Promise<ActiveTranscodesResponse>
 
 export const killTranscodeSession = async (key: string): Promise<void> => {
   await api.delete(`/transcode/active/${encodeURIComponent(key)}`)
+}
+
+// ─── Electron local download ─────────────────────────────────────────────
+// Uses the Electron IPC bridge to download a file from the Go server to the
+// user's local machine (Save dialog → filesystem). Falls back to browser
+// download (anchor element) when not in Electron.
+// apiPath: relative path starting with /api/... (withToken() already applied).
+export async function downloadLocalFile(
+  apiPath: string,
+  suggestedName: string,
+  category?: string,
+  mediaKind?: string,
+): Promise<{ success?: boolean; cancelled?: boolean; error?: string; filePath?: string }> {
+  if (window.electronAPI) {
+    return window.electronAPI.downloadFile(apiPath, suggestedName, category, mediaKind)
+  }
+  // Browser fallback — build absolute URL from current origin
+  const a = document.createElement('a')
+  a.href = apiPath.startsWith('http') ? apiPath : `${window.location.origin}${apiPath}`
+  a.download = suggestedName
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  return { success: true }
+}
+
+/** Asks the backend to classify a title into a category.
+ *  Uses regex heuristics + optional AI. */
+export type CategoryResult = {
+  category: string   // "movies" | "tv" | "music" | "games" | "software" | "adult" | "other"
+  label: string      // human-readable
+  source: string     // "regex" | "ai" | "jackett" | "fallback"
+  confidence: number // 0..1
+}
+
+export async function classifyCategory(
+  title: string,
+  jackettCategory?: string,
+): Promise<CategoryResult> {
+  const p = new URLSearchParams({ title })
+  if (jackettCategory) p.set('jackett_category', jackettCategory)
+  const { data } = await api.get<CategoryResult>(`/classify?${p}`)
+  return data
+}
+
+/** Downloads directly to the configured Electron folder with automatic
+ *  categorization (Movies/TV/Music/…). Falls back to showSaveDialog when
+ *  no folder is configured, or to browser anchor when not in Electron. */
+export async function downloadLocalFileDirect(
+  apiPath: string,
+  suggestedName: string,
+  category?: string,
+  mediaKind?: string,
+): Promise<{ success?: boolean; error?: string; filePath?: string }> {
+  if (window.electronAPI) {
+    return window.electronAPI.downloadFileDirect(apiPath, suggestedName, category, mediaKind)
+  }
+  // Browser fallback
+  const a = document.createElement('a')
+  a.href = apiPath.startsWith('http') ? apiPath : `${window.location.origin}${apiPath}`
+  a.download = suggestedName
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  return { success: true }
 }
 
 export default api

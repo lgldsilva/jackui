@@ -193,7 +193,7 @@ func Test_hgDUpdateConfigSaveError(t *testing.T) {
 		strings.NewReader(`{"port":8989,"jackett":{"url":"http://x"},"downloadClients":[]}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	UpdateConfig(cfg, dir)(c)
+	UpdateConfig(cfg, dir, nil, nil)(c)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body: %s", w.Code, w.Body.String())
