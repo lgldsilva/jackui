@@ -1,0 +1,76 @@
+# STAGING "cache real" — variante que monta o CACHE DE PIECES REAL da prod, pra
+# testar playback contra arquivos JÁ BAIXADOS (o cache-staging vazio mascarava
+# tudo: probe 502, EVENT mode, backstop misfire).
+#
+# PRÉ-REQUISITO: a prod `jackui` DEVE estar PARADA (o bolt DB do cache pega flock
+# exclusivo — dois anacrolix no mesmo dir colidem). Sequência:
+#   docker --context homeserver compose -p jackui stop            # para a prod
+#   docker --context homeserver compose -p jackui-staging -f docker-compose.staging-realcache.yml up -d
+#   ... testa em http://192.168.86.24:8990 ...
+#   docker --context homeserver compose -p jackui-staging -f docker-compose.staging-realcache.yml down
+#   docker --context homeserver compose -p jackui ... up -d       # restaura a prod
+#
+# Segurança: DBs de estado ficam em config-staging (snapshot) → DBs da prod
+# INTOCADOS. MAX_GB=60 (> 50 da prod) → a LRU do staging NÃO evicta pieces da prod.
+services:
+  jackui-staging:
+    image: jackui:staging-nvidia
+    container_name: jackui-staging
+    restart: "no"
+    user: "1000:1000"
+    stop_grace_period: 30s
+    runtime: nvidia
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+        reservations:
+          memory: 256m
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu", "video", "compute", "utility"]
+    healthcheck:
+      disable: true
+    ports:
+      - "0.0.0.0:8990:8989"
+      - "51470:51469/tcp"
+      - "51470:51469/udp"
+    volumes:
+      # Estado ISOLADO (snapshot dos favoritos/biblioteca/art) — protege a prod
+      - /Files/AppData/Config/jackui-staging/config.yaml:/app/config.yaml
+      - /Files/AppData/Config/jackui-staging:/data
+      # ⚠️ CACHE DE PIECES *REAL* DA PROD (arquivos já baixados) — prod parada!
+      - /mnt/lvm1-storage/jacktrack/cache:/data/streams
+      - /mnt/lvm1-storage:/mnt/storage:ro
+      - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:ro
+      - /mnt/rclone/gdrive/pessoal/sensitive:/mnt/gdrive/sensitive:ro
+    environment:
+      - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
+      - JACKETT_API_KEY=${JACKETT_API_KEY}
+      - JACKUI_PORT=8989
+      - JACKUI_DB_PATH=/data/jackui.db
+      - JACKUI_STREAM_DIR=/data/streams
+      - JACKUI_STATE_DIR=/data
+      # > 50 da prod → LRU não evicta pieces da prod durante o teste
+      - JACKUI_STREAM_MAX_GB=60
+      - JACKUI_DOWNLOAD_DIR=/data/downloads
+      - JACKUI_SHARED_DIR=/data/shared
+      - JACKUI_EXTERNAL_MOUNTS=GDrive Media:/mnt/gdrive/media
+      - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
+      - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
+      - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}
+      - JACKUI_JWT_SECRET=${JACKUI_JWT_SECRET}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - OMDB_API_KEY=${OMDB_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - JACKUI_BASE_URL=http://192.168.86.24:8990
+    networks:
+      - vpn-gateway_vpn-net
+
+networks:
+  vpn-gateway_vpn-net:
+    external: true

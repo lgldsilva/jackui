@@ -17,6 +17,7 @@ import {
   SessionInfo,
 } from '../api/client'
 import StreamCacheCard from '../components/StreamCacheCard'
+import StreamSettingsCard from '../components/StreamSettingsCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 import ActiveTranscodesCard from '../components/ActiveTranscodesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
@@ -330,6 +331,8 @@ export default function SettingsPage() {
                   className="input-field w-32" min={1} max={65535} />
               </div>
             </section>
+            {/* Performance do streamer (banda/memória/storage/peers) — feature #43. */}
+            <ErrorBoundary title="Erro no card de performance"><StreamSettingsCard /></ErrorBoundary>
             <TranscodeCapabilitiesCard />
             <ErrorBoundary title="Erro no monitor de transcode"><ActiveTranscodesCard /></ErrorBoundary>
             <StreamCacheCard />

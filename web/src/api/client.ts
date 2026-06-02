@@ -939,6 +939,45 @@ export const streamCacheClear = async (entry?: string): Promise<void> => {
   await api.delete(url)
 }
 
+// ─── Streamer & Performance settings ──────────────────────────────────────
+// Rate limits e readahead são aplicados AO VIVO; storage/conns/peers/hashers/
+// cache exigem reiniciar o processo (restartRequired na resposta do PUT).
+export type StorageBackend = 'file' | 'mmap'
+
+export type StreamSettings = {
+  maxDownloadRate: number // bytes/seg, 0=ilimitado
+  maxUploadRate: number
+  readaheadMB: number
+  storageBackend: StorageBackend
+  maxConnsPerTorrent: number
+  halfOpenConns: number
+  peersHighWater: number
+  pieceHashers: number
+  maxCacheGB: number
+}
+
+export type StreamSettingsDefaults = {
+  readaheadMB: number
+  maxConnsPerTorrent: number
+  halfOpenConns: number
+  peersHighWater: number
+  pieceHashers: number
+}
+
+export type StreamSettingsResponse = StreamSettings & { defaults: StreamSettingsDefaults }
+
+export const getStreamSettings = async (): Promise<StreamSettingsResponse> => {
+  const { data } = await api.get<StreamSettingsResponse>('/stream/settings')
+  return data
+}
+
+export const updateStreamSettings = async (
+  s: StreamSettings,
+): Promise<{ restartRequired: boolean }> => {
+  const { data } = await api.put<{ restartRequired: boolean }>('/stream/settings', s)
+  return data
+}
+
 export type StreamRate = {
   downRate: number
   upRate: number
