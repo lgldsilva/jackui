@@ -1,70 +1,70 @@
 # JackUI — Claude Code Instructions
 
-Servidor de **streaming de torrents** com transcode por hardware e UI web. Começou como um buscador visual para o Jackett e evoluiu para um media server completo: busca → stream BitTorrent→HTTP (sem esperar download completo) → transcode sob demanda → playback no navegador (incl. Safari via HLS).
+**Torrent streaming** server with hardware transcode and a web UI. Started as a visual search front-end for Jackett and grew into a full media server: search → BitTorrent→HTTP stream (no waiting for the full download) → on-demand transcode → playback in the browser (Safari included, via HLS).
 
 ## Stack
 
-- **Backend**: Go 1.22 + Gin. Streaming via `anacrolix/torrent` (BitTorrent → HTTP com Range). Transcode via ffmpeg (NVENC/VAAPI/QSV/libx264).
-- **Frontend**: React 18 + TypeScript + Vite + TailwindCSS (dark theme), embutido no binário (`//go:embed all:dist`).
-- **Infra**: Docker num homeserver via context remoto (configure `DOCKER_CONTEXT`/`DEPLOY_HOST` no `.env`). Deploy direto (sem VPN — o overlay gluetun cortava muitos seeds e foi tirado do default). Container roda numa bridge compartilhada com o reverse proxy (ex: NPM), alcançado em `jackui:8989`. Saída pelo IP real do host.
+- **Backend**: Go 1.22 + Gin. Streaming via `anacrolix/torrent` (BitTorrent → HTTP with Range). Transcode via ffmpeg (NVENC/VAAPI/QSV/libx264).
+- **Frontend**: React 18 + TypeScript + Vite + TailwindCSS (dark theme), embedded in the binary (`//go:embed all:dist`).
+- **Infra**: Docker on a home server via a remote context (set `DOCKER_CONTEXT`/`DEPLOY_HOST` in `.env`). Direct deploy (no VPN — the gluetun overlay was cutting too many seeds, so it was dropped from the default). The container runs on a bridge shared with the reverse proxy (e.g. NPM), reachable at `jackui:8989`. Egress via the host's real IP.
 
-## Comandos essenciais
+## Essential commands
 
 ```bash
-make test              # go test ./... (233 testes, 23 pacotes)
-make deploy-auto       # ✅ DEPLOY PADRÃO: auto-detecta GPU, sem VPN
-make deploy-auto-vpn   # com gluetun overlay — só se realmente quiser sair via VPN
-make dev-frontend      # Vite :5173 com proxy p/ :8989
-make dev-backend       # go run ./cmd/server em :8989
+make test              # go test ./... (the whole suite)
+make deploy-auto       # ✅ DEFAULT DEPLOY: auto-detects GPU, no VPN
+make deploy-auto-vpn   # with the gluetun overlay — only if you really want VPN egress
+make dev-frontend      # Vite :5173 proxying to :8989
+make dev-backend       # go run ./cmd/server on :8989
 ```
 
-**Deploy padrão é `make deploy-auto`.** O `-vpn` adiciona `docker-compose.gluetun.yml` (`network_mode: container:gluetun`) e roteia tudo pela VPN — deixou de ser default porque em muitos torrents o gluetun matava a conectividade com peers. Sem VPN, o NPM alcança jackui em `jackui:8989` na bridge `vpn-gateway_vpn-net`.
+**The default deploy is `make deploy-auto`.** `-vpn` adds `docker-compose.gluetun.yml` (`network_mode: container:gluetun`) and routes everything through the VPN — it stopped being the default because on many torrents gluetun killed peer connectivity. Without VPN, NPM reaches jackui at `jackui:8989` on the `vpn-gateway_vpn-net` bridge.
 
-## Funcionalidades
+## Features
 
-- **Streaming**: torrent → HTTP com Range; toca antes de baixar tudo. Cache em disco com eviction LRU (favoritos protegidos).
-- **Saúde do swarm nos cards**: `SeedBadge` mostra seeds + disponibilidade. `GET /api/stream/health/:hash?magnet=` devolve o último snapshot (persistido no metadata cache com timestamp) na hora e dispara re-sonda em background se stale; sonda inativa = add~6s → conta → drop (semáforo de 3, dedupe, guarda de ponteiro pra não derrubar play concorrente).
-- **Transcode sob demanda**: HEVC/AV1/x265 → H.264 via GPU. Safari recebe **HLS** (`.m3u8` + segmentos `.ts`) — único caminho que o `<video>` do Safari aceita.
-- **Legendas**: embutidas (probe ffmpeg), sidecar `.srt`/`.vtt` no torrent, e externas (OpenSubtitles). Escolha persiste por arquivo (localStorage).
-- **TMDB**: enriquece resultados/biblioteca com pôster + metadados (cache SQLite, TTL 30d). Resolve o `imdb_id` (external_ids) e persiste junto da arte. **Discover** (`/discover`): grade de "Em alta" (trending semanal, cache em memória 6h) → clicar semeia a busca via `?q=`.
-- **Thumbnails por torrent**: arte resolvida e persistida por `info_hash` (colunas no metadata cache). Cadeia fail-safe (`POST /api/stream/art/:hash/resolve`): imagem embutida no torrent (poster/cover) → pôster TMDB → **busca web** (`internal/imagesearch`: DuckDuckGo→Bing keyless, safe-search off — p/ adulto/obscuro que o TMDB não cobre, só após TMDB falhar) → frame capturado. `GET /api/stream/art/:hash` serve a arte (bytes/302/204); aceita `?name=` p/ resolução proativa de torrent inativo. Continuar Assistindo dispara resolve nos itens sem arte. Cards preferem a arte por infoHash, caindo no pôster TMDB-por-título.
-- **IA p/ identificar título** (opcional): chain OpenAI-compatible (`internal/ai`) com fallback + circuit breaker, limpa o nome cru do release antes do TMDB. Liga sozinha via `GROQ_API_KEY`/`OPENROUTER_API_KEY`/`OLLAMA_BASE_URL`. Benchmark modificável (Settings → admin) mede acurácia+latência, calcula score composto (acurácia ÷ √latência) e reordena a chain (persistido em `.ai-benchmark.db`).
-- **Playlists**, **Watchlists** (cron + push ntfy), **Continue Watching** (library com resume position), **Downloads em background** (qBittorrent/Transmission), **browser de arquivos locais** (mounts; `external.mounts` no config OU env `JACKUI_EXTERNAL_MOUNTS=Nome:/caminho,...`). **Modo Incógnito** (toggle no header): header `X-JackUI-Incognito: 1` ou `?incognito=1` (pra SSE) → middleware seta `c.Set("incognito", true)`; handlers de history/library/StreamAdd consultam `middleware.IsIncognito(c)` e pulam o write silenciosamente. **Transcode local** (`/api/local/play`): ffprobe decide direct-play vs HLS — MKV/HEVC/AC3/DTS caem em HLS reusando o `HLSSessionManager` dos torrents. Paths no deploy (host paths configuráveis via `.env` → `JACKUI_CONFIG_DIR`/`JACKUI_CACHE_DIR`/`JACKUI_STORAGE_DIR`, ver `docker-compose.yml`): **state em `JACKUI_CONFIG_DIR`** (`jackui.db` history + `auth.db`), separado do **cache de pieces + DBs do streamer** (favorites, metadata-cache, library, playlists, downloads, tmdb, watchlist, ai-benchmark, em `JACKUI_CACHE_DIR`) pra aliviar contenção de I/O. A biblioteca compartilhada (`JACKUI_STORAGE_DIR`) hospeda os mounts navegáveis (ro) e o destino do "promover". TODO: streamer reconciliar pieces com arquivos já baixados (tocar sem re-baixar); botão "promover" no LocalPage; separar os 7 DBs do streamer do dir de cache (via `JACKUI_STATE_DIR`).
-- **Auth** JWT opcional (`JACKUI_AUTH_ENABLED=1`), com refresh token rotacionado e `AdminOnly` para rotas sensíveis.
+- **Streaming**: torrent → HTTP with Range; plays before the full download. Disk cache with LRU eviction (favourites protected).
+- **Swarm health on cards**: `SeedBadge` shows seeders + availability. `GET /api/stream/health/:hash?magnet=` returns the last snapshot (persisted in the metadata cache with a timestamp) immediately and kicks off a background re-probe if stale; an inactive probe is add~6s → count → drop (semaphore of 3, dedupe, pointer guard so it doesn't tear down a concurrent play).
+- **On-demand transcode**: HEVC/AV1/x265 → H.264 via GPU. Safari gets **HLS** (`.m3u8` + `.ts` segments) — the only path Safari's `<video>` accepts.
+- **Subtitles**: embedded (ffmpeg probe), sidecar `.srt`/`.vtt` inside the torrent, and external (OpenSubtitles). The choice persists per file (localStorage).
+- **TMDB**: enriches results/library with poster + metadata (SQLite cache, 30-day TTL). Resolves `imdb_id` (external_ids) and persists it alongside the art. **Discover** (`/discover`): a "Trending" grid (weekly trending, 6h in-memory cache) → clicking seeds the search via `?q=`.
+- **Per-torrent thumbnails**: art resolved and persisted by `info_hash` (columns in the metadata cache). Fail-safe chain (`POST /api/stream/art/:hash/resolve`): image embedded in the torrent (poster/cover) → TMDB poster → **web search** (`internal/imagesearch`: DuckDuckGo→Bing keyless, safe-search off — for adult/obscure titles TMDB doesn't cover, only after TMDB fails) → captured frame. `GET /api/stream/art/:hash` serves the art (bytes/302/204); accepts `?name=` to proactively resolve an inactive torrent. Continue Watching triggers a resolve on items without art. Cards prefer the per-infoHash art, falling back to the TMDB-by-title poster.
+- **AI title identification** (optional): an OpenAI-compatible chain (`internal/ai`) with fallback + circuit breaker, cleans the raw release name before TMDB. Auto-enables via `GROQ_API_KEY`/`OPENROUTER_API_KEY`/`OLLAMA_BASE_URL`. A tweakable benchmark (Settings → admin) measures accuracy+latency, computes a composite score (accuracy ÷ √latency) and reorders the chain (persisted in `.ai-benchmark.db`).
+- **Playlists**, **Watchlists** (cron + ntfy push), **Continue Watching** (library with resume position), **background downloads** (qBittorrent/Transmission), **local-files browser** (mounts; `external.mounts` in config OR env `JACKUI_EXTERNAL_MOUNTS=Name:/path,...`). **Incognito mode** (header toggle): header `X-JackUI-Incognito: 1` or `?incognito=1` (for SSE) → middleware sets `c.Set("incognito", true)`; history/library/StreamAdd handlers check `middleware.IsIncognito(c)` and skip the write silently. **Local transcode** (`/api/local/play`): ffprobe decides direct-play vs HLS — MKV/HEVC/AC3/DTS fall back to HLS reusing the torrents' `HLSSessionManager`. Deploy paths (host paths configurable via `.env` → `JACKUI_CONFIG_DIR`/`JACKUI_CACHE_DIR`/`JACKUI_STORAGE_DIR`, see `docker-compose.yml`): **state in `JACKUI_CONFIG_DIR`** (`jackui.db` history + `auth.db`), separate from the **piece cache + streamer DBs** (favorites, metadata-cache, library, playlists, downloads, tmdb, watchlist, ai-benchmark, in `JACKUI_CACHE_DIR`) to ease I/O contention. The shared library (`JACKUI_STORAGE_DIR`) hosts the browsable mounts (ro) and the "promote" target. TODO: streamer reconciling pieces with already-downloaded files (play without re-downloading); "promote" button on the LocalPage; split the 7 streamer DBs out of the cache dir (via `JACKUI_STATE_DIR`).
+- **Auth** optional JWT (`JACKUI_AUTH_ENABLED=1`), with rotated refresh tokens and `AdminOnly` on sensitive routes.
 
-## Arquitetura
+## Architecture
 
 ```
-web/src/            → React (dev :5173, prod embutido); PlayerProvider mantém o player acima do router
+web/src/            → React (dev :5173, prod embedded); PlayerProvider keeps the player above the router
 ui/embed.go         → //go:embed all:dist
-cmd/server/main.go  → wiring Gin: /api/* + SPA fallback + workers (downloads, watchlist)
+cmd/server/main.go  → Gin wiring: /api/* + SPA fallback + workers (downloads, watchlist)
 internal/
-  config/   jackett/   downloader/   handlers/      → base (busca, download, config)
+  config/   jackett/   downloader/   handlers/      → base (search, download, config)
   streamer/                                         → anacrolix: Add/FileReader/probe/cache/favorites
-  transcode/                                        → ffmpeg pipeline + HLS (sessões, seek-restart)
+  transcode/                                        → ffmpeg pipeline + HLS (sessions, seek-restart)
   auth/  history/  library/  playlists/  watchlist/ → SQLite stores (modernc.org/sqlite)
-  middleware/                                       → middlewares Gin cross-cutting (hoje: incognito)
+  middleware/                                       → cross-cutting Gin middleware (today: incognito)
   subtitles/  tmdb/  local/  parser/  dbutil/  downloads/
 ```
 
-## Notas críticas (gotchas que já morderam)
+## Critical notes (gotchas that already bit)
 
-- **Premissa de playback**: **VOD (seekbar) é o padrão; EVENT/live é ÚLTIMO RECURSO** (só quando duração desconhecida ou sem dado baixado à frente). Com dado baixado, sempre VOD. NÃO consertar bug de VOD trocando pra live — fazer o VOD funcionar. Suportar N faixas de áudio/legenda + multi-resolução (Fase 2: HLS master playlist).
-- **HLS para Safari**: progressive MP4 via chunked é rejeitado (`SRC_NOT_SUPPORTED`). Use HLS. Sem `append_list` (gera `EXT-X-DISCONTINUITY` que o Safari recusa). `-hls_playlist_type event` (não `vod` — o ffmpeg adia o m3u8 até o fim do transcode).
-- **Stall do Safari no `currentTime 0` (CAUSA RAIZ)**: o muxer MPEG-TS do ffmpeg adiciona ~1.4s de `initial_offset`, então `seg_00000.ts` sai começando em 1.4s (buraco [0,1.4] → Safari/iOS travam no t=0). **`-muxdelay 0 -muxpreload 0`** zera isso no muxer (o `setpts`/`asetpts=PTS-STARTPTS` zera só o filtro — o muxer re-adiciona depois). Guard: `TestEncodeSpecZeroesPTSBothModes`.
-- **Source seekável obrigatório**: ffmpeg lê o torrent via servidor HTTP loopback com Range (`serveSource`), não via pipe — senão MP4 com `moov` no fim quebra. Seek+Read são atômicos sob mutex (corrida STSC/STCO).
-- **Token de mídia**: `<video>/<track>` não mandam header → usam `?token=`. O middleware só aceita `?token=` em rotas de mídia (`/api/stream/*`, `/api/subtitles/download/*`, `/api/local/file`, `/api/local/hls/*`).
-- **VOD/seek (#61)** está atrás da flag `hlsVODEnabled` em `internal/transcode/hls.go` — instável no Safari (em avaliação); quando off, cai no EVENT/live estável.
-- **`dbutil.ParseTime`** para ler timestamps SQLite (modernc emite RFC3339 às vezes) — não usar `time.Parse` com layout único.
-- **Worker de downloads é assíncrono**: `internal/downloads/worker.go` faz `EnsureActive`+`GotInfo` (até 90s) em goroutine separada (mapas `pending`/`retries` sob mutex), com até `maxInitRetries=3` retries em memória antes de marcar `failed`. Um magnet morto NÃO congela mais os outros downloads. `Stop()` cancela in-flight via context.
-- **`UpdateName` pós-metadata**: o row de download é criado com o título da busca; o nome real (`t.Name()`) vem depois e é persistido via `store.UpdateName` pra que o boot-time `RegisterDownload` no `NewWorker` proteja o path certo da LRU.
-- **Merge de trackers no agrupamento** (`web/src/lib/group.ts`): ao agrupar resultados por `infoHash` (ou `name|size` fallback), os `tr=` de TODOS os magnets do bucket são folded no magnet do primary — mais peers em Play/Download sem nenhuma mudança no backend (anacrolix já honra múltiplos `tr=`).
-- **Local transcode reusa o `HLSSessionManager`**: `internal/handlers/local_play.go` faz ffprobe; se container/codec não casa com browser → HLS via o MESMO manager dos torrents. `/api/local/hls/` está no whitelist do `isMediaPath` (auth/middleware.go) pra aceitar `?token=` no `<video>`.
+- **Playback premise**: **VOD (seekbar) is the default; EVENT/live is the LAST RESORT** (only when duration is unknown or there's no data buffered ahead). With data on disk, always VOD. Do NOT fix a VOD bug by switching to live — make VOD work. Support N audio/subtitle tracks + multi-resolution (Phase 2: HLS master playlist).
+- **HLS for Safari**: progressive MP4 over chunked is rejected (`SRC_NOT_SUPPORTED`). Use HLS. No `append_list` (it emits `EXT-X-DISCONTINUITY`, which Safari refuses). `-hls_playlist_type event` (not `vod` — ffmpeg delays the m3u8 until the transcode finishes).
+- **Safari stall at `currentTime 0` (ROOT CAUSE)**: ffmpeg's MPEG-TS muxer adds ~1.4s of `initial_offset`, so `seg_00000.ts` starts at 1.4s (a hole [0,1.4] → Safari/iOS hang at t=0). **`-muxdelay 0 -muxpreload 0`** zeroes it at the muxer (`setpts`/`asetpts=PTS-STARTPTS` only zeroes the filter — the muxer re-adds it afterwards). Guard: `TestEncodeSpecZeroesPTSBothModes`.
+- **Seekable source required**: ffmpeg reads the torrent through a loopback HTTP server with Range (`serveSource`), not a pipe — otherwise MP4s with `moov` at the end break. Seek+Read are atomic under a mutex (STSC/STCO race).
+- **Media token**: `<video>/<track>` can't send headers → they use `?token=`. The middleware only accepts `?token=` on media routes (`/api/stream/*`, `/api/subtitles/download/*`, `/api/local/file`, `/api/local/hls/*`).
+- **VOD/seek (#61)** is behind the `hlsVODEnabled` flag in `internal/transcode/hls.go` — unstable on Safari (under evaluation); when off, it falls back to the stable EVENT/live path.
+- **`dbutil.ParseTime`** to read SQLite timestamps (modernc sometimes emits RFC3339) — don't use `time.Parse` with a single layout.
+- **The downloads worker is async**: `internal/downloads/worker.go` does `EnsureActive`+`GotInfo` (up to 90s) in a separate goroutine (`pending`/`retries` maps under a mutex), with up to `maxInitRetries=3` in-memory retries before marking `failed`. A dead magnet no longer freezes the other downloads. `Stop()` cancels in-flight work via context.
+- **`UpdateName` after metadata**: the download row is created with the search title; the real name (`t.Name()`) comes later and is persisted via `store.UpdateName` so the boot-time `RegisterDownload` in `NewWorker` protects the right path from LRU.
+- **Tracker merge in grouping** (`web/src/lib/group.ts`): when grouping results by `infoHash` (or `name|size` fallback), the `tr=` of ALL magnets in the bucket are folded into the primary's magnet — more peers on Play/Download with no backend change (anacrolix already honours multiple `tr=`).
+- **Local transcode reuses the `HLSSessionManager`**: `internal/handlers/local_play.go` runs ffprobe; if container/codec doesn't match the browser → HLS via the SAME manager as the torrents. `/api/local/hls/` is in the `isMediaPath` whitelist (auth/middleware.go) so `<video>` can use `?token=`.
 
-## Convenções
+## Conventions
 
-- Comentários só onde o WHY não é óbvio. Erros retornam JSON `{"error": "..."}`.
-- Stores SQLite: `MaxOpenConns(1)`, migrations com `IF NOT EXISTS` / `hasColumn`.
-- Teste com `net/http/httptest` — sem deps externas. `make test` deve ficar verde (233/23).
-- Deploy: `make deploy-auto` (padrão sem VPN); `-vpn` é opt-in.
-- **RTK summariza `git diff`** por padrão. Quando precisar do output bruto pra `git apply` / parsing, use `rtk proxy git diff ...` — senão `git apply` cospe "No valid patches in input".
+- Comments only where the WHY isn't obvious. Errors return JSON `{"error": "..."}`.
+- SQLite stores: `MaxOpenConns(1)`, migrations with `IF NOT EXISTS` / `hasColumn`.
+- Test with `net/http/httptest` — no external deps. `make test` must stay green.
+- Deploy: `make deploy-auto` (default, no VPN); `-vpn` is opt-in.
+- **RTK summarises `git diff`** by default. When you need the raw output for `git apply` / parsing, use `rtk proxy git diff ...` — otherwise `git apply` spits out "No valid patches in input".

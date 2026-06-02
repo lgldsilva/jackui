@@ -1,60 +1,93 @@
 # CI/CD — JackUI
 
-Pipeline automática: **push na `main` → Jenkins testa/escaneia/builda/publica → Watchtower redeploya.**
+Automated pipeline: **push/PR → Jenkins tests, scans, builds (natively on the target),
+pushes to the Gitea registry, and ssh-deploys to the home server.**
 
 ```
-Gitea (push main)
-   │ webhook
+Gitea (push to main / PR)
+   │ webhook  (currently flaky → builds are often triggered manually)
    ▼
-Jenkins @ oracle-desktop ──► go test ──► frontend build ──► SonarQube (quality gate)
-   │                                                          └─ SBOM → Dependency-Track
-   ▼
-docker build (Dockerfile.nvidia) ──► Trivy (falha em CRITICAL) ──► push gitea.raspberrypi.lan/lgldsilva/jackui:nvidia
-                                                                              │
-                                                                              ▼
-                                                          Watchtower @ raspberrypi-srv  ──► pull + recreate (mesmo env/volumes)
+Jenkins @ oracle-desktop (arm64 controller)
+   ├─ Backend test        (golang:1.26-alpine)
+   ├─ Frontend build      (node:22-alpine)
+   ├─ SonarQube           (quality gate, -Dsonar.qualitygate.wait=true)
+   ├─ SBOM → Dependency-Track  (cdxgen → DT upload)
+   ├─ Build & Push        (ssh → raspberrypi-srv builds the image NATIVELY (amd64),
+   │                       pushes gitea.raspberrypi.lan/lgldsilva/jackui:nvidia)
+   ├─ Trivy               (fails on CRITICAL, --ignore-unfixed)
+   ├─ Deploy              (ssh → raspberrypi-srv: docker compose up -d --force-recreate jackui)
+   └─ Old-tag cleanup     (prune old registry tags)
 ```
 
-Segredos vêm do **HashiCorp Vault** (`secret/jackui`), nunca do repo. Build e deploy são **ARM64** ponta-a-ponta (oracle-desktop builda, raspberrypi-srv roda).
+Secrets come from **Jenkins credentials**, never the repo: `jackui-sonar-token`,
+`jackui-dt` (Dependency-Track), `jackui-gitea` (registry, needs `write:package`),
+`jackui-deploy` (ssh key), `jackui-ci-bot` (PR approval). The Gitea registry / Sonar /
+DT live on **oracle-desktop** (`10.228.143.12`); the build and deploy SSH to
+**raspberrypi-srv** (`10.228.143.1`).
 
-## Por que Watchtower (e não SSH-deploy)
-O Jenkins só **builda + publica** a imagem no registry do Gitea. O Watchtower (já rodando no raspberrypi-srv) observa o registry e recria o container com a **mesma config** (env/volumes/ports do compose). Vantagens: sem chave SSH de deploy no Jenkins, sem descasamento de arquitetura, rollout desacoplado do build. **Limitação:** mudou env/volume/porta → editar o compose no servidor e `up -d` à mão (Watchtower só troca a imagem).
+## Why build on the target (not on the Jenkins controller)
 
-## Setup único (uma vez)
+The controller (oracle-desktop) is **arm64**; the deploy target (raspberrypi-srv) is
+**amd64**. Emulating amd64 under qemu on the controller OOM-killed the build, so the
+`docker build` runs **natively on raspberrypi-srv over SSH** and pushes to the Gitea
+registry. Deploy is a second SSH that recreates the container from the home-server
+compose.
 
-### 1. Vault — provisionar segredos
+> [!WARNING]
+> The Sonar stage runs the scanner as `docker run --platform linux/amd64` on the arm64
+> controller, which needs qemu **binfmt** registered. binfmt is **not auto-registered
+> after a reboot** — install `qemu-user-static` on the controller so `systemd-binfmt`
+> restores it on boot, otherwise the Sonar stage fails with `exec format error` and the
+> gate reads a stale prior analysis.
+
+## Deploy mechanism
+
+The `Deploy` stage SSHes to raspberrypi-srv and runs:
+
 ```bash
-vault kv put secret/jackui \
-  gitea_user=lgldsilva  gitea_token=<token-com-write:package> \
-  sonar_token=<sonar>    dt_user=admin  dt_pass=<dt>
+docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml \
+  up -d --force-recreate jackui
 ```
-O `gitea_token` precisa do escopo **`write:package`** (push no registry de container do Gitea).
 
-### 2. Jenkins — job + plugins
-- Plugins: **Docker Pipeline**, **HashiCorp Vault**, **Gitea**.
-- Configurar o Vault global (URL `https://vault.raspberrypi.lan`, auth AppRole/token).
-- Criar um *Multibranch Pipeline* (ou Pipeline) apontando pro repo Gitea; usa o `Jenkinsfile` da raiz.
-- O agent/controller precisa do `/var/run/docker.sock` (o controller no oracle-desktop já tem, GID 999).
+> [!IMPORTANT]
+> The **production compose is the one on the server** (`/portainer/Files/AppData/Config/jackui/docker-compose.yml`),
+> separate from the repo's `docker-compose.yml`. Jenkins only does `up -d` against it —
+> it does **not** copy the repo compose. So **env/volume/port changes must be made in
+> that server-side compose** (then `up -d`); the repo compose is a reference.
 
-### 3. Gitea — webhook
-Repo → Settings → Webhooks → Gitea/Jenkins:
-`https://jenkins.raspberrypi.lan/gitea-webhook/post` (evento *Push* + *Pull Request*).
+## One-time setup
 
-### 4. Compose do servidor — apontar pro registry + habilitar Watchtower
-No `raspberrypi-srv:/portainer/Files/AppData/Config/jackui/docker-compose.yml`:
-```yaml
-services:
-  jackui:
-    image: gitea.raspberrypi.lan/lgldsilva/jackui:nvidia   # era jackui:${JACKUI_TAG}
-    labels:
-      - com.centurylinklabs.watchtower.enable=true
+1. **Jenkins** — plugins: Docker Pipeline, Gitea. Controller needs `/var/run/docker.sock`.
+   Create a Pipeline / Multibranch job pointing at the Gitea repo (uses the root
+   `Jenkinsfile`). Add the credentials listed above.
+2. **Gitea webhook** — Repo → Settings → Webhooks → `https://jenkins.raspberrypi.lan/gitea-webhook/post`
+   (Push + Pull Request events).
+3. **Registry login on the target** — `docker login gitea.raspberrypi.lan` on
+   raspberrypi-srv so the deploy can pull.
+4. **Server compose** — point the image at `gitea.raspberrypi.lan/lgldsilva/jackui:nvidia`.
+
+## Quality gates that BREAK the build
+
+- **SonarQube**: `-Dsonar.qualitygate.wait=true`. New-code conditions: `new_coverage ≥ 80`,
+  `new_violations = 0`, `new_duplicated_lines_density ≤ 3`. Coverage excludes
+  `web/**`, `cmd/**`, `electron/**` (UI/glue, no unit tests).
+- **Trivy**: `--severity CRITICAL --exit-code 1 --ignore-unfixed` (a CVE with no fix
+  doesn't block; it also prints HIGH for visibility).
+- **Dependency-Track**: SBOM upload; DT policies can be promoted to a gate later.
+
+## Running the gates locally (no Jenkins)
+
+Validate by the diff **before** pushing — a CI cycle is ~12 min, a failed gate on a
+prod deploy is expensive.
+
+```bash
+# build + tests + coverage
+go build ./... && go test ./internal/... -coverprofile=/tmp/c.out
+go tool cover -func=/tmp/c.out | tail -1
+cd web && npx tsc --noEmit && npm run build && cd ..
+
+# new-code complexity/violations on YOUR diff only (mirrors Sonar "new code")
+golangci-lint run --new-from-rev=gitea/main ./...   # gocognit + gocritic + staticcheck
 ```
-E garantir login no registry pro pull (`docker login gitea.raspberrypi.lan` no host, ou um `~/.docker/config.json` montado no Watchtower). Depois disso o deploy é automático.
 
-## Quality gates que QUEBRAM o build
-- **SonarQube**: `-Dsonar.qualitygate.wait=true` (cobertura de frontend excluída — `sonar.coverage.exclusions=web/**`).
-- **Trivy**: `--exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed` (CVE sem fix não bloqueia).
-- **Dependency-Track**: upload do SBOM; políticas de violação configuradas no DT podem ser promovidas a gate depois.
-
-## Rodar localmente (sem Jenkins)
-`make sonar-scan` faz a parte do Sonar. O resto reproduz os comandos do `Jenkinsfile`.
+`make sonar-scan` reproduces the Sonar step; the rest mirrors the `Jenkinsfile`.
