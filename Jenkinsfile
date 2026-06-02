@@ -78,7 +78,7 @@ pipeline {
     // Quality gate obrigatório: QUEBRA o build se o gate falhar
     // (-Dsonar.qualitygate.wait=true). Token via Jenkins credentials.
     stage('SonarQube') {
-      when { anyOf { branch 'main'; branch 'PR-53'; expression { return env.BRANCH_NAME == null } } }
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
