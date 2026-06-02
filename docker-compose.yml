@@ -4,9 +4,9 @@ services:
     container_name: jackui
     restart: unless-stopped
     user: "${UID:-1000}:${GID:-1000}"
-    # Graceful shutdown: 30s pra o app processar SIGTERM, parar o HTTP server e
-    # rodar os defers (anacrolix.Client.Close commita o estado de pieces no
-    # bolt DB; sem isso, restart fazia anacrolix re-baixar pieces já gravados).
+    # Graceful shutdown: 30s for the app to handle SIGTERM, stop the HTTP server and
+    # run the defers (anacrolix.Client.Close commits the piece state to the bolt DB;
+    # without this, a restart made anacrolix re-download already-written pieces).
     stop_grace_period: 30s
     # Resource caps — 4-core/15G host shared with Jackett/Ollama/Jellyfin/*arr.
     # Transcode is GPU (NVENC), so CPU/RAM stay modest; a runaway can't starve
@@ -55,21 +55,21 @@ services:
       - JACKUI_DB_PATH=/data/jackui.db
       - JACKUI_STREAM_DIR=/data/streams
       # State DBs (favorites, library, downloads, tmdb-cache, etc.) live on the
-      # Portainer SSD instead of the LVM piece cache — alivia contenção de I/O
-      # com Jackett/Ollama. Cache de pieces (DataDir) fica no LVM.
+      # Portainer SSD instead of the LVM piece cache — eases I/O contention with
+      # Jackett/Ollama. The piece cache (DataDir) stays on the LVM.
       - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
       - JACKUI_DOWNLOAD_DIR=/mnt/storage/jacktrack/download
-      # Destino do botão "Promover" — move arquivo da área privada do app
-      # pra biblioteca compartilhada visível a todos os apps de mídia.
+      # Destination of the "Promote" button — moves a file from the app's private
+      # area to the shared library visible to all media apps.
       - JACKUI_SHARED_DIR=/mnt/storage/Downloads
       # Browsable mounts on the "Local" page (Name:/container/path,...).
-      # "Downloads" = shared (todos veem); "Meus downloads" = app's own area.
-      # Sufixo ":usersubpath" isola por usuário (mount/{username}/...): cada um
-      # só vê/escreve na sua subpasta. Sem o sufixo, o diretório é COMPARTILHADO
-      # entre todos os usuários comuns (upload/delete visíveis a todos).
-      # "Meus downloads" usa :usersubpath → arquivos soltos na raiz são migrados
-      # no boot pra subpasta do dono (via downloads DB; sem dono → admin).
+      # "Downloads" = shared (everyone sees it); "Meus downloads" = app's own area.
+      # The ":usersubpath" suffix isolates per user (mount/{username}/...): each one
+      # only sees/writes their own subfolder. Without the suffix, the directory is
+      # SHARED across all regular users (uploads/deletes visible to everyone).
+      # "Meus downloads" uses :usersubpath → loose files at the root are migrated
+      # on boot into the owner's subfolder (via the downloads DB; no owner → admin).
       - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/storage/Downloads,Meus downloads:/mnt/storage/jacktrack/download:usersubpath,GDrive Media:/mnt/gdrive/media
       - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
       - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
@@ -91,8 +91,8 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
-      # SMTP p/ reset de senha / confirmação de e-mail / convites (valores no .env
-      # local, gitignored). Vazio = fluxos viram links copiáveis pelo admin.
+      # SMTP for password reset / e-mail confirmation / invites (values in the local
+      # .env, gitignored). Empty = those flows become admin-copyable links.
       - JACKUI_SMTP_HOST=${JACKUI_SMTP_HOST:-}
       - JACKUI_SMTP_PORT=${JACKUI_SMTP_PORT:-}
       - JACKUI_SMTP_USER=${JACKUI_SMTP_USER:-}
