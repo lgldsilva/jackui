@@ -1,17 +1,17 @@
-# STAGING "cache real" — variante que monta o CACHE DE PIECES REAL da prod, pra
-# testar playback contra arquivos JÁ BAIXADOS (o cache-staging vazio mascarava
-# tudo: probe 502, EVENT mode, backstop misfire).
+# STAGING "real cache" — variant that mounts prod's REAL PIECE CACHE, to test
+# playback against ALREADY-DOWNLOADED files (the empty cache-staging masked
+# everything: probe 502, EVENT mode, backstop misfire).
 #
-# PRÉ-REQUISITO: a prod `jackui` DEVE estar PARADA (o bolt DB do cache pega flock
-# exclusivo — dois anacrolix no mesmo dir colidem). Sequência:
-#   docker --context homeserver compose -p jackui stop            # para a prod
+# PREREQUISITE: prod `jackui` MUST be STOPPED (the cache's bolt DB takes an
+# exclusive flock — two anacrolix in the same dir collide). Sequence:
+#   docker --context homeserver compose -p jackui stop            # stop prod
 #   docker --context homeserver compose -p jackui-staging -f docker-compose.staging-realcache.yml up -d
-#   ... testa em http://192.168.86.24:8990 ...
+#   ... test at http://192.168.86.24:8990 ...
 #   docker --context homeserver compose -p jackui-staging -f docker-compose.staging-realcache.yml down
-#   docker --context homeserver compose -p jackui ... up -d       # restaura a prod
+#   docker --context homeserver compose -p jackui ... up -d       # restore prod
 #
-# Segurança: DBs de estado ficam em config-staging (snapshot) → DBs da prod
-# INTOCADOS. MAX_GB=60 (> 50 da prod) → a LRU do staging NÃO evicta pieces da prod.
+# Safety: state DBs live in config-staging (a snapshot) → prod DBs UNTOUCHED.
+# MAX_GB=60 (> prod's 50) → staging's LRU does NOT evict prod pieces.
 services:
   jackui-staging:
     image: jackui:staging-nvidia
@@ -41,7 +41,7 @@ services:
       # Estado ISOLADO (snapshot dos favoritos/biblioteca/art) — protege a prod
       - /portainer/Files/AppData/Config/jackui-staging/config.yaml:/app/config.yaml
       - /portainer/Files/AppData/Config/jackui-staging:/data
-      # ⚠️ CACHE DE PIECES *REAL* DA PROD (arquivos já baixados) — prod parada!
+      # ⚠️ PROD's *REAL* PIECE CACHE (already-downloaded files) — prod must be stopped!
       - /mnt/lvm1-storage/jacktrack/cache:/data/streams
       - /mnt/lvm1-storage:/mnt/storage:ro
       - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:ro
@@ -53,7 +53,7 @@ services:
       - JACKUI_DB_PATH=/data/jackui.db
       - JACKUI_STREAM_DIR=/data/streams
       - JACKUI_STATE_DIR=/data
-      # > 50 da prod → LRU não evicta pieces da prod durante o teste
+      # > prod's 50 → the LRU won't evict prod pieces during the test
       - JACKUI_STREAM_MAX_GB=60
       - JACKUI_DOWNLOAD_DIR=/data/downloads
       - JACKUI_SHARED_DIR=/data/shared
