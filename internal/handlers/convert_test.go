@@ -156,9 +156,14 @@ func TestDownloadAndParseTorrent_InvalidScheme(t *testing.T) {
 }
 
 func TestDownloadAndParseTorrent_BogusHost(t *testing.T) {
-	_, _, cerr := downloadAndParseTorrent("http://192.0.2.1/nonexistent.torrent")
-	if cerr != nil {
-		// Timeout or connection refused is fine — the point is it doesn't panic
+	// 192.0.2.1 é TEST-NET-1 (RFC 5737), garantidamente irrouteável — a busca
+	// SEMPRE falha (timeout/conn refused), nunca retorna um torrent válido.
+	mi, magnet, cerr := downloadAndParseTorrent("http://192.0.2.1/nonexistent.torrent")
+	if cerr == nil {
+		t.Fatal("host irrouteável deveria retornar erro, veio nil")
+	}
+	if mi != nil || magnet != "" {
+		t.Errorf("no erro, metainfo/magnet deveriam ser zero: mi=%v magnet=%q", mi, magnet)
 	}
 }
 

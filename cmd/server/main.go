@@ -227,6 +227,13 @@ func initHistoryStore(deps *appDeps) {
 	}()
 }
 
+// transmissionRPCEnabled diz se a camada de compat Transmission RPC deve ser
+// exposta. Opt-in (default OFF) por ser uma superfície RPC sensível.
+func transmissionRPCEnabled() bool {
+	v := os.Getenv("JACKUI_TRANSMISSION_RPC_ENABLED")
+	return v == "1" || v == "true"
+}
+
 func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
 	sc := streamer.Config{
 		DataDir:       cfg.Stream.DataDir,
@@ -234,6 +241,15 @@ func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
 		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
 		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
 		JackettAPIKey: cfg.Jackett.APIKey,
+		// Performance / hardware tuning (ver config.StreamConfig).
+		MaxDownloadRate:    cfg.Stream.MaxDownloadRate,
+		MaxUploadRate:      cfg.Stream.MaxUploadRate,
+		Readahead:          int64(cfg.Stream.ReadaheadMB) << 20,
+		StorageBackend:     cfg.Stream.StorageBackend,
+		MaxConnsPerTorrent: cfg.Stream.MaxConnsPerTorrent,
+		HalfOpenConns:      cfg.Stream.HalfOpenConns,
+		PeersHighWater:     cfg.Stream.PeersHighWater,
+		PieceHashers:       cfg.Stream.PieceHashers,
 	}
 	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
 		sc.JackettHost = u.Hostname()
@@ -695,9 +711,11 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	})
 
 	// Transmission RPC compatibility — so Sonarr/Radarr/Prowlarr can talk to
-	// JackUI as if it were a Transmission daemon. Only registered when the
-	// downloads store is available (i.e. the streamer is running).
-	if deps.downloadsStore != nil && deps.streamSrv != nil {
+	// JackUI as if it were a Transmission daemon. OPT-IN via
+	// JACKUI_TRANSMISSION_RPC_ENABLED=1 (default OFF): é uma superfície RPC e,
+	// com JACKUI_AUTH_ENABLED desligado, ficaria sem autenticação — habilite só
+	// em LAN e/ou com auth ligada. Só registra com streamer/downloads disponíveis.
+	if transmissionRPCEnabled() && deps.downloadsStore != nil && deps.streamSrv != nil {
 		trpc := transmissionrpc.NewHandler(
 			deps.downloadsStore, deps.streamSrv, deps.authStore,
 			deps.streamCfg.DataDir, deps.cfg.Stream.DownloadDir,
@@ -745,6 +763,8 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		}
 		adminAPI.GET("/config", handlers.GetConfig(deps.cfg, deps.configPath))
 		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath, deps.jackettClient, deps.streamSrv))
+		adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
+		adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
 		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
 		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench))
 		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))

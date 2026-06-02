@@ -861,17 +861,20 @@ export default function SearchPage() {
         )}
 
         {/* Filter + Sort toolbar — shown once results start arriving.
-            Desktop: barra inline. Mobile: um botão "Filtros" que abre um Sheet
-            com os mesmos campos empilhados (a barra densa quebrava feio no <sm). */}
+            Só vira barra inline no XL+ (≥1280), onde os chips + ordenação cabem
+            numa única linha. Abaixo disso (telefone E TABLET, incl. iPad) a barra
+            densa quebrava feio — o grupo de sort com `ml-auto` ia pra uma 2ª linha
+            colado à direita. Nesses tamanhos usa o botão "Filtros e ordenação"
+            que abre o Sheet empilhado (mesmos campos, layout limpo). */}
         {hasResults && (
           <>
-            <div className="hidden sm:flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
+            <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
               <Filter className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
               {filterFields(false)}
             </div>
             <button
               onClick={() => setFilterSheetOpen(true)}
-              className="sm:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-gray-700 bg-gray-800/60 text-sm text-gray-300"
+              className="xl:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-gray-700 bg-gray-800/60 text-sm text-gray-300"
             >
               <Filter className="w-4 h-4" />
               Filtros e ordenação

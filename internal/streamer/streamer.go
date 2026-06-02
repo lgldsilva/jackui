@@ -24,6 +24,7 @@ import (
 	alog "github.com/anacrolix/log"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
 	"golang.org/x/time/rate"
 )
@@ -93,6 +94,19 @@ type Config struct {
 	// Behind a VPN this should be the provider's forwarded port so peers can
 	// reach us (seed + better leech). See resolvePeerPort in main.
 	ListenPort int
+	// ── Performance / hardware tuning (0/"" = default da lib) ──
+	// Readahead é o buffer de leitura à frente por sessão de streaming, em bytes.
+	// 0 → 32 MiB. Aplicado por Reader; mutável ao vivo via SetStreamReadahead.
+	Readahead int64
+	// StorageBackend: "file" (default, grava direto) ou "mmap" (page cache).
+	// Lido só na construção do client (New) — mudar exige reiniciar o processo.
+	StorageBackend string
+	// Tuning de peers/CPU — só aplicados em New (exigem reinício). 0 = default
+	// anacrolix (conns=50, half-open=25, peersHighWater=500, pieceHashers=2).
+	MaxConnsPerTorrent int
+	HalfOpenConns      int
+	PeersHighWater     int
+	PieceHashers       int
 }
 
 // FilePathResolver resolves an info_hash and file index to a local physical file path.
@@ -126,7 +140,19 @@ type Streamer struct {
 	// chunk read/write.
 	dlLimiter *rate.Limiter
 	upLimiter *rate.Limiter
+	// storageImpl é o backend de storage quando explicitamente escolhido (mmap).
+	// nil quando usamos o default FileStorage do anacrolix (gerido internamente
+	// pelo client). Fechado no Close() para liberar mapeamentos/handles.
+	storageImpl storage.ClientImplCloser
+	// readahead é o buffer de leitura à frente por stream, em bytes. Lido sob mu;
+	// mutável ao vivo via SetStreamReadahead. 0 → streamReadaheadDefault.
+	readahead int64
 }
+
+// streamReadaheadDefault é o readahead de streaming quando não configurado: 32
+// MiB. Calibrado para o caminho de transcode HLS — abaixo disso o Reader do
+// anacrolix bloqueia esperando o próximo piece e o ffmpeg engasga.
+const streamReadaheadDefault = 32 << 20
 
 // SetFilePathResolver registers the custom file path resolver function (typically querying the downloads DB).
 func (s *Streamer) SetFilePathResolver(r FilePathResolver) {
@@ -308,6 +334,18 @@ func New(cfg Config) (*Streamer, error) {
 	// Reduce log noise
 	tcfg.Logger = tcfg.Logger.WithFilterLevel(alog.Critical)
 
+	// Tuning de peers/CPU: só sobrescreve quando configurado (>0), senão mantém o
+	// default sensato da lib. Lido só aqui — mudar exige reiniciar o processo.
+	applyPeerTuning(tcfg, cfg)
+
+	// Storage backend: mmap mapeia os arquivos em memória (page cache) p/ seek mais
+	// rápido; file (default) grava direto. Guardamos o closer p/ liberar no Close().
+	var storageImpl storage.ClientImplCloser
+	if cfg.StorageBackend == "mmap" {
+		storageImpl = storage.NewMMap(cfg.DataDir)
+		tcfg.DefaultStorage = storageImpl
+	}
+
 	// Build always-on rate limiters so callers can dynamically adjust the cap at
 	// runtime. anacrolix only reads the limiter pointer once (at client
 	// construction), so SetLimit/SetBurst on the same instance is the only way
@@ -341,11 +379,56 @@ func New(cfg Config) (*Streamer, error) {
 		metainfoDir: metainfoDir,
 		dlLimiter:   dlLimiter,
 		upLimiter:   upLimiter,
+		storageImpl: storageImpl,
+		readahead:   cfg.Readahead,
 	}
 
 	go s.gcLoop()
 	return s, nil
 }
+
+// applyPeerTuning sobrescreve os limites de conexão/peers/hashers do ClientConfig
+// quando configurados (>0). Valores 0 preservam o default da lib anacrolix.
+func applyPeerTuning(tcfg *torrent.ClientConfig, cfg Config) {
+	if cfg.MaxConnsPerTorrent > 0 {
+		tcfg.EstablishedConnsPerTorrent = cfg.MaxConnsPerTorrent
+	}
+	if cfg.HalfOpenConns > 0 {
+		tcfg.HalfOpenConnsPerTorrent = cfg.HalfOpenConns
+	}
+	if cfg.PeersHighWater > 0 {
+		tcfg.TorrentPeersHighWater = cfg.PeersHighWater
+	}
+	if cfg.PieceHashers > 0 {
+		tcfg.PieceHashersPerTorrent = cfg.PieceHashers
+	}
+}
+
+// streamReadahead retorna o readahead de streaming em bytes (configurado ou default).
+func (s *Streamer) streamReadahead() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.readahead > 0 {
+		return s.readahead
+	}
+	return streamReadaheadDefault
+}
+
+// SetStreamReadahead atualiza ao vivo o readahead de streaming (em MB). Vale a
+// partir do próximo Reader aberto. mb<=0 volta ao default. Não exige reinício.
+func (s *Streamer) SetStreamReadahead(mb int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if mb <= 0 {
+		s.readahead = 0
+		return
+	}
+	s.readahead = int64(mb) << 20
+}
+
+// StreamReadaheadForTesting expõe o readahead efetivo (em bytes) para testes de
+// outros pacotes verificarem que um setter foi aplicado.
+func (s *Streamer) StreamReadaheadForTesting() int64 { return s.streamReadahead() }
 
 func (s *Streamer) metainfoPath(h metainfo.Hash) string {
 	return filepath.Join(s.metainfoDir, h.HexString()+".torrent")
@@ -455,6 +538,11 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 func (s *Streamer) Close() {
 	close(s.stop)
 	s.client.Close()
+	// Fecha o storage mmap (libera mapeamentos/handles). FileStorage default é
+	// gerido pelo client, então storageImpl é nil nesse caso.
+	if s.storageImpl != nil {
+		_ = s.storageImpl.Close()
+	}
 }
 
 // Add loads a magnet OR an HTTP(S) URL to a .torrent file and waits for metadata.
@@ -769,9 +857,10 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	// 8 MiB of readahead the anacrolix Reader blocks waiting for the next piece
 	// mid-segment, and WaitForMaster times out before the first segment lands
 	// (confirmed on the GTX 1070 with 2160p sources). 32 MiB covers ~2 segments
-	// of 4K lookahead so the encoder never starves on a healthy swarm.
-	r.SetReadahead(32 << 20) // 32 MiB
-	r.SetResponsive()        // prioritize pieces around current read position
+	// of 4K lookahead so the encoder never starves on a healthy swarm. Configurável
+	// via StreamConfig.ReadaheadMB (default 32) — ver streamReadahead().
+	r.SetReadahead(s.streamReadahead())
+	r.SetResponsive() // prioritize pieces around current read position
 
 	// Reconcile THIS file's cache against the disk, once. anacrolix assumes an
 	// empty store on add and would re-download pieces we already have (seen in
@@ -1569,6 +1658,10 @@ func (s *Streamer) RateLimits() (down, up int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return limiterBytes(s.dlLimiter), limiterBytes(s.upLimiter)
+}
+
+func (s *Streamer) ListenPort() int {
+	return s.cfg.ListenPort
 }
 
 // SetRateLimits updates the global download/upload bandwidth caps in bytes/sec.
