@@ -84,7 +84,9 @@ func scopePath(b *local.Browser, c *gin.Context, mountName, relPath string) stri
 func LocalMounts(b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := userFromCtx(c)
-		c.JSON(http.StatusOK, b.MountsFor(username))
+		// Enriquece cada mount com o espaço livre/total do filesystem (discos
+		// físicos, rclone, etc) pra UI mostrar quanto dá pra usar.
+		c.JSON(http.StatusOK, mountsWithSpace(b.MountsFor(username)))
 	}
 }
 

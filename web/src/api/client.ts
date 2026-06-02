@@ -1382,7 +1382,7 @@ export const deleteHistoryEntry = async (q: string): Promise<void> => {
 // without going through anacrolix. http.ServeFile handles HTTP Range for
 // progressive playback; HEVC files still need browser support locally.
 
-export type LocalMount = { name: string; path: string; userSubpath?: boolean }
+export type LocalMount = { name: string; path: string; userSubpath?: boolean; freeBytes?: number; totalBytes?: number }
 export type LocalEntry = {
   name: string
   path: string       // relative to mount root
