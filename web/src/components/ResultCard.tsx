@@ -44,6 +44,93 @@ async function copyToClipboard(text: string) {
   }
 }
 
+async function resolveMagnetIfNeeded(
+  result: SearchResult,
+  setResolving: (r: boolean) => void
+): Promise<string | undefined> {
+  let magnet = result.magnetUri
+  if (!magnet && result.link) {
+    setResolving(true)
+    try {
+      const conv = await convertTorrentToMagnet(result.link)
+      result.magnetUri = conv.magnet
+      result.infoHash = conv.infoHash
+      magnet = conv.magnet
+    } catch (err: any) {
+      alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
+    } finally {
+      setResolving(false)
+    }
+  }
+  return magnet
+}
+
+function useTmdbMatch(title: string) {
+  const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
+  const cardRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!cardRef.current) return
+    const obs = new IntersectionObserver((entries, observer) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue
+        observer.disconnect()
+        tmdbMatch(title).then(m => { if (m) setTmdb(m) })
+        return
+      }
+    }, { rootMargin: '120px' })
+    obs.observe(cardRef.current)
+    return () => obs.disconnect()
+  }, [title])
+
+  return { tmdb, cardRef }
+}
+
+async function handleToggleFavorite(
+  title: string,
+  infoHash: string | undefined,
+  magnetUri: string | undefined,
+  isFavorited: boolean,
+  setFavOpt: (fav: boolean | null) => void
+) {
+  const wasFavorited = isFavorited
+  setFavOpt(!wasFavorited)
+  try {
+    if (wasFavorited) {
+      await favoriteRemove(title)
+    } else {
+      await favoriteAdd(title, infoHash || '', magnetUri || '', 'manual')
+    }
+  } catch {
+    setFavOpt(wasFavorited)
+  }
+}
+
+async function startTorrentDownload(
+  result: SearchResult,
+  setResolvingTorrent: (r: boolean) => void
+) {
+  if (result.link) {
+    globalThis.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
+    return
+  }
+
+  if (result.magnetUri) {
+    setResolvingTorrent(true)
+    try {
+      const downloadUrl = convertMagnetToTorrentUrl(result.magnetUri)
+      globalThis.location.href = downloadUrl
+    } catch (err: any) {
+      alert(`Erro ao converter magnet para torrent: ${err.message || err}`)
+    } finally {
+      setTimeout(() => {
+        setResolvingTorrent(false)
+      }, 4000)
+    }
+  }
+}
+
+
 function RatingBadge({ tmdb }: { readonly tmdb: TmdbMatch | null }): React.ReactNode {
   if (!tmdb) return null
   if (tmdb.imdbRating && tmdb.imdbRating > 0) {
@@ -222,112 +309,34 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   const [copied, setCopied] = useState(false)
   const [resolvingMagnet, setResolvingMagnet] = useState(false)
   const [resolvingTorrent, setResolvingTorrent] = useState(false)
-  // Optimistic favorite toggle. null = exibe o valor canônico do backend
-
-  // (result.isFavorited); true/false sobrescreve até o request voltar.
-  // Em failure restauramos pra null pra cair de volta no canônico.
   const [favOpt, setFavOpt] = useState<boolean | null>(null)
-  // TMDB lazy enrichment — only fires once the card has been visible.
-  // Server returns 204 (no match) or 503 (disabled) without breaking.
-  const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
-  const cardRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (!cardRef.current) return
-    const obs = new IntersectionObserver((entries, observer) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue
-        observer.disconnect()
-        tmdbMatch(result.title).then(m => { if (m) setTmdb(m) })
-        return
-      }
-    }, { rootMargin: '120px' /* trigger slightly before viewport entry */ })
-    obs.observe(cardRef.current)
-    return () => obs.disconnect()
-  }, [result.title])
 
-  // Canônico vem do backend; favOpt sobrescreve enquanto o toggle estiver em
-  // voo (otimismo na UI). Backend resolve favorited por infoHash (preciso) ou
-  // por name (fallback p/ entradas legacy sem hash) — sem matching ambíguo
-  // entre torrents com mesmo título.
+  const { tmdb, cardRef } = useTmdbMatch(result.title)
+
   const isFavorited = favOpt ?? (result.isFavorited ?? false)
 
-  const toggleFavorite = async (e: React.MouseEvent) => {
+  const toggleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation()
-    const wasFavorited = isFavorited
-    setFavOpt(!wasFavorited)
-    try {
-      if (wasFavorited) await favoriteRemove(result.title)
-      else await favoriteAdd(result.title, result.infoHash, result.magnetUri, 'manual')
-    } catch {
-      setFavOpt(wasFavorited) // revert
-    }
+    void handleToggleFavorite(result.title, result.infoHash, result.magnetUri, isFavorited, setFavOpt)
   }
 
   const handleCopyMagnet = async () => {
-    let magnet = result.magnetUri
-    if (!magnet && result.link) {
-      setResolvingMagnet(true)
-      try {
-        const conv = await convertTorrentToMagnet(result.link)
-        magnet = conv.magnet
-        result.magnetUri = conv.magnet
-        result.infoHash = conv.infoHash
-      } catch (err: any) {
-        alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
-        setResolvingMagnet(false)
-        return
-      }
-      setResolvingMagnet(false)
-    }
-
+    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
     if (!magnet) return
     await copyToClipboard(magnet)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // Opens the magnet link in the OS-registered handler (qBittorrent, Transmission, etc.)
   const handleOpenMagnet = async () => {
-    let magnet = result.magnetUri
-    if (!magnet && result.link) {
-      setResolvingMagnet(true)
-      try {
-        const conv = await convertTorrentToMagnet(result.link)
-        magnet = conv.magnet
-        result.magnetUri = conv.magnet
-        result.infoHash = conv.infoHash
-      } catch (err: any) {
-        alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
-        setResolvingMagnet(false)
-        return
-      }
-      setResolvingMagnet(false)
-    }
-
+    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
     if (magnet) {
       globalThis.location.href = magnet
     }
   }
 
-  const handleTorrentDownload = async () => {
-    if (result.link) {
-      globalThis.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
-      return
-    }
-
-    if (result.magnetUri) {
-      setResolvingTorrent(true)
-      try {
-        const downloadUrl = convertMagnetToTorrentUrl(result.magnetUri)
-        globalThis.location.href = downloadUrl
-      } catch (err: any) {
-        alert(`Erro ao converter magnet para torrent: ${err.message || err}`)
-      } finally {
-        setTimeout(() => {
-          setResolvingTorrent(false)
-        }, 4000)
-      }
-    }
+  const handleTorrentDownload = () => {
+    void startTorrentDownload(result, setResolvingTorrent)
   }
 
   const hasMagnet = Boolean(result.magnetUri)

@@ -53,14 +53,14 @@ function toPayload(f: Form): StreamSettings {
 
 // NumberField: input numérico tocável (>=44px, 16px anti-zoom iOS). placeholder
 // mostra o default da lib quando o valor é 0 ("usar default").
-function NumberField(props: {
+function NumberField(props: Readonly<{
   label: string
   value: number
   onChange: (n: number) => void
   placeholder?: string | number
   suffix?: string
   hint?: string
-}) {
+}>) {
   const { label, value, onChange, placeholder, suffix, hint } = props
   return (
     <label className="flex flex-col gap-1">
@@ -71,7 +71,7 @@ function NumberField(props: {
           min={0}
           inputMode="numeric"
           value={value || ''}
-          placeholder={placeholder != null ? String(placeholder) : undefined}
+          placeholder={placeholder == null ? undefined : String(placeholder)}
           onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
           className="input-field min-h-[44px]"
         />
@@ -82,7 +82,7 @@ function NumberField(props: {
   )
 }
 
-function Badge({ kind }: { kind: 'live' | 'restart' }) {
+function Badge({ kind }: Readonly<{ kind: 'live' | 'restart' }>) {
   if (kind === 'live') {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-green-400 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">
@@ -97,7 +97,7 @@ function Badge({ kind }: { kind: 'live' | 'restart' }) {
   )
 }
 
-function SectionTitle({ title, badge }: { title: string; badge: 'live' | 'restart' }) {
+function SectionTitle({ title, badge }: Readonly<{ title: string; badge: 'live' | 'restart' }>) {
   return (
     <div className="flex items-center gap-2">
       <h3 className="text-sm font-medium text-gray-200">{title}</h3>

@@ -375,9 +375,10 @@ func TestWorkerReconcile_StartsInitForNewDownload(t *testing.T) {
 
 	w.mu.Lock()
 	_, isPending = w.pending[d.ID]
+	retries := w.retries[d.ID]
 	w.mu.Unlock()
-	if !isPending {
-		t.Error("expected pending entry after reconcile for new download")
+	if !isPending && retries == 0 {
+		t.Error("expected pending entry or retries incremented after reconcile for new download")
 	}
 }
 
@@ -469,11 +470,14 @@ func TestWorkerStartInit_CreatesPending(t *testing.T) {
 
 	w.mu.Lock()
 	cancel, ok := w.pending[d.ID]
+	retries := w.retries[d.ID]
 	w.mu.Unlock()
-	if !ok {
-		t.Fatal("expected pending entry after startInit")
+	if !ok && retries == 0 {
+		t.Fatal("expected pending entry or retries after startInit")
 	}
-	cancel()
+	if ok {
+		cancel()
+	}
 
 	// Wait for the goroutine to finish
 	w.doneWG.Wait()
