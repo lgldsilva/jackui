@@ -40,6 +40,7 @@ import {
   streamThumbnailURL,
 } from '../api/client'
 import { formatRate } from '../lib/format'
+import { usePersistedState } from '../lib/storage'
 import { clientLog } from '../lib/diag'
 import Hls from 'hls.js'
 import { useScrollLock } from '../lib/useScrollLock'
@@ -2007,8 +2008,10 @@ export default function PlayerModal({
   // settings off-screen. The filter keeps the list short so settings stay reachable.
   const [fileFilter, setFileFilter] = useState('')
   const [fileTypeFilter, setFileTypeFilter] = useState<FileType>('all')
-  const [fileSortBySize, setFileSortBySize] = useState(false)
-  const [fileSizeDesc, setFileSizeDesc] = useState(true)
+  // Size sort is shared (persisted) with TorrentContentsModal so the order the
+  // user picked there carries into the player's file list — same localStorage key.
+  const [fileSortBySize, setFileSortBySize] = usePersistedState('fileview.sortBySize', false)
+  const [fileSizeDesc, setFileSizeDesc] = usePersistedState('fileview.sizeDesc', true)
   const hoverThumb = useHoverThumb()
 
   // Favorites — auto-mark after 5min of actual playback (currentTime accumulates)
@@ -2094,7 +2097,8 @@ export default function PlayerModal({
     bufferRetryRef.current = 0
     setFileFilter('')
     setFileTypeFilter('all')
-    setFileSortBySize(false)
+    // fileSortBySize/fileSizeDesc persist (shared with TorrentContentsModal) —
+    // intentionally NOT reset here, so the chosen order carries into the player.
     origCuesRef.current = []
     setCurrentTime(0)
     setDuration(0)
