@@ -8,8 +8,8 @@ type MouseLike = { clientX: number; clientY: number }
 // has no hover trigger and the fixed/z-[70] portal ends up pinned over other UI
 // (e.g. the video player controls on mobile). Gate it on `(hover: hover)`.
 function canHoverPreview(): boolean {
-  if (typeof window === 'undefined' || !window.matchMedia) return true
-  return window.matchMedia('(hover: hover)').matches
+  if (typeof globalThis === 'undefined' || !globalThis.matchMedia) return true
+  return globalThis.matchMedia('(hover: hover)').matches
 }
 
 /**
