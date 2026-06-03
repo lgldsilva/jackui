@@ -1648,6 +1648,22 @@ export type DownloadsQueueSettings = {
   rotationEnabled: boolean
 }
 
+// One known source (magnet) for a download — the original + alternatives found
+// via Jackett re-search (Phase 2 source rotation).
+export type DownloadSource = {
+  id: number
+  downloadId: number
+  infoHash: string
+  title: string
+  tracker: string
+  seeders: number
+  size: number
+  status: 'active' | 'candidate' | 'cooldown' | 'failed'
+  tries: number
+  lastTried?: string | null
+  createdAt: string
+}
+
 export type DownloadCreateParams = {
   infoHash: string
   fileIndex: number
@@ -1721,6 +1737,11 @@ export const downloadSetPriority = async (id: number, priority: DownloadPriority
 export const getDownloadsQueueSettings = async (): Promise<DownloadsQueueSettings> => {
   const { data } = await api.get<DownloadsQueueSettings>('/downloads/settings')
   return data
+}
+
+export const downloadSources = async (id: number): Promise<DownloadSource[]> => {
+  const { data } = await api.get<DownloadSource[]>(`/downloads/${id}/sources`)
+  return data || []
 }
 
 export const updateDownloadsQueueSettings = async (

@@ -345,6 +345,33 @@ func DownloadsSetPriority(store *downloads.Store) gin.HandlerFunc {
 	}
 }
 
+// DownloadsSources handles GET /api/downloads/:id/sources — the catalog of
+// known sources (original + alternatives) for a download. Empty until source
+// rotation (Phase 2) has run. Ownership-checked.
+func DownloadsSources(store *downloads.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		if _, err := store.Get(userID, id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			return
+		}
+		sources, err := store.ListSources(id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if sources == nil {
+			sources = []downloads.Source{}
+		}
+		c.JSON(http.StatusOK, sources)
+	}
+}
+
 // DownloadsTrackers handles GET /api/downloads/trackers — distinct trackers.
 func DownloadsTrackers(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {

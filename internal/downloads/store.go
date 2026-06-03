@@ -83,6 +83,18 @@ type Download struct {
 	Stalls          int        `json:"stalls,omitempty"`          // times demoted for no-seed
 	QueuedSince     *time.Time `json:"queuedSince,omitempty"`     // base for fair ordering + aging
 	QueuePosition   int        `json:"queuePosition,omitempty"`   // 1-based rank among the user's queued rows (computed by handler)
+	// Source rotation (Phase 2): the magnet currently active when it differs from
+	// the original (an alternative source). Empty = downloading the original.
+	ActiveMagnet    string     `json:"activeMagnet,omitempty"`
+}
+
+// EffectiveMagnet returns the magnet the worker should download: the active
+// alternative source when set, otherwise the original.
+func (d Download) EffectiveMagnet() string {
+	if d.ActiveMagnet != "" {
+		return d.ActiveMagnet
+	}
+	return d.Magnet
 }
 
 type Store struct {
@@ -141,13 +153,37 @@ func (s *Store) migrate() error {
 		"priority TEXT NOT NULL DEFAULT 'normal'",
 		"queued_since DATETIME",
 		"stalls INTEGER NOT NULL DEFAULT 0",
+		// Phase 2 (source rotation): the magnet currently being downloaded when it
+		// differs from the original `magnet` (an alternative source). Empty = original.
+		"active_magnet TEXT NOT NULL DEFAULT ''",
 	}
 	for _, def := range addColumns {
 		if e := s.addColumnIfMissing("downloads", def); e != nil {
 			return e
 		}
 	}
-	return nil
+	// Phase 2: catalog of known sources per download (the original + alternatives
+	// discovered via Jackett re-search), used for round-robin rotation when a
+	// source dries up. Kept in a side table so downloads.info_hash never mutates.
+	_, err = s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS download_sources (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			download_id INTEGER NOT NULL,
+			magnet      TEXT    NOT NULL,
+			info_hash   TEXT    NOT NULL,
+			title       TEXT    NOT NULL DEFAULT '',
+			tracker     TEXT    NOT NULL DEFAULT '',
+			seeders     INTEGER NOT NULL DEFAULT 0,
+			size        INTEGER NOT NULL DEFAULT 0,
+			status      TEXT    NOT NULL DEFAULT 'candidate',
+			tries       INTEGER NOT NULL DEFAULT 0,
+			last_tried  DATETIME,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(download_id, info_hash)
+		);
+		CREATE INDEX IF NOT EXISTS idx_src_dl ON download_sources(download_id);
+	`)
+	return err
 }
 
 // addColumnIfMissing runs ALTER TABLE ADD COLUMN when the column (first token of
@@ -258,7 +294,8 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error)
 const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
 	tracker, category, status, bytes_downloaded,
 	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at,
-	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, '') FROM downloads `
+	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, ''),
+	COALESCE(active_magnet, '') FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com
@@ -789,7 +826,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &createdAt,
-		&d.Priority, &d.Stalls, &queuedSince,
+		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet,
 	)
 	if err != nil {
 		return nil, err
