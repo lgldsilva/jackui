@@ -484,6 +484,10 @@ func (w *Worker) moveCompletedFile(d Download, td *trackedDL) {
 			destDir = filepath.Join(w.downloadDir, username)
 		}
 	}
+	// Per-torrent folder: every download lands in its own folder named after the
+	// torrent, so a multi-file torrent's files stay together instead of dumping
+	// loose into the shared dir. Applies to single-file torrents too.
+	destDir = filepath.Join(destDir, sanitizeFolderName(td.name))
 	src := filepath.Join(w.dataDir, td.file.Path())
 	dst := filepath.Join(destDir, filepath.Base(td.file.Path()))
 	if mkErr := os.MkdirAll(destDir, 0755); mkErr != nil {
@@ -497,6 +501,30 @@ func (w *Worker) moveCompletedFile(d Download, td *trackedDL) {
 	_ = w.store.SetFilePath(d.UserID, d.ID, dst)
 	w.streamer.UnregisterDownload(td.name)
 	log.Printf("downloads: moved #%d %q → %s", d.ID, td.name, dst)
+}
+
+// sanitizeFolderName turns a torrent name into ONE safe path segment for the
+// per-torrent destination folder: strips path separators and traversal, drops
+// control chars, trims trailing dots/spaces, and caps the length. Never returns
+// "", ".", or ".." (which would escape or no-op the join) — falls back to "download".
+func sanitizeFolderName(name string) string {
+	// Neutralize path separators (a single segment can't traverse without them);
+	// `.`/`..` are handled by the trailing-trim + the final guard below.
+	name = strings.NewReplacer("/", "_", "\\", "_").Replace(strings.TrimSpace(name))
+	name = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, name)
+	if len(name) > 200 {
+		name = name[:200]
+	}
+	name = strings.TrimRight(strings.TrimSpace(name), ". ")
+	if name == "" || name == "." || name == ".." {
+		return "download"
+	}
+	return name
 }
 
 // initDownload resolves the magnet, waits for metadata, marks the target file
