@@ -542,9 +542,27 @@ export const tmdbMatch = async (title: string): Promise<TmdbMatch | null> => {
 // tmdbTrending returns this week's trending movies + shows for the Discover page.
 // Empty array when TMDB is disabled (no key) or on error — the page degrades to
 // an "enable TMDB" hint rather than failing.
-export const tmdbTrending = async (): Promise<TmdbMatch[]> => {
+export type TmdbGenre = { id: number; name: string }
+
+// tmdbTrending returns the trending list. With year/genre it switches to TMDB
+// /discover (filtered); without, the weekly trending (carrying ↑/↓ direction).
+export const tmdbTrending = async (opts?: { year?: number; genre?: number }): Promise<TmdbMatch[]> => {
   try {
-    const { data } = await api.get<TmdbMatch[]>('/tmdb/trending', { validateStatus: () => true })
+    const params = new URLSearchParams()
+    if (opts?.year) params.set('year', String(opts.year))
+    if (opts?.genre) params.set('genre', String(opts.genre))
+    const qs = params.toString()
+    const { data } = await api.get<TmdbMatch[]>(`/tmdb/trending${qs ? `?${qs}` : ''}`, { validateStatus: () => true })
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+// tmdbGenres returns the merged movie+tv genre list for the Discover filter.
+export const tmdbGenres = async (): Promise<TmdbGenre[]> => {
+  try {
+    const { data } = await api.get<TmdbGenre[]>('/tmdb/genres', { validateStatus: () => true })
     return Array.isArray(data) ? data : []
   } catch {
     return []
