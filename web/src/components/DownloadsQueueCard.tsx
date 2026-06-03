@@ -119,7 +119,7 @@ export default function DownloadsQueueCard() {
             onChange={(e) => set('rotationEnabled', e.target.checked)}
             className="accent-cyan-500 w-4 h-4"
           />
-          Rotação automática de fontes
+          <span>Rotação automática de fontes</span>
           <span className="text-[10px] uppercase tracking-wide text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">experimental</span>
         </label>
       </div>
