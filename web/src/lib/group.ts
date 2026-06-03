@@ -80,12 +80,14 @@ function mergeTrackersIntoMagnet(magnet: string, extraTrackers: string[]): strin
  * magnet's `tr=` announce URLs into the primary's magnet so Play/Download can
  * reach peers indexed only by the runners-up.
  *
- * Secondary dedup: entries without infoHash AND entries whose infoHash doesn't
- * collide get a `name|size` fallback bucket. Many trackers don't expose the
- * info_hash via Jackett, so two listings of the same release (same title, same
- * size) would otherwise show as visually-duplicate cards — and favoriting one
- * would visibly favorite the other (favorites cache keys on title). Bucketing
- * by `name|size` collapses those into one card with `alsoIn` filled in.
+ * Secondary dedup: only entries WITHOUT a usable infoHash get a `name|size`
+ * fallback bucket, and they collapse only among themselves. Many trackers don't
+ * expose the info_hash via Jackett, so two hash-less listings of the same release
+ * (same title, same size) would otherwise show as visually-duplicate cards — and
+ * favoriting one would visibly favorite the other (favorites cache keys on title).
+ * A hash-BEARING result is a confirmed-distinct torrent and is never collapsed by
+ * this fuzzy proxy, so a hash-less private listing (e.g. jackui) is never
+ * silently absorbed into a same-title public card and hidden.
  */
 function mergeIntoBucket<T extends SearchResult>(
   arr: T[],
@@ -131,19 +133,23 @@ function dedupNameSizeBuckets<T extends SearchResult>(
       .replaceAll(/[^a-z0-9]+/g, ' ')
       .trim()
   const sizeBucket = (bytes: number) => Math.floor(bytes / (10 * 1024 * 1024))
+  // Hash-bearing entries are confirmed-distinct torrents (grouped by infoHash
+  // above), so they pass through untouched. Only hash-LESS listings — private
+  // trackers like jackui that don't expose info_hash via Jackett — get the
+  // name|size fallback bucket, and only among THEMSELVES. This stops a private
+  // listing from being absorbed into a same-title/size public (magnet) result and
+  // silently hidden, while still collapsing duplicate hash-less listings.
+  const out: T[] = [...hashOut]
   const finalBuckets = new Map<string, T[]>()
   const seenKey = (r: T) => `${normalizeTitle(r.title)}|${sizeBucket(r.size)}`
-  for (const r of [...hashOut, ...noHash]) {
+  for (const r of noHash) {
     const k = seenKey(r)
     const arr = finalBuckets.get(k) || []
     arr.push(r)
     finalBuckets.set(k, arr)
   }
-
-  const out: T[] = []
   for (const [, arr] of finalBuckets) {
-    if (arr.length === 1) { out.push(arr[0]); continue }
-    out.push(mergeIntoBucket(arr, extractTrackers, mergeTrackersIntoMagnet))
+    out.push(arr.length === 1 ? arr[0] : mergeIntoBucket(arr, extractTrackers, mergeTrackersIntoMagnet))
   }
   return out
 }

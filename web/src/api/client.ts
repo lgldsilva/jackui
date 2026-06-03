@@ -184,8 +184,12 @@ export const saveConfig = async (config: AppConfig): Promise<void> => {
   await api.put('/config', config)
 }
 
-export const testJackettConnection = async (): Promise<{ success: boolean; message?: string; error?: string }> => {
-  const { data } = await api.post('/config/test')
+export const testJackettConnection = async (
+  creds?: { url: string; apiKey: string },
+): Promise<{ success: boolean; message?: string; error?: string }> => {
+  // Pass creds to validate them BEFORE saving (an empty apiKey reuses the stored
+  // one server-side); omit them to re-test the currently-saved config.
+  const { data } = await api.post('/config/test', creds)
   return data
 }
 
