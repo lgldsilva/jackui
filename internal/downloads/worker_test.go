@@ -2,6 +2,8 @@ package downloads
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,6 +12,43 @@ import (
 
 	"github.com/luizg/jackui/internal/streamer"
 )
+
+// The downloads worker has its own ntfy sender (separate from the watchlist's);
+// it must also send the configured token as Authorization: Bearer.
+func TestSendNtfy_SetsBearerWhenTokenSet(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	w := &Worker{
+		ntfyBaseURL: srv.URL,
+		ntfyTopic:   "topic",
+		ntfyToken:   "tk_secret",
+		ntfyClient:  &http.Client{},
+	}
+	w.sendNtfy(context.Background(), "title", "body", "tags")
+	if gotAuth != "Bearer tk_secret" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer tk_secret")
+	}
+}
+
+func TestSendNtfy_NoAuthHeaderWhenTokenEmpty(t *testing.T) {
+	var hadAuth bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, hadAuth = r.Header["Authorization"]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	w := &Worker{ntfyBaseURL: srv.URL, ntfyTopic: "topic", ntfyClient: &http.Client{}}
+	w.sendNtfy(context.Background(), "title", "body", "tags")
+	if hadAuth {
+		t.Error("Authorization header must be absent when no token configured")
+	}
+}
 
 func TestNewWorkerDefaults(t *testing.T) {
 	s := streamer.NewForTesting()
@@ -685,5 +724,3 @@ func testMoveFile(t *testing.T, src, dst, content string) {
 		t.Errorf("content: want %q, got %q", content, string(data))
 	}
 }
-
-

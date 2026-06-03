@@ -384,6 +384,7 @@ func initDownloadsStore(deps *appDeps) {
 		Interval:        2 * time.Second,
 		NtfyBaseURL:     deps.cfg.Notifications.NtfyBaseURL,
 		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
+		NtfyToken:       deps.cfg.Notifications.NtfyToken,
 		ResolveUsername: usernameResolver,
 	})
 	worker.Start()
@@ -518,7 +519,7 @@ func initWatchlistStore(deps *appDeps) {
 	if interval <= 0 {
 		interval = 15 * time.Minute
 	}
-	notifier := &watchlist.NtfyPoster{BaseURL: deps.cfg.Notifications.NtfyBaseURL}
+	notifier := &watchlist.NtfyPoster{BaseURL: deps.cfg.Notifications.NtfyBaseURL, Token: deps.cfg.Notifications.NtfyToken}
 	worker := watchlist.NewWorker(w, deps.jackettClient, notifier, deps.cfg.Notifications.NtfyDefaultTopic, interval)
 	worker.Start()
 	deps.addCleanup(worker.Stop)
