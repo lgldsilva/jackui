@@ -1,12 +1,12 @@
-# STAGING — instância paralela pra validar playback (#16/#17/#19) sem tocar na prod.
-# Standalone (NÃO herda docker-compose.yml) pra não concatenar portas/volumes.
-# Sobe com:
+# STAGING — a parallel instance to validate playback (#16/#17/#19) without touching prod.
+# Standalone (does NOT inherit docker-compose.yml) so it doesn't concatenate ports/volumes.
+# Bring it up with:
 #   docker --context homeserver compose -p jackui-staging -f docker-compose.staging.yml up -d
-# (SEM --remove-orphans — a prod `jackui` continua intacta.)
+# (WITHOUT --remove-orphans — the prod `jackui` stays intact.)
 #
-# Diferenças vs prod: container jackui-staging, imagem jackui:staging-nvidia,
-# host port 8990→8989, peer 51470→51469, dirs de estado/cache SEPARADOS.
-# Alcançável no iPhone/Mac (mesma WiFi) em http://192.168.86.24:8990
+# Differences vs prod: container jackui-staging, image jackui:staging-nvidia,
+# host port 8990→8989, peer 51470→51469, SEPARATE state/cache dirs.
+# Reachable from iPhone/Mac (same WiFi) at http://192.168.86.24:8990
 services:
   jackui-staging:
     image: jackui:staging-nvidia
@@ -36,7 +36,7 @@ services:
       - /Files/AppData/Config/jackui-staging/config.yaml:/app/config.yaml
       - /Files/AppData/Config/jackui-staging:/data
       - /mnt/lvm1-storage/jacktrack/cache-staging:/data/streams
-      # Biblioteca/mounts compartilhados com a prod (somente leitura aqui — staging não promove)
+      # Library/mounts shared with prod (read-only here — staging doesn't promote)
       - /mnt/lvm1-storage:/mnt/storage:ro
       - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:ro
       - /mnt/rclone/gdrive/pessoal/sensitive:/mnt/gdrive/sensitive:ro
@@ -60,7 +60,7 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
-      # staging sem domínio NPM — base url aponta pro host:porta direto
+      # staging has no NPM domain — base url points straight at host:port
       - JACKUI_BASE_URL=http://192.168.86.24:8990
     networks:
       - vpn-gateway_vpn-net
