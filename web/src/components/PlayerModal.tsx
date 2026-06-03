@@ -285,7 +285,7 @@ function renderTorrentInfoModal(props: {
       <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
       {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
       {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
-      {typeof window !== 'undefined' && window.electronAPI ? (
+      {globalThis.electronAPI ? (
         <Row label="Categoria">
           <div className="flex items-center gap-1.5">
             <select
@@ -1607,7 +1607,7 @@ function PlayerControlsPanel({
               {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
             </span>
           </button>
-          {typeof window !== 'undefined' && window.electronAPI && (
+          {globalThis.electronAPI && (
             <button
               onClick={handleLocalDownload}
               disabled={localDownloadLoading}

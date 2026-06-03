@@ -11,6 +11,18 @@ import (
 	"github.com/luizg/jackui/internal/ai"
 )
 
+// Rótulos legíveis das categorias (consts p/ não duplicar literais — go:S1192).
+const (
+	labelMovies   = "Filmes"
+	labelTV       = "Séries"
+	labelMusic    = "Música"
+	labelGames    = "Jogos"
+	labelSoftware = "Software"
+	labelAdult    = "Adulto"
+	labelBooks    = "Livros"
+	labelOther    = "Outros"
+)
+
 // CategoryResult is what the classify endpoint returns.
 type CategoryResult struct {
 	Category  string `json:"category"`  // "movies" | "tv" | "music" | "games" | "software" | "adult" | "other"
@@ -25,22 +37,22 @@ var categoryPatterns = []struct {
 	label  string
 	weight float64
 }{
-	{regexp.MustCompile(`(?i)\b(1080p|2160p|4k|bluray|web-dl|webrip|brrip|hdr|dv|x264|x265|hevc|avc| remux)\b`), "movies", "Filmes", 0.4},
-	{regexp.MustCompile(`(?i)\b(movie|film|cinema|feature)\b`), "movies", "Filmes", 0.8},
-	{regexp.MustCompile(`(?i)\bS\d{1,2}E\d{1,2}\b`), "tv", "Séries", 0.9},
-	{regexp.MustCompile(`(?i)\b(season|episode|s\d{1,2}|e\d{1,2})\b`), "tv", "Séries", 0.6},
-	{regexp.MustCompile(`(?i)\b(complete.*series|tv.*pack|show)\b`), "tv", "Séries", 0.7},
-	{regexp.MustCompile(`(?i)\b(flac|mp3|aac|album|discography|lossless|320kbps)\b`), "music", "Música", 0.7},
-	{regexp.MustCompile(`(?i)\b(music|song|concert|live|ost|soundtrack)\b`), "music", "Música", 0.5},
-	{regexp.MustCompile(`(?i)\b(ps4|ps5|xbox|switch|pc.*game|multi\d+|nsz|xci|nsp)\b`), "games", "Jogos", 0.7},
-	{regexp.MustCompile(`(?i)\b(game|repack|gog|fitgirl|dodi|codex|plaza)\b`), "games", "Jogos", 0.5},
-	{regexp.MustCompile(`(?i)\b(xxx|adult|porn|18\+|onlyfans)\b`), "adult", "Adulto", 0.9},
-	{regexp.MustCompile(`(?i)\b(software|app|program|windows|macos|linux|crack|keygen|portable)\b`), "software", "Software", 0.6},
-	{regexp.MustCompile(`(?i)\.(pdf|epub|mobi|djvu|cbr|cbz)\b`), "books", "Livros", 0.8},
+	{regexp.MustCompile(`(?i)\b(1080p|2160p|4k|bluray|web-dl|webrip|brrip|hdr|dv|x264|x265|hevc|avc| remux)\b`), "movies", labelMovies, 0.4},
+	{regexp.MustCompile(`(?i)\b(movie|film|cinema|feature)\b`), "movies", labelMovies, 0.8},
+	{regexp.MustCompile(`(?i)\bS\d{1,2}E\d{1,2}\b`), "tv", labelTV, 0.9},
+	{regexp.MustCompile(`(?i)\b(season|episode|s\d{1,2}|e\d{1,2})\b`), "tv", labelTV, 0.6},
+	{regexp.MustCompile(`(?i)\b(complete.*series|tv.*pack|show)\b`), "tv", labelTV, 0.7},
+	{regexp.MustCompile(`(?i)\b(flac|mp3|aac|album|discography|lossless|320kbps)\b`), "music", labelMusic, 0.7},
+	{regexp.MustCompile(`(?i)\b(music|song|concert|live|ost|soundtrack)\b`), "music", labelMusic, 0.5},
+	{regexp.MustCompile(`(?i)\b(ps4|ps5|xbox|switch|pc.*game|multi\d+|nsz|xci|nsp)\b`), "games", labelGames, 0.7},
+	{regexp.MustCompile(`(?i)\b(game|repack|gog|fitgirl|dodi|codex|plaza)\b`), "games", labelGames, 0.5},
+	{regexp.MustCompile(`(?i)\b(xxx|adult|porn|18\+|onlyfans)\b`), "adult", labelAdult, 0.9},
+	{regexp.MustCompile(`(?i)\b(software|app|program|windows|macos|linux|crack|keygen|portable)\b`), "software", labelSoftware, 0.6},
+	{regexp.MustCompile(`(?i)\.(pdf|epub|mobi|djvu|cbr|cbz)\b`), "books", labelBooks, 0.8},
 }
 
 func classifyCategory(title string) CategoryResult {
-	best := CategoryResult{Category: "other", Label: "Outros", Source: "fallback", Confidence: 0}
+	best := CategoryResult{Category: "other", Label: labelOther, Source: "fallback", Confidence: 0}
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return best
@@ -67,14 +79,14 @@ var prefixMapping = map[string]string{
 }
 
 var labelMapping = map[string]string{
-	"movies":   "Filmes",
-	"tv":       "Séries",
-	"music":    "Música",
-	"games":    "Jogos",
-	"software": "Software",
-	"adult":    "Adulto",
-	"books":    "Livros",
-	"other":    "Outros",
+	"movies":   labelMovies,
+	"tv":       labelTV,
+	"music":    labelMusic,
+	"games":    labelGames,
+	"software": labelSoftware,
+	"adult":    labelAdult,
+	"books":    labelBooks,
+	"other":    labelOther,
 }
 
 func jackettCategoryToCategory(jackettCat string) string {
@@ -126,7 +138,7 @@ func resolveCategory(ctx context.Context, aiClient *ai.Client, title, jackettCat
 	if hasRegex {
 		return regexRes // any positive-confidence match beats the fallback
 	}
-	return CategoryResult{Category: "other", Label: "Outros", Source: "fallback", Confidence: 0}
+	return CategoryResult{Category: "other", Label: labelOther, Source: "fallback", Confidence: 0}
 }
 
 // categoryFromJackett maps a Jackett category ID to our category (highest trust).
@@ -162,9 +174,9 @@ func categoryFromAI(ctx context.Context, aiClient *ai.Client, title string) (Cat
 	if err != nil || result == nil || result.Kind == "unknown" {
 		return CategoryResult{}, false
 	}
-	cat, label := "movies", "Filmes"
+	cat, label := "movies", labelMovies
 	if result.Kind == "tv" {
-		cat, label = "tv", "Séries"
+		cat, label = "tv", labelTV
 	}
 	return CategoryResult{Category: cat, Label: label, Source: "ai", Confidence: 0.85}, true
 }

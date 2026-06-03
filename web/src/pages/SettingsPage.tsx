@@ -58,6 +58,73 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'ia', label: 'IA', icon: <BrainCircuit className="w-4 h-4" /> },
 ]
 
+// TabButton — fora do componente pai (evita recriar a cada render; S6478).
+function TabButton({ tab, active, onClick }: {
+  readonly tab: typeof TABS[number]
+  readonly active: boolean
+  readonly onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors whitespace-nowrap ${
+        active
+          ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
+          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-transparent'
+      }`}
+    >
+      {tab.icon}
+      {tab.label}
+    </button>
+  )
+}
+
+// SessionsList — corpo do modal de sessões. Early-returns em vez de ternário
+// aninhado (S3358) e fora do componente pai (reduz a complexidade do SettingsPage).
+function SessionsList({ loading, sessions, onRevoke, onRevokeOthers }: {
+  readonly loading: boolean
+  readonly sessions: SessionInfo[]
+  readonly onRevoke: (id: SessionInfo['id']) => void
+  readonly onRevokeOthers: () => void
+}) {
+  if (loading) {
+    return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-500" /></div>
+  }
+  if (sessions.length === 0) {
+    return <p className="text-sm text-gray-500 text-center py-4">Nenhuma sessão registrada.</p>
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      {sessions.map(sess => (
+        <div key={sess.id} className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+          <div className="flex-1 min-w-0">
+            <div className="text-gray-200 flex items-center gap-1.5">
+              {sess.current && <span className="text-green-400">● esta sessão</span>}
+              {!sess.current && <span className="text-gray-500">○</span>}
+              {sess.remember && <span className="text-gray-500 text-xs">· lembrar 30d</span>}
+            </div>
+            <div className="text-gray-500 text-xs mt-0.5">
+              criada {new Date(sess.createdAt).toLocaleString()} · expira {new Date(sess.expiresAt).toLocaleDateString()}
+            </div>
+          </div>
+          {!sess.current && (
+            <button onClick={() => onRevoke(sess.id)}
+              title="Encerrar" className="text-gray-500 hover:text-red-400 flex-shrink-0">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      ))}
+      {sessions.some(s => !s.current) && (
+        <button onClick={onRevokeOthers}
+          className="flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-2 self-start mt-2">
+          <LogOut className="w-4 h-4" /> Encerrar outras sessões
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -150,20 +217,6 @@ export default function SettingsPage() {
     )
   }
 
-  const TabButton = ({ tab }: { tab: typeof TABS[number] }) => (
-    <button
-      onClick={() => setActiveTab(tab.id)}
-      className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors whitespace-nowrap ${
-        activeTab === tab.id
-          ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-transparent'
-      }`}
-    >
-      {tab.icon}
-      {tab.label}
-    </button>
-  )
-
   return (
     <div className="min-h-screen bg-gray-900">
       {/* Header */}
@@ -185,7 +238,7 @@ export default function SettingsPage() {
       {/* Tab bar — scroll horizontal no mobile */}
       <div className="border-b border-gray-700 overflow-x-auto">
         <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto px-4 py-2 flex gap-2">
-          {TABS.map(tab => <TabButton key={tab.id} tab={tab} />)}
+          {TABS.map(tab => <TabButton key={tab.id} tab={tab} active={activeTab === tab.id} onClick={() => setActiveTab(tab.id)} />)}
         </div>
       </div>
 
@@ -252,7 +305,7 @@ export default function SettingsPage() {
             {config.envOverrides && Object.keys(config.envOverrides).length > 0 && (
               <section className="card flex flex-col gap-3">
                 <h2 className="text-base font-semibold text-gray-200">
-                  Variáveis de Ambiente
+                  <span>Variáveis de Ambiente</span>
                   <span className="ml-2 text-[10px] text-amber-400 font-normal">(prioridade sobre config.yaml)</span>
                 </h2>
                 <div className="space-y-1.5">
@@ -274,7 +327,7 @@ export default function SettingsPage() {
             <section className="card flex flex-col gap-3">
               <h2 className="text-base font-semibold text-gray-200">Sobre o JackUI</h2>
               <div className="space-y-1.5 text-xs text-gray-400">
-                {typeof window !== 'undefined' && window.electronAPI ? <VersionInfo /> : (
+                {globalThis.electronAPI ? <VersionInfo /> : (
                   <><p>Versão: desenvolvimento</p><p>Executando via navegador</p></>
                 )}
               </div>
@@ -377,14 +430,14 @@ export default function SettingsPage() {
           }>
           <div className="flex flex-col gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Nome</label>
-              <input type="text" value={editingClient.name}
+              <label htmlFor="dc-name" className="block text-sm font-medium text-gray-300 mb-1.5">Nome</label>
+              <input id="dc-name" type="text" value={editingClient.name}
                 onChange={e => setEditingClient({ ...editingClient, name: e.target.value })}
                 placeholder="qBittorrent Local" className="input-field" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Tipo</label>
-              <select value={editingClient.type}
+              <label htmlFor="dc-type" className="block text-sm font-medium text-gray-300 mb-1.5">Tipo</label>
+              <select id="dc-type" value={editingClient.type}
                 onChange={e => setEditingClient({ ...editingClient, type: e.target.value })}
                 className="input-field">
                 <option value="qbittorrent">qBittorrent</option>
@@ -392,21 +445,21 @@ export default function SettingsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
-              <input type="url" value={editingClient.url}
+              <label htmlFor="dc-url" className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
+              <input id="dc-url" type="url" value={editingClient.url}
                 onChange={e => setEditingClient({ ...editingClient, url: e.target.value })}
                 placeholder="http://localhost:8080" className="input-field" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Usuario</label>
-                <input type="text" value={editingClient.username}
+                <label htmlFor="dc-user" className="block text-sm font-medium text-gray-300 mb-1.5">Usuario</label>
+                <input id="dc-user" type="text" value={editingClient.username}
                   onChange={e => setEditingClient({ ...editingClient, username: e.target.value })}
                   placeholder="admin" className="input-field" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Senha</label>
-                <input type="password" value={editingClient.password}
+                <label htmlFor="dc-pass" className="block text-sm font-medium text-gray-300 mb-1.5">Senha</label>
+                <input id="dc-pass" type="password" value={editingClient.password}
                   onChange={e => setEditingClient({ ...editingClient, password: e.target.value })}
                   placeholder="••••••••" className="input-field" />
               </div>
@@ -423,40 +476,12 @@ export default function SettingsPage() {
 
       {/* Sessions modal */}
       <Sheet open={sessionModalOpen} onClose={() => setSessionModalOpen(false)} title="Sessões Ativas" size="sm">
-        {sessionsLoading ? (
-          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-500" /></div>
-        ) : sessions.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-4">Nenhuma sessão registrada.</p>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            {sessions.map(sess => (
-              <div key={sess.id} className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm">
-                <div className="flex-1 min-w-0">
-                  <div className="text-gray-200 flex items-center gap-1.5">
-                    {sess.current && <span className="text-green-400">● esta sessão</span>}
-                    {!sess.current && <span className="text-gray-500">○</span>}
-                    {sess.remember && <span className="text-gray-500 text-xs">· lembrar 30d</span>}
-                  </div>
-                  <div className="text-gray-500 text-xs mt-0.5">
-                    criada {new Date(sess.createdAt).toLocaleString()} · expira {new Date(sess.expiresAt).toLocaleDateString()}
-                  </div>
-                </div>
-                {!sess.current && (
-                  <button onClick={async () => { await revokeSession(sess.id); loadSessions() }}
-                    title="Encerrar" className="text-gray-500 hover:text-red-400 flex-shrink-0">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-            {sessions.some(s => !s.current) && (
-              <button onClick={async () => { await revokeOtherSessions(getRefreshToken()); loadSessions() }}
-                className="flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-2 self-start mt-2">
-                <LogOut className="w-4 h-4" /> Encerrar outras sessões
-              </button>
-            )}
-          </div>
-        )}
+        <SessionsList
+          loading={sessionsLoading}
+          sessions={sessions}
+          onRevoke={async (id) => { await revokeSession(id); loadSessions() }}
+          onRevokeOthers={async () => { await revokeOtherSessions(getRefreshToken()); loadSessions() }}
+        />
       </Sheet>
     </div>
   )
@@ -464,14 +489,19 @@ export default function SettingsPage() {
 
 function VersionInfo() {
   const [ver, setVer] = useState<{ version: string; commit: string; date: string } | null>(null)
-  useEffect(() => { window.electronAPI?.getAppVersion().then(setVer).catch(() => {}) }, [])
+  // Plataforma vem do Electron (getPlatform) — navigator.platform é deprecado (S1874).
+  const [platform, setPlatform] = useState('')
+  useEffect(() => {
+    globalThis.electronAPI?.getAppVersion().then(setVer).catch(() => {})
+    globalThis.electronAPI?.getPlatform().then(setPlatform).catch(() => {})
+  }, [])
   if (!ver) return <p className="animate-pulse">Carregando…</p>
   return (
     <>
       <p>Versão: <span className="text-gray-300">{ver.version}</span></p>
       <p>Commit: <span className="text-gray-300 font-mono">{ver.commit}</span></p>
       <p>Build: <span className="text-gray-300">{new Date(ver.date).toLocaleString('pt-BR')}</span></p>
-      <p>Plataforma: <span className="text-gray-300">{navigator.platform}</span></p>
+      {platform && <p>Plataforma: <span className="text-gray-300">{platform}</span></p>}
     </>
   )
 }
