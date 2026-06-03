@@ -4,6 +4,14 @@ import { createPortal } from 'react-dom'
 type ThumbState = { url: string | null; label?: string; x: number; y: number }
 type MouseLike = { clientX: number; clientY: number }
 
+// The floating preview only makes sense with a real pointer. On touch devices it
+// has no hover trigger and the fixed/z-[70] portal ends up pinned over other UI
+// (e.g. the video player controls on mobile). Gate it on `(hover: hover)`.
+function canHoverPreview(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return true
+  return window.matchMedia('(hover: hover)').matches
+}
+
 /**
  * useHoverThumb — floating frame-preview ("zoom") shown while the pointer rests
  * over a file row. The thumbnail endpoints (`streamThumbnailURL`/`localThumbURL`)
@@ -24,6 +32,7 @@ export function useHoverThumb(delayMs = 320) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const show = useCallback((url: string | null, e: MouseLike, label?: string) => {
+    if (!canHoverPreview()) return // touch device — no hover preview
     if (!url && !label) return
     const { clientX: x, clientY: y } = e
     clearTimeout(timerRef.current)
