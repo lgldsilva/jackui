@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL } from '../api/client'
 import { formatRate } from '../lib/format'
+import { usePersistedState } from '../lib/storage'
 import { Sheet } from './Sheet'
 import { useHoverThumb } from './FileThumbHover'
 
@@ -111,8 +112,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState<FileType>('all')
-  const [sortBySize, setSortBySize] = useState(false)
-  const [sizeDesc, setSizeDesc] = useState(true)
+  // Size sort is shared (persisted) with PlayerModal so the order chosen here
+  // carries into the player when you hit play — same localStorage key.
+  const [sortBySize, setSortBySize] = usePersistedState('fileview.sortBySize', false)
+  const [sizeDesc, setSizeDesc] = usePersistedState('fileview.sizeDesc', true)
   const [copied, setCopied] = useState(false)
   const hoverThumb = useHoverThumb()
 
@@ -132,7 +135,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
     setError('')
     setFilter('')
     setTypeFilter('all')
-    setSortBySize(false)
+    // NOTE: sortBySize/sizeDesc are intentionally NOT reset — they persist
+    // (shared with the player) so the chosen order sticks across torrents.
     streamAdd(pickTorrentSource(result))
       .then(setInfo)
       .catch(err => setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo'))
