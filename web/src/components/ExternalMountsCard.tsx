@@ -1,9 +1,67 @@
 import { useState, useEffect } from 'react'
-import { HardDrive, Loader2, Save, Plus, Trash2, Lock, Users } from 'lucide-react'
+import { HardDrive, Loader2, Save, Plus, Trash2, Lock, Users, X, Search } from 'lucide-react'
 import {
   getMounts, updateMounts, adminListUsers,
   ExternalMount, AdminUser,
 } from '../api/client'
+
+// UserAccessPicker — shows the users with access as removable chips and a search
+// box to add others (typeahead over the users not yet selected). Replaces the
+// flat pill toggles, which gave no search and no clear "who has access" view.
+function UserAccessPicker({ allUsers, selected, onToggle }: {
+  readonly allUsers: AdminUser[]
+  readonly selected: string[]
+  readonly onToggle: (username: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const q = query.trim().toLowerCase()
+  const available = allUsers.filter(u => !selected.includes(u.username))
+  const matches = q ? available.filter(u => u.username.toLowerCase().includes(q)) : available
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-gray-500">Com acesso:</span>
+        {selected.length === 0 && <span className="text-[11px] text-amber-400/80">ninguém ainda — adicione abaixo</span>}
+        {selected.map(u => (
+          <span key={u} className="inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40">
+            {u}
+            <button onClick={() => onToggle(u)} title={`Remover ${u}`} className="hover:text-white p-0.5"><X className="w-3 h-3" /></button>
+          </span>
+        ))}
+      </div>
+      {available.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+          <input
+            value={query}
+            onChange={e => { setQuery(e.target.value); setOpen(true) }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 120)}
+            placeholder="buscar usuário para adicionar…"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500/50"
+          />
+          {open && matches.length > 0 && (
+            <ul className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg shadow-2xl">
+              {matches.map(u => (
+                <li key={u.id}>
+                  {/* onMouseDown fires before the input's onBlur, so the pick registers. */}
+                  <button
+                    onMouseDown={() => { onToggle(u.username); setQuery(''); setOpen(false) }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
+                  >
+                    {u.username}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Visibility model for a mount: shared with everyone, restricted to some users,
 // or isolated so each user only sees their own subdir.
@@ -136,23 +194,9 @@ export default function ExternalMountsCard() {
                 </div>
               </div>
               {vis === 'restricted' && (
-                <div className="flex flex-wrap gap-1.5">
-                  {users.length === 0 && <span className="text-[11px] text-gray-600">Sem usuários para listar.</span>}
-                  {users.map((u) => {
-                    const on = (m.allowedUsers ?? []).includes(u.username)
-                    return (
-                      <button
-                        key={u.id}
-                        onClick={() => toggleUser(i, u.username)}
-                        className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${on
-                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                          : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'}`}
-                      >
-                        {u.username}
-                      </button>
-                    )
-                  })}
-                </div>
+                users.length === 0
+                  ? <span className="text-[11px] text-gray-600">Sem usuários para listar.</span>
+                  : <UserAccessPicker allUsers={users} selected={m.allowedUsers ?? []} onToggle={(u) => toggleUser(i, u)} />
               )}
               {vis === 'perUser' && (
                 <p className="text-[11px] text-gray-600">Cada usuário vê e grava só no seu próprio subdiretório dentro desta pasta.</p>
