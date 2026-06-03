@@ -277,14 +277,24 @@ func (w *Worker) detectStalls(qs QueueSettings) {
 	if qs.StallThresholdMin <= 0 {
 		return
 	}
+	for _, td := range w.collectStallVictims(qs) {
+		// Phase 2: before demoting, try rotating to an alternative source. If it
+		// rotates, the download keeps its slot and re-inits with the new magnet.
+		if qs.RotationEnabled && w.tryRotate(td, qs) {
+			continue
+		}
+		w.demoteStalled(td, qs)
+	}
+}
+
+// collectStallVictims returns tracked downloads with no progress for >= the
+// threshold AND zero connected seeders (a true no-seed stall, not just slow).
+func (w *Worker) collectStallVictims(qs QueueSettings) []*trackedDL {
 	threshold := time.Duration(qs.StallThresholdMin) * time.Minute
 	now := time.Now()
-
-	type victim struct {
-		td *trackedDL
-	}
-	var victims []victim
+	var victims []*trackedDL
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	for _, td := range w.tracked {
 		if td.lastProgressAt.IsZero() || now.Sub(td.lastProgressAt) < threshold {
 			continue // never sampled, or progressed recently
@@ -292,31 +302,28 @@ func (w *Worker) detectStalls(qs QueueSettings) {
 		if td.torrent != nil && td.torrent.Stats().ConnectedSeeders > 0 {
 			continue // seeders present — not a no-seed stall
 		}
-		victims = append(victims, victim{td: td})
+		victims = append(victims, td)
 	}
-	w.mu.Unlock()
+	return victims
+}
 
-	for _, v := range victims {
-		td := v.td
-		// Phase 2: before demoting, try rotating to an alternative source. If it
-		// rotates, the download keeps its slot and re-inits with the new magnet.
-		if qs.RotationEnabled && w.tryRotate(td, qs) {
-			continue
-		}
-		stalls, demoted, err := w.store.DemoteToQueued(td.id)
-		if err != nil || !demoted {
-			continue
-		}
-		w.mu.Lock()
-		delete(w.tracked, td.id)
-		delete(w.retries, td.id)
-		w.unregisterLocked(td)
-		w.mu.Unlock()
-		log.Printf("downloads: #%d %q stalled (no seed for %dm) → requeued (stall #%d)", td.id, td.name, qs.StallThresholdMin, stalls)
-		if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
-			_ = w.store.SetStatus(td.userID, td.id, StatusPaused)
-			log.Printf("downloads: #%d %q paused after %d no-seed stalls", td.id, td.name, stalls)
-		}
+// demoteStalled sends a stalled download to the back of its priority group and,
+// once it has cycled MaxStalls times, pauses it (the user's choice: stop cycling
+// without marking it failed).
+func (w *Worker) demoteStalled(td *trackedDL, qs QueueSettings) {
+	stalls, demoted, err := w.store.DemoteToQueued(td.id)
+	if err != nil || !demoted {
+		return
+	}
+	w.mu.Lock()
+	delete(w.tracked, td.id)
+	delete(w.retries, td.id)
+	w.unregisterLocked(td)
+	w.mu.Unlock()
+	log.Printf("downloads: #%d %q stalled (no seed for %dm) → requeued (stall #%d)", td.id, td.name, qs.StallThresholdMin, stalls)
+	if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
+		_ = w.store.SetStatus(td.userID, td.id, StatusPaused)
+		log.Printf("downloads: #%d %q paused after %d no-seed stalls", td.id, td.name, stalls)
 	}
 }
 
