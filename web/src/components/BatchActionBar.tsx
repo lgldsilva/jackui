@@ -1,9 +1,11 @@
-import { Trash2, FolderInput, ArrowUpCircle, X, CheckCheck, Loader2 } from 'lucide-react'
+import { Trash2, FolderInput, ArrowUpCircle, X, Loader2 } from 'lucide-react'
+import { SelectAllButton } from './SelectAllButton'
 
 export type BatchActionBarProps = {
   readonly count: number
   readonly onCancel: () => void
   readonly onSelectAll?: () => void
+  readonly allSelected?: boolean
   readonly canMove: boolean
   readonly canPromote: boolean
   readonly onDelete: () => void
@@ -18,7 +20,7 @@ export type BatchActionBarProps = {
  * home-indicator do iPhone. A lista recebe `pb-20` enquanto a barra está aberta.
  */
 export function BatchActionBar({
-  count, onCancel, onSelectAll, canMove, canPromote, onDelete, onMove, onPromote, running = false,
+  count, onCancel, onSelectAll, allSelected = false, canMove, canPromote, onDelete, onMove, onPromote, running = false,
 }: BatchActionBarProps) {
   const actionBtn = 'flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-lg text-sm font-medium transition-colors disabled:opacity-40'
   return (
@@ -29,9 +31,8 @@ export function BatchActionBar({
         </button>
         <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{count} selec.</span>
         {onSelectAll && (
-          <button onClick={onSelectAll} title="Selecionar tudo" className={`${actionBtn} text-gray-400 hover:bg-gray-700`}>
-            <CheckCheck className="w-4 h-4" />
-          </button>
+          <SelectAllButton allSelected={allSelected} onToggle={onSelectAll}
+            className={`${actionBtn} text-gray-300 hover:bg-gray-700`} />
         )}
         <div className="flex-1" />
         {running && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}

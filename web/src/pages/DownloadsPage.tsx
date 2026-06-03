@@ -21,6 +21,7 @@ import {
 } from '../api/client'
 import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
 import PromoteModal from '../components/PromoteModal'
+import { SelectAllButton } from '../components/SelectAllButton'
 import { usePlayer } from '../components/PlayerProvider'
 import DownloadInspectModal from '../components/DownloadInspectModal'
 import DownloadModal from '../components/DownloadModal'
@@ -527,6 +528,10 @@ export default function DownloadsPage() {
   let queueSubtitle: string | undefined
   if (queuedCount > 0) queueSubtitle = `${queuedCount} na fila`
   else if (seedingCount > 0) queueSubtitle = `${seedingCount} semeando`
+  const activePlural = activeCount === 1 ? '' : 's'
+  const activeValue = maxActive > 0
+    ? `${downloadingNowCount}/${maxActive} ativos`
+    : `${activeCount} ativo${activePlural}`
 
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
@@ -605,7 +610,7 @@ export default function DownloadsPage() {
           <StatCard
             icon={<Activity className="w-5 h-5" />}
             label="Fila"
-            value={maxActive > 0 ? `${downloadingNowCount}/${maxActive} ativos` : `${activeCount} ativo${activeCount === 1 ? '' : 's'}`}
+            value={activeValue}
             subtitle={queueSubtitle}
             gradient="from-amber-500/20 to-orange-500/10"
             iconColor="text-amber-400"
@@ -1032,18 +1037,10 @@ export default function DownloadsPage() {
             <Trash2 className="w-3 h-3" /> Remover
           </button>
           <div className="w-px h-5 bg-gray-700" />
-          <button
-            onClick={handleToggleSelectAll}
-            className="text-xs text-gray-400 hover:text-gray-200 px-1"
-          >
-            {selected.size === items.length ? 'desmarcar' : 'todos'}
-          </button>
-          <button
-            onClick={() => setSelected(new Set())}
-            className="text-xs text-gray-400 hover:text-gray-200 px-1"
-          >
-            limpar
-          </button>
+          <SelectAllButton
+            allSelected={items.length > 0 && selected.size === items.length}
+            onToggle={handleToggleSelectAll}
+          />
         </div>
       )}
     </section>
