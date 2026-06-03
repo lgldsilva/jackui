@@ -99,6 +99,24 @@ func TestSaveSnapshot_EmptyIsNoOp(t *testing.T) {
 	}
 }
 
+func TestSnapshot_DBErrorsAreSafe(t *testing.T) {
+	// With the DB closed, the snapshot helpers must fail gracefully (no panic):
+	// applyTrendingDirection still tags everything "new", saveSnapshot bails on
+	// the failed transaction, and prevWeekRanks returns empty.
+	c := newSnapTestClient(t)
+	_ = c.cache.Close()
+	items := []Match{{TmdbID: 1}, {TmdbID: 2}}
+	c.applyTrendingDirection(items)
+	for _, m := range items {
+		if m.Direction != "new" {
+			t.Errorf("with no DB, items should default to 'new', got %q", m.Direction)
+		}
+	}
+	if got := c.prevWeekRanks("2099-W01"); len(got) != 0 {
+		t.Errorf("prevWeekRanks on closed DB should be empty, got %d", len(got))
+	}
+}
+
 func TestSaveSnapshot_PrunesOldWeeks(t *testing.T) {
 	c := newSnapTestClient(t)
 	// Insert 6 distinct old weeks, then save → only snapshotHistoryWeeks kept.
