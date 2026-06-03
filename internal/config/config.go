@@ -313,35 +313,35 @@ func applyStreamEnv(cfg *Config) {
 // o backend de storage. Rates vêm em MB/s no env (mais legível) e são convertidos
 // para bytes/seg na config.
 func applyStreamPerfEnv(cfg *Config) {
-	if mbps, ok := envInt("JACKUI_STREAM_DOWN_MBPS"); ok && mbps >= 0 {
-		cfg.Stream.MaxDownloadRate = int64(mbps) * 1024 * 1024
-	}
-	if mbps, ok := envInt("JACKUI_STREAM_UP_MBPS"); ok && mbps >= 0 {
-		cfg.Stream.MaxUploadRate = int64(mbps) * 1024 * 1024
-	}
-	if n, ok := envInt("JACKUI_READAHEAD_MB"); ok && n >= 0 {
-		cfg.Stream.ReadaheadMB = n
-	}
+	applyEnvInt64MB(&cfg.Stream.MaxDownloadRate, "JACKUI_STREAM_DOWN_MBPS")
+	applyEnvInt64MB(&cfg.Stream.MaxUploadRate, "JACKUI_STREAM_UP_MBPS")
+	applyEnvInt(&cfg.Stream.ReadaheadMB, "JACKUI_READAHEAD_MB")
 	if v := os.Getenv("JACKUI_STORAGE_BACKEND"); v != "" {
 		cfg.Stream.StorageBackend = v
 	}
-	if n, ok := envInt("JACKUI_MAX_CONNS"); ok && n >= 0 {
-		cfg.Stream.MaxConnsPerTorrent = n
-	}
-	if n, ok := envInt("JACKUI_HALF_OPEN"); ok && n >= 0 {
-		cfg.Stream.HalfOpenConns = n
-	}
-	if n, ok := envInt("JACKUI_PEERS_HIGH"); ok && n >= 0 {
-		cfg.Stream.PeersHighWater = n
-	}
-	if n, ok := envInt("JACKUI_PIECE_HASHERS"); ok && n >= 0 {
-		cfg.Stream.PieceHashers = n
-	}
+	applyEnvInt(&cfg.Stream.MaxConnsPerTorrent, "JACKUI_MAX_CONNS")
+	applyEnvInt(&cfg.Stream.HalfOpenConns, "JACKUI_HALF_OPEN")
+	applyEnvInt(&cfg.Stream.PeersHighWater, "JACKUI_PEERS_HIGH")
+	applyEnvInt(&cfg.Stream.PieceHashers, "JACKUI_PIECE_HASHERS")
+
 	// Sanitiza: qualquer valor fora de {file,mmap} (incl. vazio) vira "file".
 	if cfg.Stream.StorageBackend != StorageBackendMmap {
 		cfg.Stream.StorageBackend = StorageBackendFile
 	}
 }
+
+func applyEnvInt(target *int, name string) {
+	if n, ok := envInt(name); ok && n >= 0 {
+		*target = n
+	}
+}
+
+func applyEnvInt64MB(target *int64, name string) {
+	if n, ok := envInt(name); ok && n >= 0 {
+		*target = int64(n) * 1024 * 1024
+	}
+}
+
 
 // envInt lê uma env var inteira. Retorna (0,false) se ausente ou inválida.
 func envInt(name string) (int, bool) {
