@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luizg/jackui/internal/config"
@@ -25,14 +26,41 @@ type Mount struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	UserSubpath bool   `json:"userSubpath"` // per-user subdirs — drives the admin "view as user" selector
+	Restricted  bool   `json:"restricted"`  // visible only to specific users (AllowedUsers non-empty); names NOT exposed here
 }
 
 type Browser struct {
+	mu     sync.RWMutex
 	mounts []config.ExternalMount
 }
 
 func NewBrowser(mounts []config.ExternalMount) *Browser {
 	return &Browser{mounts: mounts}
+}
+
+// snapshot returns the current mount slice under a read lock. SetMounts replaces
+// the slice wholesale (never mutates in place), so iterating the returned slice
+// without holding the lock is safe.
+func (b *Browser) snapshot() []config.ExternalMount {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.mounts
+}
+
+// SetMounts swaps the live mount configuration (used by the admin mounts editor
+// so changes apply without a restart).
+func (b *Browser) SetMounts(mounts []config.ExternalMount) {
+	b.mu.Lock()
+	b.mounts = mounts
+	b.mu.Unlock()
+}
+
+// Config returns a copy of the raw mount config (admin-only; includes AllowedUsers).
+func (b *Browser) Config() []config.ExternalMount {
+	src := b.snapshot()
+	out := make([]config.ExternalMount, len(src))
+	copy(out, src)
+	return out
 }
 
 func (b *Browser) Mounts() []Mount {
@@ -42,8 +70,9 @@ func (b *Browser) Mounts() []Mount {
 // MountsFor returns mounts visible to the given username.
 // Empty username = only public mounts (AllowedUsers empty).
 func (b *Browser) MountsFor(username string) []Mount {
-	out := make([]Mount, 0, len(b.mounts))
-	for _, m := range b.mounts {
+	mounts := b.snapshot()
+	out := make([]Mount, 0, len(mounts))
+	for _, m := range mounts {
 		visible := len(m.AllowedUsers) == 0
 		if !visible && username != "" {
 			for _, u := range m.AllowedUsers {
@@ -56,14 +85,14 @@ func (b *Browser) MountsFor(username string) []Mount {
 		if !visible {
 			continue
 		}
-		out = append(out, Mount{Name: m.Name, Path: m.Path, UserSubpath: m.UserSubpath})
+		out = append(out, Mount{Name: m.Name, Path: m.Path, UserSubpath: m.UserSubpath, Restricted: len(m.AllowedUsers) > 0})
 	}
 	return out
 }
 
 // UserCanAccess checks if a username is allowed to access a given mount name.
 func (b *Browser) UserCanAccess(username, mountName string) bool {
-	for _, m := range b.mounts {
+	for _, m := range b.snapshot() {
 		if m.Name == mountName {
 			if len(m.AllowedUsers) == 0 {
 				return true
@@ -80,7 +109,7 @@ func (b *Browser) UserCanAccess(username, mountName string) bool {
 }
 
 func (b *Browser) findMount(name string) (config.ExternalMount, bool) {
-	for _, m := range b.mounts {
+	for _, m := range b.snapshot() {
 		if m.Name == name {
 			return m, true
 		}

@@ -1425,7 +1425,24 @@ export const deleteHistoryEntry = async (q: string): Promise<void> => {
 // without going through anacrolix. http.ServeFile handles HTTP Range for
 // progressive playback; HEVC files still need browser support locally.
 
-export type LocalMount = { name: string; path: string; userSubpath?: boolean; freeBytes?: number; totalBytes?: number }
+export type LocalMount = { name: string; path: string; userSubpath?: boolean; restricted?: boolean; freeBytes?: number; totalBytes?: number }
+
+// ExternalMount is the full admin-side mount config (includes allowedUsers).
+export type ExternalMount = {
+  name: string
+  path: string
+  userSubpath?: boolean
+  allowedUsers?: string[]
+}
+
+export const getMounts = async (): Promise<ExternalMount[]> => {
+  const { data } = await api.get<ExternalMount[]>('/mounts')
+  return data || []
+}
+
+export const updateMounts = async (mounts: ExternalMount[]): Promise<void> => {
+  await api.put('/mounts', mounts)
+}
 export type LocalEntry = {
   name: string
   path: string       // relative to mount root
