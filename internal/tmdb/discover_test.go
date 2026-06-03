@@ -96,6 +96,43 @@ func TestGenres_MergesAndDedupes(t *testing.T) {
 	}
 }
 
+func TestTrending_PaginatesAndTagsDirection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/trending/all/week") {
+			_, _ = w.Write([]byte(`{"results":[]}`))
+			return
+		}
+		if r.URL.Query().Get("page") == "1" {
+			_, _ = w.Write([]byte(`{"results":[
+				{"id":1,"media_type":"movie","title":"M1","poster_path":"/p1.jpg","popularity":50,"release_date":"2024-01-01"},
+				{"id":2,"media_type":"tv","name":"T1","poster_path":"/p2.jpg","popularity":40,"first_air_date":"2023-01-01"},
+				{"id":3,"media_type":"person","name":"Nobody","poster_path":"/p3.jpg"}
+			]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[]}`)) // page 2+ empty → stops pagination
+	}))
+	defer srv.Close()
+	c := testClient(t, srv)
+
+	items, err := c.Trending(context.Background())
+	if err != nil {
+		t.Fatalf("Trending: %v", err)
+	}
+	// person filtered out → 2 items; first run → all "new".
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items (person dropped), got %d", len(items))
+	}
+	if items[0].Direction != "new" {
+		t.Errorf("first run should tag items 'new', got %q", items[0].Direction)
+	}
+	// Second call hits the 6h in-memory cache (no HTTP) — still 2 items.
+	cached, _ := c.Trending(context.Background())
+	if len(cached) != 2 {
+		t.Errorf("cached trending should return 2, got %d", len(cached))
+	}
+}
+
 func TestDiscover_DisabledClient(t *testing.T) {
 	c, _ := New("", "", t.TempDir()+"/tmdb.db")
 	defer c.Close()
