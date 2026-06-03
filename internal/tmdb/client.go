@@ -366,8 +366,19 @@ func (c *Client) fetchTrendingPage(ctx context.Context, page int) ([]Match, erro
 }
 
 func buildTrendingItems(out multiSearchResp) []Match {
+	return matchesFromResults(out, "")
+}
+
+// matchesFromResults converts a TMDB results page into Matches, keeping only
+// movie/tv entries that have a poster. forceKind sets media_type for endpoints
+// that omit it (/discover/{movie,tv}); "" keeps the result's own media_type
+// (multi/trending endpoints).
+func matchesFromResults(out multiSearchResp, forceKind string) []Match {
 	items := make([]Match, 0, len(out.Results))
 	for _, r := range out.Results {
+		if forceKind != "" {
+			r.MediaType = forceKind
+		}
 		if r.MediaType != "movie" && r.MediaType != "tv" {
 			continue
 		}

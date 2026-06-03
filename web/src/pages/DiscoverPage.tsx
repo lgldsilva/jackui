@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
-import { tmdbTrending, TmdbMatch } from '../api/client'
+import { tmdbTrending, tmdbGenres, TmdbMatch, TmdbGenre } from '../api/client'
 
 // DiscoverPage surfaces TMDB's weekly trending movies + shows so the user has a
 // starting point when they don't know what to search. Clicking a poster seeds a
@@ -37,15 +37,33 @@ function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
   return null
 }
 
+// YEARS lists selectable years from the current one back to 1970 (computed once).
+const YEARS = (() => {
+  const now = new Date().getFullYear()
+  const out: number[] = []
+  for (let y = now; y >= 1970; y--) out.push(y)
+  return out
+})()
+
 export default function DiscoverPage() {
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
+  const [year, setYear] = useState(0)   // 0 = sem filtro de ano
+  const [genre, setGenre] = useState(0) // 0 = sem filtro de gênero
+  const [genres, setGenres] = useState<TmdbGenre[]>([])
   const navigate = useNavigate()
 
+  // Genre list for the dropdown (loaded once).
   useEffect(() => {
-    tmdbTrending().then(setItems).catch(() => setItems([]))
+    tmdbGenres().then(setGenres).catch(() => setGenres([]))
   }, [])
+
+  // Trending / discover list — refetched whenever the year/genre filter changes.
+  useEffect(() => {
+    setItems(null)
+    tmdbTrending({ year, genre }).then(setItems).catch(() => setItems([]))
+  }, [year, genre])
 
   const openSearch = (m: TmdbMatch) => {
     const q = m.year ? `${m.title} ${m.year}` : m.title
@@ -65,16 +83,38 @@ export default function DiscoverPage() {
           <h1 className="text-xl font-semibold text-gray-100 flex items-center gap-2">
             <Flame className="w-5 h-5 text-orange-400" /> Em alta
           </h1>
-          <div className="flex items-center gap-1 text-xs">
-            {(['all', 'movie', 'tv'] as Filter[]).map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={filter === f ? 'btn-primary' : 'btn-secondary'}
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <div className="flex items-center gap-1">
+              {(['all', 'movie', 'tv'] as Filter[]).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={filter === f ? 'btn-primary' : 'btn-secondary'}
+                >
+                  {{ all: 'Tudo', movie: 'Filmes', tv: 'Séries' }[f]}
+                </button>
+              ))}
+            </div>
+            <select
+              value={year}
+              onChange={e => setYear(Number(e.target.value))}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-200 focus:outline-none focus:border-green-500/50"
+              title="Filtrar por ano"
+            >
+              <option value={0}>Qualquer ano</option>
+              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            {genres.length > 0 && (
+              <select
+                value={genre}
+                onChange={e => setGenre(Number(e.target.value))}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-200 focus:outline-none focus:border-green-500/50"
+                title="Filtrar por gênero"
               >
-                {{ all: 'Tudo', movie: 'Filmes', tv: 'Séries' }[f]}
-              </button>
-            ))}
+                <option value={0}>Qualquer gênero</option>
+                {genres.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            )}
           </div>
         </div>
 
