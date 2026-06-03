@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Fingerprint, Trash2, LifeBuoy, RefreshCw, Monitor, LogOut } from 'lucide-react'
-import { changePassword, mfaEnroll, mfaVerify, mfaDisable, mfaBackupCodesRemaining, mfaRegenerateBackupCodes, isPasskeySupported, passkeyList, passkeyRegister, passkeyDelete, PasskeyInfo, listSessions, revokeSession, revokeOtherSessions, SessionInfo } from '../api/client'
-import { useAuth, getRefreshToken } from '../auth/AuthContext'
+import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Fingerprint, Trash2, LifeBuoy, RefreshCw } from 'lucide-react'
+import { changePassword, mfaEnroll, mfaVerify, mfaDisable, mfaBackupCodesRemaining, mfaRegenerateBackupCodes, isPasskeySupported, passkeyList, passkeyRegister, passkeyDelete, PasskeyInfo } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 
 // AccountCard — self-service: shows who you are and lets you change your own
 // password (verifying the current one). Visible to every logged-in user.
@@ -38,20 +38,6 @@ export default function AccountCard() {
   }, [passkeysSupported])
 
   useEffect(() => { loadPasskeys() }, [loadPasskeys])
-
-  // Active sessions
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const loadSessions = useCallback(async () => {
-    try { setSessions(await listSessions(getRefreshToken())) } catch { /* ignore */ }
-  }, [])
-  useEffect(() => { loadSessions() }, [loadSessions])
-
-  const killSession = async (id: string) => {
-    try { await revokeSession(id); await loadSessions() } catch { /* ignore */ }
-  }
-  const killOthers = async () => {
-    try { await revokeOtherSessions(getRefreshToken()); await loadSessions() } catch { /* ignore */ }
-  }
 
   const addPasskey = async () => {
     setPkBusy(true); setPkMsg('')
@@ -253,43 +239,6 @@ export default function AccountCard() {
         </div>
       )}
 
-      {/* Active sessions */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-gray-700/60 max-w-sm">
-        <span className="text-xs text-gray-400 flex items-center gap-1.5">
-          <Monitor className="w-3.5 h-3.5" /> Sessões ativas {sessions.length > 0 ? `— ${sessions.length}` : ''}
-        </span>
-        {sessions.length === 0 ? (
-          <span className="text-xs text-gray-600">Nenhuma sessão registrada.</span>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {sessions.map(sess => (
-              <li key={sess.id} className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-xs">
-                <div className="flex-1 min-w-0">
-                  <div className="text-gray-300 flex items-center gap-1.5">
-                    {sess.current && <span className="text-green-400">● esta sessão</span>}
-                    {!sess.current && <span className="text-gray-500">○</span>}
-                    {sess.remember && <span className="text-gray-500">· lembrar 30d</span>}
-                  </div>
-                  <div className="text-gray-600">
-                    criada {new Date(sess.createdAt).toLocaleString()} · expira {new Date(sess.expiresAt).toLocaleDateString()}
-                  </div>
-                </div>
-                {!sess.current && (
-                  <button onClick={() => killSession(sess.id)} title="Encerrar" className="text-gray-500 hover:text-red-400 flex-shrink-0">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {sessions.some(s => !s.current) && (
-          <button onClick={killOthers}
-            className="self-start flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-1.5">
-            <LogOut className="w-4 h-4" /> Encerrar outras sessões
-          </button>
-        )}
-      </div>
     </section>
   )
 }
