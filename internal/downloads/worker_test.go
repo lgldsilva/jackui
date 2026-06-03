@@ -244,6 +244,9 @@ func TestWorker_FailOrRetryBelowMax(t *testing.T) {
 	d, _ := store.Create(Download{
 		UserID: 1, InfoHash: "test", FileIndex: 0, Magnet: "m:test", Name: "test",
 	})
+	// init runs only on downloading rows — promote as the scheduler would.
+	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ = store.Get(1, d.ID)
 
 	w := NewWorker(WorkerConfig{
 		Store:    store,
@@ -313,6 +316,9 @@ func TestWorker_FailOrRetryCancelled(t *testing.T) {
 	d, _ := store.Create(Download{
 		UserID: 1, InfoHash: "test", FileIndex: 0, Magnet: "m:test", Name: "test",
 	})
+	// init runs only on downloading rows — promote as the scheduler would.
+	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ = store.Get(1, d.ID)
 
 	w := NewWorker(WorkerConfig{
 		Store:    store,
