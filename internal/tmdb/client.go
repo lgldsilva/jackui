@@ -41,6 +41,10 @@ type Match struct {
 	VoteAverage float64 `json:"voteAverage"`          // TMDB community score (0-10)
 	ImdbRating  float64 `json:"imdbRating,omitempty"` // real IMDb rating via OMDb (0-10), when available
 	Kind        string  `json:"kind"`                 // "movie" | "tv"
+	Popularity  float64 `json:"popularity,omitempty"` // TMDB popularity score
+	// Trending direction vs last week's ranking: "up" | "down" | "new" | "same".
+	Direction   string  `json:"direction,omitempty"`
+	RankDelta   int     `json:"rankDelta,omitempty"` // positions moved (absolute) vs last week
 }
 
 type Client struct {
@@ -77,7 +81,13 @@ func New(apiKey, omdbKey, cachePath string) (*Client, error) {
 			cache_key  TEXT PRIMARY KEY,
 			payload    TEXT NOT NULL,
 			cached_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)
+		);
+		CREATE TABLE IF NOT EXISTS trending_snapshot (
+			week_key TEXT    NOT NULL,
+			tmdb_id  INTEGER NOT NULL,
+			rank     INTEGER NOT NULL,
+			PRIMARY KEY (week_key, tmdb_id)
+		);
 	`); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -312,10 +322,33 @@ func (c *Client) trendingCached() ([]Match, bool) {
 	return nil, false
 }
 
+// trendingPages is how many 20-item pages of /trending/all/week to pull (~100).
+const trendingPages = 5
+
 func (c *Client) fetchTrending(ctx context.Context) ([]Match, error) {
+	var all []Match
+	for page := 1; page <= trendingPages; page++ {
+		items, err := c.fetchTrendingPage(ctx, page)
+		if err != nil {
+			if page == 1 {
+				return nil, err // first page failed → no data at all
+			}
+			break // later page failed → return what we have
+		}
+		if len(items) == 0 {
+			break // ran out of results
+		}
+		all = append(all, items...)
+	}
+	c.applyTrendingDirection(all)
+	return all, nil
+}
+
+func (c *Client) fetchTrendingPage(ctx context.Context, page int) ([]Match, error) {
 	q := url.Values{}
 	q.Set("api_key", c.apiKey)
 	q.Set("language", "pt-BR")
+	q.Set("page", strconv.Itoa(page))
 	req, _ := http.NewRequestWithContext(ctx, "GET", apiBase+"/trending/all/week?"+q.Encode(), nil)
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -426,6 +459,7 @@ func buildMatchFromResult(r struct {
 		Kind:        r.MediaType,
 		Overview:    r.Overview,
 		VoteAverage: r.VoteAverage,
+		Popularity:  r.Popularity,
 	}
 	if r.MediaType == "movie" {
 		m.Title = r.Title
