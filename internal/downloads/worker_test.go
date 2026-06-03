@@ -591,32 +591,22 @@ func TestWorker_MoveCompletedFile_NoDir(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	td := &trackedDL{
-		id:   1,
-		name: "test",
-		file: nil,
-	}
-
 	w := NewWorker(WorkerConfig{
 		Store:       store,
 		Streamer:    s,
 		DataDir:     t.TempDir(),
-		DownloadDir: "", // empty = keep in place
+		DownloadDir: "", // empty = keep in place (legacy mode)
 	})
 
-	// Should be a no-op
-	w.moveCompletedFile(Download{}, td)
+	// Should be a no-op in legacy mode.
+	if err := w.moveCompletedFile(Download{}, "x.mkv", "test"); err != nil {
+		t.Errorf("no-op expected, got %v", err)
+	}
 }
 
 func TestWorker_MoveCompletedFile_MkdirFailure(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
-
-	td := &trackedDL{
-		id:   1,
-		name: "test",
-		file: nil,
-	}
 
 	w := NewWorker(WorkerConfig{
 		Store:       store,
@@ -625,9 +615,10 @@ func TestWorker_MoveCompletedFile_MkdirFailure(t *testing.T) {
 		DownloadDir: t.TempDir(),
 	})
 
-	// src won't exist, but the function tries mkdir first which should succeed
-	// then fails at move
-	w.moveCompletedFile(Download{}, td)
+	// Source doesn't exist in the (bogus) DataDir → returns an error, no panic.
+	if err := w.moveCompletedFile(Download{}, "test/f.mkv", "test"); err == nil {
+		t.Error("expected error when source is missing")
+	}
 }
 
 func TestWorkerTick_ListActiveError(t *testing.T) {
