@@ -210,16 +210,16 @@ function EntryRow(props: EntryRowProps) {
           </span>
         )}
         <EntryIcon entry={e} mount={mount} />
-        <span className="flex-1 min-w-0 truncate text-gray-100 font-medium">{e.name}</span>
+        <span className="flex-1 min-w-0 text-gray-100 font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
         {!e.isDir && (
-          <span className="text-xs text-gray-500 w-20 text-right flex-shrink-0">{formatSize(e.size)}</span>
+          <span className="text-xs text-gray-500 text-right flex-shrink-0 hidden sm:block w-20">{formatSize(e.size)}</span>
         )}
         <span className="text-xs text-gray-500 w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
       </button>
 
-      {/* Ações rápidas individuais (escondidas no modo seleção) */}
+      {/* Ações rápidas individuais (escondidas no modo seleção e em mobile por default) */}
       {!selectMode && canAct && (
-        <div className="flex items-center gap-1.5 px-2 sm:px-4 sm:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1.5 px-2 sm:px-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-active:opacity-100 transition-opacity">
           {canAct && !e.isDir && (
             <button
               onClick={(evt) => { evt.stopPropagation(); props.onPromote(e) }}

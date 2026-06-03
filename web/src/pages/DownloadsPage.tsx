@@ -1389,15 +1389,15 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
       p-4 flex flex-col gap-3 transition-all duration-300
     `}>
       {/* Top row: name + badges */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-gray-100 truncate text-sm" title={t.name}>{t.name || t.infoHash}</h3>
-          <p className="text-[11px] text-gray-600 truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="min-w-0">
+        <h3 className="font-semibold text-gray-100 text-sm leading-snug [overflow-wrap:anywhere]" title={t.name}>
+          {t.name || t.infoHash}
+        </h3>
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <KindBadge kind="streaming" />
           <TorrentStatusBadge status={status} />
         </div>
+        <p className="text-[11px] text-gray-600 truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
       </div>
 
       {/* Live rate chips — destaque pro Down/Up/Peers de CADA torrent. Eram
@@ -1536,7 +1536,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
       p-4 flex flex-col gap-3 transition-all duration-300
     `}>
       {/* Top row */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
         {onToggleSelected && (
           <input
             type="checkbox"
@@ -1547,29 +1547,29 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
           />
         )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-100 truncate text-sm" title={d.name}>{d.name || d.filePath}</h3>
+          <h3 className="font-semibold text-gray-100 text-sm leading-snug [overflow-wrap:anywhere]" title={d.name}>
+            {d.name || d.filePath}
+          </h3>
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <KindBadge kind="server" />
+            {isStalled && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-300 border-amber-500/30" title="Download sem progresso — sem peers ou bloqueado">
+                <AlertTriangle className="w-3 h-3" /> Travado
+              </span>
+            )}
+            {d.status === 'completed' && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
+              </span>
+            )}
+            <DownloadStatusBadge status={d.status} />
             {d.username && (
-              <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium">
                 {d.username}
               </span>
             )}
           </div>
           <p className="text-[11px] text-gray-600 truncate mt-0.5" title={d.filePath}>{d.filePath}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <KindBadge kind="server" />
-          {isStalled && (
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-300 border-amber-500/30" title="Download sem progresso — sem peers ou bloqueado">
-              <AlertTriangle className="w-3 h-3" /> Travado
-            </span>
-          )}
-          {d.status === 'completed' && (
-            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
-              <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
-            </span>
-          )}
-          <DownloadStatusBadge status={d.status} />
         </div>
       </div>
 
