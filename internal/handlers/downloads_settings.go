@@ -10,6 +10,7 @@ import (
 // downloadsQueueBody is the wire shape for GET/PUT /api/downloads/settings.
 type downloadsQueueBody struct {
 	MaxActive         int  `json:"maxActive"`
+	PerUserMaxActive  int  `json:"perUserMaxActive"`
 	StallThresholdMin int  `json:"stallThresholdMin"`
 	MaxStalls         int  `json:"maxStalls"`
 	AgingStepMin      int  `json:"agingStepMin"`
@@ -21,6 +22,7 @@ func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
 	q := cfg.DownloadsQueue
 	return downloadsQueueBody{
 		MaxActive:         q.MaxActive,
+		PerUserMaxActive:  q.PerUserMaxActive,
 		StallThresholdMin: q.StallThresholdMin,
 		MaxStalls:         q.MaxStalls,
 		AgingStepMin:      q.AgingStepMin,
@@ -39,6 +41,9 @@ func DownloadsGetSettings(cfg *config.Config) gin.HandlerFunc {
 func validateDownloadsQueue(b *downloadsQueueBody) string {
 	if b.MaxActive < 1 {
 		return "maxActive deve ser >= 1"
+	}
+	if b.PerUserMaxActive < 0 {
+		return "perUserMaxActive deve ser >= 0 (0 = sem limite por usuário)"
 	}
 	if b.StallThresholdMin < 1 {
 		return "stallThresholdMin deve ser >= 1"
@@ -66,6 +71,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string) gin.HandlerF
 			return
 		}
 		cfg.DownloadsQueue.MaxActive = b.MaxActive
+		cfg.DownloadsQueue.PerUserMaxActive = b.PerUserMaxActive
 		cfg.DownloadsQueue.StallThresholdMin = b.StallThresholdMin
 		cfg.DownloadsQueue.MaxStalls = b.MaxStalls
 		cfg.DownloadsQueue.AgingStepMin = b.AgingStepMin

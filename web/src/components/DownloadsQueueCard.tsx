@@ -101,8 +101,10 @@ export default function DownloadsQueueCard() {
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <NumberField label="Downloads ativos" value={form.maxActive} onChange={(n) => set('maxActive', n)}
-          suffix="ativos" hint="Máximo baixando ao mesmo tempo; o resto fica na fila." />
+        <NumberField label="Ativos (global)" value={form.maxActive} onChange={(n) => set('maxActive', n)}
+          suffix="total" hint="Teto do servidor: máximo baixando ao mesmo tempo entre TODOS os usuários." />
+        <NumberField label="Ativos por usuário" value={form.perUserMaxActive} onChange={(n) => set('perUserMaxActive', n)}
+          min={0} suffix="por user" hint="Máximo que CADA usuário baixa ao mesmo tempo. 0 = sem limite (só o teto global vale)." />
         <NumberField label="Sem seed por" value={form.stallThresholdMin} onChange={(n) => set('stallThresholdMin', n)}
           suffix="min" hint="Tempo sem progresso E sem seeds antes de ir pro fim da fila." />
         <NumberField label="Pausar após" value={form.maxStalls} onChange={(n) => set('maxStalls', n)}

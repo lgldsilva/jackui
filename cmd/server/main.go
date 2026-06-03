@@ -382,6 +382,7 @@ func initDownloadsStore(deps *appDeps) {
 		q := deps.cfg.DownloadsQueue
 		return downloads.QueueSettings{
 			MaxActive:         q.MaxActive,
+			PerUserMaxActive:  q.PerUserMaxActive,
 			StallThresholdMin: q.StallThresholdMin,
 			MaxStalls:         q.MaxStalls,
 			AgingStepMin:      q.AgingStepMin,

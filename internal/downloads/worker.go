@@ -27,7 +27,8 @@ const maxInitRetries = 3
 // QueueSettings are the live scheduling knobs the worker reads each tick. A nil
 // Settings getter (or zero values) falls back to DefaultQueueSettings.
 type QueueSettings struct {
-	MaxActive         int // max concurrent downloads (streaming excluded)
+	MaxActive         int // GLOBAL ceiling: concurrent downloads across all users (streaming excluded)
+	PerUserMaxActive  int // per-user concurrent cap; 0 = no per-user limit
 	StallThresholdMin int // minutes with no progress AND no seeders before a demote
 	MaxStalls         int // stalls before the download is paused (0 = never pause, cycle forever)
 	AgingStepMin      int // queue aging: minutes of waiting per +1 bonus (0 disables)
@@ -36,11 +37,11 @@ type QueueSettings struct {
 
 // DefaultQueueSettings mirrors the config defaults; used when no getter is wired.
 func DefaultQueueSettings() QueueSettings {
-	return QueueSettings{MaxActive: 3, StallThresholdMin: 30, MaxStalls: 3, AgingStepMin: 60, AgingCap: 150}
+	return QueueSettings{MaxActive: 3, PerUserMaxActive: 0, StallThresholdMin: 30, MaxStalls: 3, AgingStepMin: 60, AgingCap: 150}
 }
 
 func (q QueueSettings) sched() SchedSettings {
-	return SchedSettings{MaxActive: q.MaxActive, AgingStepMin: q.AgingStepMin, AgingCap: q.AgingCap}
+	return SchedSettings{MaxActive: q.MaxActive, PerUserMax: q.PerUserMaxActive, AgingStepMin: q.AgingStepMin, AgingCap: q.AgingCap}
 }
 
 // WorkerConfig groups the dependencies and options for creating a Worker.
