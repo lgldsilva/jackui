@@ -505,6 +505,9 @@ export type TmdbMatch = {
   voteAverage: number
   imdbRating?: number
   kind: 'movie' | 'tv'
+  popularity?: number
+  direction?: 'up' | 'down' | 'new' | 'same' // movimento no ranking vs semana passada
+  rankDelta?: number
 }
 
 // In-memory dedupe for in-flight requests + soft session cache. Server already
