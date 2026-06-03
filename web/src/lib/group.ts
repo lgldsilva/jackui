@@ -139,10 +139,24 @@ function dedupNameSizeBuckets<T extends SearchResult>(
   // name|size fallback bucket, and only among THEMSELVES. This stops a private
   // listing from being absorbed into a same-title/size public (magnet) result and
   // silently hidden, while still collapsing duplicate hash-less listings.
+  //
+  // Exception: suppress a noHash entry when the SAME tracker already has a
+  // hash-bearing entry for the same title+size — this happens when Jackett
+  // returns the same torrent twice (once with infoHash, once as a .torrent-only
+  // link), producing two cards from the same tracker for the same release.
+  const hashOutTrackerKeys = new Set<string>()
+  for (const r of hashOut) {
+    if (r.tracker) {
+      hashOutTrackerKeys.add(`${r.tracker}|${normalizeTitle(r.title)}|${sizeBucket(r.size)}`)
+    }
+  }
   const out: T[] = [...hashOut]
   const finalBuckets = new Map<string, T[]>()
   const seenKey = (r: T) => `${normalizeTitle(r.title)}|${sizeBucket(r.size)}`
   for (const r of noHash) {
+    if (r.tracker && hashOutTrackerKeys.has(`${r.tracker}|${normalizeTitle(r.title)}|${sizeBucket(r.size)}`)) {
+      continue
+    }
     const k = seenKey(r)
     const arr = finalBuckets.get(k) || []
     arr.push(r)

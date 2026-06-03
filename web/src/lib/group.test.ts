@@ -83,3 +83,29 @@ describe('jackui regression: a hash-less listing must not be absorbed by a hash-
     expect(out).toHaveLength(1)
   })
 })
+
+describe('jackui duplicate regression: same tracker with and without infoHash', () => {
+  // When Jackett returns the same torrent twice from the same tracker — once with
+  // infoHash (hash-bearing, goes to hashOut) and once as a .torrent-only link (no
+  // hash, goes to noHash) — the two paths never compared each other, producing two
+  // cards from the same tracker for the same release.
+  const HASH2 = 'd56fe1c06bba254a9dc9f519b335aa7c1367a777'
+
+  it('suppresses the noHash duplicate when same tracker already has a hash-bearing entry for same title+size', () => {
+    const out = groupByInfoHash([
+      mk({ title: 'Filme Privado 2024 1080p', size: 4_000_000_000, tracker: 'jackui', seeders: 5, infoHash: HASH2, magnetUri: `magnet:?xt=urn:btih:${HASH2}` }),
+      mk({ title: 'Filme Privado 2024 1080p', size: 4_000_000_000, tracker: 'jackui', seeders: 5, infoHash: '', magnetUri: '', link: 'https://jackui.example/t/456.torrent' }),
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].infoHash).toBe(HASH2)
+  })
+
+  it('keeps BOTH when the noHash entry is from a DIFFERENT tracker (original jackui fix must hold)', () => {
+    const out = groupByInfoHash([
+      mk({ title: 'Filme Privado 2024 1080p', size: 4_000_000_000, tracker: 'ThePirateBay', seeders: 50, infoHash: HASH2, magnetUri: `magnet:?xt=urn:btih:${HASH2}` }),
+      mk({ title: 'Filme Privado 2024 1080p', size: 4_000_000_000, tracker: 'jackui', seeders: 5, infoHash: '', magnetUri: '', link: 'https://jackui.example/t/456.torrent' }),
+    ])
+    expect(out).toHaveLength(2)
+    expect(out.some(r => r.tracker === 'jackui')).toBe(true)
+  })
+})
