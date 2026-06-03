@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText } from 'lucide-react'
+import { Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText, AlertCircle, Check } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   streamAdd, streamMetadata, StreamFile, TorrentInfo,
@@ -91,6 +91,19 @@ const KEY_CLIENT = 'lastClientId'
 const KEY_PATH = 'lastSavePath'
 const KEY_RECENT_PATHS = 'recentSavePaths'
 
+// Toast discreto do auto-download (quando o único destino é o interno — sem modal de escolha).
+function AutoDownloadToast({ error, success }: { readonly error: string; readonly success: boolean }) {
+  let body
+  if (error) body = <><AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" /><span>{error}</span></>
+  else if (success) body = <><Check className="w-4 h-4 text-green-400 flex-shrink-0" /><span>Adicionado aos Downloads</span></>
+  else body = <><Loader2 className="w-4 h-4 animate-spin text-green-400 flex-shrink-0" /><span>Enviando para Downloads…</span></>
+  return (
+    <div className="fixed bottom-4 right-4 z-[80] flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-700 bg-gray-800 text-sm text-gray-200 shadow-lg">
+      {body}
+    </div>
+  )
+}
+
 export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   const [clients, setClients] = useState<DownloadClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -108,10 +121,17 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   const [filesError, setFilesError] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set())
   const pathInputRef = useRef<HTMLInputElement>(null)
+  // Auto-skip: sem clientes externos, o único destino é o interno — não faz
+  // sentido abrir o modal de escolha. Baixamos direto (torrent inteiro) e
+  // mostramos só um toast. clientsLoaded evita o flash do modal enquanto carrega.
+  const [clientsLoaded, setClientsLoaded] = useState(false)
+  const autoStartedRef = useRef(false)
 
   useEffect(() => {
     if (!result) return
 
+    setClientsLoaded(false)
+    autoStartedRef.current = false
     setError('')
     setSuccess(false)
     setFiles(null)
@@ -134,6 +154,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
         setClients([])
         setSelectedClientId(INTERNAL_ID)
       })
+      .finally(() => setClientsLoaded(true))
   }, [result])
 
   // Carrega lista de arquivos quando o destino vira interno. Tenta cache de
@@ -172,6 +193,23 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, selectedClientId])
 
+  // Único destino = interno → baixa o torrent inteiro direto, sem abrir o modal.
+  useEffect(() => {
+    if (!result || !clientsLoaded || clients.length > 0 || autoStartedRef.current) return
+    autoStartedRef.current = true
+    void (async () => {
+      setLoading(true)
+      setError('')
+      const err = await downloadInternal(result, null, new Set(), streamAdd, downloadCreate)
+      setLoading(false)
+      if (err) { setError(err); setTimeout(onClose, 5000); return }
+      save(KEY_CLIENT, INTERNAL_ID)
+      setSuccess(true)
+      setTimeout(onClose, 1400)
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, clientsLoaded, clients.length])
+
   const handleDownload = async () => {
     if (!result) return
 
@@ -203,6 +241,10 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   }
 
   if (!result) return null
+  // Sem clientes externos: nenhuma escolha a fazer — auto-download direto + toast, sem modal.
+  if (clientsLoaded && clients.length === 0) return <AutoDownloadToast error={error} success={success} />
+  // Ainda decidindo (carregando clientes) — não pisca o modal.
+  if (!clientsLoaded) return null
 
   return (
     <Sheet
