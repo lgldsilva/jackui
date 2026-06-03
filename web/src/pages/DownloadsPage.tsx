@@ -1141,6 +1141,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SeedingTab — seeding/complete torrents + completed downloads
+// Sub-divided: "Semeando" (torrent ativo no streamer) vs "No disco" (seed parado).
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
@@ -1170,6 +1171,29 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && !loading
 
+  // Downloads com torrent ativo no streamer (semeando) vs parados
+  const seedingDownloads = downloads.filter(d => torrents.some(t => t.infoHash === d.infoHash))
+  const stoppedDownloads = downloads.filter(d => !torrents.some(t => t.infoHash === d.infoHash))
+  const hasBothGroups = (torrents.length > 0 || seedingDownloads.length > 0) && stoppedDownloads.length > 0
+
+  const renderDownloadCard = (d: DownloadEntry) => (
+    <DownloadCard
+      key={d.id}
+      d={d}
+      live={torrents.find(t => t.infoHash === d.infoHash)}
+      busy={busyID === d.id}
+      selected={selected.has(d.id)}
+      onToggleSelected={() => onToggleSelected(d.id)}
+      onPause={() => onPause?.(d.id)}
+      onResume={() => onResume?.(d.id)}
+      onDelete={() => onDelete(d.id)}
+      onPromote={() => onPromote(d)}
+      onStopSeed={() => onStopSeed(d.id, d.name || d.filePath)}
+      onPlay={() => onPlay(d)}
+      onInspect={() => onInspect(d)}
+    />
+  )
+
   return (
     <div className="flex flex-col gap-4">
       {!torrentsLoaded && (
@@ -1187,6 +1211,13 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
         />
       )}
 
+      {/* Grupo: Semeando */}
+      {hasBothGroups && (torrents.length > 0 || seedingDownloads.length > 0) && (
+        <div className="flex items-center gap-2 text-xs text-emerald-400 font-medium uppercase tracking-wider px-1">
+          <ArrowUpCircle className="w-3.5 h-3.5" />
+          Semeando
+        </div>
+      )}
       {torrents.map(t => (
         <TorrentCard
           key={t.infoHash}
@@ -1198,24 +1229,16 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
           onDelete={() => onTorrentDelete(t.infoHash)}
         />
       ))}
+      {seedingDownloads.map(renderDownloadCard)}
 
-      {downloads.map(d => (
-        <DownloadCard
-          key={d.id}
-          d={d}
-          live={torrents.find(t => t.infoHash === d.infoHash)}
-          busy={busyID === d.id}
-          selected={selected.has(d.id)}
-          onToggleSelected={() => onToggleSelected(d.id)}
-          onPause={() => onPause?.(d.id)}
-          onResume={() => onResume?.(d.id)}
-          onDelete={() => onDelete(d.id)}
-          onPromote={() => onPromote(d)}
-          onStopSeed={() => onStopSeed(d.id, d.name || d.filePath)}
-          onPlay={() => onPlay(d)}
-          onInspect={() => onInspect(d)}
-        />
-      ))}
+      {/* Grupo: No disco (seed parado) */}
+      {hasBothGroups && stoppedDownloads.length > 0 && (
+        <div className="flex items-center gap-2 text-xs text-gray-500 font-medium uppercase tracking-wider px-1 mt-2">
+          <HardDrive className="w-3.5 h-3.5" />
+          No disco
+        </div>
+      )}
+      {stoppedDownloads.map(renderDownloadCard)}
     </div>
   )
 }
