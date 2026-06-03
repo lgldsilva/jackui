@@ -20,13 +20,21 @@ import (
 // dedupKey returns the canonical dedup key for a result. The Jackett client
 // already canonicalizes infoHash at the source, but cached rows saved before
 // that change (or any other path) may carry a raw/upper/base32 hash — so we
-// re-canonicalize here. Falls back to the raw infoHash when it isn't a valid
-// btih (keeps non-standard identifiers deduping by exact match).
+// re-canonicalize here. Falls back to tracker|title|size for hash-less entries
+// (private trackers like jackui that expose no infoHash) so that the same
+// result from the cache phase and the live phase doesn't appear twice in the
+// stream. Returns "" only when no identifying information is present at all.
 func dedupKey(r jackett.Result) string {
 	if h := jackett.CanonicalInfoHash(r.InfoHash, r.MagnetURI); h != "" {
 		return h
 	}
-	return r.InfoHash
+	if r.InfoHash != "" {
+		return r.InfoHash
+	}
+	if r.Tracker != "" && r.Title != "" {
+		return strings.ToLower(r.Tracker) + "|" + strings.ToLower(r.Title) + "|" + fmt.Sprintf("%d", r.Size)
+	}
+	return ""
 }
 
 func writeSSE(c *gin.Context, event string, data any) {

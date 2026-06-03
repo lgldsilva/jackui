@@ -230,17 +230,32 @@ export default function SearchPage() {
     let mutated = false
     allResults.forEach(r => {
       const id = r.trackerId || r.tracker.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
-      if (id && !discoveredMap.has(id)) {
-        discoveredMap.set(id, {
-          id,
-          name: r.tracker,
-          description: `Descoberto via busca (${r.tracker})`,
-          configured: true,
-          language: '',
-          type: ''
-        })
-        mutated = true
+      if (!id) return
+      if (discoveredMap.has(id)) return  // already known by this ID
+
+      // When a real trackerId arrives, evict any stale entry with the same
+      // display name but a different (possibly synthetic) ID. Without this,
+      // re-discovering "Amigos Share Club" under its real Jackett ID leaves
+      // the old synthetic-id entry, causing the same indexer to appear twice.
+      if (r.trackerId) {
+        const nameLower = r.tracker.toLowerCase()
+        for (const [staleId, stale] of discoveredMap) {
+          if (stale.name.toLowerCase() === nameLower && staleId !== id) {
+            discoveredMap.delete(staleId)
+            break
+          }
+        }
       }
+
+      discoveredMap.set(id, {
+        id,
+        name: r.tracker,
+        description: `Descoberto via busca (${r.tracker})`,
+        configured: true,
+        language: '',
+        type: ''
+      })
+      mutated = true
     })
 
     if (mutated) {
@@ -254,7 +269,23 @@ export default function SearchPage() {
     const map = new Map<string, Indexer>()
     indexers.forEach(i => map.set(i.id, i))
     discoveredIndexers.forEach(i => map.set(i.id, i))
-    return Array.from(map.values())
+    // Final dedup by display name: prevents a stale entry (old synthetic ID)
+    // from appearing alongside a newer entry with the same name but a real ID.
+    const byName = new Map<string, Indexer>()
+    for (const idx of map.values()) {
+      const key = idx.name.toLowerCase().trim()
+      const existing = byName.get(key)
+      if (!existing) {
+        byName.set(key, idx)
+      } else {
+        // Prefer the entry whose ID is NOT the synthetic derivation of the name
+        const synthetic = idx.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
+        if (existing.id === synthetic && idx.id !== synthetic) {
+          byName.set(key, idx)
+        }
+      }
+    }
+    return Array.from(byName.values())
   }, [indexers, discoveredIndexers])
 
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
