@@ -387,6 +387,7 @@ func initDownloadsStore(deps *appDeps) {
 			MaxStalls:         q.MaxStalls,
 			AgingStepMin:      q.AgingStepMin,
 			AgingCap:          q.AgingCap,
+			RotationEnabled:   q.RotationEnabled,
 		}
 	}
 	worker := downloads.NewWorker(downloads.WorkerConfig{
@@ -400,6 +401,7 @@ func initDownloadsStore(deps *appDeps) {
 		NtfyToken:       deps.cfg.Notifications.NtfyToken,
 		ResolveUsername: usernameResolver,
 		Settings:        queueSettings,
+		Jackett:         deps.jackettClient,
 	})
 	worker.Start()
 	deps.addCleanup(worker.Stop)
@@ -905,6 +907,7 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
 	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore))
 	api.GET("/downloads/:id/details", handlers.DownloadsDetails(deps.downloadsStore, deps.streamSrv))
+	api.GET("/downloads/:id/sources", handlers.DownloadsSources(deps.downloadsStore))
 	api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(deps.downloadsStore, deps.streamSrv))
 	api.PATCH("/downloads/:id/pause", handlers.DownloadsPause(deps.downloadsStore))
 	api.PATCH("/downloads/:id/resume", handlers.DownloadsResume(deps.downloadsStore))

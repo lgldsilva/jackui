@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
   Loader2, AlertCircle, Trash2, Square,
-  ArrowUpCircle, Activity, Globe, Play
+  ArrowUpCircle, Activity, Globe, Play, Share2
 } from 'lucide-react'
 import {
-  DownloadEntry, DownloadDetails, StreamFile, TorrentInfo,
-  downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed,
+  DownloadEntry, DownloadDetails, StreamFile, TorrentInfo, DownloadSource,
+  downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed, downloadSources,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
 import { Sheet } from './Sheet'
@@ -20,7 +20,51 @@ type Props = {
   readonly onPlay?: (d: DownloadEntry) => void
 }
 
-type Tab = 'overview' | 'files' | 'trackers' | 'actions'
+type Tab = 'overview' | 'files' | 'trackers' | 'sources' | 'actions'
+
+// sourceStatusBadge maps a source's lifecycle to a label + color for the list.
+function sourceStatusBadge(status: DownloadSource['status']): { label: string; cls: string } {
+  switch (status) {
+    case 'active': return { label: 'ativa', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' }
+    case 'cooldown': return { label: 'aguardando', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' }
+    case 'failed': return { label: 'falhou', cls: 'bg-red-500/15 text-red-300 border-red-500/30' }
+    default: return { label: 'candidata', cls: 'bg-gray-600/30 text-gray-300 border-gray-600/50' }
+  }
+}
+
+function renderSourcesTab(sources: DownloadSource[], loading: boolean): React.ReactNode {
+  if (loading) {
+    return <div className="flex items-center gap-2 text-gray-400 py-8 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Carregando fontes...</div>
+  }
+  if (sources.length === 0) {
+    return (
+      <p className="text-sm text-gray-500 py-6 text-center">
+        Nenhuma fonte alternativa ainda. Quando a rotação automática estiver ligada e o download ficar sem seed,
+        outras fontes do mesmo conteúdo aparecerão aqui.
+      </p>
+    )
+  }
+  return (
+    <ul className="flex flex-col gap-2">
+      {sources.map((s) => {
+        const badge = sourceStatusBadge(s.status)
+        return (
+          <li key={s.id} className="flex items-center gap-3 bg-gray-900/60 rounded-lg px-3 py-2">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-md border font-medium whitespace-nowrap ${badge.cls}`}>{badge.label}</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-gray-200 truncate" title={s.title}>{s.title || s.infoHash}</div>
+              <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
+                <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{s.tracker || '—'}</span>
+                <span className="text-green-400">{s.seeders} seed</span>
+                {s.tries > 0 && <span>· {s.tries}× tentada</span>}
+              </div>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 // Distingue o file que o download representa (highlight verde) dos outros
 // arquivos do torrent (listados em cinza). Em torrents single-file os dois
@@ -108,6 +152,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
   const [error, setError] = useState('')
   const [copiedMagnet, setCopiedMagnet] = useState(false)
   const [busy, setBusy] = useState<string | null>(null) // 'recheck' | 'delete' | 'stopSeed'
+  const [sources, setSources] = useState<DownloadSource[]>([])
+  const [loadingSources, setLoadingSources] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!download) return
@@ -127,10 +173,21 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     if (!download) {
       setDetails(null)
       setTab('overview')
+      setSources([])
       return
     }
     refresh()
   }, [download, refresh])
+
+  // Lazily load the source catalog the first time the Fontes tab is opened.
+  useEffect(() => {
+    if (tab !== 'sources' || !download) return
+    setLoadingSources(true)
+    downloadSources(download.id)
+      .then(setSources)
+      .catch(() => setSources([]))
+      .finally(() => setLoadingSources(false))
+  }, [tab, download])
 
   if (!download) return null
 
@@ -241,6 +298,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
             { id: 'files' as Tab, label: filesTabLabel(torrent), icon: Files },
             { id: 'trackers' as Tab, label: trackersTabLabel(displayTrackers), icon: Globe },
+            { id: 'sources' as Tab, label: 'Fontes', icon: Share2 },
             { id: 'actions' as Tab, label: 'Ações', icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
             <button
@@ -379,6 +437,11 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+          {tab === 'sources' && (
+            <div>
+              {renderSourcesTab(sources, loadingSources)}
             </div>
           )}
           {tab === 'actions' && (
