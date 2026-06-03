@@ -18,6 +18,7 @@ import {
 } from '../api/client'
 import StreamCacheCard from '../components/StreamCacheCard'
 import StreamSettingsCard from '../components/StreamSettingsCard'
+import DownloadsQueueCard from '../components/DownloadsQueueCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 import ActiveTranscodesCard from '../components/ActiveTranscodesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
@@ -352,6 +353,7 @@ export default function SettingsPage() {
 
         {/* ════════ GUIA DOWNLOADS ════════ */}
         {activeTab === 'downloads' && (
+          <>
           <section className="card flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-100">Clientes de Download</h2>
@@ -385,6 +387,8 @@ export default function SettingsPage() {
               ))}
             </div>
           </section>
+          <DownloadsQueueCard />
+          </>
         )}
 
         {/* ════════ GUIA STREAM ════════ */}

@@ -1630,6 +1630,21 @@ export type DownloadEntry = {
   error?: string
   createdAt: string
   promoted?: boolean   // true when file was moved outside the download dir
+  // Queue scheduling
+  priority?: 'high' | 'normal' | 'low'
+  stalls?: number          // times demoted for no-seed
+  queuePosition?: number   // 1-based rank among queued rows (0 = not queued)
+}
+
+export type DownloadPriority = 'high' | 'normal' | 'low'
+
+export type DownloadsQueueSettings = {
+  maxActive: number
+  stallThresholdMin: number
+  maxStalls: number
+  agingStepMin: number
+  agingCap: number
+  rotationEnabled: boolean
 }
 
 export type DownloadCreateParams = {
@@ -1696,6 +1711,22 @@ export const downloadPause = async (id: number): Promise<void> => {
 
 export const downloadResume = async (id: number): Promise<void> => {
   await api.patch(`/downloads/${id}/resume`)
+}
+
+export const downloadSetPriority = async (id: number, priority: DownloadPriority): Promise<void> => {
+  await api.patch(`/downloads/${id}/priority`, { priority })
+}
+
+export const getDownloadsQueueSettings = async (): Promise<DownloadsQueueSettings> => {
+  const { data } = await api.get<DownloadsQueueSettings>('/downloads/settings')
+  return data
+}
+
+export const updateDownloadsQueueSettings = async (
+  s: DownloadsQueueSettings,
+): Promise<{ restartRequired: boolean }> => {
+  const { data } = await api.put<{ restartRequired: boolean }>('/downloads/settings', s)
+  return data
 }
 
 // downloadRecheck força um "Force Recheck" (estilo qBittorrent) — re-hasha

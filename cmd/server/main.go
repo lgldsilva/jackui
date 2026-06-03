@@ -376,6 +376,18 @@ func initDownloadsStore(deps *appDeps) {
 		}
 		return u.Username
 	}
+	// Live queue settings: the worker reads this each tick, so PUT /downloads/settings
+	// (which mutates deps.cfg.DownloadsQueue) takes effect without a restart.
+	queueSettings := func() downloads.QueueSettings {
+		q := deps.cfg.DownloadsQueue
+		return downloads.QueueSettings{
+			MaxActive:         q.MaxActive,
+			StallThresholdMin: q.StallThresholdMin,
+			MaxStalls:         q.MaxStalls,
+			AgingStepMin:      q.AgingStepMin,
+			AgingCap:          q.AgingCap,
+		}
+	}
 	worker := downloads.NewWorker(downloads.WorkerConfig{
 		Store:           d,
 		Streamer:        deps.streamSrv,
@@ -386,6 +398,7 @@ func initDownloadsStore(deps *appDeps) {
 		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
 		NtfyToken:       deps.cfg.Notifications.NtfyToken,
 		ResolveUsername: usernameResolver,
+		Settings:        queueSettings,
 	})
 	worker.Start()
 	deps.addCleanup(worker.Stop)
@@ -766,6 +779,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath, deps.jackettClient, deps.streamSrv))
 		adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
 		adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
+		adminAPI.PUT("/downloads/settings", handlers.DownloadsUpdateSettings(deps.cfg, deps.configPath))
 		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
 		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench))
 		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))
@@ -893,6 +907,8 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(deps.downloadsStore, deps.streamSrv))
 	api.PATCH("/downloads/:id/pause", handlers.DownloadsPause(deps.downloadsStore))
 	api.PATCH("/downloads/:id/resume", handlers.DownloadsResume(deps.downloadsStore))
+	api.PATCH("/downloads/:id/priority", handlers.DownloadsSetPriority(deps.downloadsStore))
+	api.GET("/downloads/settings", handlers.DownloadsGetSettings(deps.cfg))
 	api.PATCH("/downloads/pause-all", handlers.DownloadsPauseAll(deps.downloadsStore))
 	api.PATCH("/downloads/resume-all", handlers.DownloadsResumeAll(deps.downloadsStore))
 	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))

@@ -350,7 +350,8 @@ func TestMethodTorrentStartStop(t *testing.T) {
 	if r := h.methodTorrentStart(ids); r.Result != "success" {
 		t.Fatalf("start: %q", r.Result)
 	}
-	if got, _ := st.Get(1, dl); got.Status != downloads.StatusDownloading {
-		t.Errorf("dl status após start = %q, want downloading", got.Status)
+	// torrent-start re-queues; scheduler promotes later (active limit).
+	if got, _ := st.Get(1, dl); got.Status != downloads.StatusQueued {
+		t.Errorf("dl status após start = %q, want queued", got.Status)
 	}
 }

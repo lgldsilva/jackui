@@ -40,8 +40,8 @@ func TestCreateUpdatesTrackerCategoryOnRequeue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create re-enqueue: %v", err)
 	}
-	if d2.Status != StatusDownloading {
-		t.Errorf("expected downloading, got %q", d2.Status)
+	if d2.Status != StatusQueued {
+		t.Errorf("expected queued, got %q", d2.Status)
 	}
 	if d2.Tracker != "new-tracker" {
 		t.Errorf("tracker: want 'new-tracker', got %q", d2.Tracker)
@@ -64,9 +64,9 @@ func TestListFilterByStatus(t *testing.T) {
 		t.Errorf("expected 1 completed, got %d", len(list))
 	}
 
-	list, _ = s.ListFiltered(ListFilter{UserID: 1, Status: StatusDownloading})
+	list, _ = s.ListFiltered(ListFilter{UserID: 1, Status: StatusQueued})
 	if len(list) != 1 || list[0].ID != d1.ID+1 {
-		t.Errorf("expected 1 downloading, got %d", len(list))
+		t.Errorf("expected 1 queued, got %d", len(list))
 	}
 }
 
@@ -199,8 +199,8 @@ func TestCreateResumesFailed(t *testing.T) {
 	_ = s.SetError(1, d.ID, "some error")
 
 	d2, _ := s.Create(Download{UserID: 1, InfoHash: "abc", FileIndex: 0, Magnet: "m:abc", Name: "Test"})
-	if d2.Status != StatusDownloading {
-		t.Errorf("expected downloading after resume, got %q", d2.Status)
+	if d2.Status != StatusQueued {
+		t.Errorf("expected queued after resume, got %q", d2.Status)
 	}
 	if d2.Error != "" {
 		t.Errorf("error should be cleared on resume, got %q", d2.Error)
