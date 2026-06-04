@@ -12,6 +12,13 @@ func qd(id int, status, priority string, queuedMinAgo, stalls int) Download {
 	return Download{ID: id, Status: status, Priority: priority, QueuedSince: &t, Stalls: stalls}
 }
 
+// qdu is like qd but also sets the owning user (for per-user limit tests).
+func qdu(id, userID int, status, priority string, queuedMinAgo int) Download {
+	d := qd(id, status, priority, queuedMinAgo, 0)
+	d.UserID = userID
+	return d
+}
+
 func TestSchedulePlan_RespectsMaxActive(t *testing.T) {
 	items := []Download{
 		qd(1, StatusQueued, PriorityNormal, 5, 0),
@@ -188,6 +195,84 @@ func TestAgingBonus_EdgeCases(t *testing.T) {
 	future := schedNow.Add(time.Hour)
 	if b := agingBonus(Download{QueuedSince: &future}, SchedSettings{AgingStepMin: 60, AgingCap: 100}, schedNow); b != 0 {
 		t.Errorf("future queued_since → 0, got %d", b)
+	}
+}
+
+func TestSchedulePlan_PerUserCapLeavesGlobalSlotsFree(t *testing.T) {
+	// One user floods the queue; with PerUserMax=2 they get only 2 slots even
+	// though the global ceiling is 5 and no one else is waiting.
+	items := []Download{
+		qdu(1, 1, StatusQueued, PriorityNormal, 5),
+		qdu(2, 1, StatusQueued, PriorityNormal, 4),
+		qdu(3, 1, StatusQueued, PriorityNormal, 3),
+		qdu(4, 1, StatusQueued, PriorityNormal, 2),
+	}
+	want := schedulePlan(items, SchedSettings{MaxActive: 5, PerUserMax: 2}, schedNow)
+	if len(want) != 2 {
+		t.Fatalf("user should be capped at 2 despite free global slots, got %d (%v)", len(want), want)
+	}
+	if !want[1] || !want[2] {
+		t.Errorf("oldest two of the user's queued should run, got %v", want)
+	}
+}
+
+func TestSchedulePlan_PerUserCapIsFairAcrossUsers(t *testing.T) {
+	// Global=2, per-user=1: two users each get exactly one slot (no monopoly),
+	// even though user 1 queued more items first.
+	items := []Download{
+		qdu(1, 1, StatusQueued, PriorityNormal, 10),
+		qdu(2, 1, StatusQueued, PriorityNormal, 9),
+		qdu(3, 2, StatusQueued, PriorityNormal, 1),
+	}
+	want := schedulePlan(items, SchedSettings{MaxActive: 2, PerUserMax: 1}, schedNow)
+	if len(want) != 2 || !want[1] || !want[3] {
+		t.Fatalf("expected one slot per user (#1 + #3), got %v", want)
+	}
+}
+
+func TestSchedulePlan_PerUserZeroMeansUnlimited(t *testing.T) {
+	// PerUserMax=0 → only the global ceiling applies (Phase 1 behavior).
+	items := []Download{
+		qdu(1, 1, StatusQueued, PriorityNormal, 5),
+		qdu(2, 1, StatusQueued, PriorityNormal, 4),
+		qdu(3, 1, StatusQueued, PriorityNormal, 3),
+	}
+	want := schedulePlan(items, SchedSettings{MaxActive: 3, PerUserMax: 0}, schedNow)
+	if len(want) != 3 {
+		t.Fatalf("per-user 0 should let one user fill all global slots, got %d", len(want))
+	}
+}
+
+func TestSchedulePlan_PerUserCapDemotesExcessIncumbents(t *testing.T) {
+	// Bootstrap: user already has 3 downloading but per-user cap is now 2 → the
+	// weakest-ranked excess incumbent of that user falls out of the active set.
+	items := []Download{
+		qdu(1, 1, StatusDownloading, PriorityNormal, 0),
+		qdu(2, 1, StatusDownloading, PriorityNormal, 0),
+		qdu(3, 1, StatusDownloading, PriorityNormal, 0),
+	}
+	want := schedulePlan(items, SchedSettings{MaxActive: 5, PerUserMax: 2}, schedNow)
+	if len(want) != 2 {
+		t.Fatalf("per-user cap should trim to 2 actives, got %d (%v)", len(want), want)
+	}
+}
+
+func TestSchedulePlan_HighPriorityRespectsPerUserCap(t *testing.T) {
+	// A user at their per-user cap can't preempt to exceed it, even with a
+	// high-priority queued item.
+	items := []Download{
+		qdu(1, 1, StatusDownloading, PriorityNormal, 0),
+		qdu(2, 2, StatusDownloading, PriorityNormal, 0),
+		qdu(3, 1, StatusQueued, PriorityHigh, 0), // user 1 already at cap=1
+	}
+	want := schedulePlan(items, SchedSettings{MaxActive: 2, PerUserMax: 1}, schedNow)
+	// User 1 keeps its 1 slot (#1), user 2 keeps #2; the high-prio #3 can't push
+	// user 1 to 2 actives.
+	if want[3] {
+		t.Errorf("high-prio #3 must not exceed user 1's per-user cap, got %v", want)
+	}
+	if len(want) != 2 {
+		t.Errorf("expected 2 actives, got %d (%v)", len(want), want)
 	}
 }
 

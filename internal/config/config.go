@@ -75,12 +75,13 @@ type AIChainSlot struct {
 // queue's anti-starvation aging. RotationEnabled gates the Phase-2 automatic
 // source rotation (re-search Jackett when a source dries up).
 type DownloadsQueueConfig struct {
-	MaxActive         int  `yaml:"max_active"`          // concurrent downloads (streaming excluded); default 3
-	StallThresholdMin int  `yaml:"stall_threshold_min"` // no-progress+no-seed minutes before a demote; default 30
-	MaxStalls         int  `yaml:"max_stalls"`          // stalls before pausing the download; default 3 (0 = cycle forever)
-	AgingStepMin      int  `yaml:"aging_step_min"`      // queue aging: minutes waited per +1 bonus; default 60
-	AgingCap          int  `yaml:"aging_cap"`           // ceiling on the aging bonus; default 150
-	RotationEnabled   bool `yaml:"rotation_enabled"`    // Phase 2: auto source rotation via Jackett; default false
+	MaxActive         int  `yaml:"max_active"`           // GLOBAL ceiling: concurrent downloads across all users (streaming excluded); default 3
+	PerUserMaxActive  int  `yaml:"per_user_max_active"`  // per-user concurrent cap; 0 = no per-user limit (only the global ceiling applies); default 0
+	StallThresholdMin int  `yaml:"stall_threshold_min"`  // no-progress+no-seed minutes before a demote; default 30
+	MaxStalls         int  `yaml:"max_stalls"`           // stalls before pausing the download; default 3 (0 = cycle forever)
+	AgingStepMin      int  `yaml:"aging_step_min"`       // queue aging: minutes waited per +1 bonus; default 60
+	AgingCap          int  `yaml:"aging_cap"`            // ceiling on the aging bonus; default 150
+	RotationEnabled   bool `yaml:"rotation_enabled"`     // Phase 2: auto source rotation via Jackett; default false
 }
 
 // ExternalConfig declares filesystem mounts the user wants browsable from
@@ -252,6 +253,7 @@ func applyEnvOverrides(cfg *Config) {
 // usable config even with no YAML/env at all).
 func applyDownloadsQueueEnv(cfg *Config) {
 	applyEnvInt(&cfg.DownloadsQueue.MaxActive, "JACKUI_DL_MAX_ACTIVE")
+	applyEnvInt(&cfg.DownloadsQueue.PerUserMaxActive, "JACKUI_DL_PER_USER_MAX")
 	applyEnvInt(&cfg.DownloadsQueue.StallThresholdMin, "JACKUI_DL_STALL_MIN")
 	applyEnvInt(&cfg.DownloadsQueue.MaxStalls, "JACKUI_DL_MAX_STALLS")
 	applyEnvInt(&cfg.DownloadsQueue.AgingStepMin, "JACKUI_DL_AGING_STEP_MIN")
@@ -261,6 +263,9 @@ func applyDownloadsQueueEnv(cfg *Config) {
 	}
 	if cfg.DownloadsQueue.MaxActive <= 0 {
 		cfg.DownloadsQueue.MaxActive = 3
+	}
+	if cfg.DownloadsQueue.PerUserMaxActive < 0 {
+		cfg.DownloadsQueue.PerUserMaxActive = 0 // 0 = no per-user limit
 	}
 	if cfg.DownloadsQueue.StallThresholdMin <= 0 {
 		cfg.DownloadsQueue.StallThresholdMin = 30
@@ -302,7 +307,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_EXTERNAL_MOUNTS",
 		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL",
 		"JACKUI_MAX_UPLOAD_MB",
-		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
+		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
 	}
 	out := make(map[string]string, len(keys))

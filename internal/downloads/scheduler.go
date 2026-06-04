@@ -7,7 +7,8 @@ import (
 
 // SchedSettings are the live, user-tunable knobs the scheduler reads each tick.
 type SchedSettings struct {
-	MaxActive    int // max concurrent downloads (excludes streaming)
+	MaxActive    int // GLOBAL ceiling: max concurrent downloads across all users (excludes streaming)
+	PerUserMax   int // per-user concurrent cap; 0 = no per-user limit
 	AgingStepMin int // minutes of waiting per +1 aging bonus (0 disables aging)
 	AgingCap     int // ceiling on the aging bonus
 }
@@ -128,52 +129,86 @@ func schedulePlan(items []Download, st SchedSettings, now time.Time) map[int]boo
 	sort.SliceStable(waiting, func(i, j int) bool {
 		return promotionLess(waiting[i], waiting[j], st, now)
 	})
-	return fillActiveSlots(incumbents, waiting, st.MaxActive)
-}
-
-// fillActiveSlots builds the final active set: incumbents first (capped at
-// maxActive), then waiting rows into free slots, then strict-priority preemption.
-// Inputs must already be sorted by desirability.
-func fillActiveSlots(incumbents, waiting []Download, maxActive int) map[int]bool {
-	want := make(map[int]bool, maxActive)
-	active := make([]Download, 0, maxActive)
+	f := newSlotFiller(st.MaxActive, st.PerUserMax)
 	for _, d := range incumbents {
-		if len(active) >= maxActive {
-			break
+		if f.hasGlobalRoom() && f.underPerUser(d.UserID) {
+			f.take(d)
 		}
-		active = append(active, d)
-		want[d.ID] = true
 	}
 	for _, w := range waiting {
-		if len(active) < maxActive {
-			active = append(active, w)
-			want[w.ID] = true
+		if f.hasGlobalRoom() && f.underPerUser(w.UserID) {
+			f.take(w)
 			continue
 		}
-		if i := preemptableIndex(active, w); i >= 0 {
-			delete(want, active[i].ID)
-			active[i] = w
-			want[w.ID] = true
-		}
+		f.tryPreempt(w)
 	}
-	return want
+	return f.want
 }
 
-// preemptableIndex returns the index in active of the weakest *incumbent* (real
-// downloading row) that `candidate` may preempt — only when candidate has
-// strictly higher base priority. Returns -1 when no preemption is warranted.
-// Freshly-promoted waiters in `active` are never preempted.
-func preemptableIndex(active []Download, candidate Download) int {
+// slotFiller assembles the active set under two limits: a global ceiling and an
+// optional per-user cap. Methods are small so the scheduler stays simple.
+type slotFiller struct {
+	maxActive    int
+	perUserMax   int // 0 = unlimited
+	active       []Download
+	want         map[int]bool
+	perUserCount map[int]int
+}
+
+func newSlotFiller(maxActive, perUserMax int) *slotFiller {
+	return &slotFiller{
+		maxActive:    maxActive,
+		perUserMax:   perUserMax,
+		want:         make(map[int]bool, maxActive),
+		perUserCount: make(map[int]int),
+	}
+}
+
+func (f *slotFiller) hasGlobalRoom() bool { return len(f.active) < f.maxActive }
+
+// underPerUser reports whether userID is below its per-user cap (or no cap set).
+func (f *slotFiller) underPerUser(userID int) bool {
+	return f.perUserMax <= 0 || f.perUserCount[userID] < f.perUserMax
+}
+
+func (f *slotFiller) take(d Download) {
+	f.active = append(f.active, d)
+	f.want[d.ID] = true
+	f.perUserCount[d.UserID]++
+}
+
+// tryPreempt swaps the weakest preemptable incumbent for candidate when the
+// candidate has strictly higher base priority AND is below its per-user cap.
+func (f *slotFiller) tryPreempt(candidate Download) {
+	if !f.underPerUser(candidate.UserID) {
+		return
+	}
+	i := f.weakestPreemptable(candidate)
+	if i < 0 {
+		return
+	}
+	victim := f.active[i]
+	delete(f.want, victim.ID)
+	f.perUserCount[victim.UserID]--
+	f.active[i] = candidate
+	f.want[candidate.ID] = true
+	f.perUserCount[candidate.UserID]++
+}
+
+// weakestPreemptable returns the index of the lowest-priority *incumbent* (real
+// downloading row) that candidate may preempt (strictly higher base priority),
+// or -1. Freshly-promoted waiters in active are never preempted.
+func (f *slotFiller) weakestPreemptable(candidate Download) int {
 	weakest := -1
-	for i, a := range active {
+	for i, a := range f.active {
 		if a.Status != StatusDownloading {
 			continue
 		}
-		if weakest == -1 || priorityBase(a.Priority) < priorityBase(active[weakest].Priority) {
+		if weakest == -1 || priorityBase(a.Priority) < priorityBase(f.active[weakest].Priority) {
 			weakest = i
 		}
 	}
-	if weakest >= 0 && priorityBase(candidate.Priority) > priorityBase(active[weakest].Priority) {
+	if weakest >= 0 && priorityBase(candidate.Priority) > priorityBase(f.active[weakest].Priority) {
 		return weakest
 	}
 	return -1
