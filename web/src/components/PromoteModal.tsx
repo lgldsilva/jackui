@@ -107,14 +107,16 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
 
   return (
     <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 open:flex"
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4 open:flex"
       onClick={e => e.target === e.currentTarget && onClose()}
       onKeyDown={e => e.key === 'Escape' && onClose()}
       onClose={onClose}
       onFocus={() => {}} tabIndex={-1}
       open
     >
-      <div className="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+      {/* No mobile vira bottom-sheet (items-end) com altura em dvh — vh não
+          desconta a barra do browser e o modal centralizado estourava a tela. */}
+      <div className="bg-gray-800 rounded-t-2xl sm:rounded-2xl border border-gray-700 w-full max-w-lg shadow-2xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
         <header className="flex items-center justify-between p-4 border-b border-gray-700">
           <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2">
             <ArrowUpCircle className="w-5 h-5 text-cyan-400" />
@@ -194,7 +196,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
         </div>
 
         {/* Nova pasta + opções + ações */}
-        <div className="border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
+        <div className="border-t border-gray-700 p-4 safe-bottom flex flex-col gap-3 bg-gray-900/40">
           <label className="flex items-center gap-2 text-sm text-gray-300">
             <Plus className="w-4 h-4 text-gray-500 flex-shrink-0" />
             <input

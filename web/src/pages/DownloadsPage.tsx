@@ -763,87 +763,93 @@ export default function DownloadsPage() {
           </div>
 
           {showFilters && (
-            <div className="flex items-center gap-2 flex-wrap bg-gray-800/40 border border-gray-700/50 rounded-xl p-3">
-              <select
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
-              >
-                <option value="">Todos os status</option>
-                <option value="downloading">Baixando</option>
-                <option value="paused">Pausado</option>
-                <option value="queued">Na fila</option>
-                <option value="completed">Concluído</option>
-                <option value="failed">Falhou</option>
-              </select>
-              {availableTrackers.length > 0 && (
+            <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-3 flex flex-col gap-3">
+              {/* Filtros — selects preenchem a largura no mobile (flex-1) e ficam
+                  no tamanho natural no desktop. */}
+              <div className="flex flex-wrap items-center gap-2">
                 <select
-                  value={filterTracker}
-                  onChange={e => setFilterTracker(e.target.value)}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
                 >
-                  <option value="">Todos os trackers</option>
-                  {availableTrackers.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
+                  <option value="">Todos os status</option>
+                  <option value="downloading">Baixando</option>
+                  <option value="paused">Pausado</option>
+                  <option value="queued">Na fila</option>
+                  <option value="completed">Concluído</option>
+                  <option value="failed">Falhou</option>
                 </select>
-              )}
-              {availableCategories.length > 0 && (
+                {availableTrackers.length > 0 && (
+                  <select
+                    value={filterTracker}
+                    onChange={e => setFilterTracker(e.target.value)}
+                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="">Todos os trackers</option>
+                    {availableTrackers.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+                {availableCategories.length > 0 && (
+                  <select
+                    value={filterCategory}
+                    onChange={e => setFilterCategory(e.target.value)}
+                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="">Todas as categorias</option>
+                    {availableCategories.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                )}
+                {showAllUsers && availableUsers.length > 0 && (
+                  <select
+                    value={filterUserId}
+                    onChange={e => setFilterUserId(e.target.value)}
+                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="">Todos os usuários</option>
+                    {availableUsers.map(u => (
+                      <option key={u.id} value={String(u.id)}>{u.username}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Ordenar — grupo próprio, separado por divisória; Limpar à direita. */}
+              <div className="flex items-center gap-2 flex-wrap border-t border-gray-700/50 pt-3">
+                <span className="text-xs text-gray-500 flex items-center gap-1.5 flex-shrink-0">
+                  <ArrowDownWideNarrow className="w-3.5 h-3.5" /> Ordenar
+                </span>
                 <select
-                  value={filterCategory}
-                  onChange={e => setFilterCategory(e.target.value)}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  value={sortCol}
+                  onChange={e => setSortCol(e.target.value)}
+                  className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
                 >
-                  <option value="">Todas as categorias</option>
-                  {availableCategories.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  <option value="created_at">Data</option>
+                  <option value="name">Nome</option>
+                  <option value="size">Tamanho</option>
+                  <option value="progress">Progresso</option>
+                  <option value="status">Status</option>
+                  <option value="tracker">Tracker</option>
+                  <option value="category">Categoria</option>
                 </select>
-              )}
-              {showAllUsers && availableUsers.length > 0 && (
-                <select
-                  value={filterUserId}
-                  onChange={e => setFilterUserId(e.target.value)}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                <button
+                  onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                  title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
+                  aria-label="Inverter ordem"
+                  className="flex-shrink-0 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
                 >
-                  <option value="">Todos os usuários</option>
-                  {availableUsers.map(u => (
-                    <option key={u.id} value={String(u.id)}>{u.username}</option>
-                  ))}
-                </select>
-              )}
-              {/* Ordenação */}
-              <span className="mx-1 h-5 w-px bg-gray-700 hidden sm:block" />
-              <span className="text-xs text-gray-500 flex items-center gap-1.5">
-                <ArrowDownWideNarrow className="w-3.5 h-3.5" /> Ordenar
-              </span>
-              <select
-                value={sortCol}
-                onChange={e => setSortCol(e.target.value)}
-                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
-              >
-                <option value="created_at">Data</option>
-                <option value="name">Nome</option>
-                <option value="size">Tamanho</option>
-                <option value="progress">Progresso</option>
-                <option value="status">Status</option>
-                <option value="tracker">Tracker</option>
-                <option value="category">Categoria</option>
-              </select>
-              <button
-                onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
-                aria-label="Inverter ordem"
-                className="bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
-              >
-                {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
-              </button>
-              <button
-                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId(''); setSortCol('created_at'); setSortDir('desc') }}
-                className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1"
-              >
-                Limpar
-              </button>
+                  {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId(''); setSortCol('created_at'); setSortDir('desc') }}
+                  className="ml-auto text-xs text-gray-500 hover:text-gray-300 px-2 py-1 flex-shrink-0"
+                >
+                  Limpar
+                </button>
+              </div>
             </div>
           )}
         </div>
