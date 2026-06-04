@@ -9,14 +9,32 @@ import {
 // or isolated so each user only sees their own subdir.
 type Visibility = 'all' | 'restricted' | 'perUser'
 
+// MountRow carries a stable _key for React lists (the mount has no id, and its
+// name changes while editing, so an index/name key would be unstable).
+type MountRow = ExternalMount & { _key: number }
+
+let rowKeySeq = 0
+function withKeys(ms: ExternalMount[]): MountRow[] {
+  return ms.map((m) => ({ ...m, _key: rowKeySeq++ }))
+}
+
 function visibilityOf(m: ExternalMount): Visibility {
   if (m.userSubpath) return 'perUser'
   if ((m.allowedUsers?.length ?? 0) > 0) return 'restricted'
   return 'all'
 }
 
+// Pure list helpers — kept top-level so the state updaters stay shallow (avoids
+// deeply-nested callbacks: sonarjs S2004).
+function toggleInList(list: string[], item: string): string[] {
+  return list.includes(item) ? list.filter((u) => u !== item) : [...list, item]
+}
+function replaceAt<T>(arr: T[], i: number, next: T): T[] {
+  return arr.map((x, idx) => (idx === i ? next : x))
+}
+
 export default function ExternalMountsCard() {
-  const [mounts, setMounts] = useState<ExternalMount[] | null>(null)
+  const [mounts, setMounts] = useState<MountRow[] | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -25,13 +43,13 @@ export default function ExternalMountsCard() {
 
   useEffect(() => {
     Promise.all([getMounts(), adminListUsers().catch(() => [] as AdminUser[])])
-      .then(([m, u]) => { setMounts(m); setUsers(u) })
+      .then(([m, u]) => { setMounts(withKeys(m)); setUsers(u) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false))
   }, [])
 
   const update = (i: number, patch: Partial<ExternalMount>) =>
-    setMounts((ms) => ms ? ms.map((m, idx) => idx === i ? { ...m, ...patch } : m) : ms)
+    setMounts((ms) => ms ? replaceAt(ms, i, { ...ms[i], ...patch }) : ms)
 
   const setVisibility = (i: number, v: Visibility) => {
     if (v === 'perUser') update(i, { userSubpath: true, allowedUsers: [] })
@@ -40,20 +58,21 @@ export default function ExternalMountsCard() {
   }
 
   const toggleUser = (i: number, username: string) =>
-    setMounts((ms) => ms ? ms.map((m, idx) => {
-      if (idx !== i) return m
-      const cur = m.allowedUsers ?? []
-      return { ...m, allowedUsers: cur.includes(username) ? cur.filter(u => u !== username) : [...cur, username] }
-    }) : ms)
+    setMounts((ms) => {
+      if (!ms) return ms
+      const next = toggleInList(ms[i].allowedUsers ?? [], username)
+      return replaceAt(ms, i, { ...ms[i], allowedUsers: next })
+    })
 
-  const addMount = () => setMounts((ms) => [...(ms ?? []), { name: '', path: '', userSubpath: false, allowedUsers: [] }])
+  const addMount = () => setMounts((ms) => [...(ms ?? []), { name: '', path: '', userSubpath: false, allowedUsers: [], _key: rowKeySeq++ }])
   const removeMount = (i: number) => setMounts((ms) => ms ? ms.filter((_, idx) => idx !== i) : ms)
 
   const handleSave = async () => {
     if (!mounts) return
     setSaving(true); setError(''); setNotice('')
     try {
-      await updateMounts(mounts)
+      // Strip the UI-only _key before persisting.
+      await updateMounts(mounts.map(({ _key: _drop, ...m }) => m))
       setNotice('Salvo e aplicado ao vivo.')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
@@ -90,7 +109,7 @@ export default function ExternalMountsCard() {
         {mounts.map((m, i) => {
           const vis = visibilityOf(m)
           return (
-            <div key={i} className="bg-gray-900/60 rounded-lg p-3 flex flex-col gap-3 border border-gray-800">
+            <div key={m._key} className="bg-gray-900/60 rounded-lg p-3 flex flex-col gap-3 border border-gray-800">
               <div className="flex items-center gap-2">
                 <input
                   value={m.name}
