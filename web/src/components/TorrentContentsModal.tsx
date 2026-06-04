@@ -345,19 +345,26 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {fileTypeIcon(f)}
-                          {ep && (
-                            <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
-                              {ep}
+                          {/* A área ícone+nome é tocável: no mobile o alvo de play
+                              vira a linha inteira (não só o botãozinho verde à
+                              direita, difícil de mirar). min-w-0 mantém o truncate. */}
+                          <button
+                            type="button"
+                            onClick={() => playable && onPlayFile(result, f.index)}
+                            disabled={!playable}
+                            title={playable ? 'Reproduzir esse arquivo' : undefined}
+                            className={`flex items-center gap-2 flex-1 min-w-0 text-left ${playable ? 'cursor-pointer' : 'cursor-default'}`}
+                          >
+                            {fileTypeIcon(f)}
+                            {ep && (
+                              <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                                {ep}
+                              </span>
+                            )}
+                            <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={f.path}>
+                              {f.path}
                             </span>
-                          )}
-                          {/* min-w-0 is REQUIRED for truncate to work inside a flex
-                              row: without it a flex-1 child keeps its content width
-                              and pushes the size + Play button off-screen to the
-                              right (unreachable in a fixed modal on mobile). */}
-                          <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={f.path}>
-                            {f.path}
-                          </span>
+                          </button>
                           <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatSize(f.size)}</span>
 
                         {playable && (
