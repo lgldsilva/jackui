@@ -152,23 +152,36 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		settings:        cfg.Settings,
 		jackett:         cfg.Jackett,
 	}
-	// Pre-register eviction protection for active downloads. Completed
-	// downloads are only protected when no dedicated downloadDir is configured
-	// (legacy mode) — in that case the file lives in DataDir and must not be
-	// evicted. When downloadDir is set, completed files have already been
-	// moved there so DataDir pieces can be freed by the LRU.
-	if all, err := cfg.Store.ListAll(); err == nil {
-		for _, d := range all {
-			if d.Status == StatusFailed || d.Name == "" {
-				continue
-			}
-			if d.Status == StatusCompleted && cfg.DownloadDir != "" {
-				continue
-			}
-			cfg.Streamer.RegisterDownload(d.Name)
-		}
-	}
+	// Pre-register eviction protection + self-heal completed orphans (extracted
+	// to keep NewWorker's cognitive complexity low).
+	registerExistingDownloads(cfg)
 	return w
+}
+
+// registerExistingDownloads pre-registers eviction protection for existing
+// downloads. Completed rows are protected only in legacy mode (no downloadDir),
+// where the file stays in DataDir; with a downloadDir they were already moved,
+// so DataDir pieces can be LRU-freed — except orphans whose move was interrupted
+// (isOrphanedCompletion), which are re-queued so the worker re-moves them.
+func registerExistingDownloads(cfg WorkerConfig) {
+	all, err := cfg.Store.ListAll()
+	if err != nil {
+		return
+	}
+	for _, d := range all {
+		if d.Status == StatusFailed || d.Name == "" {
+			continue
+		}
+		if d.Status == StatusCompleted && cfg.DownloadDir != "" {
+			if isOrphanedCompletion(d, cfg.DataDir) {
+				_ = cfg.Store.SetStatus(d.UserID, d.ID, StatusQueued)
+				cfg.Streamer.RegisterDownload(d.Name)
+				log.Printf("downloads: re-queued orphan #%d %q (file_path missing, source still in cache)", d.ID, d.Name)
+			}
+			continue
+		}
+		cfg.Streamer.RegisterDownload(d.Name)
+	}
 }
 
 // Start launches the worker loop in a goroutine. Idempotent on the caller side
@@ -463,7 +476,13 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	if completed < td.file.Length() || td.file.Length() <= 0 {
 		return
 	}
-	w.moveCompletedFile(d, td)
+	if err := w.moveCompletedFile(d, td.file.Path(), td.name); err != nil {
+		// Don't flip to completed — the file never reached the destination. Retry
+		// next tick (e.g. the anacrolix storage is still renaming the .part).
+		// Avoids a phantom "completed" whose file_path points to a missing file.
+		log.Printf("downloads: completion move failed #%d %q: %v (retry next tick)", d.ID, td.name, err)
+		return
+	}
 	_ = w.store.SetStatus(d.UserID, d.ID, StatusCompleted)
 	w.mu.Lock()
 	delete(w.tracked, d.ID)
@@ -473,34 +492,94 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
 }
 
-func (w *Worker) moveCompletedFile(d Download, td *trackedDL) {
-	if w.downloadDir == "" || td.file == nil {
-		return
+// partSuffix is what the anacrolix file storage appends to a file until all its
+// pieces verify; a restart mid-verification can leave a *complete* .part behind.
+const partSuffix = ".part"
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// resolveCompletedSrc locates the finished file in dataDir for a torrent-relative
+// path: the final name, or the leftover ".part" the storage hasn't renamed yet.
+// Returns "" when neither exists.
+func resolveCompletedSrc(dataDir, relPath string) string {
+	src := filepath.Join(dataDir, relPath)
+	if fileExists(src) {
+		return src
 	}
-	// Per-user isolation: move to downloadDir/{username}/ when a resolver is set.
-	destDir := w.downloadDir
+	if part := src + partSuffix; fileExists(part) {
+		return part
+	}
+	return ""
+}
+
+// completedDestDir builds the per-user, per-torrent destination directory.
+func completedDestDir(downloadDir, username, torrentName string) string {
+	dir := downloadDir
+	if username != "" {
+		dir = filepath.Join(dir, username)
+	}
+	return filepath.Join(dir, sanitizeFolderName(torrentName))
+}
+
+// moveDownloadedFile moves the completed file (final or leftover .part) for
+// relPath from dataDir into destDir, returning the destination path. The dst
+// always uses the final name, never .part.
+func moveDownloadedFile(dataDir, destDir, relPath string) (string, error) {
+	src := resolveCompletedSrc(dataDir, relPath)
+	if src == "" {
+		return "", fmt.Errorf("completed file not found in %s for %q", dataDir, relPath)
+	}
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
+	}
+	dst := filepath.Join(destDir, filepath.Base(relPath))
+	if err := moveFile(src, dst); err != nil {
+		return "", fmt.Errorf("move %s → %s: %w", src, dst, err)
+	}
+	return dst, nil
+}
+
+// dirHasFiles reports whether dir exists and contains at least one entry.
+func dirHasFiles(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return err == nil && len(entries) > 0
+}
+
+// isOrphanedCompletion reports whether a completed download lost its moved file
+// (file_path gone) while its source still sits in the cache — the fingerprint of
+// a move interrupted by a restart. Such rows are re-queued on boot so the worker
+// re-moves them; the cache-source guard prevents mass re-download when a
+// downloadDir is merely unmounted for a moment.
+func isOrphanedCompletion(d Download, dataDir string) bool {
+	return d.FilePath != "" && !fileExists(d.FilePath) && dirHasFiles(filepath.Join(dataDir, d.Name))
+}
+
+// moveCompletedFile relocates a finished download from the streaming cache to the
+// dedicated downloadDir (per-user, per-torrent folder). Takes the torrent-relative
+// path + name as strings (not the *trackedDL) so it stays unit-testable. Returns
+// an error (instead of failing silently) so the caller only flips the row to
+// "completed" when the file actually reached its home — handling the case where
+// the anacrolix storage left a complete ".part" that wasn't renamed yet.
+func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) error {
+	if w.downloadDir == "" {
+		return nil
+	}
+	username := ""
 	if w.resolveUsername != nil {
-		if username := w.resolveUsername(d.UserID); username != "" {
-			destDir = filepath.Join(w.downloadDir, username)
-		}
+		username = w.resolveUsername(d.UserID)
 	}
-	// Per-torrent folder: every download lands in its own folder named after the
-	// torrent, so a multi-file torrent's files stay together instead of dumping
-	// loose into the shared dir. Applies to single-file torrents too.
-	destDir = filepath.Join(destDir, sanitizeFolderName(td.name))
-	src := filepath.Join(w.dataDir, td.file.Path())
-	dst := filepath.Join(destDir, filepath.Base(td.file.Path()))
-	if mkErr := os.MkdirAll(destDir, 0755); mkErr != nil {
-		log.Printf("downloads: mkdir %s: %v", destDir, mkErr)
-		return
-	}
-	if mvErr := moveFile(src, dst); mvErr != nil {
-		log.Printf("downloads: move #%d %q → %s: %v", d.ID, td.name, dst, mvErr)
-		return
+	destDir := completedDestDir(w.downloadDir, username, torrentName)
+	dst, err := moveDownloadedFile(w.dataDir, destDir, relPath)
+	if err != nil {
+		return err
 	}
 	_ = w.store.SetFilePath(d.UserID, d.ID, dst)
-	w.streamer.UnregisterDownload(td.name)
-	log.Printf("downloads: moved #%d %q → %s", d.ID, td.name, dst)
+	w.streamer.UnregisterDownload(torrentName)
+	log.Printf("downloads: moved #%d %q → %s", d.ID, torrentName, dst)
+	return nil
 }
 
 // sanitizeFolderName turns a torrent name into ONE safe path segment for the
