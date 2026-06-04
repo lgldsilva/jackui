@@ -30,8 +30,10 @@ func TestCreateAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if d.Status != StatusDownloading {
-		t.Fatalf("expected status=downloading, got %q", d.Status)
+	// New downloads enter the queue; the scheduler promotes them to downloading
+	// once a slot is free (active limit).
+	if d.Status != StatusQueued {
+		t.Fatalf("expected status=queued, got %q", d.Status)
 	}
 	got, err := s.Get(1, d.ID)
 	if err != nil {
@@ -74,13 +76,13 @@ func TestPauseResumeFlowsThroughCreate(t *testing.T) {
 	if err := s.SetStatus(1, d.ID, StatusPaused); err != nil {
 		t.Fatalf("SetStatus pause: %v", err)
 	}
-	// Re-create should resume the paused entry, not error out.
+	// Re-create should re-queue the paused entry (scheduler promotes later), not error out.
 	d2, err := s.Create(base)
 	if err != nil {
 		t.Fatalf("Create resume: %v", err)
 	}
-	if d2.Status != StatusDownloading {
-		t.Fatalf("expected resumed entry to be downloading, got %q", d2.Status)
+	if d2.Status != StatusQueued {
+		t.Fatalf("expected resumed entry to be queued, got %q", d2.Status)
 	}
 }
 
@@ -132,6 +134,10 @@ func TestListActiveOnlyDownloading(t *testing.T) {
 	a, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "a"})
 	b, _ := s.Create(Download{UserID: 1, InfoHash: "b", FileIndex: 0, Magnet: "m", Name: "b"})
 	c, _ := s.Create(Download{UserID: 1, InfoHash: "c", FileIndex: 0, Magnet: "m", Name: "c"})
+	// Create enqueues; promote `a` to downloading (as the scheduler would).
+	if _, err := s.PromoteToDownloading(a.ID); err != nil {
+		t.Fatalf("PromoteToDownloading: %v", err)
+	}
 	_ = s.SetStatus(1, b.ID, StatusPaused)
 	_ = s.SetStatus(1, c.ID, StatusCompleted)
 	active, err := s.ListActive()
@@ -279,7 +285,7 @@ func TestListFiltered(t *testing.T) {
 		wantLen   int
 		wantFirst string
 	}{
-		{"status downloading", ListFilter{UserID: 1, Status: StatusDownloading}, 2, ""},
+		{"status queued", ListFilter{UserID: 1, Status: StatusQueued}, 2, ""},
 		{"tracker t1", ListFilter{UserID: 1, Tracker: "t1"}, 1, "Alpha"},
 		{"category tv", ListFilter{UserID: 1, Category: "tv"}, 1, "Beta"},
 		{"search Alpha", ListFilter{UserID: 1, Search: "Alpha"}, 1, ""},
@@ -324,12 +330,12 @@ func TestListFilteredAll(t *testing.T) {
 		t.Errorf("expected 2 downloads, got %d", len(all))
 	}
 
-	all, err = s.ListFilteredAll(ListFilter{Status: StatusDownloading})
+	all, err = s.ListFilteredAll(ListFilter{Status: StatusQueued})
 	if err != nil {
 		t.Fatalf("ListFilteredAll status: %v", err)
 	}
 	if len(all) != 2 {
-		t.Errorf("expected 2 downloading, got %d", len(all))
+		t.Errorf("expected 2 queued, got %d", len(all))
 	}
 
 	all, err = s.ListFilteredAll(ListFilter{Search: "x"})

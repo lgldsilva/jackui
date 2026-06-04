@@ -539,7 +539,9 @@ func (h *Handler) methodTorrentStart(args map[string]interface{}) rpcResponse {
 		if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
 			return nil
 		}
-		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusDownloading)
+		// Re-queue (not straight to downloading) so the scheduler honors the
+		// active limit — a Transmission client must not bypass the queue.
+		_ = h.store.Requeue(d.UserID, d.ID)
 		if h.streamer == nil {
 			return nil
 		}
@@ -999,19 +1001,25 @@ func (h *Handler) applyAddPeerLimit(d downloads.Download, limit float64) {
 	}
 }
 
-// applyAddPriority aplica bandwidth-priority ao torrent se o streamer estiver ativo.
+// applyAddPriority maps Transmission's bandwidth-priority to both the streamer's
+// piece priority (if active) and the download's queue priority column, so a
+// torrent added via a *arr client lands in the right queue tier.
 func (h *Handler) applyAddPriority(d downloads.Download, priority float64) {
-	if priority == 0 || h.streamer == nil {
+	if priority == 0 {
+		return
+	}
+	label := "normal"
+	switch int(priority) {
+	case -1:
+		label = downloads.PriorityLow
+	case 1:
+		label = downloads.PriorityHigh
+	}
+	_ = h.store.SetPriority(d.UserID, d.ID, label)
+	if h.streamer == nil {
 		return
 	}
 	if hh, err := hashFromDownload(d); err == nil {
-		label := "normal"
-		switch int(priority) {
-		case -1:
-			label = "low"
-		case 1:
-			label = "high"
-		}
 		_ = h.streamer.SetPriority(hh, label)
 	}
 }

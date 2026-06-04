@@ -461,8 +461,9 @@ func TestTorrentStart_ChangesStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != downloads.StatusDownloading {
-		t.Errorf("status=%q, want %q", got.Status, downloads.StatusDownloading)
+	// torrent-start re-queues; the scheduler promotes to downloading (active limit).
+	if got.Status != downloads.StatusQueued {
+		t.Errorf("status=%q, want %q", got.Status, downloads.StatusQueued)
 	}
 }
 
@@ -516,8 +517,8 @@ func TestTorrentStartNow_SameAsStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != downloads.StatusDownloading {
-		t.Errorf("torrent-start-now: status=%q, want %q", got.Status, downloads.StatusDownloading)
+	if got.Status != downloads.StatusQueued {
+		t.Errorf("torrent-start-now: status=%q, want %q", got.Status, downloads.StatusQueued)
 	}
 }
 

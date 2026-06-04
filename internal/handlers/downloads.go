@@ -113,6 +113,7 @@ func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, download
 		}
 		enrichETAList(list, streamer)
 		markPromoted(list, downloadDir)
+		downloads.AssignQueuePositions(list)
 		c.JSON(http.StatusOK, list)
 	}
 }
@@ -144,6 +145,7 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) 
 			return
 		}
 		enrichETAList(list, streamer)
+		downloads.AssignQueuePositions(list)
 		c.JSON(http.StatusOK, list)
 	}
 }
@@ -180,6 +182,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 			list[i].Username = uc.get(authStore, list[i].UserID)
 		}
 		enrichETAList(list, streamer)
+		downloads.AssignQueuePositions(list)
 
 		c.JSON(http.StatusOK, list)
 	}
@@ -290,8 +293,9 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 	}
 }
 
-// DownloadsResume handles PATCH /api/downloads/:id/resume — flips status to downloading.
-// The worker picks it up on the next tick.
+// DownloadsResume handles PATCH /api/downloads/:id/resume — re-queues the
+// download. The scheduler promotes it to downloading once a slot is free
+// (honoring the active limit), instead of jumping straight past the queue.
 func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
@@ -304,8 +308,37 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
 			return
 		}
-		if err := store.SetStatus(userID, id, downloads.StatusDownloading); err != nil {
+		if err := store.Requeue(userID, id); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Status(http.StatusNoContent)
+	}
+}
+
+// DownloadsSetPriority handles PATCH /api/downloads/:id/priority — sets the
+// queue priority (high/normal/low). Takes effect on the next scheduler tick.
+func DownloadsSetPriority(store *downloads.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			return
+		}
+		var req struct {
+			Priority string `json:"priority"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		if _, err := store.Get(userID, id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			return
+		}
+		if err := store.SetPriority(userID, id, req.Priority); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -352,12 +385,12 @@ func DownloadsPauseAll(store *downloads.Store) gin.HandlerFunc {
 	}
 }
 
-// DownloadsResumeAll handles PATCH /api/downloads/resume-all — resume all
-// paused downloads for the current user.
+// DownloadsResumeAll handles PATCH /api/downloads/resume-all — re-queues all
+// paused downloads for the current user (scheduler honors the active limit).
 func DownloadsResumeAll(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		n, err := store.SetStatusForUser(userID, downloads.StatusDownloading)
+		n, err := store.RequeueForUser(userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -399,7 +432,7 @@ func DownloadsBatchResume(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		n, err := store.SetStatusByIDs(userID, req.IDs, downloads.StatusDownloading)
+		n, err := store.RequeueByIDs(userID, req.IDs)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -466,9 +499,10 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		// Reset row pro worker reconciliar com o real após o hash check.
+		// Reset row pro worker reconciliar com o real após o hash check. Vai pra
+		// fila (não direto pra downloading) pro scheduler respeitar o limite.
 		_ = store.UpdateProgress(userID, id, 0)
-		_ = store.SetStatus(userID, id, downloads.StatusDownloading)
+		_ = store.SetStatus(userID, id, downloads.StatusQueued)
 		updated, _ := store.Get(userID, id)
 		c.JSON(http.StatusOK, updated)
 	}

@@ -177,6 +177,9 @@ func Test_dlw_StartInit_InvalidMagnetRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	// init runs only on downloading rows — promote as the scheduler would.
+	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ = store.Get(1, d.ID)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
 
 	w.startInit(*d)

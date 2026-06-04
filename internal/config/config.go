@@ -17,17 +17,18 @@ type Config struct {
 		URL    string `yaml:"url"`
 		APIKey string `yaml:"api_key"`
 	} `yaml:"jackett"`
-	DownloadClients []DownloadClient    `yaml:"download_clients"`
-	Port            int                 `yaml:"port"`
-	DBPath          string              `yaml:"db_path"`
-	Stream          StreamConfig        `yaml:"stream"`
-	Subtitles       SubtitlesConfig     `yaml:"subtitles"`
-	Auth            AuthConfig          `yaml:"auth"`
-	Notifications   NotificationsConfig `yaml:"notifications"`
-	TMDB            TMDBConfig          `yaml:"tmdb"`
-	External        ExternalConfig      `yaml:"external"`
-	AI              AIConfig            `yaml:"ai"`
-	SMTP            SMTPConfig          `yaml:"smtp"`
+	DownloadClients []DownloadClient     `yaml:"download_clients"`
+	Port            int                  `yaml:"port"`
+	DBPath          string               `yaml:"db_path"`
+	Stream          StreamConfig         `yaml:"stream"`
+	Subtitles       SubtitlesConfig      `yaml:"subtitles"`
+	Auth            AuthConfig           `yaml:"auth"`
+	Notifications   NotificationsConfig  `yaml:"notifications"`
+	TMDB            TMDBConfig           `yaml:"tmdb"`
+	External        ExternalConfig       `yaml:"external"`
+	AI              AIConfig             `yaml:"ai"`
+	SMTP            SMTPConfig           `yaml:"smtp"`
+	DownloadsQueue  DownloadsQueueConfig `yaml:"downloads_queue"`
 	// BaseURL is the public URL of the app (e.g. https://jackui.example.com),
 	// used to build links in emails (reset/verify/invite). Falls back to the
 	// request's Origin when empty.
@@ -67,6 +68,19 @@ type AIChainSlot struct {
 	Model    string `yaml:"model"`    // model id sent to /chat/completions
 	// Disabled lets the benchmark (Fase 3) park a model without deleting it.
 	Disabled bool `yaml:"disabled"`
+}
+
+// DownloadsQueueConfig tunes the background-download scheduler: how many run at
+// once, when a no-seed download is bumped to the back of the queue, and the
+// queue's anti-starvation aging. RotationEnabled gates the Phase-2 automatic
+// source rotation (re-search Jackett when a source dries up).
+type DownloadsQueueConfig struct {
+	MaxActive         int  `yaml:"max_active"`          // concurrent downloads (streaming excluded); default 3
+	StallThresholdMin int  `yaml:"stall_threshold_min"` // no-progress+no-seed minutes before a demote; default 30
+	MaxStalls         int  `yaml:"max_stalls"`          // stalls before pausing the download; default 3 (0 = cycle forever)
+	AgingStepMin      int  `yaml:"aging_step_min"`      // queue aging: minutes waited per +1 bonus; default 60
+	AgingCap          int  `yaml:"aging_cap"`           // ceiling on the aging bonus; default 150
+	RotationEnabled   bool `yaml:"rotation_enabled"`    // Phase 2: auto source rotation via Jackett; default false
 }
 
 // ExternalConfig declares filesystem mounts the user wants browsable from
@@ -215,6 +229,7 @@ func applyEnvOverrides(cfg *Config) {
 	applyExternalMountsEnv(cfg)
 	applySMTPEnv(cfg)
 	applyAIEnv(cfg)
+	applyDownloadsQueueEnv(cfg)
 
 	if v := os.Getenv("JACKUI_MAX_UPLOAD_MB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -229,6 +244,35 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if cfg.Stream.MetadataSeconds == 0 {
 		cfg.Stream.MetadataSeconds = 60
+	}
+}
+
+// applyDownloadsQueueEnv reads the queue-scheduler knobs from the environment
+// and applies sane defaults for any unset value (so the worker always sees a
+// usable config even with no YAML/env at all).
+func applyDownloadsQueueEnv(cfg *Config) {
+	applyEnvInt(&cfg.DownloadsQueue.MaxActive, "JACKUI_DL_MAX_ACTIVE")
+	applyEnvInt(&cfg.DownloadsQueue.StallThresholdMin, "JACKUI_DL_STALL_MIN")
+	applyEnvInt(&cfg.DownloadsQueue.MaxStalls, "JACKUI_DL_MAX_STALLS")
+	applyEnvInt(&cfg.DownloadsQueue.AgingStepMin, "JACKUI_DL_AGING_STEP_MIN")
+	applyEnvInt(&cfg.DownloadsQueue.AgingCap, "JACKUI_DL_AGING_CAP")
+	if v := os.Getenv("JACKUI_DL_ROTATION"); v == "1" || strings.EqualFold(v, "true") {
+		cfg.DownloadsQueue.RotationEnabled = true
+	}
+	if cfg.DownloadsQueue.MaxActive <= 0 {
+		cfg.DownloadsQueue.MaxActive = 3
+	}
+	if cfg.DownloadsQueue.StallThresholdMin <= 0 {
+		cfg.DownloadsQueue.StallThresholdMin = 30
+	}
+	if cfg.DownloadsQueue.MaxStalls <= 0 {
+		cfg.DownloadsQueue.MaxStalls = 3 // user chose "pause after N stalls"
+	}
+	if cfg.DownloadsQueue.AgingStepMin <= 0 {
+		cfg.DownloadsQueue.AgingStepMin = 60
+	}
+	if cfg.DownloadsQueue.AgingCap <= 0 {
+		cfg.DownloadsQueue.AgingCap = 150
 	}
 }
 
@@ -258,6 +302,8 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_EXTERNAL_MOUNTS",
 		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL",
 		"JACKUI_MAX_UPLOAD_MB",
+		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
+		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
 	}
 	out := make(map[string]string, len(keys))
 	for _, k := range keys {
