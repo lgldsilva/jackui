@@ -80,7 +80,7 @@ export default function DownloadsPage() {
   const [showFilters, setShowFilters] = useState(false)
   const filterTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
   // Admin mode: toggle between own downloads and all users' downloads
-  const { isAdmin, isGuest } = useAuth()
+  const { isAdmin, isGuest, user } = useAuth()
   const [showAllUsers, setShowAllUsers] = useState(false)
   const [availableUsers, setAvailableUsers] = useState<DownloadUserEntry[]>([])
   const [filterUserId, setFilterUserId] = useState('')
@@ -295,7 +295,14 @@ export default function DownloadsPage() {
     if (!fp) return
     const m = mounts.find(mt => fp === mt.path || fp.startsWith(mt.path + '/'))
     if (m) {
-      const rel = fp.slice(m.path.length).replaceAll(/^\/+/g, '')
+      let rel = fp.slice(m.path.length).replaceAll(/^\/+/g, '')
+      // Mounts user_subpath isolam o download fisicamente em /{username}/ E o
+      // backend re-escopa pelo subdir do usuário ao resolver. Removemos o
+      // prefixo do username aqui pra não duplicar (espelha StripUserScope).
+      const uname = user?.username
+      if (m.userSubpath && uname && (rel === uname || rel.startsWith(uname + '/'))) {
+        rel = rel.slice(uname.length).replaceAll(/^\/+/g, '')
+      }
       const hash = buildLocalHash(m.name, rel)
       const synthetic: SearchResult = {
         title: d.name || rel.split('/').pop() || rel,
