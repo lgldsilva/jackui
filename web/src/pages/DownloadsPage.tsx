@@ -11,6 +11,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import {
   DownloadEntry, DownloadFilterParams, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
   downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
+  DownloadPriority, downloadSetPriority, getDownloadsQueueSettings,
   downloadTrackers, downloadCategories,
   downloadsListAll, downloadUsers, DownloadUserEntry,
   TorrentInfo, streamActive, streamPause, streamResume, streamSetPriority,
@@ -54,6 +55,7 @@ export default function DownloadsPage() {
 
   const [torrents, setTorrents] = useState<TorrentInfo[]>([])
   const [torrentsLoaded, setTorrentsLoaded] = useState(false)
+  const [maxActive, setMaxActive] = useState<number>(0)
   const [busyHash, setBusyHash] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
@@ -257,6 +259,7 @@ export default function DownloadsPage() {
     mountedRef.current = true
     load(); loadTorrents(); loadLimits(); loadFilterOptions()
     localMounts().then(setMounts).catch(() => {})
+    getDownloadsQueueSettings().then(s => setMaxActive(s.maxActive)).catch(() => {})
     const t = setInterval(() => { load(); loadTorrents() }, 2000)
     return () => { mountedRef.current = false; clearInterval(t) }
   }, [])
@@ -324,6 +327,10 @@ export default function DownloadsPage() {
   const onResume = async (id: number) => {
     setBusyID(id)
     try { await downloadResume(id); await load() } finally { setBusyID(null) }
+  }
+  const onSetPriority = async (id: number, priority: DownloadPriority) => {
+    setBusyID(id)
+    try { await downloadSetPriority(id, priority); await load() } finally { setBusyID(null) }
   }
   const onDelete = async (id: number) => {
     if (!await confirm({ title: 'Remover download?', message: 'Parar e remover este download da fila? A sessão de streaming/transcode aberta pelo Play também é encerrada.', confirmLabel: 'Remover', destructive: true })) return
@@ -513,6 +520,10 @@ export default function DownloadsPage() {
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
   const activeCount = activeTorrents.length + downloadsByStatus.downloading.length
   const seedingCount = seedingTorrents.length
+  // Background downloads actually running vs waiting (downloadsByStatus.downloading
+  // groups both for tab counts, so split them here for the "X/N active" indicator).
+  const downloadingNowCount = items.filter(d => d.status === 'downloading').length
+  const queuedCount = items.filter(d => d.status === 'queued').length
 
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
@@ -591,8 +602,8 @@ export default function DownloadsPage() {
           <StatCard
             icon={<Activity className="w-5 h-5" />}
             label="Fila"
-            value={`${activeCount} ativo${activeCount === 1 ? '' : 's'}`}
-            subtitle={seedingCount > 0 ? `${seedingCount} semeando` : undefined}
+            value={maxActive > 0 ? `${downloadingNowCount}/${maxActive} ativos` : `${activeCount} ativo${activeCount === 1 ? '' : 's'}`}
+            subtitle={queuedCount > 0 ? `${queuedCount} na fila` : (seedingCount > 0 ? `${seedingCount} semeando` : undefined)}
             gradient="from-amber-500/20 to-orange-500/10"
             iconColor="text-amber-400"
           />
@@ -878,6 +889,7 @@ export default function DownloadsPage() {
                 onDelete={onDelete}
                 onPromote={onPromote}
                 onStopSeed={onStopSeed}
+                onSetPriority={onSetPriority}
                 onPlay={onPlay}
                 onInspect={setInspectTarget}
                 loading={loading}
@@ -1146,7 +1158,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
 
 function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
-  onPause, onResume, onDelete, onPromote, onStopSeed,
+  onPause, onResume, onDelete, onPromote, onStopSeed, onSetPriority,
   selected, onToggleSelected, onPlay, onInspect, loading,
 }: {
   readonly torrents: TorrentInfo[]
@@ -1163,6 +1175,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   readonly onDelete: (id: number) => void
   readonly onPromote: (d: DownloadEntry) => void
   readonly onStopSeed: (id: number, name: string) => void
+  readonly onSetPriority: (id: number, p: DownloadPriority) => void
   readonly selected: Set<number>
   readonly onToggleSelected: (id: number) => void
   readonly onPlay: (d: DownloadEntry) => void
@@ -1170,11 +1183,6 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   readonly loading?: boolean
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && !loading
-
-  // Downloads com torrent ativo no streamer (semeando) vs parados
-  const seedingDownloads = downloads.filter(d => torrents.some(t => t.infoHash === d.infoHash))
-  const stoppedDownloads = downloads.filter(d => !torrents.some(t => t.infoHash === d.infoHash))
-  const hasBothGroups = (torrents.length > 0 || seedingDownloads.length > 0) && stoppedDownloads.length > 0
 
   const renderDownloadCard = (d: DownloadEntry) => (
     <DownloadCard
@@ -1191,7 +1199,31 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       onStopSeed={() => onStopSeed(d.id, d.name || d.filePath)}
       onPlay={() => onPlay(d)}
       onInspect={() => onInspect(d)}
+      onSetPriority={(p) => onSetPriority(d.id, p)}
     />
+  )
+
+  // Group downloads by lifecycle so the queue is legible. "Completed" further
+  // splits into Seeding (live torrent) vs On-disk (seed stopped). Group headers
+  // only render when more than one group is non-empty, avoiding noise on the
+  // single-status tabs (Completed, Paused, …).
+  const downloadingNow = downloads.filter(d => d.status === 'downloading')
+  const queued = downloads.filter(d => d.status === 'queued')
+  const completed = downloads.filter(d => d.status === 'completed')
+  const otherDownloads = downloads.filter(d => d.status === 'paused' || d.status === 'failed')
+  const seedingCompleted = completed.filter(d => torrents.some(t => t.infoHash === d.infoHash))
+  const onDiskCompleted = completed.filter(d => !torrents.some(t => t.infoHash === d.infoHash))
+  const seedingGroup = [...torrents.map(t => ({ kind: 'torrent' as const, t })), ...seedingCompleted.map(d => ({ kind: 'dl' as const, d }))]
+
+  // How many distinct groups have content — drives whether to show headers.
+  const groupCount = [downloadingNow.length, queued.length, seedingGroup.length, onDiskCompleted.length, otherDownloads.length]
+    .filter(n => n > 0).length
+  const showHeaders = groupCount > 1
+
+  const Header = ({ icon, label, color }: { readonly icon: React.ReactNode; readonly label: string; readonly color: string }) => (
+    <div className={`flex items-center gap-2 text-xs font-medium uppercase tracking-wider px-1 ${color}`}>
+      {icon}{label}
+    </div>
   )
 
   return (
@@ -1211,34 +1243,35 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
         />
       )}
 
-      {/* Grupo: Semeando */}
-      {hasBothGroups && (torrents.length > 0 || seedingDownloads.length > 0) && (
-        <div className="flex items-center gap-2 text-xs text-emerald-400 font-medium uppercase tracking-wider px-1">
-          <ArrowUpCircle className="w-3.5 h-3.5" />
-          Semeando
-        </div>
-      )}
-      {torrents.map(t => (
-        <TorrentCard
-          key={t.infoHash}
-          t={t}
-          busy={busyHash === t.infoHash}
-          onPause={() => onTorrentPause(t.infoHash)}
-          onResume={() => onTorrentResume(t.infoHash)}
-          onPriority={(p) => onTorrentPriority(t.infoHash, p)}
-          onDelete={() => onTorrentDelete(t.infoHash)}
-        />
-      ))}
-      {seedingDownloads.map(renderDownloadCard)}
+      {/* Baixando agora */}
+      {showHeaders && downloadingNow.length > 0 && <Header icon={<Loader2 className="w-3.5 h-3.5" />} label="Baixando agora" color="text-cyan-400" />}
+      {downloadingNow.map(renderDownloadCard)}
 
-      {/* Grupo: No disco (seed parado) */}
-      {hasBothGroups && stoppedDownloads.length > 0 && (
-        <div className="flex items-center gap-2 text-xs text-gray-500 font-medium uppercase tracking-wider px-1 mt-2">
-          <HardDrive className="w-3.5 h-3.5" />
-          No disco
-        </div>
-      )}
-      {stoppedDownloads.map(renderDownloadCard)}
+      {/* Na fila */}
+      {showHeaders && queued.length > 0 && <Header icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-gray-500" />}
+      {queued.map(renderDownloadCard)}
+
+      {/* Semeando (torrents de streaming + completed com torrent live) */}
+      {showHeaders && seedingGroup.length > 0 && <Header icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label="Semeando" color="text-emerald-400" />}
+      {seedingGroup.map(item => item.kind === 'torrent' ? (
+        <TorrentCard
+          key={item.t.infoHash}
+          t={item.t}
+          busy={busyHash === item.t.infoHash}
+          onPause={() => onTorrentPause(item.t.infoHash)}
+          onResume={() => onTorrentResume(item.t.infoHash)}
+          onPriority={(p) => onTorrentPriority(item.t.infoHash, p)}
+          onDelete={() => onTorrentDelete(item.t.infoHash)}
+        />
+      ) : renderDownloadCard(item.d))}
+
+      {/* No disco (concluído, seed parado) */}
+      {showHeaders && onDiskCompleted.length > 0 && <Header icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-gray-500" />}
+      {onDiskCompleted.map(renderDownloadCard)}
+
+      {/* Pausados / falhos */}
+      {showHeaders && otherDownloads.length > 0 && <Header icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-gray-500" />}
+      {otherDownloads.map(renderDownloadCard)}
     </div>
   )
 }
@@ -1537,9 +1570,24 @@ type DownloadCardProps = {
   readonly onStopSeed?: () => void
   readonly onPlay?: () => void
   readonly onInspect?: () => void
+  readonly onSetPriority?: (priority: DownloadPriority) => void
 }
 
-function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect }: DownloadCardProps) {
+// PriorityBadge shows the queue priority on a download card. Hidden for the
+// default (normal) so it only draws attention when the user has tuned it.
+function PriorityBadge({ priority }: { readonly priority?: DownloadPriority }) {
+  if (!priority || priority === 'normal') return null
+  const cls = priority === 'high'
+    ? 'bg-orange-500/15 text-orange-300 border-orange-500/30'
+    : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${cls}`} title="Prioridade na fila">
+      <ArrowUpCircle className="w-3 h-3" />{priority === 'high' ? 'Alta' : 'Baixa'}
+    </span>
+  )
+}
+
+function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority }: DownloadCardProps) {
   const { isGuest } = useAuth()
   const pct = Math.max(0, Math.min(1, d.progress || 0)) * 100
   const isCompleted = d.status === 'completed'
@@ -1575,9 +1623,16 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
           </h3>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <KindBadge kind="server" />
+            <DownloadStatusBadge status={d.status} />
+            {d.status === 'queued' && (d.queuePosition ?? 0) > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-gray-700/50 text-gray-400 border border-gray-600/50 font-medium" title="Posição na fila">
+                {d.queuePosition}º na fila
+              </span>
+            )}
+            <PriorityBadge priority={d.priority} />
             {isStalled && (
-              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-300 border-amber-500/30" title="Download sem progresso — sem peers ou bloqueado">
-                <AlertTriangle className="w-3 h-3" /> Travado
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-300 border-amber-500/30" title="Sem progresso — sem peers/seeds. Após o limite vai pro fim da fila.">
+                <AlertTriangle className="w-3 h-3" /> Sem seed{(d.stalls ?? 0) > 0 ? ` (${d.stalls}×)` : ''}
               </span>
             )}
             {d.status === 'completed' && (
@@ -1585,7 +1640,6 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
                 <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
               </span>
             )}
-            <DownloadStatusBadge status={d.status} />
             {d.username && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium">
                 {d.username}
@@ -1679,6 +1733,21 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
         )}
         {!isGuest && (isPaused || isFailed) && (
           <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? 'Tentar novamente' : 'Resumir'} />
+        )}
+        {!isGuest && isActive && onSetPriority && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-400">
+            <span className="text-gray-500">Prioridade:</span>
+            <select
+              value={d.priority || 'normal'}
+              onChange={e => onSetPriority(e.target.value as DownloadPriority)}
+              disabled={busy}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-gray-100 text-xs disabled:opacity-50 focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
+            >
+              <option value="low">Baixa</option>
+              <option value="normal">Normal</option>
+              <option value="high">Alta</option>
+            </select>
+          </label>
         )}
         {!isGuest && isCompleted && onPromote && (
           <ActionButton

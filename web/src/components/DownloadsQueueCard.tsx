@@ -1,0 +1,146 @@
+import { useState, useEffect } from 'react'
+import { ListOrdered, Loader2, Save, Zap } from 'lucide-react'
+import {
+  getDownloadsQueueSettings,
+  updateDownloadsQueueSettings,
+  DownloadsQueueSettings,
+} from '../api/client'
+
+// NumberField: touch-friendly numeric input (>=44px, 16px to avoid iOS zoom).
+function NumberField(props: Readonly<{
+  label: string
+  value: number
+  onChange: (n: number) => void
+  min?: number
+  suffix?: string
+  hint?: string
+}>) {
+  const { label, value, onChange, min = 1, suffix, hint } = props
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-gray-400">{label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={min}
+          inputMode="numeric"
+          value={value || ''}
+          onChange={(e) => onChange(Math.max(min, Number(e.target.value) || min))}
+          className="input-field min-h-[44px]"
+        />
+        {suffix && <span className="text-xs text-gray-500 flex-shrink-0">{suffix}</span>}
+      </div>
+      {hint && <span className="text-[11px] text-gray-600">{hint}</span>}
+    </label>
+  )
+}
+
+function LiveBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-green-400 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">
+      <Zap className="w-2.5 h-2.5" />ao vivo
+    </span>
+  )
+}
+
+export default function DownloadsQueueCard() {
+  const [form, setForm] = useState<DownloadsQueueSettings | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    getDownloadsQueueSettings()
+      .then(setForm)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const set = <K extends keyof DownloadsQueueSettings>(key: K, val: DownloadsQueueSettings[K]) =>
+    setForm((f) => (f ? { ...f, [key]: val } : f))
+
+  const handleSave = async () => {
+    if (!form) return
+    setSaving(true)
+    setError('')
+    setNotice('')
+    try {
+      await updateDownloadsQueueSettings(form)
+      setNotice('Salvo e aplicado ao vivo.')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="card flex items-center gap-3 text-gray-400">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        Carregando configurações da fila...
+      </div>
+    )
+  }
+  if (error && !form) {
+    return <div className="card text-red-400 text-sm">Fila indisponível: {error}</div>
+  }
+  if (!form) return null
+
+  return (
+    <div className="card flex flex-col gap-5">
+      <div className="flex items-center gap-2">
+        <ListOrdered className="w-5 h-5 text-cyan-400" />
+        <h2 className="text-lg font-semibold text-gray-100">Fila de Downloads</h2>
+        <LiveBadge />
+      </div>
+
+      <p className="text-xs text-gray-500 -mt-2">
+        Quantos downloads rodam ao mesmo tempo e como a fila se comporta. Streaming (tocar agora) não conta no limite.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <NumberField label="Downloads ativos" value={form.maxActive} onChange={(n) => set('maxActive', n)}
+          suffix="ativos" hint="Máximo baixando ao mesmo tempo; o resto fica na fila." />
+        <NumberField label="Sem seed por" value={form.stallThresholdMin} onChange={(n) => set('stallThresholdMin', n)}
+          suffix="min" hint="Tempo sem progresso E sem seeds antes de ir pro fim da fila." />
+        <NumberField label="Pausar após" value={form.maxStalls} onChange={(n) => set('maxStalls', n)}
+          suffix="voltas" hint="Depois de N voltas sem baixar, pausa o download." />
+        <NumberField label="Envelhecimento" value={form.agingStepMin} onChange={(n) => set('agingStepMin', n)}
+          min={0} suffix="min/degrau" hint="A cada X min na fila um item de prioridade baixa sobe (anti-fome). 0 desliga." />
+      </div>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <label className="flex items-center gap-2 text-sm text-gray-300">
+          <input
+            type="checkbox"
+            checked={form.rotationEnabled}
+            onChange={(e) => set('rotationEnabled', e.target.checked)}
+            className="accent-cyan-500 w-4 h-4"
+          />
+          Rotação automática de fontes
+          <span className="text-[10px] uppercase tracking-wide text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">experimental</span>
+        </label>
+      </div>
+      <p className="text-[11px] text-gray-600 -mt-3">
+        Quando um download fica sem seed, busca outras fontes do mesmo conteúdo no Jackett e alterna entre elas (round-robin).
+      </p>
+
+      <div className="flex items-center justify-between gap-3 border-t border-gray-800 pt-4">
+        <div className="text-xs">
+          {error && <span className="text-red-400">{error}</span>}
+          {notice && <span className="text-green-400">{notice}</span>}
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-gray-900 font-semibold px-4 py-2 rounded-lg text-sm transition-colors min-h-[44px]"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Salvar
+        </button>
+      </div>
+    </div>
+  )
+}

@@ -24,6 +24,25 @@ import (
 // transient swarm hiccups self-heal without the user re-queueing manually.
 const maxInitRetries = 3
 
+// QueueSettings are the live scheduling knobs the worker reads each tick. A nil
+// Settings getter (or zero values) falls back to DefaultQueueSettings.
+type QueueSettings struct {
+	MaxActive         int // max concurrent downloads (streaming excluded)
+	StallThresholdMin int // minutes with no progress AND no seeders before a demote
+	MaxStalls         int // stalls before the download is paused (0 = never pause, cycle forever)
+	AgingStepMin      int // queue aging: minutes of waiting per +1 bonus (0 disables)
+	AgingCap          int // ceiling on the aging bonus
+}
+
+// DefaultQueueSettings mirrors the config defaults; used when no getter is wired.
+func DefaultQueueSettings() QueueSettings {
+	return QueueSettings{MaxActive: 3, StallThresholdMin: 30, MaxStalls: 3, AgingStepMin: 60, AgingCap: 150}
+}
+
+func (q QueueSettings) sched() SchedSettings {
+	return SchedSettings{MaxActive: q.MaxActive, AgingStepMin: q.AgingStepMin, AgingCap: q.AgingCap}
+}
+
 // WorkerConfig groups the dependencies and options for creating a Worker.
 type WorkerConfig struct {
 	Store           *Store
@@ -31,10 +50,11 @@ type WorkerConfig struct {
 	DataDir         string // streamer DataDir — where anacrolix stores pieces
 	DownloadDir     string // destination for completed files (empty = keep in DataDir)
 	Interval        time.Duration
-	NtfyBaseURL     string           // default https://ntfy.sh
-	NtfyTopic       string           // global default topic; per-user override via store
-	NtfyToken       string           // optional access token for protected topics (Authorization: Bearer)
-	ResolveUsername func(int) string // optional username resolver for per-user subdir
+	NtfyBaseURL     string                // default https://ntfy.sh
+	NtfyTopic       string                // global default topic; per-user override via store
+	NtfyToken       string                // optional access token for protected topics (Authorization: Bearer)
+	ResolveUsername func(int) string      // optional username resolver for per-user subdir
+	Settings        func() QueueSettings  // live queue settings; nil → DefaultQueueSettings
 }
 
 // Worker reconciles download rows in the store with the running anacrolix
@@ -73,16 +93,22 @@ type Worker struct {
 	// resolveUsername returns the username for a given userID (for per-user subdir).
 	// nil or returning "" disables per-user isolation (legacy flat dir).
 	resolveUsername func(userID int) string
+
+	// settings returns the live queue settings (read each tick). nil → defaults.
+	settings func() QueueSettings
 }
 
 type trackedDL struct {
-	id        int
-	infoHash  string
-	hash      metainfo.Hash
-	torrent   *torrent.Torrent
-	file      *torrent.File
-	name      string
-	startedAt time.Time
+	id                int
+	userID            int
+	infoHash          string
+	hash              metainfo.Hash
+	torrent           *torrent.Torrent
+	file              *torrent.File
+	name              string
+	startedAt         time.Time
+	lastProgressBytes int64     // bytes at the last forward sample (stall detection)
+	lastProgressAt    time.Time // when bytes last advanced
 }
 
 // NewWorker constructs a worker from a config struct. Interval defaults to 2
@@ -110,6 +136,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		ntfyToken:       cfg.NtfyToken,
 		ntfyClient:      &http.Client{Timeout: 10 * time.Second},
 		resolveUsername: cfg.ResolveUsername,
+		settings:        cfg.Settings,
 	}
 	// Pre-register eviction protection for active downloads. Completed
 	// downloads are only protected when no dedicated downloadDir is configured
@@ -173,6 +200,18 @@ func (w *Worker) run() {
 	}
 }
 
+// queueSettings returns the live settings, falling back to defaults when no
+// getter is wired or it returns a zero MaxActive.
+func (w *Worker) queueSettings() QueueSettings {
+	qs := DefaultQueueSettings()
+	if w.settings != nil {
+		if got := w.settings(); got.MaxActive > 0 {
+			qs = got
+		}
+	}
+	return qs
+}
+
 func (w *Worker) tick() {
 	active, err := w.store.ListActive()
 	if err != nil {
@@ -187,12 +226,12 @@ func (w *Worker) tick() {
 	}
 
 	// Untrack any IDs that vanished from the active set since last tick
-	// (user paused/cancelled). Cancel in-flight inits too so a cancelled
-	// download stops resolving metadata immediately.
+	// (user paused/cancelled, or a prior tick demoted them). Cancel in-flight
+	// inits too so a cancelled download stops resolving metadata immediately.
 	w.mu.Lock()
 	for id, td := range w.tracked {
 		if !wantIDs[id] {
-			w.streamer.UnregisterDownload(td.name)
+			w.unregisterLocked(td)
 			delete(w.tracked, id)
 			delete(w.retries, id)
 		}
@@ -209,6 +248,115 @@ func (w *Worker) tick() {
 	for _, d := range active {
 		w.reconcile(d)
 	}
+
+	qs := w.queueSettings()
+	w.detectStalls(qs)
+	w.applySchedule(qs)
+}
+
+// detectStalls demotes downloads that have made no progress for >= the stall
+// threshold AND have zero connected seeders (a true no-seed stall, not just a
+// slow download). Demoting frees the slot and sends the row to the end of its
+// priority group. After MaxStalls demotes the download is paused (the user's
+// choice: it stops cycling but isn't marked failed).
+func (w *Worker) detectStalls(qs QueueSettings) {
+	if qs.StallThresholdMin <= 0 {
+		return
+	}
+	threshold := time.Duration(qs.StallThresholdMin) * time.Minute
+	now := time.Now()
+
+	type victim struct {
+		td *trackedDL
+	}
+	var victims []victim
+	w.mu.Lock()
+	for _, td := range w.tracked {
+		if td.lastProgressAt.IsZero() || now.Sub(td.lastProgressAt) < threshold {
+			continue // never sampled, or progressed recently
+		}
+		if td.torrent != nil && td.torrent.Stats().ConnectedSeeders > 0 {
+			continue // seeders present — not a no-seed stall
+		}
+		victims = append(victims, victim{td: td})
+	}
+	w.mu.Unlock()
+
+	for _, v := range victims {
+		td := v.td
+		stalls, demoted, err := w.store.DemoteToQueued(td.id)
+		if err != nil || !demoted {
+			continue
+		}
+		w.mu.Lock()
+		delete(w.tracked, td.id)
+		delete(w.retries, td.id)
+		w.unregisterLocked(td)
+		w.mu.Unlock()
+		log.Printf("downloads: #%d %q stalled (no seed for %dm) → requeued (stall #%d)", td.id, td.name, qs.StallThresholdMin, stalls)
+		if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
+			_ = w.store.SetStatus(td.userID, td.id, StatusPaused)
+			log.Printf("downloads: #%d %q paused after %d no-seed stalls", td.id, td.name, stalls)
+		}
+	}
+}
+
+// applySchedule enforces the active limit and priority order: it promotes queued
+// rows into free slots and preempts a downloading row when a strictly
+// higher-priority row is waiting (see schedulePlan). Promotion only flips the
+// status; the next tick's reconcile does the heavy init work.
+func (w *Worker) applySchedule(qs QueueSettings) {
+	schedulable, err := w.store.ListSchedulable()
+	if err != nil {
+		log.Printf("downloads: list schedulable failed: %v", err)
+		return
+	}
+	plan := schedulePlan(schedulable, qs.sched(), time.Now())
+	for _, d := range schedulable {
+		switch {
+		case plan[d.ID] && d.Status == StatusQueued:
+			if ok, _ := w.store.PromoteToDownloading(d.ID); ok {
+				log.Printf("downloads: promoted #%d %q (%s) → downloading", d.ID, d.Name, d.Priority)
+			}
+		case !plan[d.ID] && d.Status == StatusDownloading:
+			w.preemptActive(d)
+		}
+	}
+}
+
+// preemptActive demotes a downloading row back to the queue (over limit or
+// out-prioritized by the scheduler) and tears down its in-memory tracking. No
+// stall is counted — this isn't a no-seed stall.
+func (w *Worker) preemptActive(d Download) {
+	if ok, _ := w.store.PreemptToQueued(d.ID); !ok {
+		return
+	}
+	w.mu.Lock()
+	if td := w.tracked[d.ID]; td != nil {
+		delete(w.tracked, d.ID)
+		w.unregisterLocked(td)
+	}
+	if cancel := w.pending[d.ID]; cancel != nil {
+		cancel()
+		delete(w.pending, d.ID)
+	}
+	delete(w.retries, d.ID)
+	w.mu.Unlock()
+	log.Printf("downloads: preempted #%d %q → queued (over limit / lower priority)", d.ID, d.Name)
+}
+
+// unregisterLocked drops the streamer's eviction protection for td's torrent,
+// but only when no OTHER tracked download shares the same torrent name — the
+// streamer keys protection by name (a set, not a refcount), so unregistering
+// blindly would expose a sibling file of the same torrent to LRU eviction.
+// Caller must hold w.mu.
+func (w *Worker) unregisterLocked(td *trackedDL) {
+	for id, other := range w.tracked {
+		if id != td.id && other.name == td.name {
+			return // a sibling still needs the protection
+		}
+	}
+	w.streamer.UnregisterDownload(td.name)
 }
 
 // reconcile brings the in-memory torrent state in line with one DB row. Always
@@ -270,6 +418,15 @@ func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 	} else if completed != d.BytesDownloaded {
 		_ = w.store.UpdateProgress(d.UserID, d.ID, completed)
 	}
+	// Track forward progress for no-seed stall detection. The first sample seeds
+	// the clock; only a real byte advance resets it, so a download stuck at the
+	// same byte count with no seeders eventually trips detectStalls.
+	w.mu.Lock()
+	if td.lastProgressAt.IsZero() || completed > td.lastProgressBytes {
+		td.lastProgressBytes = completed
+		td.lastProgressAt = time.Now()
+	}
+	w.mu.Unlock()
 }
 
 func (w *Worker) checkCompletion(d Download, td *trackedDL) {
@@ -398,14 +555,18 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	fileSize := f.Length()
 	_ = w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize)
 
+	now := time.Now()
 	td := &trackedDL{
-		id:        d.ID,
-		infoHash:  d.InfoHash,
-		hash:      hash,
-		torrent:   t,
-		file:      f,
-		name:      name,
-		startedAt: time.Now(),
+		id:                d.ID,
+		userID:            d.UserID,
+		infoHash:          d.InfoHash,
+		hash:              hash,
+		torrent:           t,
+		file:              f,
+		name:              name,
+		startedAt:         now,
+		lastProgressBytes: f.BytesCompleted(),
+		lastProgressAt:    now,
 	}
 	w.mu.Lock()
 	// If the download was cancelled mid-init, `pending` no longer holds our

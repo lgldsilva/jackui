@@ -18,8 +18,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Status is the lifecycle of a Download row. The worker only acts on rows
-// in `downloading`; the rest are terminal or user-paused.
+// Status is the lifecycle of a Download row. The scheduler promotes rows from
+// `queued`→`downloading` up to the active limit; the worker acts on rows in
+// `downloading`; the rest are terminal or user-paused.
 const (
 	StatusQueued      = "queued"
 	StatusDownloading = "downloading"
@@ -28,7 +29,16 @@ const (
 	StatusPaused      = "paused"
 )
 
+// Priority drives queue scheduling. Aligned with the streamer's piece-priority
+// labels (low/normal/high) so the UI dropdown is shared.
+const (
+	PriorityHigh   = "high"
+	PriorityNormal = "normal"
+	PriorityLow    = "low"
+)
+
 const errInvalidStatus = "invalid status: %s"
+const errInvalidPriority = "invalid priority: %s"
 
 // ListFilter groups optional filtering / sorting params for ListFiltered and ListFilteredAll.
 // Empty fields are ignored. UserID is for per-user queries; UserIDFilter is for admin
@@ -68,6 +78,11 @@ type Download struct {
 	CreatedAt       time.Time  `json:"createdAt"`
 	// Promoted is true when the file has been moved outside the download dir (computed, not stored).
 	Promoted        bool       `json:"promoted,omitempty"`
+	// Queue scheduling fields.
+	Priority        string     `json:"priority"`                  // high/normal/low
+	Stalls          int        `json:"stalls,omitempty"`          // times demoted for no-seed
+	QueuedSince     *time.Time `json:"queuedSince,omitempty"`     // base for fair ordering + aging
+	QueuePosition   int        `json:"queuePosition,omitempty"`   // 1-based rank among the user's queued rows (computed by handler)
 }
 
 type Store struct {
@@ -124,6 +139,22 @@ func (s *Store) migrate() error {
 			}
 		}
 	}
+	// Queue-scheduling columns (priority + fair ordering + no-seed stall count).
+	if !s.hasColumn("downloads", "priority") {
+		if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"); e != nil {
+			return e
+		}
+	}
+	if !s.hasColumn("downloads", "queued_since") {
+		if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN queued_since DATETIME"); e != nil {
+			return e
+		}
+	}
+	if !s.hasColumn("downloads", "stalls") {
+		if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN stalls INTEGER NOT NULL DEFAULT 0"); e != nil {
+			return e
+		}
+	}
 	return nil
 }
 
@@ -146,20 +177,25 @@ func (s *Store) hasColumn(table, col string) bool {
 	return false
 }
 
-// Create inserts a new download row in `downloading` state (immediately
-// eligible for worker pickup). If a row already exists for the
-// (user, info_hash, file_index) tuple, returns it unchanged — re-queueing an
-// existing download is idempotent.
+// Create inserts a new download row in `queued` state. The scheduler promotes it
+// to `downloading` once a slot is free (active limit). If a row already exists
+// for the (user, info_hash, file_index) tuple, returns it unchanged — re-queueing
+// an existing download is idempotent.
 func (s *Store) Create(d Download) (*Download, error) {
 	if d.InfoHash == "" || d.Magnet == "" {
 		return nil, errors.New("infoHash e magnet são obrigatórios")
 	}
+	priority := d.Priority
+	if !validPriority(priority) {
+		priority = PriorityNormal
+	}
 	// Try to fetch existing first — idempotent enqueue
 	if existing, _ := s.GetByKey(d.UserID, d.InfoHash, d.FileIndex); existing != nil {
-		// If user re-enqueued a paused/failed entry, flip it back to downloading
+		// If user re-enqueued a paused/failed entry, send it back to the queue
+		// (the scheduler honors the active limit; never jump straight to downloading).
 		if existing.Status == StatusPaused || existing.Status == StatusFailed {
-			_, _ = s.db.Exec(`UPDATE downloads SET status=?, error='' WHERE id=?`, StatusDownloading, existing.ID)
-			existing.Status = StatusDownloading
+			_, _ = s.db.Exec(`UPDATE downloads SET status=?, error='', queued_since=CURRENT_TIMESTAMP WHERE id=?`, StatusQueued, existing.ID)
+			existing.Status = StatusQueued
 			existing.Error = ""
 		}
 		// Update tracker/category even if re-queueing
@@ -171,9 +207,9 @@ func (s *Store) Create(d Download) (*Download, error) {
 		return existing, nil
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusDownloading)
+		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status, priority, queued_since)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusQueued, priority)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +250,8 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error)
 
 const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
 	tracker, category, status, bytes_downloaded,
-	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at FROM downloads `
+	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at,
+	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, '') FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com
@@ -593,6 +630,122 @@ func (s *Store) SetFileIndex(userID, id int, fileIndex int) error {
 	return err
 }
 
+// ─── queue scheduling ─────────────────────────────────────────────────────
+
+// SetPriority updates the queue priority (high/normal/low). Scoped by user.
+func (s *Store) SetPriority(userID, id int, priority string) error {
+	if !validPriority(priority) {
+		return fmt.Errorf(errInvalidPriority, priority)
+	}
+	_, err := s.db.Exec(`UPDATE downloads SET priority=? WHERE id=? AND user_id=?`, priority, id, userID)
+	return err
+}
+
+// ListSchedulable returns every row in `downloading` or `queued`, across ALL
+// users — the scheduler enforces a single global active limit. Ordering is left
+// to the scheduler (Go-side, see scheduler.go), so this returns the raw set.
+func (s *Store) ListSchedulable() ([]Download, error) {
+	rows, err := s.db.Query(dlSelect+"WHERE status IN (?, ?)", StatusDownloading, StatusQueued)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
+}
+
+// PromoteToDownloading flips a queued row to downloading. Guarded on status so a
+// concurrent pause/cancel is a no-op. Returns true when the row was promoted.
+func (s *Store) PromoteToDownloading(id int) (bool, error) {
+	res, err := s.db.Exec(`
+		UPDATE downloads SET status=?, started_at=COALESCE(started_at, CURRENT_TIMESTAMP)
+		WHERE id=? AND status=?`, StatusDownloading, id, StatusQueued)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// DemoteToQueued sends a downloading row back to the queue (no-seed stall). It
+// resets queued_since (→ end of its priority group) and bumps the stall counter.
+// Guarded on status. Returns the new stall count and whether the row was demoted.
+func (s *Store) DemoteToQueued(id int) (stalls int, demoted bool, err error) {
+	res, err := s.db.Exec(`
+		UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP, stalls=stalls+1
+		WHERE id=? AND status=?`, StatusQueued, id, StatusDownloading)
+	if err != nil {
+		return 0, false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return 0, false, nil
+	}
+	_ = s.db.QueryRow(`SELECT stalls FROM downloads WHERE id=?`, id).Scan(&stalls)
+	return stalls, true, nil
+}
+
+// PreemptToQueued sends a downloading row back to the queue WITHOUT counting a
+// stall — used when a higher-priority download preempts it, or when bootstrap
+// trims actives over the limit. Resets queued_since for fair re-ordering.
+// Guarded on status. Returns true when the row was demoted.
+func (s *Store) PreemptToQueued(id int) (bool, error) {
+	res, err := s.db.Exec(`
+		UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP
+		WHERE id=? AND status=?`, StatusQueued, id, StatusDownloading)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// Requeue puts a single row into the queue (used by Resume so the active limit
+// is honored instead of jumping straight to downloading). Sets queued_since for
+// fair ordering and clears any prior error. Scoped by user; no-op on
+// completed/downloading rows.
+func (s *Store) Requeue(userID, id int) error {
+	_, err := s.db.Exec(`
+		UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP, error=''
+		WHERE id=? AND user_id=? AND status NOT IN (?, ?)`,
+		StatusQueued, id, userID, StatusCompleted, StatusDownloading)
+	return err
+}
+
+// RequeueForUser queues every paused row owned by userID (Resume-All). Leaves
+// terminal and already-active rows untouched.
+func (s *Store) RequeueForUser(userID int) (int64, error) {
+	res, err := s.db.Exec(`
+		UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP
+		WHERE user_id=? AND status NOT IN (?, ?, ?)`,
+		StatusQueued, userID, StatusCompleted, StatusFailed, StatusDownloading)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// RequeueByIDs queues specific rows owned by userID (Batch-Resume). Leaves
+// already-active rows untouched.
+func (s *Store) RequeueByIDs(userID int, ids []int) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	q := `UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP WHERE user_id=? AND status != ? AND id IN (`
+	args := []any{StatusQueued, userID, StatusDownloading}
+	for i, id := range ids {
+		if i > 0 {
+			q += ","
+		}
+		q += "?"
+		args = append(args, id)
+	}
+	q += ")"
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // Delete removes a download row (used for user-initiated cancel).
 // Cancelling does NOT erase on-disk pieces — those are cleaned by the
 // streamer cache LRU once the torrent is no longer protected.
@@ -624,11 +777,12 @@ func scanRows(rows *sql.Rows) (*Download, error) {
 
 func scanGeneric(r rowScanner) (*Download, error) {
 	d := &Download{}
-	var startedAt, completedAt, createdAt string
+	var startedAt, completedAt, createdAt, queuedSince string
 	err := r.Scan(
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &createdAt,
+		&d.Priority, &d.Stalls, &queuedSince,
 	)
 	if err != nil {
 		return nil, err
@@ -638,6 +792,9 @@ func scanGeneric(r rowScanner) (*Download, error) {
 	}
 	if t := dbutil.ParseTime(completedAt); !t.IsZero() {
 		d.CompletedAt = &t
+	}
+	if t := dbutil.ParseTime(queuedSince); !t.IsZero() {
+		d.QueuedSince = &t
 	}
 	d.CreatedAt = dbutil.ParseTime(createdAt)
 	if d.FileSize > 0 {
@@ -652,6 +809,14 @@ func scanGeneric(r rowScanner) (*Download, error) {
 func validStatus(s string) bool {
 	switch s {
 	case StatusQueued, StatusDownloading, StatusCompleted, StatusFailed, StatusPaused:
+		return true
+	}
+	return false
+}
+
+func validPriority(p string) bool {
+	switch p {
+	case PriorityHigh, PriorityNormal, PriorityLow:
 		return true
 	}
 	return false
