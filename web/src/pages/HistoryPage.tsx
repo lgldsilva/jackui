@@ -68,6 +68,7 @@ type ResultSortKey = 'seeders' | 'size' | 'date' | 'title'
 
 type BrowseEntryListProps = {
   readonly selected: string | null
+  readonly refreshingQueries: Set<string>
   readonly queryFilter: string
   readonly setQueryFilter: (v: string) => void
   readonly entrySort: EntrySortKey
@@ -83,7 +84,7 @@ type BrowseEntryListProps = {
 // Extracted from renderBrowseContent to cut its cognitive complexity (the
 // entry-row `map` alone nested several `selected === entry.query` ternaries).
 function BrowseEntryList({
-  selected, queryFilter, setQueryFilter, entrySort, setEntrySort,
+  selected, refreshingQueries, queryFilter, setQueryFilter, entrySort, setEntrySort,
   filteredEntries, onSelect, onDeleteEntry, onDeleteEntryByQuery, navigate,
 }: BrowseEntryListProps) {
   return (
@@ -112,6 +113,9 @@ function BrowseEntryList({
               </div>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+              {refreshingQueries.has(entry.query) && (
+                <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label="Atualizando busca" />
+              )}
               <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title="Nova busca" aria-label="Nova busca" className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-gray-600 hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
               {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
               <button onClick={e => onDeleteEntry(entry.query, e)} title="Remover do cache" aria-label="Remover do cache" className="hidden sm:flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -321,20 +325,34 @@ export default function HistoryPage() {
     }
   }
 
-  // Re-run the selected query live against Jackett (the history view shows the
-  // CACHED results from when it was first searched; seeders/sources go stale).
-  // Refreshes all results at once, vs the per-row seeders refresh.
-  const [refreshingSearch, setRefreshingSearch] = useState(false)
-  const handleRefreshSearch = async () => {
-    if (!selected || refreshingSearch) return
-    setRefreshingSearch(true)
+  // Re-run a query live against Jackett (the history view shows the CACHED
+  // results from when it was first searched; seeders/sources go stale).
+  // Refresh is tracked PER-QUERY, not as a single global flag: the user can hit
+  // "Atualizar busca" on several queries and keep navigating while they run in
+  // parallel. refreshingRef mirrors the Set for a synchronous guard; selectedRef
+  // tells us which query is open when an async refresh resolves.
+  const [refreshingQueries, setRefreshingQueries] = useState<Set<string>>(new Set())
+  const refreshingRef = useRef<Set<string>>(new Set())
+  const selectedRef = useRef<string | null>(selected)
+  useEffect(() => { selectedRef.current = selected }, [selected])
+  const handleRefreshSearch = async (query: string | null) => {
+    if (!query || refreshingRef.current.has(query)) return
+    refreshingRef.current.add(query)
+    setRefreshingQueries(new Set(refreshingRef.current))
     try {
-      const fresh = await searchTorrents(selected, ['all'], 'all')
-      if (fresh) setResults(fresh)
+      const fresh = await searchTorrents(query, ['all'], 'all')
+      if (fresh) {
+        // Only swap the visible results if this query is still the open one.
+        if (selectedRef.current === query) setResults(fresh)
+        // Refresh the query's card in the list (count + "agora") even in background.
+        setEntries(prev => prev.map(en =>
+          en.query === query ? { ...en, resultCount: fresh.length, lastSaved: new Date().toISOString() } : en))
+      }
     } catch {
       /* keep the cached results on failure */
     } finally {
-      setRefreshingSearch(false)
+      refreshingRef.current.delete(query)
+      setRefreshingQueries(new Set(refreshingRef.current))
     }
   }
 
@@ -589,6 +607,7 @@ export default function HistoryPage() {
             full-height list, so a tap looked like "nothing happened". */}
         <BrowseEntryList
           selected={selected}
+          refreshingQueries={refreshingQueries}
           queryFilter={queryFilter}
           setQueryFilter={setQueryFilter}
           entrySort={entrySort}
@@ -619,8 +638,8 @@ export default function HistoryPage() {
               filteredResults={filteredResults}
               browseVisible={browseVisible}
               browseSentinelRef={browseSentinelRef}
-              refreshingSearch={refreshingSearch}
-              onRefreshSearch={handleRefreshSearch}
+              refreshingSearch={!!selected && refreshingQueries.has(selected)}
+              onRefreshSearch={() => handleRefreshSearch(selected)}
               onBack={() => { setSelected(null); setResults([]) }}
               onDownload={setDownloadTarget}
               onPlay={(r) => playSingle(r)}
