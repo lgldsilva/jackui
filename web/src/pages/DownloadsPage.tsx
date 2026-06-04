@@ -8,6 +8,7 @@ import {
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
+import { usePersistedState } from '../lib/storage'
 import {
   DownloadEntry, DownloadFilterParams, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
   downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
@@ -1252,6 +1253,38 @@ function DownloadGroupCard({
 }
 
 // GroupHeader — small section label above a download group (Baixando/Na fila/…).
+type CompletedFilterKey = 'all' | 'seeding' | 'ondisk'
+
+// Filtro da aba de concluídos: ver tudo, só o que está semeando ao vivo, ou só
+// o que está parado no disco. Top-level para evitar componente-no-pai (S6478).
+function CompletedFilterChips({ value, onChange, seedingN, onDiskN }: {
+  readonly value: CompletedFilterKey
+  readonly onChange: (v: CompletedFilterKey) => void
+  readonly seedingN: number
+  readonly onDiskN: number
+}) {
+  const opts: { key: CompletedFilterKey; label: string }[] = [
+    { key: 'all', label: 'Todos' },
+    { key: 'seeding', label: `Semeando (${seedingN})` },
+    { key: 'ondisk', label: `No disco (${onDiskN})` },
+  ]
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {opts.map(o => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${value === o.key
+            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+            : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-gray-200'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function GroupHeader({ icon, label, color }: { readonly icon: React.ReactNode; readonly label: string; readonly color: string }) {
   return (
     <div className={`flex items-center gap-2 text-xs font-medium uppercase tracking-wider px-1 ${color}`}>
@@ -1296,6 +1329,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   readonly loading?: boolean
 }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [completedFilter, setCompletedFilter] = usePersistedState<CompletedFilterKey>('downloads.completedFilter', 'all')
   const toggleGroup = (key: string) => setExpandedGroups(prev => {
     const next = new Set(prev)
     if (next.has(key)) next.delete(key); else next.add(key)
@@ -1360,6 +1394,14 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   const groupCount = [downloadingNow.length, queued.length, seedingCount, onDiskGroups.length, otherDownloads.length]
     .filter(n => n > 0).length
   const showHeaders = groupCount > 1
+  // Filtro Semeando/No disco: 'seeding' isola os que estão semeando ao vivo,
+  // 'ondisk' os parados no disco, 'all' mostra tudo (incluindo baixando/fila/pausados).
+  const hasCompleted = seedingCount > 0 || onDiskGroups.length > 0
+  // Sem concluídos, o filtro não se aplica (não esconde baixando/fila/pausados).
+  const cf = hasCompleted ? completedFilter : 'all'
+  const showSeeding = cf !== 'ondisk'
+  const showOnDisk = cf !== 'seeding'
+  const showOthers = cf === 'all'
 
   return (
     <div className="flex flex-col gap-4">
@@ -1378,36 +1420,61 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
         />
       )}
 
+      {/* Filtro Semeando / No disco — só quando há concluídos pra separar */}
+      {torrentsLoaded && !empty && hasCompleted && (
+        <CompletedFilterChips value={completedFilter} onChange={setCompletedFilter} seedingN={seedingCount} onDiskN={onDiskGroups.length} />
+      )}
+
       {/* Baixando agora */}
-      {showHeaders && downloadingNow.length > 0 && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label="Baixando agora" color="text-cyan-400" />}
-      {downloadingNow.map(renderDownloadCard)}
+      {showOthers && downloadingNow.length > 0 && (
+        <>
+          {showHeaders && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label="Baixando agora" color="text-cyan-400" />}
+          {downloadingNow.map(renderDownloadCard)}
+        </>
+      )}
 
       {/* Na fila */}
-      {showHeaders && queued.length > 0 && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-gray-500" />}
-      {queued.map(renderDownloadCard)}
+      {showOthers && queued.length > 0 && (
+        <>
+          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-gray-500" />}
+          {queued.map(renderDownloadCard)}
+        </>
+      )}
 
       {/* Semeando (torrents de streaming + grupos completed com torrent live) */}
-      {showHeaders && seedingCount > 0 && <GroupHeader icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label="Semeando" color="text-emerald-400" />}
-      {streamingOnly.map(t => (
-        <TorrentCard
-          key={t.infoHash}
-          t={t}
-          busy={busyHash === t.infoHash}
-          onPause={() => onTorrentPause(t.infoHash)}
-          onResume={() => onTorrentResume(t.infoHash)}
-          onPriority={(p) => onTorrentPriority(t.infoHash, p)}
-          onDelete={() => onTorrentDelete(t.infoHash)}
-        />
-      ))}
-      {seedingGroups.map(renderCompletedGroup)}
+      {showSeeding && seedingCount > 0 && (
+        <>
+          {showHeaders && <GroupHeader icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label="Semeando" color="text-emerald-400" />}
+          {streamingOnly.map(t => (
+            <TorrentCard
+              key={t.infoHash}
+              t={t}
+              busy={busyHash === t.infoHash}
+              onPause={() => onTorrentPause(t.infoHash)}
+              onResume={() => onTorrentResume(t.infoHash)}
+              onPriority={(p) => onTorrentPriority(t.infoHash, p)}
+              onDelete={() => onTorrentDelete(t.infoHash)}
+            />
+          ))}
+          {seedingGroups.map(renderCompletedGroup)}
+        </>
+      )}
 
       {/* No disco (concluído, seed parado) */}
-      {showHeaders && onDiskGroups.length > 0 && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-gray-500" />}
-      {onDiskGroups.map(renderCompletedGroup)}
+      {showOnDisk && onDiskGroups.length > 0 && (
+        <>
+          {showHeaders && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-gray-500" />}
+          {onDiskGroups.map(renderCompletedGroup)}
+        </>
+      )}
 
       {/* Pausados / falhos */}
-      {showHeaders && otherDownloads.length > 0 && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-gray-500" />}
-      {otherDownloads.map(renderDownloadCard)}
+      {showOthers && otherDownloads.length > 0 && (
+        <>
+          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-gray-500" />}
+          {otherDownloads.map(renderDownloadCard)}
+        </>
+      )}
     </div>
   )
 }
