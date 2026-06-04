@@ -524,6 +524,9 @@ export default function DownloadsPage() {
   // groups both for tab counts, so split them here for the "X/N active" indicator).
   const downloadingNowCount = items.filter(d => d.status === 'downloading').length
   const queuedCount = items.filter(d => d.status === 'queued').length
+  let queueSubtitle: string | undefined
+  if (queuedCount > 0) queueSubtitle = `${queuedCount} na fila`
+  else if (seedingCount > 0) queueSubtitle = `${seedingCount} semeando`
 
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
@@ -603,7 +606,7 @@ export default function DownloadsPage() {
             icon={<Activity className="w-5 h-5" />}
             label="Fila"
             value={maxActive > 0 ? `${downloadingNowCount}/${maxActive} ativos` : `${activeCount} ativo${activeCount === 1 ? '' : 's'}`}
-            subtitle={queuedCount > 0 ? `${queuedCount} na fila` : (seedingCount > 0 ? `${seedingCount} semeando` : undefined)}
+            subtitle={queueSubtitle}
             gradient="from-amber-500/20 to-orange-500/10"
             iconColor="text-amber-400"
           />
@@ -1151,9 +1154,18 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   )
 }
 
+// GroupHeader — small section label above a download group (Baixando/Na fila/…).
+function GroupHeader({ icon, label, color }: { readonly icon: React.ReactNode; readonly label: string; readonly color: string }) {
+  return (
+    <div className={`flex items-center gap-2 text-xs font-medium uppercase tracking-wider px-1 ${color}`}>
+      {icon}{label}
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // SeedingTab — seeding/complete torrents + completed downloads
-// Sub-divided: "Semeando" (torrent ativo no streamer) vs "No disco" (seed parado).
+// Sub-divided by lifecycle: Baixando agora / Na fila / Semeando / No disco / Pausados.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
@@ -1220,12 +1232,6 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
     .filter(n => n > 0).length
   const showHeaders = groupCount > 1
 
-  const Header = ({ icon, label, color }: { readonly icon: React.ReactNode; readonly label: string; readonly color: string }) => (
-    <div className={`flex items-center gap-2 text-xs font-medium uppercase tracking-wider px-1 ${color}`}>
-      {icon}{label}
-    </div>
-  )
-
   return (
     <div className="flex flex-col gap-4">
       {!torrentsLoaded && (
@@ -1244,15 +1250,15 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       )}
 
       {/* Baixando agora */}
-      {showHeaders && downloadingNow.length > 0 && <Header icon={<Loader2 className="w-3.5 h-3.5" />} label="Baixando agora" color="text-cyan-400" />}
+      {showHeaders && downloadingNow.length > 0 && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label="Baixando agora" color="text-cyan-400" />}
       {downloadingNow.map(renderDownloadCard)}
 
       {/* Na fila */}
-      {showHeaders && queued.length > 0 && <Header icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-gray-500" />}
+      {showHeaders && queued.length > 0 && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-gray-500" />}
       {queued.map(renderDownloadCard)}
 
       {/* Semeando (torrents de streaming + completed com torrent live) */}
-      {showHeaders && seedingGroup.length > 0 && <Header icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label="Semeando" color="text-emerald-400" />}
+      {showHeaders && seedingGroup.length > 0 && <GroupHeader icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label="Semeando" color="text-emerald-400" />}
       {seedingGroup.map(item => item.kind === 'torrent' ? (
         <TorrentCard
           key={item.t.infoHash}
@@ -1266,11 +1272,11 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       ) : renderDownloadCard(item.d))}
 
       {/* No disco (concluído, seed parado) */}
-      {showHeaders && onDiskCompleted.length > 0 && <Header icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-gray-500" />}
+      {showHeaders && onDiskCompleted.length > 0 && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-gray-500" />}
       {onDiskCompleted.map(renderDownloadCard)}
 
       {/* Pausados / falhos */}
-      {showHeaders && otherDownloads.length > 0 && <Header icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-gray-500" />}
+      {showHeaders && otherDownloads.length > 0 && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-gray-500" />}
       {otherDownloads.map(renderDownloadCard)}
     </div>
   )

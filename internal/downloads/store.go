@@ -132,30 +132,37 @@ func (s *Store) migrate() error {
 	if err != nil {
 		return err
 	}
-	for _, col := range []string{"tracker", "category"} {
-		if !s.hasColumn("downloads", col) {
-			if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN " + col + " TEXT NOT NULL DEFAULT ''"); e != nil {
-				return e
-			}
-		}
+	// Columns added after v1, applied idempotently (definition includes the
+	// `<name> <type/default>` so ALTER is a no-op when the column already exists).
+	// Queue-scheduling columns: priority + fair ordering + no-seed stall count.
+	addColumns := []string{
+		"tracker TEXT NOT NULL DEFAULT ''",
+		"category TEXT NOT NULL DEFAULT ''",
+		"priority TEXT NOT NULL DEFAULT 'normal'",
+		"queued_since DATETIME",
+		"stalls INTEGER NOT NULL DEFAULT 0",
 	}
-	// Queue-scheduling columns (priority + fair ordering + no-seed stall count).
-	if !s.hasColumn("downloads", "priority") {
-		if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"); e != nil {
-			return e
-		}
-	}
-	if !s.hasColumn("downloads", "queued_since") {
-		if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN queued_since DATETIME"); e != nil {
-			return e
-		}
-	}
-	if !s.hasColumn("downloads", "stalls") {
-		if _, e := s.db.Exec("ALTER TABLE downloads ADD COLUMN stalls INTEGER NOT NULL DEFAULT 0"); e != nil {
+	for _, def := range addColumns {
+		if e := s.addColumnIfMissing("downloads", def); e != nil {
 			return e
 		}
 	}
 	return nil
+}
+
+// addColumnIfMissing runs ALTER TABLE ADD COLUMN when the column (first token of
+// def) isn't present yet. def is the full column definition, e.g. "priority TEXT
+// NOT NULL DEFAULT 'normal'".
+func (s *Store) addColumnIfMissing(table, def string) error {
+	col := def
+	if i := strings.IndexByte(def, ' '); i > 0 {
+		col = def[:i]
+	}
+	if s.hasColumn(table, col) {
+		return nil
+	}
+	_, err := s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + def)
+	return err
 }
 
 func (s *Store) hasColumn(table, col string) bool {
