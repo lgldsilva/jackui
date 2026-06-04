@@ -82,6 +82,39 @@ func TestDownloadsSetPriority_InvalidValue(t *testing.T) {
 	}
 }
 
+func TestDownloadsSources_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	router := gin.New()
+	router.GET("/api/downloads/:id/sources", DownloadsSources(store))
+
+	req := httptest.NewRequest("GET", "/api/downloads/999/sources", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestDownloadsSources_EmptyArray(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	_, _ = store.Create(downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	router := gin.New()
+	router.GET("/api/downloads/:id/sources", DownloadsSources(store))
+
+	req := httptest.NewRequest("GET", "/api/downloads/1/sources", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	// Must serialize as [] (not null) so the frontend can map over it.
+	if body := w.Body.String(); body != "[]" {
+		t.Errorf("expected empty array body, got %q", body)
+	}
+}
+
 func TestDownloadsGetSettings(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{}

@@ -16,8 +16,15 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"github.com/luizg/jackui/internal/jackett"
 	"github.com/luizg/jackui/internal/streamer"
 )
+
+// sourceSearcher is the subset of the Jackett client the worker needs for source
+// rotation (Phase 2). An interface keeps the worker testable without a live client.
+type sourceSearcher interface {
+	Search(query, category string, indexers []string) ([]jackett.Result, error)
+}
 
 // maxInitRetries caps how many times a slow/dead magnet is retried (in memory)
 // before the download is marked failed. Each retry happens on a later tick, so
@@ -31,8 +38,9 @@ type QueueSettings struct {
 	PerUserMaxActive  int // per-user concurrent cap; 0 = no per-user limit
 	StallThresholdMin int // minutes with no progress AND no seeders before a demote
 	MaxStalls         int // stalls before the download is paused (0 = never pause, cycle forever)
-	AgingStepMin      int // queue aging: minutes of waiting per +1 bonus (0 disables)
-	AgingCap          int // ceiling on the aging bonus
+	AgingStepMin      int  // queue aging: minutes of waiting per +1 bonus (0 disables)
+	AgingCap          int  // ceiling on the aging bonus
+	RotationEnabled   bool // Phase 2: on a no-seed stall, try alternative sources before demoting
 }
 
 // DefaultQueueSettings mirrors the config defaults; used when no getter is wired.
@@ -56,6 +64,7 @@ type WorkerConfig struct {
 	NtfyToken       string                // optional access token for protected topics (Authorization: Bearer)
 	ResolveUsername func(int) string      // optional username resolver for per-user subdir
 	Settings        func() QueueSettings  // live queue settings; nil → DefaultQueueSettings
+	Jackett         sourceSearcher        // Phase 2 source rotation; nil disables Jackett re-search
 }
 
 // Worker reconciles download rows in the store with the running anacrolix
@@ -97,6 +106,9 @@ type Worker struct {
 
 	// settings returns the live queue settings (read each tick). nil → defaults.
 	settings func() QueueSettings
+
+	// jackett re-searches for alternative sources during rotation. nil disables it.
+	jackett sourceSearcher
 }
 
 type trackedDL struct {
@@ -138,6 +150,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		ntfyClient:      &http.Client{Timeout: 10 * time.Second},
 		resolveUsername: cfg.ResolveUsername,
 		settings:        cfg.Settings,
+		jackett:         cfg.Jackett,
 	}
 	// Pre-register eviction protection for active downloads. Completed
 	// downloads are only protected when no dedicated downloadDir is configured
@@ -285,6 +298,11 @@ func (w *Worker) detectStalls(qs QueueSettings) {
 
 	for _, v := range victims {
 		td := v.td
+		// Phase 2: before demoting, try rotating to an alternative source. If it
+		// rotates, the download keeps its slot and re-inits with the new magnet.
+		if qs.RotationEnabled && w.tryRotate(td, qs) {
+			continue
+		}
 		stalls, demoted, err := w.store.DemoteToQueued(td.id)
 		if err != nil || !demoted {
 			continue
@@ -491,7 +509,9 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
-	hash, err := w.streamer.EnsureActive(ctx, d.Magnet)
+	// EffectiveMagnet is the active alternative source when rotation has switched
+	// away from the original, otherwise the original magnet.
+	hash, err := w.streamer.EnsureActive(ctx, d.EffectiveMagnet())
 	if err != nil {
 		w.failOrRetry(d, "load torrent: "+err.Error())
 		return
