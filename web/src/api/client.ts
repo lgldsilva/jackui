@@ -552,7 +552,8 @@ export const tmdbTrending = async (opts?: { year?: number; genre?: number }): Pr
     if (opts?.year) params.set('year', String(opts.year))
     if (opts?.genre) params.set('genre', String(opts.genre))
     const qs = params.toString()
-    const { data } = await api.get<TmdbMatch[]>(`/tmdb/trending${qs ? `?${qs}` : ''}`, { validateStatus: () => true })
+    const path = qs ? `/tmdb/trending?${qs}` : '/tmdb/trending'
+    const { data } = await api.get<TmdbMatch[]>(path, { validateStatus: () => true })
     return Array.isArray(data) ? data : []
   } catch {
     return []
