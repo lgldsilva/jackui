@@ -4,6 +4,7 @@ import {
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
   Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive, AlertTriangle,
   ListFilter, Download, CheckSquare, MoreHorizontal, ChevronDown, ChevronRight, Folder,
+  ArrowUp, ArrowDown, ArrowDownWideNarrow,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
@@ -73,8 +74,8 @@ export default function DownloadsPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterTracker, setFilterTracker] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
-  const [sortCol] = useState('created_at')
-  const [sortDir] = useState('desc')
+  const [sortCol, setSortCol] = useState('created_at')
+  const [sortDir, setSortDir] = useState('desc')
   const [availableTrackers, setAvailableTrackers] = useState<string[]>([])
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
@@ -811,11 +812,37 @@ export default function DownloadsPage() {
                   ))}
                 </select>
               )}
+              {/* Ordenação */}
+              <span className="mx-1 h-5 w-px bg-gray-700 hidden sm:block" />
+              <span className="text-xs text-gray-500 flex items-center gap-1.5">
+                <ArrowDownWideNarrow className="w-3.5 h-3.5" /> Ordenar
+              </span>
+              <select
+                value={sortCol}
+                onChange={e => setSortCol(e.target.value)}
+                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+              >
+                <option value="created_at">Data</option>
+                <option value="name">Nome</option>
+                <option value="size">Tamanho</option>
+                <option value="progress">Progresso</option>
+                <option value="status">Status</option>
+                <option value="tracker">Tracker</option>
+                <option value="category">Categoria</option>
+              </select>
               <button
-                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId('') }}
+                onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
+                aria-label="Inverter ordem"
+                className="bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
+              >
+                {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId(''); setSortCol('created_at'); setSortDir('desc') }}
                 className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1"
               >
-                Limpar filtros
+                Limpar
               </button>
             </div>
           )}
@@ -1192,6 +1219,14 @@ type CompletedGroup = {
   seeding: boolean
 }
 
+// Ordena arquivos do MESMO torrent em ordem natural (numérica) pelo caminho, pra
+// que episódios fiquem S01E01, S01E02, … S01E10 em vez de ordem alfabética crua
+// ou de chegada. A ordem ENTRE grupos segue o sort global (ordem de chegada da
+// lista já ordenada pelo backend).
+function naturalFileCompare(a: DownloadEntry, b: DownloadEntry): number {
+  return (a.filePath || a.name).localeCompare(b.filePath || b.name, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 // groupCompleted groups completed downloads by infoHash, preserving first-seen
 // order. `seeding` is true when the torrent is still live in the streamer.
 function groupCompleted(items: readonly DownloadEntry[], torrents: readonly TorrentInfo[]): CompletedGroup[] {
@@ -1206,6 +1241,10 @@ function groupCompleted(items: readonly DownloadEntry[], torrents: readonly Torr
       order.push(key)
     }
     g.files.push(d)
+  }
+  // Episódios em ordem dentro de cada torrent multi-arquivo.
+  for (const g of byKey.values()) {
+    if (g.files.length > 1) g.files.sort(naturalFileCompare)
   }
   return order.map(k => byKey.get(k) as CompletedGroup)
 }
