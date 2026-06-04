@@ -944,6 +944,7 @@ func registerTMDBRoutes(api *gin.RouterGroup, deps *appDeps) {
 	// TMDB enrichment — optional poster + overview per torrent title
 	api.GET("/tmdb/match", handlers.TmdbMatch(deps.tmdbClient))
 	api.GET("/tmdb/trending", handlers.TmdbTrending(deps.tmdbClient))
+	api.GET("/tmdb/genres", handlers.TmdbGenres(deps.tmdbClient))
 }
 
 func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {

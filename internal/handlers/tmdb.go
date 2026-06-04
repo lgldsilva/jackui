@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/tmdb"
@@ -38,15 +39,24 @@ func TmdbMatch(c *tmdb.Client) gin.HandlerFunc {
 	}
 }
 
-// TmdbTrending — GET /api/tmdb/trending. This week's trending movies + shows for
-// the Discover page. 200+list, 503 (no key), or 502 on upstream error.
+// TmdbTrending — GET /api/tmdb/trending[?year=&genre=]. Without filters: this
+// week's trending (with ↑/↓ direction). With year/genre: TMDB /discover.
+// 200+list, 503 (no key), or 502 on upstream error.
 func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if c == nil {
 			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 			return
 		}
-		items, err := c.Trending(ctx.Request.Context())
+		year, _ := strconv.Atoi(ctx.Query("year"))
+		genre, _ := strconv.Atoi(ctx.Query("genre"))
+		var items []tmdb.Match
+		var err error
+		if year > 0 || genre > 0 {
+			items, err = c.Discover(ctx.Request.Context(), year, genre)
+		} else {
+			items, err = c.Trending(ctx.Request.Context())
+		}
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
 				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
@@ -56,5 +66,26 @@ func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
 			return
 		}
 		ctx.JSON(http.StatusOK, items)
+	}
+}
+
+// TmdbGenres — GET /api/tmdb/genres. Merged movie+tv genre list for the Discover
+// filter dropdown. 200+list, 503 (no key), or 502 on upstream error.
+func TmdbGenres(c *tmdb.Client) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		if c == nil {
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			return
+		}
+		genres, err := c.Genres(ctx.Request.Context())
+		if err != nil {
+			if errors.Is(err, tmdb.ErrDisabled) {
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+				return
+			}
+			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, genres)
 	}
 }
