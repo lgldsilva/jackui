@@ -19,6 +19,7 @@ import {
 import StreamCacheCard from '../components/StreamCacheCard'
 import StreamSettingsCard from '../components/StreamSettingsCard'
 import DownloadsQueueCard from '../components/DownloadsQueueCard'
+import ExternalMountsCard from '../components/ExternalMountsCard'
 import TranscodeCapabilitiesCard from '../components/TranscodeCapabilitiesCard'
 import ActiveTranscodesCard from '../components/ActiveTranscodesCard'
 import AIBenchmarkCard from '../components/AIBenchmarkCard'
@@ -388,6 +389,7 @@ export default function SettingsPage() {
             </div>
           </section>
           <DownloadsQueueCard />
+          <ExternalMountsCard />
           </>
         )}
 

@@ -19,6 +19,8 @@ import {
   Search,
   Check,
   X,
+  Lock,
+  Users,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
@@ -88,6 +90,18 @@ function formatDate(iso: string): string {
 
 // Barra de espaço livre/total do filesystem do mount (discos físicos, rclone).
 // Some quando o backend não conseguiu medir (mount quebrado → totalBytes 0).
+// MountBadge flags a mount's visibility: 🔒 per-user (private subdir) or
+// 👥 restricted (visible only to specific users). Shared mounts get no badge.
+function MountBadge({ m }: { readonly m: LocalMount }) {
+  if (m.userSubpath) {
+    return <Lock className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label="privado por usuário" />
+  }
+  if (m.restricted) {
+    return <Users className="w-3 h-3 text-blue-400 flex-shrink-0" aria-label="restrito a usuários específicos" />
+  }
+  return null
+}
+
 function MountSpaceLabel({ m }: { readonly m: LocalMount }) {
   if (!m.totalBytes || m.totalBytes <= 0) return null
   const free = m.freeBytes ?? 0
@@ -592,6 +606,7 @@ export default function LocalPage() {
                     >
                       <HardDrive className="w-4 h-4 flex-shrink-0" />
                       <span className="truncate">{m.name}</span>
+                      <MountBadge m={m} />
                     </button>
                     <MountSpaceLabel m={m} />
                   </li>
@@ -877,6 +892,7 @@ export default function LocalPage() {
               >
                 <HardDrive className="w-4 h-4 flex-shrink-0" />
                 <span className="truncate">{m.name}</span>
+                <MountBadge m={m} />
               </button>
               <MountSpaceLabel m={m} />
             </li>
