@@ -861,7 +861,8 @@ export default function LocalPage() {
         <BatchActionBar
           count={selected.size}
           onCancel={clearSelection}
-          onSelectAll={selectAllVisible}
+          allSelected={visible.length > 0 && selected.size === visible.length}
+          onSelectAll={selected.size === visible.length ? () => setSelected(new Set()) : selectAllVisible}
           canMove={isAdmin}
           canPromote={canManipulate || isAdmin}
           onDelete={runBatchDelete}
