@@ -140,3 +140,33 @@ func TestDiscover_DisabledClient(t *testing.T) {
 		t.Errorf("expected ErrDisabled, got %v", err)
 	}
 }
+
+func TestDiscover_UpstreamErrorOnMovie(t *testing.T) {
+	// /discover/movie 500 → Discover propagates the error (movie is required).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := testClient(t, srv)
+	if _, err := c.Discover(context.Background(), 2024, 0); err == nil {
+		t.Error("expected error when discover/movie fails")
+	}
+}
+
+func TestGenres_UpstreamErrorAndDisabled(t *testing.T) {
+	genresMu.Lock()
+	genresCache = nil
+	genresMu.Unlock()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	if _, err := testClient(t, srv).Genres(context.Background()); err == nil {
+		t.Error("expected error when genre list fails")
+	}
+	dc, _ := New("", "", t.TempDir()+"/tmdb.db")
+	defer dc.Close()
+	if _, err := dc.Genres(context.Background()); err != ErrDisabled {
+		t.Errorf("expected ErrDisabled, got %v", err)
+	}
+}

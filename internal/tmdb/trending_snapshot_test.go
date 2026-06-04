@@ -89,6 +89,16 @@ func TestPrevWeekRanks_ComparesAcrossWeeks(t *testing.T) {
 	}
 }
 
+func TestSaveSnapshot_EmptyIsNoOp(t *testing.T) {
+	c := newSnapTestClient(t)
+	c.saveSnapshot("2030-W01", nil) // empty → no write, no panic
+	var n int
+	_ = c.cache.QueryRow(`SELECT COUNT(*) FROM trending_snapshot`).Scan(&n)
+	if n != 0 {
+		t.Errorf("empty save should write nothing, got %d rows", n)
+	}
+}
+
 func TestSaveSnapshot_PrunesOldWeeks(t *testing.T) {
 	c := newSnapTestClient(t)
 	// Insert 6 distinct old weeks, then save → only snapshotHistoryWeeks kept.
