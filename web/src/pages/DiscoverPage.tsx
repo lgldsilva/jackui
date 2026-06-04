@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flame, Loader2, Search, Star, Film, Tv, X } from 'lucide-react'
+import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { tmdbTrending, TmdbMatch } from '../api/client'
 
@@ -10,6 +10,32 @@ import { tmdbTrending, TmdbMatch } from '../api/client'
 // and best-effort: with no TMDB key it shows a hint instead of erroring.
 
 type Filter = 'all' | 'movie' | 'tv'
+
+// DirectionBadge shows how a title moved in this week's ranking vs last week.
+function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
+  if (m.direction === 'new') {
+    return (
+      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/80 text-white" title="Novo no ranking">
+        <Sparkles className="w-3 h-3" />novo
+      </span>
+    )
+  }
+  if (m.direction === 'up') {
+    return (
+      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/80 text-white" title={`Subiu ${m.rankDelta ?? 0} posições`}>
+        <TrendingUp className="w-3 h-3" />{m.rankDelta ?? ''}
+      </span>
+    )
+  }
+  if (m.direction === 'down') {
+    return (
+      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-500/80 text-white" title={`Caiu ${m.rankDelta ?? 0} posições`}>
+        <TrendingDown className="w-3 h-3" />{m.rankDelta ?? ''}
+      </span>
+    )
+  }
+  return null
+}
 
 export default function DiscoverPage() {
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
@@ -103,6 +129,9 @@ export default function DiscoverPage() {
                   <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
                     <Search className="w-7 h-7 text-green-400" />
                   </div>
+                  <span className="absolute bottom-1 left-1">
+                    <DirectionBadge m={m} />
+                  </span>
                 </div>
                 <div className="p-2">
                   <p className="text-xs text-gray-200 line-clamp-2" title={m.title}>{m.title}</p>
