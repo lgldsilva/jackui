@@ -1640,6 +1640,7 @@ export type DownloadPriority = 'high' | 'normal' | 'low'
 
 export type DownloadsQueueSettings = {
   maxActive: number
+  perUserMaxActive: number
   stallThresholdMin: number
   maxStalls: number
   agingStepMin: number
