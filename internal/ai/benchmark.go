@@ -31,7 +31,7 @@ type SlotScore struct {
 	Provider      string  `json:"provider"`
 	Model         string  `json:"model"`
 	Accuracy      float64 `json:"accuracy"`     // 0..1 mean over cases
-	AvgLatencyMs  int64   `json:"avgLatencyMs"` // mean wall-clock per call
+	AvgLatencyMs  int64   `json:"avgLatencyMs"` // MEDIAN wall-clock per call (resilient to model-load residual)
 	Composite     float64 `json:"composite"`    // accuracy / sqrt(latencySeconds)
 	Samples       int     `json:"samples"`      // cases that produced a usable reply
 	Free          bool    `json:"free"`          // true when model is free (no billing cost)
@@ -173,28 +173,41 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 	return scores
 }
 
+// warmupTimeout bounds the untimed priming call for a local Ollama model. It has
+// to cover the cold-load of a large model into VRAM (e.g. an 8B model off a cold
+// cache can take well over two minutes), otherwise the warmup is cut short, the
+// model isn't resident, and the FIRST timed case eats the load cost — skewing the
+// measurement against bigger-but-better local models.
+const warmupTimeout = 300 * time.Second
+
 // scoreSlot runs the full case set against one slot and aggregates the result.
 // When warmup is true (local Ollama) it issues one untimed priming call first so
 // the model is resident in VRAM before the timed cases run.
+//
+// Latency is reported as the MEDIAN of the per-case wall-clock, not the mean. A
+// mean is dragged up by a single slow call — and the most common slow call is
+// model-load residual leaking into the first timed case when the warmup didn't
+// fully load the model. The median ignores that lone outlier, so the score
+// reflects steady-state inference latency, which is what we're ranking on.
 func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, warmup bool) SlotScore {
 	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model, Free: s.Free}
 	if warmup {
-		warmCtx, warmCancel := context.WithTimeout(ctx, 120*time.Second)
+		warmCtx, warmCancel := context.WithTimeout(ctx, warmupTimeout)
 		_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
 		warmCancel()
 	}
 	var accSum float64
-	var latSum time.Duration
+	lats := make([]time.Duration, 0, len(cases))
 	paymentFail := false
 	for _, tc := range cases {
-		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &latSum) {
+		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &lats) {
 			paymentFail = true
 			break
 		}
 	}
 	if score.Samples > 0 {
 		score.Accuracy = accSum / float64(score.Samples)
-		score.AvgLatencyMs = (latSum / time.Duration(score.Samples)).Milliseconds()
+		score.AvgLatencyMs = medianDuration(lats).Milliseconds()
 		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.Free)
 	} else if paymentFail {
 		score.Composite = -1
@@ -202,7 +215,23 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	return score
 }
 
-func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, latSum *time.Duration) bool {
+// medianDuration returns the median of the samples (the mean of the two middle
+// values for an even count). Empty input is 0. Sorts a copy — the caller's slice
+// stays in call order.
+func medianDuration(lats []time.Duration) time.Duration {
+	n := len(lats)
+	if n == 0 {
+		return 0
+	}
+	sorted := append([]time.Duration(nil), lats...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
+}
+
+func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, lats *[]time.Duration) bool {
 	res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
@@ -217,7 +246,7 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 		return false
 	}
 	score.Samples++
-	*latSum += latency
+	*lats = append(*lats, latency)
 	if res != nil {
 		*accSum += titleAccuracy(res.Title, tc.Expect)
 	}
