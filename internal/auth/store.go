@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -414,6 +415,8 @@ func (s *Store) SetEmailVerified(userID int, promoteTo Status) error {
 	return err
 }
 
+const errParseLogFormat = "auth: failed to parse CreatedAt %q for user %d: %v"
+
 // GetUserByEmail returns the (verified-or-not) user with a given email, or nil
 // when none. Used by password recovery. Empty email never matches.
 func (s *Store) GetUserByEmail(email string) (*User, error) {
@@ -432,7 +435,11 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	u.CreatedAt, _ = parseTime(ts)
+	var errParse error
+	u.CreatedAt, errParse = parseTime(ts)
+	if errParse != nil {
+		log.Printf(errParseLogFormat, ts, u.ID, errParse)
+	}
 	return &u, nil
 }
 
@@ -465,7 +472,11 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
 		return nil, errors.New("usuário ou senha inválidos")
 	}
-	u.CreatedAt, _ = parseTime(ts)
+	var errParse error
+	u.CreatedAt, errParse = parseTime(ts)
+	if errParse != nil {
+		log.Printf(errParseLogFormat, ts, u.ID, errParse)
+	}
 	return &u, nil
 }
 
@@ -488,7 +499,11 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	u.CreatedAt, _ = parseTime(ts)
+	var errParse error
+	u.CreatedAt, errParse = parseTime(ts)
+	if errParse != nil {
+		log.Printf(errParseLogFormat, ts, u.ID, errParse)
+	}
 	return &u, nil
 }
 
@@ -505,7 +520,11 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	u.CreatedAt, _ = parseTime(ts)
+	var errParse error
+	u.CreatedAt, errParse = parseTime(ts)
+	if errParse != nil {
+		log.Printf(errParseLogFormat, ts, u.ID, errParse)
+	}
 	return &u, nil
 }
 
@@ -523,7 +542,11 @@ func (s *Store) ListUsers() ([]User, error) {
 		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts); err != nil {
 			continue
 		}
-		u.CreatedAt, _ = parseTime(ts)
+		var errParse error
+		u.CreatedAt, errParse = parseTime(ts)
+		if errParse != nil {
+			log.Printf(errParseLogFormat, ts, u.ID, errParse)
+		}
 		out = append(out, u)
 	}
 	return out, rows.Err()
@@ -761,8 +784,15 @@ func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, er
 			continue
 		}
 		si := SessionInfo{ID: hash, Remember: remember == 1, Current: hash == curHash}
-		si.CreatedAt, _ = parseTime(created)
-		si.ExpiresAt, _ = parseTime(expires)
+		var errParse error
+		si.CreatedAt, errParse = parseTime(created)
+		if errParse != nil {
+			log.Printf("auth: failed to parse CreatedAt %q for session: %v", created, errParse)
+		}
+		si.ExpiresAt, errParse = parseTime(expires)
+		if errParse != nil {
+			log.Printf("auth: failed to parse ExpiresAt %q for session: %v", expires, errParse)
+		}
 		out = append(out, si)
 	}
 	return out, rows.Err()

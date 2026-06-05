@@ -127,6 +127,9 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 	}
 
 	probeCacheMu.Lock()
+	if len(probeCache) >= 2000 {
+		probeCache = make(map[hashKey]ProbeResult)
+	}
 	probeCache[key] = *result
 	probeCacheMu.Unlock()
 	return *result, nil
