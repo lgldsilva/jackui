@@ -271,6 +271,16 @@ type entry struct {
 	// priority is the user-facing label ("low" | "normal" | "high"). Applied to
 	// every file via File.SetPriority on transitions.
 	priority string
+	// viewers counts open player sessions watching this torrent (a "lease"). A
+	// stream-only torrent with no viewers is ephemeral and should stop seeding
+	// instead of lingering until the idle reaper. While viewers > 0 the torrent
+	// survives — so closing one of several browsers doesn't kill the others.
+	viewers int
+	// dropTimer schedules the drop a short grace period after the LAST viewer
+	// leaves (see ReleaseViewer/viewerGrace). AcquireViewer cancels it, so a
+	// quick reopen — or React StrictMode's mount→unmount→mount in dev — doesn't
+	// tear the torrent down mid-playback.
+	dropTimer *time.Timer
 }
 
 // FileInfo is the JSON-friendly view of a file inside a torrent.
@@ -1100,6 +1110,79 @@ func (s *Streamer) Drop(hash metainfo.Hash) {
 	if ok {
 		e.t.Drop()
 	}
+}
+
+// viewerGrace is how long a stream-only torrent lingers after its last viewer
+// leaves before being dropped. Short enough to stop seeding promptly, long
+// enough to absorb a quick reopen and React StrictMode's dev double-mount.
+const viewerGrace = 8 * time.Second
+
+// AcquireViewer registers an open player session ("lease") on a torrent and
+// cancels any pending drop. Called when the player opens a stream. No-op if the
+// torrent isn't active (e.g. a local file, which lives outside the streamer).
+func (s *Streamer) AcquireViewer(hash metainfo.Hash) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.active[hash]
+	if !ok {
+		return
+	}
+	e.viewers++
+	e.lastAccess = time.Now()
+	if e.dropTimer != nil {
+		e.dropTimer.Stop()
+		e.dropTimer = nil
+	}
+}
+
+// ReleaseViewer drops a player session's lease. When the LAST viewer leaves a
+// stream-only (non-download) torrent, it schedules a drop after viewerGrace
+// instead of dropping eagerly — so other viewers keep streaming and a quick
+// reopen cancels the teardown. Returns true when a drop was scheduled, so the
+// caller can tear down the HLS session for the same hash.
+func (s *Streamer) ReleaseViewer(hash metainfo.Hash) (scheduled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.active[hash]
+	if !ok {
+		return false
+	}
+	if e.viewers > 0 {
+		e.viewers--
+	}
+	if e.viewers > 0 {
+		return false // another viewer still watching
+	}
+	// Deliberate background downloads stay alive regardless of viewers.
+	if _, protected := s.downloads[e.t.Name()]; protected {
+		return false
+	}
+	if e.dropTimer != nil {
+		e.dropTimer.Stop()
+	}
+	e.dropTimer = time.AfterFunc(viewerGrace, func() { s.dropIfStillIdle(hash, e) })
+	return true
+}
+
+// dropIfStillIdle runs when a viewer-lease grace timer fires. It drops the
+// torrent only if nothing changed in the meantime: same entry still active, no
+// viewers re-acquired, and not a protected download.
+func (s *Streamer) dropIfStillIdle(hash metainfo.Hash, e *entry) {
+	s.mu.Lock()
+	cur, ok := s.active[hash]
+	if !ok || cur != e || e.viewers > 0 {
+		s.mu.Unlock()
+		return
+	}
+	if _, protected := s.downloads[e.t.Name()]; protected {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.active, hash)
+	e.dropTimer = nil
+	s.mu.Unlock()
+	log.Printf("streamer: dropping stream-only torrent %s (%s) — no viewers", e.t.Name(), hash.HexString()[:8])
+	e.t.Drop()
 }
 
 // ─── internal helpers ────────────────────────────────────────────────────────

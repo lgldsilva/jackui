@@ -326,6 +326,39 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.H
 	}
 }
 
+// StreamViewerOpen handles POST /api/stream/:hash/viewer — registers an open
+// player session (a viewer "lease"). While at least one viewer is open the
+// torrent keeps streaming; when the last one closes it is dropped after a short
+// grace period instead of seeding indefinitely until the idle reaper.
+func StreamViewerOpen(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		s.AcquireViewer(h)
+		c.JSON(http.StatusOK, gin.H{"message": "viewing"})
+	}
+}
+
+// StreamViewerClose handles DELETE /api/stream/:hash/viewer — releases a viewer
+// lease. If it was the last viewer of a stream-only torrent, the drop is
+// scheduled and the HLS session is torn down so ffmpeg doesn't linger.
+func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if s.ReleaseViewer(h) && hlsMgr != nil {
+			hlsMgr.CloseForHash(h.HexString())
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "released"})
+	}
+}
+
 // StreamProbe handles GET /api/stream/probe/:hash/:file — lists embedded audio + sub tracks.
 func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
