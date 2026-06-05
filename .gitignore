@@ -31,8 +31,9 @@ coverage.out
 .vscode/
 *.bak
 
-# Claude Code worktrees + agent transcripts
+# AI tooling worktrees / agent transcripts (Claude Code, Gemini, etc.)
 .claude/
+.gemini/
 
 # Antigravity (Gemini CLI) — symlinks to external user config, não vai pro repo
 .antigravitycli/
