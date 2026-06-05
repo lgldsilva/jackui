@@ -980,9 +980,8 @@ func (s *Streamer) asyncRecheckFile(key string, f *torrent.File) {
 	}
 	_, loaded := s.verifiedFiles[key]
 	if !loaded {
-		if len(s.verifiedFiles) >= 2000 {
-			s.verifiedFiles = make(map[string]bool)
-		}
+		// No blunt wipe-at-2000 here: keys are purged per-torrent on Drop
+		// (purgeVerifiedFiles), so this map tracks only currently-active torrents.
 		s.verifiedFiles[key] = true
 	}
 	s.verifiedMu.Unlock()
@@ -1018,9 +1017,8 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 	}
 	_, loaded := s.verifiedFiles[key]
 	if !loaded {
-		if len(s.verifiedFiles) >= 2000 {
-			s.verifiedFiles = make(map[string]bool)
-		}
+		// No blunt wipe-at-2000 here: keys are purged per-torrent on Drop
+		// (purgeVerifiedFiles), so this map tracks only currently-active torrents.
 		s.verifiedFiles[key] = true
 	}
 	s.verifiedMu.Unlock()
@@ -1172,6 +1170,7 @@ func (s *Streamer) Drop(hash metainfo.Hash) {
 	s.mu.Unlock()
 	if ok {
 		e.t.Drop()
+		s.purgeVerifiedFiles(hash)
 	}
 }
 
@@ -1246,6 +1245,22 @@ func (s *Streamer) dropIfStillIdle(hash metainfo.Hash, e *entry) {
 	s.mu.Unlock()
 	log.Printf("streamer: dropping stream-only torrent %s (%s) — no viewers", e.t.Name(), hash.HexString()[:8])
 	e.t.Drop()
+	s.purgeVerifiedFiles(hash)
+}
+
+// purgeVerifiedFiles drops the hash-check dedup keys for a torrent when it
+// leaves active memory. This per-lifecycle cleanup replaced a blunt
+// wipe-the-whole-map-at-2000-entries, which could clear keys for files being
+// actively read by another stream and force a needless full re-hash.
+func (s *Streamer) purgeVerifiedFiles(hash metainfo.Hash) {
+	prefix := hash.HexString() + "-"
+	s.verifiedMu.Lock()
+	for k := range s.verifiedFiles {
+		if strings.HasPrefix(k, prefix) {
+			delete(s.verifiedFiles, k)
+		}
+	}
+	s.verifiedMu.Unlock()
 }
 
 // ─── internal helpers ────────────────────────────────────────────────────────
@@ -1391,6 +1406,7 @@ func (s *Streamer) gcLoop() {
 		case <-s.stop:
 			return
 		case now := <-tick.C:
+			var dropped []metainfo.Hash
 			s.mu.Lock()
 			for h, e := range s.active {
 				if now.Sub(e.lastAccess) > s.cfg.IdleTimeout {
@@ -1402,9 +1418,15 @@ func (s *Streamer) gcLoop() {
 					log.Printf("streamer: dropping idle torrent %s (%s)", e.t.Name(), h.HexString()[:8])
 					delete(s.active, h)
 					e.t.Drop()
+					dropped = append(dropped, h)
 				}
 			}
 			s.mu.Unlock()
+			// Purge hash-check dedup keys outside s.mu (purgeVerifiedFiles takes
+			// verifiedMu — avoid nesting the two locks).
+			for _, h := range dropped {
+				s.purgeVerifiedFiles(h)
+			}
 			// Then enforce cache size cap (LRU over inactive entries)
 			s.enforceCacheLimit()
 		}
