@@ -635,8 +635,19 @@ func waitForMetadata(ctx context.Context, t *torrent.Torrent, timeout time.Durat
 func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 	now := time.Now()
 	s.mu.Lock()
-	e := &entry{t: t, lastAccess: now, lastSampleAt: now}
-	s.active[t.InfoHash()] = e
+	e, ok := s.active[t.InfoHash()]
+	if ok {
+		// Already active — REUSE the entry. A re-Add of an active torrent
+		// (prefetching another file of the SAME torrent, a health probe, VLC
+		// resolving info) must NOT discard the live viewer lease / pause /
+		// priority state. Overwriting it reset viewers→0, so the next
+		// ReleaseViewer scheduled a drop while playback was still going.
+		e.t = t
+		e.lastAccess = now
+	} else {
+		e = &entry{t: t, lastAccess: now, lastSampleAt: now}
+		s.active[t.InfoHash()] = e
+	}
 	s.mu.Unlock()
 	s.persistMetainfo(t)
 	info := s.buildInfo(e)
@@ -1125,6 +1136,13 @@ func (s *Streamer) Drop(hash metainfo.Hash) {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	if ok {
+		// Do not drop while a player still holds a viewer lease — the lease is
+		// the authoritative "someone is watching" signal. A forced Drop (manual
+		// StreamDrop, health probe) must not kill a co-watcher's playback.
+		if e.viewers > 0 {
+			s.mu.Unlock()
+			return
+		}
 		// Do not drop if it is registered as an active background download
 		if _, protected := s.downloads[e.t.Name()]; protected {
 			s.mu.Unlock()
