@@ -1000,6 +1000,8 @@ export default function DownloadsPage() {
       <DownloadInspectModal
         download={inspectTarget}
         onClose={() => setInspectTarget(null)}
+        siblings={inspectTarget ? items.filter(i => i.infoHash === inspectTarget.infoHash) : []}
+        onAdopted={() => { void load() }}
         onMutated={(updated) => {
           setItems(prev => prev.map(item => item.id === updated.id ? updated : item))
         }}
