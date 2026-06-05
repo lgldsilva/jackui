@@ -135,6 +135,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
       setInfo(null)
       return
     }
+    // Guard against a slow streamAdd from a PREVIOUS result resolving after the
+    // user switched torrents — without it the old torrent's file list clobbers
+    // the new one. Flipped by the cleanup below.
+    let cancelled = false
     setLoading(true)
     setError('')
     setFilter('')
@@ -142,11 +146,12 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
     // NOTE: sortBySize/sizeDesc are intentionally NOT reset — they persist
     // (shared with the player) so the chosen order sticks across torrents.
     streamAdd(pickTorrentSource(result))
-      .then(setInfo)
-      .catch(err => setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo'))
-      .finally(() => setLoading(false))
+      .then(t => { if (!cancelled) setInfo(t) })
+      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     // NOTE: we don't streamDrop here — the torrent stays in the cache so a follow-up
     // Play action starts streaming instantly without re-fetching metadata.
+    return () => { cancelled = true }
   }, [result])
 
   if (!result) return null
