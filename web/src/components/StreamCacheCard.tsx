@@ -1,8 +1,27 @@
-import { useState, useEffect } from 'react'
-import { HardDrive, Trash2, Loader2, Play, Clock, RefreshCw, Heart } from 'lucide-react'
-import { streamCacheStats, streamCacheClear, StreamCacheStats } from '../api/client'
+import { useState, useEffect, useMemo } from 'react'
+import { HardDrive, Trash2, Loader2, Play, Clock, RefreshCw, Heart, Search, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
+import { streamCacheStats, streamCacheClear, StreamCacheStats, CacheEntry } from '../api/client'
 import { usePlayer } from './PlayerProvider'
 import { syntheticResult } from '../lib/playable'
+import { usePersistedState } from '../lib/storage'
+
+type CacheSort = 'name' | 'size' | 'date'
+
+// viewCacheEntries applies the name filter then the chosen sort. Pure → keeps
+// the component body lean and is trivial to reason about.
+function viewCacheEntries(entries: readonly CacheEntry[], filter: string, sortBy: CacheSort, desc: boolean): CacheEntry[] {
+  const f = filter.trim().toLowerCase()
+  const out = entries.filter(e => !f || e.path.toLowerCase().includes(f))
+  out.sort((a, b) => {
+    let cmp: number
+    if (sortBy === 'size') cmp = a.size - b.size
+    else if (sortBy === 'date') cmp = new Date(a.modTime).getTime() - new Date(b.modTime).getTime()
+    else cmp = a.path.localeCompare(b.path)
+    if (cmp === 0) cmp = a.path.localeCompare(b.path) // stable tiebreak
+    return desc ? -cmp : cmp
+  })
+  return out
+}
 
 function formatSize(bytes: number): string {
   if (!bytes) return '0 B'
@@ -28,7 +47,15 @@ export default function StreamCacheCard() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
+  const [sortBy, setSortBy] = usePersistedState<CacheSort>('streamcache.sortBy', 'size')
+  const [sortDesc, setSortDesc] = usePersistedState('streamcache.sortDesc', true)
   const { playSingle } = usePlayer()
+
+  const visibleEntries = useMemo(
+    () => viewCacheEntries(stats?.entries ?? [], filter, sortBy, sortDesc),
+    [stats, filter, sortBy, sortDesc],
+  )
 
   // Opens the global player on a cached entry. We have only (name, infoHash)
   // here — no full SearchResult — so we synthesize one with a bare magnet
@@ -177,12 +204,47 @@ export default function StreamCacheCard() {
         </p>
       </div>
 
+      {/* Sort + filter controls (only worth showing with a few entries) */}
+      {stats.entries.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[140px]">
+            <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              placeholder="Filtrar por nome…"
+              className="w-full bg-surface border border-default rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
+            />
+          </div>
+          {(['size', 'name', 'date'] as CacheSort[]).map(col => (
+            <button
+              key={col}
+              onClick={() => {
+                if (sortBy === col) setSortDesc(d => !d)
+                else { setSortBy(col); setSortDesc(col !== 'name') }
+              }}
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border transition-colors ${
+                sortBy === col
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                  : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary'
+              }`}
+            >
+              {col === 'size' ? 'Tamanho' : col === 'name' ? 'Nome' : 'Data'}
+              {sortBy === col && (sortDesc ? <ArrowDownWideNarrow className="w-3 h-3" /> : <ArrowUpWideNarrow className="w-3 h-3" />)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Entries list */}
       {stats.entries.length === 0 ? (
         <p className="text-sm text-text-muted italic text-center py-4">Cache vazio</p>
+      ) : visibleEntries.length === 0 ? (
+        <p className="text-sm text-text-muted italic text-center py-4">Nenhum arquivo casa com o filtro</p>
       ) : (
         <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
-          {stats.entries.map((e) => (
+          {visibleEntries.map((e) => (
             <div
               key={e.path}
               className="flex items-center justify-between gap-2 px-3 py-2 bg-surface/50 rounded-lg group hover:bg-surface"
