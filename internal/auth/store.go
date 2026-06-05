@@ -741,6 +741,21 @@ func (s *Store) ConsumeRefreshToken(plain string) error {
 	return err
 }
 
+// ConsumeRefreshTokenOnce atomically deletes a refresh token and reports whether
+// THIS call was the one that removed it (RowsAffected == 1). Used by rotation to
+// close the validate-then-delete TOCTOU: with two concurrent refreshes of the
+// same token, only one gets `true` and may issue a new pair; the loser gets
+// `false` (the token was already consumed) and must be rejected.
+func (s *Store) ConsumeRefreshTokenOnce(plain string) (bool, error) {
+	hash := sha256Hex(plain)
+	res, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token_hash = ?", hash)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // CleanupExpired removes refresh tokens past their TTL. Call periodically.
 func (s *Store) CleanupExpired() error {
 	now := time.Now().UTC().Format(dbutil.TimeFormat)

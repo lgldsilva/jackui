@@ -191,6 +191,28 @@ func TestCreateUserAndList(t *testing.T) {
 	}
 }
 
+func TestConsumeRefreshTokenOnce_OnlyOneWins(t *testing.T) {
+	s := newTestStore(t)
+	s.Bootstrap("admin", "x")
+	u, _ := s.VerifyPassword("admin", "x")
+	token, _ := s.CreateRefreshToken(u.ID, 1*time.Hour, false)
+
+	// First consume removes it and reports the win.
+	ok, err := s.ConsumeRefreshTokenOnce(token)
+	if err != nil || !ok {
+		t.Fatalf("first ConsumeRefreshTokenOnce: ok=%v err=%v, want true,nil", ok, err)
+	}
+	// Second consume of the SAME token (concurrent refresh / replay) must lose.
+	ok, err = s.ConsumeRefreshTokenOnce(token)
+	if err != nil || ok {
+		t.Fatalf("second ConsumeRefreshTokenOnce: ok=%v err=%v, want false,nil", ok, err)
+	}
+	// Unknown token also loses (no rows).
+	if ok, _ := s.ConsumeRefreshTokenOnce("nonexistent"); ok {
+		t.Error("consuming an unknown token should report false")
+	}
+}
+
 func TestRefreshTokenLifecycle(t *testing.T) {
 	s := newTestStore(t)
 	s.Bootstrap("admin", "x")
