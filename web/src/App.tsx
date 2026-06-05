@@ -18,6 +18,7 @@ import { RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } 
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 import { ConfirmProvider } from './components/ConfirmDialog'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -106,7 +107,12 @@ function App() {
         <PlayerProvider>
           <div className="min-h-screen bg-gray-900">
             <RouteRestorer />
-            <AppRoutes />
+            {/* Global crash net: a render error in any page would otherwise blank
+                the whole app (white screen). Show a recoverable message; reset
+                does a hard reload to home so a wedged route always recovers. */}
+            <ErrorBoundary title="Algo deu errado" onReset={() => { globalThis.location.href = '/' }}>
+              <AppRoutes />
+            </ErrorBoundary>
           </div>
         </PlayerProvider>
       </ConfirmProvider>
