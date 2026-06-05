@@ -30,6 +30,7 @@ import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useLongPress } from '../lib/useLongPress'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { Sheet } from '../components/Sheet'
 import { BatchActionBar } from '../components/BatchActionBar'
 import LocalPromoteModal from '../components/LocalPromoteModal'
@@ -151,25 +152,43 @@ function Breadcrumbs({
   readonly onNavigate: (p: string) => void
 }) {
   const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
+  const isMobile = useIsMobile()
+  // No mobile, paths profundos poluem a barra. Colapsa pra Home › … › atual
+  // (o … sobe um nível). No desktop mostra o caminho inteiro.
+  const collapsed = isMobile && segments.length > 2
+  const shown = collapsed ? segments.slice(-1) : segments
 
   return (
-    <nav className="flex items-center gap-1 text-sm text-gray-300 flex-wrap">
+    <nav className="flex items-center gap-1 text-sm text-gray-300 flex-wrap min-w-0">
       <button
         onClick={() => onNavigate('')}
-        className="flex items-center gap-1 hover:text-green-400 transition-colors"
+        className="flex items-center gap-1 hover:text-green-400 transition-colors flex-shrink-0 min-w-0"
       >
-        <Home className="w-4 h-4" />
-        <span>{mountName}</span>
+        <Home className="w-4 h-4 flex-shrink-0" />
+        <span className="truncate max-w-[40vw] sm:max-w-none">{mountName}</span>
       </button>
-      {segments.map((seg, idx) => {
+      {collapsed && (
+        <span className="flex items-center gap-1 flex-shrink-0">
+          <ChevronRight className="w-4 h-4 text-gray-600" />
+          <button
+            onClick={() => onNavigate(segments.slice(0, -1).join('/'))}
+            title="Subir um nível"
+            className="px-1 hover:text-green-400 transition-colors"
+          >
+            …
+          </button>
+        </span>
+      )}
+      {shown.map((seg, i) => {
+        const idx = collapsed ? segments.length - 1 : i
         const target = segments.slice(0, idx + 1).join('/')
         const isLast = idx === segments.length - 1
         return (
-          <span key={target} className="flex items-center gap-1">
-            <ChevronRight className="w-4 h-4 text-gray-600" />
+          <span key={target} className="flex items-center gap-1 min-w-0">
+            <ChevronRight className="w-4 h-4 text-gray-600 flex-shrink-0" />
             <button
               onClick={() => onNavigate(target)}
-              className={`hover:text-green-400 transition-colors ${
+              className={`hover:text-green-400 transition-colors truncate max-w-[55vw] sm:max-w-none ${
                 isLast ? 'text-gray-100 font-medium' : ''
               }`}
             >
@@ -230,7 +249,16 @@ function EntryRow(props: EntryRowProps) {
           </span>
         )}
         <EntryIcon entry={e} mount={mount} />
-        <span className="flex-1 min-w-0 text-gray-100 font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
+        <span className="flex-1 min-w-0 flex flex-col gap-0.5">
+          <span className="text-gray-100 font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
+          {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
+              direita (hidden sm:block). Sem isso a row no celular mostrava só
+              ícone + nome. */}
+          <span className="sm:hidden text-[11px] text-gray-500 flex items-center gap-1.5">
+            {!e.isDir && <>{formatSize(e.size)}<span className="text-gray-700">·</span></>}
+            {formatDate(e.modTime)}
+          </span>
+        </span>
         {!e.isDir && (
           <span className="text-xs text-gray-500 text-right flex-shrink-0 hidden sm:block w-20">{formatSize(e.size)}</span>
         )}
@@ -809,36 +837,45 @@ export default function LocalPage() {
                   </button>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => setKind(k)}
-                    className={`px-2.5 py-1 rounded-full border transition-colors ${
-                      kind === k
-                        ? 'bg-green-500/15 text-green-400 border-green-500/40'
-                        : 'text-gray-400 border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
-                  </button>
-                ))}
+              {/* Dois grupos rotulados (Tipo / Ordenar). No mobile empilham
+                  (flex-col) com rótulo visível em cada um — antes os chips dos
+                  dois grupos se misturavam numa mesma linha-que-quebra, sem
+                  rótulo, e ficava confuso. No desktop voltam pra uma linha. */}
+              <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-gray-500 sm:hidden mr-0.5">Tipo:</span>
+                  {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => setKind(k)}
+                      className={`px-2.5 py-1 rounded-full border transition-colors ${
+                        kind === k
+                          ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                          : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
+                    </button>
+                  ))}
+                </div>
                 <span className="mx-1 h-4 w-px bg-gray-700 hidden sm:block" />
-                <span className="text-gray-500 hidden sm:inline">Ordenar:</span>
-                {(['name', 'size', 'date'] as SortKey[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => toggleSort(k)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
-                      sortKey === k
-                        ? 'bg-gray-700 text-gray-100 border-gray-600'
-                        : 'text-gray-400 border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
-                    {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-                  </button>
-                ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-gray-500 mr-0.5">Ordenar:</span>
+                  {(['name', 'size', 'date'] as SortKey[]).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => toggleSort(k)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
+                        sortKey === k
+                          ? 'bg-gray-700 text-gray-100 border-gray-600'
+                          : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
+                      {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
