@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/luizg/jackui/internal/ai"
+	"github.com/luizg/jackui/internal/parser"
 	"github.com/luizg/jackui/internal/tmdb"
 )
 
@@ -23,34 +25,59 @@ type PreviewResult struct {
 }
 
 // GeneratePreview takes a raw filename (e.g. "Star.Wars.Episode.III.2005.1080p.mkv") and constructs the target Plex-style organized path.
+//
+// Robustness: the regex parser (internal/parser) runs first and provides the
+// season/episode/year as trustworthy hints. The AI handles the messy title; if
+// it fails or returns nothing, we fall back to a regex-derived title so a
+// rename NEVER hard-errors. The regex S/E OVERRIDES the AI's — it's reliable and
+// gives series coherence (every "Show.S01E0x" lands in Season 1 consistently,
+// no per-file AI drift), while TMDB normalizes the title across episodes.
 func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.Client, rawName string) (*PreviewResult, error) {
 	ext := filepath.Ext(rawName)
 	baseNoExt := strings.TrimSuffix(rawName, ext)
+	parsed := parser.Parse(baseNoExt)
 
-	// 1. AI Extraction
+	// 1. AI Extraction — with a regex fallback so it never hard-fails.
 	meta, _, err := aiClient.ExtractRenameMetadata(ctx, baseNoExt)
-	if err != nil {
-		return nil, fmt.Errorf("ai: %w", err)
+	if err != nil || meta == nil || meta.Title == "" {
+		meta = fallbackMetadata(baseNoExt, parsed)
+	}
+
+	// Regex S/E is reliable — prefer it over the AI's (the AI sometimes drifts
+	// the season/episode). A regex-detected S/E also forces kind=tv.
+	season, episode, kind := meta.Season, meta.Episode, meta.Kind
+	if parsed.Season > 0 {
+		season = parsed.Season
+	}
+	if parsed.Episode > 0 {
+		episode = parsed.Episode
+	}
+	if parsed.Season > 0 || parsed.Episode > 0 {
+		kind = "tv"
 	}
 
 	// 2. TMDB Lookup (Enrichment)
 	var cleanTitle string
 	var year int
-	kind := meta.Kind
 
 	if tmdbClient != nil {
 		match, _ := tmdbClient.Match(ctx, meta.Title)
 		if match != nil {
 			cleanTitle = match.Title
 			year = match.Year
-			kind = match.Kind
+			if kind == "" {
+				kind = match.Kind
+			}
 		}
 	}
 
-	// Fallback to AI values if TMDB lookup fails
+	// Fallback to AI/parser values if TMDB lookup fails
 	if cleanTitle == "" {
 		cleanTitle = meta.Title
 		year = meta.Year
+	}
+	if year == 0 {
+		year = parsed.Year
 	}
 
 	// Sanitize title for file systems
@@ -59,22 +86,17 @@ func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.
 	// 3. Organização de Pastas
 	var epName string
 
-	if kind == "tv" {
-		seasonNum := meta.Season
+	if kind == "tv" && tmdbClient != nil && episode > 0 {
+		seasonNum := season
 		if seasonNum <= 0 {
 			seasonNum = 1
 		}
-		episodeNum := meta.Episode
-
-		if tmdbClient != nil && episodeNum > 0 {
-			match, _ := tmdbClient.Match(ctx, cleanTitle)
-			if match != nil {
-				epName = sanitizeFilename(tmdbClient.FetchEpisodeName(ctx, match.TmdbID, seasonNum, episodeNum))
-			}
+		if match, _ := tmdbClient.Match(ctx, cleanTitle); match != nil {
+			epName = sanitizeFilename(tmdbClient.FetchEpisodeName(ctx, match.TmdbID, seasonNum, episode))
 		}
 	}
 
-	targetPath := buildTargetPath(targetPathInput{Kind: kind, CleanTitle: cleanTitle, Year: year, Season: meta.Season, Episode: meta.Episode, EpName: epName, Ext: ext, RawName: rawName})
+	targetPath := buildTargetPath(targetPathInput{Kind: kind, CleanTitle: cleanTitle, Year: year, Season: season, Episode: episode, EpName: epName, Ext: ext, RawName: rawName})
 
 	return &PreviewResult{
 		OriginalName: rawName,
@@ -82,10 +104,29 @@ func GeneratePreview(ctx context.Context, aiClient *ai.Client, tmdbClient *tmdb.
 		TargetPath:   targetPath,
 		Kind:         kind,
 		Year:         year,
-		Season:       meta.Season,
-		Episode:      meta.Episode,
+		Season:       season,
+		Episode:      episode,
 		EpisodeName:  epName,
 	}, nil
+}
+
+// titleCutRe marks where a release title ends — the first quality/year/S-E token.
+var titleCutRe = regexp.MustCompile(`(?i)[. _-](\d{3,4}p|s\d{1,2}e\d{1,3}|s\d{1,2}\b|19\d{2}|20\d{2}|bluray|web-?dl|webrip|hdtv|x26[45]|h\.?26[45]|hevc|remux|dvdrip)`)
+
+// fallbackMetadata derives rename metadata from the regex parser when the AI is
+// unavailable or returns nothing — so a rename degrades gracefully instead of
+// erroring. The title is everything before the first quality/year/S-E marker.
+func fallbackMetadata(baseNoExt string, p parser.Quality) *ai.RenameMetadata {
+	title := baseNoExt
+	if loc := titleCutRe.FindStringIndex(baseNoExt); loc != nil && loc[0] > 0 {
+		title = baseNoExt[:loc[0]]
+	}
+	title = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(title, ".", " "), "_", " "))
+	kind := "movie"
+	if p.Season > 0 || p.Episode > 0 {
+		kind = "tv"
+	}
+	return &ai.RenameMetadata{Title: title, Year: p.Year, Kind: kind, Season: p.Season, Episode: p.Episode}
 }
 
 // targetPathInput groups the parameters for buildTargetPath.
