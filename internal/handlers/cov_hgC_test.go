@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -396,6 +397,67 @@ func Test_hgC_LocalMove_SelfMove(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 (self-move); body: %s", w.Code, w.Body.String())
+	}
+}
+
+func Test_hgC_LocalMove_CollisionRefused(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Destination already has a file with the same name → must NOT be clobbered.
+	if err := os.WriteFile(filepath.Join(dstDir, "file.txt"), []byte("existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := local.NewBrowser([]config.ExternalMount{
+		{Name: "Src", Path: srcDir},
+		{Name: "Dst", Path: dstDir},
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/api/local/move",
+		bytes.NewReader([]byte(`{"srcMount":"Src","srcPath":"file.txt","dstMount":"Dst","dstPath":""}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+	setAuth(c, 1, true)
+
+	LocalMoveEntry(b)(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (collision); body: %s", w.Code, w.Body.String())
+	}
+	// Destination file must be untouched; source must still be there.
+	if data, _ := os.ReadFile(filepath.Join(dstDir, "file.txt")); string(data) != "existing" {
+		t.Errorf("destination overwritten: %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(srcDir, "file.txt")); err != nil {
+		t.Errorf("source should be intact after refused move: %v", err)
+	}
+}
+
+func Test_hgC_CopyFileAndRemove_PreservesMtime(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	dst := filepath.Join(dir, "b.txt")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-72 * time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(src, old, old); err != nil {
+		t.Fatal(err)
+	}
+	stat, _ := os.Stat(src)
+	if err := copyFileAndRemove(src, dst, stat); err != nil {
+		t.Fatalf("copyFileAndRemove: %v", err)
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.ModTime().Truncate(time.Second).Equal(old) {
+		t.Errorf("mtime not preserved: got %v, want %v", st.ModTime(), old)
 	}
 }
 

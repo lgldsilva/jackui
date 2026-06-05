@@ -4,6 +4,7 @@ import {
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
   Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive, AlertTriangle,
   ListFilter, Download, CheckSquare, MoreHorizontal, ChevronDown, ChevronRight, Folder,
+  ArrowUp, ArrowDown, ArrowDownWideNarrow,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
@@ -73,8 +74,8 @@ export default function DownloadsPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterTracker, setFilterTracker] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
-  const [sortCol] = useState('created_at')
-  const [sortDir] = useState('desc')
+  const [sortCol, setSortCol] = useState('created_at')
+  const [sortDir, setSortDir] = useState('desc')
   const [availableTrackers, setAvailableTrackers] = useState<string[]>([])
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [showFilters, setShowFilters] = useState(false)
@@ -762,61 +763,93 @@ export default function DownloadsPage() {
           </div>
 
           {showFilters && (
-            <div className="flex items-center gap-2 flex-wrap bg-gray-800/40 border border-gray-700/50 rounded-xl p-3">
-              <select
-                value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
-              >
-                <option value="">Todos os status</option>
-                <option value="downloading">Baixando</option>
-                <option value="paused">Pausado</option>
-                <option value="queued">Na fila</option>
-                <option value="completed">Concluído</option>
-                <option value="failed">Falhou</option>
-              </select>
-              {availableTrackers.length > 0 && (
+            <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-3 flex flex-col gap-3">
+              {/* Filtros — selects preenchem a largura no mobile (flex-1) e ficam
+                  no tamanho natural no desktop. */}
+              <div className="flex flex-wrap items-center gap-2">
                 <select
-                  value={filterTracker}
-                  onChange={e => setFilterTracker(e.target.value)}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                  className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
                 >
-                  <option value="">Todos os trackers</option>
-                  {availableTrackers.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
+                  <option value="">Todos os status</option>
+                  <option value="downloading">Baixando</option>
+                  <option value="paused">Pausado</option>
+                  <option value="queued">Na fila</option>
+                  <option value="completed">Concluído</option>
+                  <option value="failed">Falhou</option>
                 </select>
-              )}
-              {availableCategories.length > 0 && (
+                {availableTrackers.length > 0 && (
+                  <select
+                    value={filterTracker}
+                    onChange={e => setFilterTracker(e.target.value)}
+                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="">Todos os trackers</option>
+                    {availableTrackers.map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+                {availableCategories.length > 0 && (
+                  <select
+                    value={filterCategory}
+                    onChange={e => setFilterCategory(e.target.value)}
+                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="">Todas as categorias</option>
+                    {availableCategories.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                )}
+                {showAllUsers && availableUsers.length > 0 && (
+                  <select
+                    value={filterUserId}
+                    onChange={e => setFilterUserId(e.target.value)}
+                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  >
+                    <option value="">Todos os usuários</option>
+                    {availableUsers.map(u => (
+                      <option key={u.id} value={String(u.id)}>{u.username}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Ordenar — grupo próprio, separado por divisória; Limpar à direita. */}
+              <div className="flex items-center gap-2 flex-wrap border-t border-gray-700/50 pt-3">
+                <span className="text-xs text-gray-500 flex items-center gap-1.5 flex-shrink-0">
+                  <ArrowDownWideNarrow className="w-3.5 h-3.5" /> Ordenar
+                </span>
                 <select
-                  value={filterCategory}
-                  onChange={e => setFilterCategory(e.target.value)}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  value={sortCol}
+                  onChange={e => setSortCol(e.target.value)}
+                  className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
                 >
-                  <option value="">Todas as categorias</option>
-                  {availableCategories.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  <option value="created_at">Data</option>
+                  <option value="name">Nome</option>
+                  <option value="size">Tamanho</option>
+                  <option value="progress">Progresso</option>
+                  <option value="status">Status</option>
+                  <option value="tracker">Tracker</option>
+                  <option value="category">Categoria</option>
                 </select>
-              )}
-              {showAllUsers && availableUsers.length > 0 && (
-                <select
-                  value={filterUserId}
-                  onChange={e => setFilterUserId(e.target.value)}
-                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                <button
+                  onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                  title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
+                  aria-label="Inverter ordem"
+                  className="flex-shrink-0 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
                 >
-                  <option value="">Todos os usuários</option>
-                  {availableUsers.map(u => (
-                    <option key={u.id} value={String(u.id)}>{u.username}</option>
-                  ))}
-                </select>
-              )}
-              <button
-                onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId('') }}
-                className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1"
-              >
-                Limpar filtros
-              </button>
+                  {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId(''); setSortCol('created_at'); setSortDir('desc') }}
+                  className="ml-auto text-xs text-gray-500 hover:text-gray-300 px-2 py-1 flex-shrink-0"
+                >
+                  Limpar
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -967,6 +1000,8 @@ export default function DownloadsPage() {
       <DownloadInspectModal
         download={inspectTarget}
         onClose={() => setInspectTarget(null)}
+        siblings={inspectTarget ? items.filter(i => i.infoHash === inspectTarget.infoHash) : []}
+        onAdopted={() => { void load() }}
         onMutated={(updated) => {
           setItems(prev => prev.map(item => item.id === updated.id ? updated : item))
         }}
@@ -1192,6 +1227,14 @@ type CompletedGroup = {
   seeding: boolean
 }
 
+// Ordena arquivos do MESMO torrent em ordem natural (numérica) pelo caminho, pra
+// que episódios fiquem S01E01, S01E02, … S01E10 em vez de ordem alfabética crua
+// ou de chegada. A ordem ENTRE grupos segue o sort global (ordem de chegada da
+// lista já ordenada pelo backend).
+function naturalFileCompare(a: DownloadEntry, b: DownloadEntry): number {
+  return (a.filePath || a.name).localeCompare(b.filePath || b.name, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 // groupCompleted groups completed downloads by infoHash, preserving first-seen
 // order. `seeding` is true when the torrent is still live in the streamer.
 function groupCompleted(items: readonly DownloadEntry[], torrents: readonly TorrentInfo[]): CompletedGroup[] {
@@ -1206,6 +1249,10 @@ function groupCompleted(items: readonly DownloadEntry[], torrents: readonly Torr
       order.push(key)
     }
     g.files.push(d)
+  }
+  // Episódios em ordem dentro de cada torrent multi-arquivo.
+  for (const g of byKey.values()) {
+    if (g.files.length > 1) g.files.sort(naturalFileCompare)
   }
   return order.map(k => byKey.get(k) as CompletedGroup)
 }
@@ -1344,6 +1391,14 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   })
   const empty = torrents.length === 0 && downloads.length === 0 && !loading
 
+  // Quantos downloads compartilham cada infoHash → distingue torrent multi-arquivo
+  // (>1) de single-file. Vale pra TODAS as seções (baixando/fila/concluídos/…),
+  // então o arquivo "que ficou sem baixar" também aparece com o nome do episódio.
+  const dlCountByHash = new Map<string, number>()
+  for (const d of downloads) {
+    if (d.infoHash) dlCountByHash.set(d.infoHash, (dlCountByHash.get(d.infoHash) ?? 0) + 1)
+  }
+
   const renderDownloadCard = (d: DownloadEntry) => (
     <DownloadCard
       key={d.id}
@@ -1351,6 +1406,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       live={torrents.find(t => t.infoHash === d.infoHash)}
       busy={busyID === d.id}
       selected={selected.has(d.id)}
+      multiFile={!!d.infoHash && (dlCountByHash.get(d.infoHash) ?? 0) > 1}
       onToggleSelected={() => onToggleSelected(d.id)}
       onPause={() => onPause?.(d.id)}
       onResume={() => onResume?.(d.id)}
@@ -1772,6 +1828,10 @@ type DownloadCardProps = {
   readonly live?: TorrentInfo
   readonly busy: boolean
   readonly selected?: boolean
+  /** True quando o download é UM arquivo de um torrent multi-arquivo (há irmãos
+      com o mesmo infoHash). Aí o título mostra o NOME DO ARQUIVO, não o nome do
+      torrent — senão todos os episódios de "Euphoria" aparecem idênticos. */
+  readonly multiFile?: boolean
   readonly onToggleSelected?: () => void
   readonly onPause: () => void
   readonly onResume: () => void
@@ -1797,8 +1857,15 @@ function PriorityBadge({ priority }: { readonly priority?: DownloadPriority }) {
   )
 }
 
-function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority }: DownloadCardProps) {
+function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority }: DownloadCardProps) {
   const { isGuest } = useAuth()
+  // Em torrent multi-arquivo o `name` é o nome do torrent (igual pra todos os
+  // arquivos), então o que distingue é o basename do filePath (ex: o episódio).
+  const fileBase = d.filePath ? d.filePath.split('/').pop() || '' : ''
+  const titleText = multiFile && fileBase ? fileBase : (d.name || d.filePath)
+  // Subtítulo: no multi-arquivo mostra o torrent (contexto, já que o título virou
+  // o arquivo); no single-arquivo mantém o caminho como antes.
+  const subtitleText = multiFile && fileBase ? d.name : d.filePath
   const pct = Math.max(0, Math.min(1, d.progress || 0)) * 100
   const isCompleted = d.status === 'completed'
   const isFailed = d.status === 'failed'
@@ -1828,8 +1895,8 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
           />
         )}
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-gray-100 text-sm leading-snug [overflow-wrap:anywhere]" title={d.name}>
-            {d.name || d.filePath}
+          <h3 className="font-semibold text-gray-100 text-sm leading-snug [overflow-wrap:anywhere]" title={titleText}>
+            {titleText}
           </h3>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <KindBadge kind="server" />
@@ -1856,7 +1923,7 @@ function DownloadCard({ d, live, busy, selected, onToggleSelected, onPause, onRe
               </span>
             )}
           </div>
-          <p className="text-[11px] text-gray-600 truncate mt-0.5" title={d.filePath}>{d.filePath}</p>
+          {subtitleText && <p className="text-[11px] text-gray-600 truncate mt-0.5" title={subtitleText}>{subtitleText}</p>}
         </div>
       </div>
 

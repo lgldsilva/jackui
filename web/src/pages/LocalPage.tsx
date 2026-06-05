@@ -14,6 +14,7 @@ import {
   Trash2,
   ArrowUpCircle,
   FolderSync,
+  FolderX,
   FolderInput,
   Upload,
   Search,
@@ -21,6 +22,7 @@ import {
   X,
   Lock,
   Users,
+  MoreVertical,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
@@ -29,6 +31,7 @@ import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useLongPress } from '../lib/useLongPress'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { Sheet } from '../components/Sheet'
 import { BatchActionBar } from '../components/BatchActionBar'
 import LocalPromoteModal from '../components/LocalPromoteModal'
@@ -44,6 +47,7 @@ import {
   localList,
   localMounts,
   localDelete,
+  localCleanEmptyDirs,
   localUpload,
   adminListUsers,
   setLocalViewAsUser,
@@ -150,25 +154,43 @@ function Breadcrumbs({
   readonly onNavigate: (p: string) => void
 }) {
   const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
+  const isMobile = useIsMobile()
+  // No mobile, paths profundos poluem a barra. Colapsa pra Home › … › atual
+  // (o … sobe um nível). No desktop mostra o caminho inteiro.
+  const collapsed = isMobile && segments.length > 2
+  const shown = collapsed ? segments.slice(-1) : segments
 
   return (
-    <nav className="flex items-center gap-1 text-sm text-gray-300 flex-wrap">
+    <nav className="flex items-center gap-1 text-sm text-gray-300 flex-wrap min-w-0">
       <button
         onClick={() => onNavigate('')}
-        className="flex items-center gap-1 hover:text-green-400 transition-colors"
+        className="flex items-center gap-1 hover:text-green-400 transition-colors flex-shrink-0 min-w-0"
       >
-        <Home className="w-4 h-4" />
-        <span>{mountName}</span>
+        <Home className="w-4 h-4 flex-shrink-0" />
+        <span className="truncate max-w-[40vw] sm:max-w-none">{mountName}</span>
       </button>
-      {segments.map((seg, idx) => {
+      {collapsed && (
+        <span className="flex items-center gap-1 flex-shrink-0">
+          <ChevronRight className="w-4 h-4 text-gray-600" />
+          <button
+            onClick={() => onNavigate(segments.slice(0, -1).join('/'))}
+            title="Subir um nível"
+            className="px-1 hover:text-green-400 transition-colors"
+          >
+            …
+          </button>
+        </span>
+      )}
+      {shown.map((seg, i) => {
+        const idx = collapsed ? segments.length - 1 : i
         const target = segments.slice(0, idx + 1).join('/')
         const isLast = idx === segments.length - 1
         return (
-          <span key={target} className="flex items-center gap-1">
-            <ChevronRight className="w-4 h-4 text-gray-600" />
+          <span key={target} className="flex items-center gap-1 min-w-0">
+            <ChevronRight className="w-4 h-4 text-gray-600 flex-shrink-0" />
             <button
               onClick={() => onNavigate(target)}
-              className={`hover:text-green-400 transition-colors ${
+              className={`hover:text-green-400 transition-colors truncate max-w-[55vw] sm:max-w-none ${
                 isLast ? 'text-gray-100 font-medium' : ''
               }`}
             >
@@ -195,6 +217,85 @@ type EntryRowProps = {
   readonly onReclassify: (e: LocalEntry) => void
   readonly onMove: (e: LocalEntry) => void
   readonly onDelete: (e: LocalEntry) => void
+}
+
+// Ações por-item (promover/reclassificar/mover/apagar). No desktop aparecem no
+// hover; no mobile viram um único alvo ⋮ (>=44px) que abre um Sheet — botões
+// opacity-0, mesmo invisíveis, capturavam o toque na faixa direita da row e o
+// play não disparava (sensação de "tocar duas vezes"). Lista via map pra manter
+// a complexidade baixa e não repetir desktop/mobile.
+const ACTION_COLOR: Record<string, string> = {
+  cyan: 'text-cyan-400 hover:bg-cyan-500/10',
+  purple: 'text-purple-400 hover:bg-purple-500/10',
+  amber: 'text-amber-400 hover:bg-amber-500/10',
+  red: 'text-red-400 hover:bg-red-500/10',
+}
+type EntryAction = { key: string; icon: typeof Trash2; label: string; color: keyof typeof ACTION_COLOR; run: () => void }
+
+function EntryActions({ entry: e, isAdmin, canAct, onPromote, onReclassify, onMove, onDelete }: {
+  readonly entry: LocalEntry
+  readonly isAdmin: boolean
+  readonly canAct: boolean
+  readonly onPromote: (e: LocalEntry) => void
+  readonly onReclassify: (e: LocalEntry) => void
+  readonly onMove: (e: LocalEntry) => void
+  readonly onDelete: (e: LocalEntry) => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const actions: EntryAction[] = [
+    canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: 'Promover / Organizar via IA', color: 'cyan', run: () => onPromote(e) },
+    isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA', color: 'purple', run: () => onReclassify(e) },
+    isAdmin && { key: 'move', icon: FolderInput, label: 'Mover para outro mount', color: 'amber', run: () => onMove(e) },
+    canAct && { key: 'delete', icon: Trash2, label: e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente', color: 'red', run: () => onDelete(e) },
+  ].filter(Boolean) as EntryAction[]
+  if (actions.length === 0) return null
+
+  return (
+    <>
+      <div className="hidden sm:flex items-center gap-1.5 px-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        {actions.map(a => {
+          const Icon = a.icon
+          return (
+            <button
+              key={a.key}
+              onClick={(evt) => { evt.stopPropagation(); a.run() }}
+              title={a.label}
+              className={`p-1.5 rounded-lg border border-transparent transition-all ${ACTION_COLOR[a.color]}`}
+            >
+              <Icon className="w-5 h-5" />
+            </button>
+          )
+        })}
+      </div>
+      <button
+        onClick={(evt) => { evt.stopPropagation(); setMenuOpen(true) }}
+        title="Ações"
+        aria-label="Ações"
+        className="sm:hidden flex-shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] text-gray-400 hover:text-gray-200"
+      >
+        <MoreVertical className="w-5 h-5" />
+      </button>
+      {menuOpen && (
+        <Sheet open onClose={() => setMenuOpen(false)} size="sm" title={e.name}>
+          <div className="flex flex-col gap-1 pb-2">
+            {actions.map(a => {
+              const Icon = a.icon
+              return (
+                <button
+                  key={a.key}
+                  onClick={() => { setMenuOpen(false); a.run() }}
+                  className={`flex items-center gap-3 px-3 min-h-[48px] rounded-lg hover:bg-gray-700/40 text-left ${ACTION_COLOR[a.color].split(' ')[0]}`}
+                >
+                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  <span className="text-sm">{a.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Sheet>
+      )}
+    </>
+  )
 }
 
 // Uma linha da lista. Extraída pra poder usar useLongPress por item (hooks não
@@ -224,53 +325,33 @@ function EntryRow(props: EntryRowProps) {
           </span>
         )}
         <EntryIcon entry={e} mount={mount} />
-        <span className="flex-1 min-w-0 text-gray-100 font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
+        <span className="flex-1 min-w-0 flex flex-col gap-0.5">
+          <span className="text-gray-100 font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
+          {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
+              direita (hidden sm:block). Sem isso a row no celular mostrava só
+              ícone + nome. */}
+          <span className="sm:hidden text-[11px] text-gray-500 flex items-center gap-1.5">
+            {!e.isDir && <>{formatSize(e.size)}<span className="text-gray-700">·</span></>}
+            {formatDate(e.modTime)}
+          </span>
+        </span>
         {!e.isDir && (
           <span className="text-xs text-gray-500 text-right flex-shrink-0 hidden sm:block w-20">{formatSize(e.size)}</span>
         )}
         <span className="text-xs text-gray-500 w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
       </button>
 
-      {/* Ações rápidas individuais (escondidas no modo seleção e em mobile por default) */}
-      {!selectMode && canAct && (
-        <div className="flex items-center gap-1.5 px-2 sm:px-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-active:opacity-100 transition-opacity">
-          {canAct && !e.isDir && (
-            <button
-              onClick={(evt) => { evt.stopPropagation(); props.onPromote(e) }}
-              title="Promover / Organizar via IA"
-              className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/20 transition-all"
-            >
-              <ArrowUpCircle className="w-5 h-5" />
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={(evt) => { evt.stopPropagation(); props.onReclassify(e) }}
-              title={e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA'}
-              className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20 transition-all"
-            >
-              <FolderSync className="w-5 h-5" />
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={(evt) => { evt.stopPropagation(); props.onMove(e) }}
-              title="Mover para outro mount"
-              className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/20 transition-all"
-            >
-              <FolderInput className="w-5 h-5" />
-            </button>
-          )}
-          {canAct && (
-            <button
-              onClick={(evt) => { evt.stopPropagation(); props.onDelete(e) }}
-              title={e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente'}
-              className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all"
-            >
-              <Trash2 className="w-5 h-5" />
-            </button>
-          )}
-        </div>
+      {/* Ações por-item: desktop = botões no hover; mobile = ⋮ → Sheet. */}
+      {!selectMode && (
+        <EntryActions
+          entry={e}
+          isAdmin={isAdmin}
+          canAct={canAct}
+          onPromote={props.onPromote}
+          onReclassify={props.onReclassify}
+          onMove={props.onMove}
+          onDelete={props.onDelete}
+        />
       )}
     </li>
   )
@@ -284,12 +365,16 @@ export default function LocalPage() {
   const [entries, setEntries] = useState<LocalEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const { playSingle } = usePlayer()
   const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
   const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
 
-  const [promoteItem, setPromoteItem] = useState<LocalEntry | null>(null)
+  // Files queued for the promote modal: 1 (single, via the row action) or many
+  // (batch selection). The modal applies one destination + AI choice to all in
+  // a single call — no more one-modal-per-file walk.
+  const [promoteEntries, setPromoteEntries] = useState<LocalEntry[]>([])
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
   const confirm = useConfirm()
@@ -301,7 +386,6 @@ export default function LocalPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchRunning, setBatchRunning] = useState(false)
   const [batchMoveOpen, setBatchMoveOpen] = useState(false)
-  const [promoteQueue, setPromoteQueue] = useState<LocalEntry[]>([])
 
   // Upload state: tracks the in-flight transfer for the progress banner. The
   // AbortController lets the user cancel mid-stream; the hidden <input> is reset
@@ -399,10 +483,12 @@ export default function LocalPage() {
     refresh()
   }
 
-  // Promover em lote = fila item a item (o LocalPromoteModal é um fluxo de IA rico).
+  // Promover em lote = um único modal para TODOS os arquivos selecionados
+  // (destino + renomeação IA escolhidos uma vez, uma chamada só).
   const runBatchPromote = () => {
-    if (selectedEntries.length === 0) return
-    setPromoteQueue(selectedEntries.filter((e) => !e.isDir))
+    const files = selectedEntries.filter((e) => !e.isDir)
+    if (files.length === 0) return
+    setPromoteEntries(files)
   }
 
   useEffect(() => {
@@ -455,6 +541,7 @@ export default function LocalPage() {
   }
 
   useEffect(() => {
+    setNotice('') // stale "N folders removed" shouldn't linger across navigation
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMount, path, viewAsUser])
@@ -495,6 +582,27 @@ export default function LocalPage() {
       refresh()
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao apagar arquivo')
+    }
+  }
+
+  // Remove empty subfolders left behind after promoting/moving files. Low risk
+  // (only deletes truly-empty dirs), so a light confirm is enough.
+  const requestCleanEmptyDirs = async () => {
+    if (!activeMount) return
+    const ok = await confirm({
+      title: 'Limpar pastas vazias?',
+      message: <>Remover todas as subpastas vazias a partir de <span className="text-gray-200 font-medium">"{path || activeMount}"</span>? Arquivos não são afetados.</>,
+      confirmLabel: 'Limpar',
+    })
+    if (!ok) return
+    setError('')
+    setNotice('')
+    try {
+      const { cleaned } = await localCleanEmptyDirs(activeMount, path)
+      setNotice(cleaned > 0 ? `${cleaned} pasta${cleaned === 1 ? '' : 's'} vazia${cleaned === 1 ? '' : 's'} removida${cleaned === 1 ? '' : 's'}.` : 'Nenhuma pasta vazia encontrada.')
+      refresh()
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e.message || 'Erro ao limpar pastas vazias')
     }
   }
 
@@ -671,6 +779,14 @@ export default function LocalPage() {
                     <Upload className="w-4 h-4" />
                     <span className="hidden sm:inline">Upload</span>
                   </button>
+                  <button
+                    onClick={requestCleanEmptyDirs}
+                    title="Remover subpastas vazias desta pasta"
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-gray-700/60 hover:bg-gray-600 text-gray-300 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    <FolderX className="w-4 h-4" />
+                    <span className="hidden sm:inline">Limpar vazias</span>
+                  </button>
                 </>
               )}
             </div>
@@ -745,36 +861,45 @@ export default function LocalPage() {
                   </button>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => setKind(k)}
-                    className={`px-2.5 py-1 rounded-full border transition-colors ${
-                      kind === k
-                        ? 'bg-green-500/15 text-green-400 border-green-500/40'
-                        : 'text-gray-400 border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
-                  </button>
-                ))}
+              {/* Dois grupos rotulados (Tipo / Ordenar). No mobile empilham
+                  (flex-col) com rótulo visível em cada um — antes os chips dos
+                  dois grupos se misturavam numa mesma linha-que-quebra, sem
+                  rótulo, e ficava confuso. No desktop voltam pra uma linha. */}
+              <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-gray-500 sm:hidden mr-0.5">Tipo:</span>
+                  {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => setKind(k)}
+                      className={`px-2.5 py-1 rounded-full border transition-colors ${
+                        kind === k
+                          ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                          : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
+                    </button>
+                  ))}
+                </div>
                 <span className="mx-1 h-4 w-px bg-gray-700 hidden sm:block" />
-                <span className="text-gray-500 hidden sm:inline">Ordenar:</span>
-                {(['name', 'size', 'date'] as SortKey[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => toggleSort(k)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
-                      sortKey === k
-                        ? 'bg-gray-700 text-gray-100 border-gray-600'
-                        : 'text-gray-400 border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
-                    {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-                  </button>
-                ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-gray-500 mr-0.5">Ordenar:</span>
+                  {(['name', 'size', 'date'] as SortKey[]).map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => toggleSort(k)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
+                        sortKey === k
+                          ? 'bg-gray-700 text-gray-100 border-gray-600'
+                          : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
+                      {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -782,6 +907,13 @@ export default function LocalPage() {
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4 text-sm">
               {error}
+            </div>
+          )}
+
+          {notice && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-3">
+              <span>{notice}</span>
+              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-300 text-xs">Fechar</button>
             </div>
           )}
 
@@ -809,7 +941,7 @@ export default function LocalPage() {
                   onOpen={handleEntryClick}
                   onEnterSelect={enterSelect}
                   onToggleSelect={toggleSelect}
-                  onPromote={setPromoteItem}
+                  onPromote={(entry) => setPromoteEntries([entry])}
                   onReclassify={setReclassifyItem}
                   onMove={setMoveItem}
                   onDelete={requestDelete}
@@ -818,20 +950,12 @@ export default function LocalPage() {
             </ul>
           )}
 
-          {/* Modal de Promoção — `promoteItem` (individual) ou a fila do lote */}
+          {/* Modal de Promoção — individual (1) ou lote (N) num único fluxo */}
           <LocalPromoteModal
             mount={activeMount}
-            entry={promoteItem ?? (promoteQueue.length > 0 ? promoteQueue[0] : null)}
-            onClose={() => {
-              if (promoteItem) { setPromoteItem(null); return }
-              // Avança a fila do lote; ao esvaziar, sai do modo seleção.
-              setPromoteQueue((q) => {
-                const next = q.slice(1)
-                if (next.length === 0) clearSelection()
-                return next
-              })
-            }}
-            onPromoted={refresh}
+            entries={promoteEntries}
+            onClose={() => setPromoteEntries([])}
+            onPromoted={() => { refresh(); clearSelection() }}
           />
 
           {/* Modal de Reclassificação em lote via IA */}

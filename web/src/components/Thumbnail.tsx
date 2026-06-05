@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Film, Music, FileVideo } from 'lucide-react'
 import { useThumbnail } from '../lib/useThumbnail'
 import { detectKind } from '../lib/playable'
@@ -39,6 +39,10 @@ const ICON_SIZES: Record<ThumbnailSize, string> = {
 export default function Thumbnail({ title, categoryId = 0, size = 'md', className = '', infoHash }: ThumbnailProps) {
   const { ref, match, loaded } = useThumbnail<HTMLDivElement>(title)
   const [artFailed, setArtFailed] = useState(false)
+  // Cards reuse this component across torrents (e.g. paginated lists); reset the
+  // failure flag when the hash changes so a previously-broken art doesn't stay
+  // hidden for a different torrent that does have art.
+  useEffect(() => { setArtFailed(false) }, [infoHash])
   const kind = detectKind(title, categoryId)
   const dim = SIZE_CLASSES[size]
   const iconDim = ICON_SIZES[size]
