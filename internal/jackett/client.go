@@ -176,8 +176,6 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 }
 
 func (c *Client) GetIndexers() ([]Indexer, error) {
-	endpoint := c.URL + torznabAPIEndpoint
-
 	// Jackett's /api/v2.0/indexers only works for admin-cookie sessions; with
 	// apikey-only auth it returns 302 → /UI/Login. We try once, but if we hit
 	// the login redirect we return an empty list (not an error) so the frontend
@@ -191,8 +189,6 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 	q.Set("apikey", c.APIKey)
 	q.Set("configured", "true")
 	req.URL.RawQuery = q.Encode()
-
-	_ = endpoint
 
 	noFollow := &http.Client{
 		Timeout: c.http.Timeout,
