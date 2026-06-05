@@ -109,6 +109,7 @@ func NewMetadataCache(path string) (*MetadataCache, error) {
 		"health_seeders":    `ALTER TABLE metadata ADD COLUMN health_seeders INTEGER NOT NULL DEFAULT -1`,
 		"health_peers":      `ALTER TABLE metadata ADD COLUMN health_peers INTEGER NOT NULL DEFAULT -1`,
 		"health_checked_at": `ALTER TABLE metadata ADD COLUMN health_checked_at DATETIME`,
+		"art_checked_at":    `ALTER TABLE metadata ADD COLUMN art_checked_at DATETIME`,
 	} {
 		if !columnExists(db, "metadata", col) {
 			if _, err := db.Exec(ddl); err != nil {
@@ -217,16 +218,45 @@ func (m *MetadataCache) SetArt(infoHash string, art *CachedArt) error {
 		return nil
 	}
 	_, err := m.db.Exec(`
-		INSERT INTO metadata(info_hash, name, art_source, art_path, poster_url, tmdb_id, imdb_id)
-		VALUES(?, '', ?, ?, ?, ?, ?)
+		INSERT INTO metadata(info_hash, name, art_source, art_path, poster_url, tmdb_id, imdb_id, art_checked_at)
+		VALUES(?, '', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(info_hash) DO UPDATE SET
-			art_source = excluded.art_source,
-			art_path   = excluded.art_path,
-			poster_url = excluded.poster_url,
-			tmdb_id    = excluded.tmdb_id,
-			imdb_id    = excluded.imdb_id
+			art_source     = excluded.art_source,
+			art_path       = excluded.art_path,
+			poster_url     = excluded.poster_url,
+			tmdb_id        = excluded.tmdb_id,
+			imdb_id        = excluded.imdb_id,
+			art_checked_at = CURRENT_TIMESTAMP
 	`, infoHash, art.Source, art.Path, art.PosterURL, art.TmdbID, art.ImdbID)
 	return err
+}
+
+// ArtSourceNone marks "the resolve chain ran and found nothing". Persisted (with
+// a timestamp via SetArt) so ResolveArt doesn't re-run the whole AI+TMDB+web
+// chain on every card render for a title that has no art — see ArtNegativeFresh.
+const ArtSourceNone = "none"
+
+// ArtNegativeFresh reports whether a recent "no art found" marker exists, so the
+// caller can short-circuit instead of re-running the expensive resolve chain.
+// A real art source (rank > 0) is never treated as a negative marker.
+func (m *MetadataCache) ArtNegativeFresh(infoHash string, ttl time.Duration) bool {
+	if m == nil {
+		return false
+	}
+	var source string
+	var checkedAt sql.NullString
+	row := m.db.QueryRow(`SELECT art_source, art_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
+	if err := row.Scan(&source, &checkedAt); err != nil {
+		return false
+	}
+	if source != ArtSourceNone || !checkedAt.Valid {
+		return false
+	}
+	t := dbutil.ParseTime(checkedAt.String)
+	if t.IsZero() {
+		return false
+	}
+	return time.Since(t) < ttl
 }
 
 // CachedHealth is the last-known swarm health for a torrent, persisted so a card
