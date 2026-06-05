@@ -83,7 +83,7 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
   } else if (known) {
     dot = available ? 'bg-green-500' : 'bg-gray-600'
   } else {
-    dot = 'bg-gray-700'
+    dot = 'bg-surface-tertiary'
   }
   let title: string
   if (probing) {
@@ -102,13 +102,13 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
       onClick={verify}
       onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); verify() } }}
       title={title}
-      className={`inline-flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer hover:text-gray-200 ${className}`}
+      className={`inline-flex items-center gap-1 text-[10px] text-text-secondary cursor-pointer hover:text-text-primary ${className}`}
     >
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot} ${probing ? 'animate-pulse' : ''}`} />
 {(() => {
-        if (probing) return <Loader2 className="w-3 h-3 animate-spin text-gray-500" />
+        if (probing) return <Loader2 className="w-3 h-3 animate-spin text-text-muted" />
         if (known) return <span className="flex items-center gap-0.5 tabular-nums"><ArrowUp className="w-3 h-3 text-green-500" />{seeders}</span>
-        return <span className="text-gray-500">seeds?</span>
+        return <span className="text-text-muted">seeds?</span>
       })()}
     </button>
   )

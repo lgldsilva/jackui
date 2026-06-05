@@ -24,18 +24,18 @@ export function BatchActionBar({
 }: BatchActionBarProps) {
   const actionBtn = 'flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-lg text-sm font-medium transition-colors disabled:opacity-40'
   return (
-    <div className="fixed bottom-0 inset-x-0 z-40 bg-gray-800 border-t border-gray-700 px-3 pt-2 safe-bottom shadow-2xl">
+    <div className="fixed bottom-0 inset-x-0 z-40 bg-surface-secondary border-t border-default px-3 pt-2 safe-bottom shadow-2xl">
       <div className="max-w-7xl mx-auto flex items-center gap-2">
-        <button onClick={onCancel} aria-label="Cancelar seleção" className={`${actionBtn} text-gray-300 hover:bg-gray-700`}>
+        <button onClick={onCancel} aria-label="Cancelar seleção" className={`${actionBtn} text-text-primary hover:bg-surface-tertiary`}>
           <X className="w-4 h-4" />
         </button>
-        <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{count} selec.</span>
+        <span className="text-sm text-text-primary font-medium whitespace-nowrap">{count} selec.</span>
         {onSelectAll && (
           <SelectAllButton allSelected={allSelected} onToggle={onSelectAll}
-            className={`${actionBtn} text-gray-300 hover:bg-gray-700`} />
+            className={`${actionBtn} text-text-primary hover:bg-surface-tertiary`} />
         )}
         <div className="flex-1" />
-        {running && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
+        {running && <Loader2 className="w-4 h-4 animate-spin text-text-secondary" />}
         {canPromote && (
           <button onClick={onPromote} disabled={count === 0 || running} className={`${actionBtn} text-cyan-300 hover:bg-cyan-500/15`}>
             <ArrowUpCircle className="w-4 h-4" /><span className="hidden min-[400px]:inline">Promover</span>

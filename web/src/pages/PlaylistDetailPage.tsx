@@ -85,7 +85,7 @@ export default function PlaylistDetailPage() {
 
   let mainContent: React.ReactNode
   if (loading) {
-    mainContent = <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
+    mainContent = <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
   } else if (playlist) {
     mainContent = (
       <>
@@ -119,9 +119,9 @@ export default function PlaylistDetailPage() {
               <div className="flex items-start gap-2 min-w-0">
                 <ListMusic className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0">
-                  <h2 className="text-lg font-semibold text-gray-100">{playlist.name}</h2>
+                  <h2 className="text-lg font-semibold text-text-primary">{playlist.name}</h2>
                   {playlist.description && (
-                    <p className="text-sm text-gray-400 mt-1">{playlist.description}</p>
+                    <p className="text-sm text-text-secondary mt-1">{playlist.description}</p>
                   )}
                 </div>
               </div>
@@ -133,9 +133,9 @@ export default function PlaylistDetailPage() {
         </div>
 
         {items.length === 0 ? (
-          <div className="card flex flex-col items-center justify-center gap-3 py-16 text-gray-500">
-            <ListMusic className="w-12 h-12 text-gray-600" />
-            <p className="text-base font-medium text-gray-400">Playlist vazia</p>
+          <div className="card flex flex-col items-center justify-center gap-3 py-16 text-text-muted">
+            <ListMusic className="w-12 h-12 text-text-muted" />
+            <p className="text-base font-medium text-text-secondary">Playlist vazia</p>
             <p className="text-xs mt-2">Use &quot;Adicionar à playlist&quot; nos cards de busca pra adicionar torrents aqui.</p>
           </div>
         ) : (
@@ -150,7 +150,7 @@ export default function PlaylistDetailPage() {
                 onDrop={() => handleReorderDrop(idx)}
                 onDragEnd={() => setDragIdx(null)}
                 onClick={() => startAt(idx)}
-                className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-gray-800/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
+                className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-surface-secondary/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
                 {/* ↑/↓ — reorder por toque no mobile (a alça de drag é ruim no
                     touch). No desktop fica a alça GripVertical de sempre. */}
@@ -160,7 +160,7 @@ export default function PlaylistDetailPage() {
                     disabled={idx === 0}
                     title="Mover para cima"
                     aria-label="Mover para cima"
-                    className="flex items-center justify-center w-11 h-[22px] text-gray-400 hover:text-gray-100 disabled:opacity-30 disabled:hover:text-gray-400"
+                    className="flex items-center justify-center w-11 h-[22px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:hover:text-text-secondary"
                   >
                     <ChevronUp className="w-4 h-4" />
                   </button>
@@ -169,22 +169,22 @@ export default function PlaylistDetailPage() {
                     disabled={idx === items.length - 1}
                     title="Mover para baixo"
                     aria-label="Mover para baixo"
-                    className="flex items-center justify-center w-11 h-[22px] text-gray-400 hover:text-gray-100 disabled:opacity-30 disabled:hover:text-gray-400"
+                    className="flex items-center justify-center w-11 h-[22px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:hover:text-text-secondary"
                   >
                     <ChevronDown className="w-4 h-4" />
                   </button>
                 </div>
-                <GripVertical className="hidden md:block w-4 h-4 text-gray-600 flex-shrink-0 cursor-grab active:cursor-grabbing" />
+                <GripVertical className="hidden md:block w-4 h-4 text-text-muted flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <div className="flex-1 min-w-0">
                   <button
                     onClick={() => startAt(idx)}
-                    className="text-sm text-gray-100 hover:text-green-400 transition-colors text-left font-medium truncate block w-full"
+                    className="text-sm text-text-primary hover:text-green-400 transition-colors text-left font-medium truncate block w-full"
                     title={it.title}
                   >
                     {idx + 1}. {it.title}
                   </button>
                   {it.infoHash && (
-                    <p className="text-[10px] text-gray-600 mt-0.5 font-mono">
+                    <p className="text-[10px] text-text-muted mt-0.5 font-mono">
                       {it.infoHash.slice(0, 16)}...
                     </p>
                   )}
@@ -201,7 +201,7 @@ export default function PlaylistDetailPage() {
                   onClick={(e) => { e.stopPropagation(); removeItem(it) }}
                   title="Remover da playlist"
                   aria-label="Remover da playlist"
-                  className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-gray-600 hover:text-red-400 flex-shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-text-muted hover:text-red-400 flex-shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -213,7 +213,7 @@ export default function PlaylistDetailPage() {
     )
   } else {
     mainContent = (
-      <div className="text-center py-20 text-gray-500">
+      <div className="text-center py-20 text-text-muted">
         <p>Playlist não encontrada</p>
         <Link to="/playlists" className="text-green-400 mt-2 inline-block">Voltar</Link>
       </div>
@@ -221,7 +221,7 @@ export default function PlaylistDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader
         rightExtra={
           <button

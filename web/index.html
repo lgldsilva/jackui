@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR" class="dark">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -10,9 +10,12 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
 
-    <!-- PWA manifest + theme -->
+    <!-- PWA manifest + theme. The theme-color is overridden at runtime when
+         the user switches theme, so the OS chrome (Safari address bar, Android
+         taskbar) matches the app palette. -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#10b981" />
+    <meta name="theme-color" content="#10b981" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="application-name" content="JackUI" />
 
     <!-- Standard PWA standalone flag (replaces the deprecated apple-* one; kept

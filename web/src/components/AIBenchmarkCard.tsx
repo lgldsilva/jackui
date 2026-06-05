@@ -40,12 +40,12 @@ function scoreCells(s: AISlotScore) {
 function scoreRow(s: AISlotScore) {
   const { acc, lat, comp } = scoreCells(s)
   return (
-    <tr key={s.slotId} className="border-t border-gray-700/60">
-      <td className="py-1.5 pr-3 text-gray-200">{s.model}<span className="text-gray-500 text-xs block">{s.provider}</span></td>
+    <tr key={s.slotId} className="border-t border-default/60">
+      <td className="py-1.5 pr-3 text-text-primary">{s.model}<span className="text-text-muted text-xs block">{s.provider}</span></td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums font-medium text-green-400">{comp}</td>
-      <td className="py-1.5 text-gray-500 text-xs truncate max-w-[10rem]" title={s.failureReason}>{s.failureReason || ''}</td>
+      <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>{s.failureReason || ''}</td>
     </tr>
   )
 }
@@ -53,27 +53,27 @@ function scoreRow(s: AISlotScore) {
 function scoreCard(s: AISlotScore) {
   const { acc, lat, comp } = scoreCells(s)
   return (
-    <div key={s.slotId} className="rounded-lg border border-gray-700/60 bg-gray-900/40 p-3 flex flex-col gap-2">
+    <div key={s.slotId} className="rounded-lg border border-default/60 bg-surface/40 p-3 flex flex-col gap-2">
       <div className="min-w-0">
-        <div className="text-gray-200 text-sm truncate">{s.model}</div>
-        <div className="text-gray-500 text-xs">{s.provider}</div>
+        <div className="text-text-primary text-sm truncate">{s.model}</div>
+        <div className="text-text-muted text-xs">{s.provider}</div>
       </div>
       <div className="grid grid-cols-3 gap-2 text-xs">
         <div>
-          <div className="text-gray-500">Acurácia</div>
-          <div className="tabular-nums text-gray-200">{acc}</div>
+          <div className="text-text-muted">Acurácia</div>
+          <div className="tabular-nums text-text-primary">{acc}</div>
         </div>
         <div>
-          <div className="text-gray-500">Latência</div>
-          <div className="tabular-nums text-gray-200">{lat}</div>
+          <div className="text-text-muted">Latência</div>
+          <div className="tabular-nums text-text-primary">{lat}</div>
         </div>
         <div>
-          <div className="text-gray-500">Score</div>
+          <div className="text-text-muted">Score</div>
           <div className="tabular-nums font-medium text-green-400">{comp}</div>
         </div>
       </div>
       {s.failureReason && (
-        <div className="text-gray-500 text-xs break-words">Falha: {s.failureReason}</div>
+        <div className="text-text-muted text-xs break-words">Falha: {s.failureReason}</div>
       )}
     </div>
   )
@@ -97,7 +97,7 @@ export default function AIBenchmarkCard() {
 
   if (!status) {
     return (
-      <section className="card flex items-center gap-2 text-gray-400">
+      <section className="card flex items-center gap-2 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" /> Carregando IA…
       </section>
     )
@@ -106,11 +106,11 @@ export default function AIBenchmarkCard() {
   if (!status.enabled) {
     return (
       <section className="card flex flex-col gap-2">
-        <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
-        <p className="text-sm text-gray-400">
-          Desabilitada — defina <code className="text-gray-300">GROQ_API_KEY</code>,{' '}
-          <code className="text-gray-300">OPENROUTER_API_KEY</code> ou{' '}
-          <code className="text-gray-300">OLLAMA_BASE_URL</code> para ativar a limpeza de títulos por IA.
+        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
+        <p className="text-sm text-text-secondary">
+          Desabilitada — defina <code className="text-text-primary">GROQ_API_KEY</code>,{' '}
+          <code className="text-text-primary">OPENROUTER_API_KEY</code> ou{' '}
+          <code className="text-text-primary">OLLAMA_BASE_URL</code> para ativar a limpeza de títulos por IA.
         </p>
       </section>
     )
@@ -149,7 +149,7 @@ export default function AIBenchmarkCard() {
   return (
     <section className="card flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
+        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
         <button
           onClick={run}
           disabled={running}
@@ -160,7 +160,7 @@ export default function AIBenchmarkCard() {
         </button>
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-text-muted">
         Chain atual: {status.chain.map(s => s.id).join(' → ') || '—'}. O benchmark mede acurácia e
         latência por modelo, calcula o score composto (acurácia ÷ √latência) e reordena a chain.
       </p>
@@ -171,7 +171,7 @@ export default function AIBenchmarkCard() {
           <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-gray-400 text-xs text-left">
+                <tr className="text-text-secondary text-xs text-left">
                   <th className="py-1 pr-3 font-medium">Modelo</th>
                   <th className="py-1 pr-3 font-medium text-right">Acurácia</th>
                   <th className="py-1 pr-3 font-medium text-right">Latência</th>
@@ -190,25 +190,25 @@ export default function AIBenchmarkCard() {
       )}
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="ai-testcases" className="text-sm text-gray-300">Casos de teste (um por linha: <code className="text-gray-400">nome.do.torrent =&gt; Título Esperado</code>)</label>
+        <label htmlFor="ai-testcases" className="text-sm text-text-primary">Casos de teste (um por linha: <code className="text-text-secondary">nome.do.torrent =&gt; Título Esperado</code>)</label>
         <textarea
           id="ai-testcases"
           value={casesText}
           onChange={e => setCasesText(e.target.value)}
           rows={6}
           spellCheck={false}
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-base sm:text-sm font-mono text-gray-200 resize-y"
+          className="w-full bg-surface border border-default rounded-lg p-2 text-base sm:text-sm font-mono text-text-primary resize-y"
         />
         <div className="flex items-center gap-3">
           <button
             onClick={save}
             disabled={saving}
-            className="flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg px-3 py-1.5"
+            className="flex items-center gap-1.5 text-sm bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             Salvar casos
           </button>
-          {msg && <span className="text-xs text-gray-400">{msg}</span>}
+          {msg && <span className="text-xs text-text-secondary">{msg}</span>}
         </div>
       </div>
     </section>

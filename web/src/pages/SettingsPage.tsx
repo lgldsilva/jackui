@@ -72,7 +72,7 @@ function TabButton({ tab, active, onClick }: {
       className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors whitespace-nowrap ${
         active
           ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
-          : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800 border border-transparent'
+          : 'text-text-secondary hover:text-text-primary hover:bg-surface-secondary border border-transparent'
       }`}
     >
       {tab.icon}
@@ -90,28 +90,28 @@ function SessionsList({ loading, sessions, onRevoke, onRevokeOthers }: {
   readonly onRevokeOthers: () => void
 }) {
   if (loading) {
-    return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-500" /></div>
+    return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-text-muted" /></div>
   }
   if (sessions.length === 0) {
-    return <p className="text-sm text-gray-500 text-center py-4">Nenhuma sessão registrada.</p>
+    return <p className="text-sm text-text-muted text-center py-4">Nenhuma sessão registrada.</p>
   }
   return (
     <div className="flex flex-col gap-1.5">
       {sessions.map(sess => (
-        <div key={sess.id} className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+        <div key={sess.id} className="flex items-center gap-2 bg-surface border border-default rounded-lg px-3 py-2 text-sm">
           <div className="flex-1 min-w-0">
-            <div className="text-gray-200 flex items-center gap-1.5">
+            <div className="text-text-primary flex items-center gap-1.5">
               {sess.current && <span className="text-green-400">● esta sessão</span>}
-              {!sess.current && <span className="text-gray-500">○</span>}
-              {sess.remember && <span className="text-gray-500 text-xs">· lembrar 30d</span>}
+              {!sess.current && <span className="text-text-muted">○</span>}
+              {sess.remember && <span className="text-text-muted text-xs">· lembrar 30d</span>}
             </div>
-            <div className="text-gray-500 text-xs mt-0.5">
+            <div className="text-text-muted text-xs mt-0.5">
               criada {new Date(sess.createdAt).toLocaleString()} · expira {new Date(sess.expiresAt).toLocaleDateString()}
             </div>
           </div>
           {!sess.current && (
             <button onClick={() => onRevoke(sess.id)}
-              title="Encerrar" className="text-gray-500 hover:text-red-400 flex-shrink-0">
+              title="Encerrar" className="text-text-muted hover:text-red-400 flex-shrink-0">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
@@ -119,7 +119,7 @@ function SessionsList({ loading, sessions, onRevoke, onRevokeOthers }: {
       ))}
       {sessions.some(s => !s.current) && (
         <button onClick={onRevokeOthers}
-          className="flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-2 self-start mt-2">
+          className="flex items-center gap-1.5 text-sm bg-surface-tertiary hover:bg-surface-tertiary text-text-primary rounded-lg px-3 py-2 self-start mt-2">
           <LogOut className="w-4 h-4" /> Encerrar outras sessões
         </button>
       )}
@@ -218,7 +218,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-surface flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-green-500" />
       </div>
     )
@@ -226,22 +226,22 @@ export default function SettingsPage() {
 
   if (!config) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-surface flex items-center justify-center">
         <p className="text-red-400">{error || 'Erro ao carregar configuracoes'}</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-surface">
       {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 safe-top">
+      <header className="bg-surface-secondary border-b border-default px-4 py-3 safe-top">
         <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link to="/" className="text-gray-400 hover:text-gray-100 transition-colors">
+            <Link to="/" className="text-text-secondary hover:text-text-primary transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            <h1 className="text-xl font-bold text-gray-100">Configuracoes</h1>
+            <h1 className="text-xl font-bold text-text-primary">Configuracoes</h1>
           </div>
           <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 disabled:opacity-50">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -251,7 +251,7 @@ export default function SettingsPage() {
       </header>
 
       {/* Tab bar — scroll horizontal no mobile */}
-      <div className="border-b border-gray-700 overflow-x-auto">
+      <div className="border-b border-default overflow-x-auto">
         <div className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto px-4 py-2 flex gap-2">
           {TABS.map(tab => <TabButton key={tab.id} tab={tab} active={activeTab === tab.id} onClick={() => setActiveTab(tab.id)} />)}
         </div>
@@ -273,9 +273,9 @@ export default function SettingsPage() {
         {activeTab === 'geral' && (
           <>
             <section className="card flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-gray-100">Jackett</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Jackett</h2>
               <div>
-                <label htmlFor="jackett-url" className="block text-sm font-medium text-gray-300 mb-1.5">
+                <label htmlFor="jackett-url" className="block text-sm font-medium text-text-primary mb-1.5">
                   URL {config.envOverrides?.JACKETT_URL && <EnvBadge envVar="JACKETT_URL" />}
                 </label>
                 <input id="jackett-url" type="url" value={config.jackett.url}
@@ -283,7 +283,7 @@ export default function SettingsPage() {
                   placeholder="http://localhost:9117" className="input-field" />
               </div>
               <div>
-                <label htmlFor="jackett-apikey" className="block text-sm font-medium text-gray-300 mb-1.5">
+                <label htmlFor="jackett-apikey" className="block text-sm font-medium text-text-primary mb-1.5">
                   API Key {config.envOverrides?.JACKETT_API_KEY && <EnvBadge envVar="JACKETT_API_KEY" />}
                 </label>
                 <input id="jackett-apikey" type="password" autoComplete="off" value={config.jackett.apiKey}
@@ -309,9 +309,9 @@ export default function SettingsPage() {
             </section>
 
             <section className="card flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-gray-100">Servidor</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Servidor</h2>
               <div>
-                <label htmlFor="server-port" className="block text-sm font-medium text-gray-300 mb-1.5">Porta</label>
+                <label htmlFor="server-port" className="block text-sm font-medium text-text-primary mb-1.5">Porta</label>
                 <input id="server-port" type="number" value={config.port}
                   onChange={e => setConfig({ ...config, port: Number.parseInt(e.target.value) || 8989 })}
                   className="input-field w-32" min={1} max={65535} />
@@ -321,7 +321,7 @@ export default function SettingsPage() {
             {/* Env overrides */}
             {config.envOverrides && Object.keys(config.envOverrides).length > 0 && (
               <section className="card flex flex-col gap-3">
-                <h2 className="text-base font-semibold text-gray-200">
+                <h2 className="text-base font-semibold text-text-primary">
                   <span>Variáveis de Ambiente</span>
                   <span className="ml-2 text-[10px] text-amber-400 font-normal">(prioridade sobre config.yaml)</span>
                 </h2>
@@ -329,12 +329,12 @@ export default function SettingsPage() {
                   {Object.entries(config.envOverrides).map(([key, value]) => (
                     <div key={key} className="flex items-center gap-2 text-xs">
                       <code className="text-amber-400 font-mono">{key}</code>
-                      <span className="text-gray-500">=</span>
-                      <code className="text-gray-300 font-mono break-all">{value}</code>
+                      <span className="text-text-muted">=</span>
+                      <code className="text-text-primary font-mono break-all">{value}</code>
                     </div>
                   ))}
                 </div>
-                <p className="text-gray-600 text-[11px]">
+                <p className="text-text-muted text-[11px]">
                   Estas variáveis sobrescrevem o config.yaml ao iniciar.
                 </p>
               </section>
@@ -342,8 +342,8 @@ export default function SettingsPage() {
 
             {/* About */}
             <section className="card flex flex-col gap-3">
-              <h2 className="text-base font-semibold text-gray-200">Sobre o JackUI</h2>
-              <div className="space-y-1.5 text-xs text-gray-400">
+              <h2 className="text-base font-semibold text-text-primary">Sobre o JackUI</h2>
+              <div className="space-y-1.5 text-xs text-text-secondary">
                 {globalThis.electronAPI ? <VersionInfo /> : (
                   <><p>Versão: desenvolvimento</p><p>Executando via navegador</p></>
                 )}
@@ -357,29 +357,29 @@ export default function SettingsPage() {
           <>
           <section className="card flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-100">Clientes de Download</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Clientes de Download</h2>
               <button onClick={handleAddClient} className="btn-primary flex items-center gap-2 text-sm py-1.5">
                 <Plus className="w-4 h-4" /> Adicionar
               </button>
             </div>
             {config.downloadClients.length === 0 && (
-              <p className="text-gray-500 text-sm text-center py-4">Nenhum cliente configurado.</p>
+              <p className="text-text-muted text-sm text-center py-4">Nenhum cliente configurado.</p>
             )}
             <div className="flex flex-col gap-2">
               {config.downloadClients.map((client, i) => (
-                <div key={client.id || i} className="flex items-center justify-between bg-gray-900 rounded-lg p-3 gap-3">
+                <div key={client.id || i} className="flex items-center justify-between bg-surface rounded-lg p-3 gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-100 truncate">{client.name}</span>
+                      <span className="font-medium text-text-primary truncate">{client.name}</span>
                       {client.default && (
                         <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full border border-green-500/30">padrao</span>
                       )}
                     </div>
-                    <div className="text-xs text-gray-400 truncate mt-0.5">{client.type} — {client.url}</div>
+                    <div className="text-xs text-text-secondary truncate mt-0.5">{client.type} — {client.url}</div>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {!client.default && (
-                      <button onClick={() => handleSetDefault(i)} className="text-xs text-gray-400 hover:text-green-400 px-2 py-1 rounded">Padrao</button>
+                      <button onClick={() => handleSetDefault(i)} className="text-xs text-text-secondary hover:text-green-400 px-2 py-1 rounded">Padrao</button>
                     )}
                     <button onClick={() => handleEditClient(client, i)} className="text-xs btn-secondary py-1 px-2">Editar</button>
                     <button onClick={() => handleDeleteClient(i)} className="text-red-400 hover:text-red-300 p-1 rounded"><Trash2 className="w-4 h-4" /></button>
@@ -397,9 +397,9 @@ export default function SettingsPage() {
         {activeTab === 'stream' && (
           <>
             <section className="card flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-gray-100">Servidor</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Servidor</h2>
               <div>
-                <label htmlFor="server-port-stream" className="block text-sm font-medium text-gray-300 mb-1.5">Porta</label>
+                <label htmlFor="server-port-stream" className="block text-sm font-medium text-text-primary mb-1.5">Porta</label>
                 <input id="server-port-stream" type="number" value={config.port}
                   onChange={e => setConfig({ ...config, port: Number.parseInt(e.target.value) || 8989 })}
                   className="input-field w-32" min={1} max={65535} />
@@ -423,11 +423,11 @@ export default function SettingsPage() {
             <section className="card">
               <button
                 onClick={() => { loadSessions(); setSessionModalOpen(true) }}
-                className="flex items-center gap-2 text-sm text-gray-300 hover:text-gray-100 w-full"
+                className="flex items-center gap-2 text-sm text-text-primary hover:text-text-primary w-full"
               >
-                <Monitor className="w-4 h-4 text-gray-500" />
+                <Monitor className="w-4 h-4 text-text-muted" />
                 Ver sessões ativas
-                <span className="text-xs text-gray-500">→</span>
+                <span className="text-xs text-text-muted">→</span>
               </button>
             </section>
           </>
@@ -451,13 +451,13 @@ export default function SettingsPage() {
           }>
           <div className="flex flex-col gap-4">
             <div>
-              <label htmlFor="dc-name" className="block text-sm font-medium text-gray-300 mb-1.5">Nome</label>
+              <label htmlFor="dc-name" className="block text-sm font-medium text-text-primary mb-1.5">Nome</label>
               <input id="dc-name" type="text" value={editingClient.name}
                 onChange={e => setEditingClient({ ...editingClient, name: e.target.value })}
                 placeholder="qBittorrent Local" className="input-field" />
             </div>
             <div>
-              <label htmlFor="dc-type" className="block text-sm font-medium text-gray-300 mb-1.5">Tipo</label>
+              <label htmlFor="dc-type" className="block text-sm font-medium text-text-primary mb-1.5">Tipo</label>
               <select id="dc-type" value={editingClient.type}
                 onChange={e => setEditingClient({ ...editingClient, type: e.target.value })}
                 className="input-field">
@@ -466,20 +466,20 @@ export default function SettingsPage() {
               </select>
             </div>
             <div>
-              <label htmlFor="dc-url" className="block text-sm font-medium text-gray-300 mb-1.5">URL</label>
+              <label htmlFor="dc-url" className="block text-sm font-medium text-text-primary mb-1.5">URL</label>
               <input id="dc-url" type="url" value={editingClient.url}
                 onChange={e => setEditingClient({ ...editingClient, url: e.target.value })}
                 placeholder="http://localhost:8080" className="input-field" />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label htmlFor="dc-user" className="block text-sm font-medium text-gray-300 mb-1.5">Usuario</label>
+                <label htmlFor="dc-user" className="block text-sm font-medium text-text-primary mb-1.5">Usuario</label>
                 <input id="dc-user" type="text" value={editingClient.username}
                   onChange={e => setEditingClient({ ...editingClient, username: e.target.value })}
                   placeholder="admin" className="input-field" />
               </div>
               <div>
-                <label htmlFor="dc-pass" className="block text-sm font-medium text-gray-300 mb-1.5">Senha</label>
+                <label htmlFor="dc-pass" className="block text-sm font-medium text-text-primary mb-1.5">Senha</label>
                 <input id="dc-pass" type="password" value={editingClient.password}
                   onChange={e => setEditingClient({ ...editingClient, password: e.target.value })}
                   placeholder="••••••••" className="input-field" />
@@ -489,7 +489,7 @@ export default function SettingsPage() {
               <input type="checkbox" checked={editingClient.default}
                 onChange={e => setEditingClient({ ...editingClient, default: e.target.checked })}
                 className="w-4 h-4 accent-green-500" />
-              <span className="text-sm text-gray-300">Cliente padrao</span>
+              <span className="text-sm text-text-primary">Cliente padrao</span>
             </label>
           </div>
         </Sheet>
@@ -519,10 +519,10 @@ function VersionInfo() {
   if (!ver) return <p className="animate-pulse">Carregando…</p>
   return (
     <>
-      <p>Versão: <span className="text-gray-300">{ver.version}</span></p>
-      <p>Commit: <span className="text-gray-300 font-mono">{ver.commit}</span></p>
-      <p>Build: <span className="text-gray-300">{new Date(ver.date).toLocaleString('pt-BR')}</span></p>
-      {platform && <p>Plataforma: <span className="text-gray-300">{platform}</span></p>}
+      <p>Versão: <span className="text-text-primary">{ver.version}</span></p>
+      <p>Commit: <span className="text-text-primary font-mono">{ver.commit}</span></p>
+      <p>Build: <span className="text-text-primary">{new Date(ver.date).toLocaleString('pt-BR')}</span></p>
+      {platform && <p>Plataforma: <span className="text-text-primary">{platform}</span></p>}
     </>
   )
 }

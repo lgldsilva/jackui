@@ -23,7 +23,7 @@ type SortDef = { key: ResultSortKey; label: string }
 // renderBrowseContent pra manter a complexidade cognitiva daquele render baixa.
 function BrowseEmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+    <div className="flex flex-col items-center justify-center py-20 text-text-muted">
       <History className="w-16 h-16 mb-4 opacity-30" />
       <p className="text-xl font-medium">Nenhuma busca salva</p>
       <p className="text-sm mt-2">Faça uma busca para começar a acumular o cache</p>
@@ -42,7 +42,7 @@ function ResultSortButtons({
   readonly className?: string
 }) {
   return (
-    <div className={className ?? 'flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1'}>
+    <div className={className ?? 'flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1'}>
       {defs.map(({ key, label }) => (
         <button
           key={key}
@@ -51,7 +51,7 @@ function ResultSortButtons({
             else onChange(key, false)
           }}
           className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
-            sort === key ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
+            sort === key ? 'bg-green-500/20 text-green-400' : 'text-text-secondary hover:text-text-primary'
           }`}
         >
           {label}{sort === key && (sortAsc ? <SortAsc className="w-3 h-3" /> : <SortDesc className="w-3 h-3" />)}
@@ -90,35 +90,35 @@ function BrowseEntryList({
   return (
     <div className={`flex-col gap-2 ${selected ? 'hidden lg:flex' : 'flex'}`}>
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-        <input type="text" placeholder="Filtrar buscas..." value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
-        {queryFilter && (<button onClick={() => setQueryFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>)}
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+        <input type="text" placeholder="Filtrar buscas..." value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500" />
+        {queryFilter && (<button onClick={() => setQueryFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"><X className="w-3.5 h-3.5" /></button>)}
       </div>
       <div className="flex gap-1">
         {([['recent','Recente'],['oldest','Antiga'],['most','+ Resultados'],['alpha','A–Z']] as [EntrySortKey,string][]).map(([key, label]) => (
-          <button key={key} onClick={() => setEntrySort(key)} className={`flex-1 text-xs px-2 py-1.5 rounded-lg transition-colors ${entrySort === key ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-gray-800 text-gray-400 border border-gray-700 hover:text-gray-200'}`}>{label}</button>
+          <button key={key} onClick={() => setEntrySort(key)} className={`flex-1 text-xs px-2 py-1.5 rounded-lg transition-colors ${entrySort === key ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-surface-secondary text-text-secondary border border-default hover:text-text-primary'}`}>{label}</button>
         ))}
       </div>
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
+      <div className="bg-surface-secondary rounded-xl border border-default overflow-hidden flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
         {filteredEntries.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-8">Nenhuma busca encontrada</p>
+          <p className="text-text-muted text-sm text-center py-8">Nenhuma busca encontrada</p>
         ) : filteredEntries.map((entry) => (
           <SwipeRow key={entry.query} onDelete={() => onDeleteEntryByQuery(entry.query)} deleteLabel="Apagar">
-          <button onClick={() => onSelect(entry.query)} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-gray-700/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-gray-700/50'}`}>
+          <button onClick={() => onSelect(entry.query)} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-default/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-surface-tertiary/50'}`}>
             <div className="flex-1 min-w-0">
-              <p className={`truncate font-medium ${selected === entry.query ? 'text-green-400' : 'text-gray-200'}`} title={entry.query}>{entry.query}</p>
+              <p className={`truncate font-medium ${selected === entry.query ? 'text-green-400' : 'text-text-primary'}`} title={entry.query}>{entry.query}</p>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="flex items-center gap-1 text-xs text-gray-500"><Database className="w-2.5 h-2.5" />{entry.resultCount.toLocaleString()}</span>
-                <span className="flex items-center gap-1 text-xs text-gray-500"><Calendar className="w-2.5 h-2.5" />{formatDate(entry.lastSaved)}</span>
+                <span className="flex items-center gap-1 text-xs text-text-muted"><Database className="w-2.5 h-2.5" />{entry.resultCount.toLocaleString()}</span>
+                <span className="flex items-center gap-1 text-xs text-text-muted"><Calendar className="w-2.5 h-2.5" />{formatDate(entry.lastSaved)}</span>
               </div>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
               {refreshingQueries.has(entry.query) && (
                 <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label="Atualizando busca" />
               )}
-              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title="Nova busca" aria-label="Nova busca" className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-gray-600 hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
+              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title="Nova busca" aria-label="Nova busca" className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
               {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
-              <button onClick={e => onDeleteEntry(entry.query, e)} title="Remover do cache" aria-label="Remover do cache" className="hidden sm:flex items-center justify-center text-gray-600 hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={e => onDeleteEntry(entry.query, e)} title="Remover do cache" aria-label="Remover do cache" className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </button>
           </SwipeRow>
@@ -165,8 +165,8 @@ function BrowseResultsSkeleton() {
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {Array.from({ length: 6 }, () => uid()).map(key => (
         <div key={key} className="card animate-pulse flex flex-col gap-3">
-          <div className="h-4 bg-gray-700 rounded w-3/4" /><div className="h-3 bg-gray-700 rounded w-1/4" />
-          <div className="grid grid-cols-2 gap-2"><div className="h-3 bg-gray-700 rounded" /><div className="h-3 bg-gray-700 rounded" /></div>
+          <div className="h-4 bg-surface-tertiary rounded w-3/4" /><div className="h-3 bg-surface-tertiary rounded w-1/4" />
+          <div className="grid grid-cols-2 gap-2"><div className="h-3 bg-surface-tertiary rounded" /><div className="h-3 bg-surface-tertiary rounded" /></div>
         </div>
       ))}
     </div>
@@ -188,33 +188,33 @@ function BrowseResultsDetail({
     <>
       <button
         onClick={onBack}
-        className="lg:hidden flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 self-start"
+        className="lg:hidden flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary self-start"
       >
         <ArrowLeft className="w-4 h-4" /> Voltar às buscas
       </button>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
-          <input type="text" placeholder="Filtrar títulos..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500" />
-          {resultFilter && (<button onClick={() => setResultFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"><X className="w-3.5 h-3.5" /></button>)}
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+          <input type="text" placeholder="Filtrar títulos..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500" />
+          {resultFilter && (<button onClick={() => setResultFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"><X className="w-3.5 h-3.5" /></button>)}
         </div>
-        <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-green-500">
+        <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-surface-secondary border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500">
           {trackers.map(t => (<option key={t} value={t}>{t === 'all' ? 'Todos os trackers' : t}</option>))}
         </select>
-        <div className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2">
-          <span className="text-xs text-gray-500">Mín seeds</span>
-          <input type="number" min={0} value={minSeeders} onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-14 bg-transparent text-sm text-gray-200 focus:outline-none" />
+        <div className="flex items-center gap-2 bg-surface-secondary border border-default rounded-lg px-3 py-2">
+          <span className="text-xs text-text-muted">Mín seeds</span>
+          <input type="number" min={0} value={minSeeders} onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-14 bg-transparent text-sm text-text-primary focus:outline-none" />
         </div>
         <ResultSortButtons
           sort={resultSort}
           sortAsc={resultSortAsc}
           onChange={(k, a) => { setResultSort(k); setResultSortAsc(a) }}
           defs={[['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Título']].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
-          className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1"
+          className="flex items-center gap-1 bg-surface-secondary border border-default rounded-lg p-1"
         />
       </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-xs text-gray-500">{loadingResults ? 'Carregando...' : (<><span className="text-gray-300 font-medium">{filteredResults.length}</span>{filteredResults.length !== results.length && <span> de {results.length}</span>} {' '}resultado{filteredResults.length === 1 ? '' : 's'} em cache para <span className="text-green-400 font-medium">"{selected}"</span></>)}</p>
+        <p className="text-xs text-text-muted">{loadingResults ? 'Carregando...' : (<><span className="text-text-primary font-medium">{filteredResults.length}</span>{filteredResults.length !== results.length && <span> de {results.length}</span>} {' '}resultado{filteredResults.length === 1 ? '' : 's'} em cache para <span className="text-green-400 font-medium">"{selected}"</span></>)}</p>
         {!loadingResults && (
           <button onClick={onRefreshSearch} disabled={refreshingSearch} title="Buscar de novo no Jackett — atualiza seeders e traz resultados novos" className="flex items-center gap-1.5 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-300 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
             {refreshingSearch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -224,7 +224,7 @@ function BrowseResultsDetail({
       </div>
       {loadingResults && <BrowseResultsSkeleton />}
       {!loadingResults && filteredResults.length === 0 && (
-        <div className="text-gray-500 text-sm py-10 text-center">{results.length === 0 ? `Nenhum resultado em cache para "${selected}"` : 'Nenhum resultado com os filtros aplicados'}</div>
+        <div className="text-text-muted text-sm py-10 text-center">{results.length === 0 ? `Nenhum resultado em cache para "${selected}"` : 'Nenhum resultado com os filtros aplicados'}</div>
       )}
       {!loadingResults && filteredResults.length > 0 && (
         <>
@@ -234,7 +234,7 @@ function BrowseResultsDetail({
             ))}
           </div>
           {browseVisible < filteredResults.length && (
-            <div ref={browseSentinelRef} className="text-center py-6 text-xs text-gray-500">Mostrando {browseVisible} de {filteredResults.length} • role pra ver mais</div>
+            <div ref={browseSentinelRef} className="text-center py-6 text-xs text-text-muted">Mostrando {browseVisible} de {filteredResults.length} • role pra ver mais</div>
           )}
         </>
       )}
@@ -511,58 +511,58 @@ export default function HistoryPage() {
   const renderGlobalContent = () => (
     <div className="flex flex-col gap-4">
       <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-text-secondary" />
         <input
           type="text"
           autoFocus
           placeholder="Busca full-text em TODOS os resultados em cache (ex: '1080p hevc', 'breaking bad')..."
           value={globalQuery}
           onChange={e => setGlobalQuery(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-xl pl-12 pr-12 py-3 text-base text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500"
+          className="w-full bg-surface-secondary border border-default rounded-xl pl-12 pr-12 py-3 text-base text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500"
         />
         {globalQuery && (
-          <button onClick={() => setGlobalQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+          <button onClick={() => setGlobalQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
             <X className="w-4 h-4" />
           </button>
         )}
       </div>
       {globalSearched && (
-        <p className="text-sm text-gray-400 flex items-center gap-2">
+        <p className="text-sm text-text-secondary flex items-center gap-2">
           {globalLoading
             ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Buscando...</>
-            : <><span className="text-gray-200 font-medium">{filteredGlobal.length}</span>
+            : <><span className="text-text-primary font-medium">{filteredGlobal.length}</span>
                 {filteredGlobal.length !== globalResults.length && <span>de {globalResults.length}</span>}
                 {' '}resultados em todo o cache para <span className="text-green-400">"{globalQuery}"</span></>
           }
         </p>
       )}
       {globalResults.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
-          <Filter className="w-3.5 h-3.5 text-gray-500" />
-          <input type="text" placeholder="Filtrar título..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 w-44" />
-          <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-green-500">
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
+          <Filter className="w-3.5 h-3.5 text-text-muted" />
+          <input type="text" placeholder="Filtrar título..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500 w-44" />
+          <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-green-500">
             {globalTrackers.map(t => (<option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>))}
           </select>
-          <label className="flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5">
-            <span className="text-xs text-gray-500">Seeds ≥</span>
-            <input type="number" min={0} value={minSeeders || ''} placeholder="0" onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-12 bg-transparent text-sm text-gray-200 focus:outline-none" />
+          <label className="flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5">
+            <span className="text-xs text-text-muted">Seeds ≥</span>
+            <input type="number" min={0} value={minSeeders || ''} placeholder="0" onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-12 bg-transparent text-sm text-text-primary focus:outline-none" />
           </label>
-          <div className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto">
+          <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ml-auto">
             <ResultSortButtons
               sort={resultSort}
               sortAsc={resultSortAsc}
               onChange={(k, a) => { setResultSort(k); setResultSortAsc(a) }}
               defs={[['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Nome']].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
-              className="flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ml-auto"
+              className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ml-auto"
             />
           </div>
         </div>
       )}
       {globalLoading && globalResults.length === 0 && (
-        <div className="flex items-center justify-center py-20 text-gray-500"><Loader2 className="w-8 h-8 animate-spin" /></div>
+        <div className="flex items-center justify-center py-20 text-text-muted"><Loader2 className="w-8 h-8 animate-spin" /></div>
       )}
       {globalSearched && !globalLoading && filteredGlobal.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+        <div className="flex flex-col items-center justify-center py-16 text-text-muted">
           <Search className="w-12 h-12 mb-3 opacity-30" />
           <p className="font-medium">Nenhum resultado encontrado no cache</p>
           <p className="text-sm mt-1">Tente outros termos ou faça uma nova busca</p>
@@ -575,7 +575,7 @@ export default function HistoryPage() {
               <div key={`${result.infoHash || result.link}-${i}`} className="flex flex-col gap-1">
                 <ResultCard result={result} onDownload={setDownloadTarget} onPlay={(r) => playSingle(r)} onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }} onExploreContents={setContentsTarget} onRefresh={handleRefreshResult} refreshing={result.id !== undefined && refreshingIDs.has(result.id)} refreshedAt={result.id === undefined ? null : refreshedLabels.get(result.id) ?? null} />
                 {result.query && (
-                  <button onClick={() => { setMode('browse'); handleSelect(result.query!) }} className="text-[10px] text-gray-500 hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={`Ver todos os resultados da busca "${result.query}"`}>
+                  <button onClick={() => { setMode('browse'); handleSelect(result.query!) }} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={`Ver todos os resultados da busca "${result.query}"`}>
                     <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">de: {result.query}</span>
                   </button>
                 )}
@@ -583,12 +583,12 @@ export default function HistoryPage() {
             ))}
           </div>
           {globalVisible < filteredGlobal.length && (
-            <div ref={globalSentinelRef} className="text-center py-6 text-xs text-gray-500">Mostrando {globalVisible} de {filteredGlobal.length} • role pra ver mais</div>
+            <div ref={globalSentinelRef} className="text-center py-6 text-xs text-text-muted">Mostrando {globalVisible} de {filteredGlobal.length} • role pra ver mais</div>
           )}
         </>
       )}
       {!globalSearched && !globalQuery && (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-600">
+        <div className="flex flex-col items-center justify-center py-20 text-text-muted">
           <Globe className="w-16 h-16 mb-4 opacity-30" />
           <p className="text-lg">Busca full-text em todo o cache</p>
           <p className="text-sm mt-2">Digite termos para encontrar resultados de qualquer busca anterior</p>
@@ -650,7 +650,7 @@ export default function HistoryPage() {
               refreshedLabels={refreshedLabels}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-600">
+            <div className="flex flex-col items-center justify-center py-20 text-text-muted">
               <ArrowUpDown className="w-10 h-10 mb-3 opacity-30" />
               <p>Selecione uma busca para ver os resultados em cache</p>
             </div>
@@ -661,7 +661,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
 
@@ -669,24 +669,24 @@ export default function HistoryPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <History className="w-5 h-5 text-gray-400" />
-            <h1 className="text-lg font-semibold text-gray-100">Histórico</h1>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span className="bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+            <History className="w-5 h-5 text-text-secondary" />
+            <h1 className="text-lg font-semibold text-text-primary">Histórico</h1>
+            <div className="flex items-center gap-2 text-xs text-text-muted">
+              <span className="bg-surface-secondary border border-default px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Search className="w-3 h-3" />{entries.length} buscas
               </span>
-              <span className="bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="bg-surface-secondary border border-default px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Database className="w-3 h-3" />{totalResults.toLocaleString()} resultados
               </span>
             </div>
           </div>
           <div className="flex items-center gap-3">
             {/* Mode toggle */}
-            <div className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
+            <div className="flex items-center gap-1 bg-surface-secondary border border-default rounded-lg p-1">
               <button
                 onClick={() => setMode('browse')}
                 className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
-                  mode === 'browse' ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
+                  mode === 'browse' ? 'bg-green-500/20 text-green-400' : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 <FolderOpen className="w-3.5 h-3.5" />
@@ -695,7 +695,7 @@ export default function HistoryPage() {
               <button
                 onClick={() => setMode('global')}
                 className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
-                  mode === 'global' ? 'bg-green-500/20 text-green-400' : 'text-gray-400 hover:text-gray-200'
+                  mode === 'global' ? 'bg-green-500/20 text-green-400' : 'text-text-secondary hover:text-text-primary'
                 }`}
               >
                 <Globe className="w-3.5 h-3.5" />

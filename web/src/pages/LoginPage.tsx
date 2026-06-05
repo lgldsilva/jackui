@@ -61,21 +61,21 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4 safe-top safe-bottom">
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <div className="flex items-center gap-2">
             <span className="text-3xl font-bold text-green-500">Jack</span>
-            <span className="text-3xl font-bold text-gray-100">UI</span>
+            <span className="text-3xl font-bold text-text-primary">UI</span>
           </div>
         </div>
 
         <form
           onSubmit={submit}
-          className="bg-gray-800 border border-gray-700 rounded-2xl p-6 flex flex-col gap-4 shadow-2xl"
+          className="bg-surface-secondary border border-default rounded-2xl p-6 flex flex-col gap-4 shadow-elevated"
         >
           <div>
-            <label htmlFor="login-username" className="block text-sm text-gray-400 mb-1.5">Usuário</label>
+            <label htmlFor="login-username" className="block text-sm text-text-secondary mb-1.5">Usuário</label>
             <input
               id="login-username"
               type="text"
@@ -89,7 +89,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label htmlFor="login-password" className="block text-sm text-gray-400 mb-1.5">Senha</label>
+            <label htmlFor="login-password" className="block text-sm text-text-secondary mb-1.5">Senha</label>
             <input
               id="login-password"
               type="password"
@@ -103,7 +103,7 @@ export default function LoginPage() {
 
           {mfaStep && (
             <div>
-              <label htmlFor="login-totp" className="block text-sm text-gray-400 mb-1.5">Código MFA ou de recuperação</label>
+              <label htmlFor="login-totp" className="block text-sm text-text-secondary mb-1.5">Código MFA ou de recuperação</label>
               <input
                 id="login-totp"
                 type="text"
@@ -114,11 +114,11 @@ export default function LoginPage() {
                 placeholder="000000 ou xxxx-xxxx"
                 className="input-field tracking-widest text-center font-mono"
               />
-              <p className="text-[11px] text-gray-500 mt-1">Use o código do app autenticador ou um código de recuperação.</p>
+              <p className="text-[11px] text-text-muted mt-1">Use o código do app autenticador ou um código de recuperação.</p>
             </div>
           )}
 
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-300">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-text-primary">
             <input
               type="checkbox"
               checked={remember}
@@ -157,12 +157,12 @@ export default function LoginPage() {
           )}
 
           <div className="flex items-center justify-between text-xs">
-            <button type="button" onClick={() => nav('/register')} className="text-gray-400 hover:text-green-400">Criar conta</button>
-            <button type="button" onClick={() => nav('/forgot-password')} className="text-gray-400 hover:text-green-400">Esqueci a senha</button>
+            <button type="button" onClick={() => nav('/register')} className="text-text-secondary hover:text-green-400">Criar conta</button>
+            <button type="button" onClick={() => nav('/forgot-password')} className="text-text-secondary hover:text-green-400">Esqueci a senha</button>
           </div>
         </form>
 
-        <p className="text-center text-xs text-gray-600 mt-4">
+        <p className="text-center text-xs text-text-muted mt-4">
           JackUI — interface visual para Jackett + streaming de torrents
         </p>
       </div>
