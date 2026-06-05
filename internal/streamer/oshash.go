@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 )
@@ -154,12 +153,6 @@ func (s *Streamer) OSHash(ctx context.Context, hash metainfo.Hash, fileIdx int) 
 	}()
 	defer close(done)
 
-	deadline, hasDeadline := ctx.Deadline()
-	if !hasDeadline {
-		deadline = time.Now().Add(2 * time.Minute)
-	}
-	_ = deadline // anacrolix Reader blocks on data; ctx cancellation closes it via the goroutine above
-
 	hashStr, err := computeOSHash(r, size)
 	if err != nil {
 		return HashResult{}, err
@@ -167,6 +160,9 @@ func (s *Streamer) OSHash(ctx context.Context, hash metainfo.Hash, fileIdx int) 
 
 	result := HashResult{Hash: hashStr, Size: size}
 	hashCacheMu.Lock()
+	if len(hashCache) >= 2000 {
+		hashCache = make(map[hashKey]HashResult)
+	}
 	hashCache[key] = result
 	hashCacheMu.Unlock()
 	return result, nil

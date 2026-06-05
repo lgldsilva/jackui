@@ -97,8 +97,11 @@ const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 let _nativeHlsSupport: boolean | null = null
 function canPlayNativeHls(): boolean {
   if (_nativeHlsSupport === null) {
+    if (globalThis.window === undefined || globalThis.document === undefined) {
+      return false
+    }
     try {
-      _nativeHlsSupport = document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''
+      _nativeHlsSupport = globalThis.document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== ''
     } catch {
       _nativeHlsSupport = false
     }
