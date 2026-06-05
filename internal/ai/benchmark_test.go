@@ -37,6 +37,57 @@ func TestMedianDuration(t *testing.T) {
 	}
 }
 
+func TestParseExpect(t *testing.T) {
+	cases := []struct {
+		expect string
+		want   expectFields
+	}{
+		{"Breaking Bad - S03E07", expectFields{Title: "Breaking Bad", Season: 3, Episode: 7}},
+		{"Game of Thrones - S01E09", expectFields{Title: "Game of Thrones", Season: 1, Episode: 9}},
+		{"Frieren - E01", expectFields{Title: "Frieren", Episode: 1}},
+		{"Inception - 2010", expectFields{Title: "Inception", Year: 2010}},
+		{"Dune Part Two - 2024", expectFields{Title: "Dune Part Two", Year: 2024}},
+		{"Inception", expectFields{Title: "Inception"}},
+		// "Blade Runner 2049" has a 4-digit number but NO " - " tail, so it stays a
+		// plain title and the year regex must not swallow the "2049".
+		{"Blade Runner 2049", expectFields{Title: "Blade Runner 2049"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.expect, func(t *testing.T) {
+			if got := parseExpect(tc.expect); got != tc.want {
+				t.Fatalf("parseExpect(%q) = %+v, want %+v", tc.expect, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCaseAccuracy(t *testing.T) {
+	tv := func(title string, s, e int) *RenameMetadata {
+		return &RenameMetadata{Title: title, Kind: "tv", Season: s, Episode: e}
+	}
+	// Right title + right season/episode = perfect.
+	if a := caseAccuracy(tv("Breaking Bad", 3, 7), "Breaking Bad - S03E07"); a != 1 {
+		t.Fatalf("perfect TV extraction should be 1.0, got %v", a)
+	}
+	// Right title but WRONG episode must score below a title-only match — that's
+	// the whole point of measuring série/temporada/episódio.
+	wrongEp := caseAccuracy(tv("Breaking Bad", 3, 9), "Breaking Bad - S03E07")
+	if !(wrongEp > 0.5 && wrongEp < 1) {
+		t.Fatalf("right title + wrong episode should be in (0.5,1), got %v", wrongEp)
+	}
+	titleOnly := caseAccuracy(tv("Breaking Bad", 0, 0), "Breaking Bad")
+	if wrongEp >= titleOnly {
+		t.Fatalf("wrong episode (%v) should score below title-only (%v)", wrongEp, titleOnly)
+	}
+	// Year is not penalized: a movie with the right title scores 1.0 regardless.
+	if a := caseAccuracy(&RenameMetadata{Title: "Inception", Kind: "movie", Year: 1999}, "Inception - 2010"); a != 1 {
+		t.Fatalf("year mismatch should not penalize a movie, got %v", a)
+	}
+	if a := caseAccuracy(nil, "Inception - 2010"); a != 0 {
+		t.Fatalf("nil result should be 0, got %v", a)
+	}
+}
+
 func TestTitleAccuracy(t *testing.T) {
 	if a := titleAccuracy("The Matrix", "the.matrix"); a != 1 {
 		t.Fatalf("normalized exact match should be 1, got %v", a)
