@@ -933,6 +933,7 @@ function FilePickerSidebar({
               key={f.index}
               ref={selectedFile === f.index ? selectedFileRef : null}
               onClick={() => {
+                hoverThumb.hide()
                 if (isPlayable) playFile(f.index)
                 else if (canPreview) setPreviewFileIdx(f.index)
                 // else: dead row, click does nothing (download via long-press / context menu still available)
