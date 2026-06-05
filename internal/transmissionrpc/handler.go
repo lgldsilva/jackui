@@ -863,12 +863,13 @@ func (h *Handler) methodSessionStats() rpcResponse {
 // ─── torrent-add ───────────────────────────────────────────────────────────
 
 type torrentAddArgs struct {
-	filename           string
-	metainfoB64        string
-	downloadDir        string
-	paused             bool
-	peerLimit          float64
-	bandwidthPriority  float64
+	filename          string
+	metainfoB64       string
+	downloadDir       string
+	paused            bool
+	peerLimit         float64
+	bandwidthPriority float64
+	labels            []string
 }
 
 func (h *Handler) methodTorrentAdd(args map[string]interface{}, userID int) rpcResponse {
@@ -905,7 +906,23 @@ func parseTorrentAddArgs(args map[string]interface{}) torrentAddArgs {
 		paused:            argBool(args, "paused"),
 		peerLimit:         argFloat(args, "peer-limit"),
 		bandwidthPriority: argFloat(args, "bandwidth-priority"),
+		labels:            argStringSlice(args, "labels"),
 	}
+}
+
+// argStringSlice reads a JSON array of strings (e.g. Transmission "labels").
+func argStringSlice(args map[string]interface{}, key string) []string {
+	raw, ok := args[key].([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func argString(args map[string]interface{}, key string) string {
@@ -923,18 +940,17 @@ func argFloat(args map[string]interface{}, key string) float64 {
 	return f
 }
 
-func (h *Handler) resolveCategory(downloadDir string, args map[string]interface{}) string {
-	category := extractCategory(downloadDir)
-	if labels, ok := args["labels"].([]interface{}); ok && len(labels) > 0 {
-		if first, ok := labels[0].(string); ok && first != "" {
-			return first
-		}
+// resolveCategory derives the download's category: an explicit client label
+// (e.g. *arr sends "labels":["Movies"]) wins over the path-based guess.
+func (h *Handler) resolveCategory(downloadDir string, labels []string) string {
+	if len(labels) > 0 && labels[0] != "" {
+		return labels[0]
 	}
-	return category
+	return extractCategory(downloadDir)
 }
 
 func (h *Handler) finalizeTorrentAdd(userID int, infoHash, name, magnet string, ta torrentAddArgs) rpcResponse {
-	category := h.resolveCategory(ta.downloadDir, nil)
+	category := h.resolveCategory(ta.downloadDir, ta.labels)
 	shortHash := infoHash
 	if len(shortHash) > 8 {
 		shortHash = shortHash[:8]
@@ -1881,21 +1897,20 @@ func parseIDs(raw interface{}) map[int]bool {
 // ─── torrent-set ───────────────────────────────────────────────────────────
 
 func (h *Handler) methodTorrentSet(args map[string]interface{}) rpcResponse {
-	ids := parseIDs(args["ids"])
-	if ids == nil {
-		return successResp(nil)
-	}
 	if h.store == nil {
 		return successResp(nil)
 	}
+	ids := parseIDs(args["ids"])
 
 	all, err := h.store.ListAll()
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
 
+	// Transmission RPC: omitted/empty "ids" means apply to ALL torrents
+	// (nil → match every row), like forEachDownload and the other methods.
 	for _, d := range all {
-		if ids[d.ID] {
+		if ids == nil || ids[d.ID] {
 			h.applyAllTorrentSetArgs(d, args)
 		}
 	}
