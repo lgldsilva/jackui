@@ -1037,6 +1037,15 @@ func localMoveHandler(c *gin.Context, b *local.Browser) {
 		return
 	}
 
+	// Refuse to clobber: os.Rename (and the cross-device copy fallback) would
+	// silently overwrite/merge an existing item of the same name at the
+	// destination — data loss while the UI reports success. Make the caller
+	// rename or pick another folder.
+	if _, err := os.Stat(dstAbs); err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "já existe um item com esse nome no destino"})
+		return
+	}
+
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "criar diretório destino: " + err.Error()})
 		return
@@ -1126,6 +1135,10 @@ func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
 
 	_ = out.Close()
 	_ = in.Close()
+	// Preserve the original mtime — os.Rename keeps it, but this cross-device
+	// fallback (→ rclone/GDrive, other disk) would otherwise stamp "now",
+	// breaking date sort and mtime-based scans.
+	_ = os.Chtimes(dst, stat.ModTime(), stat.ModTime())
 	return os.Remove(src)
 }
 
@@ -1159,6 +1172,8 @@ func copyDirAndRemove(src, dst string, stat os.FileInfo) error {
 		}
 	}
 
+	// Preserve the directory's mtime too (see copyFileAndRemove).
+	_ = os.Chtimes(dst, stat.ModTime(), stat.ModTime())
 	// After recursive copying, remove the source directory completely
 	return os.RemoveAll(src)
 }
