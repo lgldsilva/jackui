@@ -440,6 +440,19 @@ export const streamDrop = async (hash: string): Promise<void> => {
   await api.delete(`/stream/${hash}`)
 }
 
+// Viewer "lease": the player opens one while watching and closes it on
+// unmount/file-change. While ≥1 lease is open the torrent keeps streaming; the
+// last close drops it after a short grace period (so multiple viewers of the
+// same stream survive one of them closing, and a stream-only torrent stops
+// seeding promptly instead of lingering until the idle reaper).
+export const streamViewerOpen = async (hash: string): Promise<void> => {
+  await api.post(`/stream/${hash}/viewer`)
+}
+
+export const streamViewerClose = async (hash: string): Promise<void> => {
+  await api.delete(`/stream/${hash}/viewer`)
+}
+
 // ─── Transmission-style controls (active torrents) ────────────────────────
 
 export const streamActive = async (): Promise<TorrentInfo[]> => {
@@ -1488,6 +1501,14 @@ export const localList = async (mount: string, path: string): Promise<LocalEntry
 export const localDelete = async (mount: string, path: string): Promise<void> => {
   const params = appendViewAs(new URLSearchParams({ mount, path }))
   await api.delete(`/local/file?${params}`)
+}
+
+// localCleanEmptyDirs removes empty subdirectories under `path` (mount root when
+// empty). Returns how many were deleted. Writable mount / admin only.
+export const localCleanEmptyDirs = async (mount: string, path = ''): Promise<{ cleaned: number }> => {
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
+  const { data } = await api.post<{ cleaned: number }>(`/local/clean-empty?${params}`)
+  return data
 }
 
 export type LocalUploadResult = { uploaded: string; path: string }
