@@ -424,34 +424,39 @@ func (b *Browser) RemoveEmptyDirs(mountName, relPath string) (int, error) {
 		mountAbs = startAbs
 	}
 
-	// Collect candidate directories (skipping hidden trees), then process from
-	// deepest to shallowest so emptied parents get a chance to go too.
-	var dirs []string
-	_ = filepath.WalkDir(startAbs, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if !d.IsDir() {
-			return nil
-		}
-		if path != startAbs && strings.HasPrefix(d.Name(), ".") {
-			return filepath.SkipDir // never descend into / remove internal dotdirs
-		}
-		dirs = append(dirs, path)
-		return nil
-	})
-	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
-
 	removed := 0
-	for _, dir := range dirs {
+	for _, dir := range collectDirsDeepestFirst(startAbs) {
 		if dir == startAbs || dir == mountAbs {
 			continue // never delete the starting dir or the mount root
 		}
-		if err := os.Remove(dir); err == nil {
+		if os.Remove(dir) == nil { // only succeeds on a truly empty dir
 			removed++
 		}
 	}
 	return removed, nil
+}
+
+// collectDirsDeepestFirst lists directories under root (skipping hidden trees),
+// ordered deepest-path-first so a parent is visited after its children — which
+// is what lets RemoveEmptyDirs cascade upward as children are removed.
+func collectDirsDeepestFirst(root string) []string {
+	var dirs []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		return collectCleanupDir(&dirs, root, path, d, walkErr)
+	})
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	return dirs
+}
+
+func collectCleanupDir(dirs *[]string, root, path string, d fs.DirEntry, walkErr error) error {
+	if walkErr != nil || !d.IsDir() {
+		return nil
+	}
+	if path != root && strings.HasPrefix(d.Name(), ".") {
+		return filepath.SkipDir // never descend into / remove internal dotdirs
+	}
+	*dirs = append(*dirs, path)
+	return nil
 }
 
 // findMountPath returns the root path of a named mount (or empty string).
