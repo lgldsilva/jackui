@@ -126,17 +126,28 @@ function renderFilesTab(
     <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
       {torrent.files.map(f => {
         const isPrimary = f.index === fileIndex
+        // Marca claramente o que falta baixar: completo (>=99.9%) vs incompleto
+        // (mostra o % em âmbar + barra, mesmo a 0%) — assim dá pra ver qual
+        // arquivo do torrent ficou pra trás.
+        const hasProgress = typeof f.progress === 'number'
+        const done = hasProgress && f.progress >= 0.999
+        const pct = hasProgress ? Math.round(f.progress * 100) : null
         return (
           <li key={f.index} className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}>
             {fileIcon(f, isPrimary)}
             <div className="flex-1 min-w-0">
               <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>{f.path}</p>
-              {f.progress > 0 && f.progress < 1 && (
+              {hasProgress && !done && (
                 <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
-                  <div className="h-full bg-cyan-500" style={{ width: `${Math.round(f.progress * 100)}%` }} />
+                  <div className="h-full bg-amber-500" style={{ width: `${Math.max(2, pct ?? 0)}%` }} />
                 </div>
               )}
             </div>
+            {pct !== null && (
+              done
+                ? <span className="text-[10px] text-emerald-400 flex-shrink-0 inline-flex items-center gap-0.5" title="Arquivo completo"><Check className="w-3 h-3" />ok</span>
+                : <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0" title="Ainda não baixado por completo">{pct}%</span>
+            )}
             {f.size > 0 && <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>}
           </li>
         )
