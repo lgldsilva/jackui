@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,9 +18,17 @@ import (
 )
 
 // BenchmarkCase is one labelled example: a raw torrent/release name and the
-// title we expect the model to extract. The set is user-editable (persisted in
-// the benchmark store) — that's the "modifiable" part: tune it to the kind of
-// releases you actually download and the chain re-ranks for them.
+// canonical label we expect the model to extract. The set is user-editable
+// (persisted in the benchmark store) — that's the "modifiable" part: tune it to
+// the kind of releases you actually download and the chain re-ranks for them.
+//
+// Expect carries the STRUCTURE inline, in the same canonical form the rename
+// feature produces, so examples and results are coherent with séries/temporadas/
+// episódios (parsed by parseExpect at scoring time — no schema migration):
+//   - Movie:           "Inception - 2010"        (Título - Ano)
+//   - TV episode:      "Breaking Bad - S03E07"   (Série - Temporada/Episódio)
+//   - TV (no season):  "Frieren - E01"           (Série - Episódio)
+//   - Plain title:     "Inception"               (sem estrutura → só o título conta)
 type BenchmarkCase struct {
 	Raw    string `json:"raw"`
 	Expect string `json:"expect"`
@@ -40,14 +49,17 @@ type SlotScore struct {
 
 // DefaultBenchmarkCases seeds a fresh store. Picked to exercise the hard parts:
 // dotted names, scene tags, season/episode packs, non-English, and bracketed
-// release-group noise.
+// release-group noise. Expects use the canonical label (see BenchmarkCase) so
+// the benchmark measures the full rename structure — título/ano for movies,
+// série + temporada/episódio for TV — not just the title.
 var DefaultBenchmarkCases = []BenchmarkCase{
-	{Raw: "Inception.2010.1080p.BluRay.x264-SPARKS", Expect: "Inception"},
-	{Raw: "The.Matrix.1999.2160p.UHD.BluRay.x265-TERMINAL", Expect: "The Matrix"},
-	{Raw: "Breaking.Bad.S03E07.720p.HDTV.x264-CTU", Expect: "Breaking Bad"},
-	{Raw: "Dune.Part.Two.2024.1080p.WEB-DL.DDP5.1.Atmos.H.264-FLUX", Expect: "Dune Part Two"},
-	{Raw: "[Erai-raws] Frieren - 01 [1080p][Multiple Subtitle]", Expect: "Frieren"},
-	{Raw: "O.Auto.da.Compadecida.2000.DUBLADO.1080p", Expect: "O Auto da Compadecida"},
+	{Raw: "Inception.2010.1080p.BluRay.x264-SPARKS", Expect: "Inception - 2010"},
+	{Raw: "The.Matrix.1999.2160p.UHD.BluRay.x265-TERMINAL", Expect: "The Matrix - 1999"},
+	{Raw: "Breaking.Bad.S03E07.720p.HDTV.x264-CTU", Expect: "Breaking Bad - S03E07"},
+	{Raw: "Game.of.Thrones.S01E09.Baelor.1080p.BluRay.x264-DEMAND", Expect: "Game of Thrones - S01E09"},
+	{Raw: "Dune.Part.Two.2024.1080p.WEB-DL.DDP5.1.Atmos.H.264-FLUX", Expect: "Dune Part Two - 2024"},
+	{Raw: "[Erai-raws] Frieren - 01 [1080p][Multiple Subtitle]", Expect: "Frieren - E01"},
+	{Raw: "O.Auto.da.Compadecida.2000.DUBLADO.1080p", Expect: "O Auto da Compadecida - 2000"},
 }
 
 // compositeScore mirrors SelfAgent's ranking: quality divided by the square root
@@ -99,6 +111,82 @@ func titleAccuracy(got, expect string) float64 {
 
 func normalizeTitle(s string) string {
 	return strings.Trim(alnumRe.ReplaceAllString(strings.ToLower(s), " "), " ")
+}
+
+// Canonical-label parsers. The structure of an expected label lives inside the
+// Expect string (see BenchmarkCase); these pull it back out for scoring. Order
+// matters: try the most specific (S..E..) first.
+var (
+	expectTVRe   = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+S(\d{1,2})E(\d{1,3})\s*$`)
+	expectEpRe   = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+E(\d{1,3})\s*$`)
+	expectYearRe = regexp.MustCompile(`^(.*\S)\s+-\s+(\d{4})\s*$`)
+)
+
+// expectFields is the structured form of an Expect label. Zero season/episode/
+// year means "not pinned by this case" — those fields are simply not scored.
+type expectFields struct {
+	Title   string
+	Season  int
+	Episode int
+	Year    int
+}
+
+// parseExpect splits a canonical Expect label into its structured fields. A bare
+// title (no " - S..E.." / " - E.." / " - YYYY" tail) yields just the title, so
+// title-only cases keep working exactly as before.
+func parseExpect(expect string) expectFields {
+	expect = strings.TrimSpace(expect)
+	if m := expectTVRe.FindStringSubmatch(expect); m != nil {
+		return expectFields{Title: strings.TrimSpace(m[1]), Season: atoiSafe(m[2]), Episode: atoiSafe(m[3])}
+	}
+	if m := expectEpRe.FindStringSubmatch(expect); m != nil {
+		return expectFields{Title: strings.TrimSpace(m[1]), Episode: atoiSafe(m[2])}
+	}
+	if m := expectYearRe.FindStringSubmatch(expect); m != nil {
+		return expectFields{Title: strings.TrimSpace(m[1]), Year: atoiSafe(m[2])}
+	}
+	return expectFields{Title: expect}
+}
+
+func atoiSafe(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
+}
+
+// caseAccuracy scores a model's structured extraction against the expected
+// canonical label. The title carries 60% (the dominant signal); when the case
+// pins a season and/or episode (TV) the remaining 40% is split between getting
+// those numbers right. Year is intentionally NOT penalized — TMDB disambiguates
+// by year downstream and a one-off year miss shouldn't tank an otherwise-correct
+// extraction. Cases with no pinned structure score on title alone (unchanged).
+func caseAccuracy(res *RenameMetadata, expect string) float64 {
+	if res == nil {
+		return 0
+	}
+	ef := parseExpect(expect)
+	titleScore := titleAccuracy(res.Title, ef.Title)
+	var checks []float64
+	if ef.Season > 0 {
+		checks = append(checks, boolScore(res.Season == ef.Season))
+	}
+	if ef.Episode > 0 {
+		checks = append(checks, boolScore(res.Episode == ef.Episode))
+	}
+	if len(checks) == 0 {
+		return titleScore
+	}
+	var sum float64
+	for _, v := range checks {
+		sum += v
+	}
+	return 0.6*titleScore + 0.4*(sum/float64(len(checks)))
+}
+
+func boolScore(ok bool) float64 {
+	if ok {
+		return 1
+	}
+	return 0
 }
 
 func tokenSet(s string) map[string]bool {
@@ -193,7 +281,7 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model, Free: s.Free}
 	if warmup {
 		warmCtx, warmCancel := context.WithTimeout(ctx, warmupTimeout)
-		_, _, _ = c.identifyWithSlot(warmCtx, s, "warmup")
+		_, _, _ = c.metadataWithSlot(warmCtx, s, "warmup")
 		warmCancel()
 	}
 	var accSum float64
@@ -232,7 +320,7 @@ func medianDuration(lats []time.Duration) time.Duration {
 }
 
 func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, lats *[]time.Duration) bool {
-	res, latency, err := c.identifyWithSlot(ctx, s, tc.Raw)
+	res, latency, err := c.metadataWithSlot(ctx, s, tc.Raw)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
 			if score.FailureReason == "" {
@@ -247,9 +335,7 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 	}
 	score.Samples++
 	*lats = append(*lats, latency)
-	if res != nil {
-		*accSum += titleAccuracy(res.Title, tc.Expect)
-	}
+	*accSum += caseAccuracy(res, tc.Expect)
 	return false
 }
 
