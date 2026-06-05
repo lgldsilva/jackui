@@ -24,9 +24,9 @@ export default function PullToRefreshIndicator({ pull, progress, refreshing }: P
         opacity: refreshing ? 1 : Math.min(1, progress * 1.5),
       }}
     >
-      <div className="bg-gray-800/95 border border-gray-700 rounded-full p-2 shadow-lg backdrop-blur-sm">
+      <div className="bg-surface-secondary/95 border border-default rounded-full p-2 shadow-lg backdrop-blur-sm">
         <RefreshCw
-          className={`w-5 h-5 ${progress >= 1 || refreshing ? 'text-green-400' : 'text-gray-400'} ${refreshing ? 'animate-spin' : ''}`}
+          className={`w-5 h-5 ${progress >= 1 || refreshing ? 'text-green-400' : 'text-text-secondary'} ${refreshing ? 'animate-spin' : ''}`}
           style={{ transform: refreshing ? undefined : `rotate(${rotation}deg)` }}
         />
       </div>

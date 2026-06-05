@@ -52,7 +52,7 @@ export default function PlaylistsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
 
@@ -60,9 +60,9 @@ export default function PlaylistsPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <ListMusic className="w-5 h-5 text-blue-400" />
-            <h1 className="text-lg font-semibold text-gray-100">Playlists</h1>
+            <h1 className="text-lg font-semibold text-text-primary">Playlists</h1>
             {!loading && (
-              <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">
+              <span className="text-xs text-text-muted bg-surface-secondary border border-default px-2 py-0.5 rounded-full">
                 {lists.length} {lists.length === 1 ? 'playlist' : 'playlists'}
               </span>
             )}
@@ -97,16 +97,16 @@ export default function PlaylistsPage() {
         {error && <div className="card text-red-400 text-sm">{error}</div>}
 
 {(() => {
-          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-          if (lists.length === 0) return <div className="flex flex-col items-center justify-center py-20 text-gray-500"><ListMusic className="w-16 h-16 mb-4 opacity-30" /><p className="text-xl font-medium">Nenhuma playlist ainda</p><p className="text-sm mt-2">Crie uma e adicione torrents pra tocar em sequência.</p></div>
+          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
+          if (lists.length === 0) return <div className="flex flex-col items-center justify-center py-20 text-text-muted"><ListMusic className="w-16 h-16 mb-4 opacity-30" /><p className="text-xl font-medium">Nenhuma playlist ainda</p><p className="text-sm mt-2">Crie uma e adicione torrents pra tocar em sequência.</p></div>
           return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{lists.map(p => (
             <Link to={`/playlists/${p.id}`} key={p.id} className="card flex flex-col gap-2 hover:border-blue-500/30 group">
               <div className="flex items-start justify-between gap-2">
-                <h3 className="text-base font-medium text-gray-100 line-clamp-1 flex-1">{p.name}</h3>
-                <button onClick={(e) => { e.preventDefault(); remove(p) }} className="text-gray-600 hover:text-red-400 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                <h3 className="text-base font-medium text-text-primary line-clamp-1 flex-1">{p.name}</h3>
+                <button onClick={(e) => { e.preventDefault(); remove(p) }} className="text-text-muted hover:text-red-400 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
               </div>
-              {p.description && <p className="text-xs text-gray-500 line-clamp-2">{p.description}</p>}
-              <div className="flex items-center gap-3 text-xs text-gray-500 mt-auto pt-2 border-t border-gray-700">
+              {p.description && <p className="text-xs text-text-muted line-clamp-2">{p.description}</p>}
+              <div className="flex items-center gap-3 text-xs text-text-muted mt-auto pt-2 border-t border-default">
                 <span className="flex items-center gap-1"><ListMusic className="w-3 h-3" />{p.itemCount ?? 0} {(p.itemCount ?? 0) === 1 ? 'item' : 'itens'}</span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDate(p.updatedAt)}</span>
               </div>

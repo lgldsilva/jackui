@@ -107,18 +107,18 @@ export default function AccountCard() {
 
   return (
     <section className="card flex flex-col gap-3">
-      <h2 className="text-lg font-semibold text-gray-100 flex items-center gap-2"><User className="w-5 h-5" /> Conta</h2>
-      <p className="text-sm text-gray-400">
+      <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><User className="w-5 h-5" /> Conta</h2>
+      <p className="text-sm text-text-secondary">
         {user.username}{user.email ? ` · ${user.email}` : ''} · {user.role === 'admin' ? 'Admin' : 'Usuário'}
       </p>
       <div className="flex flex-col gap-2 max-w-sm">
-        <label className="text-xs text-gray-400 flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5" /> Trocar senha</label>
+        <label className="text-xs text-text-secondary flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5" /> Trocar senha</label>
         <input type="password" value={current} onChange={e => setCurrent(e.target.value)} placeholder="Senha atual" autoComplete="current-password"
-          className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-green-500" />
+          className="bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500" />
         <input type="password" value={next} onChange={e => setNext(e.target.value)} placeholder="Nova senha" autoComplete="new-password"
-          className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-green-500" />
+          className="bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500" />
         <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Confirmar nova senha" autoComplete="new-password"
-          className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-green-500" />
+          className="bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500" />
         <div className="flex items-center gap-3">
           <button onClick={submit} disabled={busy || !current || !next}
             className="flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5">
@@ -129,8 +129,8 @@ export default function AccountCard() {
       </div>
 
       {/* MFA (TOTP) — opt-in */}
-      <div className="flex flex-col gap-2 pt-3 border-t border-gray-700/60 max-w-sm">
-        <span className="text-xs text-gray-400 flex items-center gap-1.5">
+      <div className="flex flex-col gap-2 pt-3 border-t border-default/60 max-w-sm">
+        <span className="text-xs text-text-secondary flex items-center gap-1.5">
           {user.mfaEnabled ? <ShieldCheck className="w-3.5 h-3.5 text-green-400" /> : <ShieldOff className="w-3.5 h-3.5" />}
           Verificação em duas etapas (TOTP) {user.mfaEnabled ? '— ativa' : '— inativa'}
         </span>
@@ -139,10 +139,10 @@ export default function AccountCard() {
           if (user.mfaEnabled) return <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
               <input type="password" value={mfaPw} onChange={e => setMfaPw(e.target.value)} placeholder="senha p/ desativar" autoComplete="current-password"
-                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 flex-1" />
-              <button onClick={disableMfa} disabled={!mfaPw} className="text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg px-3 py-1.5">Desativar</button>
+                className="bg-surface border border-default rounded-lg px-3 py-1.5 text-sm text-text-primary flex-1" />
+              <button onClick={disableMfa} disabled={!mfaPw} className="text-sm bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5">Desativar</button>
             </div>
-            <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+            <div className="flex items-center gap-2 flex-wrap text-xs text-text-secondary">
               <LifeBuoy className="w-3.5 h-3.5" />
               <span>Códigos de recuperação: {backupRemaining ?? '—'} restantes</span>
               {backupRemaining !== null && backupRemaining <= 2 && (
@@ -151,9 +151,9 @@ export default function AccountCard() {
               {showRegen ? (
                 <span className="inline-flex items-center gap-1">
                   <input type="password" value={regenPw} onChange={e => setRegenPw(e.target.value)} placeholder="senha" autoComplete="current-password"
-                    className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-200 w-28" />
+                    className="bg-surface border border-default rounded px-2 py-1 text-text-primary w-28" />
                   <button onClick={regenerateBackup} disabled={!regenPw} className="text-green-400 hover:underline disabled:opacity-50">confirmar</button>
-                  <button onClick={() => { setShowRegen(false); setRegenPw('') }} className="text-gray-500 hover:text-gray-300">cancelar</button>
+                  <button onClick={() => { setShowRegen(false); setRegenPw('') }} className="text-text-muted hover:text-text-primary">cancelar</button>
                 </span>
               ) : (
                 <button onClick={() => setShowRegen(true)} className="text-blue-400 hover:underline inline-flex items-center gap-1">
@@ -163,25 +163,25 @@ export default function AccountCard() {
             </div>
           </div>
           if (enroll) return <div className="flex flex-col gap-2">
-            <p className="text-xs text-gray-400">Adicione no app autenticador (escaneie ou digite o segredo), depois informe o código:</p>
-            <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
-              <code className="text-xs text-gray-200 font-mono truncate flex-1 min-w-0">{enroll.secret}</code>
+            <p className="text-xs text-text-secondary">Adicione no app autenticador (escaneie ou digite o segredo), depois informe o código:</p>
+            <div className="flex items-center gap-2 bg-surface border border-default rounded-lg px-2 py-1">
+              <code className="text-xs text-text-primary font-mono truncate flex-1 min-w-0">{enroll.secret}</code>
               <button onClick={() => { navigator.clipboard?.writeText(enroll.secret); setCopied(true) }} title="Copiar segredo"
-                className="text-gray-400 hover:text-gray-100 flex-shrink-0">{copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</button>
+                className="text-text-secondary hover:text-text-primary flex-shrink-0">{copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</button>
             </div>
             <a href={enroll.uri} className="text-[11px] text-blue-400 hover:underline truncate" title={enroll.uri}>abrir no app (otpauth://)</a>
             <div className="flex items-center gap-2">
               <input value={mfaCode} onChange={e => setMfaCode(e.target.value.replaceAll(/\D/g, '').slice(0, 6))} placeholder="000000" inputMode="numeric"
-                className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 font-mono tracking-widest w-28 text-center" />
+                className="bg-surface border border-default rounded-lg px-3 py-1.5 text-sm text-text-primary font-mono tracking-widest w-28 text-center" />
               <button onClick={confirmEnroll} disabled={mfaCode.length !== 6} className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5">Confirmar</button>
-              <button onClick={() => { setEnroll(null); setMfaCode('') }} className="text-xs text-gray-500 hover:text-gray-300">cancelar</button>
+              <button onClick={() => { setEnroll(null); setMfaCode('') }} className="text-xs text-text-muted hover:text-text-primary">cancelar</button>
             </div>
           </div>
-          return <button onClick={startEnroll} className="self-start flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-gray-100 rounded-lg px-3 py-1.5">
+          return <button onClick={startEnroll} className="self-start flex items-center gap-1.5 text-sm bg-surface-tertiary hover:bg-surface-tertiary text-text-primary rounded-lg px-3 py-1.5">
             <ShieldCheck className="w-4 h-4" /> Ativar MFA
           </button>
         })()}
-        {mfaMsg && <span className="text-xs text-gray-400">{mfaMsg}</span>}
+        {mfaMsg && <span className="text-xs text-text-secondary">{mfaMsg}</span>}
 
         {/* One-time display of freshly generated backup codes */}
         {backupCodes && backupCodes.length > 0 && (
@@ -189,13 +189,13 @@ export default function AccountCard() {
             <p className="text-xs text-amber-300 flex items-center gap-1.5">
               <LifeBuoy className="w-3.5 h-3.5" /> Guarde estes códigos agora — cada um serve uma vez e não serão mostrados de novo.
             </p>
-            <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-1 font-mono text-sm text-gray-100">
-              {backupCodes.map(code => <span key={code} className="bg-gray-900 rounded px-2 py-1 text-center tracking-wider">{code}</span>)}
+            <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-1 font-mono text-sm text-text-primary">
+              {backupCodes.map(code => <span key={code} className="bg-surface rounded px-2 py-1 text-center tracking-wider">{code}</span>)}
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { navigator.clipboard?.writeText(backupCodes.join('\n')); setCopied(true) }}
-                className="text-xs text-gray-300 hover:text-white inline-flex items-center gap-1">
+                className="text-xs text-text-primary hover:text-white inline-flex items-center gap-1">
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />} Copiar todos
               </button>
               <button
@@ -205,8 +205,8 @@ export default function AccountCard() {
                   const a = document.createElement('a'); a.href = url; a.download = 'jackui-backup-codes.txt'; a.click()
                   URL.revokeObjectURL(url)
                 }}
-                className="text-xs text-gray-300 hover:text-white">Baixar .txt</button>
-              <button onClick={() => setBackupCodes(null)} className="text-xs text-gray-500 hover:text-gray-300 ml-auto">já guardei</button>
+                className="text-xs text-text-primary hover:text-white">Baixar .txt</button>
+              <button onClick={() => setBackupCodes(null)} className="text-xs text-text-muted hover:text-text-primary ml-auto">já guardei</button>
             </div>
           </div>
         )}
@@ -214,17 +214,17 @@ export default function AccountCard() {
 
       {/* Passkeys (WebAuthn) — biometria / security key */}
       {passkeysSupported && (
-        <div className="flex flex-col gap-2 pt-3 border-t border-gray-700/60 max-w-sm">
-          <span className="text-xs text-gray-400 flex items-center gap-1.5">
+        <div className="flex flex-col gap-2 pt-3 border-t border-default/60 max-w-sm">
+          <span className="text-xs text-text-secondary flex items-center gap-1.5">
             <Fingerprint className="w-3.5 h-3.5 text-green-400" />
             Passkeys (biometria / chave de segurança) {passkeys.length > 0 ? `— ${passkeys.length}` : '— nenhuma'}
           </span>
           {passkeys.length > 0 && (
             <ul className="flex flex-col gap-1">
               {passkeys.map(pk => (
-                <li key={pk.id} className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1">
-                  <code className="text-[11px] text-gray-300 font-mono truncate flex-1 min-w-0" title={pk.id}>{pk.id.slice(0, 24)}…</code>
-                  <button onClick={() => removePasskey(pk.id)} title="Remover" className="text-gray-500 hover:text-red-400 flex-shrink-0">
+                <li key={pk.id} className="flex items-center gap-2 bg-surface border border-default rounded-lg px-2 py-1">
+                  <code className="text-[11px] text-text-primary font-mono truncate flex-1 min-w-0" title={pk.id}>{pk.id.slice(0, 24)}…</code>
+                  <button onClick={() => removePasskey(pk.id)} title="Remover" className="text-text-muted hover:text-red-400 flex-shrink-0">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </li>
@@ -232,10 +232,10 @@ export default function AccountCard() {
             </ul>
           )}
           <button onClick={addPasskey} disabled={pkBusy}
-            className="self-start flex items-center gap-1.5 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg px-3 py-1.5">
+            className="self-start flex items-center gap-1.5 text-sm bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5">
             {pkBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Fingerprint className="w-4 h-4" />} Adicionar passkey
           </button>
-          {pkMsg && <span className="text-xs text-gray-400">{pkMsg}</span>}
+          {pkMsg && <span className="text-xs text-text-secondary">{pkMsg}</span>}
         </div>
       )}
 

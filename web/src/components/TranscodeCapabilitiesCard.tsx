@@ -16,7 +16,7 @@ const BACKEND_COLORS: Record<string, string> = {
   'amd-vaapi': 'text-red-400 border-red-500/30 bg-red-500/10',
   'amd-amf':   'text-red-400 border-red-500/30 bg-red-500/10',
   'intel-qsv': 'text-blue-400 border-blue-500/30 bg-blue-500/10',
-  'apple-vt':  'text-gray-300 border-gray-500/30 bg-gray-500/10',
+  'apple-vt':  'text-text-primary border-gray-500/30 bg-gray-500/10',
   'cpu':       'text-yellow-400 border-yellow-500/30 bg-yellow-500/10',
 }
 
@@ -45,7 +45,7 @@ export default function TranscodeCapabilitiesCard() {
 
   if (loading && !caps) {
     return (
-      <div className="card flex items-center gap-3 text-gray-400">
+      <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" />
         Probing transcoder capabilities...
       </div>
@@ -79,31 +79,31 @@ export default function TranscodeCapabilitiesCard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Cpu className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-gray-100">Hardware Transcoding</h2>
+          <h2 className="text-lg font-semibold text-text-primary">Hardware Transcoding</h2>
         </div>
         <button
           onClick={() => load(true)}
           disabled={refreshing}
           title="Re-probar (use após trocar de GPU ou driver)"
-          className="text-gray-400 hover:text-gray-200 disabled:opacity-50 transition-colors"
+          className="text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       {/* Preferred summary */}
-      <div className="bg-gray-900 rounded-lg p-3 flex flex-col gap-1.5 text-sm">
+      <div className="bg-surface rounded-lg p-3 flex flex-col gap-1.5 text-sm">
         <div className="flex justify-between items-baseline">
-          <span className="text-gray-500 text-xs">Encoder ativo (H.264):</span>
+          <span className="text-text-muted text-xs">Encoder ativo (H.264):</span>
           <span className="text-green-400 font-mono">{caps.preferred || '<nenhum>'}</span>
         </div>
         <div className="flex justify-between items-baseline">
-          <span className="text-gray-500 text-xs">Encoder ativo (HEVC):</span>
+          <span className="text-text-muted text-xs">Encoder ativo (HEVC):</span>
           <span className="text-green-400 font-mono">{caps.preferredHevc || '<nenhum>'}</span>
         </div>
         <div className="flex justify-between items-baseline">
-          <span className="text-gray-500 text-xs">FFmpeg:</span>
-          <span className="text-gray-400 text-xs font-mono truncate ml-2" title={caps.ffmpegVersion}>
+          <span className="text-text-muted text-xs">FFmpeg:</span>
+          <span className="text-text-secondary text-xs font-mono truncate ml-2" title={caps.ffmpegVersion}>
             {caps.ffmpegVersion.split(' ').slice(0, 3).join(' ')}
           </span>
         </div>
@@ -125,7 +125,7 @@ export default function TranscodeCapabilitiesCard() {
           return (
             <div
               key={backend}
-              className={`rounded-lg border px-3 py-2 ${anyFunctional ? BACKEND_COLORS[backend] || 'border-gray-700 bg-gray-900/50' : 'border-gray-800 bg-gray-900/30 opacity-60'}`}
+              className={`rounded-lg border px-3 py-2 ${anyFunctional ? BACKEND_COLORS[backend] || 'border-default bg-surface/50' : 'border-default bg-surface/30 opacity-60'}`}
             >
               <p className="text-xs font-medium mb-1.5">{BACKEND_LABELS[backend] || backend}</p>
               <div className="flex flex-col gap-1">
@@ -136,17 +136,17 @@ export default function TranscodeCapabilitiesCard() {
                   } else if (e.available) {
                     statusIcon = <X className="w-3 h-3 text-red-400 flex-shrink-0" />
                   } else {
-                    statusIcon = <span className="w-3 h-3 inline-block flex-shrink-0 text-gray-600">·</span>
+                    statusIcon = <span className="w-3 h-3 inline-block flex-shrink-0 text-text-muted">·</span>
                   }
                   return (
                   <div key={e.id} className="flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-1.5 min-w-0">
                       {statusIcon}
-                      <code className="text-gray-300 truncate">{e.id}</code>
+                      <code className="text-text-primary truncate">{e.id}</code>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {e.benchFps && (
-                        <span className="flex items-center gap-0.5 text-gray-500 text-[10px]">
+                        <span className="flex items-center gap-0.5 text-text-muted text-[10px]">
                           <Zap className="w-2.5 h-2.5" />
                           {e.benchFps.toFixed(0)} fps
                         </span>
@@ -165,7 +165,7 @@ export default function TranscodeCapabilitiesCard() {
         })}
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-text-muted">
         Probed em {new Date(caps.probedAt).toLocaleString('pt-BR')} •
         Cache atualizado a cada restart, ou via botão refresh acima
       </p>

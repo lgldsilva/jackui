@@ -7,14 +7,14 @@ import { registerAccount, verifyEmail, forgotPassword, resetPassword } from '../
 // reset) — same centered card as the login screen.
 function Shell({ title, children }: { readonly title: string; readonly children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center px-4 safe-top safe-bottom">
+    <div className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <span className="text-3xl font-bold text-green-500">Jack</span>
-          <span className="text-3xl font-bold text-gray-100">UI</span>
+          <span className="text-3xl font-bold text-text-primary">UI</span>
         </div>
-        <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
-          <h1 className="text-lg font-semibold text-gray-100">{title}</h1>
+        <div className="bg-surface-secondary border border-default rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+          <h1 className="text-lg font-semibold text-text-primary">{title}</h1>
           {children}
         </div>
       </div>
@@ -58,12 +58,12 @@ export function RegisterPage() {
         <input className="input-field" placeholder="Usuário" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required />
         <input className="input-field" placeholder="E-mail" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />
         <input className="input-field" placeholder="Senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required />
-        {!invite && <p className="text-xs text-gray-500">Sem convite, sua conta fica pendente até um admin aprovar.</p>}
+        {!invite && <p className="text-xs text-text-muted">Sem convite, sua conta fica pendente até um admin aprovar.</p>}
         {error && <Err text={error} />}
         <button type="submit" disabled={busy || !username || !email || password.length < 6} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Cadastrar
         </button>
-        <button type="button" onClick={() => nav('/login')} className="text-xs text-gray-400 hover:text-green-400">Já tenho conta</button>
+        <button type="button" onClick={() => nav('/login')} className="text-xs text-text-secondary hover:text-green-400">Já tenho conta</button>
       </form>
     </Shell>
   )
@@ -85,7 +85,7 @@ export function VerifyEmailPage() {
   }, [])
   return (
     <Shell title="Confirmar e-mail">
-      {state === 'busy' && <div className="flex items-center gap-2 text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</div>}
+      {state === 'busy' && <div className="flex items-center gap-2 text-text-secondary"><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</div>}
       {state === 'ok' && <Ok text={msg} />}
       {state === 'err' && <Err text={msg} />}
       {state !== 'busy' && <button onClick={() => nav('/login')} className="btn-primary">Ir para o login</button>}
@@ -110,7 +110,7 @@ export function ForgotPasswordPage() {
         <button type="submit" disabled={busy || !email} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} Enviar link
         </button>
-        <button type="button" onClick={() => nav('/login')} className="text-xs text-gray-400 hover:text-green-400">Voltar</button>
+        <button type="button" onClick={() => nav('/login')} className="text-xs text-text-secondary hover:text-green-400">Voltar</button>
       </form>
     </Shell>
   )

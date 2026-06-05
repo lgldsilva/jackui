@@ -26,7 +26,7 @@ function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center text-gray-400">
+      <div className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">
         <Loader2 className="w-6 h-6 animate-spin" />
       </div>
     )
@@ -105,7 +105,7 @@ function App() {
     <AuthProvider>
       <ConfirmProvider>
         <PlayerProvider>
-          <div className="min-h-screen bg-gray-900">
+          <div className="min-h-screen bg-surface">
             <RouteRestorer />
             {/* Global crash net: a render error in any page would otherwise blank
                 the whole app (white screen). Show a recoverable message; reset

@@ -115,10 +115,10 @@ function MountSpaceLabel({ m }: { readonly m: LocalMount }) {
   else if (pctUsed > 75) barColor = 'bg-amber-500'
   return (
     <div className="px-3 pb-1 -mt-0.5">
-      <div className="h-1 rounded-full bg-gray-700/80 overflow-hidden">
+      <div className="h-1 rounded-full bg-surface-tertiary/80 overflow-hidden">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pctUsed}%` }} />
       </div>
-      <p className="text-[10px] text-gray-500 mt-0.5">{formatBytes(free)} livres de {formatBytes(m.totalBytes)}</p>
+      <p className="text-[10px] text-text-muted mt-0.5">{formatBytes(free)} livres de {formatBytes(m.totalBytes)}</p>
     </div>
   )
 }
@@ -136,12 +136,12 @@ function EntryIcon({ entry, mount }: { readonly entry: LocalEntry; readonly moun
         alt=""
         loading="lazy"
         onError={() => setThumbFailed(true)}
-        className="w-14 h-8 object-cover rounded bg-gray-900 border border-gray-700 flex-shrink-0"
+        className="w-14 h-8 object-cover rounded bg-surface border border-default flex-shrink-0"
       />
     )
   }
   if (isAudio(entry.name)) return <FileAudio className="w-5 h-5 text-pink-400 flex-shrink-0" />
-  return <FileIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+  return <FileIcon className="w-5 h-5 text-text-secondary flex-shrink-0" />
 }
 
 function Breadcrumbs({
@@ -161,7 +161,7 @@ function Breadcrumbs({
   const shown = collapsed ? segments.slice(-1) : segments
 
   return (
-    <nav className="flex items-center gap-1 text-sm text-gray-300 flex-wrap min-w-0">
+    <nav className="flex items-center gap-1 text-sm text-text-primary flex-wrap min-w-0">
       <button
         onClick={() => onNavigate('')}
         className="flex items-center gap-1 hover:text-green-400 transition-colors flex-shrink-0 min-w-0"
@@ -171,7 +171,7 @@ function Breadcrumbs({
       </button>
       {collapsed && (
         <span className="flex items-center gap-1 flex-shrink-0">
-          <ChevronRight className="w-4 h-4 text-gray-600" />
+          <ChevronRight className="w-4 h-4 text-text-muted" />
           <button
             onClick={() => onNavigate(segments.slice(0, -1).join('/'))}
             title="Subir um nível"
@@ -187,11 +187,11 @@ function Breadcrumbs({
         const isLast = idx === segments.length - 1
         return (
           <span key={target} className="flex items-center gap-1 min-w-0">
-            <ChevronRight className="w-4 h-4 text-gray-600 flex-shrink-0" />
+            <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0" />
             <button
               onClick={() => onNavigate(target)}
               className={`hover:text-green-400 transition-colors truncate max-w-[55vw] sm:max-w-none ${
-                isLast ? 'text-gray-100 font-medium' : ''
+                isLast ? 'text-text-primary font-medium' : ''
               }`}
             >
               {seg}
@@ -271,7 +271,7 @@ function EntryActions({ entry: e, isAdmin, canAct, onPromote, onReclassify, onMo
         onClick={(evt) => { evt.stopPropagation(); setMenuOpen(true) }}
         title="Ações"
         aria-label="Ações"
-        className="sm:hidden flex-shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] text-gray-400 hover:text-gray-200"
+        className="sm:hidden flex-shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] text-text-secondary hover:text-text-primary"
       >
         <MoreVertical className="w-5 h-5" />
       </button>
@@ -284,7 +284,7 @@ function EntryActions({ entry: e, isAdmin, canAct, onPromote, onReclassify, onMo
                 <button
                   key={a.key}
                   onClick={() => { setMenuOpen(false); a.run() }}
-                  className={`flex items-center gap-3 px-3 min-h-[48px] rounded-lg hover:bg-gray-700/40 text-left ${ACTION_COLOR[a.color].split(' ')[0]}`}
+                  className={`flex items-center gap-3 px-3 min-h-[48px] rounded-lg hover:bg-surface-tertiary/40 text-left ${ACTION_COLOR[a.color].split(' ')[0]}`}
                 >
                   <Icon className="w-5 h-5 flex-shrink-0" />
                   <span className="text-sm">{a.label}</span>
@@ -308,7 +308,7 @@ function EntryRow(props: EntryRowProps) {
   const pressHandlers = selectMode || !canAct ? {} : lp
 
   return (
-    <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-gray-700/20'}`}>
+    <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-surface-tertiary/20'}`}>
       <button
         onClick={() => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))}
         disabled={!selectMode && !clickable}
@@ -326,19 +326,19 @@ function EntryRow(props: EntryRowProps) {
         )}
         <EntryIcon entry={e} mount={mount} />
         <span className="flex-1 min-w-0 flex flex-col gap-0.5">
-          <span className="text-gray-100 font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
+          <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
           {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
               direita (hidden sm:block). Sem isso a row no celular mostrava só
               ícone + nome. */}
-          <span className="sm:hidden text-[11px] text-gray-500 flex items-center gap-1.5">
-            {!e.isDir && <>{formatSize(e.size)}<span className="text-gray-700">·</span></>}
+          <span className="sm:hidden text-[11px] text-text-muted flex items-center gap-1.5">
+            {!e.isDir && <>{formatSize(e.size)}<span className="text-text-muted">·</span></>}
             {formatDate(e.modTime)}
           </span>
         </span>
         {!e.isDir && (
-          <span className="text-xs text-gray-500 text-right flex-shrink-0 hidden sm:block w-20">{formatSize(e.size)}</span>
+          <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-20">{formatSize(e.size)}</span>
         )}
-        <span className="text-xs text-gray-500 w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
+        <span className="text-xs text-text-muted w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
       </button>
 
       {/* Ações por-item: desktop = botões no hover; mobile = ⋮ → Sheet. */}
@@ -591,7 +591,7 @@ export default function LocalPage() {
     if (!activeMount) return
     const ok = await confirm({
       title: 'Limpar pastas vazias?',
-      message: <>Remover todas as subpastas vazias a partir de <span className="text-gray-200 font-medium">"{path || activeMount}"</span>? Arquivos não são afetados.</>,
+      message: <>Remover todas as subpastas vazias a partir de <span className="text-text-primary font-medium">"{path || activeMount}"</span>? Arquivos não são afetados.</>,
       confirmLabel: 'Limpar',
     })
     if (!ok) return
@@ -681,21 +681,21 @@ export default function LocalPage() {
   }
 
   return (
-    <div className="h-screen bg-gray-900 flex flex-col overflow-hidden">
+    <div className="h-screen bg-surface flex flex-col overflow-hidden">
       <NavHeader />
       <main className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4 md:gap-6">
         {/* Sidebar — desktop é coluna fixa à esquerda. No mobile some por completo
             (hidden) e dá lugar a um dropdown de mount na barra do breadcrumb, que
             não rouba altura nem força scroll horizontal de chips. */}
         <aside className="hidden md:block md:w-56 flex-shrink-0 md:overflow-y-auto">
-          <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-2 md:mb-3">
+          <h2 className="text-xs uppercase tracking-wider text-text-muted mb-2 md:mb-3">
             Mounts
           </h2>
           {mounts.length === 0 ? (
-            <><p className="text-sm text-gray-500">
+            <><p className="text-sm text-text-muted">
               Nenhum mount configurado. Adicione em <code>config.yaml</code>:
             </p>
-            <code className="block mt-2 p-2 bg-gray-800 rounded text-xs">
+            <code className="block mt-2 p-2 bg-surface-secondary rounded text-xs">
                 external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
               </code></>
           ) : (
@@ -709,7 +709,7 @@ export default function LocalPage() {
                       className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap ${
                         active
                           ? 'bg-green-500/10 text-green-400 border border-green-500/30'
-                          : 'text-gray-300 hover:bg-gray-800 border border-transparent'
+                          : 'text-text-primary hover:bg-surface-secondary border border-transparent'
                       }`}
                     >
                       <HardDrive className="w-4 h-4 flex-shrink-0" />
@@ -725,11 +725,11 @@ export default function LocalPage() {
 
           {canViewAsUser && (
             <div className="mt-5 md:mt-6">
-              <h2 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Ver como</h2>
+              <h2 className="text-xs uppercase tracking-wider text-text-muted mb-2">Ver como</h2>
               <select
                 value={viewAsUser}
                 onChange={(e) => handleViewAsUser(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg text-sm bg-gray-800 border border-gray-700 text-gray-200 focus:border-green-500/50 focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg text-sm bg-surface-secondary border border-default text-text-primary focus:border-green-500/50 focus:outline-none"
               >
                 <option value="">Meu espaço (admin)</option>
                 {adminUsers.map((u) => (
@@ -753,11 +753,11 @@ export default function LocalPage() {
                 {/* Dropdown de mount — só no mobile (a sidebar some em <md) */}
                 <button
                   onClick={() => setMountSheetOpen(true)}
-                  className="md:hidden flex-shrink-0 flex items-center gap-1.5 px-2.5 min-h-[40px] rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200 max-w-[45vw]"
+                  className="md:hidden flex-shrink-0 flex items-center gap-1.5 px-2.5 min-h-[40px] rounded-lg bg-surface-secondary border border-default text-sm text-text-primary max-w-[45vw]"
                 >
                   <HardDrive className="w-4 h-4 text-green-400 flex-shrink-0" />
                   <span className="truncate">{activeMount}</span>
-                  <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                  <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />
                 </button>
                 <Breadcrumbs mountName={activeMount} path={path} onNavigate={(p) => updateNavigation(activeMount, p)} />
               </div>
@@ -782,7 +782,7 @@ export default function LocalPage() {
                   <button
                     onClick={requestCleanEmptyDirs}
                     title="Remover subpastas vazias desta pasta"
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-gray-700/60 hover:bg-gray-600 text-gray-300 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border border-strong px-3 py-1.5 rounded-lg transition-colors font-medium"
                   >
                     <FolderX className="w-4 h-4" />
                     <span className="hidden sm:inline">Limpar vazias</span>
@@ -794,23 +794,23 @@ export default function LocalPage() {
 
           {/* Banner de progresso do upload (streaming direto pro disco no backend) */}
           {upload && (
-            <div className="flex-shrink-0 bg-gray-800 border border-green-500/30 rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-sm text-gray-200">
+            <div className="flex-shrink-0 bg-surface-secondary border border-green-500/30 rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-sm text-text-primary">
                 <Upload className="w-4 h-4 text-green-400 flex-shrink-0 animate-pulse" />
                 <span className="truncate flex-1">{upload.name}</span>
-                <span className="text-xs text-gray-400 tabular-nums">
+                <span className="text-xs text-text-secondary tabular-nums">
                   {formatSize(upload.loaded)} / {formatSize(upload.total)}
                   {upload.total > 0 && ` (${Math.round((upload.loaded / upload.total) * 100)}%)`}
                 </span>
                 <button
                   onClick={() => uploadAbortRef.current?.abort()}
                   title="Cancelar upload"
-                  className="p-1 rounded text-gray-400 hover:text-red-400 transition-colors"
+                  className="p-1 rounded text-text-secondary hover:text-red-400 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-surface-tertiary rounded-full overflow-hidden">
                 <div
                   className="h-full bg-green-500 transition-all duration-150"
                   style={{ width: `${upload.total > 0 ? (upload.loaded / upload.total) * 100 : 0}%` }}
@@ -834,19 +834,19 @@ export default function LocalPage() {
             <div className="flex-shrink-0 flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1 min-w-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
                   <input
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Buscar arquivo..."
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500/50"
+                    className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500/50"
                   />
                   {search && (
                     <button
                       onClick={() => setSearch('')}
                       aria-label="Limpar busca"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 p-1"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -855,7 +855,7 @@ export default function LocalPage() {
                 {(canManipulate || isAdmin) && !selectMode && (
                   <button
                     onClick={() => setSelectMode(true)}
-                    className="flex-shrink-0 text-sm px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-700 transition-colors"
+                    className="flex-shrink-0 text-sm px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 rounded-lg border border-default text-text-primary hover:bg-surface-tertiary transition-colors"
                   >
                     Selecionar
                   </button>
@@ -867,7 +867,7 @@ export default function LocalPage() {
                   rótulo, e ficava confuso. No desktop voltam pra uma linha. */}
               <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-gray-500 sm:hidden mr-0.5">Tipo:</span>
+                  <span className="text-text-muted sm:hidden mr-0.5">Tipo:</span>
                   {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
                     <button
                       key={k}
@@ -875,24 +875,24 @@ export default function LocalPage() {
                       className={`px-2.5 py-1 rounded-full border transition-colors ${
                         kind === k
                           ? 'bg-green-500/15 text-green-400 border-green-500/40'
-                          : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                          : 'text-text-secondary border-default hover:border-strong'
                       }`}
                     >
                       {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
                     </button>
                   ))}
                 </div>
-                <span className="mx-1 h-4 w-px bg-gray-700 hidden sm:block" />
+                <span className="mx-1 h-4 w-px bg-surface-tertiary hidden sm:block" />
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-gray-500 mr-0.5">Ordenar:</span>
+                  <span className="text-text-muted mr-0.5">Ordenar:</span>
                   {(['name', 'size', 'date'] as SortKey[]).map((k) => (
                     <button
                       key={k}
                       onClick={() => toggleSort(k)}
                       className={`flex items-center gap-1 px-2.5 py-1 rounded-full border transition-colors ${
                         sortKey === k
-                          ? 'bg-gray-700 text-gray-100 border-gray-600'
-                          : 'text-gray-400 border-gray-700 hover:border-gray-600'
+                          ? 'bg-surface-tertiary text-text-primary border-strong'
+                          : 'text-text-secondary border-default hover:border-strong'
                       }`}
                     >
                       {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
@@ -918,17 +918,17 @@ export default function LocalPage() {
           )}
 
           {loading && (
-            <div className="text-gray-500 text-sm">Carregando...</div>
+            <div className="text-text-muted text-sm">Carregando...</div>
           )}
 
           {!loading && !error && activeMount && visible.length === 0 && (
-            <div className="text-gray-500 text-sm">
+            <div className="text-text-muted text-sm">
               {entries.length === 0 ? 'Pasta vazia' : 'Nenhum arquivo com esse filtro'}
             </div>
           )}
 
           {!loading && visible.length > 0 && (
-            <ul className={`flex-1 min-h-0 overflow-y-auto divide-y divide-gray-800 bg-gray-800/50 rounded-xl border border-gray-700 ${selectMode ? 'pb-20' : ''}`}>
+            <ul className={`flex-1 min-h-0 overflow-y-auto divide-y divide-default bg-surface-secondary/50 rounded-xl border border-default ${selectMode ? 'pb-20' : ''}`}>
               {visible.map((e) => (
                 <EntryRow
                   key={e.path}
@@ -1012,7 +1012,7 @@ export default function LocalPage() {
                 className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
                   m.name === activeMount
                     ? 'bg-green-500/10 text-green-400 border border-green-500/30'
-                    : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+                    : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
                 }`}
               >
                 <HardDrive className="w-4 h-4 flex-shrink-0" />
@@ -1024,12 +1024,12 @@ export default function LocalPage() {
           ))}
         </ul>
         {canViewAsUser && (
-          <div className="mt-4 pt-4 border-t border-gray-700">
-            <h3 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Ver como</h3>
+          <div className="mt-4 pt-4 border-t border-default">
+            <h3 className="text-xs uppercase tracking-wider text-text-muted mb-2">Ver como</h3>
             <select
               value={viewAsUser}
               onChange={(e) => { handleViewAsUser(e.target.value); setMountSheetOpen(false) }}
-              className="w-full px-3 py-2 rounded-lg text-base bg-gray-800 border border-gray-700 text-gray-200 focus:border-green-500/50 focus:outline-none"
+              className="w-full px-3 py-2 rounded-lg text-base bg-surface-secondary border border-default text-text-primary focus:border-green-500/50 focus:outline-none"
             >
               <option value="">Meu espaço (admin)</option>
               {adminUsers.map((u) => (

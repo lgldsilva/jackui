@@ -15,7 +15,7 @@ export function SelectAllButton({
     <button
       onClick={onToggle}
       title={allSelected ? 'Limpar seleção' : 'Selecionar todos'}
-      className={className ?? 'flex items-center gap-1.5 text-xs text-gray-300 hover:text-gray-100 px-2.5 py-1 rounded-full hover:bg-gray-700 transition-colors whitespace-nowrap'}
+      className={className ?? 'flex items-center gap-1.5 text-xs text-text-primary hover:text-text-primary px-2.5 py-1 rounded-full hover:bg-surface-tertiary transition-colors whitespace-nowrap'}
     >
       {allSelected ? <Square className="w-3.5 h-3.5" /> : <CheckCheck className="w-3.5 h-3.5" />}
       {allSelected ? 'Limpar' : 'Selecionar todos'}

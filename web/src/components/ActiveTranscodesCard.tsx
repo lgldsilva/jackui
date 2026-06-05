@@ -69,7 +69,7 @@ export default function ActiveTranscodesCard() {
 
   if (loading && !gpu) {
     return (
-      <div className="card flex items-center gap-3 text-gray-400">
+      <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
         Carregando monitoramento de transcode e GPU...
       </div>
@@ -83,10 +83,10 @@ export default function ActiveTranscodesCard() {
   return (
     <div className="card flex flex-col gap-4">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-700/60 pb-3">
+      <div className="flex items-center justify-between border-b border-default/60 pb-3">
         <div className="flex items-center gap-2">
           <Server className="w-5 h-5 text-cyan-400" />
-          <h2 className="text-lg font-semibold text-gray-100">Transcode & Uso de GPU</h2>
+          <h2 className="text-lg font-semibold text-text-primary">Transcode & Uso de GPU</h2>
         </div>
         {sessions.length > 0 && (
           <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
@@ -98,13 +98,13 @@ export default function ActiveTranscodesCard() {
 
       {/* GPU Load Dashboard */}
       {gpu && gpu.type !== 'none' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-900/60 border border-gray-800 rounded-xl p-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-surface/60 border border-default rounded-xl p-4">
           <div className="space-y-1.5">
-            <div className="flex justify-between text-xs text-gray-400">
+            <div className="flex justify-between text-xs text-text-secondary">
               <span>Uso da GPU ({gpu.type === 'nvidia' ? 'NVIDIA' : 'Intel/AMD VAAPI'}):</span>
-              <span className="font-bold text-gray-200">{gpu.gpu}%</span>
+              <span className="font-bold text-text-primary">{gpu.gpu}%</span>
             </div>
-            <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+            <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden">
               <div
                 className="bg-cyan-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${gpu.gpu}%` }}
@@ -114,13 +114,13 @@ export default function ActiveTranscodesCard() {
 
           {gpu.type === 'nvidia' && gpu.vramTotal !== undefined && gpu.vramUsed !== undefined && (
             <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-gray-400">
+              <div className="flex justify-between text-xs text-text-secondary">
                 <span>Uso de Memória de Vídeo (VRAM):</span>
-                <span className="font-bold text-gray-200">
+                <span className="font-bold text-text-primary">
                   {gpu.vramUsed} MB / {gpu.vramTotal} MB ({vramPercent.toFixed(0)}%)
                 </span>
               </div>
-              <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+              <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden">
                 <div
                   className="bg-emerald-500 h-full rounded-full transition-all duration-500"
                   style={{ width: `${vramPercent}%` }}
@@ -133,12 +133,12 @@ export default function ActiveTranscodesCard() {
 
       {/* Sessions list */}
       <div className="flex flex-col gap-2">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           Sessões de Transcode HLS
         </h3>
         
         {sessions.length === 0 && (
-          <p className="text-sm text-gray-500 py-4 text-center bg-gray-900/20 rounded-xl border border-dashed border-gray-800/40">
+          <p className="text-sm text-text-muted py-4 text-center bg-surface/20 rounded-xl border border-dashed border-default/40">
             Nenhuma sessão de transcodificação ativa no momento.
           </p>
         )}
@@ -149,7 +149,7 @@ export default function ActiveTranscodesCard() {
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-gray-800 text-xs text-gray-500 font-medium">
+                  <tr className="border-b border-default text-xs text-text-muted font-medium">
                     <th className="py-2 px-3">Sessão / Arquivo</th>
                     <th className="py-2 px-3">Codificador</th>
                     <th className="py-2 px-3">Buffer (.ts)</th>
@@ -157,15 +157,15 @@ export default function ActiveTranscodesCard() {
                     <th className="py-2 px-3 text-right">Ação</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/40">
+                <tbody className="divide-y divide-default">
                   {sessions.map(s => {
                     const { displayKey, fileIndex } = sessionLabels(s.key)
                     const codec = codecStyle(s.codec)
                     return (
-                      <tr key={s.key} className="hover:bg-gray-800/30 transition-colors group">
-                        <td className="py-3 px-3 font-mono text-xs text-gray-300">
-                          <div className="font-semibold text-gray-200">{displayKey}</div>
-                          <div className="text-[10px] text-gray-500">
+                      <tr key={s.key} className="hover:bg-surface-secondary/30 transition-colors group">
+                        <td className="py-3 px-3 font-mono text-xs text-text-primary">
+                          <div className="font-semibold text-text-primary">{displayKey}</div>
+                          <div className="text-[10px] text-text-muted">
                             Hash {s.key.slice(0, 32)}...{fileIndex}
                           </div>
                         </td>
@@ -174,10 +174,10 @@ export default function ActiveTranscodesCard() {
                             {codec.label}
                           </span>
                         </td>
-                        <td className="py-3 px-3 font-mono text-xs text-gray-400">
+                        <td className="py-3 px-3 font-mono text-xs text-text-secondary">
                           {s.segmentsReady} segs
                         </td>
-                        <td className="py-3 px-3 text-xs text-gray-400">
+                        <td className="py-3 px-3 text-xs text-text-secondary">
                           {new Date(s.startedAt).toLocaleTimeString('pt-BR')}
                         </td>
                         <td className="py-3 px-3 text-right">
@@ -207,11 +207,11 @@ export default function ActiveTranscodesCard() {
                 const { displayKey, fileIndex } = sessionLabels(s.key)
                 const codec = codecStyle(s.codec)
                 return (
-                  <div key={s.key} className="rounded-xl border border-gray-800 bg-gray-900/40 p-3 flex flex-col gap-2">
+                  <div key={s.key} className="rounded-xl border border-default bg-surface/40 p-3 flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="font-mono font-semibold text-sm text-gray-200 truncate">{displayKey}</div>
-                        <div className="font-mono text-[10px] text-gray-500 break-all">
+                        <div className="font-mono font-semibold text-sm text-text-primary truncate">{displayKey}</div>
+                        <div className="font-mono text-[10px] text-text-muted break-all">
                           Hash {s.key.slice(0, 32)}...{fileIndex}
                         </div>
                       </div>
@@ -228,7 +228,7 @@ export default function ActiveTranscodesCard() {
                         )}
                       </button>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400">
+                    <div className="flex items-center gap-2 flex-wrap text-xs text-text-secondary">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${codec.cls}`}>
                         {codec.label}
                       </span>

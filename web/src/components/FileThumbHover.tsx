@@ -78,7 +78,7 @@ function FloatingThumb({ url, label, x, y }: ThumbState) {
 
   return createPortal(
     <div
-      className="fixed z-[70] pointer-events-none rounded-lg overflow-hidden border border-gray-600 shadow-2xl bg-gray-900"
+      className="fixed z-[70] pointer-events-none rounded-lg overflow-hidden border border-strong shadow-2xl bg-surface"
       style={{ left, top, width: W }}
     >
       {imgUrl && (
@@ -90,7 +90,7 @@ function FloatingThumb({ url, label, x, y }: ThumbState) {
         />
       )}
       {label && (
-        <p className="px-2.5 py-2 text-xs text-gray-200 break-words leading-snug max-h-40 overflow-hidden">
+        <p className="px-2.5 py-2 text-xs text-text-primary break-words leading-snug max-h-40 overflow-hidden">
           {label}
         </p>
       )}

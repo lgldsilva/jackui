@@ -90,7 +90,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
       icon={<ListMusic className="w-4 h-4 text-blue-400 flex-shrink-0" />}
     >
       <div className="flex flex-col gap-3">
-          <p className="text-xs text-gray-400 line-clamp-2 bg-gray-900 rounded p-2">
+          <p className="text-xs text-text-secondary line-clamp-2 bg-surface rounded p-2">
             {result.title}
           </p>
 
@@ -101,7 +101,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
           ) : (
             <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
               {lists.length === 0 && !creating && (
-                <p className="text-sm text-gray-500 italic text-center py-4">
+                <p className="text-sm text-text-muted italic text-center py-4">
                   Você ainda não tem playlists. Crie uma abaixo.
                 </p>
               )}
@@ -113,12 +113,12 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
                   className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                     added === p.id
                       ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                      : 'bg-gray-900/50 hover:bg-gray-900 text-gray-200 border border-transparent'
+                      : 'bg-surface/50 hover:bg-surface text-text-primary border border-transparent'
                   }`}
                 >
                   <div className="min-w-0">
                     <p className="truncate">{p.name}</p>
-                    <p className="text-[10px] text-gray-500">{p.itemCount ?? 0} itens</p>
+                    <p className="text-[10px] text-text-muted">{p.itemCount ?? 0} itens</p>
                   </div>
                   {added === p.id && <Check className="w-4 h-4 flex-shrink-0" />}
                 </button>

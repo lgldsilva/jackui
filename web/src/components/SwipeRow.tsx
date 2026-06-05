@@ -46,7 +46,7 @@ export function SwipeRow({ children, onDelete, deleteLabel = 'Apagar', disabled 
           recebendo seus próprios cliques/teclado normalmente. */}
       <div
         ref={ref}
-        className="relative bg-gray-800 transition-transform duration-200 ease-out"
+        className="relative bg-surface-secondary transition-transform duration-200 ease-out"
         style={{ transform: revealed ? 'translateX(-6rem)' : 'translateX(0)' }}
       >
         {children}
