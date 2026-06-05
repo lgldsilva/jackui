@@ -15,13 +15,20 @@ export const DEFAULT_JACKETT_URL = 'http://localhost:9117'
 
 export function shouldPromptJackettSetup(
   statusJackett: string | undefined,
-  config: { ok: boolean; jackettUrl?: string },
+  config: { ok: boolean; jackettUrl?: string; apiKeySet?: boolean },
 ): boolean {
   if (statusJackett === 'ok') return false
+  // A ping TIMEOUT means reachable-but-slow, not unconfigured — never prompt on
+  // it. This is the common false "Jackett não configurado": a slow indexer
+  // pushes the 5s status ping over the edge on an already-working server.
+  if (statusJackett?.startsWith('timeout')) return false
   // Only prompt on a positively-read empty/default config — never when the
   // config endpoint was unreadable, which would falsely prompt on a working,
   // already-configured server (e.g. a non-admin user, or a transient error).
   if (!config.ok) return false
+  // A stored API key means Jackett WAS configured — even at the default URL
+  // (running it on localhost:9117 is common). That is not "unconfigured".
+  if (config.apiKeySet) return false
   const url = config.jackettUrl
   return !url || url === DEFAULT_JACKETT_URL
 }
