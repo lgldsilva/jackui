@@ -28,4 +28,12 @@ describe('shouldPromptJackettSetup (false "Jackett não configurado" regression)
     expect(shouldPromptJackettSetup('down', { ok: true, jackettUrl: '' })).toBe(true)
     expect(shouldPromptJackettSetup('down', { ok: true, jackettUrl: 'http://localhost:9117' })).toBe(true)
   })
+
+  it('does NOT prompt on a transient ping TIMEOUT (reachable-but-slow, not unconfigured)', () => {
+    expect(shouldPromptJackettSetup('timeout (5s)', { ok: true, jackettUrl: 'http://localhost:9117' })).toBe(false)
+  })
+
+  it('does NOT prompt when an API key is stored, even at the default URL', () => {
+    expect(shouldPromptJackettSetup('down', { ok: true, jackettUrl: 'http://localhost:9117', apiKeySet: true })).toBe(false)
+  })
 })
