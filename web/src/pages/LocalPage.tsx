@@ -21,6 +21,7 @@ import {
   X,
   Lock,
   Users,
+  MoreVertical,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
@@ -205,6 +206,11 @@ function EntryRow(props: EntryRowProps) {
   const canAct = canManipulate || isAdmin
   const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct })
   const pressHandlers = selectMode || !canAct ? {} : lp
+  // No mobile as ações ficam num Sheet (botão ⋮), não em botões opacity-0: estes,
+  // mesmo invisíveis, capturavam o toque na faixa direita da row (com
+  // stopPropagation) e o play (handleEntryClick) não disparava — daí a sensação
+  // de "tocar duas vezes". Mesmo padrão da LibraryPage.
+  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-gray-700/20'}`}>
@@ -231,9 +237,10 @@ function EntryRow(props: EntryRowProps) {
         <span className="text-xs text-gray-500 w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
       </button>
 
-      {/* Ações rápidas individuais (escondidas no modo seleção e em mobile por default) */}
+      {/* Ações rápidas — desktop: aparecem no hover. NÃO renderiza no mobile
+          (sm:flex): botões opacity-0 continuam clicáveis e roubavam o toque. */}
       {!selectMode && canAct && (
-        <div className="flex items-center gap-1.5 px-2 sm:px-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-active:opacity-100 transition-opacity">
+        <div className="hidden sm:flex items-center gap-1.5 px-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {canAct && !e.isDir && (
             <button
               onClick={(evt) => { evt.stopPropagation(); props.onPromote(e) }}
@@ -271,6 +278,63 @@ function EntryRow(props: EntryRowProps) {
             </button>
           )}
         </div>
+      )}
+
+      {/* Mobile: um único alvo ⋮ (>=44px, sempre visível) abre o Sheet de ações.
+          Como é o único elemento clicável à direita, o resto da row fica livre
+          pro toque de play num clique só. */}
+      {!selectMode && canAct && (
+        <button
+          onClick={(evt) => { evt.stopPropagation(); setMenuOpen(true) }}
+          title="Ações"
+          aria-label="Ações"
+          className="sm:hidden flex-shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] text-gray-400 hover:text-gray-200"
+        >
+          <MoreVertical className="w-5 h-5" />
+        </button>
+      )}
+
+      {menuOpen && (
+        <Sheet open onClose={() => setMenuOpen(false)} size="sm" title={e.name}>
+          <div className="flex flex-col gap-1 pb-2">
+            {canAct && !e.isDir && (
+              <button
+                onClick={() => { setMenuOpen(false); props.onPromote(e) }}
+                className="flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-cyan-400 hover:bg-gray-700/40 text-left"
+              >
+                <ArrowUpCircle className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">Promover / Organizar via IA</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setMenuOpen(false); props.onReclassify(e) }}
+                className="flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-purple-400 hover:bg-gray-700/40 text-left"
+              >
+                <FolderSync className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">{e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA'}</span>
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => { setMenuOpen(false); props.onMove(e) }}
+                className="flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-amber-400 hover:bg-gray-700/40 text-left"
+              >
+                <FolderInput className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">Mover para outro mount</span>
+              </button>
+            )}
+            {canAct && (
+              <button
+                onClick={() => { setMenuOpen(false); props.onDelete(e) }}
+                className="flex items-center gap-3 px-3 min-h-[48px] rounded-lg text-red-400 hover:bg-gray-700/40 text-left"
+              >
+                <Trash2 className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">{e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente'}</span>
+              </button>
+            )}
+          </div>
+        </Sheet>
       )}
     </li>
   )
