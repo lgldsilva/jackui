@@ -47,7 +47,7 @@ func TestMetadataWithRetryStopsOnContextCancel(t *testing.T) {
 	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
-	_, _, err := c.metadataWithRetry(ctx,
+	_, _, _, err := c.metadataWithRetry(ctx,
 		Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}, "X")
 	if !errors.Is(err, errRateLimited) {
 		t.Fatalf("expected the rate-limited error after cancel, got %v", err)
@@ -65,7 +65,7 @@ func TestMetadataWithRetryGivesUpOnLongRetryAfter(t *testing.T) {
 	defer srv.Close()
 	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
 	start := time.Now()
-	_, _, err := c.metadataWithRetry(context.Background(),
+	_, _, _, err := c.metadataWithRetry(context.Background(),
 		Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}, "X")
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("should give up immediately on a long Retry-After, waited %v", elapsed)
@@ -122,7 +122,7 @@ func TestChatReasoningEffortAndTokenBudget(t *testing.T) {
 
 	// gpt-oss is a reasoning model → cap reasoning to "low" and give a generous
 	// token budget so the chain-of-thought doesn't starve the JSON (the 400s).
-	if _, _, err := client.metadataWithSlot(context.Background(),
+	if _, _, _, err := client.metadataWithSlot(context.Background(),
 		Slot{ID: "groq:o", Provider: "groq", Model: "openai/gpt-oss-20b", BaseURL: srv.URL}, "Inception.2010"); err != nil {
 		t.Fatalf("gpt-oss call: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestChatReasoningEffortAndTokenBudget(t *testing.T) {
 
 	// A non-reasoning model must NOT get reasoning_effort (e.g. Qwen uses a
 	// different knob — a blanket value would be wrong).
-	if _, _, err := client.metadataWithSlot(context.Background(),
+	if _, _, _, err := client.metadataWithSlot(context.Background(),
 		Slot{ID: "groq:l", Provider: "groq", Model: "llama-3.1-70b-versatile", BaseURL: srv.URL}, "Inception.2010"); err != nil {
 		t.Fatalf("llama call: %v", err)
 	}

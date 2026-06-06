@@ -754,6 +754,45 @@ func TestDiscoverViaModelsAPI_FreeTier(t *testing.T) {
 	}
 }
 
+func TestLocalEnergyCostPer1M(t *testing.T) {
+	c := &Client{kwhPrice: 0.20, localWatts: 300}
+	// 1h of inference for 1M tokens at 0.3 kW × $0.20/kWh = $0.06.
+	if got := c.localEnergyCostPer1M(time.Hour, 1_000_000); math.Abs(got-0.06) > 1e-9 {
+		t.Fatalf("localEnergyCostPer1M = %v, want 0.06", got)
+	}
+	// No tariff → free (local stays cost 0 until configured).
+	if got := (&Client{kwhPrice: 0, localWatts: 300}).localEnergyCostPer1M(time.Hour, 1000); got != 0 {
+		t.Fatalf("no tariff should yield 0, got %v", got)
+	}
+}
+
+func TestLocalWattsOrDefault(t *testing.T) {
+	if localWattsOrDefault(0) != 250 {
+		t.Fatal("unset watts should default to 250")
+	}
+	if localWattsOrDefault(180) != 180 {
+		t.Fatal("explicit watts should be kept")
+	}
+}
+
+// TestScoreSlotPricesLocalEnergy: with a tariff set, a LOCAL model gets a non-zero
+// energy cost (from measured latency + token usage) and is no longer marked Free.
+func TestScoreSlotPricesLocalEnergy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"title\":\"Inception\",\"year\":2010,\"kind\":\"movie\"}"}}],"usage":{"total_tokens":300}}`))
+	}))
+	defer srv.Close()
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"ollama": {BaseURL: srv.URL}}, kwhPrice: 0.20, localWatts: 300}
+	local := Slot{ID: "ollama:m", Provider: "ollama", Model: "m", BaseURL: srv.URL, Local: true}
+	scores := c.RunSlots(context.Background(), []Slot{local}, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	if scores[0].CostPer1M <= 0 {
+		t.Fatalf("local model should carry an energy cost, got %v", scores[0].CostPer1M)
+	}
+	if scores[0].Free {
+		t.Fatal("local with an energy cost must not be marked Free")
+	}
+}
+
 func TestModelCostPer1M(t *testing.T) {
 	cases := []struct {
 		p, c      string
