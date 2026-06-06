@@ -211,6 +211,37 @@ func (s *Streamer) IsDownloadProtected(name string) bool {
 	return false
 }
 
+// evictionBlocked reports whether a top-level DataDir entry `name` must be kept
+// RIGHT NOW because it belongs to a currently-loaded torrent or a protected
+// download. Re-checked under the lock immediately before deletion to close the
+// TOCTOU window between Stats()'s snapshot (which drops the lock before walking
+// the filesystem) and the actual RemoveAll: a stream that started in that gap
+// is in s.active by now, and deleting its file would pull the rug out from under
+// an in-flight HLS transcode ("torrent closed" → demux I/O error → segment 404).
+// Favorites are intentionally not re-checked here — they were already filtered at
+// snapshot time and a torrent rarely becomes a favorite within the eviction loop.
+func (s *Streamer) evictionBlocked(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Match active torrents by their on-disk name (t.Name()), tolerating the
+	// single-file ".part" suffix anacrolix uses while a download is in flight.
+	stripped := strings.TrimSuffix(name, ".part")
+	for _, e := range s.active {
+		if tn := e.t.Name(); tn == name || tn == stripped {
+			return true
+		}
+	}
+	if _, ok := s.downloads[name]; ok {
+		return true
+	}
+	if stripped != name {
+		if _, ok := s.downloads[stripped]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Client exposes the underlying anacrolix torrent client so external packages
 // (the downloads worker, primarily) can resolve a hash → *torrent.Torrent and
 // inspect file progress without going through the streaming-oriented helpers.
@@ -1632,10 +1663,24 @@ func (s *Streamer) enforceCacheLimit() {
 		return inactive[i].ModTime.Before(inactive[j].ModTime)
 	})
 
-	current := stats.TotalSize
-	for _, e := range inactive {
+	s.evictCandidates(inactive, stats.TotalSize)
+}
+
+// evictCandidates deletes entries oldest-first until total size drops to/below
+// MaxCacheSize. `candidates` are the entries that looked evictable at snapshot
+// time; each is re-checked with evictionBlocked under the lock right before
+// removal, so one that became active in the gap is skipped instead of deleted.
+func (s *Streamer) evictCandidates(candidates []CacheEntry, total int64) {
+	current := total
+	for _, e := range candidates {
 		if current <= s.cfg.MaxCacheSize {
 			break
+		}
+		// Re-check under the lock: a play may have started between the Stats()
+		// snapshot and now, loading this entry into s.active. Deleting it then
+		// would kill the file out from under an active HLS transcode.
+		if s.evictionBlocked(e.Path) {
+			continue
 		}
 		log.Printf("streamer: cache over %s, evicting %s (%s, mtime=%s)",
 			fmtBytes(s.cfg.MaxCacheSize), e.Path, fmtBytes(e.Size), e.ModTime.Format(time.RFC3339))
