@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -33,6 +34,30 @@ func TestArtRoundTrip(t *testing.T) {
 	got := c.GetArt(hash)
 	if got == nil || got.Source != "tmdb" || got.PosterURL != want.PosterURL || got.TmdbID != 42 {
 		t.Fatalf("GetArt = %+v, want %+v", got, want)
+	}
+}
+
+func TestArtNegativeFresh(t *testing.T) {
+	c := newTestCache(t)
+	const hash = "negativecachehash"
+
+	// No row at all → not fresh (should attempt a resolve).
+	if c.ArtNegativeFresh(hash, time.Hour) {
+		t.Fatal("missing row must not read as a fresh negative marker")
+	}
+	// A real art source is never a negative marker.
+	_ = c.SetArt(hash, &CachedArt{Source: "tmdb", PosterURL: "x"})
+	if c.ArtNegativeFresh(hash, time.Hour) {
+		t.Fatal("a real art source must not read as a negative marker")
+	}
+	// A just-written "none" marker → fresh (suppress re-resolve).
+	_ = c.SetArt(hash, &CachedArt{Source: ArtSourceNone})
+	if !c.ArtNegativeFresh(hash, time.Hour) {
+		t.Fatal("a recent 'none' marker should read as fresh")
+	}
+	// Past the TTL → not fresh (re-resolve allowed).
+	if c.ArtNegativeFresh(hash, 0) {
+		t.Fatal("a zero TTL should make any marker stale")
 	}
 }
 

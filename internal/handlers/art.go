@@ -16,6 +16,12 @@ import (
 	"github.com/luizg/jackui/internal/tmdb"
 )
 
+// artNegativeTTL bounds how long a "no art found" marker suppresses re-running
+// the resolve chain. A week: long enough to spare repeated AI+TMDB+web calls for
+// a title with no art, short enough that art added to TMDB later is still picked
+// up on a future play.
+const artNegativeTTL = 7 * 24 * time.Hour
+
 // StreamArt handles GET /api/stream/art/:hash — serves the persisted thumbnail
 // for a torrent. This path is intentionally CHEAP (a single DB read + either a
 // redirect or a disk read): it's hit once per card across long lists, so it must
@@ -124,6 +130,13 @@ func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Cl
 		c.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
 		return
 	}
+	// A recent "no art found" marker means the full AI+TMDB+web-search chain
+	// already ran and produced nothing — don't re-spend it on every card render
+	// (Continue Watching, lists). Re-tries once the marker ages past the TTL.
+	if cache.ArtNegativeFresh(hash, artNegativeTTL) {
+		c.Status(http.StatusNoContent)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
 	defer cancel()
@@ -158,6 +171,9 @@ func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Cl
 		return
 	}
 
+	// Whole chain found nothing — persist a negative marker so we don't re-run
+	// AI+TMDB+web-search for this hash until the TTL lapses.
+	_ = cache.SetArt(hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
 	c.Status(http.StatusNoContent)
 }
 
