@@ -959,6 +959,8 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/library", handlers.LibraryList(deps.libraryStore))
+	// Personalized recommendations derived from the watched library (additive).
+	api.GET("/recommendations", handlers.Recommendations(deps.libraryStore, deps.tmdbClient))
 	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore))
 	api.PATCH(routeLibraryID, handlers.LibraryUpdateResume(deps.libraryStore))
 	api.DELETE(routeLibraryID, handlers.LibraryDelete(deps.libraryStore))
