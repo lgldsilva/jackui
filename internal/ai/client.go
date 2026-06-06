@@ -153,23 +153,16 @@ Reply with ONLY a JSON object, no prose, no code fences:
 func (c *Client) IdentifyTitle(ctx context.Context, rawName string) (*TitleResult, string, error) {
 	var lastErr error
 	for _, s := range c.slotList() {
-		if !c.breaker.available(s.ID) {
+		if !c.breaker.available(s.Provider, s.ID) {
 			continue
 		}
 		res, _, err := c.identifyWithSlot(ctx, s, rawName)
 		if err != nil {
 			lastErr = err
-			// A model that no longer exists (vendor removed/renamed it) means the
-			// chain is stale — self-heal that provider in the background (cheap
-			// discovery, no scoring). Otherwise just back off via the breaker.
-			if errors.Is(err, errModelNotFound) {
-				go c.healProvider(s.Provider)
-			} else {
-				c.breaker.recordFailure(s.ID, isRateLimit(err))
-			}
+			c.noteChainFailure(s, err)
 			continue
 		}
-		c.breaker.recordSuccess(s.ID)
+		c.breaker.recordSuccess(s.Provider, s.ID)
 		if res != nil && res.Title != "" {
 			return res, s.ID, nil
 		}
@@ -185,19 +178,15 @@ Output ONLY the query text (no quotes, no prose), ideally "<artist> <album>" —
 // Walks the chain like IdentifyTitle; returns "" if nothing usable came back.
 func (c *Client) MusicQuery(ctx context.Context, rawName string) string {
 	for _, s := range c.slotList() {
-		if !c.breaker.available(s.ID) {
+		if !c.breaker.available(s.Provider, s.ID) {
 			continue
 		}
 		content, _, err := c.chat(ctx, s, musicSystem, rawName, false)
 		if err != nil {
-			if errors.Is(err, errModelNotFound) {
-				go c.healProvider(s.Provider)
-			} else {
-				c.breaker.recordFailure(s.ID, isRateLimit(err))
-			}
+			c.noteChainFailure(s, err)
 			continue
 		}
-		c.breaker.recordSuccess(s.ID)
+		c.breaker.recordSuccess(s.Provider, s.ID)
 		// Plain text reply (no JSON) — take the first non-empty line, strip quotes.
 		q := strings.TrimSpace(content)
 		if i := strings.IndexByte(q, '\n'); i >= 0 {
@@ -351,7 +340,31 @@ func FreeOnly(slots []Slot) []Slot {
 	return out
 }
 
-func isRateLimit(err error) bool { return errors.Is(err, errRateLimited) }
+// retryAfterOf pulls the vendor's Retry-After out of a rate-limit error (0 if the
+// error isn't a rateLimitError or carried no hint).
+func retryAfterOf(err error) time.Duration {
+	var rl *rateLimitError
+	if errors.As(err, &rl) {
+		return rl.RetryAfter
+	}
+	return 0
+}
+
+// noteChainFailure routes a chain-walk error to the right recovery:
+//   - model gone (vendor removed it) → self-heal the provider in the background.
+//   - rate limit (429) → park the WHOLE provider (shared free quota) for the
+//     vendor's Retry-After (capped), so we don't hammer every model on a dead key.
+//   - anything else → trip just this model's breaker.
+func (c *Client) noteChainFailure(s Slot, err error) {
+	switch {
+	case errors.Is(err, errModelNotFound):
+		go c.healProvider(s.Provider)
+	case errors.Is(err, errRateLimited):
+		c.breaker.recordRateLimit(s.Provider, retryAfterOf(err))
+	default:
+		c.breaker.recordFailure(s.ID)
+	}
+}
 
 // looksPaymentError checks if a failed response is due to insufficient balance
 // (paid model with no credits) vs a genuine error. These should be recorded
@@ -544,20 +557,16 @@ func (c *Client) ExtractRenameMetadata(ctx context.Context, rawName string) (*Re
 	}
 	var lastErr error
 	for _, s := range c.slotList() {
-		if !c.breaker.available(s.ID) {
+		if !c.breaker.available(s.Provider, s.ID) {
 			continue
 		}
 		content, _, err := c.chat(ctx, s, renameSystem, rawName, true)
 		if err != nil {
 			lastErr = err
-			if errors.Is(err, errModelNotFound) {
-				go c.healProvider(s.Provider)
-			} else {
-				c.breaker.recordFailure(s.ID, isRateLimit(err))
-			}
+			c.noteChainFailure(s, err)
 			continue
 		}
-		c.breaker.recordSuccess(s.ID)
+		c.breaker.recordSuccess(s.Provider, s.ID)
 		res, perr := parseRenameJSON(content)
 		if perr == nil && res != nil && res.Title != "" {
 			return res, s.ID, nil
