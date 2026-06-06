@@ -12,7 +12,8 @@ import {
   streamMetadata,
   pickTorrentSource,
   streamInfo,
-  streamDrop,
+  streamViewerOpen,
+  streamViewerClose,
   streamFileURL,
   streamHLSMasterURL,
   streamArtworkURL,
@@ -2062,6 +2063,16 @@ export default function PlayerModal({
   useEffect(() => {
     if (!result || !pickTorrentSource(result)) return
 
+    // The PlayerProvider reuses this instance across videos (key='video'), so a
+    // stale hover preview from the previous file would otherwise stay pinned
+    // over the new file list. Dismiss it on every result change.
+    hoverThumb.hide()
+
+    // Guard against a slow streamAdd from the PREVIOUS result resolving after
+    // we've switched to a new one — without it the old torrent's file list +
+    // thumbnails clobber the new video. Flipped by the cleanup below.
+    let cancelled = false
+
     setLoading(true)
     setError('')
     setInfo(null)
@@ -2111,29 +2122,31 @@ export default function PlayerModal({
     // parallel to actually load the torrent client (required for playback).
     if (result.infoHash) {
       streamMetadata(result.infoHash).then(cached => {
-        if (cached && !info) {
-          setInfo(cached)
-          setSelectedFile(chooseInitialFile(cached, initialFileIndex))
-        }
+        if (cancelled || !cached || info) return
+        setInfo(cached)
+        setSelectedFile(chooseInitialFile(cached, initialFileIndex))
       })
     }
 
     streamAdd(pickTorrentSource(result))
       .then(t => {
+        if (cancelled) return
         setInfo(t)
         setSelectedFile(chooseInitialFile(t, initialFileIndex))
         // Streamer now has the torrent active — unblock <video src>.
         setServerReady(true)
       })
-      .catch(err => setError(err?.response?.data?.error || err.message || 'Falha ao iniciar stream'))
-      .finally(() => setLoading(false))
+      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || 'Falha ao iniciar stream') })
+      .finally(() => { if (!cancelled) setLoading(false) })
 
     // Check whether subtitles backend is configured
-    subtitlesEnabled().then(setSubEnabled).catch(() => setSubEnabled(false))
+    subtitlesEnabled().then(v => { if (!cancelled) setSubEnabled(v) }).catch(() => { if (!cancelled) setSubEnabled(false) })
     // Cache transcode capabilities once per modal — used by HEVC auto-fallback decision.
     if (!caps) {
-      transcodeCapabilities().then(setCaps).catch(() => setCaps(null))
+      transcodeCapabilities().then(c => { if (!cancelled) setCaps(c) }).catch(() => { if (!cancelled) setCaps(null) })
     }
+
+    return () => { cancelled = true }
   }, [result])
 
   // Diagnostic snapshot helper. Returns a plain object with the MediaError code,
@@ -2321,22 +2334,34 @@ export default function PlayerModal({
     cleanupRef.current = { infoHash: info?.infoHash ?? '', libraryEntryID, fileIndex: selectedFile, incognito }
   })
 
-  // Drop the torrent + persist final resume position — ONLY when the modal
-  // truly unmounts (user closes/navigates), never on intra-playback state changes.
+  // Persist final resume position — ONLY when the modal truly unmounts (user
+  // closes/navigates), never on intra-playback state changes. Dropping the
+  // torrent is handled by the viewer-lease effect below (keyed on the hash), not
+  // here, so switching A→B in the same instance releases A as well.
   useEffect(() => {
     return () => {
-      const { infoHash, libraryEntryID: libID, fileIndex, incognito: wasIncognito } = cleanupRef.current
+      const { libraryEntryID: libID, fileIndex, incognito: wasIncognito } = cleanupRef.current
       const v = videoRef.current
       if (!wasIncognito && libID !== null && v && v.currentTime > 1) {
         // Persist which file was watched so reopening a season pack resumes the
         // same episode (not the torrent's primary file).
         libraryUpdateResume(libID, v.currentTime, v.duration || 0, fileIndex >= 0 ? fileIndex : undefined).catch(() => {})
       }
-      if (infoHash) {
-        streamDrop(infoHash).catch(() => {})
-      }
     }
   }, [])
+
+  // Viewer lease: hold a lease on the active torrent while it's open and release
+  // it when the hash changes (playlist/autoplay reuses this instance) or on
+  // unmount. The backend keeps the torrent alive while ≥1 viewer holds a lease
+  // (so a co-watcher closing one tab doesn't kill the others) and drops a
+  // stream-only torrent shortly after the LAST viewer leaves — instead of
+  // seeding idly until the reaper. local- hashes aren't streamer torrents.
+  useEffect(() => {
+    const hash = info?.infoHash
+    if (!hash || hash.startsWith('local-')) return
+    streamViewerOpen(hash).catch(() => {})
+    return () => { streamViewerClose(hash).catch(() => {}) }
+  }, [info?.infoHash])
 
   // Detect season/episode from title for better subtitle matches
   const parseSeasonEpisode = (title: string): { season?: number; episode?: number; cleanQuery: string } => {

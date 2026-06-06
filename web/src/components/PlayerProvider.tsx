@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { SearchResult, PlaylistItem, streamAdd, libraryList, streamDrop } from '../api/client'
+import { SearchResult, PlaylistItem, streamAdd, libraryList } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
 import PlayerModal from './PlayerModal'
 
@@ -135,16 +135,13 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   }, [shuffle])
 
   const close = useCallback(() => {
-    const hash = current?.result?.infoHash
-    // local- hashes are local files, not torrents in the streamer — skip the drop.
-    if (hash && !hash.startsWith('local-')) {
-      streamDrop(hash).catch(err => {
-        console.error('[player] Failed to drop stream on close:', err)
-      })
-    }
+    // The torrent is dropped by PlayerModal's viewer-lease effect when it
+    // unmounts (released here via setCurrent(null)) — not from this handler.
+    // That keeps a single acquire/release pair per stream and protects
+    // co-watchers (the backend only drops once the LAST viewer leaves).
     setCurrent(null)
     setPlaylist(null)
-  }, [current])
+  }, [])
 
   const goTo = useCallback((delta: number) => {
     const pl = playlistRef.current
