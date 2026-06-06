@@ -29,6 +29,17 @@ type Slot struct {
 	BaseURL  string
 	apiKey   string
 	Free     bool // true when the model is free (no billing cost)
+	Local    bool // true for a model served by the LOCAL Ollama GPU (see localModel)
+}
+
+// localModel reports whether a slot runs on the LOCAL Ollama — a model served from
+// this machine's own GPU. True only for the ollama provider WITHOUT the "-cloud"
+// suffix: those models share a single GPU and Ollama serves one at a time, so the
+// benchmark must run them strictly sequentially (concurrent calls exceed Ollama's
+// connection slots and thrash models in/out of VRAM). Ollama *cloud* models (the
+// "-cloud" suffix) run on remote infra and parallelize fine, like any other vendor.
+func localModel(provider, model string) bool {
+	return provider == "ollama" && !strings.HasSuffix(model, "-cloud")
 }
 
 // TitleResult is what IdentifyTitle extracts from a raw torrent name.
@@ -106,7 +117,7 @@ func (c *Client) resolveSlot(id, provider, model string) (Slot, bool) {
 	if id == "" {
 		id = provider + ":" + model
 	}
-	return Slot{ID: id, Provider: provider, Model: model, BaseURL: strings.TrimRight(p.BaseURL, "/"), apiKey: p.APIKey}, true
+	return Slot{ID: id, Provider: provider, Model: model, BaseURL: strings.TrimRight(p.BaseURL, "/"), apiKey: p.APIKey, Local: localModel(provider, model)}, true
 }
 
 // ApplyChain replaces the live chain with the given (provider, model) defs in

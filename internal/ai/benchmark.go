@@ -210,55 +210,42 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 	if len(cases) == 0 {
 		cases = DefaultBenchmarkCases
 	}
-	// Slots are benchmarked in three groups:
-	//   1. Local Ollama:  SEQUENTIAL + WARMUP. Each local model needs a VRAM warmup
-	//      (model loaded into GPU memory before timed calls), and Ollama serves one
-	//      at a time — running several in parallel would thrash models in/out of
-	//      memory, wrecking both the warmup and the latency measurement.
-	//   2. Ollama Cloud:  SEQUENTIAL, NO warmup. Cloud models (identified by the
-	//      "-cloud" suffix on the Ollama provider) run remotely — no VRAM to warm,
-	//      but they share the same Ollama endpoint so still sequential to avoid
-	//      queue contention.
-	//   3. Remote:        PARALLEL, NO warmup. Independent HTTP endpoints with no
-	//      shared-memory constraint, so we fan out to cut wall-clock (one slow
-	//      vendor no longer blocks the rest). Their free tiers are rate-limited.
-	var local, cloud, remote []Slot
-	for _, s := range slots {
-		if s.Provider == "ollama" && strings.HasSuffix(s.Model, "-cloud") {
-			cloud = append(cloud, s)
-		} else if s.Provider == "ollama" {
-			local = append(local, s)
-		} else {
-			remote = append(remote, s)
+	// Only LOCAL Ollama models (Slot.Local — see localModel) must be serialized:
+	// they share one GPU and Ollama serves a single model at a time, so concurrent
+	// calls exceed its connection slots and thrash models in/out of VRAM. They run
+	// one at a time in a single goroutine, each with a VRAM warmup (one untimed
+	// priming call) so the latency reflects a resident model.
+	//
+	// Everything else — external vendors AND Ollama *cloud* models ("-cloud", which
+	// run on remote infra) — tolerates parallelism, so we fan those out one
+	// goroutine per slot to cut wall-clock. Both groups run concurrently: the local
+	// queue overlaps the parallel cloud calls.
+	results := make([]SlotScore, len(slots))
+	var wg sync.WaitGroup
+	for i, s := range slots {
+		if s.Local {
+			continue
 		}
+		wg.Add(1)
+		go func(i int, s Slot) {
+			defer wg.Done()
+			results[i] = c.scoreSlot(ctx, s, cases, false)
+		}(i, s)
 	}
-
-	scores := make([]SlotScore, 0, len(slots))
-
-	if len(remote) > 0 {
-		results := make([]SlotScore, len(remote))
-		var wg sync.WaitGroup
-		for i, s := range remote {
-			wg.Add(1)
-			go func(i int, s Slot) {
-				defer wg.Done()
-				results[i] = c.scoreSlot(ctx, s, cases, false)
-			}(i, s)
+	// Local models: a single goroutine drains them sequentially (with warmup).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i, s := range slots {
+			if s.Local {
+				results[i] = c.scoreSlot(ctx, s, cases, true)
+			}
 		}
-		wg.Wait()
-		scores = append(scores, results...)
-	}
+	}()
+	wg.Wait()
 
-	for _, s := range cloud {
-		scores = append(scores, c.scoreSlot(ctx, s, cases, false))
-	}
-
-	for _, s := range local {
-		scores = append(scores, c.scoreSlot(ctx, s, cases, true))
-	}
-
-	sort.SliceStable(scores, func(i, j int) bool { return scores[i].Composite > scores[j].Composite })
-	return scores
+	sort.SliceStable(results, func(i, j int) bool { return results[i].Composite > results[j].Composite })
+	return results
 }
 
 // warmupTimeout bounds the untimed priming call for a local Ollama model. It has
@@ -384,7 +371,7 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 			continue
 		}
 		existing["ollama|"+m.Name] = true
-		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key})
+		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key, Local: localModel("ollama", m.Name)})
 	}
 	return out
 }
@@ -598,7 +585,7 @@ func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slo
 	}
 	base := strings.TrimRight(p.BaseURL, "/")
 	log.Printf("ai: self-heal — added %s replacement %q (untested; run the benchmark to re-optimize)", provider, repl)
-	return Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey}
+	return Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey, Local: localModel(provider, repl)}
 }
 
 // AdoptBenchmark rebuilds the live chain from benchmark scores: every model that
