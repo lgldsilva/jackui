@@ -173,17 +173,17 @@ function setErrorMsg(prev: TabState[], tabId: string, message: string): TabState
 function SkeletonCard() {
   return (
     <div className="card animate-pulse flex flex-col gap-3">
-      <div className="h-4 bg-gray-700 rounded w-3/4" />
-      <div className="h-3 bg-gray-700 rounded w-1/4" />
+      <div className="h-4 bg-surface-tertiary rounded w-3/4" />
+      <div className="h-3 bg-surface-tertiary rounded w-1/4" />
       <div className="grid grid-cols-2 gap-2">
-        <div className="h-3 bg-gray-700 rounded" />
-        <div className="h-3 bg-gray-700 rounded" />
-        <div className="h-3 bg-gray-700 rounded" />
-        <div className="h-3 bg-gray-700 rounded" />
+        <div className="h-3 bg-surface-tertiary rounded" />
+        <div className="h-3 bg-surface-tertiary rounded" />
+        <div className="h-3 bg-surface-tertiary rounded" />
+        <div className="h-3 bg-surface-tertiary rounded" />
       </div>
-      <div className="flex gap-2 pt-1 border-t border-gray-700">
-        <div className="h-7 bg-gray-700 rounded flex-1" />
-        <div className="h-7 bg-gray-700 rounded flex-1" />
+      <div className="flex gap-2 pt-1 border-t border-default">
+        <div className="h-7 bg-surface-tertiary rounded flex-1" />
+        <div className="h-7 bg-surface-tertiary rounded flex-1" />
       </div>
     </div>
   )
@@ -637,46 +637,46 @@ export default function SearchPage() {
         placeholder="Filtrar título..."
         value={activeTab.titleFilter}
         onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
-        className={`bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : 'w-full sm:w-44'}`}
+        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : 'w-full sm:w-44'}`}
       />
       <select
         value={activeTab.trackerFilter}
         onChange={e => updateTab(activeTab.id, { trackerFilter: e.target.value })}
-        className={`bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-base sm:text-sm text-gray-300 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
+        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
       >
         {trackers.map(t => (
           <option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>
         ))}
       </select>
       <div className={stacked ? 'grid grid-cols-3 gap-2' : 'contents'}>
-        <label className={`flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-gray-500 whitespace-nowrap">Seeds ≥</span>
+        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+          <span className="text-xs text-text-muted whitespace-nowrap">Seeds ≥</span>
           <input
             type="number" min={0}
             value={activeTab.minSeeders || ''}
             placeholder="0"
             onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-            className="w-12 bg-transparent text-base sm:text-sm text-gray-200 focus:outline-none"
+            className="w-12 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
           />
         </label>
-        <label className={`flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-gray-500 whitespace-nowrap">Leech ≥</span>
+        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+          <span className="text-xs text-text-muted whitespace-nowrap">Leech ≥</span>
           <input
             type="number" min={0}
             value={activeTab.minLeechers || ''}
             placeholder="0"
             onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-            className="w-12 bg-transparent text-base sm:text-sm text-gray-200 focus:outline-none"
+            className="w-12 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
           />
         </label>
-        <label className={`flex items-center gap-1.5 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-gray-500 whitespace-nowrap">Máx GB</span>
+        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+          <span className="text-xs text-text-muted whitespace-nowrap">Máx GB</span>
           <input
             type="number" min={0} step={0.1}
             value={activeTab.maxSizeGb}
             placeholder="∞"
             onChange={e => updateTab(activeTab.id, { maxSizeGb: e.target.value })}
-            className="w-14 bg-transparent text-base sm:text-sm text-gray-200 focus:outline-none"
+            className="w-14 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
           />
         </label>
       </div>
@@ -686,13 +686,13 @@ export default function SearchPage() {
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           activeTab.onlyPlayable
             ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-            : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border-gray-600'
+            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
         }`}
       >
         <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
         Playable
       </button>
-      <div className={`flex items-center gap-1 bg-gray-700 border border-gray-600 rounded-lg p-1 ${stacked ? 'w-full justify-between' : 'ml-auto'}`}>
+      <div className={`flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ${stacked ? 'w-full justify-between' : 'ml-auto'}`}>
         {SORT_OPTIONS.map(({ key, label }) => (
           <button
             key={key}
@@ -706,7 +706,7 @@ export default function SearchPage() {
             className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
               activeTab.resultSort === key
                 ? 'bg-green-500/20 text-green-400'
-                : 'text-gray-400 hover:text-gray-200'
+                : 'text-text-secondary hover:text-text-primary'
             }`}
           >
             {label}
@@ -725,7 +725,7 @@ export default function SearchPage() {
             minSeeders: 1, minLeechers: 0, maxSizeGb: '',
             onlyPlayable: false,
           })}
-          className={`text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
+          className={`text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
           title="Limpar filtros"
         >
           <X className="w-3.5 h-3.5" />Limpar
@@ -735,11 +735,11 @@ export default function SearchPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
 
       {/* Tab strip */}
-      <div className="bg-gray-800/60 border-b border-gray-700 px-4">
+      <div className="bg-surface-secondary/60 border-b border-default px-4">
         <div ref={stripRef} className="max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-end gap-0.5 overflow-x-auto scroll-smooth snap-x safe-left">
           {tabs.map(tab => (
             <button
@@ -748,8 +748,8 @@ export default function SearchPage() {
               onClick={() => setActiveId(tab.id)}
               className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 snap-start ${
                 tab.id === activeId
-                  ? 'bg-gray-900 border-gray-700 text-gray-100'
-                  : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+                  ? 'bg-surface border-default text-text-primary'
+                  : 'border-transparent text-text-muted hover:text-text-primary hover:bg-surface-secondary'
               }`}
             >
               <PhaseIndicator phase={tab.phase} />
@@ -770,7 +770,7 @@ export default function SearchPage() {
           ))}
           <button
             onClick={addTab}
-            className="flex items-center justify-center w-8 h-8 mb-0.5 text-gray-500 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+            className="flex items-center justify-center w-8 h-8 mb-0.5 text-text-muted hover:text-text-primary hover:bg-surface-tertiary rounded-lg transition-colors flex-shrink-0"
             title="Nova aba de busca"
           >
             <Plus className="w-4 h-4" />
@@ -786,7 +786,7 @@ export default function SearchPage() {
               <WifiOff className="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <h3 className="text-amber-300 font-medium text-sm mb-1">Jackett não configurado</h3>
-                <p className="text-gray-400 text-xs mb-4">
+                <p className="text-text-secondary text-xs mb-4">
                   Informe a URL e a API key do seu servidor Jackett (local ou remoto)
                   para começar a buscar torrents.
                 </p>
@@ -834,7 +834,7 @@ export default function SearchPage() {
                   </button>
                   <button
                     onClick={() => setShowJackettSetup(false)}
-                    className="text-xs text-gray-500 hover:text-gray-300 px-3 py-2"
+                    className="text-xs text-text-muted hover:text-text-primary px-3 py-2"
                   >
                     Ignorar
                   </button>
@@ -874,22 +874,22 @@ export default function SearchPage() {
               <span className="flex items-center gap-2 text-green-400">
                 <Wifi className="w-3.5 h-3.5" />
                 {isFiltered ? (
-                  <><span className="text-gray-200 font-medium">{filteredResults.length}</span> de {groupedCount} únicos</>
+                  <><span className="text-text-primary font-medium">{filteredResults.length}</span> de {groupedCount} únicos</>
                 ) : (
                   <>
-                    <span className="text-gray-200 font-medium">{groupedCount}</span>
+                    <span className="text-text-primary font-medium">{groupedCount}</span>
                     {' '}{groupedCount === 1 ? 'único' : 'únicos'}
                     {hasDuplicates && (
                       <span
-                        className="text-gray-500"
+                        className="text-text-muted"
                         title={`${activeTab.results.length} resultados brutos antes de agrupar duplicatas por hash/título`}
                       >
                         {' '}(de {activeTab.results.length} brutos)
                       </span>
                     )}
                   </>
-                )}{' '}para <span className="text-gray-200 font-medium">"{activeTab.query}"</span>
-                <span className="text-gray-500">
+                )}{' '}para <span className="text-text-primary font-medium">"{activeTab.query}"</span>
+                <span className="text-text-muted">
                   ({activeTab.summary.live} ao vivo, {activeTab.summary.cached} cache)
                 </span>
               </span>
@@ -900,7 +900,7 @@ export default function SearchPage() {
               </span>
             )}
             {isSearching && hasResults && (
-              <span className="text-gray-500 ml-auto">{activeTab.results.length} até agora</span>
+              <span className="text-text-muted ml-auto">{activeTab.results.length} até agora</span>
             )}
           </div>
         )}
@@ -913,13 +913,13 @@ export default function SearchPage() {
             que abre o Sheet empilhado (mesmos campos, layout limpo). */}
         {hasResults && (
           <>
-            <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-gray-800/60 rounded-xl border border-gray-700">
-              <Filter className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+            <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
+              <Filter className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
               {filterFields(false)}
             </div>
             <button
               onClick={() => setFilterSheetOpen(true)}
-              className="xl:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-gray-700 bg-gray-800/60 text-sm text-gray-300"
+              className="xl:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-default bg-surface-secondary/60 text-sm text-text-primary"
             >
               <Filter className="w-4 h-4" />
               Filtros e ordenação
@@ -970,7 +970,7 @@ export default function SearchPage() {
               ))}
             </div>
             {visible < filteredResults.length && (
-              <div ref={sentinelRef} className="text-center py-6 text-xs text-gray-500">
+              <div ref={sentinelRef} className="text-center py-6 text-xs text-text-muted">
                 Mostrando {visible} de {filteredResults.length} • role pra ver mais
               </div>
             )}
@@ -979,7 +979,7 @@ export default function SearchPage() {
 
         {/* Empty after filter */}
         {hasResults && filteredResults.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-gray-500">
+          <div className="flex flex-col items-center justify-center py-16 text-text-muted">
             <SearchX className="w-12 h-12 mb-3 opacity-30" />
             <p className="font-medium">Nenhum resultado com os filtros aplicados</p>
             <p className="text-sm mt-1">{activeTab.results.length} resultado{(activeTab.results.length === 1 ? '' : 's')} disponíve{(activeTab.results.length === 1 ? 'l' : 'is')} antes dos filtros</p>
@@ -988,7 +988,7 @@ export default function SearchPage() {
 
         {/* Empty after search */}
         {activeTab.phase === 'done' && !hasResults && !activeTab.error && (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+          <div className="flex flex-col items-center justify-center py-20 text-text-muted">
             <SearchX className="w-16 h-16 mb-4 opacity-30" />
             <p className="text-xl font-medium">Nenhum resultado encontrado</p>
             <p className="text-sm mt-2">Tente termos diferentes ou outros indexers</p>
@@ -997,7 +997,7 @@ export default function SearchPage() {
 
         {/* Initial state */}
         {activeTab.phase === 'idle' && (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-600">
+          <div className="flex flex-col items-center justify-center py-20 text-text-muted">
             <p className="text-lg">Digite algo para buscar torrents</p>
           </div>
         )}
@@ -1008,7 +1008,7 @@ export default function SearchPage() {
         open={filterSheetOpen}
         onClose={() => setFilterSheetOpen(false)}
         title="Filtros e ordenação"
-        icon={<Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+        icon={<Filter className="w-4 h-4 text-text-secondary flex-shrink-0" />}
         size="md"
       >
         <div className="flex flex-col gap-3">{filterFields(true)}</div>

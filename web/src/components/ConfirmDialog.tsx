@@ -41,7 +41,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
     <div className="flex items-center justify-end gap-2">
       <button
         onClick={() => settle(false)}
-        className="px-4 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-700 transition-colors min-h-[44px]"
+        className="px-4 py-2 rounded-lg text-sm text-text-primary hover:bg-surface-tertiary transition-colors min-h-[44px]"
       >
         {pending?.cancelLabel ?? 'Cancelar'}
       </button>
@@ -69,7 +69,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
         icon={destructive ? <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" /> : undefined}
         footer={footer}
       >
-        <div className="text-sm text-gray-300 leading-relaxed">{pending?.message}</div>
+        <div className="text-sm text-text-primary leading-relaxed">{pending?.message}</div>
       </Sheet>
     </ConfirmContext.Provider>
   )

@@ -33,7 +33,7 @@ const VIDEO_EXT = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
 function fileTypeIcon(f: StreamFile) {
   if (f.isVideo) return <FileVideo className="w-4 h-4 text-blue-400 flex-shrink-0" />
   if (AUDIO_EXT.test(f.path)) return <FileAudio className="w-4 h-4 text-purple-400 flex-shrink-0" />
-  return <FileIcon className="w-4 h-4 text-gray-500 flex-shrink-0" />
+  return <FileIcon className="w-4 h-4 text-text-muted flex-shrink-0" />
 }
 
 function isPlayableFile(f: StreamFile): boolean {
@@ -99,9 +99,9 @@ function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; rea
   if (value === undefined || value === null || value === '' || value === 0) return null
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <span className="text-gray-500 flex-shrink-0">{icon}</span>
-      <span className="text-gray-500 flex-shrink-0">{label}:</span>
-      <span className="text-gray-300 truncate min-w-0">{value}</span>
+      <span className="text-text-muted flex-shrink-0">{icon}</span>
+      <span className="text-text-muted flex-shrink-0">{label}:</span>
+      <span className="text-text-primary truncate min-w-0">{value}</span>
     </div>
   )
 }
@@ -176,9 +176,9 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
       >
         {/* Title bar — cola no topo do corpo (compensa o p-4 do Sheet) e rola
             junto com a lista, como no layout original. */}
-        <div className="-mx-4 -mt-4 mb-3 px-4 py-3 border-b border-gray-700 bg-gray-900/50">
+        <div className="-mx-4 -mt-4 mb-3 px-4 py-3 border-b border-default bg-surface/50">
           {/* Tracker's release title (matches the search result card) */}
-          <p className="text-sm text-gray-200 line-clamp-2" title={result.title}>
+          <p className="text-sm text-text-primary line-clamp-2" title={result.title}>
             {result.title}
           </p>
           {/* Real torrent name from metadata, only when it actually differs from
@@ -186,12 +186,12 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               (e.g. cyrillic title for a US film), so showing both makes it
               obvious that the underlying content is what the user expects. */}
           {info?.name && info.name !== result.title && (
-            <p className="text-[11px] text-gray-500 mt-0.5 truncate font-mono" title={info.name}>
+            <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono" title={info.name}>
               {info.name}
             </p>
           )}
           {info && (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-text-muted mt-1">
               {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
             </p>
           )}
@@ -212,7 +212,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                 </span>
               )}
               {(info.progress ?? 0) > 0 && (info.progress ?? 0) < 1 && (
-                <span className="text-gray-400">{((info.progress ?? 0) * 100).toFixed(1)}% baixado</span>
+                <span className="text-text-secondary">{((info.progress ?? 0) * 100).toFixed(1)}% baixado</span>
               )}
             </div>
           )}
@@ -234,13 +234,13 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
             />
             {result.infoHash && (
               <div className="flex items-center gap-2 min-w-0 sm:col-span-2">
-                <span className="text-gray-500 flex-shrink-0"><Hash className="w-3.5 h-3.5" /></span>
-                <span className="text-gray-500 flex-shrink-0">Hash:</span>
-                <span className="text-gray-400 font-mono truncate min-w-0" title={result.infoHash}>{result.infoHash}</span>
+                <span className="text-text-muted flex-shrink-0"><Hash className="w-3.5 h-3.5" /></span>
+                <span className="text-text-muted flex-shrink-0">Hash:</span>
+                <span className="text-text-secondary font-mono truncate min-w-0" title={result.infoHash}>{result.infoHash}</span>
                 <button
                   onClick={() => copyHash(result.infoHash)}
                   title="Copiar info hash"
-                  className="flex-shrink-0 text-gray-500 hover:text-gray-200 transition-colors"
+                  className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
@@ -252,10 +252,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
         {/* Body — o Sheet já provê o container rolável (flex-1 overflow-y-auto p-4) */}
         <>
           {loading && (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-12 text-text-secondary">
               <Loader2 className="w-8 h-8 animate-spin mb-3" />
               <p>Carregando metadados do torrent...</p>
-              <p className="text-xs text-gray-500 mt-1">Pode levar até 60s pra novos torrents</p>
+              <p className="text-xs text-text-muted mt-1">Pode levar até 60s pra novos torrents</p>
             </div>
           )}
 
@@ -297,7 +297,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                           className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
                             typeFilter === o.key
                               ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                              : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                              : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
                           }`}
                         >
                           {o.label} <span className="tabular-nums opacity-70">{o.count}</span>
@@ -315,7 +315,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                       className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${
                         sortBySize
                           ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                          : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                          : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
                       }`}
                     >
                       {sortBySize && !sizeDesc
@@ -329,7 +329,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
               <div className="flex flex-col gap-1">
                 {sortedFiles.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-6">Nenhum arquivo casa com o filtro</p>
+                  <p className="text-sm text-text-muted text-center py-6">Nenhum arquivo casa com o filtro</p>
                 ) : (
                   sortedFiles.map(f => {
                     const ep = parseEpisode(f.path)
@@ -350,7 +350,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         onMouseMove={hoverThumb.move}
                         onMouseLeave={hoverThumb.hide}
                         className={`flex flex-col px-3 py-2 rounded-lg group transition-colors ${
-                          playable ? 'hover:bg-gray-900/70' : 'opacity-50 hover:opacity-75'
+                          playable ? 'hover:bg-surface/70' : 'opacity-50 hover:opacity-75'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -375,11 +375,11 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                                 {ep}
                               </span>
                             )}
-                            <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={f.path}>
+                            <span className="text-sm text-text-primary truncate flex-1 min-w-0" title={f.path}>
                               {f.path}
                             </span>
                           </button>
-                          <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatSize(f.size)}</span>
+                          <span className="text-xs text-text-muted flex-shrink-0 ml-2">{formatSize(f.size)}</span>
 
                         {playable && (
                           <div className="flex items-center gap-1 ml-2 flex-shrink-0">
@@ -410,7 +410,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         </div>
                         {filePct !== null && (
                           <div className="mt-1 ml-6">
-                            <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+                            <div className="h-1 bg-surface-tertiary rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full transition-all ${filePct >= 100 ? 'bg-green-500' : 'bg-emerald-500'}`}
                                 style={{ width: `${filePct.toFixed(1)}%` }}
@@ -427,7 +427,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           )}
 
           {info?.files?.length === 0 && (
-            <p className="text-sm text-gray-500 text-center py-6">
+            <p className="text-sm text-text-muted text-center py-6">
               Esse torrent está vazio ou ainda não tem metadados disponíveis
             </p>
           )}

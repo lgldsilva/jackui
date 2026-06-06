@@ -22,7 +22,7 @@ function UserAccessPicker({ allUsers, selected, onToggle }: {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-gray-500">Com acesso:</span>
+        <span className="text-[11px] text-text-muted">Com acesso:</span>
         {selected.length === 0 && <span className="text-[11px] text-amber-400/80">ninguém ainda — adicione abaixo</span>}
         {selected.map(u => (
           <span key={u} className="inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40">
@@ -33,23 +33,23 @@ function UserAccessPicker({ allUsers, selected, onToggle }: {
       </div>
       {available.length > 0 && (
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 pointer-events-none" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
           <input
             value={query}
             onChange={e => { setQuery(e.target.value); setOpen(true) }}
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 120)}
             placeholder="buscar usuário para adicionar…"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500/50"
+            className="w-full bg-surface-secondary border border-default rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-blue-500/50"
           />
           {open && matches.length > 0 && (
-            <ul className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto bg-gray-900 border border-gray-700 rounded-lg shadow-2xl">
+            <ul className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto bg-surface border border-default rounded-lg shadow-2xl">
               {matches.map(u => (
                 <li key={u.id}>
                   {/* onMouseDown fires before the input's onBlur, so the pick registers. */}
                   <button
                     onMouseDown={() => { onToggle(u.username); setQuery(''); setOpen(false) }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-800"
+                    className="w-full text-left px-3 py-1.5 text-xs text-text-primary hover:bg-surface-secondary"
                   >
                     {u.username}
                   </button>
@@ -141,7 +141,7 @@ export default function ExternalMountsCard() {
 
   if (loading) {
     return (
-      <div className="card flex items-center gap-3 text-gray-400">
+      <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" /> Carregando mounts...
       </div>
     )
@@ -155,19 +155,19 @@ export default function ExternalMountsCard() {
     <div className="card flex flex-col gap-5">
       <div className="flex items-center gap-2">
         <HardDrive className="w-5 h-5 text-blue-400" />
-        <h2 className="text-lg font-semibold text-gray-100">Pastas externas (mounts)</h2>
+        <h2 className="text-lg font-semibold text-text-primary">Pastas externas (mounts)</h2>
       </div>
-      <p className="text-xs text-gray-500 -mt-2">
+      <p className="text-xs text-text-muted -mt-2">
         Pastas montadas no servidor que aparecem na aba Local. Defina quem vê cada uma.
       </p>
 
-      {mounts.length === 0 && <p className="text-sm text-gray-500 text-center py-4">Nenhum mount configurado.</p>}
+      {mounts.length === 0 && <p className="text-sm text-text-muted text-center py-4">Nenhum mount configurado.</p>}
 
       <div className="flex flex-col gap-4">
         {mounts.map((m, i) => {
           const vis = visibilityOf(m)
           return (
-            <div key={m._key} className="bg-gray-900/60 rounded-lg p-3 flex flex-col gap-3 border border-gray-800">
+            <div key={m._key} className="bg-surface/60 rounded-lg p-3 flex flex-col gap-3 border border-default">
               <div className="flex items-center gap-2">
                 <input
                   value={m.name}
@@ -186,7 +186,7 @@ export default function ExternalMountsCard() {
                 className="input-field min-h-[40px] font-mono text-xs"
               />
               <div className="flex flex-col gap-2">
-                <span className="text-xs text-gray-400">Visibilidade</span>
+                <span className="text-xs text-text-secondary">Visibilidade</span>
                 <div className="flex flex-wrap gap-2">
                   <VisButton active={vis === 'all'} onClick={() => setVisibility(i, 'all')} icon={<Users className="w-3.5 h-3.5" />} label="Todos" />
                   <VisButton active={vis === 'restricted'} onClick={() => setVisibility(i, 'restricted')} icon={<Users className="w-3.5 h-3.5" />} label="Usuários específicos" />
@@ -195,11 +195,11 @@ export default function ExternalMountsCard() {
               </div>
               {vis === 'restricted' && (
                 users.length === 0
-                  ? <span className="text-[11px] text-gray-600">Sem usuários para listar.</span>
+                  ? <span className="text-[11px] text-text-muted">Sem usuários para listar.</span>
                   : <UserAccessPicker allUsers={users} selected={m.allowedUsers ?? []} onToggle={(u) => toggleUser(i, u)} />
               )}
               {vis === 'perUser' && (
-                <p className="text-[11px] text-gray-600">Cada usuário vê e grava só no seu próprio subdiretório dentro desta pasta.</p>
+                <p className="text-[11px] text-text-muted">Cada usuário vê e grava só no seu próprio subdiretório dentro desta pasta.</p>
               )}
             </div>
           )
@@ -210,7 +210,7 @@ export default function ExternalMountsCard() {
         <Plus className="w-4 h-4" /> Adicionar mount
       </button>
 
-      <div className="flex items-center justify-between gap-3 border-t border-gray-800 pt-4">
+      <div className="flex items-center justify-between gap-3 border-t border-default pt-4">
         <div className="text-xs">
           {error && <span className="text-red-400">{error}</span>}
           {notice && <span className="text-green-400">{notice}</span>}
@@ -218,7 +218,7 @@ export default function ExternalMountsCard() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-gray-900 font-semibold px-4 py-2 rounded-lg text-sm transition-colors min-h-[44px]"
+          className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors min-h-[44px]"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvar
         </button>
@@ -233,7 +233,7 @@ function VisButton({ active, onClick, icon, label }: Readonly<{ active: boolean;
       onClick={onClick}
       className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${active
         ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-        : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-600'}`}
+        : 'bg-surface-secondary text-text-secondary border-default hover:border-strong'}`}
     >
       {icon}{label}
     </button>

@@ -85,7 +85,7 @@ export default function StreamCacheCard() {
 
   if (loading && !stats) {
     return (
-      <div className="card flex items-center gap-3 text-gray-400">
+      <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" />
         Carregando estatísticas de cache...
       </div>
@@ -120,14 +120,14 @@ export default function StreamCacheCard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <HardDrive className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-gray-100">Cache de Streaming</h2>
+          <h2 className="text-lg font-semibold text-text-primary">Cache de Streaming</h2>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={load}
             disabled={busy}
             title="Recarregar"
-            className="text-gray-400 hover:text-gray-200 disabled:opacity-50 transition-colors"
+            className="text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -147,30 +147,30 @@ export default function StreamCacheCard() {
       {/* Usage summary */}
       <div className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between text-sm">
-          <span className="text-gray-400">
-            <span className={`font-medium ${overLimit ? 'text-yellow-400' : 'text-gray-200'}`}>
+          <span className="text-text-secondary">
+            <span className={`font-medium ${overLimit ? 'text-yellow-400' : 'text-text-primary'}`}>
               {formatSize(stats.totalSize)}
             </span>
             {stats.maxSize > 0
-              ? <span className="text-gray-500"> de {formatSize(stats.maxSize)}</span>
-              : <span className="text-gray-500"> usados (sem limite)</span>
+              ? <span className="text-text-muted"> de {formatSize(stats.maxSize)}</span>
+              : <span className="text-text-muted"> usados (sem limite)</span>
             }
           </span>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-text-muted">
             {stats.entries.length} arquivo{stats.entries.length === 1 ? '' : 's'}
             {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} ativo{stats.numActive === 1 ? '' : 's'}</span>}
           </span>
         </div>
         {stats.maxSize > 0 && (
-          <div className="bg-gray-900 rounded-full h-2 overflow-hidden">
+          <div className="bg-surface rounded-full h-2 overflow-hidden">
             <div
               className={`h-full transition-all ${barClass}`}
               style={{ width: `${Math.min(100, usagePct)}%` }}
             />
           </div>
         )}
-        <p className="text-xs text-gray-500">
-          Pasta: <code className="text-gray-400">{stats.dataDir}</code>
+        <p className="text-xs text-text-muted">
+          Pasta: <code className="text-text-secondary">{stats.dataDir}</code>
           {stats.maxSize > 0 && (
             <span className="ml-2">— quando ultrapassar o limite, entradas inativas mais antigas são removidas automaticamente.</span>
           )}
@@ -179,13 +179,13 @@ export default function StreamCacheCard() {
 
       {/* Entries list */}
       {stats.entries.length === 0 ? (
-        <p className="text-sm text-gray-500 italic text-center py-4">Cache vazio</p>
+        <p className="text-sm text-text-muted italic text-center py-4">Cache vazio</p>
       ) : (
         <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
           {stats.entries.map((e) => (
             <div
               key={e.path}
-              className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-900/50 rounded-lg group hover:bg-gray-900"
+              className="flex items-center justify-between gap-2 px-3 py-2 bg-surface/50 rounded-lg group hover:bg-surface"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -199,11 +199,11 @@ export default function StreamCacheCard() {
                       <Heart className="w-3 h-3 text-pink-400 fill-current flex-shrink-0" />
                     </span>
                   )}
-                  <span className="text-sm text-gray-200 truncate" title={e.path}>
+                  <span className="text-sm text-text-primary truncate" title={e.path}>
                     {e.path}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                <div className="flex items-center gap-3 mt-0.5 text-xs text-text-muted">
                   <span>{formatSize(e.size)}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="w-2.5 h-2.5" />{formatDate(e.modTime)}
@@ -228,7 +228,7 @@ export default function StreamCacheCard() {
                   className={`transition-all ${
                     e.isFavorite
                       ? 'opacity-0 cursor-not-allowed'
-                      : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 disabled:opacity-50'
+                      : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 disabled:opacity-50'
                   }`}
                   title={e.isFavorite ? 'Favoritos não podem ser removidos — desfavorite primeiro no player' : 'Remover esta entrada'}
                 >

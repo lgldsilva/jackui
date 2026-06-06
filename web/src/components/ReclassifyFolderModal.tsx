@@ -34,23 +34,23 @@ type DoneResult = {
 
 function renderDirList(loading: boolean, dirs: string[], browsePath: string, setBrowsePath: (p: string) => void): JSX.Element {
   if (loading) {
-    return <div className="flex items-center justify-center py-6 text-gray-500">
+    return <div className="flex items-center justify-center py-6 text-text-muted">
       <Loader2 className="w-4 h-4 animate-spin" />
     </div>
   }
   if (dirs.length === 0) {
-    return <p className="text-xs text-gray-500 text-center py-4">Sem subpastas. Crie uma abaixo ou organize na raiz.</p>
+    return <p className="text-xs text-text-muted text-center py-4">Sem subpastas. Crie uma abaixo ou organize na raiz.</p>
   }
   return <ul className="space-y-0.5">
     {dirs.map(d => (
       <li key={d}>
         <button
           onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d}` : d)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-text-primary hover:bg-surface-tertiary/60 transition-colors"
         >
           <FolderOpen className="w-4 h-4 text-cyan-400 flex-shrink-0" />
           <span className="truncate text-left flex-1 min-w-0">{d}</span>
-          <ChevronRight className="w-4 h-4 text-gray-600" />
+          <ChevronRight className="w-4 h-4 text-text-muted" />
         </button>
       </li>
     ))}
@@ -203,15 +203,15 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     >
       <>
         {/* Source info */}
-        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
-          <p className="text-xs text-gray-400 truncate" title={entry.name}>
-            Pasta: <span className="text-gray-300 font-mono">{entry.name}</span>
+        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-default bg-surface/40">
+          <p className="text-xs text-text-secondary truncate" title={entry.name}>
+            Pasta: <span className="text-text-primary font-mono">{entry.name}</span>
           </p>
         </div>
 
         {/* Phase: scanning */}
         {phase === 'scanning' && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-gray-400">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-text-secondary">
             <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
             <p className="text-sm">Varrendo pasta de mídia…</p>
           </div>
@@ -221,14 +221,14 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         {(phase === 'configure' || phase === 'preview') && (
           <>
             {/* File count + destination selector */}
-            <div className="-mx-4 px-4 py-3 border-b border-gray-700 flex items-center gap-3 text-sm flex-wrap">
-              <span className="text-gray-400">{fileCountLabel(entry, files)}</span>
+            <div className="-mx-4 px-4 py-3 border-b border-default flex items-center gap-3 text-sm flex-wrap">
+              <span className="text-text-secondary">{fileCountLabel(entry, files)}</span>
             </div>
 
             {/* Destination chips */}
             {dests.length > 1 && (
-              <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
-                <HardDrive className="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-2 flex-wrap text-sm">
+                <HardDrive className="w-4 h-4 text-text-muted flex-shrink-0" />
                 {dests.map(d => (
                   <button
                     key={d.path}
@@ -236,7 +236,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                       selectedBase === d.path || (!selectedBase && d.path === dests[0]?.path)
                         ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                        : 'bg-gray-700 text-gray-400 border border-gray-600 hover:bg-gray-600'
+                        : 'bg-surface-tertiary text-text-secondary border border-strong hover:bg-surface-tertiary'
                     }`}
                   >
                     {d.name}
@@ -246,19 +246,19 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             )}
 
             {/* Breadcrumb */}
-            <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
+            <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
               <button
                 onClick={() => setBrowsePath('')}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
               >
                 <Home className="w-3.5 h-3.5" /> {destLabel}
               </button>
               {breadcrumb.map((seg, i) => (
                 <span key={`${i}-${seg}`} className="flex items-center gap-1">
-                  <ChevronRight className="w-3 h-3 text-gray-600" />
+                  <ChevronRight className="w-3 h-3 text-text-muted" />
                   <button
                     onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
-                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
+                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
                   >
                     {seg}
                   </button>
@@ -274,21 +274,21 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             {/* Preview panel */}
             {phase === 'preview' && (
               <div className="pb-2 max-h-52 overflow-y-auto">
-                <div className="border border-cyan-800/40 bg-gray-950/60 rounded-xl p-3 space-y-2">
+                <div className="border border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 space-y-2">
                   <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                     <Sparkles className="w-3 h-3" />
                     Preview IA — {previews.length} arquivo{previews.length === 1 ? '' : 's'}
                   </h3>
                   {previewLoading ? (
-                    <div className="flex items-center gap-2 text-xs text-gray-500 py-2 justify-center">
+                    <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center">
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
                       <span>Analisando nomes com IA…</span>
                     </div>
                   ) : (
-                    <div className="space-y-2 divide-y divide-gray-800/40">
+                    <div className="space-y-2 divide-y divide-default">
                       {previews.map((p, i) => (
                         <div key={`${p.originalName}-${i}`} className="pt-2 first:pt-0 text-xs space-y-1">
-                          <p className="text-[10px] text-gray-400 font-mono truncate" title={p.originalName}>
+                          <p className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>
                             De: {p.originalName}
                           </p>
                           {p.error ? (
@@ -299,7 +299,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                             <div className="flex items-start gap-1.5 bg-emerald-950/10 border border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-300">
                               <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                               <span className="font-mono text-[11px] break-all leading-tight">
-                                <span className="text-gray-500">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
+                                <span className="text-text-muted">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
                                 <span className="text-white font-bold">{p.targetPath.split('/').pop()}</span>
                                 <span className="ml-1 px-1.5 text-[9px] font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">
                                   {p.kind === 'tv' ? 'Série' : 'Filme'}
@@ -316,23 +316,23 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             )}
 
             {/* Footer */}
-            <div className="-mx-4 -mb-4 mt-2 border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
-              <label className="flex items-center gap-2 text-sm text-gray-300">
-                <Plus className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <div className="-mx-4 -mb-4 mt-2 border-t border-default p-4 flex flex-col gap-3 bg-surface/40">
+              <label className="flex items-center gap-2 text-sm text-text-primary">
+                <Plus className="w-4 h-4 text-text-muted flex-shrink-0" />
                 <input
                   type="text"
                   value={newFolder}
                   onChange={e => setNewFolder(e.target.value)}
                   placeholder="Nova subpasta (opcional)"
-                  className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-gray-100"
+                  className="flex-1 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
                 />
               </label>
 
-              <div className="text-xs text-gray-500 flex items-start gap-1.5">
+              <div className="text-xs text-text-muted flex items-start gap-1.5">
                 <FolderOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                 <span>
-                  Destino: <span className="text-gray-300 font-mono">{destLabel}/{finalTarget || ''}</span>
-                  {!finalTarget && <span className="text-gray-600"> (raiz)</span>}
+                  Destino: <span className="text-text-primary font-mono">{destLabel}/{finalTarget || ''}</span>
+                  {!finalTarget && <span className="text-text-muted"> (raiz)</span>}
                 </span>
               </div>
 
@@ -343,7 +343,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
               )}
 
               <div className="flex items-center gap-2 justify-end">
-                <button onClick={onClose} className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded">
+                <button onClick={onClose} className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded">
                   Cancelar
                 </button>
                 {phase === 'configure' && (
@@ -360,7 +360,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                   <>
                     <button
                       onClick={() => setPhase('configure')}
-                      className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded border border-gray-600"
+                      className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded border border-strong"
                     >
                       Voltar
                     </button>
@@ -381,10 +381,10 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
 
         {/* Phase: executing */}
         {phase === 'executing' && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-gray-400">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-text-secondary">
             <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
             <p className="text-sm">Movendo e organizando arquivos…</p>
-            <p className="text-xs text-gray-500">{files.length} arquivo{files.length === 1 ? '' : 's'}</p>
+            <p className="text-xs text-text-muted">{files.length} arquivo{files.length === 1 ? '' : 's'}</p>
           </div>
         )}
 
@@ -392,13 +392,13 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         {phase === 'done' && result && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 px-6">
             <CheckCircle2 className="w-10 h-10 text-green-400" />
-            <p className="text-base font-semibold text-gray-100">Reclassificação concluída</p>
-            <p className="text-sm text-gray-400">
+            <p className="text-base font-semibold text-text-primary">Reclassificação concluída</p>
+            <p className="text-sm text-text-secondary">
               {result.moved} arquivo{result.moved === 1 ? '' : 's'} organizado{result.moved === 1 ? '' : 's'} com sucesso
               {result.failed.length > 0 && ` · ${result.failed.length} com erro`}
             </p>
             {result.destLabel && (
-              <p className="text-xs text-gray-500 font-mono">
+              <p className="text-xs text-text-muted font-mono">
                 Destino: <span className="text-cyan-400">{result.destLabel}</span>
               </p>
             )}

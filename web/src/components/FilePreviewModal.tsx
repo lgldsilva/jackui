@@ -118,11 +118,11 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
     >
       <>
         {/* Barra do preview — cola no topo do corpo (compensa o p-4 do Sheet) */}
-        <div className="-mx-4 -mt-4 mb-4 flex items-center justify-between p-3 border-b border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-100 flex items-center gap-2 min-w-0">
+        <div className="-mx-4 -mt-4 mb-4 flex items-center justify-between p-3 border-b border-default">
+          <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 min-w-0">
             <Icon className="w-4 h-4 text-blue-400 flex-shrink-0" />
             <span className="truncate" title={filePath}>{fileName}</span>
-            <span className="text-xs text-gray-500 flex-shrink-0">
+            <span className="text-xs text-text-muted flex-shrink-0">
               {fileSize > 0 ? `${(fileSize / 1024).toFixed(1)} KB` : ''}
             </span>
           </h3>
@@ -131,13 +131,13 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
               href={withToken(streamURL)}
               download={fileName}
               title="Baixar arquivo completo"
-              className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200"
+              className="p-1.5 rounded hover:bg-surface-tertiary text-text-secondary hover:text-text-primary"
             >
               <Download className="w-4 h-4" />
             </a>
             <button
               onClick={onClose}
-              className="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200"
+              className="p-1.5 rounded hover:bg-surface-tertiary text-text-secondary hover:text-text-primary"
               title="Fechar"
             >
               <X className="w-4 h-4" />
@@ -145,11 +145,11 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
           </div>
         </div>
 
-        <div className="-mx-4 -mb-4 min-h-[50vh] bg-gray-900 rounded-b-2xl">
+        <div className="-mx-4 -mb-4 min-h-[50vh] bg-surface rounded-b-2xl">
           {kind === 'text' && (
             <div className="h-full overflow-auto">
               {loading && (
-                <div className="flex items-center justify-center py-12 text-gray-500">
+                <div className="flex items-center justify-center py-12 text-text-muted">
                   <Loader2 className="w-6 h-6 animate-spin" />
                 </div>
               )}
@@ -160,7 +160,7 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
               )}
               {text !== null && (
                 <>
-                  <pre className="text-xs text-gray-200 font-mono p-4 whitespace-pre-wrap break-words">{text}</pre>
+                  <pre className="text-xs text-text-primary font-mono p-4 whitespace-pre-wrap break-words">{text}</pre>
                   {truncated && (
                     <div className="px-4 pb-4 text-xs text-yellow-400 italic">
                       Mostrando os primeiros {(TEXT_CAP_BYTES / 1024).toFixed(0)} KB. Use o botão de download pra arquivo completo.
@@ -193,7 +193,7 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
           )}
 
           {kind === 'unknown' && (
-            <div className="p-8 text-center text-gray-500 text-sm">
+            <div className="p-8 text-center text-text-muted text-sm">
               Tipo de arquivo sem preview disponível. Use o botão de download.
             </div>
           )}

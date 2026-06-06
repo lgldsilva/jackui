@@ -232,19 +232,19 @@ function renderPlayerHeader(props: {
   const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef } = props
   if (minimized) return null
   return (
-    <div ref={headerRef} className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-gray-700 flex-shrink-0 touch-pan-y">
-      <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
+    <div ref={headerRef} className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-default flex-shrink-0 touch-pan-y">
+      <h2 className="text-base font-semibold text-text-primary flex items-center gap-2 min-w-0">
         <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
         <span className="truncate">{info?.name || result.title}</span>
         {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={`Encoder: ${caps.preferred}`}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
         {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
       </h2>
       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-        {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-gray-400 hover:text-gray-200 transition-colors"><Info className="w-5 h-5" /></button>}
-        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-gray-500 hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
-        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-gray-400 hover:text-gray-200'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-        <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-gray-400 hover:text-gray-200 transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-200 transition-colors"><X className="w-5 h-5" /></button>
+        {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-text-secondary hover:text-text-primary transition-colors"><Info className="w-5 h-5" /></button>}
+        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
+        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-text-secondary hover:text-text-primary'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+        <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
+        <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
       </div>
     </div>
   )
@@ -269,9 +269,9 @@ function renderTorrentInfoModal(props: {
   const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied, effectiveCategory, setOverrideCategory, handleClassifyCategory, classifyingCat } = props
   const pct = info.progress === undefined ? null : `${(info.progress * 100).toFixed(1)}%`
   const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
-    <div className="flex items-start gap-2 py-1.5 border-b border-gray-700/40 last:border-0">
-      <span className="text-gray-500 text-xs w-28 flex-shrink-0 flex items-center gap-1.5">{icon}{label}</span>
-      <span className="text-gray-200 text-sm min-w-0 break-words flex-1">{children}</span>
+    <div className="flex items-start gap-2 py-1.5 border-b border-default/40 last:border-0">
+      <span className="text-text-muted text-xs w-28 flex-shrink-0 flex items-center gap-1.5">{icon}{label}</span>
+      <span className="text-text-primary text-sm min-w-0 break-words flex-1">{children}</span>
     </div>
   )
   return (
@@ -294,7 +294,7 @@ function renderTorrentInfoModal(props: {
         <Row label="Categoria">
           <div className="flex items-center gap-1.5">
             <select
-              className="bg-gray-700 text-gray-200 text-xs rounded px-2 py-1 border border-gray-600"
+              className="bg-surface-tertiary text-text-primary text-xs rounded px-2 py-1 border border-strong"
               value={effectiveCategory}
               onChange={(e) => setOverrideCategory(e.target.value === 'default' ? null : e.target.value)}
             >
@@ -326,7 +326,7 @@ function renderTorrentInfoModal(props: {
         <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
           <span className="flex items-center gap-2 min-w-0">
             <span className="font-mono text-xs truncate min-w-0">{info.infoHash}</span>
-            <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-gray-500 hover:text-gray-200">
+            <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-text-muted hover:text-text-primary">
               {hashCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </span>
@@ -511,8 +511,8 @@ type ResumePromptProps = {
 function ResumePrompt({ resumePosition, formatTime, onContinue, onRestart }: ResumePromptProps) {
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-gray-800 border border-gray-700 rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
-        <p className="text-gray-300 text-sm text-center">Você parou em</p>
+      <div className="bg-surface-secondary border border-default rounded-2xl p-5 flex flex-col gap-3 w-full max-w-xs">
+        <p className="text-text-primary text-sm text-center">Você parou em</p>
         <p className="text-blue-300 text-center font-mono text-2xl">{formatTime(resumePosition)}</p>
         <button
           onClick={() => onContinue(resumePosition)}
@@ -557,7 +557,7 @@ function PlayerLoadingOverlay({
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
       <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
-      <p className="text-gray-200 font-medium">
+      <p className="text-text-primary font-medium">
         {serverReady ? 'Baixando primeiras peças do torrent...' : 'Conectando ao swarm...'}
       </p>
       {resumePosition !== null && (
@@ -565,16 +565,16 @@ function PlayerLoadingOverlay({
           Continuando de {formatTime(resumePosition)}
         </p>
       )}
-      <p className="text-xs text-gray-400 mt-1">
+      <p className="text-xs text-text-secondary mt-1">
         {info && info.peers > 0
           ? `${info.seeders} seeders / ${info.peers} peers conectados`
           : 'Aguardando peers...'}
       </p>
       {info && info.downRate > 0 && (
-        <p className="text-[11px] text-gray-400 mt-1 tabular-nums">
+        <p className="text-[11px] text-text-secondary mt-1 tabular-nums">
           <span className="text-green-400">↓ {formatRate(info.downRate)}</span>
           {info.files?.[selectedFile] && (
-            <span className="text-gray-500"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
+            <span className="text-text-muted"> · {formatSize(info.files[selectedFile].downloaded)} em buffer</span>
           )}
         </p>
       )}
@@ -659,7 +659,7 @@ function VideoPlayerElement({
     <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70dvh] sm:max-h-[58dvh]" style={{ aspectRatio: '16 / 9' }}>
       {audioMode && info && (
         <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
-          <Volume2 className="absolute w-12 h-12 text-gray-600" />
+          <Volume2 className="absolute w-12 h-12 text-text-muted" />
           <img
             src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
             alt=""
@@ -831,11 +831,11 @@ function FilePickerSidebar({
   const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
     if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
     if (isPlayable) {
-      if (ext) return 'bg-gray-800/40 text-gray-500 hover:bg-gray-700/80 border border-transparent'
-      return 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
+      if (ext) return 'bg-surface-secondary/40 text-text-muted hover:bg-surface-tertiary/80 border border-transparent'
+      return 'bg-surface-tertiary/50 text-text-primary hover:bg-surface-tertiary border border-transparent'
     }
     if (canPreview) return 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
-    return 'bg-gray-800/50 text-gray-500 hover:bg-gray-700 border border-transparent'
+    return 'bg-surface-secondary/50 text-text-muted hover:bg-surface-tertiary border border-transparent'
   }
   const cycleSizeSort = () => {
     // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
@@ -844,38 +844,38 @@ function FilePickerSidebar({
     else { setFileSortBySize(false); setFileSizeDesc(true) }
   }
   return (
-    <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-gray-700 bg-gray-850/50 min-h-0 lg:overflow-hidden">
+    <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-default bg-surface-elevated/50 min-h-0 lg:overflow-hidden">
       {/* A barra inteira retrai a lista — clicar em qualquer parte funciona,
           não só no chevron (o botão vira só indicador via pointer-events-none). */}
       <button
         type="button"
         onClick={() => setSidebarOpen(false)}
         title="Esconder lista de arquivos"
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 flex-shrink-0 text-left cursor-pointer hover:bg-gray-700/40 transition-colors"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 border-b border-default flex-shrink-0 text-left cursor-pointer hover:bg-surface-tertiary/40 transition-colors"
       >
-        <p className="text-xs text-gray-400 flex items-center gap-2 min-w-0">
-          <FileVideo className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+        <p className="text-xs text-text-secondary flex items-center gap-2 min-w-0">
+          <FileVideo className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
           <span className="truncate">
             {filteredFiles.length}{filterLower ? ` / ${info.files.length}` : ''} arquivo{filteredFiles.length === 1 ? '' : 's'}
             {videoFiles.length > 0 && <span className="text-blue-400"> · {videoFiles.length} vídeo{videoFiles.length === 1 ? '' : 's'}</span>}
           </span>
         </p>
-        <span className="text-gray-500 p-1 flex-shrink-0 pointer-events-none">
+        <span className="text-text-muted p-1 flex-shrink-0 pointer-events-none">
           <ChevronRight className="w-4 h-4" />
         </span>
       </button>
       {info.files.length > 6 && (
-        <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0">
+        <div className="px-3 py-2 border-b border-default flex-shrink-0">
           <input
             type="text"
             value={fileFilter}
             onChange={e => setFileFilter(e.target.value)}
             placeholder="Filtrar (ex: s04e03)"
-            className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 sm:py-1 text-sm sm:text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-green-500"
+            className="w-full bg-surface border border-default rounded px-3 py-2 sm:py-1 text-sm sm:text-xs text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500"
           />
         </div>
       )}
-      <div className="px-3 py-2 border-b border-gray-700 flex-shrink-0 flex items-center gap-1.5 flex-wrap">
+      <div className="px-3 py-2 border-b border-default flex-shrink-0 flex items-center gap-1.5 flex-wrap">
         {([
           { key: 'all' as const, label: 'Todos', count: info.files.length },
           { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
@@ -890,7 +890,7 @@ function FilePickerSidebar({
               className={`px-2 py-1 rounded text-[11px] border transition-colors ${
                 fileTypeFilter === o.key
                   ? 'bg-green-500/20 text-green-300 border-green-500/40'
-                  : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+                  : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
               }`}
             >
               {o.label} <span className="tabular-nums opacity-70">{o.count}</span>
@@ -903,7 +903,7 @@ function FilePickerSidebar({
           className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
             fileSortBySize
               ? 'bg-green-500/20 text-green-300 border-green-500/40'
-              : 'bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-700/60'
+              : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
           }`}
         >
           {fileSortBySize && !fileSizeDesc
@@ -914,7 +914,7 @@ function FilePickerSidebar({
       </div>
       <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
         {filteredFiles.length === 0 && (
-          <p className="text-xs text-gray-500 text-center py-3">
+          <p className="text-xs text-text-muted text-center py-3">
             {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
           </p>
         )}
@@ -955,7 +955,7 @@ function FilePickerSidebar({
                   </span>
                 )}
                 {extra && (
-                  <span className="text-[10px] font-mono bg-gray-700/60 text-gray-400 border border-gray-600/40 px-1.5 py-0.5 rounded flex-shrink-0">
+                  <span className="text-[10px] font-mono bg-surface-tertiary/60 text-text-secondary border border-strong/40 px-1.5 py-0.5 rounded flex-shrink-0">
                     EXTRA
                   </span>
                 )}
@@ -968,15 +968,15 @@ function FilePickerSidebar({
               </span>
               <span className="flex items-center justify-between gap-2 min-w-0">
                 <span className="truncate">{shortName}</span>
-                <span className="text-gray-500 flex-shrink-0 text-[10px] tabular-nums">{formatSize(f.size)}</span>
+                <span className="text-text-muted flex-shrink-0 text-[10px] tabular-nums">{formatSize(f.size)}</span>
               </span>
             </button>
           )
         })}
         {filteredFiles.length > 100 && (
-          <p className="text-[11px] text-gray-500 text-center py-3 px-2 leading-snug">
+          <p className="text-[11px] text-text-muted text-center py-3 px-2 leading-snug">
             Mostrando 100 de {filteredFiles.length}. Use o filtro acima
-            (ex: <span className="font-mono text-gray-400">s04e03</span> ou
+            (ex: <span className="font-mono text-text-secondary">s04e03</span> ou
             parte do nome) pra achar o resto.
           </p>
         )}
@@ -997,7 +997,7 @@ function subBtnClass(active: boolean, image: boolean | undefined): string {
       ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
       : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
   }
-  return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+  return 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
 }
 
 type EmbeddedTracksPanelProps = {
@@ -1040,11 +1040,11 @@ function EmbeddedTracksPanel({
   setAutoSource,
 }: EmbeddedTracksPanelProps) {
   return (
-    <div className="px-3 sm:px-4 py-3 border-b border-gray-700 flex flex-col gap-3">
+    <div className="px-3 sm:px-4 py-3 border-b border-default flex flex-col gap-3">
       {/* Audio tracks — clicking a non-default triggers transcoded remux */}
       {probe.audio.length > 1 && (
         <div>
-          <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
+          <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Volume2 className="w-3 h-3" />
             Faixas de áudio ({probe.audio.length})
             {transcodeAudio !== null && (
@@ -1059,7 +1059,7 @@ function EmbeddedTracksPanel({
               className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                 transcodeAudio === null
                   ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                  : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+                  : 'bg-surface-secondary text-text-muted border-default hover:text-text-primary'
               }`}
               title="Faixa padrão do arquivo (direct play, com seek completo)"
             >
@@ -1073,11 +1073,11 @@ function EmbeddedTracksPanel({
                 className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
                   if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
                   if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
-                  return 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+                  return 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
                 })()}`}
               >
                 {a.language ? a.language.toUpperCase() : '??'}
-                <span className="text-gray-500 ml-1">{a.codec}{a.channels ? `·${a.channels}ch` : ''}</span>
+                <span className="text-text-muted ml-1">{a.codec}{a.channels ? `·${a.channels}ch` : ''}</span>
                 {a.default && <span className="ml-1 text-[9px]">★</span>}
               </button>
             ))}
@@ -1093,7 +1093,7 @@ function EmbeddedTracksPanel({
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
             forceH264
               ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-              : 'bg-gray-700/50 text-gray-400 border-gray-700 hover:text-gray-200'
+              : 'bg-surface-tertiary/50 text-text-secondary border-default hover:text-text-primary'
           }`}
         >
           <Cpu className="w-3.5 h-3.5" />
@@ -1113,9 +1113,9 @@ function EmbeddedTracksPanel({
       {/* Sidecar subtitles (.srt files alongside the video in the torrent) */}
       {sidecars.length > 0 && (
         <div>
-          <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
+          <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Subtitles className="w-3 h-3" />
-            Legendas no torrent ({sidecars.length}) <span className="text-[10px] text-gray-600 italic">— arquivos .srt/.vtt</span>
+            Legendas no torrent ({sidecars.length}) <span className="text-[10px] text-text-muted italic">— arquivos .srt/.vtt</span>
           </p>
           <div className="flex flex-wrap gap-1">
             <button
@@ -1125,8 +1125,8 @@ function EmbeddedTracksPanel({
               }}
               className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                 sidecarIdx === null
-                  ? 'bg-gray-700 text-gray-200 border-gray-600'
-                  : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'
+                  ? 'bg-surface-tertiary text-text-primary border-strong'
+                  : 'bg-surface-secondary text-text-muted border-default hover:text-text-primary'
               }`}
             >
               Nenhuma
@@ -1145,11 +1145,11 @@ function EmbeddedTracksPanel({
                 className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                   sidecarIdx === s.index
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-gray-700/40 text-gray-400 border-gray-700 hover:text-gray-200'
+                    : 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
                 }`}
               >
                 {(s.language || '??').toUpperCase()}
-                <span className="text-gray-500 ml-1">.{s.format}</span>
+                <span className="text-text-muted ml-1">.{s.format}</span>
               </button>
             ))}
           </div>
@@ -1159,7 +1159,7 @@ function EmbeddedTracksPanel({
       {/* Embedded subtitles — pickable (text subs as track, image subs as burn-in) */}
       {probe.subtitles.length > 0 && (
         <div>
-          <p className="text-xs text-gray-500 mb-1.5 flex items-center gap-2">
+          <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Subtitles className="w-3 h-3" />
             Legendas embutidas ({probe.subtitles.length})
             {burnSubTrack !== null && (
@@ -1177,8 +1177,8 @@ function EmbeddedTracksPanel({
               }}
               className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                 embeddedSub === null && burnSubTrack === null
-                  ? 'bg-gray-700 text-gray-200 border-gray-600'
-                  : 'bg-gray-850 text-gray-500 border-gray-700 hover:text-gray-300'
+                  ? 'bg-surface-tertiary text-text-primary border-strong'
+                  : 'bg-surface-elevated text-text-muted border-default hover:text-text-primary'
               }`}
             >
               Nenhuma
@@ -1210,7 +1210,7 @@ function EmbeddedTracksPanel({
                   className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
                 >
                   {s.language ? s.language.toUpperCase() : '??'}
-                  <span className="text-gray-500 ml-1">{s.codec}</span>
+                  <span className="text-text-muted ml-1">{s.codec}</span>
                   {s.forced && <span className="ml-1 text-[9px] text-yellow-400">FORCED</span>}
                   {s.image && <span className="ml-1 text-[9px] text-orange-400">IMG</span>}
                 </button>
@@ -1232,9 +1232,9 @@ function MinimizedAudioProgress({ currentTime, duration, formatTime }: {
 }) {
   const pct = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'
   return (
-    <div className="px-3 py-1.5 bg-gray-900 border-t border-gray-700 flex items-center gap-2 text-xs text-gray-400">
+    <div className="px-3 py-1.5 bg-surface border-t border-default flex items-center gap-2 text-xs text-text-secondary">
       <span className="font-mono tabular-nums">{formatTime(currentTime)}</span>
-      <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+      <div className="flex-1 h-1 bg-surface-tertiary rounded-full overflow-hidden">
         <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: pct }} />
       </div>
       <span className="font-mono tabular-nums">{formatTime(duration)}</span>
@@ -1256,7 +1256,7 @@ function subtitleBtnClass(active: string | null, embedded: number | null, source
     return 'bg-green-500/20 text-green-400 border-green-500/30'
   }
   if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
-  return 'bg-gray-700/50 text-gray-500 border-gray-700 cursor-not-allowed opacity-50'
+  return 'bg-surface-tertiary/50 text-text-muted border-default cursor-not-allowed opacity-50'
 }
 
 function serverDownloadIcon(loading: boolean, success: boolean): React.ReactNode {
@@ -1395,7 +1395,7 @@ function PlayerControlsPanel({
           what it lacks: series navigation (prev/next episode) and a time
           readout. "Back to start" / "resume" are now offered as a prompt
           on play (see resume overlay); ±10s removed (native bar seeks). */}
-      <div className="px-3 sm:px-4 py-2 bg-gray-900 border-b border-gray-700 flex items-center gap-2 min-w-0">
+      <div className="px-3 sm:px-4 py-2 bg-surface border-b border-default flex items-center gap-2 min-w-0">
         {videoFileIndices.length > 1 && (
           <>
             <button
@@ -1421,33 +1421,33 @@ function PlayerControlsPanel({
                 {currentEp}
               </span>
             )}
-            <span className="text-xs text-gray-500 flex-shrink-0">
+            <span className="text-xs text-text-muted flex-shrink-0">
               {videoCursor + 1}/{videoFileIndices.length}
             </span>
           </>
         )}
-        <span className="text-xs text-gray-400 ml-auto font-mono tabular-nums flex-shrink-0">
-          {formatTime(currentTime)} <span className="text-gray-600">/</span> {formatTime(duration)}
+        <span className="text-xs text-text-secondary ml-auto font-mono tabular-nums flex-shrink-0">
+          {formatTime(currentTime)} <span className="text-text-muted">/</span> {formatTime(duration)}
         </span>
 
         {/* Subtitle offset controls — only visible when sub active */}
         {subActive && (
-          <div className="flex items-center gap-1 ml-auto bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5">
-            <span className="text-[10px] text-gray-500 uppercase tracking-wide mr-1">Legenda</span>
+          <div className="flex items-center gap-1 ml-auto bg-surface-secondary border border-default rounded-lg px-2 py-0.5">
+            <span className="text-[10px] text-text-muted uppercase tracking-wide mr-1">Legenda</span>
             <button
               onClick={() => adjustSubOffset(-0.1)}
               title="Atrasar legenda em 0.1s"
-              className="text-gray-400 hover:text-blue-400 p-1 transition-colors"
+              className="text-text-secondary hover:text-blue-400 p-1 transition-colors"
             >
               <Minus className="w-3 h-3" />
             </button>
-            <span className="text-xs text-gray-200 font-mono tabular-nums min-w-[40px] text-center">
+            <span className="text-xs text-text-primary font-mono tabular-nums min-w-[40px] text-center">
               {subOffset >= 0 ? '+' : ''}{subOffset.toFixed(1)}s
             </span>
             <button
               onClick={() => adjustSubOffset(0.1)}
               title="Adiantar legenda em 0.1s"
-              className="text-gray-400 hover:text-blue-400 p-1 transition-colors"
+              className="text-text-secondary hover:text-blue-400 p-1 transition-colors"
             >
               <Plus className="w-3 h-3" />
             </button>
@@ -1455,7 +1455,7 @@ function PlayerControlsPanel({
               <button
                 onClick={resetSubOffset}
                 title="Resetar offset"
-                className="text-gray-500 hover:text-gray-200 p-1 transition-colors"
+                className="text-text-muted hover:text-text-primary p-1 transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
               </button>
@@ -1469,7 +1469,7 @@ function PlayerControlsPanel({
           list sits right under the video. Desktop shows it all inline. */}
       <button
         onClick={() => setShowMobileOpts(v => !v)}
-        className="sm:hidden flex items-center justify-center gap-1.5 w-full px-4 py-2.5 border-b border-gray-700 bg-gray-900/40 text-gray-300 text-sm active:bg-gray-800"
+        className="sm:hidden flex items-center justify-center gap-1.5 w-full px-4 py-2.5 border-b border-default bg-surface/40 text-text-primary text-sm active:bg-surface-secondary"
       >
         {showMobileOpts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         {showMobileOpts ? 'Ocultar opções' : 'Opções (legendas · status · baixar)'}
@@ -1480,27 +1480,27 @@ function PlayerControlsPanel({
       <div className={showMobileOpts ? 'flex flex-col' : 'hidden sm:flex sm:flex-col'}>
         {/* Status bar with buffer + torrent progress. `relative` lets the
             hover preview bubble (absolute) anchor inside this container. */}
-        <div className="relative px-3 sm:px-4 py-3 bg-gray-900/50 border-b border-gray-700 flex flex-col gap-2 text-xs">
+        <div className="relative px-3 sm:px-4 py-3 bg-surface/50 border-b border-default flex flex-col gap-2 text-xs">
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="flex items-center gap-1.5 text-gray-300">
+            <span className="flex items-center gap-1.5 text-text-primary">
               <Users className="w-3.5 h-3.5 text-green-400" />
-              {info.seeders} <span className="text-gray-500 hidden sm:inline">seeders</span>
-              <span className="text-gray-500">/</span> {info.peers} <span className="text-gray-500 hidden sm:inline">peers</span>
+              {info.seeders} <span className="text-text-muted hidden sm:inline">seeders</span>
+              <span className="text-text-muted">/</span> {info.peers} <span className="text-text-muted hidden sm:inline">peers</span>
             </span>
-            <span className="flex items-center gap-1.5 text-gray-300">
+            <span className="flex items-center gap-1.5 text-text-primary">
               <Activity className="w-3.5 h-3.5 text-blue-400" />
-              {(info.progress * 100).toFixed(1)}%<span className="text-gray-500 hidden sm:inline ml-1">torrent</span>
+              {(info.progress * 100).toFixed(1)}%<span className="text-text-muted hidden sm:inline ml-1">torrent</span>
             </span>
-            <span className="flex items-center gap-1.5 text-gray-300 tabular-nums">
+            <span className="flex items-center gap-1.5 text-text-primary tabular-nums">
               <span className="text-green-400">↓</span> {formatRate(info.downRate)}
               <span className="text-yellow-400 ml-1">↑</span> {formatRate(info.upRate)}
             </span>
-            <label className="flex items-center gap-1 text-gray-400" title="Velocidade de reprodução (pitch preservado — voz não fica robotizada)">
-              <FastForward className="w-3.5 h-3.5 text-gray-500" />
+            <label className="flex items-center gap-1 text-text-secondary" title="Velocidade de reprodução (pitch preservado — voz não fica robotizada)">
+              <FastForward className="w-3.5 h-3.5 text-text-muted" />
               <select
                 value={playbackSpeed}
                 onChange={e => setPlaybackSpeed(Number.parseFloat(e.target.value))}
-                className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-xs text-gray-200 tabular-nums focus:outline-none focus:border-green-500"
+                className="bg-surface-secondary border border-default rounded px-1 py-0.5 text-xs text-text-primary tabular-nums focus:outline-none focus:border-green-500"
               >
                 {SPEED_OPTIONS.map(s => (
                   <option key={s} value={s}>{s}x</option>
@@ -1508,12 +1508,12 @@ function PlayerControlsPanel({
               </select>
             </label>
             {currentFile && (
-              <span className="text-gray-400">
+              <span className="text-text-secondary">
                 {formatSize(currentFile.downloaded)} / {formatSize(currentFile.size)}
               </span>
             )}
             {bufferedEnd > 0 && duration > 0 && (
-              <span className="text-gray-400 ml-auto">
+              <span className="text-text-secondary ml-auto">
                 Buffer: <span className="text-blue-400">{formatTime(bufferedEnd - currentTime)}</span> à frente
               </span>
             )}
@@ -1523,7 +1523,7 @@ function PlayerControlsPanel({
               visualises state so it doesn't compete with it: gray = torrent
               downloaded, blue islands = buffered/ready (disjoint after a #61
               seek-restart, gaps = not loaded yet), green = play progress. */}
-          <div className="relative bg-gray-700 rounded-full h-1.5">
+          <div className="relative bg-surface-tertiary rounded-full h-1.5">
             <div
               className="absolute inset-y-0 left-0 bg-gray-500 rounded-full"
               style={{ width: `${(currentFile?.progress || 0) * 100}%` }}
@@ -1585,7 +1585,7 @@ function PlayerControlsPanel({
           <button
             onClick={handleRequestFullscreen}
             title="Tela cheia"
-            className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors sm:hidden"
+            className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg transition-colors sm:hidden"
           >
             <Maximize2 className="w-3.5 h-3.5" />
             Fullscreen
@@ -1627,34 +1627,34 @@ function PlayerControlsPanel({
           <a
             href={streamURL}
             download
-            className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Baixar direto</span>
             <span className="sm:hidden">Baixar</span>
           </a>
-          <span className="text-xs text-gray-600 ml-auto hidden sm:block">
+          <span className="text-xs text-text-muted ml-auto hidden sm:block">
             {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} • {formatSize(info.totalSize)}
           </span>
         </div>
 
         {/* Subtitle picker panel */}
         {subOpen && (
-          <div className="px-3 sm:px-4 pb-4 border-t border-gray-700 pt-3">
+          <div className="px-3 sm:px-4 pb-4 border-t border-default pt-3">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-200 flex items-center gap-2">
+              <h3 className="text-sm font-medium text-text-primary flex items-center gap-2">
                 <Subtitles className="w-4 h-4 text-blue-400" />
                 Legendas (pt-BR / pt)
               </h3>
-              <button onClick={() => setSubOpen(false)} className="text-gray-500 hover:text-gray-300">
+              <button onClick={() => setSubOpen(false)} className="text-text-muted hover:text-text-primary">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Carregar Legenda Local */}
-            <div className="mb-3 pb-3 border-b border-gray-700/50 flex flex-col gap-2">
+            <div className="mb-3 pb-3 border-b border-default/50 flex flex-col gap-2">
               <div>
-                <label className="inline-flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors border border-gray-600">
+                <label className="inline-flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg cursor-pointer transition-colors border border-strong">
                   <Upload className="w-3.5 h-3.5" />
                   <span>Carregar Legenda Local (.srt/.vtt)</span>
                   <input
@@ -1671,7 +1671,7 @@ function PlayerControlsPanel({
                   <span className="truncate flex-1">Ativa: {customSubName}</span>
                   <button
                     onClick={clearCustomSub}
-                    className="text-gray-400 hover:text-red-400 font-bold ml-1 p-0.5"
+                    className="text-text-secondary hover:text-red-400 font-bold ml-1 p-0.5"
                     title="Remover legenda"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -1680,7 +1680,7 @@ function PlayerControlsPanel({
               )}
             </div>
             {subLoading && (
-              <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+              <div className="flex items-center gap-2 text-sm text-text-secondary py-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Buscando no OpenSubtitles...
               </div>
@@ -1689,7 +1689,7 @@ function PlayerControlsPanel({
               <p className="text-xs text-red-400 py-2">{subError}</p>
             )}
             {!subLoading && !subError && subResults.length === 0 && (
-              <p className="text-xs text-gray-500 py-2">Nenhuma legenda encontrada</p>
+              <p className="text-xs text-text-muted py-2">Nenhuma legenda encontrada</p>
             )}
             {subResults.length > 0 && (
               <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
@@ -1700,19 +1700,19 @@ function PlayerControlsPanel({
                     className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors ${
                       subActive === s.id
                         ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                        : 'bg-gray-900/50 hover:bg-gray-900 text-gray-300 border border-transparent'
+                        : 'bg-surface/50 hover:bg-surface text-text-primary border border-transparent'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono uppercase text-[10px] bg-gray-700 px-1.5 py-0.5 rounded">
+                        <span className="font-mono uppercase text-[10px] bg-surface-tertiary px-1.5 py-0.5 rounded">
                           {s.language}
                         </span>
                         <span className="truncate">{s.release || '(sem release name)'}</span>
                         {s.trusted && <span className="text-green-400 text-[10px]">✓ trusted</span>}
                         {s.hearingImpaired && <span className="text-yellow-400 text-[10px]">[HI]</span>}
                       </div>
-                      <div className="text-[10px] text-gray-500 mt-0.5">
+                      <div className="text-[10px] text-text-muted mt-0.5">
                         {s.uploaderName} • {s.downloads.toLocaleString()} downloads
                       </div>
                     </div>
@@ -1724,7 +1724,7 @@ function PlayerControlsPanel({
             {subActive && (
               <button
                 onClick={() => setSubActive(null)}
-                className="mt-2 text-xs text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
+                className="mt-2 text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1"
               >
                 <X className="w-3 h-3" />
                 Remover legenda
@@ -2248,10 +2248,10 @@ export default function PlayerModal({
     const codeNames: Record<number, string> = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' }
     const codeName = diag.errorCode ? codeNames[diag.errorCode] || `code ${diag.errorCode}` : '—'
     return (
-      <div className="mt-3 text-[10px] text-gray-500 font-mono space-y-0.5">
+      <div className="mt-3 text-[10px] text-text-muted font-mono space-y-0.5">
         <div>MediaError: <span className="text-yellow-400">{codeName}</span> {diag.errorMsg ? `· ${diag.errorMsg}` : ''}</div>
         <div>ready={diag.readyState ?? '—'} net={diag.networkState ?? '—'} {diag.isTranscoded ? '· transcode ON' : '· direct play'}{diag.transcodeFallbackAttempted ? ' · fallback tried' : ''}</div>
-        <div className="text-gray-600">Full log: filtre por "[player]" no console</div>
+        <div className="text-text-muted">Full log: filtre por "[player]" no console</div>
       </div>
     )
   }
@@ -2264,10 +2264,10 @@ export default function PlayerModal({
     const kind: 'swarm' | 'codec' = (peers === 0 || starving) ? 'swarm' : 'codec'
     const errorData = buildErrorInfo(peers, starving, info)
     return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 p-6 text-center">
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-text-primary p-6 text-center">
         <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
         <p className="font-medium">{errorData.title}</p>
-        <p className="text-sm text-gray-500 mt-2 max-w-md">{errorData.detail}</p>
+        <p className="text-sm text-text-muted mt-2 max-w-md">{errorData.detail}</p>
         {renderDiagnosticChip()}
         <button
           onClick={() => setVideoError(false)}
@@ -2909,7 +2909,7 @@ export default function PlayerModal({
             <button
               onClick={() => setSidebarOpen(true)}
               title="Mostrar lista de arquivos"
-              className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-gray-700 bg-gray-850 hover:bg-gray-700 text-gray-400 hover:text-gray-200 text-xs flex-shrink-0"
+              className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary text-xs flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4 rotate-90" />
               Mostrar lista de arquivos ({info.files.length})
@@ -2918,7 +2918,7 @@ export default function PlayerModal({
             <button
               onClick={() => setSidebarOpen(true)}
               title="Mostrar lista de arquivos"
-              className="hidden lg:flex flex-col items-center justify-center w-8 border-l border-gray-700 bg-gray-850 hover:bg-gray-700 text-gray-400 hover:text-gray-200 flex-shrink-0"
+              className="hidden lg:flex flex-col items-center justify-center w-8 border-l border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
@@ -2942,17 +2942,17 @@ export default function PlayerModal({
           dynamic viewport (handles iOS URL-bar collapse). Border/rounding stripped
           on phones so the modal becomes edge-to-edge. Returns to bounded card on sm+. */}
       <div className={minimized
-        ? 'bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full flex flex-col overflow-hidden'
-        : 'bg-gray-800 rounded-none sm:rounded-2xl border-0 sm:border border-gray-700 w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
+        ? 'bg-surface-secondary rounded-xl border border-default shadow-2xl w-full flex flex-col overflow-hidden'
+        : 'bg-surface-secondary rounded-none sm:rounded-2xl border-0 sm:border border-default w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
         {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
             minimized, which previously left the little card with NO way back to the
             full player. This bar restores the expand + close affordances. */}
         {minimized && (
-          <div className="flex items-center justify-between gap-2 px-2 py-1 bg-gray-900/80 border-b border-gray-700 flex-shrink-0">
-            <span className="text-[11px] text-gray-300 truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
+          <div className="flex items-center justify-between gap-2 px-2 py-1 bg-surface/80 border-b border-default flex-shrink-0">
+            <span className="text-[11px] text-text-primary truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
             <div className="flex items-center gap-0.5 flex-shrink-0">
-              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700/60"><Maximize2 className="w-4 h-4" /></button>
-              <button onClick={onClose} title="Fechar" className="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700/60"><X className="w-4 h-4" /></button>
+              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-text-primary hover:text-white hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
+              <button onClick={onClose} title="Fechar" className="p-1 rounded text-text-primary hover:text-white hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
             </div>
           </div>
         )}
@@ -2978,10 +2978,10 @@ export default function PlayerModal({
               this and show the populated UI immediately with a slim inline
               "waiting on swarm" indicator instead (rendered further below). */}
           {loading && !info && (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-16 text-text-secondary">
               <Loader2 className="w-10 h-10 animate-spin mb-4 text-green-500" />
               <p className="font-medium">Conectando ao swarm...</p>
-              <p className="text-xs text-gray-500 mt-2">Primeira vez nesse torrent — buscando peers</p>
+              <p className="text-xs text-text-muted mt-2">Primeira vez nesse torrent — buscando peers</p>
             </div>
           )}
           {/* Slim inline indicator: cached file list visible, swarm still warming up.
@@ -3002,7 +3002,7 @@ export default function PlayerModal({
                 Erro ao iniciar stream
               </p>
               <p className="text-sm text-red-300 mt-1">{error}</p>
-              <p className="text-xs text-gray-500 mt-3">
+              <p className="text-xs text-text-muted mt-3">
                 Causas comuns: torrent sem seeders, metadados não obtidos a tempo, ou magnet inválido.
               </p>
             </div>
@@ -3018,7 +3018,7 @@ export default function PlayerModal({
                 <AlertCircle className="w-4 h-4" />
                 Nenhum arquivo de vídeo encontrado
               </p>
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-text-muted mt-2">
                 Este torrent contém {info.files.length} arquivo(s) mas nenhum é de vídeo reconhecido (.mp4, .mkv, .avi, etc.)
               </p>
             </div>

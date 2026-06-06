@@ -108,7 +108,7 @@ function FolderTree(p: TreeProps) {
             <button
               type="button"
               className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors w-full text-left ${
-                isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
+                isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
               }`}
               style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
@@ -120,13 +120,13 @@ function FolderTree(p: TreeProps) {
               onClick={() => p.onSelect(node.folder.id)}
             >
               {node.children.length > 0 ? (
-                <button onClick={() => p.onToggle(node.folder.id)} className="text-gray-500 hover:text-gray-200">
+                <button onClick={() => p.onToggle(node.folder.id)} className="text-text-muted hover:text-text-primary">
                   {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                 </button>
               ) : (
                 <span className="w-3" />
               )}
-              {isOpen ? <FolderOpen className="w-3.5 h-3.5 text-pink-400" /> : <Folder className="w-3.5 h-3.5 text-gray-500" />}
+              {isOpen ? <FolderOpen className="w-3.5 h-3.5 text-pink-400" /> : <Folder className="w-3.5 h-3.5 text-text-muted" />}
               {isEditing ? (
                 <input
                   autoFocus
@@ -136,7 +136,7 @@ function FolderTree(p: TreeProps) {
                     if (e.key === 'Enter') p.onCommitEdit(node.folder.id, e.currentTarget.value)
                     if (e.key === 'Escape') p.onCancelEdit()
                   }}
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded px-1 text-xs text-gray-100 focus:outline-none focus:border-pink-500"
+                  className="flex-1 bg-surface border border-default rounded px-1 text-xs text-text-primary focus:outline-none focus:border-pink-500"
                 />
               ) : (
                 <button
@@ -149,13 +149,13 @@ function FolderTree(p: TreeProps) {
                 </button>
               )}
               <div className="max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
-                <button onClick={() => p.onCreateSub(node.folder.id)} title="Subpasta" className="p-0.5 text-gray-500 hover:text-gray-200">
+                <button onClick={() => p.onCreateSub(node.folder.id)} title="Subpasta" className="p-0.5 text-text-muted hover:text-text-primary">
                   <FolderPlus className="w-3 h-3" />
                 </button>
-                <button onClick={() => p.onStartEdit(node.folder.id)} title="Renomear" className="p-0.5 text-gray-500 hover:text-gray-200">
+                <button onClick={() => p.onStartEdit(node.folder.id)} title="Renomear" className="p-0.5 text-text-muted hover:text-text-primary">
                   <Pencil className="w-3 h-3" />
                 </button>
-                <button onClick={() => p.onDelete(node.folder.id)} title="Excluir" className="p-0.5 text-gray-500 hover:text-red-400">
+                <button onClick={() => p.onDelete(node.folder.id)} title="Excluir" className="p-0.5 text-text-muted hover:text-red-400">
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
@@ -175,7 +175,7 @@ const depthIndent = (depth: number) => 8 + depth * 14
 function rootFolderClass(viewMode: number | null, dropOnRoot: boolean): string {
   if (viewMode === null) return 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
   if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-100'
-  return 'text-gray-300 hover:bg-gray-800 border border-transparent'
+  return 'text-text-primary hover:bg-surface-secondary border border-transparent'
 }
 
 function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteFolder[]): string {
@@ -186,7 +186,7 @@ function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteF
 
 function renderFavsContent(loading: boolean, error: string, filteredFavs: StreamFavorite[], viewMode: number | null, ALL_VIEW: number, _folders: FavoriteFolder[]): JSX.Element | null {
   if (loading) {
-    return <div className="flex items-center justify-center py-20 text-gray-500">
+    return <div className="flex items-center justify-center py-20 text-text-muted">
       <Loader2 className="w-8 h-8 animate-spin" />
     </div>
   }
@@ -195,7 +195,7 @@ function renderFavsContent(loading: boolean, error: string, filteredFavs: Stream
   }
   if (filteredFavs.length === 0) {
     const insideFolder = viewMode !== ALL_VIEW
-    return <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+    return <div className="flex flex-col items-center justify-center py-20 text-text-muted">
       <Heart className="w-16 h-16 mb-4 opacity-30" />
       <p className="text-xl font-medium">Nenhum favorito {insideFolder ? 'nessa pasta' : 'ainda'}</p>
       <p className="text-sm mt-2 text-center max-w-md">
@@ -448,7 +448,7 @@ export default function FavoritesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
 
@@ -456,11 +456,11 @@ export default function FavoritesPage() {
         {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
         <aside className="w-64 flex-shrink-0 hidden md:block">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs uppercase tracking-wider text-gray-500">Pastas</h2>
+            <h2 className="text-xs uppercase tracking-wider text-text-muted">Pastas</h2>
             <button
               onClick={() => setCreatingRoot(true)}
               title="Nova pasta"
-              className="p-1 text-gray-500 hover:text-pink-400"
+              className="p-1 text-text-muted hover:text-pink-400"
             >
               <FolderPlus className="w-4 h-4" />
             </button>
@@ -473,12 +473,12 @@ export default function FavoritesPage() {
                 onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null) }}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(ALL_VIEW); setSelectedFolderId(null) } }}
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
-                  viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-800 border border-transparent'
+                  viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
                 }`}
               >
                 <Heart className="w-3.5 h-3.5 fill-current" />
                 Todos
-                <span className="ml-auto text-[10px] text-gray-500">{favs.length}</span>
+                <span className="ml-auto text-[10px] text-text-muted">{favs.length}</span>
               </button>
             </li>
             <li>
@@ -496,7 +496,7 @@ export default function FavoritesPage() {
               >
                 <Inbox className="w-3.5 h-3.5" />
                 Sem pasta
-                <span className="ml-auto text-[10px] text-gray-500">{favs.filter(f => f.folderId == null).length}</span>
+                <span className="ml-auto text-[10px] text-text-muted">{favs.filter(f => f.folderId == null).length}</span>
               </button>
             </li>
           </ul>
@@ -513,7 +513,7 @@ export default function FavoritesPage() {
                   if (e.key === 'Enter') handleCreateRoot()
                   if (e.key === 'Escape') setCreatingRoot(false)
                 }}
-                className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:border-pink-500"
+                className="w-full bg-surface border border-default rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-pink-500"
               />
             </div>
           )}
@@ -545,18 +545,18 @@ export default function FavoritesPage() {
           {/* Dropdown de pasta — só no mobile (a sidebar é hidden md:block). */}
           <button
             onClick={() => setFolderSheetOpen(true)}
-            className="md:hidden w-full flex items-center gap-2 px-3 min-h-[44px] mb-3 rounded-lg bg-gray-800 border border-gray-700 text-sm text-gray-200"
+            className="md:hidden w-full flex items-center gap-2 px-3 min-h-[44px] mb-3 rounded-lg bg-surface-secondary border border-default text-sm text-text-primary"
           >
             <Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />
             <span className="truncate flex-1 text-left">{pageTitle(viewMode, ALL_VIEW, folders)}</span>
-            <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />
           </button>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-3">
               <Heart className="w-5 h-5 text-pink-400 fill-current" />
-              <h1 className="text-lg font-semibold text-gray-100">{pageTitle(viewMode, ALL_VIEW, folders)}</h1>
+              <h1 className="text-lg font-semibold text-text-primary">{pageTitle(viewMode, ALL_VIEW, folders)}</h1>
               {!loading && (
-                <span className="text-xs text-gray-500 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">
+                <span className="text-xs text-text-muted bg-surface-secondary border border-default px-2 py-0.5 rounded-full">
                   {filteredFavs.length} item{filteredFavs.length === 1 ? '' : 's'}
                 </span>
               )}
@@ -574,25 +574,25 @@ export default function FavoritesPage() {
                 <Download className="w-3.5 h-3.5" />
                 Importar torrent
               </button>
-              <p className="text-xs text-gray-500 hidden lg:block">Arraste favoritos pra pastas na lateral pra organizar.</p>
+              <p className="text-xs text-text-muted hidden lg:block">Arraste favoritos pra pastas na lateral pra organizar.</p>
             </div>
           </div>
 
           {/* Search bar */}
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted w-4 h-4" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); setVisible(PAGE_SIZE) }}
                 placeholder="Buscar nos favoritos…"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-pink-500"
+                className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary focus:outline-none focus:border-pink-500"
               />
               {searchQuery && (
                 <button
                   onClick={() => { setSearchQuery(''); setVisible(PAGE_SIZE) }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -606,7 +606,7 @@ export default function FavoritesPage() {
                   setSelected(new Set(filteredFavs.map(f => f.name)))
                 }
               }}
-              className="flex items-center gap-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-3 py-2 rounded-lg transition-colors flex-shrink-0"
+              className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-2 rounded-lg transition-colors flex-shrink-0"
               title={selected.size === filteredFavs.length ? 'Desmarcar todos' : 'Selecionar todos'}
             >
               {selected.size === filteredFavs.length ? <Square className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
@@ -649,20 +649,20 @@ export default function FavoritesPage() {
                   <div className="flex items-start gap-2 pl-6">
                     {/* Lazy TMDB poster — falls back to a Film/Music icon when no match. */}
                     <Thumbnail title={fav.name} size="md" infoHash={fav.infoHash} />
-                    <h3 className="text-sm font-medium text-gray-100 line-clamp-2 flex-1" title={fav.name}>
-                      <FileVideo className="w-3.5 h-3.5 inline mr-1.5 text-gray-500" />
+                    <h3 className="text-sm font-medium text-text-primary line-clamp-2 flex-1" title={fav.name}>
+                      <FileVideo className="w-3.5 h-3.5 inline mr-1.5 text-text-muted" />
                       {fav.name}
                     </h3>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRemove(fav.name) }}
                       title="Remover dos favoritos"
-                      className="text-gray-600 hover:text-red-400 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                      className="text-text-muted hover:text-red-400 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex-shrink-0"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                  <div className="flex items-center gap-3 text-xs text-text-muted flex-wrap">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
                       {formatDate(fav.favoritedAt)}
@@ -676,14 +676,14 @@ export default function FavoritesPage() {
                       {fav.reason === 'auto-5min' ? 'Auto (5min)' : 'Manual'}
                     </span>
                     {fav.folderId != null && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700 flex items-center gap-1">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-secondary text-text-secondary border border-default flex items-center gap-1">
                         <Folder className="w-2.5 h-2.5" />
                         {folders.find(f => f.id === fav.folderId)?.name || '?'}
                       </span>
                     )}
                   </div>
 
-                  <div className="flex gap-1.5 mt-auto pt-2 border-t border-gray-700">
+                  <div className="flex gap-1.5 mt-auto pt-2 border-t border-default">
                     <button
                       onClick={e => { e.stopPropagation(); playFavorite(fav) }}
                       disabled={!fav.magnet}
@@ -691,7 +691,7 @@ export default function FavoritesPage() {
                       className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg flex-1 justify-center transition-colors ${
                         fav.magnet
                           ? 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30'
-                          : 'bg-gray-700/30 text-gray-500 cursor-not-allowed'
+                          : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
                       }`}
                     >
                       <Play className="w-3.5 h-3.5" />
@@ -705,8 +705,8 @@ export default function FavoritesPage() {
                       title="Ver conteúdo e detalhes"
                       className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
                         fav.magnet
-                          ? 'bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 border border-gray-700'
-                          : 'bg-gray-700/30 text-gray-500 cursor-not-allowed'
+                          ? 'bg-surface-tertiary/40 hover:bg-surface-tertiary/70 text-text-primary border border-default'
+                          : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
                       }`}
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
@@ -720,7 +720,7 @@ export default function FavoritesPage() {
                         onClick={e => e.stopPropagation()}
                         onChange={e => handleDropOnFolder(e.target.value === '' ? null : Number(e.target.value), fav.name)}
                         title="Mover para pasta"
-                        className="text-xs px-2 py-1.5 rounded-lg bg-gray-700/40 text-gray-300 border border-gray-700 focus:outline-none focus:border-green-500 cursor-pointer max-w-[45%]"
+                        className="text-xs px-2 py-1.5 rounded-lg bg-surface-tertiary/40 text-text-primary border border-default focus:outline-none focus:border-green-500 cursor-pointer max-w-[45%]"
                       >
                         <option value="">Raiz (sem pasta)</option>
                         {folders.map(f => (
@@ -733,13 +733,13 @@ export default function FavoritesPage() {
               ))}
             </div>
               {visible < filteredFavs.length && (
-                <div ref={sentinelRef} className="h-12 flex items-center justify-center text-gray-500 text-xs">
+                <div ref={sentinelRef} className="h-12 flex items-center justify-center text-text-muted text-xs">
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   Carregando mais…
                 </div>
               )}
               {visible >= filteredFavs.length && filteredFavs.length > PAGE_SIZE && (
-                <p className="text-center text-gray-600 text-xs py-4">Todos os {filteredFavs.length} itens carregados.</p>
+                <p className="text-center text-text-muted text-xs py-4">Todos os {filteredFavs.length} itens carregados.</p>
               )}
             </>
           })()}
@@ -758,7 +758,7 @@ export default function FavoritesPage() {
           <>
             Importar torrent
             {viewMode !== ALL_VIEW && (
-              <span className="text-[10px] text-gray-400 font-normal ml-1">
+              <span className="text-[10px] text-text-secondary font-normal ml-1">
                 → {folders.find(f => f.id === viewMode)?.name || 'pasta'}
               </span>
             )}
@@ -768,14 +768,14 @@ export default function FavoritesPage() {
         <div className="flex flex-col gap-4">
           {/* Magnet textarea — one per line for batch */}
           <div>
-            <label htmlFor="import-magnet" className="text-xs text-gray-400 mb-1 block">Magnet link (um por linha pra importar vários)</label>
+            <label htmlFor="import-magnet" className="text-xs text-text-secondary mb-1 block">Magnet link (um por linha pra importar vários)</label>
             <textarea
               id="import-magnet"
               value={magnetInput}
               onChange={e => setMagnetInput(e.target.value)}
               placeholder="magnet:?xt=urn:btih:..."
               rows={3}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono resize-y focus:border-pink-500 focus:outline-none"
+              className="w-full bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary font-mono resize-y focus:border-pink-500 focus:outline-none"
             />
             <button
               onClick={importMagnets}
@@ -787,8 +787,8 @@ export default function FavoritesPage() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-[10px] text-gray-600 uppercase tracking-wider">
-            <div className="flex-1 h-px bg-gray-700" /> ou <div className="flex-1 h-px bg-gray-700" />
+          <div className="flex items-center gap-2 text-[10px] text-text-muted uppercase tracking-wider">
+            <div className="flex-1 h-px bg-surface-tertiary" /> ou <div className="flex-1 h-px bg-surface-tertiary" />
           </div>
 
           {/* .torrent dropzone */}
@@ -802,11 +802,11 @@ export default function FavoritesPage() {
               if (fs.length) importTorrentFiles(fs)
             }}
             className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors ${
-              dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-gray-700 hover:border-gray-600'
+              dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-default hover:border-strong'
             }`}
           >
-            <UploadCloud className="w-7 h-7 text-gray-500" />
-            <span className="text-sm text-gray-400">Arraste arquivos .torrent ou clique pra escolher (vários)</span>
+            <UploadCloud className="w-7 h-7 text-text-muted" />
+            <span className="text-sm text-text-secondary">Arraste arquivos .torrent ou clique pra escolher (vários)</span>
             <input
               type="file"
               accept=".torrent"
@@ -826,12 +826,12 @@ export default function FavoritesPage() {
 
         {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-full shadow-2xl px-4 py-2 safe-bottom">
-          <span className="text-sm text-gray-200 whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-surface-secondary border border-default rounded-full shadow-2xl px-4 py-2 safe-bottom">
+          <span className="text-sm text-text-primary whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
           <select
             defaultValue=""
             onChange={e => { moveSelectedToFolder(e.target.value === '' ? null : Number(e.target.value)); e.target.value = '' }}
-            className="bg-gray-900 border border-gray-700 rounded-lg text-sm text-gray-200 px-2 py-1 focus:outline-none focus:border-green-500"
+            className="bg-surface border border-default rounded-lg text-sm text-text-primary px-2 py-1 focus:outline-none focus:border-green-500"
           >
             <option value="" disabled>Mover para…</option>
             <option value="">Raiz (sem pasta)</option>
@@ -854,7 +854,7 @@ export default function FavoritesPage() {
             <Trash2 className="w-3.5 h-3.5" />
             Excluir
           </button>
-          <button onClick={clearSelection} title="Limpar seleção" className="text-gray-400 hover:text-gray-100">
+          <button onClick={clearSelection} title="Limpar seleção" className="text-text-secondary hover:text-text-primary">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -880,24 +880,24 @@ export default function FavoritesPage() {
             <button
               onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null); setFolderSheetOpen(false) }}
               className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
-                viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+                viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
               }`}
             >
               <Heart className="w-4 h-4 fill-current flex-shrink-0" />
               <span className="flex-1 text-left">Todos</span>
-              <span className="text-[10px] text-gray-500">{favs.length}</span>
+              <span className="text-[10px] text-text-muted">{favs.length}</span>
             </button>
           </li>
           <li>
             <button
               onClick={() => { setViewMode(null); setSelectedFolderId(null); setFolderSheetOpen(false) }}
               className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
-                viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+                viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
               }`}
             >
               <Inbox className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1 text-left">Sem pasta</span>
-              <span className="text-[10px] text-gray-500">{favs.filter(f => f.folderId == null).length}</span>
+              <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId == null).length}</span>
             </button>
           </li>
           {flattenTree(tree).map(({ folder, depth }) => (
@@ -905,13 +905,13 @@ export default function FavoritesPage() {
               <button
                 onClick={() => { setViewMode(folder.id); setSelectedFolderId(folder.id); setFolderSheetOpen(false) }}
                 className={`w-full flex items-center gap-2 min-h-[44px] rounded-lg text-sm transition-colors ${
-                  viewMode === folder.id ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-gray-300 hover:bg-gray-700 border border-transparent'
+                  viewMode === folder.id ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
                 }`}
                 style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
               >
-                <Folder className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <Folder className="w-4 h-4 text-text-muted flex-shrink-0" />
                 <span className="flex-1 text-left truncate">{folder.name}</span>
-                <span className="text-[10px] text-gray-500">{favs.filter(f => f.folderId === folder.id).length}</span>
+                <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId === folder.id).length}</span>
               </button>
             </li>
           ))}

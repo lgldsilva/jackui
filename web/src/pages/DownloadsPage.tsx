@@ -601,13 +601,13 @@ export default function DownloadsPage() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       aria-label="Gerenciador de downloads — arraste arquivos .torrent ou links magnet"
-      className="relative min-h-screen bg-gray-900"
+      className="relative min-h-screen bg-surface"
     >
       {isDraggingPage && (
-        <div className="fixed inset-0 z-50 bg-gray-950/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-cyan-500/50 m-4 rounded-3xl pointer-events-none transition-all duration-300 animate-pulse">
+        <div className="fixed inset-0 z-50 bg-surface-elevated/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-cyan-500/50 m-4 rounded-3xl pointer-events-none transition-all duration-300 animate-pulse">
           <UploadCloud className="w-16 h-16 text-cyan-400 mb-4 animate-bounce" />
-          <h2 className="text-xl font-bold text-gray-100 mb-1">Solte seus arquivos .torrent aqui!</h2>
-          <p className="text-sm text-gray-400">ou links magnet arrastados para iniciar o carregamento</p>
+          <h2 className="text-xl font-bold text-text-primary mb-1">Solte seus arquivos .torrent aqui!</h2>
+          <p className="text-sm text-text-secondary">ou links magnet arrastados para iniciar o carregamento</p>
         </div>
       )}
 
@@ -651,29 +651,29 @@ export default function DownloadsPage() {
         {/* ═══════════════ Global Action Toolbar ═══════════════ */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           {/* Quick stats strip */}
-          <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+          <div className="flex items-center gap-3 text-xs text-text-secondary flex-wrap">
             {downloadsByStatus.downloading.length > 0 && (
               <span className="flex items-center gap-1">
                 <Download className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="text-gray-200 font-medium">{downloadsByStatus.downloading.length}</span> baixando
+                <span className="text-text-primary font-medium">{downloadsByStatus.downloading.length}</span> baixando
               </span>
             )}
             {downloadsByStatus.paused.length > 0 && (
               <span className="flex items-center gap-1">
-                <Pause className="w-3.5 h-3.5 text-gray-400" />
-                <span className="text-gray-200 font-medium">{downloadsByStatus.paused.length}</span> pausados
+                <Pause className="w-3.5 h-3.5 text-text-secondary" />
+                <span className="text-text-primary font-medium">{downloadsByStatus.paused.length}</span> pausados
               </span>
             )}
             {completedDownloads.length > 0 && (
               <span className="flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-                <span className="text-gray-200 font-medium">{completedDownloads.length}</span> concluídos
+                <span className="text-text-primary font-medium">{completedDownloads.length}</span> concluídos
               </span>
             )}
             {downloadsByStatus.failed.length > 0 && (
               <span className="flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                <span className="text-gray-200 font-medium">{downloadsByStatus.failed.length}</span> com erro
+                <span className="text-text-primary font-medium">{downloadsByStatus.failed.length}</span> com erro
               </span>
             )}
             {stalledCount > 0 && (
@@ -701,7 +701,7 @@ export default function DownloadsPage() {
                   onClick={doPauseAll}
                   disabled={bulkBusy}
                   title="Pausar todos os downloads e torrents ativos"
-                  className="flex items-center gap-1.5 text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 px-3 py-1.5 rounded-lg transition-colors"
+                  className="flex items-center gap-1.5 text-xs bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary border border-default px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <Pause className="w-3 h-3" /> Pausar todos
                 </button>
@@ -720,7 +720,7 @@ export default function DownloadsPage() {
               <button
                 onClick={() => setBulkSheetOpen(true)}
                 disabled={bulkBusy}
-                className="sm:hidden flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-lg border border-gray-700 bg-gray-800 text-gray-300 disabled:opacity-50"
+                className="sm:hidden flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-lg border border-default bg-surface-secondary text-text-primary disabled:opacity-50"
               >
                 <MoreHorizontal className="w-4 h-4" /> Ações
               </button>
@@ -732,16 +732,16 @@ export default function DownloadsPage() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
               <input
                 type="text"
                 value={filterSearch}
                 onChange={e => setFilterSearch(e.target.value)}
                 placeholder="Buscar por nome ou caminho..."
-                className="w-full bg-gray-800/80 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
+                className="w-full bg-surface-secondary/80 border border-default rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
               />
               {filterSearch && (
-                <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+                <button onClick={() => setFilterSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -751,7 +751,7 @@ export default function DownloadsPage() {
               className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors ${
                 showFilters || filterStatus || filterTracker || filterCategory
                   ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
-                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200'
+                  : 'bg-surface-secondary border-default text-text-secondary hover:text-text-primary'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -763,14 +763,14 @@ export default function DownloadsPage() {
           </div>
 
           {showFilters && (
-            <div className="bg-gray-800/40 border border-gray-700/50 rounded-xl p-3 flex flex-col gap-3">
+            <div className="bg-surface-secondary/40 border border-default/50 rounded-xl p-3 flex flex-col gap-3">
               {/* Filtros — selects preenchem a largura no mobile (flex-1) e ficam
                   no tamanho natural no desktop. */}
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={filterStatus}
                   onChange={e => setFilterStatus(e.target.value)}
-                  className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                 >
                   <option value="">Todos os status</option>
                   <option value="downloading">Baixando</option>
@@ -783,7 +783,7 @@ export default function DownloadsPage() {
                   <select
                     value={filterTracker}
                     onChange={e => setFilterTracker(e.target.value)}
-                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                    className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                   >
                     <option value="">Todos os trackers</option>
                     {availableTrackers.map(t => (
@@ -795,7 +795,7 @@ export default function DownloadsPage() {
                   <select
                     value={filterCategory}
                     onChange={e => setFilterCategory(e.target.value)}
-                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                    className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                   >
                     <option value="">Todas as categorias</option>
                     {availableCategories.map(c => (
@@ -807,7 +807,7 @@ export default function DownloadsPage() {
                   <select
                     value={filterUserId}
                     onChange={e => setFilterUserId(e.target.value)}
-                    className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                    className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                   >
                     <option value="">Todos os usuários</option>
                     {availableUsers.map(u => (
@@ -818,14 +818,14 @@ export default function DownloadsPage() {
               </div>
 
               {/* Ordenar — grupo próprio, separado por divisória; Limpar à direita. */}
-              <div className="flex items-center gap-2 flex-wrap border-t border-gray-700/50 pt-3">
-                <span className="text-xs text-gray-500 flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center gap-2 flex-wrap border-t border-default/50 pt-3">
+                <span className="text-xs text-text-muted flex items-center gap-1.5 flex-shrink-0">
                   <ArrowDownWideNarrow className="w-3.5 h-3.5" /> Ordenar
                 </span>
                 <select
                   value={sortCol}
                   onChange={e => setSortCol(e.target.value)}
-                  className="flex-1 min-w-[140px] sm:flex-none bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500/50"
+                  className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                 >
                   <option value="created_at">Data</option>
                   <option value="name">Nome</option>
@@ -839,13 +839,13 @@ export default function DownloadsPage() {
                   onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
                   title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
                   aria-label="Inverter ordem"
-                  className="flex-shrink-0 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-300 hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
+                  className="flex-shrink-0 bg-surface border border-default rounded-lg px-2 py-1.5 text-text-primary hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
                 >
                   {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
                 </button>
                 <button
                   onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId(''); setSortCol('created_at'); setSortDir('desc') }}
-                  className="ml-auto text-xs text-gray-500 hover:text-gray-300 px-2 py-1 flex-shrink-0"
+                  className="ml-auto text-xs text-text-muted hover:text-text-primary px-2 py-1 flex-shrink-0"
                 >
                   Limpar
                 </button>
@@ -855,7 +855,7 @@ export default function DownloadsPage() {
         </div>
 
         {/* ═══════════════ Tabs & Actions ═══════════════ */}
-        <div className="flex items-center justify-between border-b border-gray-700/60 flex-wrap gap-3">
+        <div className="flex items-center justify-between border-b border-default/60 flex-wrap gap-3">
           <div className="flex items-center gap-0.5 overflow-x-auto">
             {([
               { key: 'all'         as Tab, label: 'Todos',      icon: <ListFilter className="w-3.5 h-3.5" /> },
@@ -873,7 +873,7 @@ export default function DownloadsPage() {
                   border-b-2 transition-all duration-200
                   ${activeTab === tab.key
                     ? 'border-emerald-400 text-emerald-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'}
+                    : 'border-transparent text-text-secondary hover:text-text-primary hover:border-strong'}
                 `}
               >
                 {tab.icon}
@@ -893,7 +893,7 @@ export default function DownloadsPage() {
                 className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl font-semibold transition-all duration-200 mb-2 md:mb-0 ${
                   showAllUsers
                     ? 'bg-violet-500 hover:bg-violet-600 text-white shadow-lg shadow-violet-500/10'
-                    : 'bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200'
+                    : 'bg-surface-secondary border border-default text-text-secondary hover:text-text-primary'
                 }`}
               >
                 <Users className="w-4 h-4" />
@@ -906,7 +906,7 @@ export default function DownloadsPage() {
                   setPreloadFiles(null)
                   setShowAddModal(true)
                 }}
-                className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-gray-900 px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
+                className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-white px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
               >
                 <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
               </button>
@@ -1051,7 +1051,7 @@ export default function DownloadsPage() {
           <button
             onClick={() => { setBulkSheetOpen(false); void doPauseAll() }}
             disabled={bulkBusy}
-            className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-gray-700/60 text-gray-200 border border-gray-700 disabled:opacity-50"
+            className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-surface-tertiary/60 text-text-primary border border-default disabled:opacity-50"
           >
             <Pause className="w-4 h-4" /> Pausar todos
           </button>
@@ -1072,14 +1072,14 @@ export default function DownloadsPage() {
       {selected.size > 0 && (
         <div
           style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
-          className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-gray-800 border border-cyan-500/40 shadow-2xl rounded-full px-4 py-2 backdrop-blur"
+          className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-surface-secondary border border-cyan-500/40 shadow-2xl rounded-full px-4 py-2 backdrop-blur"
         >
-          <span className="text-sm text-gray-200 font-medium whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
-          <div className="w-px h-5 bg-gray-700" />
+          <span className="text-sm text-text-primary font-medium whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
+          <div className="w-px h-5 bg-surface-tertiary" />
           <button
             onClick={onBatchPause}
             disabled={bulkBusy}
-            className="flex items-center gap-1 text-xs bg-gray-700/60 hover:bg-gray-700 disabled:opacity-50 text-gray-300 px-3 py-1 rounded-full transition-colors"
+            className="flex items-center gap-1 text-xs bg-surface-tertiary/60 hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-3 py-1 rounded-full transition-colors"
           >
             <Pause className="w-3 h-3" /> Pausar
           </button>
@@ -1104,7 +1104,7 @@ export default function DownloadsPage() {
           >
             <Trash2 className="w-3 h-3" /> Remover
           </button>
-          <div className="w-px h-5 bg-gray-700" />
+          <div className="w-px h-5 bg-surface-tertiary" />
           <SelectAllButton
             allSelected={items.length > 0 && selected.size === items.length}
             onToggle={handleToggleSelectAll}
@@ -1130,16 +1130,16 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 }) {
   return (
     <div className={`
-      relative overflow-hidden rounded-xl border border-gray-700/50
+      relative overflow-hidden rounded-xl border border-default/50
       bg-gradient-to-br ${gradient} backdrop-blur-sm
       p-4 flex flex-col gap-1
     `}>
       <div className="flex items-center gap-2">
         <span className={`${iconColor} ${pulse ? 'animate-pulse' : ''}`}>{icon}</span>
-        <span className="text-xs text-gray-400 uppercase tracking-wider font-medium">{label}</span>
+        <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">{label}</span>
       </div>
-      <span className="text-xl font-bold text-gray-100 tracking-tight">{value}</span>
-      {subtitle && <span className="text-xs text-gray-500">{subtitle}</span>}
+      <span className="text-xl font-bold text-text-primary tracking-tight">{value}</span>
+      {subtitle && <span className="text-xs text-text-muted">{subtitle}</span>}
     </div>
   )
 }
@@ -1174,7 +1174,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   return (
     <div className="flex flex-col gap-4">
       {isLoading && (
-        <div className="flex items-center gap-2 text-gray-400 py-12 justify-center">
+        <div className="flex items-center gap-2 text-text-secondary py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span className="text-sm">Carregando...</span>
         </div>
@@ -1274,13 +1274,13 @@ function DownloadGroupCard({
   readonly children: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-gray-700/50 bg-gray-800/40 overflow-hidden">
+    <div className="rounded-xl border border-default/50 bg-surface-secondary/40 overflow-hidden">
       <div className="flex items-center gap-2 p-3">
         <button onClick={onToggle} className="flex items-center gap-2 min-w-0 flex-1 text-left">
-          {expanded ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-gray-400" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-gray-400" />}
+          {expanded ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-text-secondary" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-text-secondary" />}
           <Folder className="w-4 h-4 flex-shrink-0 text-emerald-400" />
-          <span className="font-semibold text-gray-100 text-sm truncate" title={group.name}>{group.name}</span>
-          <span className="text-[11px] text-gray-500 flex-shrink-0">{group.files.length} arquivos</span>
+          <span className="font-semibold text-text-primary text-sm truncate" title={group.name}>{group.name}</span>
+          <span className="text-[11px] text-text-muted flex-shrink-0">{group.files.length} arquivos</span>
           {group.seeding && (
             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30 flex-shrink-0">
               <ArrowUpCircle className="w-3 h-3" />Semeando
@@ -1292,7 +1292,7 @@ function DownloadGroupCard({
             <ArrowUpCircle className="w-4 h-4" />
           </button>
           {onStopSeed && (
-            <button onClick={onStopSeed} disabled={busy} title="Parar de seedar todos" className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-700 disabled:opacity-50">
+            <button onClick={onStopSeed} disabled={busy} title="Parar de seedar todos" className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
               <Pause className="w-4 h-4" />
             </button>
           )}
@@ -1301,7 +1301,7 @@ function DownloadGroupCard({
           </button>
         </div>
       </div>
-      {expanded && <div className="flex flex-col gap-2 px-3 pb-3 pl-6 border-l-2 border-gray-700/50 ml-3">{children}</div>}
+      {expanded && <div className="flex flex-col gap-2 px-3 pb-3 pl-6 border-l-2 border-default/50 ml-3">{children}</div>}
     </div>
   )
 }
@@ -1330,7 +1330,7 @@ function CompletedFilterChips({ value, onChange, seedingN, onDiskN }: {
           onClick={() => onChange(o.key)}
           className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${value === o.key
             ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-            : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-gray-200'}`}
+            : 'bg-surface-secondary text-text-secondary border-default hover:text-text-primary'}`}
         >
           {o.label}
         </button>
@@ -1469,7 +1469,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   return (
     <div className="flex flex-col gap-4">
       {!torrentsLoaded && (
-        <div className="flex items-center gap-2 text-gray-400 py-12 justify-center">
+        <div className="flex items-center gap-2 text-text-secondary py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span className="text-sm">Carregando...</span>
         </div>
@@ -1499,7 +1499,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       {/* Na fila */}
       {showOthers && queued.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-gray-500" />}
+          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-text-muted" />}
           {queued.map(renderDownloadCard)}
         </>
       )}
@@ -1526,7 +1526,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       {/* No disco (concluído, seed parado) */}
       {showOnDisk && onDiskGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-gray-500" />}
+          {showHeaders && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-text-muted" />}
           {onDiskGroups.map(renderCompletedGroup)}
         </>
       )}
@@ -1534,7 +1534,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
       {/* Pausados / falhos */}
       {showOthers && otherDownloads.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-gray-500" />}
+          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-text-muted" />}
           {otherDownloads.map(renderDownloadCard)}
         </>
       )}
@@ -1563,39 +1563,39 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
   return (
     <div className="flex flex-col gap-6">
       {/* Live network overview */}
-      <div className="rounded-xl border border-gray-700/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-6">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-5">
+      <div className="rounded-xl border border-default/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-6">
+        <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider flex items-center gap-2 mb-5">
           <Wifi className="w-4 h-4 text-cyan-400" />
           Monitoramento em Tempo Real
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-gray-500">Download atual</span>
+            <span className="text-xs text-text-muted">Download atual</span>
             <span className="text-2xl font-bold text-emerald-400">{formatRate(totalDown)}</span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-gray-500">Upload atual</span>
+            <span className="text-xs text-text-muted">Upload atual</span>
             <span className="text-2xl font-bold text-violet-400">{formatRate(totalUp)}</span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-gray-500">Peers conectados</span>
+            <span className="text-xs text-text-muted">Peers conectados</span>
             <span className="text-2xl font-bold text-blue-400">{totalPeers}</span>
           </div>
         </div>
       </div>
 
       {/* Bandwidth limits form */}
-      <div className="rounded-xl border border-gray-700/50 bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm p-6">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider flex items-center gap-2 mb-5">
+      <div className="rounded-xl border border-default/50 bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm p-6">
+        <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider flex items-center gap-2 mb-5">
           <Gauge className="w-4 h-4 text-amber-400" />
           Limites de Velocidade
         </h3>
-        <p className="text-xs text-gray-500 mb-4">
+        <p className="text-xs text-text-muted mb-4">
           Defina limites em KB/s. Deixe em branco ou 0 para ilimitado.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
           <div className="flex flex-col gap-2">
-            <label className="text-xs text-gray-400 flex items-center gap-1.5">
+            <label className="text-xs text-text-secondary flex items-center gap-1.5">
               <ArrowDownCircle className="w-3.5 h-3.5 text-emerald-400" />
               Limite de download (KB/s)
             </label>
@@ -1605,11 +1605,11 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
               placeholder="Ilimitado"
               value={limitDownKB}
               onChange={e => setLimitDownKB(e.target.value)}
-              className="bg-gray-900/80 border border-gray-700 rounded-lg px-3 py-2.5 text-gray-100 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
+              className="bg-surface/80 border border-default rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
             />
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-xs text-gray-400 flex items-center gap-1.5">
+            <label className="text-xs text-text-secondary flex items-center gap-1.5">
               <ArrowUpCircle className="w-3.5 h-3.5 text-violet-400" />
               Limite de upload (KB/s)
             </label>
@@ -1619,7 +1619,7 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
               placeholder="Ilimitado"
               value={limitUpKB}
               onChange={e => setLimitUpKB(e.target.value)}
-              className="bg-gray-900/80 border border-gray-700 rounded-lg px-3 py-2.5 text-gray-100 text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+              className="bg-surface/80 border border-default rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
             />
           </div>
         </div>
@@ -1650,9 +1650,9 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
 function EmptyState({ icon, title, description }: { readonly icon: React.ReactNode; readonly title: string; readonly description: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="text-gray-700 mb-3">{icon}</div>
-      <h3 className="text-lg font-semibold text-gray-400 mb-1">{title}</h3>
-      <p className="text-sm text-gray-600 max-w-md">{description}</p>
+      <div className="text-text-muted mb-3">{icon}</div>
+      <h3 className="text-lg font-semibold text-text-secondary mb-1">{title}</h3>
+      <p className="text-sm text-text-muted max-w-md">{description}</p>
     </div>
   )
 }
@@ -1685,7 +1685,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   if (isSeeding) {
     borderClass = 'border-violet-500/30 hover:border-violet-500/50'
   } else if (isPaused) {
-    borderClass = 'border-gray-600/50 hover:border-gray-500/60'
+    borderClass = 'border-strong/50 hover:border-gray-500/60'
   } else if (isComplete) {
     borderClass = 'border-green-500/30 hover:border-green-500/50'
   } else {
@@ -1712,14 +1712,14 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
     `}>
       {/* Top row: name + badges */}
       <div className="min-w-0">
-        <h3 className="font-semibold text-gray-100 text-sm leading-snug [overflow-wrap:anywhere]" title={t.name}>
+        <h3 className="font-semibold text-text-primary text-sm leading-snug [overflow-wrap:anywhere]" title={t.name}>
           {t.name || t.infoHash}
         </h3>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <KindBadge kind="streaming" />
           <TorrentStatusBadge status={status} />
         </div>
-        <p className="text-[11px] text-gray-600 truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
+        <p className="text-[11px] text-text-muted truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
       </div>
 
       {/* Live rate chips — destaque pro Down/Up/Peers de CADA torrent. Eram
@@ -1729,7 +1729,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-            t.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-gray-500'
+            t.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
           }`}
           title="Velocidade de download deste torrent"
         >
@@ -1738,7 +1738,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
         </span>
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-            t.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-gray-500'
+            t.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-text-muted'
           }`}
           title="Velocidade de upload deste torrent"
         >
@@ -1750,26 +1750,26 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
           title="Peers conectados / Seeders no swarm"
         >
           <Users className="w-3.5 h-3.5" />
-          {t.peers}{(t.seeders ?? 0) > 0 && <span className="text-gray-500"> / {t.seeders}</span>}
+          {t.peers}{(t.seeders ?? 0) > 0 && <span className="text-text-muted"> / {t.seeders}</span>}
         </span>
       </div>
 
       {/* Progress bar */}
       <div>
-        <div className="h-2 bg-gray-900/80 rounded-full overflow-hidden">
+        <div className="h-2 bg-surface/80 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500 ease-out`}
             style={{ width: `${pct.toFixed(1)}%` }}
           />
         </div>
         {/* Stats row — bytes/% + ETA. Velocidades subiram para os chips acima. */}
-        <div className="flex items-center justify-between mt-2 text-xs text-gray-400 gap-3 flex-wrap">
-          <span className="text-gray-300 font-medium">
+        <div className="flex items-center justify-between mt-2 text-xs text-text-secondary gap-3 flex-wrap">
+          <span className="text-text-primary font-medium">
             {formatBytes(Math.round((t.totalSize || 0) * (t.progress || 0)))} / {formatBytes(t.totalSize)}
-            <span className="text-gray-500 ml-1">({pct.toFixed(1)}%)</span>
+            <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
           </span>
           {eta && (
-            <span className="flex items-center gap-1 text-gray-500" title="ETA">
+            <span className="flex items-center gap-1 text-text-muted" title="ETA">
               <Clock className="w-3 h-3" /> {eta}
             </span>
           )}
@@ -1784,13 +1784,13 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
           <ActionButton onClick={onPause} disabled={busy || isComplete} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" title="Pausa o torrent (retomável; o que já baixou fica no cache)" />
         )}
 
-        <label className="flex items-center gap-1.5 text-xs text-gray-400">
-          <span className="text-gray-500">Prioridade:</span>
+        <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+          <span className="text-text-muted">Prioridade:</span>
           <select
             value={priority}
             onChange={e => onPriority(e.target.value as StreamPriority)}
             disabled={busy}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-gray-100 text-xs disabled:opacity-50 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
+            className="bg-surface-secondary border border-default rounded-lg px-2 py-1 text-text-primary text-xs disabled:opacity-50 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
           >
             <option value="low">Baixa</option>
             <option value="normal">Normal</option>
@@ -1798,7 +1798,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
           </select>
         </label>
 
-        {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
+        {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-text-muted" />}
         <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label="Parar" title="Encerra e remove o torrent do streaming (diferente de Pausar; o cache já baixado não é apagado)" className="ml-auto" />
       </div>
     </div>
@@ -1808,7 +1808,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
 function downloadBorderClass(completed: boolean, failed: boolean, paused: boolean): string {
   if (completed) return 'border-green-500/30 hover:border-green-500/50'
   if (failed) return 'border-red-500/30 hover:border-red-500/50'
-  if (paused) return 'border-gray-600/50 hover:border-gray-500/60'
+  if (paused) return 'border-strong/50 hover:border-gray-500/60'
   return 'border-cyan-500/30 hover:border-cyan-500/50'
 }
 
@@ -1895,14 +1895,14 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
           />
         )}
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-gray-100 text-sm leading-snug [overflow-wrap:anywhere]" title={titleText}>
+          <h3 className="font-semibold text-text-primary text-sm leading-snug [overflow-wrap:anywhere]" title={titleText}>
             {titleText}
           </h3>
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <KindBadge kind="server" />
             <DownloadStatusBadge status={d.status} />
             {d.status === 'queued' && (d.queuePosition ?? 0) > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-gray-700/50 text-gray-400 border border-gray-600/50 font-medium" title="Posição na fila">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-tertiary/50 text-text-secondary border border-strong/50 font-medium" title="Posição na fila">
                 {d.queuePosition}º na fila
               </span>
             )}
@@ -1923,7 +1923,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
               </span>
             )}
           </div>
-          {subtitleText && <p className="text-[11px] text-gray-600 truncate mt-0.5" title={subtitleText}>{subtitleText}</p>}
+          {subtitleText && <p className="text-[11px] text-text-muted truncate mt-0.5" title={subtitleText}>{subtitleText}</p>}
         </div>
       </div>
 
@@ -1934,7 +1934,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span
             className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-              live.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-gray-500'
+              live.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
             }`}
             title="Download deste torrent"
           >
@@ -1943,7 +1943,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
           </span>
           <span
             className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-              live.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-gray-500'
+              live.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-text-muted'
             }`}
             title="Upload deste torrent (seedando)"
           >
@@ -1955,26 +1955,26 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             title="Peers conectados / Seeders no swarm"
           >
             <Users className="w-3.5 h-3.5" />
-            {live.peers}{(live.seeders ?? 0) > 0 && <span className="text-gray-500"> / {live.seeders}</span>}
+            {live.peers}{(live.seeders ?? 0) > 0 && <span className="text-text-muted"> / {live.seeders}</span>}
           </span>
         </div>
       )}
 
       {/* Progress bar */}
       <div>
-        <div className="h-2 bg-gray-900/80 rounded-full overflow-hidden">
+        <div className="h-2 bg-surface/80 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500 ease-out`}
             style={{ width: `${pct.toFixed(1)}%` }}
           />
         </div>
-        <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
-          <span className="text-gray-300 font-medium">
+        <div className="flex items-center justify-between mt-2 text-xs text-text-secondary">
+          <span className="text-text-primary font-medium">
             {formatBytes(d.bytesDownloaded)} / {formatBytes(d.fileSize)}
-            <span className="text-gray-500 ml-1">({pct.toFixed(1)}%)</span>
+            <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
           </span>
           {!isCompleted && !isFailed && etaText && (
-            <span className="flex items-center gap-1 text-gray-500">
+            <span className="flex items-center gap-1 text-text-muted">
               <Clock className="w-3 h-3" /> {etaText}
             </span>
           )}
@@ -2012,13 +2012,13 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
           <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? 'Tentar novamente' : 'Resumir'} />
         )}
         {!isGuest && isActive && onSetPriority && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-400">
-            <span className="text-gray-500">Prioridade:</span>
+          <label className="flex items-center gap-1.5 text-xs text-text-secondary">
+            <span className="text-text-muted">Prioridade:</span>
             <select
               value={d.priority || 'normal'}
               onChange={e => onSetPriority(e.target.value as DownloadPriority)}
               disabled={busy}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-gray-100 text-xs disabled:opacity-50 focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
+              className="bg-surface-secondary border border-default rounded-lg px-2 py-1 text-text-primary text-xs disabled:opacity-50 focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
             >
               <option value="low">Baixa</option>
               <option value="normal">Normal</option>
@@ -2092,7 +2092,7 @@ function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
 function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentInfo['status']> }) {
   const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
     downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-gray-300 border-gray-500/30',          icon: <Pause className="w-3 h-3" /> },
+    paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-text-primary border-gray-500/30',          icon: <Pause className="w-3 h-3" /> },
     seeding:     { label: 'Semeando',  cls: 'bg-violet-500/15 text-violet-300 border-violet-500/30',    icon: <ArrowUpCircle className="w-3 h-3" /> },
     complete:    { label: 'Completo',  cls: 'bg-green-500/15 text-green-300 border-green-500/30',       icon: <CheckCircle2 className="w-3 h-3" /> },
   }
@@ -2106,11 +2106,11 @@ function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentIn
 
 function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['status'] }) {
   const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
-    queued:      { label: 'Na fila',     cls: 'bg-gray-700/50 text-gray-300 border-gray-600/50',         icon: <Clock className="w-3 h-3" /> },
+    queued:      { label: 'Na fila',     cls: 'bg-surface-tertiary/50 text-text-primary border-strong/50',         icon: <Clock className="w-3 h-3" /> },
     downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     completed:   { label: 'Concluído',   cls: 'bg-green-500/15 text-green-300 border-green-500/30',      icon: <CheckCircle2 className="w-3 h-3" /> },
     failed:      { label: 'Falhou',      cls: 'bg-red-500/15 text-red-300 border-red-500/30',            icon: <AlertCircle className="w-3 h-3" /> },
-    paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-gray-300 border-gray-500/30',         icon: <Pause className="w-3 h-3" /> },
+    paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-text-primary border-gray-500/30',         icon: <Pause className="w-3 h-3" /> },
   }
   const s = map[status]
   return (
@@ -2132,7 +2132,7 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '',
   const styles: Record<typeof variant, string> = {
     success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
     danger:  'bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/30',
-    neutral: 'bg-gray-700/60 hover:bg-gray-700 text-gray-300 border-gray-600/60',
+    neutral: 'bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border-strong/60',
     info:    'bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border-blue-500/30',
   }
   return (
@@ -2158,7 +2158,7 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '',
 function tabBadgeClass(activeTab: Tab, tabKey: string): string {
   if (activeTab === tabKey) return 'bg-emerald-500/20 text-emerald-300'
   if (tabKey === 'failed') return 'bg-red-500/20 text-red-400'
-  return 'bg-gray-700 text-gray-400'
+  return 'bg-surface-tertiary text-text-secondary'
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
