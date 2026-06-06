@@ -20,6 +20,21 @@ export type ResultFilters = {
   readonly trackerFilter?: string
   readonly titleFilter?: string
   readonly onlyPlayable?: boolean
+  // Quality filters (onda 3). Empty/false = "qualquer".
+  readonly resolution?: string // exact match against quality.resolution ('2160p'…)
+  readonly hdrOnly?: boolean    // keep only HDR or Dolby Vision releases
+  readonly codecGroup?: string  // normalized family: 'hevc' | 'h264' | 'av1'
+}
+
+// codecGroupOf normalizes the free-form quality.codec ('x265', 'HEVC', 'h.264',
+// 'AV1'…) into a stable family so a single filter value matches every spelling.
+export function codecGroupOf(codec?: string): string {
+  if (!codec) return ''
+  const c = codec.toLowerCase()
+  if (c.includes('265') || c.includes('hevc')) return 'hevc'
+  if (c.includes('264') || c.includes('avc')) return 'h264'
+  if (c.includes('av1')) return 'av1'
+  return 'other'
 }
 
 export type UseFilteredResultsOpts = ResultFilters & {
@@ -40,6 +55,9 @@ export function useFilteredResults<T extends SearchResult>(
     trackerFilter = 'all',
     titleFilter = '',
     onlyPlayable = false,
+    resolution = '',
+    hdrOnly = false,
+    codecGroup = '',
     sortKey,
     sortAsc,
   } = opts
@@ -62,6 +80,9 @@ export function useFilteredResults<T extends SearchResult>(
       if (res.size > maxBytes) return false
       if (titleLower && !res.title.toLowerCase().includes(titleLower)) return false
       if (onlyPlayable && !isPlayable(res)) return false
+      if (resolution && res.quality?.resolution !== resolution) return false
+      if (hdrOnly && !(res.quality?.hdr || res.quality?.dv)) return false
+      if (codecGroup && codecGroupOf(res.quality?.codec) !== codecGroup) return false
       return true
     })
 
@@ -79,5 +100,5 @@ export function useFilteredResults<T extends SearchResult>(
     })
 
     return { filteredResults: r, groupedCount: grouped.length }
-  }, [input, minSeeders, minLeechers, maxBytes, trackerFilter, titleFilter, onlyPlayable, sortKey, sortAsc])
+  }, [input, minSeeders, minLeechers, maxBytes, trackerFilter, titleFilter, onlyPlayable, resolution, hdrOnly, codecGroup, sortKey, sortAsc])
 }
