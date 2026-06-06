@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -286,21 +287,97 @@ func TestAdoptBenchmark(t *testing.T) {
 	}
 }
 
-func TestRunSlotsCloudSequential(t *testing.T) {
-	good := httptest.NewServer(jsonChat(`{"title":"T","year":0,"kind":"movie"}`, http.StatusOK))
-	defer good.Close()
+// TestLocalModelClassification pins the rule that drives serialization: a bare
+// local Ollama model is Local; the "-cloud" variant and any other provider aren't.
+func TestLocalModelClassification(t *testing.T) {
+	cases := []struct {
+		provider, model string
+		want            bool
+	}{
+		{"ollama", "llama3.1:8b", true},
+		{"ollama", "gpt-oss:120b-cloud", false},
+		{"groq", "llama-3.1-70b", false},
+		{"openrouter", "some/model:free", false},
+	}
+	for _, tc := range cases {
+		if got := localModel(tc.provider, tc.model); got != tc.want {
+			t.Fatalf("localModel(%q,%q)=%v, want %v", tc.provider, tc.model, got, tc.want)
+		}
+	}
+}
+
+// concTracker is an httptest handler that records the peak number of requests
+// in flight at once. Each request holds for a beat so genuinely-parallel calls
+// overlap and bump the peak; sequential calls never exceed 1.
+func concTracker(body string) (http.HandlerFunc, *int32) {
+	var inFlight, peak int32
+	h := func(w http.ResponseWriter, r *http.Request) {
+		cur := atomic.AddInt32(&inFlight, 1)
+		for {
+			p := atomic.LoadInt32(&peak)
+			if cur <= p || atomic.CompareAndSwapInt32(&peak, p, cur) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+		atomic.AddInt32(&inFlight, -1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":` + body + `}}]}`))
+	}
+	return h, &peak
+}
+
+// TestRunSlotsLocalSerialized locks in the core fix: several LOCAL Ollama models
+// (sharing one GPU) are benchmarked strictly one-at-a-time — concurrent calls
+// would exceed Ollama's connection slots and thrash VRAM.
+func TestRunSlotsLocalSerialized(t *testing.T) {
+	h, peak := concTracker(`"{\"title\":\"T\",\"year\":0,\"kind\":\"movie\"}"`)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
 
 	c := &Client{
 		http:      &http.Client{},
-		providers: map[string]config.AIProvider{"ollama": {BaseURL: good.URL + "/v1", APIKey: ""}},
+		providers: map[string]config.AIProvider{"ollama": {BaseURL: srv.URL}},
 	}
 
-	local := Slot{ID: "ollama:local", Provider: "ollama", Model: "local-model", BaseURL: good.URL + "/v1", apiKey: ""}
-	cloud := Slot{ID: "ollama:gpt-oss:120b-cloud", Provider: "ollama", Model: "gpt-oss:120b-cloud", BaseURL: good.URL + "/v1", apiKey: ""}
+	var slots []Slot
+	for i := 0; i < 4; i++ {
+		slots = append(slots, Slot{ID: "ollama:m", Provider: "ollama", Model: "local-model", BaseURL: srv.URL, Local: true})
+	}
 
-	scores := c.RunSlots(context.Background(), []Slot{local, cloud}, []BenchmarkCase{{Raw: "Test", Expect: "Test"}})
-	if len(scores) != 2 {
-		t.Fatalf("expected 2 scores, got %d", len(scores))
+	scores := c.RunSlots(context.Background(), slots, []BenchmarkCase{{Raw: "X", Expect: "X"}})
+	if len(scores) != 4 {
+		t.Fatalf("expected 4 scores, got %d", len(scores))
+	}
+	if p := atomic.LoadInt32(peak); p != 1 {
+		t.Fatalf("local Ollama must be serialized (peak 1), got peak %d", p)
+	}
+}
+
+// TestRunSlotsCloudAndExternalParallel proves the flip side: Ollama *cloud* models
+// ("-cloud") and external vendors are NOT local, so they fan out and overlap.
+func TestRunSlotsCloudAndExternalParallel(t *testing.T) {
+	h, peak := concTracker(`"{\"title\":\"T\",\"year\":0,\"kind\":\"movie\"}"`)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	c := &Client{
+		http: &http.Client{},
+		providers: map[string]config.AIProvider{
+			"ollama": {BaseURL: srv.URL},
+			"groq":   {BaseURL: srv.URL},
+		},
+	}
+	slots := []Slot{
+		{ID: "ollama:c1", Provider: "ollama", Model: "gpt-oss:120b-cloud", BaseURL: srv.URL, Local: localModel("ollama", "gpt-oss:120b-cloud")},
+		{ID: "ollama:c2", Provider: "ollama", Model: "qwen3:480b-cloud", BaseURL: srv.URL, Local: localModel("ollama", "qwen3:480b-cloud")},
+		{ID: "groq:m", Provider: "groq", Model: "llama-3.1-70b", BaseURL: srv.URL, Local: localModel("groq", "llama-3.1-70b")},
+	}
+	c.RunSlots(context.Background(), slots, []BenchmarkCase{{Raw: "X", Expect: "X"}})
+
+	if p := atomic.LoadInt32(peak); p < 2 {
+		t.Fatalf("cloud Ollama + external should parallelize (peak >= 2), got peak %d", p)
 	}
 }
 
