@@ -205,7 +205,6 @@ var localVideoExts = map[string]bool{
 }
 
 func LocalThumb(b *local.Browser) gin.HandlerFunc {
-	cacheDir := filepath.Join(os.TempDir(), "jackui-local-thumbs")
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -230,8 +229,16 @@ func LocalThumb(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 		at := parseAt(c)
+		cacheDir := localThumbCacheDir
 		cachePath := thumbCachePath(cacheDir, abs, at)
 		if serveCachedThumb(c, cachePath) {
+			return
+		}
+		// A previous attempt failed (e.g. a 4K HDR HEVC frame ffmpeg can't decode
+		// quickly): don't re-spend ~12s on every listing — serve 204 until the
+		// marker expires. Cleared automatically once a thumb succeeds.
+		if negativeThumbFresh(cachePath) {
+			c.Status(http.StatusNoContent)
 			return
 		}
 		out := captureThumb(c, abs, at, cacheDir, cachePath)
@@ -264,10 +271,53 @@ func parseAt(c *gin.Context) int {
 	return at
 }
 
+// localThumbSem caps how many local-thumbnail ffmpeg jobs run at once. Listing
+// a folder full of 4K HDR HEVC files would otherwise spawn one heavy ffmpeg per
+// file simultaneously and peg the (often ARM) host — the symptom that froze the
+// UI. 2 keeps things moving without serializing fully. Mirrors the health
+// probe's semaphore pattern (internal/streamer/health.go).
+var localThumbSem = make(chan struct{}, 2)
+
+// localThumbCacheDir is where generated thumbnails AND negative-result markers
+// live. Defaults to a temp dir (fine for tests); main() repoints it at the
+// persistent stream DataDir via SetLocalThumbCacheDir so thumbs survive
+// restarts instead of being regenerated every boot.
+var localThumbCacheDir = filepath.Join(os.TempDir(), "jackui-local-thumbs")
+
+const (
+	localThumbTimeout = 12 * time.Second
+	// negativeThumbTTL bounds how long a failed-capture marker suppresses
+	// retries. Long enough to avoid hammering ffmpeg on every listing of a file
+	// it can't decode; short enough that a transient failure self-heals.
+	negativeThumbTTL = 24 * time.Hour
+)
+
+// SetLocalThumbCacheDir points the local-thumbnail cache at a persistent
+// directory. Called once at startup; no-op on empty input.
+func SetLocalThumbCacheDir(dir string) {
+	if dir != "" {
+		localThumbCacheDir = dir
+	}
+}
+
 func thumbCachePath(cacheDir, abs string, at int) string {
 	stat, _ := os.Stat(abs)
 	key := fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", abs, stat.ModTime().UnixNano(), at))))
 	return filepath.Join(cacheDir, key+".jpg")
+}
+
+// negativeMarkerPath is the sibling marker recording a failed capture for a
+// given cache key (so we don't retry a doomed ffmpeg on every listing).
+func negativeMarkerPath(cachePath string) string { return cachePath + ".empty" }
+
+// negativeThumbFresh reports whether a recent failed-capture marker exists,
+// meaning we should short-circuit to 204 instead of re-running ffmpeg.
+func negativeThumbFresh(cachePath string) bool {
+	st, err := os.Stat(negativeMarkerPath(cachePath))
+	if err != nil {
+		return false
+	}
+	return time.Since(st.ModTime()) < negativeThumbTTL
 }
 
 func serveCachedThumb(c *gin.Context, cachePath string) bool {
@@ -281,8 +331,16 @@ func serveCachedThumb(c *gin.Context, cachePath string) bool {
 }
 
 func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string) []byte {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), localThumbTimeout)
 	defer cancel()
+	// Limit concurrent ffmpeg jobs; if the client navigates away before a slot
+	// frees up, bail cheaply rather than piling on more heavy 4K decodes.
+	select {
+	case localThumbSem <- struct{}{}:
+		defer func() { <-localThumbSem }()
+	case <-ctx.Done():
+		return nil
+	}
 	seeks := []int{at}
 	if at != 1 {
 		seeks = append(seeks, 1)
@@ -304,8 +362,19 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 			break
 		}
 	}
-	if len(out) > 0 && os.MkdirAll(cacheDir, 0o755) == nil {
+	if os.MkdirAll(cacheDir, 0o755) != nil {
+		return out
+	}
+	if len(out) > 0 {
 		_ = os.WriteFile(cachePath, out, 0o644)
+		_ = os.Remove(negativeMarkerPath(cachePath)) // a success clears any stale failure
+		return out
+	}
+	// Persist the FAILURE so repeated listings don't re-run a ~12s decode for a
+	// frame ffmpeg can't produce — but only on a real ffmpeg error/timeout, not
+	// when the client cancelled (navigated away) before we finished.
+	if ctx.Err() != context.Canceled {
+		_ = os.WriteFile(negativeMarkerPath(cachePath), nil, 0o644)
 	}
 	return out
 }
@@ -395,6 +464,36 @@ func LocalDelete(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) g
 		}
 		removed := purgeLinkedTorrents(dls, s, linked)
 		c.JSON(http.StatusOK, gin.H{"message": "deleted successfully", "torrentsRemoved": removed})
+	}
+}
+
+// LocalCleanEmptyDirs handles POST /api/local/clean-empty — removes empty
+// subdirectories under the given path (or the mount root when path is empty).
+// Same access model as delete: writable mount ("meus downloads") or admin only.
+// Only removes truly-empty dirs, never the starting dir or the mount root.
+func LocalCleanEmptyDirs(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		if mount == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
+			return
+		}
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
+		if !canModifyMount(c, mount) {
+			return
+		}
+		cleaned, err := b.RemoveEmptyDirs(mount, scopePath(b, c, mount, c.Query("path")))
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"cleaned": cleaned})
 	}
 }
 

@@ -399,6 +399,61 @@ func collectWalkEntry(out *[]Entry, mountAbs, path string, d fs.DirEntry, walkEr
 	return nil
 }
 
+// RemoveEmptyDirs deletes empty subdirectories under relPath inside the mount,
+// bottom-up so a directory that only held now-removed empty children is itself
+// removed. Returns how many directories were deleted.
+//
+// Safety: the start directory itself and the mount root are never removed;
+// hidden dirs (".thumbs", ".artwork", …) are skipped entirely; os.Remove only
+// succeeds on a truly empty dir (non-empty → ENOTEMPTY, ignored). Path traversal
+// is already guarded by ResolvePath.
+func (b *Browser) RemoveEmptyDirs(mountName, relPath string) (int, error) {
+	startAbs, err := b.ResolvePath(mountName, relPath)
+	if err != nil {
+		return 0, err
+	}
+	stat, err := os.Stat(startAbs)
+	if err != nil {
+		return 0, err
+	}
+	if !stat.IsDir() {
+		return 0, fmt.Errorf("not a directory")
+	}
+	mountAbs, err := filepath.Abs(b.findMountPath(mountName))
+	if err != nil {
+		mountAbs = startAbs
+	}
+
+	// Collect candidate directories (skipping hidden trees), then process from
+	// deepest to shallowest so emptied parents get a chance to go too.
+	var dirs []string
+	_ = filepath.WalkDir(startAbs, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path != startAbs && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir // never descend into / remove internal dotdirs
+		}
+		dirs = append(dirs, path)
+		return nil
+	})
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+
+	removed := 0
+	for _, dir := range dirs {
+		if dir == startAbs || dir == mountAbs {
+			continue // never delete the starting dir or the mount root
+		}
+		if err := os.Remove(dir); err == nil {
+			removed++
+		}
+	}
+	return removed, nil
+}
+
 // findMountPath returns the root path of a named mount (or empty string).
 func (b *Browser) findMountPath(name string) string {
 	m, ok := b.findMount(name)
