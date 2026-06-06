@@ -865,6 +865,46 @@ func TestDiscoverIncludesCheapPaidWithinCeiling(t *testing.T) {
 	}
 }
 
+// TestDiscoverOllamaSkipsNonCompletion: an embedding model (capabilities without
+// "completion") is dropped at discovery; a completion model is kept. Driven by
+// Ollama's /api/show metadata, not a name heuristic.
+func TestDiscoverOllamaSkipsNonCompletion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/tags"):
+			w.Write([]byte(`{"models":[{"name":"chat-model"},{"name":"embed-model"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/api/show"):
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(string(body), "embed-model") {
+				w.Write([]byte(`{"capabilities":["embedding"]}`))
+			} else {
+				w.Write([]byte(`{"capabilities":["completion","tools"]}`))
+			}
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"ollama": {BaseURL: srv.URL + "/v1"},
+	}, Chain: []config.AIChainSlot{{ID: "ollama:x", Provider: "ollama", Model: "existing"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+	got := map[string]bool{}
+	for _, s := range c.DiscoverOllamaModels(context.Background()) {
+		got[s.Model] = true
+	}
+	if !got["chat-model"] {
+		t.Error("completion model should be kept")
+	}
+	if got["embed-model"] {
+		t.Error("embedding-only model must be skipped (capabilities has no completion)")
+	}
+}
+
 func TestDiscoverOllamaModels(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/api/tags") {

@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -453,15 +454,58 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 	if json.NewDecoder(resp.Body).Decode(&tags) != nil {
 		return nil
 	}
+	root := strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
 	var out []Slot
 	for _, m := range tags.Models {
 		if m.Name == "" || existing["ollama|"+m.Name] {
+			continue
+		}
+		// Skip models that can't do text completion (e.g. embedding models like
+		// nomic-embed-text) — they can never extract a title and would just clutter
+		// the benchmark with permanent 0% failures. Decided by Ollama's OWN
+		// capability metadata, not a name heuristic. On any doubt (old Ollama, error)
+		// we keep the model rather than over-filter.
+		if !ollamaCanComplete(ctx, c.http, root, m.Name) {
 			continue
 		}
 		existing["ollama|"+m.Name] = true
 		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key, Free: true, Local: localModel("ollama", m.Name)})
 	}
 	return out
+}
+
+// ollamaCanComplete asks Ollama (/api/show) whether a model supports text
+// "completion". Returns true on any uncertainty (call/parse error, or capabilities
+// not reported by an older Ollama) so we never drop a usable model — it returns
+// false ONLY when Ollama EXPLICITLY lists capabilities without "completion" (e.g.
+// an embedding-only model like nomic-embed-text → ["embedding"]).
+func ollamaCanComplete(ctx context.Context, hc *http.Client, root, model string) bool {
+	body, _ := json.Marshal(map[string]string{"model": model})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return true
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return true
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return true
+	}
+	var show struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&show) != nil || len(show.Capabilities) == 0 {
+		return true // old Ollama / no metadata → don't filter
+	}
+	for _, capability := range show.Capabilities {
+		if capability == "completion" {
+			return true
+		}
+	}
+	return false
 }
 
 // freeTierProviders bill nothing per token — local Ollama, and Groq's
