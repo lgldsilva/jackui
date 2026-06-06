@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   SearchX, Wifi, WifiOff, Loader2,
-  Plus, X, Filter, SortAsc, SortDesc, Play, Sparkles,
+  Plus, X, Filter, SortAsc, SortDesc, Play, Sparkles, Layers,
 } from 'lucide-react'
 import SearchBar from '../components/SearchBar'
 import ResultCard, { refreshFavoritesCache } from '../components/ResultCard'
@@ -16,6 +16,7 @@ import SavedSearches from '../components/SavedSearches'
 import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
 import { useFilteredResults } from '../lib/useFilteredResults'
+import { buildSeriesLayout } from '../lib/seriesGroup'
 import { isIncognito } from '../lib/incognito'
 import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
@@ -371,6 +372,9 @@ export default function SearchPage() {
   const PAGE_SIZE = 60
   const [visible, setVisible] = useState(PAGE_SIZE)
   const [historyQueries, setHistoryQueries] = useState<string[]>([])
+  // "Group series" view mode (persisted, not per-tab): folds episodes of the
+  // same series/season under a header. Additive — off by default.
+  const [groupSeries, setGroupSeries] = useState<boolean>(() => load<boolean>('searchGroupSeries', false))
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -649,6 +653,21 @@ export default function SearchPage() {
     activeTab.codecGroup,
   ].filter(Boolean).length
 
+  // Shared result-card renderer, reused by the flat list and the grouped layout
+  // so both paths get the exact same actions (download/play/playlist/explore).
+  const renderResultCard = (result: SearchResult, key: string) => (
+    <ResultCard
+      key={key}
+      result={result}
+      onDownload={setDownloadTarget}
+      onPlay={(r) => playSingle(r)}
+      onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
+      onExploreContents={setContentsTarget}
+    />
+  )
+
+  const toggleGroupSeries = () => setGroupSeries(prev => { const next = !prev; save('searchGroupSeries', next); return next })
+
   // Campos de filtro compartilhados entre a barra inline (desktop) e o Sheet
   // (mobile). `stacked` controla a largura: no desktop os campos fluem no
   // flex-wrap (display:contents nos numéricos); no Sheet ficam full-width.
@@ -748,6 +767,18 @@ export default function SearchPage() {
       >
         <Sparkles className={`w-3.5 h-3.5 ${activeTab.hdrOnly ? 'fill-current' : ''}`} />
         HDR
+      </button>
+      <button
+        onClick={toggleGroupSeries}
+        title="Agrupar episódios da mesma série por temporada"
+        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
+          groupSeries
+            ? 'bg-green-500/20 text-green-300 border-green-500/30'
+            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
+        }`}
+      >
+        <Layers className="w-3.5 h-3.5" />
+        Séries
       </button>
       <div className={`flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ${stacked ? 'w-full justify-between' : 'ml-auto'}`}>
         {SORT_OPTIONS.map(({ key, label }) => (
@@ -1014,18 +1045,25 @@ export default function SearchPage() {
         )}
 
         {/* Results grid (paginated via infinite scroll) */}
-        {hasResults && filteredResults.length > 0 && (
+        {hasResults && filteredResults.length > 0 && groupSeries && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {buildSeriesLayout(filteredResults).map((item, i) => (
+              item.kind === 'header' ? (
+                <div key={item.id} className="col-span-full flex items-center gap-2 mt-2 first:mt-0">
+                  <Layers className="w-4 h-4 text-green-400 flex-shrink-0" />
+                  <h3 className="text-sm font-semibold text-text-primary truncate">{item.series}</h3>
+                  <span className="text-xs text-text-muted whitespace-nowrap">Temporada {item.season} • {item.count} ep.</span>
+                  <div className="flex-1 h-px bg-strong/40" />
+                </div>
+              ) : renderResultCard(item.result, `${item.result.infoHash || item.result.link}-${i}`)
+            ))}
+          </div>
+        )}
+        {hasResults && filteredResults.length > 0 && !groupSeries && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredResults.slice(0, visible).map((result, i) => (
-                <ResultCard
-                  key={`${result.infoHash || result.link}-${i}`}
-                  result={result}
-                  onDownload={setDownloadTarget}
-                  onPlay={(r) => playSingle(r)}
-                  onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
-                  onExploreContents={setContentsTarget}
-                />
+                renderResultCard(result, `${result.infoHash || result.link}-${i}`)
               ))}
             </div>
             {visible < filteredResults.length && (
