@@ -6,14 +6,20 @@ import {
 } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
 
-// AIBenchmarkCard lets an admin measure each model in the title-identification
+// AIBenchmarkCard lets an admin measure each model in the rename/identification
 // chain (accuracy + latency → composite score), re-rank the chain by that
 // score, and edit the test set the score is computed from. Editing the cases is
 // the "modifiable benchmark" the product needs: tune it to the releases you
 // actually grab and the chain re-orders for them.
+//
+// The benchmark measures the FULL rename extraction (título + ano for movies,
+// série + temporada/episódio for TV), so the expected label carries that
+// structure inline — coherent with what "Renomear e Organizar via IA" produces.
 
 // The cases editor uses a plain textarea (one "raw => expected" per line) — far
 // less fiddly on mobile than a grid of paired inputs, and trivially round-trips.
+// The expected label encodes the structure: "Filme - Ano", "Série - S03E07",
+// "Série - E01", or just a bare title (then only the title is scored).
 function casesToText(cases: AIBenchmarkCase[]): string {
   return cases.map(c => `${c.raw} => ${c.expect}`).join('\n')
 }
@@ -161,8 +167,11 @@ export default function AIBenchmarkCard() {
       </div>
 
       <p className="text-xs text-text-muted">
-        Chain atual: {status.chain.map(s => s.id).join(' → ') || '—'}. O benchmark mede acurácia e
-        latência por modelo, calcula o score composto (acurácia ÷ √latência) e reordena a chain.
+        Chain atual: {status.chain.map(s => s.id).join(' → ') || '—'}. O benchmark mede a extração
+        completa (título + ano para filmes, série + temporada/episódio para TV) e a latência por
+        modelo, calcula o score composto (acurácia ÷ √latência) e reordena a chain. A latência é a
+        <strong className="text-text-secondary"> mediana</strong> das chamadas (desconta o tempo de
+        carga do modelo).
       </p>
 
       {status.results.length > 0 && (
@@ -190,7 +199,12 @@ export default function AIBenchmarkCard() {
       )}
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="ai-testcases" className="text-sm text-text-primary">Casos de teste (um por linha: <code className="text-text-secondary">nome.do.torrent =&gt; Título Esperado</code>)</label>
+        <label htmlFor="ai-testcases" className="text-sm text-text-primary">
+          Casos de teste (um por linha: <code className="text-text-secondary">nome.do.torrent =&gt; Rótulo Esperado</code>).
+          O rótulo separa a estrutura: <code className="text-text-secondary">Filme - Ano</code>,{' '}
+          <code className="text-text-secondary">Série - S03E07</code>,{' '}
+          <code className="text-text-secondary">Série - E01</code>, ou só o título.
+        </label>
         <textarea
           id="ai-testcases"
           value={casesText}
