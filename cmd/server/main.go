@@ -792,6 +792,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
 		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench))
 		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))
+		adminAPI.POST("/ai/benchmark/rerun-incomplete", handlers.RunAIBenchmarkIncomplete(deps.aiClient, deps.aiBench))
 		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
 
 		if deps.downloadsStore != nil && deps.authStore != nil {

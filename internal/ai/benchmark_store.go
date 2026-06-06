@@ -32,6 +32,7 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 			chain_order    INTEGER NOT NULL DEFAULT 0,
 			samples        INTEGER NOT NULL DEFAULT 0,
 			failure_reason TEXT NOT NULL DEFAULT '',
+			incomplete     INTEGER NOT NULL DEFAULT 0,
 			updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS benchmark_case (
@@ -43,6 +44,9 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Migrate older DBs created before the column existed. Best-effort: a
+	// "duplicate column" error on an already-migrated DB is expected and ignored.
+	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN incomplete INTEGER NOT NULL DEFAULT 0`)
 	return &BenchmarkStore{db: db}, nil
 }
 
@@ -66,9 +70,9 @@ func (s *BenchmarkStore) SaveResults(scores []SlotScore) error {
 	}
 	for i, sc := range scores {
 		if _, err := tx.Exec(`
-			INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason); err != nil {
+			INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason, sc.Incomplete); err != nil {
 			return err
 		}
 	}
@@ -80,7 +84,7 @@ func (s *BenchmarkStore) Results() []SlotScore {
 	if s == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT slot_id, provider, model, accuracy, avg_latency_ms, composite, samples, failure_reason FROM benchmark_result ORDER BY chain_order`)
+	rows, err := s.db.Query(`SELECT slot_id, provider, model, accuracy, avg_latency_ms, composite, samples, failure_reason, incomplete FROM benchmark_result ORDER BY chain_order`)
 	if err != nil {
 		return nil
 	}
@@ -88,7 +92,7 @@ func (s *BenchmarkStore) Results() []SlotScore {
 	var out []SlotScore
 	for rows.Next() {
 		var sc SlotScore
-		if err := rows.Scan(&sc.SlotID, &sc.Provider, &sc.Model, &sc.Accuracy, &sc.AvgLatencyMs, &sc.Composite, &sc.Samples, &sc.FailureReason); err == nil {
+		if err := rows.Scan(&sc.SlotID, &sc.Provider, &sc.Model, &sc.Accuracy, &sc.AvgLatencyMs, &sc.Composite, &sc.Samples, &sc.FailureReason, &sc.Incomplete); err == nil {
 			out = append(out, sc)
 		}
 	}

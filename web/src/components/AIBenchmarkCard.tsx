@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Play, Save, Cpu } from 'lucide-react'
+import { Loader2, Play, Save, Cpu, RefreshCw } from 'lucide-react'
 import {
-  aiBenchmarkStatus, runAIBenchmark, saveAICases,
+  aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, saveAICases,
   AIStatus, AISlotScore, AIBenchmarkCase,
 } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
@@ -51,7 +51,11 @@ function scoreRow(s: AISlotScore) {
       <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums font-medium text-green-400">{comp}</td>
-      <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>{s.failureReason || ''}</td>
+      <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>
+        {s.incomplete && <span className="text-amber-400">incompleto</span>}
+        {s.incomplete && s.failureReason ? ' · ' : ''}
+        {s.failureReason || ''}
+      </td>
     </tr>
   )
 }
@@ -78,6 +82,9 @@ function scoreCard(s: AISlotScore) {
           <div className="tabular-nums font-medium text-green-400">{comp}</div>
         </div>
       </div>
+      {s.incomplete && (
+        <div className="text-amber-400 text-xs">incompleto — rode os faltantes</div>
+      )}
       {s.failureReason && (
         <div className="text-text-muted text-xs break-words">Falha: {s.failureReason}</div>
       )}
@@ -89,6 +96,7 @@ export default function AIBenchmarkCard() {
   const confirm = useConfirm()
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [running, setRunning] = useState(false)
+  const [runningIncomplete, setRunningIncomplete] = useState(false)
   const [casesText, setCasesText] = useState('')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -141,6 +149,20 @@ export default function AIBenchmarkCard() {
     } finally { setRunning(false) }
   }
 
+  // Re-runs ONLY the models left incomplete (cases cut by a rate limit). Meant to
+  // be clicked LATER (even a day after) so the retry lands outside the limit window.
+  const runIncomplete = async () => {
+    setRunningIncomplete(true); setMsg('')
+    try {
+      const results = await runAIBenchmarkIncomplete()
+      setStatus(s => s ? { ...s, results } : s)
+      const left = results.filter(r => r.incomplete).length
+      setMsg(left > 0 ? `Faltantes re-rodados — ${left} ainda incompleto(s) (tente fora da janela do rate limit).` : 'Faltantes re-rodados — todos completos agora.')
+    } catch (e: any) {
+      setMsg(e?.response?.data?.error || 'Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+    } finally { setRunningIncomplete(false) }
+  }
+
   const save = async () => {
     setSaving(true); setMsg('')
     try {
@@ -152,18 +174,34 @@ export default function AIBenchmarkCard() {
     } finally { setSaving(false) }
   }
 
+  const busy = running || runningIncomplete
+  const incompleteCount = status.results.filter(r => r.incomplete).length
+
   return (
     <section className="card flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
-        <button
-          onClick={run}
-          disabled={running}
-          className="flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5"
-        >
-          {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          {running ? 'Rodando…' : 'Rodar benchmark'}
-        </button>
+        <div className="flex items-center gap-2">
+          {incompleteCount > 0 && (
+            <button
+              onClick={runIncomplete}
+              disabled={busy}
+              title="Re-roda só os modelos cortados por rate limit. Rode mais tarde (até no dia seguinte) p/ sair da janela do limite."
+              className="flex items-center gap-1.5 text-sm bg-surface hover:bg-surface-hover border border-default disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5"
+            >
+              {runningIncomplete ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {runningIncomplete ? 'Rodando…' : `Rodar faltantes (${incompleteCount})`}
+            </button>
+          )}
+          <button
+            onClick={run}
+            disabled={busy}
+            className="flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5"
+          >
+            {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {running ? 'Rodando…' : 'Rodar benchmark'}
+          </button>
+        </div>
       </div>
 
       <p className="text-xs text-text-muted">

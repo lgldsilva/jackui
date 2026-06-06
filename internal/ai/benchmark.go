@@ -45,6 +45,12 @@ type SlotScore struct {
 	Samples       int     `json:"samples"`      // cases that produced a usable reply
 	Free          bool    `json:"free"`         // true when model is free (no billing cost)
 	FailureReason string  `json:"failureReason,omitempty"`
+	// Incomplete is true when some cases were transiently SKIPPED (rate limit
+	// after retries, network) so the model wasn't measured on the full set. These
+	// are the ones the "Rodar faltantes" button re-runs later, outside the
+	// rate-limit window. A model fully tested (even if some cases failed hard) is
+	// NOT incomplete.
+	Incomplete bool `json:"incomplete,omitempty"`
 }
 
 // DefaultBenchmarkCases seeds a fresh store. Picked to exercise the hard parts:
@@ -281,6 +287,9 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 			break
 		}
 	}
+	// Incomplete = some cases were transiently skipped (didn't reach the full set).
+	// Not for a paid no-balance abort (re-running won't help).
+	score.Incomplete = !paymentFail && scored < len(cases)
 	if score.Samples > 0 {
 		// Denominator is `scored`, not Samples: a case the model botched (bad output)
 		// counts as a 0, so a model that fails some inputs can't show a clean 100%
@@ -675,6 +684,50 @@ func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slo
 // what the user wants — "use the best benchmark" — while keeping the free local
 // models in the chain as low-ranked fallbacks (the breaker skips a rate-limited
 // vendor at runtime, falling through to the next, ultimately the free local).
+// RerunIncomplete re-benchmarks ONLY the models flagged Incomplete in prev (cases
+// transiently skipped, typically rate-limited) and merges the fresh scores over
+// prev. This backs the "Rodar faltantes" button: run it later — a day after, even
+// — so the retry lands OUTSIDE the rate-limit window and the model finally gets a
+// complete score. Paid models are filtered out (never spend on them); if nothing
+// is incomplete, prev is returned unchanged.
+func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []BenchmarkCase) []SlotScore {
+	if len(cases) == 0 {
+		cases = DefaultBenchmarkCases
+	}
+	var slots []Slot
+	for _, r := range prev {
+		if r.Incomplete {
+			if slot, ok := c.resolveSlot(r.SlotID, r.Provider, r.Model); ok {
+				slots = append(slots, slot)
+			}
+		}
+	}
+	slots = FreeOnly(slots)
+	if len(slots) == 0 {
+		return prev
+	}
+	fresh := c.RunSlots(ctx, slots, cases)
+
+	merged := make(map[string]SlotScore, len(prev))
+	order := make([]string, 0, len(prev))
+	for _, s := range prev {
+		merged[s.SlotID] = s
+		order = append(order, s.SlotID)
+	}
+	for _, s := range fresh {
+		if _, seen := merged[s.SlotID]; !seen {
+			order = append(order, s.SlotID)
+		}
+		merged[s.SlotID] = s // fresh score wins
+	}
+	out := make([]SlotScore, 0, len(merged))
+	for _, id := range order {
+		out = append(out, merged[id])
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Composite > out[j].Composite })
+	return out
+}
+
 func (c *Client) AdoptBenchmark(scores []SlotScore) {
 	ranked := make([]SlotScore, 0, len(scores))
 	for _, s := range scores {
