@@ -4,13 +4,76 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luizg/jackui/internal/config"
 )
+
+func TestRateLimitBackoff(t *testing.T) {
+	// With Retry-After: the vendor's hint plus a small cushion.
+	rl := &rateLimitError{slotID: "x", RetryAfter: 3 * time.Second}
+	if got := rateLimitBackoff(rl, 0); got != 3*time.Second+500*time.Millisecond {
+		t.Fatalf("with Retry-After: got %v", got)
+	}
+	if rl.Error() == "" || !errors.Is(rl, errRateLimited) {
+		t.Fatal("rateLimitError should stringify and unwrap to errRateLimited")
+	}
+	// Without Retry-After: exponential fallback 2s, 4s, 8s by attempt.
+	plain := fmt.Errorf("%w: x", errRateLimited)
+	for _, tc := range []struct {
+		attempt int
+		want    time.Duration
+	}{{0, 2 * time.Second}, {1, 4 * time.Second}, {2, 8 * time.Second}} {
+		if got := rateLimitBackoff(plain, tc.attempt); got != tc.want {
+			t.Errorf("attempt %d: got %v want %v", tc.attempt, got, tc.want)
+		}
+	}
+}
+
+// TestMetadataWithRetryStopsOnContextCancel: if the benchmark's context is
+// cancelled while we're waiting out a throttle, bail immediately.
+func TestMetadataWithRetryStopsOnContextCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "1") // we'll cancel before this elapses
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer srv.Close()
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+	_, _, err := c.metadataWithRetry(ctx,
+		Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}, "X")
+	if !errors.Is(err, errRateLimited) {
+		t.Fatalf("expected the rate-limited error after cancel, got %v", err)
+	}
+}
+
+// TestMetadataWithRetryGivesUpOnLongRetryAfter: a Retry-After longer than the cap
+// (a per-day quota) must NOT stall the benchmark — give up at once and skip.
+func TestMetadataWithRetryGivesUpOnLongRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "999")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer srv.Close()
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	start := time.Now()
+	_, _, err := c.metadataWithRetry(context.Background(),
+		Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}, "X")
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("should give up immediately on a long Retry-After, waited %v", elapsed)
+	}
+	if !errors.Is(err, errRateLimited) {
+		t.Fatalf("expected rate-limited error, got %v", err)
+	}
+}
 
 // jsonChat replies as an OpenAI-compatible endpoint with the given message content.
 func jsonChat(content string, status int) http.HandlerFunc {
