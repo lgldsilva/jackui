@@ -319,7 +319,7 @@ function EntryRow(props: EntryRowProps) {
       >
         {selectMode && (
           <span className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-            selected ? 'bg-green-500 border-green-500' : 'border-gray-500'
+            selected ? 'bg-green-500 border-green-500' : 'border-strong'
           }`}>
             {selected && <Check className="w-3.5 h-3.5 text-white" />}
           </span>

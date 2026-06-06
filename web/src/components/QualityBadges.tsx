@@ -9,7 +9,7 @@ const RESOLUTION_COLORS: Record<string, string> = {
   '2160p': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
   '1080p': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
   '720p':  'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-  '480p':  'bg-gray-500/20 text-text-primary border-gray-500/30',
+  '480p':  'bg-gray-500/20 text-text-primary border-strong/30',
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -69,13 +69,13 @@ function buildExtendedBadges(quality: Quality): React.ReactNode[] {
     badges.push(<Badge key="dub" text="DUB" className="bg-orange-500/20 text-orange-300 border-orange-500/30" title="Dublado" />)
   }
   if (quality.repack) {
-    badges.push(<Badge key="rep" text="REPACK" className="bg-gray-500/20 text-text-primary border-gray-500/30" />)
+    badges.push(<Badge key="rep" text="REPACK" className="bg-gray-500/20 text-text-primary border-strong/30" />)
   }
   if (quality.proper) {
-    badges.push(<Badge key="pro" text="PROPER" className="bg-gray-500/20 text-text-primary border-gray-500/30" />)
+    badges.push(<Badge key="pro" text="PROPER" className="bg-gray-500/20 text-text-primary border-strong/30" />)
   }
   if (quality.extended) {
-    badges.push(<Badge key="ext" text="EXT" className="bg-gray-500/20 text-text-primary border-gray-500/30" title="Extended/Director's Cut" />)
+    badges.push(<Badge key="ext" text="EXT" className="bg-gray-500/20 text-text-primary border-strong/30" title="Extended/Director's Cut" />)
   }
   if (quality.year) {
     badges.push(<Badge key="yr" text={String(quality.year)} className="bg-surface-tertiary/40 text-text-secondary border-strong/30" />)
