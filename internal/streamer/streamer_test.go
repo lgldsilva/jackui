@@ -2,7 +2,6 @@ package streamer
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -843,34 +842,40 @@ func TestImportTorrentBytes_InvalidData(t *testing.T) {
 func TestStreamer_AsyncRecheckFile_Dedup(t *testing.T) {
 	s := NewForTesting()
 
-	// Caso 1: Chave já carregada
+	// Chave já carregada → asyncRecheckFile vira no-op (loaded=true), sem panic
+	// com f=nil.
 	s.verifiedMu.Lock()
 	s.verifiedFiles = map[string]bool{"test-key": true}
 	s.verifiedMu.Unlock()
 
-	s.asyncRecheckFile("test-key", nil) // Não deve dar panic com f=nil porque loaded=true
+	s.asyncRecheckFile("test-key", nil)
+}
 
-	// Caso 2: Chave nova e limpeza de cache por tamanho excedido (>= 2000)
+// purgeVerifiedFiles substituiu o wipe-tudo-ao-atingir-2000: agora a limpeza é
+// por ciclo de vida do torrent — só as chaves daquele info_hash são removidas,
+// preservando as de outros torrents ativos (que antes eram zeradas junto).
+func TestStreamer_PurgeVerifiedFiles_ByHash(t *testing.T) {
+	s := NewForTesting()
+	keep := metainfo.Hash{0xaa}
+	drop := metainfo.Hash{0xbb}
+
 	s.verifiedMu.Lock()
-	s.verifiedFiles = make(map[string]bool)
-	for i := 0; i < 2005; i++ {
-		s.verifiedFiles[fmt.Sprintf("key-%d", i)] = true
+	s.verifiedFiles = map[string]bool{
+		drop.HexString() + "-0": true,
+		drop.HexString() + "-1": true,
+		keep.HexString() + "-0": true,
 	}
 	s.verifiedMu.Unlock()
 
-	func() {
-		defer func() {
-			recover() // Ignora o panic inevitável de f=nil.Pieces()
-		}()
-		s.asyncRecheckFile("new-key", nil)
-	}()
+	s.purgeVerifiedFiles(drop)
 
 	s.verifiedMu.Lock()
-	size := len(s.verifiedFiles)
-	s.verifiedMu.Unlock()
-
-	if size > 1 {
-		t.Errorf("esperava cache limpo (< 2000), obteve tamanho %d", size)
+	defer s.verifiedMu.Unlock()
+	if len(s.verifiedFiles) != 1 {
+		t.Fatalf("esperava só as chaves do hash preservado, obteve %d", len(s.verifiedFiles))
+	}
+	if !s.verifiedFiles[keep.HexString()+"-0"] {
+		t.Error("chave de outro torrent ativo não pode ser removida")
 	}
 }
 
