@@ -90,6 +90,7 @@ services:
       # automatically when at least one key/base-url is present.
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       # SMTP for password reset / e-mail confirmation / invites (values in the local
       # .env, gitignored). Empty = those flows become admin-copyable links.
