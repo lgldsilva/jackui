@@ -119,6 +119,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [copied, setCopied] = useState(false)
   const hoverThumb = useHoverThumb()
 
+  useEffect(() => {
+    hoverThumb.hide()
+  }, [result, hoverThumb])
+
   const copyHash = (hash: string) => {
     navigator.clipboard?.writeText(hash).then(() => {
       setCopied(true)
@@ -350,7 +354,12 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                               direita, difícil de mirar). min-w-0 mantém o truncate. */}
                           <button
                             type="button"
-                            onClick={() => playable && onPlayFile(result, f.index)}
+                            onClick={() => {
+                              if (playable) {
+                                hoverThumb.hide()
+                                onPlayFile(result, f.index)
+                              }
+                            }}
                             disabled={!playable}
                             title={playable ? 'Reproduzir esse arquivo' : undefined}
                             className={`flex items-center gap-2 flex-1 min-w-0 text-left ${playable ? 'cursor-pointer' : 'cursor-default'}`}
@@ -370,7 +379,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         {playable && (
                           <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                             <button
-                              onClick={() => onPlayFile(result, f.index)}
+                              onClick={() => {
+                                hoverThumb.hide()
+                                onPlayFile(result, f.index)
+                              }}
                               title="Reproduzir esse arquivo"
                               className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/15 transition-colors"
                             >
@@ -378,7 +390,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                             </button>
                             {onAddFileToPlaylist && (
                               <button
-                                onClick={() => onAddFileToPlaylist(result, f.index, f.path)}
+                                onClick={() => {
+                                  hoverThumb.hide()
+                                  onAddFileToPlaylist(result, f.index, f.path)
+                                }}
                                 title="Adicionar esse arquivo a uma playlist"
                                 className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-500/15 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100"
                               >
