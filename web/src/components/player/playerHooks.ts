@@ -1,4 +1,4 @@
-import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect } from 'react'
+import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useState } from 'react'
 import {
   StreamProbe,
   TorrentInfo,
@@ -55,6 +55,55 @@ export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }:
     return () => globalThis.removeEventListener('keydown', handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minimized])
+}
+
+// WebKit-only AirPlay surface (Safari/iOS) — not present in lib.dom types.
+interface WebKitAirPlayVideo {
+  webkitShowPlaybackTargetPicker?: () => void
+  webkitCurrentPlaybackTargetIsWireless?: boolean
+}
+type WebKitAvailabilityEvent = Event & { availability?: 'available' | 'not-available' }
+
+export type AirPlayState = {
+  /** A device is reachable on the network → worth showing the button. */
+  readonly available: boolean
+  /** Playback is currently routed to an AirPlay target. */
+  readonly active: boolean
+  /** Opens the native AirPlay route picker. */
+  readonly show: () => void
+}
+
+// useAirPlay surfaces AirPlay state for the <video> via the WebKit API (Safari/
+// iOS). The standard Remote Playback API doesn't cover AirPlay reliably in
+// Safari, so we use webkit hooks: `webkitplaybacktargetavailabilitychanged`
+// fires an initial state on registration plus every change, and
+// `webkitShowPlaybackTargetPicker()` opens the native picker. Listeners are
+// removed on cleanup — Apple warns that monitoring availability drains battery.
+// `srcKey` (the stream URL) is a dep so the listeners re-attach when the <video>
+// is remounted on a source/fallback change.
+export function useAirPlay(videoRef: RefObject<HTMLVideoElement | null>, srcKey: string): AirPlayState {
+  const [available, setAvailable] = useState(false)
+  const [active, setActive] = useState(false)
+
+  useEffect(() => {
+    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null
+    if (!el || typeof el.webkitShowPlaybackTargetPicker !== 'function') return
+    const onAvail = (e: Event) => setAvailable((e as WebKitAvailabilityEvent).availability === 'available')
+    const onWireless = () => setActive(!!el.webkitCurrentPlaybackTargetIsWireless)
+    el.addEventListener('webkitplaybacktargetavailabilitychanged', onAvail)
+    el.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', onWireless)
+    return () => {
+      el.removeEventListener('webkitplaybacktargetavailabilitychanged', onAvail)
+      el.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', onWireless)
+    }
+  }, [videoRef, srcKey])
+
+  const show = () => {
+    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null
+    el?.webkitShowPlaybackTargetPicker?.()
+  }
+
+  return { available, active, show }
 }
 
 type MediaSessionOpts = {
