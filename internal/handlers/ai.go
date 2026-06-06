@@ -12,9 +12,9 @@ import (
 
 // aiStatusResponse is the read model for the Settings AI card.
 type aiStatusResponse struct {
-	Enabled bool              `json:"enabled"`
-	Chain   []aiSlotView      `json:"chain"`
-	Results []ai.SlotScore    `json:"results"`
+	Enabled bool               `json:"enabled"`
+	Chain   []aiSlotView       `json:"chain"`
+	Results []ai.SlotScore     `json:"results"`
 	Cases   []ai.BenchmarkCase `json:"cases"`
 }
 
@@ -66,6 +66,10 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		// Groq's models + OpenRouter free models), deduped against the chain.
 		slots := client.Slots()
 		slots = append(slots, client.DiscoverModels(ctx)...)
+		// Drop paid models before scoring so we never spend credits benchmarking
+		// them — this also purges paid leftovers a pre-filter run adopted into the
+		// chain (e.g. a Zen "big-pickle"), in a single run.
+		slots = ai.FreeOnly(slots)
 
 		scores := client.RunSlots(ctx, slots, cases)
 		if store != nil {
