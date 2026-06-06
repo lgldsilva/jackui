@@ -86,6 +86,21 @@ func TestDropIfStillIdle_SkipsWhenReacquired(t *testing.T) {
 	}
 }
 
+func TestDrop_SkipsWhileViewersHold(t *testing.T) {
+	s := leaseTestStreamer()
+	h := metainfo.Hash{0x05}
+	e := &entry{viewers: 1} // a player is watching (t is nil — must not be touched)
+	s.active[h] = e
+
+	// A forced Drop (manual StreamDrop / health probe) must be a no-op while a
+	// viewer lease is held — and must NOT reach e.t (nil) before bailing.
+	s.Drop(h)
+
+	if _, ok := s.active[h]; !ok {
+		t.Fatal("Drop must not evict a torrent that still has viewers")
+	}
+}
+
 func TestDropIfStillIdle_SkipsWhenEntryReplaced(t *testing.T) {
 	s := leaseTestStreamer()
 	h := metainfo.Hash{0x04}
