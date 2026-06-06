@@ -34,11 +34,15 @@ func (s *Streamer) activeEntry(hash metainfo.Hash) *entry {
 // torrent is active (also refreshing the persisted copy), else the last probe
 // (nil if never probed). Never touches the swarm.
 func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, active bool) {
+	// Read Stats() while STILL holding s.mu. Releasing the lock first (the old
+	// code did) opened a TOCTOU: gcLoop/Drop could t.Drop() the torrent between
+	// the unlock and e.t.Stats(), racing/​panicking on a torn-down torrent.
+	// buildInfo already calls t.Stats() under s.mu, so this is consistent.
 	s.mu.Lock()
 	e, ok := s.active[hash]
-	s.mu.Unlock()
 	if ok {
 		st := e.t.Stats()
+		s.mu.Unlock()
 		h := &CachedHealth{
 			Seeders:   st.ConnectedSeeders,
 			Peers:     st.TotalPeers,
@@ -48,6 +52,7 @@ func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, act
 		_ = s.cache.SetHealth(hash.HexString(), h.Seeders, h.Peers)
 		return h, true
 	}
+	s.mu.Unlock()
 	return s.cache.GetHealth(hash.HexString()), false
 }
 
