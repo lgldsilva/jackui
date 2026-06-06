@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   SearchX, Wifi, WifiOff, Loader2,
-  Plus, X, Filter, SortAsc, SortDesc, Play,
+  Plus, X, Filter, SortAsc, SortDesc, Play, Sparkles,
 } from 'lucide-react'
 import SearchBar from '../components/SearchBar'
 import ResultCard, { refreshFavoritesCache } from '../components/ResultCard'
@@ -63,6 +63,9 @@ type PersistedTab = {
   resultSort: ResultSortKey
   resultSortAsc: boolean
   onlyPlayable: boolean
+  resolution: string
+  hdrOnly: boolean
+  codecGroup: string
 }
 
 type SearchPhase = 'idle' | 'cache' | 'live' | 'done' | 'error'
@@ -86,6 +89,11 @@ type TabState = {
   resultSort: ResultSortKey
   resultSortAsc: boolean
   onlyPlayable: boolean
+  // Quality filters (onda 3). Per-tab, persisted; not part of the global
+  // FilterDefaults (quality is per-search, unlike "min seeders").
+  resolution: string
+  hdrOnly: boolean
+  codecGroup: string
 }
 
 function newTab(id: string): TabState {
@@ -101,6 +109,7 @@ function newTab(id: string): TabState {
     resultSort: d.resultSort, resultSortAsc: d.resultSortAsc,
     // Nunca herdado/persistido: o toggle vale só para a sessão atual.
     onlyPlayable: false,
+    resolution: '', hdrOnly: false, codecGroup: '',
   }
 }
 
@@ -157,6 +166,9 @@ function persistTabs(tabs: TabState[], activeId: string) {
     resultSort: t.resultSort,
     resultSortAsc: t.resultSortAsc,
     onlyPlayable: t.onlyPlayable,
+    resolution: t.resolution,
+    hdrOnly: t.hdrOnly,
+    codecGroup: t.codecGroup,
   }))
   save(TABS_KEY, stripped)
   save(ACTIVE_KEY, activeId)
@@ -607,6 +619,9 @@ export default function SearchPage() {
     trackerFilter: activeTab.trackerFilter,
     titleFilter: activeTab.titleFilter,
     onlyPlayable: activeTab.onlyPlayable,
+    resolution: activeTab.resolution,
+    hdrOnly: activeTab.hdrOnly,
+    codecGroup: activeTab.codecGroup,
     sortKey: activeTab.resultSort,
     sortAsc: activeTab.resultSortAsc,
   })
@@ -625,6 +640,9 @@ export default function SearchPage() {
     activeTab.minLeechers > 0,
     activeTab.maxSizeGb,
     activeTab.onlyPlayable,
+    activeTab.resolution,
+    activeTab.hdrOnly,
+    activeTab.codecGroup,
   ].filter(Boolean).length
 
   // Campos de filtro compartilhados entre a barra inline (desktop) e o Sheet
@@ -692,6 +710,41 @@ export default function SearchPage() {
         <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
         Playable
       </button>
+      <select
+        value={activeTab.resolution}
+        onChange={e => updateTab(activeTab.id, { resolution: e.target.value })}
+        title="Filtrar por resolução"
+        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
+      >
+        <option value="">Resolução</option>
+        <option value="2160p">4K (2160p)</option>
+        <option value="1080p">1080p</option>
+        <option value="720p">720p</option>
+        <option value="480p">480p</option>
+      </select>
+      <select
+        value={activeTab.codecGroup}
+        onChange={e => updateTab(activeTab.id, { codecGroup: e.target.value })}
+        title="Filtrar por codec de vídeo"
+        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
+      >
+        <option value="">Codec</option>
+        <option value="hevc">H.265 / HEVC</option>
+        <option value="h264">H.264</option>
+        <option value="av1">AV1</option>
+      </select>
+      <button
+        onClick={() => updateTab(activeTab.id, { hdrOnly: !activeTab.hdrOnly })}
+        title="Mostrar apenas HDR ou Dolby Vision"
+        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
+          activeTab.hdrOnly
+            ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
+        }`}
+      >
+        <Sparkles className={`w-3.5 h-3.5 ${activeTab.hdrOnly ? 'fill-current' : ''}`} />
+        HDR
+      </button>
       <div className={`flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ${stacked ? 'w-full justify-between' : 'ml-auto'}`}>
         {SORT_OPTIONS.map(({ key, label }) => (
           <button
@@ -724,6 +777,7 @@ export default function SearchPage() {
             titleFilter: '', trackerFilter: 'all',
             minSeeders: 1, minLeechers: 0, maxSizeGb: '',
             onlyPlayable: false,
+            resolution: '', hdrOnly: false, codecGroup: '',
           })}
           className={`text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
           title="Limpar filtros"
