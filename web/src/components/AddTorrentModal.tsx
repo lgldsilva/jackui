@@ -60,12 +60,12 @@ function fileIcon(f: StreamFile) {
   if (/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(f.path)) {
     return <FileAudio className="w-4 h-4 text-purple-400 flex-shrink-0" />
   }
-  return <FileText className="w-4 h-4 text-gray-500 flex-shrink-0" />
+  return <FileText className="w-4 h-4 text-text-muted flex-shrink-0" />
 }
 
 function renderItemStatus(item: TorrentItem) {
   if (item.loading) {
-    return <span className="text-xs text-gray-500 flex items-center gap-1.5">
+    return <span className="text-xs text-text-muted flex items-center gap-1.5">
       <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
       Buscando metadados...
     </span>
@@ -76,11 +76,11 @@ function renderItemStatus(item: TorrentItem) {
       {item.error}
     </span>
   }
-  return <span className="text-xs text-gray-400 flex items-center gap-1.5">
+  return <span className="text-xs text-text-secondary flex items-center gap-1.5">
     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
     {formatBytes(item.totalSize || 0)}
     {item.files && <>
-      <span className="text-gray-600">•</span>
+      <span className="text-text-muted">•</span>
       <span>{item.files.length} arquivos ({item.selectedFiles.size} selecionados)</span>
     </>}
   </span>
@@ -374,7 +374,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
             {view === 'configure' && (
               <button
                 onClick={() => setView('drop_paste')}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+                className="px-4 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
               >
                 Voltar
               </button>
@@ -385,7 +385,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-200 transition-colors"
+              className="px-4 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
             >
               Fechar
             </button>
@@ -394,7 +394,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               <button
                 onClick={handleAddMagnets}
                 disabled={magnets.trim().length === 0}
-                className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-gray-900 px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10"
+                className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10"
               >
                 Configurar Magnet
               </button>
@@ -402,7 +402,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               <button
                 onClick={handleConfirmDownloads}
                 disabled={loading || items.filter(i => !i.loading && !i.error).length === 0 || success}
-                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-gray-900 px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-emerald-500/10"
+                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-emerald-500/10"
               >
                 {loading ? (
                   <>
@@ -448,7 +448,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   w-full border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-200
                   ${dragActive
                     ? 'border-cyan-400 bg-cyan-500/5' 
-                    : 'border-gray-700 hover:border-gray-600 bg-gray-900/40 hover:bg-gray-900/60'
+                    : 'border-default hover:border-strong bg-surface/40 hover:bg-surface/60'
                   }
                 `}
               >
@@ -460,17 +460,17 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   className="hidden"
                   onChange={handleFileChange}
                 />
-                <UploadCloud className={`w-12 h-12 ${dragActive ? 'text-cyan-400 animate-bounce' : 'text-gray-500'}`} />
+                <UploadCloud className={`w-12 h-12 ${dragActive ? 'text-cyan-400 animate-bounce' : 'text-text-muted'}`} />
                 <div className="text-center">
-                  <p className="text-sm font-medium text-gray-200">Arraste e solte um ou mais arquivos .torrent aqui</p>
-                  <p className="text-xs text-gray-500 mt-1">ou clique para navegar no seu computador</p>
+                  <p className="text-sm font-medium text-text-primary">Arraste e solte um ou mais arquivos .torrent aqui</p>
+                  <p className="text-xs text-text-muted mt-1">ou clique para navegar no seu computador</p>
                 </div>
               </button>
 
               <div className="relative flex py-2 items-center">
-                <div className="flex-grow border-t border-gray-700"></div>
-                <span className="flex-shrink mx-4 text-gray-500 text-xs uppercase tracking-wider font-semibold">ou cole links magnet</span>
-                <div className="flex-grow border-t border-gray-700"></div>
+                <div className="flex-grow border-t border-default"></div>
+                <span className="flex-shrink mx-4 text-text-muted text-xs uppercase tracking-wider font-semibold">ou cole links magnet</span>
+                <div className="flex-grow border-t border-default"></div>
               </div>
 
               {/* Paste Magnets Area */}
@@ -479,9 +479,9 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   value={magnets}
                   onChange={e => setMagnets(e.target.value)}
                   placeholder="Cole os links Magnet aqui (um por linha)&#10;ex: magnet:?xt=urn:btih:..."
-                  className="w-full h-36 bg-gray-900 border border-gray-700 rounded-xl px-3.5 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors font-mono resize-none"
+                  className="w-full h-36 bg-surface border border-default rounded-xl px-3.5 py-2.5 text-sm text-text-primary placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors font-mono resize-none"
                 />
-                <p className="text-[10px] text-gray-500">
+                <p className="text-[10px] text-text-muted">
                   Suporta múltiplos links Magnet (um em cada linha). O sistema carregará os metadados de cada um para você escolher o que baixar.
                 </p>
               </div>
@@ -490,16 +490,16 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
             // Configure list stage
             <div className="space-y-4">
               {/* Destination inputs */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-900/60 p-4 rounded-xl border border-gray-700/50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-surface/60 p-4 rounded-xl border border-default/50">
                 <div>
-                  <label htmlFor="download-dest" className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
+                  <label htmlFor="download-dest" className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
                     Destino do download
                   </label>
                   <select
                     id="download-dest"
                     value={selectedClientId}
                     onChange={(e) => setSelectedClientId(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
+                    className="w-full bg-surface border border-default rounded-lg px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
                   >
                     <option value={INTERNAL_ID}>JackUI (servidor — assistir aqui)</option>
                     {clients.map((c) => (
@@ -509,7 +509,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                     ))}
                   </select>
                   {selectedClientId === INTERNAL_ID && (
-                    <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+                    <p className="text-[10px] text-text-muted mt-1 flex items-center gap-1">
                       <Server className="w-3 h-3 flex-shrink-0" />
                       Baixa no servidor e aparece em Downloads.
                     </p>
@@ -518,8 +518,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 </div>
 
                 <div className={`relative ${selectedClientId === INTERNAL_ID ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <label htmlFor="save-path" className="block text-xs font-medium text-gray-400 mb-1.5 uppercase tracking-wider">
-                    Pasta de Destino <span className="text-gray-500 font-normal">(opcional)</span>
+                  <label htmlFor="save-path" className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
+                    Pasta de Destino <span className="text-text-muted font-normal">(opcional)</span>
                   </label>
                   <div className="relative">
                     <input
@@ -532,13 +532,13 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                       onFocus={() => setShowRecent(recentPaths.length > 0)}
                       onBlur={() => setTimeout(() => setShowRecent(false), 150)}
                       placeholder="/downloads/filmes"
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 pr-10 text-gray-100 text-sm focus:outline-none focus:border-cyan-500 transition-colors"
+                      className="w-full bg-surface border border-default rounded-lg px-3 py-2 pr-10 text-text-primary text-sm focus:outline-none focus:border-cyan-500 transition-colors"
                     />
                     {recentPaths.length > 0 && selectedClientId !== INTERNAL_ID && (
                       <button
                         type="button"
                         onMouseDown={(e) => { e.preventDefault(); setShowRecent(s => !s) }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
                         title="Pastas recentes"
                       >
                         <Clock className="w-4 h-4" />
@@ -547,13 +547,13 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   </div>
 
                   {showRecent && recentPaths.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 left-0 right-0 mt-1 bg-surface border border-default rounded-lg shadow-xl max-h-48 overflow-y-auto">
                       {recentPaths.map((p) => (
                         <button
                           key={p}
                           type="button"
                           onMouseDown={(e) => { e.preventDefault(); pickRecentPath(p) }}
-                          className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors truncate"
+                          className="w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-secondary transition-colors truncate"
                           title={p}
                         >
                           {p}
@@ -566,7 +566,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
               {/* Resolved Torrents List */}
               <div className="space-y-2">
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider">
                   Torrents na fila para carregar ({items.length})
                 </label>
                 <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
@@ -574,13 +574,13 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                     <div 
                       key={item.id} 
                       className={`
-                        border rounded-xl bg-gray-900/40 overflow-hidden transition-all duration-200
-                        ${item.error ? 'border-red-500/20' : 'border-gray-750'}
+                        border rounded-xl bg-surface/40 overflow-hidden transition-all duration-200
+                        ${item.error ? 'border-red-500/20' : 'border-default'}
                       `}
                     >
                       <div className="p-3.5 flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <h4 className="text-sm font-medium text-gray-200 truncate" title={item.name}>
+                          <h4 className="text-sm font-medium text-text-primary truncate" title={item.name}>
                             {item.name}
                           </h4>
                           <div className="flex items-center gap-2.5 mt-1">
@@ -592,7 +592,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                           {(item.files?.length ?? 0) > 0 && selectedClientId === INTERNAL_ID && (
                             <button
                               onClick={() => toggleExpandItem(item.id)}
-                              className="text-gray-400 hover:text-gray-200 p-1 rounded-lg hover:bg-gray-800 transition-colors"
+                              className="text-text-secondary hover:text-text-primary p-1 rounded-lg hover:bg-surface-secondary transition-colors"
                               title="Configurar arquivos individuais"
                             >
                               {item.expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -600,7 +600,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                           )}
                           <button
                             onClick={() => handleRemoveItem(item.id)}
-                            className="text-gray-500 hover:text-red-400 p-1 rounded-lg hover:bg-gray-800 transition-colors"
+                            className="text-text-muted hover:text-red-400 p-1 rounded-lg hover:bg-surface-secondary transition-colors"
                             title="Remover torrent"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -610,9 +610,9 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
                       {/* Expandable files checklist (only for internal downloads) */}
                       {item.expanded && (item.files?.length ?? 0) > 0 && selectedClientId === INTERNAL_ID && (
-                        <div className="border-t border-gray-800 bg-gray-950/60 p-3 space-y-2">
+                        <div className="border-t border-default bg-surface-elevated/60 p-3 space-y-2">
                           <div className="flex items-center justify-between text-xs px-1">
-                            <span className="text-gray-400 font-medium">Lista de Arquivos</span>
+                            <span className="text-text-secondary font-medium">Lista de Arquivos</span>
                             <div className="flex gap-2">
                               <button
                                 type="button"
@@ -621,25 +621,25 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                               >
                                 Todos
                               </button>
-                              <span className="text-gray-700">•</span>
+                              <span className="text-text-muted">•</span>
                               <button
                                 type="button"
                                 onClick={() => handleSelectNoFiles(item.id)}
-                                className="text-gray-500 hover:text-gray-300 font-semibold"
+                                className="text-text-muted hover:text-text-primary font-semibold"
                               >
                                 Nenhum
                               </button>
                             </div>
                           </div>
                           
-                          <ul className="border border-gray-800 rounded-lg max-h-44 overflow-y-auto divide-y divide-gray-850 bg-gray-900/60">
+                          <ul className="border border-default rounded-lg max-h-44 overflow-y-auto divide-y divide-default bg-surface/60">
                             {(item.files ?? []).map(f => {
                               const isChecked = item.selectedFiles.has(f.index)
                               const toggle = () => handleFileToggle(item.id, f.index)
                               return (
                                 <li 
                                   key={f.index} 
-                                  className="px-2.5 py-1.5 hover:bg-gray-800/40 text-xs"
+                                  className="px-2.5 py-1.5 hover:bg-surface-secondary/40 text-xs"
                                 >
                                   <label className="flex items-center gap-2 cursor-pointer">
                                   <input
@@ -649,10 +649,10 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                                     className="accent-cyan-500 flex-shrink-0"
                                   />
                                   {fileIcon(f)}
-                                  <span className="flex-1 min-w-0 text-gray-300 truncate" title={f.path}>
+                                  <span className="flex-1 min-w-0 text-text-primary truncate" title={f.path}>
                                     {f.path}
                                   </span>
-                                  <span className="text-gray-500 flex-shrink-0 font-mono">
+                                  <span className="text-text-muted flex-shrink-0 font-mono">
                                     {formatBytes(f.size)}
                                   </span>
                                   </label>

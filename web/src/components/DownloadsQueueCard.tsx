@@ -18,7 +18,7 @@ function NumberField(props: Readonly<{
   const { label, value, onChange, min = 1, suffix, hint } = props
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-gray-400">{label}</span>
+      <span className="text-xs text-text-secondary">{label}</span>
       <div className="flex items-center gap-2">
         <input
           type="number"
@@ -28,9 +28,9 @@ function NumberField(props: Readonly<{
           onChange={(e) => onChange(Math.max(min, Number(e.target.value) || min))}
           className="input-field min-h-[44px]"
         />
-        {suffix && <span className="text-xs text-gray-500 flex-shrink-0">{suffix}</span>}
+        {suffix && <span className="text-xs text-text-muted flex-shrink-0">{suffix}</span>}
       </div>
-      {hint && <span className="text-[11px] text-gray-600">{hint}</span>}
+      {hint && <span className="text-[11px] text-text-muted">{hint}</span>}
     </label>
   )
 }
@@ -77,7 +77,7 @@ export default function DownloadsQueueCard() {
 
   if (loading) {
     return (
-      <div className="card flex items-center gap-3 text-gray-400">
+      <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" />
         Carregando configurações da fila...
       </div>
@@ -92,11 +92,11 @@ export default function DownloadsQueueCard() {
     <div className="card flex flex-col gap-5">
       <div className="flex items-center gap-2">
         <ListOrdered className="w-5 h-5 text-cyan-400" />
-        <h2 className="text-lg font-semibold text-gray-100">Fila de Downloads</h2>
+        <h2 className="text-lg font-semibold text-text-primary">Fila de Downloads</h2>
         <LiveBadge />
       </div>
 
-      <p className="text-xs text-gray-500 -mt-2">
+      <p className="text-xs text-text-muted -mt-2">
         Quantos downloads rodam ao mesmo tempo e como a fila se comporta. Streaming (tocar agora) não conta no limite.
       </p>
 
@@ -114,7 +114,7 @@ export default function DownloadsQueueCard() {
       </div>
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <label className="flex items-center gap-2 text-sm text-gray-300">
+        <label className="flex items-center gap-2 text-sm text-text-primary">
           <input
             type="checkbox"
             checked={form.rotationEnabled}
@@ -125,11 +125,11 @@ export default function DownloadsQueueCard() {
           <span className="text-[10px] uppercase tracking-wide text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">experimental</span>
         </label>
       </div>
-      <p className="text-[11px] text-gray-600 -mt-3">
+      <p className="text-[11px] text-text-muted -mt-3">
         Quando um download fica sem seed, busca outras fontes do mesmo conteúdo no Jackett e alterna entre elas (round-robin).
       </p>
 
-      <div className="flex items-center justify-between gap-3 border-t border-gray-800 pt-4">
+      <div className="flex items-center justify-between gap-3 border-t border-default pt-4">
         <div className="text-xs">
           {error && <span className="text-red-400">{error}</span>}
           {notice && <span className="text-green-400">{notice}</span>}
@@ -137,7 +137,7 @@ export default function DownloadsQueueCard() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-gray-900 font-semibold px-4 py-2 rounded-lg text-sm transition-colors min-h-[44px]"
+          className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors min-h-[44px]"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Salvar

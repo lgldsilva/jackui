@@ -76,11 +76,11 @@ export default function DiscoverPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <h1 className="text-xl font-semibold text-gray-100 flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
             <Flame className="w-5 h-5 text-orange-400" /> Em alta
           </h1>
           <div className="flex items-center gap-2 text-xs flex-wrap">
@@ -98,7 +98,7 @@ export default function DiscoverPage() {
             <select
               value={year}
               onChange={e => setYear(Number(e.target.value))}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-200 focus:outline-none focus:border-green-500/50"
+              className="bg-surface-secondary border border-default rounded-lg px-2 py-1.5 text-text-primary focus:outline-none focus:border-green-500/50"
               title="Filtrar por ano"
             >
               <option value={0}>Qualquer ano</option>
@@ -108,7 +108,7 @@ export default function DiscoverPage() {
               <select
                 value={genre}
                 onChange={e => setGenre(Number(e.target.value))}
-                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-gray-200 focus:outline-none focus:border-green-500/50"
+                className="bg-surface-secondary border border-default rounded-lg px-2 py-1.5 text-text-primary focus:outline-none focus:border-green-500/50"
                 title="Filtrar por gênero"
               >
                 <option value={0}>Qualquer gênero</option>
@@ -121,19 +121,19 @@ export default function DiscoverPage() {
         {/* Busca por título dentro da grade trending */}
         {items !== null && items.length > 0 && (
           <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
             <input
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Filtrar por título..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500/50"
+              className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500/50"
             />
             {query && (
               <button
                 onClick={() => setQuery('')}
                 aria-label="Limpar"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 p-1"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -142,8 +142,8 @@ export default function DiscoverPage() {
         )}
 
 {(() => {
-          if (items === null) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-          if (items.length === 0) return <div className="text-center py-20 text-gray-500"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada pra mostrar</p><p className="text-xs mt-2">Configure a <code className="text-gray-400">tmdb.api_key</code> (ou <code className="text-gray-400">TMDB_API_KEY</code>) pra ver os títulos em alta.</p></div>
+          if (items === null) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
+          if (items.length === 0) return <div className="text-center py-20 text-text-muted"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada pra mostrar</p><p className="text-xs mt-2">Configure a <code className="text-text-secondary">tmdb.api_key</code> (ou <code className="text-text-secondary">TMDB_API_KEY</code>) pra ver os títulos em alta.</p></div>
           return (
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {shown.map(m => (
@@ -151,11 +151,11 @@ export default function DiscoverPage() {
                 key={`${m.kind}-${m.tmdbId}`}
                 onClick={() => openSearch(m)}
                 title={`Buscar "${m.title}"`}
-                className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-gray-800 border border-gray-700 hover:border-green-500/50 transition-colors"
+                className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-surface-secondary border border-default hover:border-green-500/50 transition-colors"
               >
-                <div className="aspect-[2/3] bg-gray-900 relative">
+                <div className="aspect-[2/3] bg-surface relative">
                   <img src={m.posterUrl} alt={m.title} loading="lazy" className="w-full h-full object-cover" />
-                  <span className="absolute top-1 left-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-gray-200">
+                  <span className="absolute top-1 left-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-text-primary">
                     {m.kind === 'tv' ? <Tv className="w-3 h-3" /> : <Film className="w-3 h-3" />}
                     {m.kind === 'tv' ? 'Série' : 'Filme'}
                   </span>
@@ -174,8 +174,8 @@ export default function DiscoverPage() {
                   </span>
                 </div>
                 <div className="p-2">
-                  <p className="text-xs text-gray-200 line-clamp-2" title={m.title}>{m.title}</p>
-                  {m.year > 0 && <p className="text-[10px] text-gray-500">{m.year}</p>}
+                  <p className="text-xs text-text-primary line-clamp-2" title={m.title}>{m.title}</p>
+                  {m.year > 0 && <p className="text-[10px] text-text-muted">{m.year}</p>}
                 </div>
               </button>
             ))}

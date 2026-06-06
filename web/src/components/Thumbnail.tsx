@@ -68,7 +68,7 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
   return (
     <div
       ref={ref}
-      className={`${dim} flex-shrink-0 rounded overflow-hidden border border-gray-700 bg-gray-900 relative ${className}`}
+      className={`${dim} flex-shrink-0 rounded overflow-hidden border border-default bg-surface relative ${className}`}
       // The tooltip duplicates info shown elsewhere in the card; keep it for
       // accessibility / hover discovery when the title is truncated.
       title={tooltipTitle}
@@ -88,11 +88,11 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
       {/* Fallback layer: shown while waiting OR when no match was found.
           Positioned absolute under the <img> so a broken poster falls back
           gracefully via the onError handler above without re-rendering. */}
-      <div className={`absolute inset-0 flex items-center justify-center text-gray-600 pointer-events-none ${match?.posterUrl ? 'invisible' : ''}`}>
+      <div className={`absolute inset-0 flex items-center justify-center text-text-muted pointer-events-none ${match?.posterUrl ? 'invisible' : ''}`}>
         {loaded ? (
           <FallbackIcon className={iconDim} />
         ) : (
-          <div className={`${iconDim} animate-pulse rounded bg-gray-800`} />
+          <div className={`${iconDim} animate-pulse rounded bg-surface-secondary`} />
         )}
       </div>
       {/* Top layer: per-torrent resolved art (poster/cover/frame). Covers the

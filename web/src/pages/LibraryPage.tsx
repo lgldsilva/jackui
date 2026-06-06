@@ -101,11 +101,11 @@ export default function LibraryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <h1 className="text-xl font-semibold text-gray-100 flex items-center gap-2">
+          <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
             <LibraryIcon className="w-5 h-5 text-purple-400" /> Continue Assistindo
           </h1>
           <div className="flex items-center gap-1 text-xs flex-wrap">
@@ -134,8 +134,8 @@ export default function LibraryPage() {
         </div>
 
         {(() => {
-          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-500" /></div>
-          if (filtered.length === 0) return <div className="text-center py-20 text-gray-500"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada por aqui ainda</p><p className="text-xs mt-2">Assista algo no player — vai aparecer aqui pra continuar depois.</p></div>
+          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
+          if (filtered.length === 0) return <div className="text-center py-20 text-text-muted"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada por aqui ainda</p><p className="text-xs mt-2">Assista algo no player — vai aparecer aqui pra continuar depois.</p></div>
           return (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filtered.map(e => {
@@ -221,7 +221,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
     <>
     <button
       type="button"
-      className="card flex flex-col gap-2 hover:bg-gray-800/80 transition-colors text-left p-3 relative group cursor-pointer"
+      className="card flex flex-col gap-2 hover:bg-surface-secondary/80 transition-colors text-left p-3 relative group cursor-pointer"
       onClick={onPlay}
       {...longPress}
     >
@@ -231,7 +231,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
         onClick={(ev) => { ev.stopPropagation(); setMenuOpen(true) }}
         title="Ações"
         aria-label="Ações"
-        className="sm:hidden absolute top-1 right-1 z-20 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-gray-200 hover:bg-gray-900/60 transition-colors"
+        className="sm:hidden absolute top-1 right-1 z-20 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-text-primary hover:bg-surface/60 transition-colors"
       >
         <MoreVertical className="w-5 h-5" />
       </button>
@@ -240,7 +240,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
       <button
         onClick={(ev) => { ev.stopPropagation(); onRemove() }}
         title="Remover do Continuar Assistindo"
-        className="hidden sm:block absolute -top-2.5 -right-2.5 z-20 p-1 rounded-full bg-gray-700 text-gray-400 hover:text-red-400 hover:bg-gray-800 border border-gray-600 shadow transition-colors"
+        className="hidden sm:block absolute -top-2.5 -right-2.5 z-20 p-1 rounded-full bg-surface-tertiary text-text-secondary hover:text-red-400 hover:bg-surface-secondary border border-strong shadow transition-colors"
       >
         <X className="w-3.5 h-3.5" />
       </button>
@@ -249,21 +249,21 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
         <button
           onClick={(ev) => { ev.stopPropagation(); onDetails() }}
           title="Ver arquivos e detalhes"
-          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-900/85 text-gray-200 hover:bg-gray-900 text-[10px] transition-colors"
+          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-surface/85 text-text-primary hover:bg-surface text-[10px] transition-colors"
         >
           <Info className="w-3.5 h-3.5" /> Arquivos
         </button>
         <button
           onClick={(ev) => { ev.stopPropagation(); onDownload() }}
           title="Baixar arquivo completo em background"
-          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-900/85 text-cyan-300 hover:bg-gray-900 text-[10px] transition-colors"
+          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-surface/85 text-cyan-300 hover:bg-surface text-[10px] transition-colors"
         >
           <DownloadIcon className="w-3.5 h-3.5" />
         </button>
       </div>
       <div
         ref={ref}
-        className="aspect-video bg-gray-900 rounded-lg flex items-center justify-center relative overflow-hidden"
+        className="aspect-video bg-surface rounded-lg flex items-center justify-center relative overflow-hidden"
       >
         {match?.posterUrl ? (
           <>
@@ -284,7 +284,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
             />
           </>
         ) : (
-          <LibraryIcon className="w-10 h-10 text-gray-700" />
+          <LibraryIcon className="w-10 h-10 text-text-muted" />
         )}
         {/* Per-torrent resolved art (captured frame is already 16:9, so
             object-cover fills the box cleanly). Sits above the TMDB poster but
@@ -305,17 +305,17 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
           <CheckCircle2 className="w-5 h-5 text-green-400 absolute top-1 right-1 z-20" />
         )}
       </div>
-      <p className="text-xs text-gray-200 line-clamp-2" title={entry.name}>{entry.name}</p>
+      <p className="text-xs text-text-primary line-clamp-2" title={entry.name}>{entry.name}</p>
       <SeedBadge infoHash={entry.infoHash} magnet={entry.magnet} />
       {entry.durationSeconds > 0 && (
         <>
-          <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+          <div className="h-1 bg-surface-tertiary rounded-full overflow-hidden">
             <div
               className={isDone ? 'h-full bg-green-500' : 'h-full bg-purple-500'}
               style={{ width: `${ratio * 100}%` }}
             />
           </div>
-          <p className="text-[10px] text-gray-500 flex items-center gap-1">
+          <p className="text-[10px] text-text-muted flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {isDone ? 'Concluído' : `Faltam ${formatDuration(remaining)}`}
           </p>
@@ -334,19 +334,19 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
       <div className="flex flex-col gap-1">
         <button
           onClick={() => { setMenuOpen(false); onPlay() }}
-          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-text-primary hover:bg-surface-tertiary transition-colors"
         >
           <Play className="w-4 h-4 text-green-400 flex-shrink-0" /> Reproduzir
         </button>
         <button
           onClick={() => { setMenuOpen(false); onDetails() }}
-          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-text-primary hover:bg-surface-tertiary transition-colors"
         >
           <Info className="w-4 h-4 flex-shrink-0" /> Arquivos e detalhes
         </button>
         <button
           onClick={() => { setMenuOpen(false); onDownload() }}
-          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-cyan-300 hover:bg-gray-700 transition-colors"
+          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-cyan-300 hover:bg-surface-tertiary transition-colors"
         >
           <DownloadIcon className="w-4 h-4 flex-shrink-0" /> Baixar em background
         </button>

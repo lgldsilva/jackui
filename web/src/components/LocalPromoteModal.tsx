@@ -131,7 +131,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
           <button
             onClick={onClose}
             disabled={submitting}
-            className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded"
+            className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded"
           >
             Cancelar
           </button>
@@ -147,22 +147,22 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
       }
     >
       <>
-        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
+        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-default bg-surface/40">
           {count > 1 ? (
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-text-secondary">
               <span className="text-white font-semibold">{count}</span> arquivos selecionados — mesmo destino para todos
             </p>
           ) : (
-            <p className="text-xs text-gray-400 truncate" title={primary.name}>
-              Origem: <span className="text-gray-300 font-mono">{primary.name}</span>
+            <p className="text-xs text-text-secondary truncate" title={primary.name}>
+              Origem: <span className="text-text-primary font-mono">{primary.name}</span>
             </p>
           )}
         </div>
 
         {/* Seletor de destino */}
         {dests.length > 1 && (
-          <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
-            <HardDrive className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-2 flex-wrap text-sm">
+            <HardDrive className="w-4 h-4 text-text-muted flex-shrink-0" />
             {dests.map(d => (
               <button
                 key={d.path}
@@ -170,7 +170,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                   selectedBase === d.path || (!selectedBase && d === dests[0])
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                    : 'bg-gray-700 text-gray-400 border border-gray-600 hover:bg-gray-600'
+                    : 'bg-surface-tertiary text-text-secondary border border-strong hover:bg-surface-tertiary'
                 }`}
               >
                 {d.name}
@@ -179,19 +179,19 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
           </div>
         )}
 
-        <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
+        <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
           <button
             onClick={() => setPath('')}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded ${path === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded ${path === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
           >
             <Home className="w-3.5 h-3.5" /> {destLabel}
           </button>
           {breadcrumb.map((seg, i) => (
             <span key={`${i}-${seg}`} className="flex items-center gap-1">
-              <ChevronRight className="w-3 h-3 text-gray-600" />
+              <ChevronRight className="w-3 h-3 text-text-muted" />
               <button
                 onClick={() => setPath(breadcrumb.slice(0, i + 1).join('/'))}
-                className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
+                className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
               >
                 {seg}
               </button>
@@ -201,39 +201,39 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
 
         <div className="py-4 min-h-[150px]">
           {(() => {
-            if (loading) return <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="w-5 h-5 animate-spin" /></div>
-            if (dirs.length === 0) return <p className="text-sm text-gray-500 text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
+            if (loading) return <div className="flex items-center justify-center py-8 text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>
+            if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
             return <ul className="space-y-1">{dirs.map(d => (
               <li key={d}>
                 <button onClick={() => setPath(path ? `${path}/${d}` : d)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors">
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-primary hover:bg-surface-tertiary/60 transition-colors">
                   <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
                   <span className="truncate text-left flex-1 min-w-0">{d}</span>
-                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                  <ChevronRight className="w-4 h-4 text-text-muted" />
                 </button>
               </li>
             ))}</ul>
           })()}
         </div>
 
-        <div className="-mx-4 -mb-4 mt-2 border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <Plus className="w-4 h-4 text-gray-500 flex-shrink-0" />
+        <div className="-mx-4 -mb-4 mt-2 border-t border-default p-4 flex flex-col gap-3 bg-surface/40">
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <Plus className="w-4 h-4 text-text-muted flex-shrink-0" />
             <input
               type="text"
               value={newFolder}
               onChange={e => setNewFolder(e.target.value)}
               placeholder="Nova subpasta (opcional)"
-              className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-gray-100"
+              className="flex-1 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
             />
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer font-medium hover:text-white transition-colors">
+          <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer font-medium hover:text-white transition-colors">
             <input
               type="checkbox"
               checked={renameIA}
               onChange={e => setRenameIA(e.target.checked)}
-              className="accent-cyan-500 w-4 h-4 rounded border-gray-600 focus:ring-cyan-500 bg-gray-700"
+              className="accent-cyan-500 w-4 h-4 rounded border-strong focus:ring-cyan-500 bg-surface-tertiary"
             />
             <span className="flex items-center gap-1.5 text-cyan-300 font-semibold bg-cyan-950/40 border border-cyan-800/50 px-2 py-0.5 rounded-full text-xs">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
@@ -242,24 +242,24 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
           </label>
 
           {renameIA && (
-            <div className="mt-1 border border-cyan-800/40 bg-gray-950/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
+            <div className="mt-1 border border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
               <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
                 Visualização do Destino Organizado{count > 1 ? ` — ${count} arquivos` : ''}:
               </h3>
 {(() => {
-                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-gray-500 py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>Analisando nomes com IA...</span></div>
-                if (previews.length === 0) return <p className="text-xs text-gray-500 text-center py-2">Nenhum preview gerado.</p>
-                return <div className="space-y-2 divide-y divide-gray-800/40">{previews.map((p, index) => (
+                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>Analisando nomes com IA...</span></div>
+                if (previews.length === 0) return <p className="text-xs text-text-muted text-center py-2">Nenhum preview gerado.</p>
+                return <div className="space-y-2 divide-y divide-default">{previews.map((p, index) => (
                   <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
-                    <div className="text-[10px] text-gray-400 font-mono truncate" title={p.originalName}>De: {p.originalName}</div>
+                    <div className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>De: {p.originalName}</div>
                     {p.error ? (
                       <div className="text-red-400 text-[11px] bg-red-950/30 px-2 py-1 rounded border border-red-900/30">Erro: {p.error}</div>
                     ) : (
                       <div className="flex items-start gap-1.5 bg-emerald-950/10 border border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-300">
                         <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                         <div className="font-mono text-[11px] break-all leading-tight">
-                          <span className="text-gray-450">Para: </span>
+                          <span className="text-text-muted">Para: </span>
                           <span className="font-semibold text-emerald-450">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
                           <span className="text-white font-bold">{p.targetPath.split('/').pop()}</span>
                           <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">{p.kind === 'tv' ? 'Série' : 'Filme'}</span>
@@ -272,11 +272,11 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
             </div>
           )}
 
-          <div className="text-xs text-gray-500 flex items-start gap-1.5">
+          <div className="text-xs text-text-muted flex items-start gap-1.5">
             <FolderOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
             <span>
-              Destino: <span className="text-gray-300 font-mono">{destLabel}/{finalTarget || ''}</span>
-              {!finalTarget && <span className="text-gray-600"> (raiz)</span>}
+              Destino: <span className="text-text-primary font-mono">{destLabel}/{finalTarget || ''}</span>
+              {!finalTarget && <span className="text-text-muted"> (raiz)</span>}
             </span>
           </div>
 

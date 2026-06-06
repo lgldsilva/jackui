@@ -2,9 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme tokens. The :root set is the macOS-inspired light theme; .dark holds
+   the previous dark palette. The .dark class is toggled by lib/theme.ts BEFORE
+   React renders (see bootstrapTheme) so the first paint already matches. */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #e8e8ed;
+  --bg-elevated: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --text-muted: #6e6e73;
+  --border-color: #d2d2d7;
+  --border-strong: #b8b8be;
+  --input-bg: #ffffff;
+  --card-bg: #ffffff;
+  --hover-overlay: rgba(0, 0, 0, 0.04);
+  --header-bg: rgba(255, 255, 255, 0.85);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 10px 30px rgba(0, 0, 0, 0.10), 0 4px 8px rgba(0, 0, 0, 0.05);
+  color-scheme: light;
+}
+
+.dark {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-tertiary: #374151;
+  --bg-elevated: #1a202c;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border-color: #374151;
+  --border-strong: #4b5563;
+  --input-bg: #1f2937;
+  --card-bg: #1f2937;
+  --hover-overlay: rgba(255, 255, 255, 0.06);
+  --header-bg: rgba(17, 24, 39, 0.85);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-elevated: 0 10px 30px rgba(0, 0, 0, 0.5), 0 4px 8px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
 @layer base {
   body {
-    @apply bg-gray-900 text-gray-100 min-h-screen;
+    @apply bg-surface text-text-primary min-h-screen transition-colors duration-200;
   }
 
   /* iOS PWA safe areas — pure env() values, fully dynamic.
@@ -39,26 +80,31 @@
   }
 
   .btn-secondary {
-    @apply bg-gray-700 hover:bg-gray-600 text-gray-100 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+    @apply bg-surface-tertiary hover:bg-surface-secondary text-text-primary font-medium py-2 px-4 rounded-lg transition-colors duration-200;
   }
 
   /* text-base (16px) is deliberate: iOS Safari auto-zooms the page whenever a
      focused input has font-size < 16px. Keeping every .input-field at 16px
      stops that jarring zoom-on-tap on iPhone/iPad. */
   .input-field {
-    @apply bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent w-full;
+    @apply bg-input border border-default text-text-primary rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent w-full transition-colors duration-200;
   }
 
   .card {
-    @apply bg-gray-800 rounded-xl border border-gray-700 p-4 hover:border-gray-600 transition-colors duration-200;
+    @apply bg-card rounded-xl border border-default p-4 hover:border-strong transition-colors duration-200;
   }
 
   /* Header nav link — Apple HIG-compliant 44x44pt minimum touch target.
-     On mobile (sm:hidden text) the icon alone could be only ~16px = unhittable. */
+     On mobile (sm:hidden text) the icon alone could be only ~16px = unhittable.
+     Note: we avoid @apply with opacity modifiers on CSS-variable colors (Tailwind
+     can't generate /{opacity} for custom colors at build time), so the hover
+     background is set via a CSS variable with opacity baked in. */
   .header-link {
-    @apply flex items-center justify-center gap-2 text-gray-400 hover:text-gray-100
-           transition-colors text-sm rounded-lg p-2.5 min-w-[44px] min-h-[44px]
-           hover:bg-gray-700/40;
+    @apply flex items-center justify-center gap-2 text-text-secondary hover:text-text-primary
+           transition-colors text-sm rounded-lg p-2.5 min-w-[44px] min-h-[44px];
+  }
+  .header-link:hover {
+    background-color: var(--hover-overlay);
   }
 }
 

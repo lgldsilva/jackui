@@ -64,7 +64,7 @@ function NumberField(props: Readonly<{
   const { label, value, onChange, placeholder, suffix, hint } = props
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-gray-400">{label}</span>
+      <span className="text-xs text-text-secondary">{label}</span>
       <div className="flex items-center gap-2">
         <input
           type="number"
@@ -75,9 +75,9 @@ function NumberField(props: Readonly<{
           onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
           className="input-field min-h-[44px]"
         />
-        {suffix && <span className="text-xs text-gray-500 flex-shrink-0">{suffix}</span>}
+        {suffix && <span className="text-xs text-text-muted flex-shrink-0">{suffix}</span>}
       </div>
-      {hint && <span className="text-[11px] text-gray-600">{hint}</span>}
+      {hint && <span className="text-[11px] text-text-muted">{hint}</span>}
     </label>
   )
 }
@@ -100,7 +100,7 @@ function Badge({ kind }: Readonly<{ kind: 'live' | 'restart' }>) {
 function SectionTitle({ title, badge }: Readonly<{ title: string; badge: 'live' | 'restart' }>) {
   return (
     <div className="flex items-center gap-2">
-      <h3 className="text-sm font-medium text-gray-200">{title}</h3>
+      <h3 className="text-sm font-medium text-text-primary">{title}</h3>
       <Badge kind={badge} />
     </div>
   )
@@ -148,7 +148,7 @@ export default function StreamSettingsCard() {
 
   if (loading) {
     return (
-      <div className="card flex items-center gap-3 text-gray-400">
+      <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" />
         Carregando configurações do streamer...
       </div>
@@ -163,7 +163,7 @@ export default function StreamSettingsCard() {
     <div className="card flex flex-col gap-5">
       <div className="flex items-center gap-2">
         <SlidersHorizontal className="w-5 h-5 text-green-500" />
-        <h2 className="text-lg font-semibold text-gray-100">Streamer &amp; Performance</h2>
+        <h2 className="text-lg font-semibold text-text-primary">Streamer &amp; Performance</h2>
       </div>
 
       {/* Banda — ao vivo */}
@@ -197,7 +197,7 @@ export default function StreamSettingsCard() {
       <div className="flex flex-col gap-3">
         <SectionTitle title="Avançado (hardware/peers)" badge="restart" />
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-gray-400">Backend de storage</span>
+          <span className="text-xs text-text-secondary">Backend de storage</span>
           <select
             value={form.storageBackend}
             onChange={(e) => set('storageBackend', e.target.value as StorageBackend)}
@@ -217,11 +217,11 @@ export default function StreamSettingsCard() {
           <NumberField label="Piece hashers (CPU)" value={form.pieceHashers} onChange={(n) => set('pieceHashers', n)}
             placeholder={defaults.pieceHashers} />
         </div>
-        <p className="text-[11px] text-gray-600">Campo em 0 = usar o default da biblioteca (mostrado no placeholder).</p>
+        <p className="text-[11px] text-text-muted">Campo em 0 = usar o default da biblioteca (mostrado no placeholder).</p>
       </div>
 
       {/* Footer: save + feedback */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-t border-gray-700 pt-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-t border-default pt-4">
         {notice && <span className="text-xs text-green-400">{notice}</span>}
         {error && <span className="text-xs text-red-400">{error}</span>}
         {!notice && !error && <span />}

@@ -71,15 +71,15 @@ export function Sheet({
       <div
         role="dialog"
         aria-modal="true"
-        className={`bg-gray-800 w-full ${SIZE_MAXW[size]} rounded-t-2xl sm:rounded-2xl border-0 sm:border border-gray-700 shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] p-0 m-0 text-inherit`}
+        className={`bg-surface-secondary w-full ${SIZE_MAXW[size]} rounded-t-2xl sm:rounded-2xl border-0 sm:border border-default shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] p-0 m-0 text-inherit`}
       >
         <div ref={headerRef}>
           {/* Grabber — só no mobile, sinaliza o drag-to-close */}
           <div className="sm:hidden mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-gray-600" aria-hidden />
           {!hideHeader && (
-            <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
+            <div className="flex items-center justify-between p-4 border-b border-default flex-shrink-0">
               {title != null && (
-                <h2 className="text-base font-semibold text-gray-100 flex items-center gap-2 min-w-0">
+                <h2 className="text-base font-semibold text-text-primary flex items-center gap-2 min-w-0">
                   {icon}
                   <span className="truncate">{title}</span>
                 </h2>
@@ -87,7 +87,7 @@ export function Sheet({
               <button
                 onClick={onClose}
                 aria-label="Fechar"
-                className="ml-auto text-gray-400 hover:text-gray-200 p-1.5 -m-1.5 rounded-lg hover:bg-gray-700/50"
+                className="ml-auto text-text-secondary hover:text-text-primary p-1.5 -m-1.5 rounded-lg hover:bg-surface-tertiary/50"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -107,7 +107,7 @@ export function Sheet({
         </div>
 
         {footer != null && (
-          <div className="flex-shrink-0 border-t border-gray-700 p-4 safe-bottom sm:pb-4">{footer}</div>
+          <div className="flex-shrink-0 border-t border-default p-4 safe-bottom sm:pb-4">{footer}</div>
         )}
       </div>
     </div>

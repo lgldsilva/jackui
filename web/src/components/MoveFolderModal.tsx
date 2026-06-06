@@ -102,14 +102,14 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
     >
       <>
         {/* Source */}
-        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
+        <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-default bg-surface/40">
           {isBatch ? (
-            <p className="text-xs text-gray-400">
-              De: <span className="text-gray-300 font-medium">{items.length} itens</span> em <span className="text-gray-300 font-mono">{mount}</span>
+            <p className="text-xs text-text-secondary">
+              De: <span className="text-text-primary font-medium">{items.length} itens</span> em <span className="text-text-primary font-mono">{mount}</span>
             </p>
           ) : (
-            <p className="text-xs text-gray-400 truncate" title={singlePath}>
-              De: <span className="text-gray-300 font-mono">{mount} / {singlePath}</span>
+            <p className="text-xs text-text-secondary truncate" title={singlePath}>
+              De: <span className="text-text-primary font-mono">{mount} / {singlePath}</span>
             </p>
           )}
         </div>
@@ -117,8 +117,8 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         {done ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 px-6">
             <CheckCircle2 className="w-10 h-10 text-green-400" />
-            <p className="text-base font-semibold text-gray-100">Movido com sucesso</p>
-            <p className="text-sm text-gray-400 font-mono truncate max-w-xs">
+            <p className="text-base font-semibold text-text-primary">Movido com sucesso</p>
+            <p className="text-sm text-text-secondary font-mono truncate max-w-xs">
               {dstMount} / {finalPath || ''}
             </p>
             <button
@@ -131,8 +131,8 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         ) : (
           <>
             {/* Mount selector */}
-            <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-2 flex-wrap text-sm">
-              <HardDrive className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-2 flex-wrap text-sm">
+              <HardDrive className="w-4 h-4 text-text-muted flex-shrink-0" />
               {mounts.map(m => (
                 <button
                   key={m.name}
@@ -140,7 +140,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                     dstMount === m.name
                       ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                      : 'bg-gray-700 text-gray-400 border border-gray-600 hover:bg-gray-600'
+                      : 'bg-surface-tertiary text-text-secondary border border-strong hover:bg-surface-tertiary'
                   }`}
                 >
                   {m.name}
@@ -149,19 +149,19 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             </div>
 
             {/* Breadcrumb */}
-            <div className="-mx-4 px-4 py-2 border-b border-gray-700 flex items-center gap-1 flex-wrap text-sm text-gray-300">
+            <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
               <button
                 onClick={() => setBrowsePath('')}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
               >
                 <Home className="w-3.5 h-3.5" /> {dstMount || '—'}
               </button>
               {breadcrumb.map((seg, i) => (
                 <span key={`${i}-${seg}`} className="flex items-center gap-1">
-                  <ChevronRight className="w-3 h-3 text-gray-600" />
+                  <ChevronRight className="w-3 h-3 text-text-muted" />
                   <button
                     onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
-                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-gray-700'}`}
+                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
                   >
                     {seg}
                   </button>
@@ -172,15 +172,15 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             {/* Dir browser */}
             <div className="min-h-[150px] py-3">
               {(() => {
-                if (dirsLoading) return <div className="flex items-center justify-center py-8 text-gray-500"><Loader2 className="w-5 h-5 animate-spin" /></div>
-                if (dirs.length === 0) return <p className="text-sm text-gray-500 text-center py-6">Sem subpastas — mover aqui na raiz.</p>
+                if (dirsLoading) return <div className="flex items-center justify-center py-8 text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>
+                if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-6">Sem subpastas — mover aqui na raiz.</p>
                 return <ul className="space-y-0.5">{dirs.map(d => (
                   <li key={d.name}>
                     <button onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d.name}` : d.name)}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-200 hover:bg-gray-700/60 transition-colors">
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-primary hover:bg-surface-tertiary/60 transition-colors">
                       <Folder className="w-4 h-4 text-cyan-400 flex-shrink-0" />
                       <span className="truncate text-left flex-1 min-w-0">{d.name}</span>
-                      <ChevronRight className="w-4 h-4 text-gray-600" />
+                      <ChevronRight className="w-4 h-4 text-text-muted" />
                     </button>
                   </li>
                 ))}</ul>
@@ -188,21 +188,21 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             </div>
 
             {/* Footer */}
-            <div className="-mx-4 -mb-4 mt-2 border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
+            <div className="-mx-4 -mb-4 mt-2 border-t border-default p-4 flex flex-col gap-3 bg-surface/40">
               {/* Criar subpasta no destino atual (criada ao mover). */}
-              <label className="flex items-center gap-2 text-sm text-gray-300">
-                <FolderPlus className="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <label className="flex items-center gap-2 text-sm text-text-primary">
+                <FolderPlus className="w-4 h-4 text-text-muted flex-shrink-0" />
                 <input
                   type="text"
                   value={newFolder}
                   onChange={e => setNewFolder(e.target.value)}
                   placeholder="Nova subpasta (opcional)"
-                  className="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500"
+                  className="flex-1 min-w-0 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500"
                 />
               </label>
 
-              <div className="text-xs text-gray-500">
-                Destino: <span className="text-gray-300 font-mono">{dstMount}/{finalPath || ''}</span>
+              <div className="text-xs text-text-muted">
+                Destino: <span className="text-text-primary font-mono">{dstMount}/{finalPath || ''}</span>
               </div>
 
               {isSameLoc && !cleanNew && (
@@ -218,7 +218,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
               )}
 
               <div className="flex items-center gap-2 justify-end">
-                <button onClick={onClose} disabled={submitting} className="text-sm text-gray-400 hover:text-gray-200 px-3 py-1.5 rounded">
+                <button onClick={onClose} disabled={submitting} className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded">
                   Cancelar
                 </button>
                 <button
