@@ -151,8 +151,22 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "conta inativa", "status": string(user.Status)})
 			return
 		}
-		// Rotate: invalidate the old refresh token first to prevent re-use
-		_ = store.ConsumeRefreshToken(req.Refresh)
+		// Rotate atomically: the DELETE is the source of truth, not the earlier
+		// SELECT in ValidateRefreshToken. If we're NOT the one that removed it,
+		// another request already rotated this token (concurrent refresh, or a
+		// replay of a leaked-then-rotated token) — refuse and revoke the whole
+		// session family as a reuse-detection defense. Closes the
+		// validate-then-delete TOCTOU that allowed token cloning.
+		consumed, cerr := store.ConsumeRefreshTokenOnce(req.Refresh)
+		if cerr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": cerr.Error()})
+			return
+		}
+		if !consumed {
+			_ = store.RevokeAllSessions(user.ID)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+			return
+		}
 
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
