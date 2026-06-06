@@ -174,7 +174,9 @@ func registerExistingDownloads(cfg WorkerConfig) {
 		}
 		if d.Status == StatusCompleted && cfg.DownloadDir != "" {
 			if isOrphanedCompletion(d, cfg.DataDir) {
-				_ = cfg.Store.SetStatus(d.UserID, d.ID, StatusQueued)
+				if err := cfg.Store.SetStatus(d.UserID, d.ID, StatusQueued); err != nil {
+					log.Printf("downloads: failed to set status queued for existing download %d: %v", d.ID, err)
+				}
 				cfg.Streamer.RegisterDownload(d.Name)
 				log.Printf("downloads: re-queued orphan #%d %q (file_path missing, source still in cache)", d.ID, d.Name)
 			}
@@ -335,7 +337,9 @@ func (w *Worker) demoteStalled(td *trackedDL, qs QueueSettings) {
 	w.mu.Unlock()
 	log.Printf("downloads: #%d %q stalled (no seed for %dm) → requeued (stall #%d)", td.id, td.name, qs.StallThresholdMin, stalls)
 	if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
-		_ = w.store.SetStatus(td.userID, td.id, StatusPaused)
+		if err := w.store.SetStatus(td.userID, td.id, StatusPaused); err != nil {
+			log.Printf("downloads: failed to set status paused for stalled download %d: %v", td.id, err)
+		}
 		log.Printf("downloads: #%d %q paused after %d no-seed stalls", td.id, td.name, stalls)
 	}
 }
@@ -455,7 +459,9 @@ func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 		log.Printf("downloads: ignoring transient regression #%d %q completed %d → %d (keeping DB) — peers=%d",
 			d.ID, td.name, d.BytesDownloaded, completed, len(td.torrent.PeerConns()))
 	} else if completed != d.BytesDownloaded {
-		_ = w.store.UpdateProgress(d.UserID, d.ID, completed)
+		if err := w.store.UpdateProgress(d.UserID, d.ID, completed); err != nil {
+			log.Printf("downloads: failed to update progress for download %d: %v", d.ID, err)
+		}
 	}
 	// Track forward progress for no-seed stall detection. The first sample seeds
 	// the clock; only a real byte advance resets it, so a download stuck at the
@@ -483,7 +489,9 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 		log.Printf("downloads: completion move failed #%d %q: %v (retry next tick)", d.ID, td.name, err)
 		return
 	}
-	_ = w.store.SetStatus(d.UserID, d.ID, StatusCompleted)
+	if err := w.store.SetStatus(d.UserID, d.ID, StatusCompleted); err != nil {
+		log.Printf("downloads: failed to set status completed for download %d: %v", d.ID, err)
+	}
 	w.mu.Lock()
 	delete(w.tracked, d.ID)
 	w.mu.Unlock()
@@ -576,7 +584,9 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) erro
 	if err != nil {
 		return err
 	}
-	_ = w.store.SetFilePath(d.UserID, d.ID, dst)
+	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
+		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+	}
 	w.streamer.UnregisterDownload(torrentName)
 	log.Printf("downloads: moved #%d %q → %s", d.ID, torrentName, dst)
 	return nil
@@ -645,24 +655,9 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	}
 
 	files := t.Files()
-	fileIdx := d.FileIndex
-	if fileIdx < 0 || fileIdx >= len(files) {
-		// Auto-pick: FileIndex == -1 means "pick the best file".
-		// We prefer the largest video/media file, or fall back to the
-		// largest file overall. This mirrors Transmission's "download
-		// all files" — for now we download the single best file so the
-		// existing per-file worker model works without modification.
-		fileIdx = pickBestFile(files)
-		if fileIdx < 0 {
-			_ = w.store.SetError(d.UserID, d.ID, "no files in torrent")
-			return
-		}
-		// Persist the resolved FileIndex so subsequent ticks don't
-		// re-pick (and so the store reflects the actual target).
-		if d.FileIndex != fileIdx {
-			_ = w.store.SetFileIndex(d.UserID, d.ID, fileIdx)
-			d.FileIndex = fileIdx
-		}
+	fileIdx, okResolved := w.resolveFileIndex(&d, files)
+	if !okResolved {
+		return
 	}
 	f := files[fileIdx]
 	// Hash-check pieces no disco ANTES de marcar como wanted. Sem isso,
@@ -672,7 +667,9 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// abaixo iria pedir esses bytes do swarm. VerifyFile faz o hash de cada
 	// piece e marca como Complete os que casam, eliminando re-download. Idempotente
 	// (sync.Map dedupe entre streaming e download). Custo: ~1 hash por piece.
-	_ = w.streamer.VerifyFile(hash, fileIdx)
+	if err := w.streamer.VerifyFile(hash, fileIdx); err != nil {
+		log.Printf("downloads: failed to verify file pieces for download %d: %v", d.ID, err)
+	}
 	// File.Download() sets piece priority to Normal across the file's piece
 	// range — anacrolix then schedules a full download to completion.
 	f.Download()
@@ -688,7 +685,9 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// arquivo na cache pelo path.
 	filePath := filepath.Join(w.dataDir, f.Path())
 	fileSize := f.Length()
-	_ = w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize)
+	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
+		log.Printf("downloads: failed to update metadata for download %d: %v", d.ID, err)
+	}
 
 	now := time.Now()
 	td := &trackedDL{
@@ -721,9 +720,37 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// "recomeçou". VerifyFile acima já reconciliou o estado de pieces, então
 	// BytesCompleted aqui reflete a realidade do disco.
 	if initialBytes := f.BytesCompleted(); initialBytes > 0 {
-		_ = w.store.UpdateProgress(d.UserID, d.ID, initialBytes)
+		if err := w.store.UpdateProgress(d.UserID, d.ID, initialBytes); err != nil {
+			log.Printf("downloads: failed to update initial progress for download %d: %v", d.ID, err)
+		}
 	}
 	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, f.Length(), f.BytesCompleted())
+}
+
+// resolveFileIndex resolves the target file index in a torrent. If index is out of bounds,
+// it auto-picks the best file. Returns the resolved index and true on success.
+func (w *Worker) resolveFileIndex(d *Download, files []*torrent.File) (int, bool) {
+	fileIdx := d.FileIndex
+	if fileIdx >= 0 && fileIdx < len(files) {
+		return fileIdx, true
+	}
+	// Auto-pick: FileIndex == -1 means "pick the best file".
+	// We prefer the largest video/media file, or fall back to the largest file overall.
+	fileIdx = pickBestFile(files)
+	if fileIdx < 0 {
+		if err := w.store.SetError(d.UserID, d.ID, "no files in torrent"); err != nil {
+			log.Printf("downloads: failed to set error status for download %d: %v", d.ID, err)
+		}
+		return -1, false
+	}
+	// Persist the resolved FileIndex so subsequent ticks don't re-pick.
+	if d.FileIndex != fileIdx {
+		if err := w.store.SetFileIndex(d.UserID, d.ID, fileIdx); err != nil {
+			log.Printf("downloads: failed to set file index for download %d: %v", d.ID, err)
+		}
+		d.FileIndex = fileIdx
+	}
+	return fileIdx, true
 }
 
 // failOrRetry records a transient init failure. Below maxInitRetries it leaves
@@ -746,7 +773,9 @@ func (w *Worker) failOrRetry(d Download, msg string) {
 		delete(w.retries, d.ID)
 		w.mu.Unlock()
 		log.Printf("downloads: init #%d (%s) failed after %d tries: %s", d.ID, d.InfoHash, n, msg)
-		_ = w.store.SetError(d.UserID, d.ID, msg)
+		if err := w.store.SetError(d.UserID, d.ID, msg); err != nil {
+			log.Printf("downloads: failed to set error for download %d: %v", d.ID, err)
+		}
 		name := d.Name
 		if name == "" {
 			name = d.InfoHash

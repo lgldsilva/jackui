@@ -34,7 +34,7 @@ services:
     healthcheck:
       disable: true
     ports:
-      - "0.0.0.0:8990:8989"
+      - "0.0.0.0:${STAGING_PORT:-8990}:8989"
       - "51470:51469/tcp"
       - "51470:51469/udp"
     volumes:
@@ -43,6 +43,7 @@ services:
       - /Files/AppData/Config/jackui-staging:/data
       # ⚠️ PROD's *REAL* PIECE CACHE (already-downloaded files) — prod must be stopped!
       - /mnt/lvm1-storage/jacktrack/cache:/data/streams
+      # Library/mounts shared with prod (read-only here — staging doesn't promote)
       - /mnt/lvm1-storage:/mnt/storage:ro
       - /mnt/rclone/gdrive/pessoal/media:/mnt/gdrive/media:ro
       - /mnt/rclone/gdrive/pessoal/sensitive:/mnt/gdrive/sensitive:ro
@@ -54,7 +55,7 @@ services:
       - JACKUI_STREAM_DIR=/data/streams
       - JACKUI_STATE_DIR=/data
       # > prod's 50 → the LRU won't evict prod pieces during the test
-      - JACKUI_STREAM_MAX_GB=60
+      - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-60}
       - JACKUI_DOWNLOAD_DIR=/data/downloads
       - JACKUI_SHARED_DIR=/data/shared
       - JACKUI_EXTERNAL_MOUNTS=GDrive Media:/mnt/gdrive/media
@@ -67,7 +68,7 @@ services:
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
-      - JACKUI_BASE_URL=http://192.168.86.24:8990
+      - JACKUI_BASE_URL=http://${STAGING_HOST_IP:-192.168.86.24}:${STAGING_PORT:-8990}
     networks:
       - vpn-gateway_vpn-net
 

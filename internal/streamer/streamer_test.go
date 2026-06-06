@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -836,6 +837,40 @@ func TestImportTorrentBytes_InvalidData(t *testing.T) {
 	_, _, err := s.ImportTorrentBytes([]byte("garbage"))
 	if err == nil {
 		t.Error("expected error for invalid data")
+	}
+}
+
+func TestStreamer_AsyncRecheckFile_Dedup(t *testing.T) {
+	s := NewForTesting()
+
+	// Caso 1: Chave já carregada
+	s.verifiedMu.Lock()
+	s.verifiedFiles = map[string]bool{"test-key": true}
+	s.verifiedMu.Unlock()
+
+	s.asyncRecheckFile("test-key", nil) // Não deve dar panic com f=nil porque loaded=true
+
+	// Caso 2: Chave nova e limpeza de cache por tamanho excedido (>= 2000)
+	s.verifiedMu.Lock()
+	s.verifiedFiles = make(map[string]bool)
+	for i := 0; i < 2005; i++ {
+		s.verifiedFiles[fmt.Sprintf("key-%d", i)] = true
+	}
+	s.verifiedMu.Unlock()
+
+	func() {
+		defer func() {
+			recover() // Ignora o panic inevitável de f=nil.Pieces()
+		}()
+		s.asyncRecheckFile("new-key", nil)
+	}()
+
+	s.verifiedMu.Lock()
+	size := len(s.verifiedFiles)
+	s.verifiedMu.Unlock()
+
+	if size > 1 {
+		t.Errorf("esperava cache limpo (< 2000), obteve tamanho %d", size)
 	}
 }
 
