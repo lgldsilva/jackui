@@ -3,6 +3,22 @@
 Todas as mudanças notáveis do JackUI. Formato baseado em [Keep a Changelog](https://keepachangelog.com),
 versionamento [SemVer](https://semver.org).
 
+## [0.3.0] — 2026-06-05
+
+### Adicionado
+- **Tema claro/escuro** em toda a UI (tailwind dark/light variants + toggle),
+  com tokens de cor semânticos nos componentes e páginas (#96).
+
+### Corrigido
+- **Favorites**: import de `.torrent` em lote não trava mais — a conversão
+  byte→base64 era O(n²) e estourava em arquivos reais ("importar 4 torrents
+  falha") (#94).
+
+### Manutenção
+- `.gemini/` adicionado ao `.gitignore` (lixo de ferramentas de IA) (#95).
+- Auditoria open-source: histórico git está **limpo** (sem segredos commitados);
+  LICENSE/CONTRIBUTING/SECURITY ficam para quando a publicação for decidida.
+
 ## [0.2.0] — 2026-06-05
 
 Onda de correções de bugs (caça exploratória + auditoria) e melhorias de
