@@ -44,11 +44,26 @@ func TestSanitizeFilename(t *testing.T) {
 // ── buildTargetPath ──────────────────────────────────────────────────────────
 
 func TestBuildTargetPath_Movie(t *testing.T) {
-	// Filme com ano → pasta e arquivo com "(year)".
+	// Filme com ano → "Título - Ano".
 	got := buildTargetPath(targetPathInput{Kind: "movie", CleanTitle: "Inception", Year: 2010, Ext: ".mkv", RawName: "Inception.2010.1080p.BluRay-GROUP.mkv"})
-	want := filepath.Join("Filmes", "Inception (2010)", "Inception (2010).mkv")
+	want := filepath.Join("Filmes", "Inception - 2010", "Inception - 2010.mkv")
 	if got != want {
 		t.Errorf("got %q; want %q", got, want)
+	}
+}
+
+func TestBuildTargetPath_MovieSequel(t *testing.T) {
+	// Sequência (número no título) → "Título - N" (não o ano).
+	got := buildTargetPath(targetPathInput{Kind: "movie", CleanTitle: "Toy Story 3", Year: 2010, Ext: ".mkv"})
+	want := filepath.Join("Filmes", "Toy Story - 3", "Toy Story - 3.mkv")
+	if got != want {
+		t.Errorf("sequel: got %q; want %q", got, want)
+	}
+	// Número grande no título (ano/parte do nome) NÃO é tratado como sequência.
+	got2 := buildTargetPath(targetPathInput{Kind: "movie", CleanTitle: "Blade Runner 2049", Year: 0, Ext: ".mkv"})
+	want2 := filepath.Join("Filmes", "Blade Runner 2049", "Blade Runner 2049.mkv")
+	if got2 != want2 {
+		t.Errorf("non-sequel: got %q; want %q", got2, want2)
 	}
 }
 

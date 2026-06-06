@@ -161,13 +161,27 @@ func buildTargetPath(in targetPathInput) string {
 		}
 		return filepath.Join("Series", in.CleanTitle, fmt.Sprintf("Season %02d", in.Season), in.RawName)
 	}
-	var folderName string
-	if in.Year > 0 {
-		folderName = fmt.Sprintf("%s (%d)", in.CleanTitle, in.Year)
-	} else {
-		folderName = in.CleanTitle
-	}
+	folderName := movieLabel(in.CleanTitle, in.Year)
 	return filepath.Join("Filmes", folderName, folderName+in.Ext)
+}
+
+// sequelTailRe matches a trailing sequence number ("Toy Story 3", "Rocky 4").
+// Single digit 1-9 only, so years/large numbers in the title ("Blade Runner
+// 2049", "Apollo 13") are NOT mistaken for a sequel number.
+var sequelTailRe = regexp.MustCompile(`^(.*\S)\s+([1-9])$`)
+
+// movieLabel formats a movie's folder/file label:
+//   - sequel (number already in the title) → "Title - N" (e.g. "Toy Story - 3")
+//   - otherwise                            → "Title - Year" (e.g. "Inception - 2010")
+//   - no year and no sequel                → just the title
+func movieLabel(title string, year int) string {
+	if m := sequelTailRe.FindStringSubmatch(title); m != nil {
+		return fmt.Sprintf("%s - %s", m[1], m[2])
+	}
+	if year > 0 {
+		return fmt.Sprintf("%s - %d", title, year)
+	}
+	return title
 }
 
 func sanitizeFilename(s string) string {
