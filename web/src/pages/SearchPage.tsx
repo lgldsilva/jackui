@@ -317,7 +317,7 @@ export default function SearchPage() {
         fetch('/api/config')
           .then(async r => ({ ok: r.ok, body: r.ok ? await r.json() : {} }))
           .then(({ ok, body }) => {
-            if (shouldPromptJackettSetup(d.jackett, { ok, jackettUrl: body?.jackett?.url })) {
+            if (shouldPromptJackettSetup(d.jackett, { ok, jackettUrl: body?.jackett?.url, apiKeySet: body?.jackett?.apiKeySet })) {
               setShowJackettSetup(true)
             }
           })
