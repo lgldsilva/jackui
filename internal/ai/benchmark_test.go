@@ -8,9 +8,34 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luizg/jackui/internal/config"
 )
+
+func TestMedianDuration(t *testing.T) {
+	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
+	cases := []struct {
+		name string
+		in   []time.Duration
+		want time.Duration
+	}{
+		{"empty", nil, 0},
+		{"single", []time.Duration{ms(700)}, ms(700)},
+		{"odd", []time.Duration{ms(900), ms(100), ms(500)}, ms(500)},
+		{"even", []time.Duration{ms(400), ms(200), ms(800), ms(600)}, ms(500)},
+		// The whole point: one huge model-load outlier must NOT move the median,
+		// the way it would drag the mean. Mean here ≈ 2120ms; median stays 600ms.
+		{"load_outlier", []time.Duration{ms(8000), ms(500), ms(600), ms(700), ms(800)}, ms(700)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := medianDuration(tc.in); got != tc.want {
+				t.Fatalf("medianDuration(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestTitleAccuracy(t *testing.T) {
 	if a := titleAccuracy("The Matrix", "the.matrix"); a != 1 {
