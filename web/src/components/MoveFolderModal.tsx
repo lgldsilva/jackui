@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { Sheet } from './Sheet'
 
@@ -22,6 +22,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
   const [mounts, setMounts] = useState<LocalMount[]>([])
   const [dstMount, setDstMount] = useState('')
   const [browsePath, setBrowsePath] = useState('')
+  const [newFolder, setNewFolder] = useState('') // subpasta a criar no destino (opcional)
   const [dirs, setDirs] = useState<LocalEntry[]>([])
   const [dirsLoading, setDirsLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -34,6 +35,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
     setDone(false)
     setError('')
     setBrowsePath('')
+    setNewFolder('')
     localMounts().then(ms => {
       setMounts(ms)
       // Default to first mount that isn't the source
@@ -56,6 +58,11 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
 
   const isBatch = items.length > 1
   const breadcrumb = browsePath.split('/').filter(Boolean)
+  // Subpasta nova (opcional) anexada ao destino. O backend (localMove) faz
+  // MkdirAll no destino, então a pasta é criada na hora de mover — sem endpoint
+  // extra. Aceita aninhado (a/b) e ignora barras nas pontas.
+  const cleanNew = newFolder.trim().replaceAll(/^\/+|\/+$/g, '')
+  const finalPath = cleanNew ? (browsePath ? `${browsePath}/${cleanNew}` : cleanNew) : browsePath
 
   const handleMove = async () => {
     if (!dstMount) return
@@ -63,7 +70,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
     setError('')
     try {
       // allSettled: um item que falha (ex: colisão de nome) não aborta os outros.
-      const results = await Promise.allSettled(items.map(it => localMove(mount, it.path, dstMount, browsePath)))
+      const results = await Promise.allSettled(items.map(it => localMove(mount, it.path, dstMount, finalPath)))
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       if (failed.length === items.length) {
         const first = failed[0]
@@ -112,7 +119,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             <CheckCircle2 className="w-10 h-10 text-green-400" />
             <p className="text-base font-semibold text-gray-100">Movido com sucesso</p>
             <p className="text-sm text-gray-400 font-mono truncate max-w-xs">
-              {dstMount} / {browsePath || ''}
+              {dstMount} / {finalPath || ''}
             </p>
             <button
               onClick={onClose}
@@ -182,11 +189,23 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
 
             {/* Footer */}
             <div className="-mx-4 -mb-4 mt-2 border-t border-gray-700 p-4 flex flex-col gap-3 bg-gray-900/40">
+              {/* Criar subpasta no destino atual (criada ao mover). */}
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <FolderPlus className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                <input
+                  type="text"
+                  value={newFolder}
+                  onChange={e => setNewFolder(e.target.value)}
+                  placeholder="Nova subpasta (opcional)"
+                  className="flex-1 min-w-0 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500"
+                />
+              </label>
+
               <div className="text-xs text-gray-500">
-                Destino: <span className="text-gray-300 font-mono">{dstMount}/{browsePath || ''}</span>
+                Destino: <span className="text-gray-300 font-mono">{dstMount}/{finalPath || ''}</span>
               </div>
 
-              {isSameLoc && (
+              {isSameLoc && !cleanNew && (
                 <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5">
                   Destino é igual à localização atual — escolha outra pasta.
                 </p>
@@ -204,7 +223,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                 </button>
                 <button
                   onClick={handleMove}
-                  disabled={submitting || !dstMount || isSameLoc}
+                  disabled={submitting || !dstMount || (isSameLoc && !cleanNew)}
                   className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
                 >
                   {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderInput className="w-3.5 h-3.5" />}
