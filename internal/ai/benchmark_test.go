@@ -417,6 +417,83 @@ func TestRunSlotsBadOutputCountsAsZero(t *testing.T) {
 	}
 }
 
+// TestRunSlotsRetriesRateLimitForCompleteScore pins Pendência 1: a case that gets
+// a transient 429 is RETRIED (not skipped), so the model is scored on the full set
+// — no misleading 100% over a partial sample count, no spurious "Falha".
+func TestRunSlotsRetriesRateLimitForCompleteScore(t *testing.T) {
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// First call 429 (with a tiny Retry-After so the test is fast), then 200.
+		if atomic.AddInt32(&n, 1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"title\":\"Inception\",\"year\":2010,\"kind\":\"movie\"}"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	slot := Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}
+	scores := c.RunSlots(context.Background(), []Slot{slot}, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	s := scores[0]
+	if s.Samples != 1 {
+		t.Fatalf("the throttled case should be retried to a complete sample, got samples=%d", s.Samples)
+	}
+	if s.FailureReason != "" {
+		t.Fatalf("a retried-then-OK case must not leave a failure reason, got %q", s.FailureReason)
+	}
+	if s.Accuracy != 1 {
+		t.Fatalf("expected full accuracy after retry, got %v", s.Accuracy)
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 0},
+		{"2", 2 * time.Second},
+		{"1.5", 1500 * time.Millisecond},
+		{"0", 0},
+		{"Wed, 21 Oct 2026 07:28:00 GMT", 0}, // HTTP-date form not handled → 0
+		{"junk", 0},
+	}
+	for _, tc := range cases {
+		if got := parseRetryAfter(tc.in); got != tc.want {
+			t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestFreeOnly(t *testing.T) {
+	in := []Slot{
+		{Provider: "groq", Model: "openai/gpt-oss-20b"},          // free-tier provider → keep
+		{Provider: "ollama", Model: "qwen2.5:7b"},                // local → keep
+		{Provider: "ollama", Model: "gpt-oss:120b-cloud"},        // ollama free-tier → keep
+		{Provider: "openrouter", Model: "deepseek/r1:free"},      // :free → keep
+		{Provider: "opencode", Model: "deepseek-v4-flash-free"},  // -free → keep
+		{Provider: "opencode", Model: "big-pickle"},              // paid Zen → DROP
+		{Provider: "openrouter", Model: "anthropic/claude-opus"}, // paid → DROP
+	}
+	got := map[string]bool{}
+	for _, s := range FreeOnly(in) {
+		got[s.Model] = true
+	}
+	for _, m := range []string{"openai/gpt-oss-20b", "qwen2.5:7b", "gpt-oss:120b-cloud", "deepseek/r1:free", "deepseek-v4-flash-free"} {
+		if !got[m] {
+			t.Errorf("free model %q should be kept", m)
+		}
+	}
+	for _, m := range []string{"big-pickle", "anthropic/claude-opus"} {
+		if got[m] {
+			t.Errorf("paid model %q must be dropped (burns credits)", m)
+		}
+	}
+}
+
 func TestRunSlotsFreeBonus(t *testing.T) {
 	good := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
 	defer good.Close()

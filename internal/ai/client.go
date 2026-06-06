@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -303,6 +304,53 @@ var errInsufficientBalance = errors.New("ai: saldo insuficiente")
 // clean 100% next to a failure reason.
 var errBadOutput = errors.New("ai: model produced no usable output")
 
+// rateLimitError is a 429 carrying the vendor's Retry-After hint (0 if none). It
+// unwraps to errRateLimited so existing errors.Is checks still match; the benchmark
+// reads RetryAfter to back off the exact reset window and retry, so a transiently
+// throttled model still gets a COMPLETE score instead of 100% over a few cases.
+type rateLimitError struct {
+	slotID     string
+	RetryAfter time.Duration
+}
+
+func (e *rateLimitError) Error() string { return "ai: rate limited: " + e.slotID }
+func (e *rateLimitError) Unwrap() error { return errRateLimited }
+
+// parseRetryAfter reads a Retry-After header (delay in seconds, possibly
+// fractional — Groq sends e.g. "2" or "1.5"). HTTP-date form and junk yield 0.
+func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.ParseFloat(v, 64); err == nil && secs > 0 {
+		return time.Duration(secs * float64(time.Second))
+	}
+	return 0
+}
+
+// isFreeModel reports whether a model costs nothing to call: it's on a free-tier
+// provider (Groq's free tier, local Ollama), or its id carries a free marker
+// (:free / -free). The single source of truth for "safe to benchmark/adopt without
+// spending" — used by discovery, FreeOnly, and adoption.
+func isFreeModel(provider, model string) bool {
+	return freeTierProviders[provider] ||
+		strings.HasSuffix(model, ":free") || strings.HasSuffix(model, "-free")
+}
+
+// FreeOnly drops paid models (a metered provider without a free marker) so the
+// benchmark never spends credits on them — this also prunes paid leftovers a
+// pre-filter run had adopted into the chain (e.g. a Zen "big-pickle").
+func FreeOnly(slots []Slot) []Slot {
+	out := make([]Slot, 0, len(slots))
+	for _, s := range slots {
+		if isFreeModel(s.Provider, s.Model) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func isRateLimit(err error) bool { return errors.Is(err, errRateLimited) }
 
 // looksPaymentError checks if a failed response is due to insufficient balance
@@ -354,12 +402,12 @@ func looksModelNotFound(status int, body string) bool {
 // the error sentinels (rate limit, model-not-found, no-balance, bad-output) or a
 // generic error. Returns nil for a 2xx status. Kept out of chat() so the request
 // path stays simple (and under the cognitive-complexity gate).
-func httpResponseError(s Slot, status int, raw string) error {
+func httpResponseError(s Slot, status int, raw string, retryAfter time.Duration) error {
 	if status >= 200 && status < 300 {
 		return nil
 	}
 	if status == http.StatusTooManyRequests {
-		return fmt.Errorf("%w: %s", errRateLimited, s.ID)
+		return &rateLimitError{slotID: s.ID, RetryAfter: retryAfter}
 	}
 	if looksModelNotFound(status, raw) {
 		return fmt.Errorf("%w: %s/%s", errModelNotFound, s.Provider, s.Model)
@@ -416,7 +464,7 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
-	if err := httpResponseError(s, resp.StatusCode, string(raw)); err != nil {
+	if err := httpResponseError(s, resp.StatusCode, string(raw), parseRetryAfter(resp.Header.Get("Retry-After"))); err != nil {
 		return "", latency, err
 	}
 
