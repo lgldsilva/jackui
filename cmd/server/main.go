@@ -751,7 +751,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		pub := router.Group("/api/auth")
 		pub.POST("/login", handlers.Login(deps.authStore, deps.tokenMgr, deps.loginLockout))
 		pub.POST("/refresh", handlers.Refresh(deps.authStore, deps.tokenMgr))
-		pub.POST("/logout", handlers.Logout(deps.authStore))
+		pub.POST("/logout", handlers.Logout(deps.authStore, deps.historyStore, deps.libraryStore))
 		pub.POST("/register", handlers.Register(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
 		pub.POST("/forgot", handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))

@@ -35,11 +35,11 @@ func TestMethodSessionSet(t *testing.T) {
 
 func TestResolveCategory(t *testing.T) {
 	h := NewHandler(nil, nil, nil, "/data", "/data")
-	if got := h.resolveCategory("/data/Filmes", map[string]interface{}{"labels": []interface{}{"Series"}}); got != "Series" {
+	if got := h.resolveCategory("/data/Filmes", []string{"Series"}); got != "Series" {
 		t.Errorf("resolveCategory(labels) = %q, want Series", got)
 	}
 	// sem labels → deriva do downloadDir (não vazio)
-	if got := h.resolveCategory("/data/Filmes", map[string]interface{}{}); got == "" {
+	if got := h.resolveCategory("/data/Filmes", nil); got == "" {
 		t.Error("resolveCategory sem labels deveria derivar do dir")
 	}
 }
