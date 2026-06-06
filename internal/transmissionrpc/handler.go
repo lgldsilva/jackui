@@ -265,8 +265,14 @@ func (h *Handler) handleJSONRPC(c *gin.Context, body []byte, userID int) {
 	// Convert method name: session_get → session-get
 	method := strings.ReplaceAll(req.Method, "_", "-")
 
-	// Convert params keys: download_dir → download-dir (internal format)
+	// Convert params keys: download_dir → download-dir (internal format).
+	// JSON-RPC 2.0 calls may legitimately omit "params" (e.g. session-get,
+	// session-stats, port-test) — treat a nil params as an empty arg map so
+	// those dispatch normally instead of failing with -32602.
 	params := req.Params
+	if params == nil {
+		params = map[string]interface{}{}
+	}
 	converted := convertMapKeys(params, snakeToKebab)
 	paramsMap, ok := converted.(map[string]interface{})
 	if !ok {
