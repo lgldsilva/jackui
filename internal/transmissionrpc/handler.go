@@ -267,10 +267,21 @@ func (h *Handler) handleJSONRPC(c *gin.Context, body []byte, userID int) {
 
 	// Convert params keys: download_dir → download-dir (internal format)
 	params := req.Params
-	if params == nil {
-		params = make(map[string]interface{})
+	converted := convertMapKeys(params, snakeToKebab)
+	paramsMap, ok := converted.(map[string]interface{})
+	if !ok {
+		log.Printf("transmissionrpc: convertMapKeys did not return map[string]interface{} (got %T)", converted)
+		c.JSON(http.StatusBadRequest, jsonRPCResp{
+			JSONRPC: "2.0",
+			Error: &jsonRPCErr{
+				Code:    -32602, // Invalid params
+				Message: "invalid parameters format",
+			},
+			ID: req.ID,
+		})
+		return
 	}
-	params = convertMapKeys(params, snakeToKebab).(map[string]interface{})
+	params = paramsMap
 
 	internalReq := rpcRequest{
 		Method:    method,

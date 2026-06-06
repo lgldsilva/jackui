@@ -29,7 +29,7 @@ services:
     healthcheck:
       disable: true
     ports:
-      - "0.0.0.0:8990:8989"
+      - "0.0.0.0:${STAGING_PORT:-8990}:8989"
       - "51470:51469/tcp"
       - "51470:51469/udp"
     volumes:
@@ -61,7 +61,7 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
       # staging has no NPM domain — base url points straight at host:port
-      - JACKUI_BASE_URL=http://192.168.86.24:8990
+      - JACKUI_BASE_URL=http://${STAGING_HOST_IP:-192.168.86.24}:${STAGING_PORT:-8990}
     networks:
       - vpn-gateway_vpn-net
 

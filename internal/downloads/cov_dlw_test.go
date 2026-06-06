@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anacrolix/torrent"
 	"github.com/luizg/jackui/internal/streamer"
 )
 
@@ -352,3 +353,39 @@ func Test_dlw_ScanGeneric_ProgressClampedToOne(t *testing.T) {
 		t.Fatalf("expected progress clamped to 1.0, got %v", got.Progress)
 	}
 }
+
+// ─── resolveFileIndex coverage test ────────────────────────────────────────
+
+func Test_dlw_ResolveFileIndex(t *testing.T) {
+	store := dlwNewStore(t)
+	w := dlwNewWorker(t, store, t.TempDir(), "")
+
+	// Caso 1: Index válido (dentro do slice de files)
+	f1 := &torrent.File{}
+	files := []*torrent.File{f1}
+
+	d1 := Download{UserID: 1, ID: 101, FileIndex: 0, InfoHash: "h1", Magnet: "magnet:?xt=urn:btih:h1"}
+	idx, ok := w.resolveFileIndex(&d1, files)
+	if !ok || idx != 0 {
+		t.Fatalf("esperava index 0 e ok=true, obteve %d and %v", idx, ok)
+	}
+
+	// Caso 2: Index fora dos limites, mas pickBestFile retorna -1 (slice vazio)
+	d2 := Download{UserID: 1, ID: 102, FileIndex: -1, InfoHash: "h2", Magnet: "magnet:?xt=urn:btih:h2"}
+	createdD2, errCreate := store.Create(d2)
+	if errCreate != nil {
+		t.Fatalf("Create: %v", errCreate)
+	}
+	idx, ok = w.resolveFileIndex(createdD2, []*torrent.File{})
+	if ok || idx != -1 {
+		t.Fatalf("esperava index -1 e ok=false para slice vazio, obteve %d and %v", idx, ok)
+	}
+	got, _ := store.Get(1, createdD2.ID)
+	if got == nil {
+		t.Fatal("expected download to exist in store")
+	}
+	if got.Status != StatusFailed {
+		t.Fatalf("esperava status failed, obteve %s", got.Status)
+	}
+}
+

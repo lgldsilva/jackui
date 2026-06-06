@@ -134,7 +134,8 @@ type Streamer struct {
 	// verifiedFiles tracks "hash-fileIdx" keys we've already hash-checked
 	// against the disk this process lifetime, so we reconcile the cache for a
 	// given file exactly once (not on every FileReader call).
-	verifiedFiles sync.Map
+	verifiedMu    sync.RWMutex
+	verifiedFiles map[string]bool
 	// Global bandwidth limiters wired into the anacrolix client config. Mutated
 	// in place via SetLimit/SetBurst — anacrolix re-reads the limit on every
 	// chunk read/write.
@@ -376,11 +377,12 @@ func New(cfg Config) (*Streamer, error) {
 		active:      make(map[metainfo.Hash]*entry),
 		stop:        make(chan struct{}),
 		downloads:   make(map[string]struct{}),
-		metainfoDir: metainfoDir,
-		dlLimiter:   dlLimiter,
-		upLimiter:   upLimiter,
-		storageImpl: storageImpl,
-		readahead:   cfg.Readahead,
+		metainfoDir:   metainfoDir,
+		verifiedFiles: make(map[string]bool),
+		dlLimiter:     dlLimiter,
+		upLimiter:     upLimiter,
+		storageImpl:   storageImpl,
+		readahead:     cfg.Readahead,
 	}
 
 	go s.gcLoop()
@@ -930,26 +932,46 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	// de verdade. Mantém a guarda: se outro recheck já está em voo no mesmo
 	// (hash,fileIdx), LoadOrStore retorna loaded=true e a 2ª chamada vira no-op.
 	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
-	s.verifiedFiles.Delete(key)
+	s.verifiedMu.Lock()
+	delete(s.verifiedFiles, key)
+	s.verifiedMu.Unlock()
 	f := files[fileIdx]
-	go func() {
-		// Marca como em-progresso antes da hashagem pra concorrent calls não
-		// dispararem 2ª pass.
-		if _, loaded := s.verifiedFiles.LoadOrStore(key, true); loaded {
-			return
-		}
-		completed := false
-		defer func() {
-			if !completed {
-				s.verifiedFiles.Delete(key)
-			}
-		}()
-		for p := range f.Pieces() {
-			_ = p.VerifyData() // todos os pieces, sem o skip-complete do VerifyFile
-		}
-		completed = true
-	}()
+	go s.asyncRecheckFile(key, f)
 	return nil
+}
+
+// asyncRecheckFile handles the asynchronous re-hashing of a file's pieces.
+func (s *Streamer) asyncRecheckFile(key string, f *torrent.File) {
+	// Marca como em-progresso antes da hashagem pra concorrent calls não
+	// dispararem 2ª pass.
+	s.verifiedMu.Lock()
+	if s.verifiedFiles == nil {
+		s.verifiedFiles = make(map[string]bool)
+	}
+	_, loaded := s.verifiedFiles[key]
+	if !loaded {
+		if len(s.verifiedFiles) >= 2000 {
+			s.verifiedFiles = make(map[string]bool)
+		}
+		s.verifiedFiles[key] = true
+	}
+	s.verifiedMu.Unlock()
+	if loaded {
+		return
+	}
+
+	completed := false
+	defer func() {
+		if !completed {
+			s.verifiedMu.Lock()
+			delete(s.verifiedFiles, key)
+			s.verifiedMu.Unlock()
+		}
+	}()
+	for p := range f.Pieces() {
+		_ = p.VerifyData() // todos os pieces, sem o skip-complete do VerifyFile
+	}
+	completed = true
 }
 
 // verifyFilePieces hash-checks the on-disk pieces backing a single file so the
@@ -960,7 +982,19 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.File) {
 	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
 	// Claim the file so two concurrent readers don't both hash it.
-	if _, loaded := s.verifiedFiles.LoadOrStore(key, true); loaded {
+	s.verifiedMu.Lock()
+	if s.verifiedFiles == nil {
+		s.verifiedFiles = make(map[string]bool)
+	}
+	_, loaded := s.verifiedFiles[key]
+	if !loaded {
+		if len(s.verifiedFiles) >= 2000 {
+			s.verifiedFiles = make(map[string]bool)
+		}
+		s.verifiedFiles[key] = true
+	}
+	s.verifiedMu.Unlock()
+	if loaded {
 		return // already reconciled (or in progress) for this file
 	}
 	// If we bail before finishing (panic, or the torrent gets dropped mid-loop),
@@ -970,7 +1004,9 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 	completed := false
 	defer func() {
 		if !completed {
-			s.verifiedFiles.Delete(key)
+			s.verifiedMu.Lock()
+			delete(s.verifiedFiles, key)
+			s.verifiedMu.Unlock()
 		}
 	}()
 	for p := range f.Pieces() {
@@ -1793,10 +1829,11 @@ func applyLimiter(l *rate.Limiter, bps int64) {
 // torrent transport.
 func NewForTesting() *Streamer {
 	return &Streamer{
-		active:    make(map[metainfo.Hash]*entry),
-		downloads: make(map[string]struct{}),
-		dlLimiter: rate.NewLimiter(rate.Inf, 1<<16),
-		upLimiter: rate.NewLimiter(rate.Inf, 1<<16),
+		active:        make(map[metainfo.Hash]*entry),
+		downloads:     make(map[string]struct{}),
+		dlLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
+		upLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
+		verifiedFiles: make(map[string]bool),
 	}
 }
 
