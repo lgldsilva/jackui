@@ -235,16 +235,44 @@ func TestGeneratePreview_NilTMDB(t *testing.T) {
 	}
 }
 
-func TestGeneratePreview_AIError(t *testing.T) {
+func TestGeneratePreview_AIError_FallsBackToParser(t *testing.T) {
 	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer aiSrv.Close()
 
 	aiClient := newAIClient(t, aiSrv.URL)
-	_, err := GeneratePreview(context.Background(), aiClient, nil, "Inception.2010.mkv")
-	if err == nil {
-		t.Fatal("expected error when AI fails")
+	// AI down → must NOT hard-error; the regex fallback derives metadata.
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Inception.2010.1080p.BluRay.mkv")
+	if err != nil {
+		t.Fatalf("AI failure should fall back, not error: %v", err)
+	}
+	if preview == nil || preview.CleanName == "" {
+		t.Fatal("fallback should still produce a title")
+	}
+	if preview.Year != 2010 {
+		t.Errorf("fallback year = %d, want 2010 (from regex)", preview.Year)
+	}
+}
+
+func TestGeneratePreview_ParserOverridesSeasonEpisode(t *testing.T) {
+	// AI down → fallback; the regex S/E drives kind=tv and the numbers, giving
+	// coherent series organization even without the AI.
+	aiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer aiSrv.Close()
+	aiClient := newAIClient(t, aiSrv.URL)
+
+	preview, err := GeneratePreview(context.Background(), aiClient, nil, "Euphoria.S01E03.1080p.WEB-DL.mkv")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if preview.Kind != "tv" {
+		t.Errorf("Kind = %q, want tv", preview.Kind)
+	}
+	if preview.Season != 1 || preview.Episode != 3 {
+		t.Errorf("S/E = %d/%d, want 1/3", preview.Season, preview.Episode)
 	}
 }
 
