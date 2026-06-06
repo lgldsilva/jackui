@@ -5,6 +5,7 @@ package parser
 import (
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Quality holds parsed release metadata. Empty fields mean "not detected".
@@ -36,8 +37,13 @@ var (
 	reAudio      = regexp.MustCompile(`(?i)\b(dts-?hd|dts:?x|dts|truehd|atmos|eac3|ac3|aac|opus|mp3|flac|dd5\.1|dd\+|ddp5\.1)\b`)
 	reGroup      = regexp.MustCompile(`-([A-Za-z0-9_]{2,20})\s*$`)
 	reYear       = regexp.MustCompile(`\b(19\d{2}|20\d{2})\b`)
-	reSE         = regexp.MustCompile(`(?i)[Ss](\d{1,2})[Ee](\d{1,3})`)
-	reSeasonOnly = regexp.MustCompile(`(?i)\b(?:Season|S)\s?(\d{1,2})\b`)
+	// A year inside parentheses is the release year even when the title itself
+	// contains a number that looks like a year ("Blade Runner 2049 (2017)").
+	reYearParen = regexp.MustCompile(`\((19\d{2}|20\d{2})\)`)
+	reSE        = regexp.MustCompile(`(?i)[Ss](\d{1,2})[Ee](\d{1,3})`)
+	// Season-only: "Season 3" / "S03". The "S" form requires digits IMMEDIATELY
+	// after (no space) so the bare "s" in "Ocean's 11" doesn't read as Season 11.
+	reSeasonOnly = regexp.MustCompile(`(?i)\b(?:Season[ ._]?|S)(\d{1,2})\b`)
 	reHDR        = regexp.MustCompile(`(?i)\b(hdr10\+?|hdr|hlg)\b`)
 	reDolby      = regexp.MustCompile(`(?i)\b(dv|dolby[. _-]?vision)\b`)
 	re10bit      = regexp.MustCompile(`(?i)\b10[ .-]?bit\b`)
@@ -145,18 +151,27 @@ func parseGroup(title string) string {
 }
 
 func parseYear(title string) int {
-	m := reYear.FindString(title)
-	if m == "" {
-		return 0
+	// A parenthesized year wins — it's the canonical release year even when the
+	// title carries a year-like number ("Blade Runner 2049 (2017)" → 2017).
+	if m := reYearParen.FindStringSubmatch(title); len(m) > 1 {
+		return atoiSafe(m[1])
 	}
 	all := reYear.FindAllString(title, -1)
-	var maxYear int
+	if len(all) == 0 {
+		return 0
+	}
+	// First PLAUSIBLE year (1900..next year). The old code took the max, which
+	// picked a sequel number in the title ("2049") or a trailing dual-audio year
+	// over the real release year. A far-future number that's part of the title
+	// (e.g. "2049") is not a release year → leave year unknown so TMDB matches by
+	// title instead of filtering to a bogus year.
+	maxPlausible := time.Now().Year() + 1
 	for _, y := range all {
-		if n := atoiSafe(y); n > maxYear {
-			maxYear = n
+		if n := atoiSafe(y); n >= 1900 && n <= maxPlausible {
+			return n
 		}
 	}
-	return maxYear
+	return 0
 }
 
 func parseSeasonAndEpisode(title string) (int, int) {
