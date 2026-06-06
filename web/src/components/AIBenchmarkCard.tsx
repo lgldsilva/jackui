@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Play, Save, Cpu, RefreshCw } from 'lucide-react'
 import {
-  aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, saveAICases,
-  AIStatus, AISlotScore, AIBenchmarkCase,
+  aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, saveAICases, saveAICostConfig,
+  AIStatus, AISlotScore, AIBenchmarkCase, AICostConfig,
 } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
 
@@ -120,14 +120,17 @@ export default function AIBenchmarkCard() {
   const [runningIncomplete, setRunningIncomplete] = useState(false)
   const [casesText, setCasesText] = useState('')
   const [saving, setSaving] = useState(false)
+  const [savingCost, setSavingCost] = useState(false)
+  const [cost, setCost] = useState<AICostConfig>({ maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 })
   const [msg, setMsg] = useState('')
 
+  const emptyCost: AICostConfig = { maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 }
   useEffect(() => {
     aiBenchmarkStatus()
       // Normalize: the Go backend marshals empty slices as null, which would
       // crash status.chain.map / status.results.length downstream.
-      .then(s => { s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [] }; setStatus(s); setCasesText(casesToText(s.cases)) })
-      .catch(() => setStatus({ enabled: false, chain: [], results: [], cases: [] }))
+      .then(s => { s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [], cost: s.cost || emptyCost }; setStatus(s); setCasesText(casesToText(s.cases)); setCost(s.cost) })
+      .catch(() => setStatus({ enabled: false, chain: [], results: [], cases: [], cost: emptyCost }))
   }, [])
 
   if (!status) {
@@ -195,6 +198,17 @@ export default function AIBenchmarkCard() {
     } finally { setSaving(false) }
   }
 
+  const saveCost = async () => {
+    setSavingCost(true); setMsg('')
+    try {
+      const saved = await saveAICostConfig(cost)
+      setCost(saved)
+      setMsg('Custos salvos — rode o benchmark p/ aplicar no ranking.')
+    } catch (e: any) {
+      setMsg(e?.response?.data?.error || 'Falha ao salvar os custos.')
+    } finally { setSavingCost(false) }
+  }
+
   const busy = running || runningIncomplete
   const incompleteCount = status.results.filter(needsRerun).length
 
@@ -231,13 +245,38 @@ export default function AIBenchmarkCard() {
         modelo, calcula o score composto (acurácia ÷ √latência ÷ (1 + custo/1M)) e reordena a chain.
         A latência é a <strong className="text-text-secondary">mediana</strong> das chamadas (desconta
         o tempo de carga do modelo); o <strong className="text-text-secondary">custo</strong> ($/1M
-        tokens, em USD) penaliza modelos caros, então grátis/barato sobe. Por padrão só modelos
-        grátis são testados — defina <code className="text-text-primary">JACKUI_AI_MAX_COST_PER_1M</code> para
-        incluir pagos até esse teto. Modelos locais não são grátis: com{' '}
-        <code className="text-text-primary">JACKUI_AI_KWH_PRICE</code> (tarifa em USD/kWh) e{' '}
-        <code className="text-text-primary">JACKUI_AI_LOCAL_WATTS</code> (potência da GPU), o custo
-        de energia (latência × tokens × potência × tarifa) entra no score.
+        tokens, em USD) penaliza modelos caros, então grátis/barato sobe. Ajuste abaixo o teto de
+        custo, a tarifa de energia e a potência da GPU — modelos locais não são grátis (gastam
+        energia: latência × tokens × potência × tarifa).
       </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label className="text-xs text-text-muted flex flex-col gap-1">
+          Teto p/ pagos ($/1M)
+          <input type="number" step="0.01" min="0" value={cost.maxCostPer1M}
+            onChange={e => setCost({ ...cost, maxCostPer1M: parseFloat(e.target.value) || 0 })}
+            className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
+        </label>
+        <label className="text-xs text-text-muted flex flex-col gap-1">
+          Tarifa energia ($/kWh)
+          <input type="number" step="0.01" min="0" value={cost.kwhPrice}
+            onChange={e => setCost({ ...cost, kwhPrice: parseFloat(e.target.value) || 0 })}
+            className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
+        </label>
+        <label className="text-xs text-text-muted flex flex-col gap-1">
+          Potência GPU (W)
+          <input type="number" step="10" min="0" value={cost.localWatts}
+            onChange={e => setCost({ ...cost, localWatts: parseFloat(e.target.value) || 0 })}
+            className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
+        </label>
+      </div>
+      <div>
+        <button onClick={saveCost} disabled={savingCost}
+          className="flex items-center gap-1.5 text-sm bg-surface hover:bg-surface-hover border border-default disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5">
+          {savingCost ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Salvar custos
+        </button>
+      </div>
 
       {status.results.length > 0 && (
         <>
