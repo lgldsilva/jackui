@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -381,6 +382,41 @@ func TestRunSlotsCloudAndExternalParallel(t *testing.T) {
 	}
 }
 
+// TestRunSlotsBadOutputCountsAsZero pins Fix B: a case the model BOTCHED (Groq's
+// HTTP 400 json_validate_failed) counts as a 0-accuracy case, so the model can't
+// show a clean 100% next to a failure reason. Transient/infra errors (5xx, a
+// crashed local llama-server) are NOT this — they stay skipped (covered elsewhere).
+func TestRunSlotsBadOutputCountsAsZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(raw), "BADCASE") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"Failed to validate JSON","code":"json_validate_failed"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"title\":\"Inception\",\"year\":2010,\"kind\":\"movie\"}"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	slot := Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}
+	scores := c.RunSlots(context.Background(), []Slot{slot}, []BenchmarkCase{
+		{Raw: "Inception.2010 GOODCASE", Expect: "Inception"},
+		{Raw: "Whatever BADCASE", Expect: "Whatever"},
+	})
+	s := scores[0]
+	if s.Samples != 1 {
+		t.Fatalf("expected 1 usable sample (the good case), got %d", s.Samples)
+	}
+	// 1.0 (good) + 0 (botched) over 2 scored cases = 0.5.
+	if !(s.Accuracy > 0.4 && s.Accuracy < 0.6) {
+		t.Fatalf("botched case should drag accuracy to ~0.5, got %v", s.Accuracy)
+	}
+	if s.FailureReason == "" {
+		t.Fatal("expected a failure reason recorded alongside the partial score")
+	}
+}
+
 func TestRunSlotsFreeBonus(t *testing.T) {
 	good := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
 	defer good.Close()
@@ -480,34 +516,80 @@ func TestHealProviderReplacesDeadModel(t *testing.T) {
 	}
 }
 
-func TestDiscoverViaModelsAPI(t *testing.T) {
+// TestDiscoverViaModelsAPI_Metered covers a METERED provider (not in the free-tier
+// allowlist) — like OpenRouter or OpenCode Zen. Only models we can POSITIVELY tell
+// are free are discovered: an explicit 0 price, or a :free / -free id. Paid models
+// AND models with NO pricing (the OpenCode Zen case — costly frontier models with
+// no price field) are ignored, so the benchmark can't burn credits.
+func TestDiscoverViaModelsAPI_Metered(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"data":[
 			{"id":"free-model","pricing":{"prompt":"0","completion":"0"}},
 			{"id":"paid-model","pricing":{"prompt":"0.01","completion":"0.02"}},
-			{"id":"free:model","pricing":{"prompt":"","completion":""}}
+			{"id":"vendor/x:free","pricing":{"prompt":"0","completion":"0"}},
+			{"id":"deepseek-v4-flash-free"},
+			{"id":"big-pickle"},
+			{"id":"claude-opus-4-8"}
 		]}`))
 	}))
 	defer srv.Close()
 
 	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
-		"test": {BaseURL: srv.URL, APIKey: "k"},
-	}, Chain: []config.AIChainSlot{{ID: "existing", Provider: "test", Model: "existing-model"}}}
+		"zen": {BaseURL: srv.URL, APIKey: "k"},
+	}, Chain: []config.AIChainSlot{{ID: "existing", Provider: "zen", Model: "existing-model"}}}
 	c := New(cfg)
 	if c == nil {
 		t.Fatal("New nil")
 	}
 
-	slots := c.DiscoverModels(context.Background())
-	if len(slots) == 0 {
-		t.Fatal("expected discovered models")
+	got := map[string]bool{}
+	for _, s := range c.DiscoverModels(context.Background()) {
+		got[s.Model] = true
+		if !s.Free {
+			t.Errorf("discovered model %q on a metered provider must be marked Free", s.Model)
+		}
 	}
-	// free-model or free:model should be marked Free
-	for _, s := range slots {
-		if s.ID == "test:free-model" || s.ID == "test:free:model" {
-			if !s.Free {
-				t.Errorf("%s should be free", s.ID)
-			}
+	wantKept := []string{"free-model", "vendor/x:free", "deepseek-v4-flash-free"}
+	for _, m := range wantKept {
+		if !got[m] {
+			t.Errorf("free model %q should have been discovered", m)
+		}
+	}
+	// Paid, and (crucially) the no-pricing frontier models, must be ignored.
+	for _, m := range []string{"paid-model", "big-pickle", "claude-opus-4-8"} {
+		if got[m] {
+			t.Errorf("expensive model %q must NOT be auto-discovered (burns quota)", m)
+		}
+	}
+}
+
+// TestDiscoverViaModelsAPI_FreeTier covers a free-tier provider (Groq): no per-token
+// billing, so its WHOLE catalog is discovered even without any price/suffix signal.
+func TestDiscoverViaModelsAPI_FreeTier(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Groq's /models has no pricing field at all.
+		w.Write([]byte(`{"data":[{"id":"openai/gpt-oss-20b"},{"id":"llama-3.3-70b-versatile"}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Providers: map[string]config.AIProvider{
+		"groq": {BaseURL: srv.URL, APIKey: "k"},
+	}, Chain: []config.AIChainSlot{{ID: "existing", Provider: "groq", Model: "existing-model"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+
+	got := map[string]bool{}
+	for _, s := range c.DiscoverModels(context.Background()) {
+		got[s.Model] = true
+		if !s.Free {
+			t.Errorf("free-tier model %q should be marked Free", s.Model)
+		}
+	}
+	for _, m := range []string{"openai/gpt-oss-20b", "llama-3.3-70b-versatile"} {
+		if !got[m] {
+			t.Errorf("free-tier provider should discover its whole catalog; missing %q", m)
 		}
 	}
 }
