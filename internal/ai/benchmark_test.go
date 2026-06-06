@@ -537,6 +537,38 @@ func TestRerunIncomplete(t *testing.T) {
 	}
 }
 
+func TestNeedsRerun(t *testing.T) {
+	cases := []struct {
+		s    SlotScore
+		want bool
+	}{
+		{SlotScore{Incomplete: true}, true},
+		{SlotScore{FailureReason: "ai: rate limited: groq:m"}, true}, // pre-flag rate-limited
+		{SlotScore{FailureReason: "ai: groq:m returned 400: json_validate_failed"}, false},
+		{SlotScore{Accuracy: 1, Samples: 7}, false},
+	}
+	for _, tc := range cases {
+		if got := NeedsRerun(tc.s); got != tc.want {
+			t.Errorf("NeedsRerun(%+v) = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+
+// TestRerunIncompleteAlsoRerunsRateLimited: a rate-limited result WITHOUT the
+// Incomplete flag (saved before the flag existed) is still re-run.
+func TestRerunIncompleteAlsoRerunsRateLimited(t *testing.T) {
+	srv := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
+	defer srv.Close()
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	prev := []SlotScore{
+		{SlotID: "groq:m", Provider: "groq", Model: "m", FailureReason: "ai: rate limited: groq:m", Incomplete: false},
+	}
+	merged := c.RerunIncomplete(context.Background(), prev, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	if merged[0].Accuracy != 1 || merged[0].FailureReason != "" {
+		t.Fatalf("rate-limited result should be re-run clean, got %+v", merged[0])
+	}
+}
+
 func TestRunSlotsFreeBonus(t *testing.T) {
 	good := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
 	defer good.Close()

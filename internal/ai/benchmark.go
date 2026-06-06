@@ -690,13 +690,23 @@ func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slo
 // — so the retry lands OUTSIDE the rate-limit window and the model finally gets a
 // complete score. Paid models are filtered out (never spend on them); if nothing
 // is incomplete, prev is returned unchanged.
+// NeedsRerun reports whether a result is worth re-running via "Rodar faltantes":
+// either the model was left Incomplete (some cases transiently skipped) OR it
+// failed with a rate limit. The rate-limit check also catches results persisted
+// BEFORE the Incomplete flag existed, so the button works on pre-existing data
+// without forcing a full re-run first. A hard failure (bad output) is NOT
+// re-runnable — re-trying won't change a model that genuinely can't comply.
+func NeedsRerun(s SlotScore) bool {
+	return s.Incomplete || strings.Contains(strings.ToLower(s.FailureReason), "rate limit")
+}
+
 func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []BenchmarkCase) []SlotScore {
 	if len(cases) == 0 {
 		cases = DefaultBenchmarkCases
 	}
 	var slots []Slot
 	for _, r := range prev {
-		if r.Incomplete {
+		if NeedsRerun(r) {
 			if slot, ok := c.resolveSlot(r.SlotID, r.Provider, r.Model); ok {
 				slots = append(slots, slot)
 			}
