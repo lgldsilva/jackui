@@ -87,6 +87,35 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 	}
 }
 
+// RunAIBenchmarkIncomplete — POST /api/ai/benchmark/rerun-incomplete. Re-benchmarks
+// ONLY the models left Incomplete by the last run (cases skipped by a rate limit)
+// and merges the fresh scores in, persisting + re-adopting. Meant to be triggered
+// LATER (e.g. a day after) so the retry lands outside the vendor's rate-limit
+// window — without paying the cost of re-running the whole catalog.
+func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if client == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI chain disabled"})
+			return
+		}
+		if store == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "benchmark store unavailable"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+
+		merged := client.RerunIncomplete(ctx, store.Results(), store.Cases())
+		if err := store.SaveResults(merged); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		client.AdoptBenchmark(merged)
+
+		c.JSON(http.StatusOK, gin.H{"results": merged})
+	}
+}
+
 type aiCasesReq struct {
 	Cases []ai.BenchmarkCase `json:"cases"`
 }
