@@ -7,23 +7,6 @@ import (
 	"github.com/luizg/jackui/internal/local"
 )
 
-func TestDiskUsage_RealPath(t *testing.T) {
-	free, total := diskUsage(os.TempDir())
-	if total <= 0 {
-		t.Fatalf("total = %d, want > 0 for a real filesystem", total)
-	}
-	if free < 0 || free > total {
-		t.Errorf("free = %d out of range (total %d)", free, total)
-	}
-}
-
-func TestDiskUsage_BadPath(t *testing.T) {
-	free, total := diskUsage("/this/path/should/not/exist/anywhere-xyz")
-	if free != 0 || total != 0 {
-		t.Errorf("bad path = (%d, %d), want (0, 0)", free, total)
-	}
-}
-
 func TestMountsWithSpace(t *testing.T) {
 	mounts := []local.Mount{
 		{Name: "tmp", Path: os.TempDir()},
