@@ -34,6 +34,33 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// Regression: the bare "s" in a title's possessive must NOT read as "Season N",
+// and a year-like number in the title must not beat the real release year.
+func TestParse_FalsePositives(t *testing.T) {
+	cases := []struct {
+		title       string
+		wantSeason  int
+		wantYear    int
+	}{
+		{"Ocean's 11 2001 1080p BluRay x264-YIFY", 0, 2001},   // "s 11" ≠ Season 11; year=2001
+		{"Blade Runner 2049 (2017) 1080p", 0, 2017},           // parenthesized year wins over 2049
+		{"Blade Runner 2049 1080p x265", 0, 0},                // only a far-future title-number → year unknown
+		{"Movie.2019.2020.1080p", 0, 2019},                    // first plausible year, not the max
+		{"Show.Season 3.1080p", 3, 0},                         // "Season 3" still parses
+		{"Show.S03.1080p.WEB-DL", 3, 0},                       // "S03" still parses
+		{"Show.S04E12.720p", 4, 0},                            // S/E still parses (episode via reSE)
+	}
+	for _, tc := range cases {
+		got := Parse(tc.title)
+		if got.Season != tc.wantSeason {
+			t.Errorf("[%s] season: got %d, want %d", tc.title, got.Season, tc.wantSeason)
+		}
+		if got.Year != tc.wantYear {
+			t.Errorf("[%s] year: got %d, want %d", tc.title, got.Year, tc.wantYear)
+		}
+	}
+}
+
 func assertQualityEqual(t *testing.T, title string, got, want Quality) {
 	t.Helper()
 	if got.Resolution != want.Resolution {
