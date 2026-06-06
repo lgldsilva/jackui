@@ -14,6 +14,7 @@ import {
   Trash2,
   ArrowUpCircle,
   FolderSync,
+  FolderX,
   FolderInput,
   Upload,
   Search,
@@ -46,6 +47,7 @@ import {
   localList,
   localMounts,
   localDelete,
+  localCleanEmptyDirs,
   localUpload,
   adminListUsers,
   setLocalViewAsUser,
@@ -363,12 +365,16 @@ export default function LocalPage() {
   const [entries, setEntries] = useState<LocalEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const { playSingle } = usePlayer()
   const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
   const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
 
-  const [promoteItem, setPromoteItem] = useState<LocalEntry | null>(null)
+  // Files queued for the promote modal: 1 (single, via the row action) or many
+  // (batch selection). The modal applies one destination + AI choice to all in
+  // a single call — no more one-modal-per-file walk.
+  const [promoteEntries, setPromoteEntries] = useState<LocalEntry[]>([])
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
   const confirm = useConfirm()
@@ -380,7 +386,6 @@ export default function LocalPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchRunning, setBatchRunning] = useState(false)
   const [batchMoveOpen, setBatchMoveOpen] = useState(false)
-  const [promoteQueue, setPromoteQueue] = useState<LocalEntry[]>([])
 
   // Upload state: tracks the in-flight transfer for the progress banner. The
   // AbortController lets the user cancel mid-stream; the hidden <input> is reset
@@ -478,10 +483,12 @@ export default function LocalPage() {
     refresh()
   }
 
-  // Promover em lote = fila item a item (o LocalPromoteModal é um fluxo de IA rico).
+  // Promover em lote = um único modal para TODOS os arquivos selecionados
+  // (destino + renomeação IA escolhidos uma vez, uma chamada só).
   const runBatchPromote = () => {
-    if (selectedEntries.length === 0) return
-    setPromoteQueue(selectedEntries.filter((e) => !e.isDir))
+    const files = selectedEntries.filter((e) => !e.isDir)
+    if (files.length === 0) return
+    setPromoteEntries(files)
   }
 
   useEffect(() => {
@@ -534,6 +541,7 @@ export default function LocalPage() {
   }
 
   useEffect(() => {
+    setNotice('') // stale "N folders removed" shouldn't linger across navigation
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMount, path, viewAsUser])
@@ -574,6 +582,27 @@ export default function LocalPage() {
       refresh()
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao apagar arquivo')
+    }
+  }
+
+  // Remove empty subfolders left behind after promoting/moving files. Low risk
+  // (only deletes truly-empty dirs), so a light confirm is enough.
+  const requestCleanEmptyDirs = async () => {
+    if (!activeMount) return
+    const ok = await confirm({
+      title: 'Limpar pastas vazias?',
+      message: <>Remover todas as subpastas vazias a partir de <span className="text-gray-200 font-medium">"{path || activeMount}"</span>? Arquivos não são afetados.</>,
+      confirmLabel: 'Limpar',
+    })
+    if (!ok) return
+    setError('')
+    setNotice('')
+    try {
+      const { cleaned } = await localCleanEmptyDirs(activeMount, path)
+      setNotice(cleaned > 0 ? `${cleaned} pasta${cleaned === 1 ? '' : 's'} vazia${cleaned === 1 ? '' : 's'} removida${cleaned === 1 ? '' : 's'}.` : 'Nenhuma pasta vazia encontrada.')
+      refresh()
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e.message || 'Erro ao limpar pastas vazias')
     }
   }
 
@@ -750,6 +779,14 @@ export default function LocalPage() {
                     <Upload className="w-4 h-4" />
                     <span className="hidden sm:inline">Upload</span>
                   </button>
+                  <button
+                    onClick={requestCleanEmptyDirs}
+                    title="Remover subpastas vazias desta pasta"
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-gray-700/60 hover:bg-gray-600 text-gray-300 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    <FolderX className="w-4 h-4" />
+                    <span className="hidden sm:inline">Limpar vazias</span>
+                  </button>
                 </>
               )}
             </div>
@@ -873,6 +910,13 @@ export default function LocalPage() {
             </div>
           )}
 
+          {notice && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-3">
+              <span>{notice}</span>
+              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-300 text-xs">Fechar</button>
+            </div>
+          )}
+
           {loading && (
             <div className="text-gray-500 text-sm">Carregando...</div>
           )}
@@ -897,7 +941,7 @@ export default function LocalPage() {
                   onOpen={handleEntryClick}
                   onEnterSelect={enterSelect}
                   onToggleSelect={toggleSelect}
-                  onPromote={setPromoteItem}
+                  onPromote={(entry) => setPromoteEntries([entry])}
                   onReclassify={setReclassifyItem}
                   onMove={setMoveItem}
                   onDelete={requestDelete}
@@ -906,20 +950,12 @@ export default function LocalPage() {
             </ul>
           )}
 
-          {/* Modal de Promoção — `promoteItem` (individual) ou a fila do lote */}
+          {/* Modal de Promoção — individual (1) ou lote (N) num único fluxo */}
           <LocalPromoteModal
             mount={activeMount}
-            entry={promoteItem ?? (promoteQueue.length > 0 ? promoteQueue[0] : null)}
-            onClose={() => {
-              if (promoteItem) { setPromoteItem(null); return }
-              // Avança a fila do lote; ao esvaziar, sai do modo seleção.
-              setPromoteQueue((q) => {
-                const next = q.slice(1)
-                if (next.length === 0) clearSelection()
-                return next
-              })
-            }}
-            onPromoted={refresh}
+            entries={promoteEntries}
+            onClose={() => setPromoteEntries([])}
+            onPromoted={() => { refresh(); clearSelection() }}
           />
 
           {/* Modal de Reclassificação em lote via IA */}

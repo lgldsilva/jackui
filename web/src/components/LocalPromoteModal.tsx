@@ -5,16 +5,20 @@ import { Sheet } from './Sheet'
 
 type Props = {
   readonly mount: string
-  readonly entry: LocalEntry | null
+  // The files to promote. Empty = closed. One = single promote; many = batch —
+  // the destination + "rename via AI" choice is made ONCE and applied to all,
+  // in a single backend call (no more one-modal-per-file queue).
+  readonly entries: readonly LocalEntry[]
   readonly onClose: () => void
   readonly onPromoted: () => void
 }
 
 /**
  * Navegador de subpastas de SHARED_DIR + seletor de destino + ações de
- * promover para arquivos/pastas locais.
+ * promover para arquivos locais — individual OU em lote (uma chamada para N
+ * arquivos, destino e renomeação IA escolhidos uma única vez).
  */
-export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }: Props) {
+export default function LocalPromoteModal({ mount, entries, onClose, onPromoted }: Props) {
   const [dests, setDests] = useState<PromoteDestination[]>([])
   const [selectedBase, setSelectedBase] = useState('')
   const [path, setPath] = useState('')
@@ -27,6 +31,14 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
   const [previews, setPreviews] = useState<PromotePreviewEntry[]>([])
   const [previewLoading, setPreviewLoading] = useState(false)
 
+  const open = entries.length > 0
+  const primary = entries[0] ?? null
+  const count = entries.length
+  // Stable identity of the current selection — drives the reset/preview effects
+  // without re-firing on every render (entries is a new array each render).
+  const batchKey = entries.map(e => e.path).join('|')
+  const paths = entries.map(e => e.path)
+
   const finalTarget = (() => {
     const trimmed = newFolder.trim()
     if (!trimmed) return path
@@ -34,41 +46,42 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
   })()
 
   useEffect(() => {
-    if (!entry) return
+    if (!open) return
     fetchPromoteDestinations().then(setDests).catch(() => {})
-  }, [entry])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchKey])
 
   useEffect(() => {
-    if (!entry) return
+    if (!open) return
     setLoading(true)
     setError('')
     downloadPromoteBrowse(path, selectedBase || undefined)
       .then(r => setDirs(r.dirs))
       .catch(e => setError(e?.response?.data?.error || e.message || 'Erro listando subpastas'))
       .finally(() => setLoading(false))
-  }, [path, entry, selectedBase])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, batchKey, selectedBase])
 
-  // Carrega preview da Renomeação IA
+  // AI rename preview — for ALL selected files at once. Cancels in flight when
+  // the selection/target changes so a slow preview can't overwrite a newer one.
   useEffect(() => {
-    if (!entry || !renameIA) {
+    if (!open || !renameIA || !primary) {
       setPreviews([])
       return
     }
+    let cancelled = false
     setPreviewLoading(true)
     setError('')
-    localPromotePreview(
-      mount,
-      entry.path,
-      finalTarget,
-      selectedBase || undefined
-    )
-      .then(r => setPreviews(r.previews))
-      .catch(e => setError(e?.response?.data?.error || e.message || 'Erro gerando preview IA'))
-      .finally(() => setPreviewLoading(false))
-  }, [renameIA, entry, finalTarget, selectedBase, mount])
+    localPromotePreview(mount, primary.path, finalTarget, selectedBase || undefined, paths)
+      .then(r => { if (!cancelled) setPreviews(r.previews) })
+      .catch(e => { if (!cancelled) setError(e?.response?.data?.error || e.message || 'Erro gerando preview IA') })
+      .finally(() => { if (!cancelled) setPreviewLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renameIA, batchKey, finalTarget, selectedBase, mount])
 
   useEffect(() => {
-    if (entry) {
+    if (open) {
       setSelectedBase('')
       setPath('')
       setNewFolder('')
@@ -76,9 +89,10 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
       setPreviews([])
       setError('')
     }
-  }, [entry])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchKey])
 
-  if (!entry) return null
+  if (!open || !primary) return null
 
   const currentDest = dests.find(d => d.path === selectedBase) || dests[0]
   const destLabel = currentDest?.name || 'Biblioteca'
@@ -86,11 +100,18 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
   const handlePromote = async () => {
     setSubmitting(true)
     try {
-      await localPromote(mount, entry.path, finalTarget, selectedBase || undefined, renameIA)
-      onPromoted()
-      onClose()
+      const r = await localPromote(mount, primary.path, finalTarget, selectedBase || undefined, renameIA, paths)
+      if (r.failed > 0) {
+        // Partial success: keep the modal open with a summary; refresh so the
+        // ones that did move disappear from the list.
+        setError(`${r.moved} de ${count} movido(s) · ${r.failed} com erro`)
+        onPromoted()
+      } else {
+        onPromoted()
+        onClose()
+      }
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao promover arquivo')
+      setError(e?.response?.data?.error || e.message || 'Erro ao promover')
     } finally {
       setSubmitting(false)
     }
@@ -103,7 +124,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
       open
       onClose={onClose}
       size="lg"
-      title={`Promover ${entry.isDir ? 'pasta' : 'arquivo'} local`}
+      title={count > 1 ? `Promover ${count} arquivos locais` : 'Promover arquivo local'}
       icon={<ArrowUpCircle className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
       footer={
         <div className="flex items-center gap-2 justify-end">
@@ -120,16 +141,22 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
             className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
           >
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
-            Promover
+            {count > 1 ? `Promover ${count}` : 'Promover'}
           </button>
         </div>
       }
     >
       <>
         <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-gray-700 bg-gray-900/40">
-          <p className="text-xs text-gray-400 truncate" title={entry.name}>
-            Origem: <span className="text-gray-300 font-mono">{entry.name}</span>
-          </p>
+          {count > 1 ? (
+            <p className="text-xs text-gray-400">
+              <span className="text-white font-semibold">{count}</span> arquivos selecionados — mesmo destino para todos
+            </p>
+          ) : (
+            <p className="text-xs text-gray-400 truncate" title={primary.name}>
+              Origem: <span className="text-gray-300 font-mono">{primary.name}</span>
+            </p>
+          )}
         </div>
 
         {/* Seletor de destino */}
@@ -218,7 +245,7 @@ export default function LocalPromoteModal({ mount, entry, onClose, onPromoted }:
             <div className="mt-1 border border-cyan-800/40 bg-gray-950/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
               <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
-                Visualização do Destino Organizado:
+                Visualização do Destino Organizado{count > 1 ? ` — ${count} arquivos` : ''}:
               </h3>
 {(() => {
                 if (previewLoading) return <div className="flex items-center gap-2 text-xs text-gray-500 py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>Analisando nomes com IA...</span></div>
