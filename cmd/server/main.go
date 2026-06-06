@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -138,6 +139,9 @@ func main() {
 
 	initHistoryStore(deps)
 	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg)
+	// Persist local-file thumbnails (and negative markers) under the stream
+	// DataDir so they survive restarts instead of regenerating in /tmp.
+	handlers.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
 	initStreamer(deps)
 	initLibraryStore(deps)
 	initPlaylistsStore(deps)
@@ -869,6 +873,8 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore))
 	api.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr))
+	api.POST("/stream/:hash/viewer", handlers.StreamViewerOpen(deps.streamSrv))
+	api.DELETE("/stream/:hash/viewer", handlers.StreamViewerClose(deps.streamSrv, deps.hlsMgr))
 	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))
 
 	registerLocalRoutes(api, deps)
@@ -883,6 +889,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/thumb", handlers.LocalThumb(deps.localBrowser))
 	api.GET("/local/transcode", handlers.LocalTranscode(deps.localBrowser))
 	api.DELETE("/local/file", handlers.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/clean-empty", handlers.LocalCleanEmptyDirs(deps.localBrowser))
 	api.POST("/local/promote", handlers.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))

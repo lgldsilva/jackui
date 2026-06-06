@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
   Loader2, AlertCircle, Trash2, Square,
-  ArrowUpCircle, Activity, Globe, Play, Share2
+  ArrowUpCircle, Activity, Globe, Play, Share2, Download,
 } from 'lucide-react'
 import {
   DownloadEntry, DownloadDetails, StreamFile, TorrentInfo, DownloadSource,
-  downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed, downloadSources,
+  downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed, downloadSources, downloadCreate,
 } from '../api/client'
 import { formatBytes, formatRate } from '../lib/format'
 import { Sheet } from './Sheet'
@@ -18,6 +18,12 @@ type Props = {
   readonly onDeleted?: (id: number) => void
   readonly onPromote?: (d: DownloadEntry) => void
   readonly onPlay?: (d: DownloadEntry) => void
+  /** Outros registros de download do MESMO torrent (mesmo info_hash). Usado pra
+      saber quais arquivos do torrent JÁ são download e quais estão só em
+      streaming (sem registro) → estes ganham botão "Baixar". */
+  readonly siblings?: readonly DownloadEntry[]
+  /** Chamado após adotar um arquivo só-streaming como download (pra recarregar). */
+  readonly onAdopted?: () => void
 }
 
 type Tab = 'overview' | 'files' | 'trackers' | 'sources' | 'actions'
@@ -94,6 +100,9 @@ function renderFilesTab(
   filePath: string,
   fileIndex: number,
   fileIcon: (f: StreamFile, primary: boolean) => React.ReactNode,
+  siblings: readonly DownloadEntry[],
+  adopting: number | null,
+  onAdopt: (f: StreamFile) => void,
 ): React.ReactNode {
   if (!torrent && !syntheticFile) {
     return (
@@ -122,36 +131,75 @@ function renderFilesTab(
   if (!torrent || torrent.files.length === 0) {
     return <p className="text-xs text-gray-500 italic">Sem arquivos.</p>
   }
+  const hasRow = (idx: number) => siblings.some(s => s.fileIndex === idx)
+  const missing = torrent.files.filter(f => !hasRow(f.index))
   return (
-    <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
-      {torrent.files.map(f => {
-        const isPrimary = f.index === fileIndex
-        return (
-          <li key={f.index} className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}>
-            {fileIcon(f, isPrimary)}
-            <div className="flex-1 min-w-0">
-              <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>{f.path}</p>
-              {f.progress > 0 && f.progress < 1 && (
-                <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
-                  <div className="h-full bg-cyan-500" style={{ width: `${Math.round(f.progress * 100)}%` }} />
-                </div>
+    <div className="flex flex-col gap-2">
+      {missing.length > 1 && (
+        <button
+          onClick={() => { for (const f of missing) onAdopt(f) }}
+          disabled={adopting !== null}
+          className="self-start flex items-center gap-1.5 text-xs bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-lg transition-colors"
+          title="Baixa (e move pra downloads ao concluir) todos os arquivos que ainda estão só em streaming"
+        >
+          <Download className="w-3.5 h-3.5" /> Baixar os {missing.length} que faltam
+        </button>
+      )}
+      <ul className="bg-gray-900 border border-gray-700 rounded-lg divide-y divide-gray-800 overflow-hidden">
+        {torrent.files.map(f => {
+          const isPrimary = f.index === fileIndex
+          // Marca claramente o que falta baixar: completo (>=99.9%) vs incompleto
+          // (mostra o % em âmbar + barra, mesmo a 0%) — assim dá pra ver qual
+          // arquivo do torrent ficou pra trás.
+          const hasProgress = typeof f.progress === 'number'
+          const done = hasProgress && f.progress >= 0.999
+          const pct = hasProgress ? Math.round(f.progress * 100) : null
+          const tracked = hasRow(f.index)
+          return (
+            <li key={f.index} className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}>
+              {fileIcon(f, isPrimary)}
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-gray-200'}`} title={f.path}>{f.path}</p>
+                {hasProgress && !done && (
+                  <div className="mt-1 h-1 bg-gray-700 rounded overflow-hidden">
+                    <div className="h-full bg-amber-500" style={{ width: `${Math.max(2, pct ?? 0)}%` }} />
+                  </div>
+                )}
+              </div>
+              {/* Arquivo sem registro de download = está só em streaming (cache).
+                  Botão adota como download: reusa o cache e move ao concluir. */}
+              {!tracked ? (
+                <button
+                  onClick={() => onAdopt(f)}
+                  disabled={adopting !== null}
+                  title="Baixar este arquivo (move pra downloads ao concluir; reaproveita o que já está em cache)"
+                  className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-2 py-1 rounded-md transition-colors"
+                >
+                  {adopting === f.index ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                  Baixar
+                </button>
+              ) : pct !== null && (
+                done
+                  ? <span className="text-[10px] text-emerald-400 flex-shrink-0 inline-flex items-center gap-0.5" title="Arquivo completo"><Check className="w-3 h-3" />ok</span>
+                  : <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0" title="Ainda não baixado por completo">{pct}%</span>
               )}
-            </div>
-            {f.size > 0 && <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>}
-          </li>
-        )
-      })}
-    </ul>
+              {f.size > 0 && <span className="text-xs text-gray-500 tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
   )
 }
 
-export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay }: Props) {
+export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay, siblings, onAdopted }: Props) {
   const [tab, setTab] = useState<Tab>('overview')
   const [details, setDetails] = useState<DownloadDetails | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copiedMagnet, setCopiedMagnet] = useState(false)
   const [busy, setBusy] = useState<string | null>(null) // 'recheck' | 'delete' | 'stopSeed'
+  const [adopting, setAdopting] = useState<number | null>(null) // fileIndex sendo adotado
   const [sources, setSources] = useState<DownloadSource[]>([])
   const [loadingSources, setLoadingSources] = useState(false)
 
@@ -220,6 +268,34 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     } catch {}
   }
 
+  // adopt cria um registro de download pra um arquivo que estava só em streaming.
+  // O worker anexa ao torrent já ativo, reaproveita os pedaços em cache e — ao
+  // completar — move o arquivo pro diretório de downloads. Se já estava 100% no
+  // cache, conclui quase instantâneo e vai pros "baixados".
+  const adopt = async (f: StreamFile) => {
+    if (adopting !== null) return
+    setAdopting(f.index)
+    setError('')
+    try {
+      await downloadCreate({
+        infoHash: d.infoHash,
+        fileIndex: f.index,
+        magnet: d.magnet,
+        name: d.name,
+        filePath: f.path,
+        fileSize: f.size,
+        tracker: d.tracker,
+        category: d.category,
+      })
+      onAdopted?.()
+      await refresh()
+    } catch (e: unknown) {
+      setError((e as Error)?.message || 'Falha ao baixar arquivo')
+    } finally {
+      setAdopting(null)
+    }
+  }
+
   const handleRecheck = async () => {
     if (busy) return
     setBusy('recheck')
@@ -282,7 +358,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     priority: 'normal',
   } : null
 
-  const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon)
+  const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon, siblings ?? [], adopting, adopt)
 
   return (
     <Sheet

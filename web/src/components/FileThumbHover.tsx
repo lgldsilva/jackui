@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 type ThumbState = { url: string | null; label?: string; x: number; y: number }
@@ -30,6 +30,12 @@ function canHoverPreview(): boolean {
 export function useHoverThumb(delayMs = 320) {
   const [state, setState] = useState<ThumbState | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(timerRef.current)
+    }
+  }, [])
 
   const show = useCallback((url: string | null, e: MouseLike, label?: string) => {
     if (!canHoverPreview()) return // touch device — no hover preview

@@ -119,6 +119,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [copied, setCopied] = useState(false)
   const hoverThumb = useHoverThumb()
 
+  useEffect(() => {
+    hoverThumb.hide()
+  }, [result, hoverThumb])
+
   const copyHash = (hash: string) => {
     navigator.clipboard?.writeText(hash).then(() => {
       setCopied(true)
@@ -131,6 +135,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
       setInfo(null)
       return
     }
+    // Guard against a slow streamAdd from a PREVIOUS result resolving after the
+    // user switched torrents — without it the old torrent's file list clobbers
+    // the new one. Flipped by the cleanup below.
+    let cancelled = false
     setLoading(true)
     setError('')
     setFilter('')
@@ -138,11 +146,12 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
     // NOTE: sortBySize/sizeDesc are intentionally NOT reset — they persist
     // (shared with the player) so the chosen order sticks across torrents.
     streamAdd(pickTorrentSource(result))
-      .then(setInfo)
-      .catch(err => setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo'))
-      .finally(() => setLoading(false))
+      .then(t => { if (!cancelled) setInfo(t) })
+      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo') })
+      .finally(() => { if (!cancelled) setLoading(false) })
     // NOTE: we don't streamDrop here — the torrent stays in the cache so a follow-up
     // Play action starts streaming instantly without re-fetching metadata.
+    return () => { cancelled = true }
   }, [result])
 
   if (!result) return null
@@ -345,25 +354,40 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {fileTypeIcon(f)}
-                          {ep && (
-                            <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
-                              {ep}
+                          {/* A área ícone+nome é tocável: no mobile o alvo de play
+                              vira a linha inteira (não só o botãozinho verde à
+                              direita, difícil de mirar). min-w-0 mantém o truncate. */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (playable) {
+                                hoverThumb.hide()
+                                onPlayFile(result, f.index)
+                              }
+                            }}
+                            disabled={!playable}
+                            title={playable ? 'Reproduzir esse arquivo' : undefined}
+                            className={`flex items-center gap-2 flex-1 min-w-0 text-left ${playable ? 'cursor-pointer' : 'cursor-default'}`}
+                          >
+                            {fileTypeIcon(f)}
+                            {ep && (
+                              <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                                {ep}
+                              </span>
+                            )}
+                            <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={f.path}>
+                              {f.path}
                             </span>
-                          )}
-                          {/* min-w-0 is REQUIRED for truncate to work inside a flex
-                              row: without it a flex-1 child keeps its content width
-                              and pushes the size + Play button off-screen to the
-                              right (unreachable in a fixed modal on mobile). */}
-                          <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={f.path}>
-                            {f.path}
-                          </span>
+                          </button>
                           <span className="text-xs text-gray-500 flex-shrink-0 ml-2">{formatSize(f.size)}</span>
 
                         {playable && (
                           <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                             <button
-                              onClick={() => onPlayFile(result, f.index)}
+                              onClick={() => {
+                                hoverThumb.hide()
+                                onPlayFile(result, f.index)
+                              }}
                               title="Reproduzir esse arquivo"
                               className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/15 transition-colors"
                             >
@@ -371,7 +395,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                             </button>
                             {onAddFileToPlaylist && (
                               <button
-                                onClick={() => onAddFileToPlaylist(result, f.index, f.path)}
+                                onClick={() => {
+                                  hoverThumb.hide()
+                                  onAddFileToPlaylist(result, f.index, f.path)
+                                }}
                                 title="Adicionar esse arquivo a uma playlist"
                                 className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-500/15 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100"
                               >
