@@ -51,7 +51,7 @@ import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
-import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, useAirPlay, hlsFatalAction } from './player/playerHooks'
+import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, useAirPlay, hlsFatalAction, type AirPlayState } from './player/playerHooks'
 import type { ErrorData } from 'hls.js'
 
 type PlaylistMeta = {
@@ -590,6 +590,32 @@ function PlayerLoadingOverlay({
   )
 }
 
+// Small presentational overlays, extracted from VideoPlayerElement so its
+// cognitive complexity stays under the gate (each one keeps its own guard
+// instead of a `cond && (...)` inline in the player's JSX).
+function TranscodingBadge({ attempted, videoError }: { readonly attempted: boolean; readonly videoError: boolean }) {
+  if (!attempted || videoError) return null
+  return (
+    <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
+      <Cpu className="w-3 h-3" />
+      Convertendo via GPU
+    </div>
+  )
+}
+
+function AirPlayButton({ airplay, videoError }: { readonly airplay: AirPlayState; readonly videoError: boolean }) {
+  if (!airplay.available || videoError) return null
+  return (
+    <button
+      onClick={airplay.show}
+      title={airplay.active ? 'Transmitindo via AirPlay' : 'Transmitir via AirPlay'}
+      className={`absolute top-2 left-2 z-20 p-2 rounded-md backdrop-blur-sm transition-colors ${airplay.active ? 'bg-blue-600/85 text-white' : 'bg-black/55 text-white hover:bg-black/75'}`}
+    >
+      <Airplay className="w-4 h-4" />
+    </button>
+  )
+}
+
 function VideoPlayerElement({
   videoRef,
   streamURL,
@@ -704,21 +730,8 @@ function VideoPlayerElement({
           formatTime={formatTime}
         />
       )}
-      {transcodeFallbackAttempted && !videoError && (
-        <div className="absolute top-2 right-2 bg-purple-600/85 text-white text-[10px] px-2 py-1 rounded-md flex items-center gap-1 backdrop-blur-sm pointer-events-none z-20">
-          <Cpu className="w-3 h-3" />
-          Convertendo via GPU
-        </div>
-      )}
-      {airplay.available && !videoError && (
-        <button
-          onClick={airplay.show}
-          title={airplay.active ? 'Transmitindo via AirPlay' : 'Transmitir via AirPlay'}
-          className={`absolute top-2 left-2 z-20 p-2 rounded-md backdrop-blur-sm transition-colors ${airplay.active ? 'bg-blue-600/85 text-white' : 'bg-black/55 text-white hover:bg-black/75'}`}
-        >
-          <Airplay className="w-4 h-4" />
-        </button>
-      )}
+      <TranscodingBadge attempted={transcodeFallbackAttempted} videoError={videoError} />
+      <AirPlayButton airplay={airplay} videoError={videoError} />
       {videoError ? null : (
         <video
           ref={videoRef}
