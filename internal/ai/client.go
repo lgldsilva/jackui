@@ -29,8 +29,14 @@ type Slot struct {
 	Model    string
 	BaseURL  string
 	apiKey   string
-	Free     bool // true when the model is free (no billing cost)
+	Free     bool // true when the model is free (CostPer1M == 0)
 	Local    bool // true for a model served by the LOCAL Ollama GPU (see localModel)
+	// CostPer1M is the blended (prompt+completion)/2 price in USD per 1M tokens.
+	// 0 = free; -1 = UNKNOWN (a metered provider that doesn't expose pricing, e.g.
+	// OpenCode Zen) — those are excluded from the benchmark so we never call a
+	// model we can't price. Discovery fills it from /models; resolveSlot can only
+	// tell free (0) from unknown (-1) for chain models (no pricing data there).
+	CostPer1M float64
 }
 
 // localModel reports whether a slot runs on the LOCAL Ollama — a model served from
@@ -62,12 +68,13 @@ func (r *TitleResult) Query() string {
 }
 
 type Client struct {
-	mu        sync.RWMutex // guards slots (self-heal mutates while requests read)
-	slots     []Slot
-	providers map[string]config.AIProvider // kept so ApplyChain can resolve new slots
-	breaker   *breaker
-	http      *http.Client
-	healing   sync.Map // provider -> in-flight, dedupes self-heal
+	mu           sync.RWMutex // guards slots (self-heal mutates while requests read)
+	slots        []Slot
+	providers    map[string]config.AIProvider // kept so ApplyChain can resolve new slots
+	breaker      *breaker
+	http         *http.Client
+	healing      sync.Map // provider -> in-flight, dedupes self-heal
+	maxCostPer1M float64  // benchmark cost ceiling ($/1M); 0 = free only (see AffordableSlots)
 }
 
 // slotList returns a snapshot of the live chain (safe to iterate without holding
@@ -87,8 +94,9 @@ func New(cfg config.AIConfig) *Client {
 		return nil
 	}
 	c := &Client{
-		providers: cfg.Providers,
-		breaker:   newBreaker(),
+		providers:    cfg.Providers,
+		breaker:      newBreaker(),
+		maxCostPer1M: cfg.MaxCostPer1M,
 		// Generous backstop only — real per-call limits come from the ctx the
 		// caller passes (resolve ~25s, benchmark ~90s, warmup ~120s for cold
 		// local models loading into VRAM).
@@ -118,7 +126,13 @@ func (c *Client) resolveSlot(id, provider, model string) (Slot, bool) {
 	if id == "" {
 		id = provider + ":" + model
 	}
-	return Slot{ID: id, Provider: provider, Model: model, BaseURL: strings.TrimRight(p.BaseURL, "/"), apiKey: p.APIKey, Local: localModel(provider, model)}, true
+	// No pricing data for a chain model — we can only tell free (0) from unknown
+	// (-1, a paid model we can't price → excluded from the benchmark).
+	cost := -1.0
+	if isFreeModel(provider, model) {
+		cost = 0
+	}
+	return Slot{ID: id, Provider: provider, Model: model, BaseURL: strings.TrimRight(p.BaseURL, "/"), apiKey: p.APIKey, Free: cost == 0, Local: localModel(provider, model), CostPer1M: cost}, true
 }
 
 // ApplyChain replaces the live chain with the given (provider, model) defs in
@@ -330,10 +344,16 @@ func isFreeModel(provider, model string) bool {
 // FreeOnly drops paid models (a metered provider without a free marker) so the
 // benchmark never spends credits on them — this also prunes paid leftovers a
 // pre-filter run had adopted into the chain (e.g. a Zen "big-pickle").
-func FreeOnly(slots []Slot) []Slot {
+// AffordableSlots drops models the benchmark isn't allowed to PAY to test: those
+// whose cost exceeds maxCostPer1M, and those with UNKNOWN cost (-1 — a metered
+// provider with no pricing, never call it). With the default ceiling of 0 this is
+// exactly "free only" (so we never spend); raising the ceiling lets cheap paid
+// models in. This also prunes paid leftovers a pre-filter run adopted (e.g. Zen
+// "big-pickle", which is unknown-cost).
+func (c *Client) AffordableSlots(slots []Slot) []Slot {
 	out := make([]Slot, 0, len(slots))
 	for _, s := range slots {
-		if isFreeModel(s.Provider, s.Model) {
+		if s.CostPer1M >= 0 && s.CostPer1M <= c.maxCostPer1M {
 			out = append(out, s)
 		}
 	}

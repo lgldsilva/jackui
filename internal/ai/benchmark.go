@@ -43,7 +43,8 @@ type SlotScore struct {
 	AvgLatencyMs  int64   `json:"avgLatencyMs"` // MEDIAN wall-clock per call (resilient to model-load residual)
 	Composite     float64 `json:"composite"`    // accuracy / sqrt(latencySeconds)
 	Samples       int     `json:"samples"`      // cases that produced a usable reply
-	Free          bool    `json:"free"`         // true when model is free (no billing cost)
+	Free          bool    `json:"free"`         // true when CostPer1M == 0
+	CostPer1M     float64 `json:"costPer1M"`    // blended USD per 1M tokens (0 = free); drives the composite
 	FailureReason string  `json:"failureReason,omitempty"`
 	// Incomplete is true when some cases were transiently SKIPPED (rate limit
 	// after retries, network) so the model wasn't measured on the full set. These
@@ -68,21 +69,20 @@ var DefaultBenchmarkCases = []BenchmarkCase{
 	{Raw: "O.Auto.da.Compadecida.2000.DUBLADO.1080p", Expect: "O Auto da Compadecida - 2000"},
 }
 
-// compositeScore mirrors SelfAgent's ranking: quality divided by the square root
-// of latency in seconds. The sqrt softens the latency penalty so a slightly
-// slower but more accurate model can still win. A 0.3s floor stops a sub-300ms
-// call from inflating the score to nonsense.
+// compositeScore ranks a model by VALUE: quality ÷ (√latency × cost factor). The
+// sqrt softens the latency penalty so a slightly slower but more accurate model
+// can still win; a 0.3s floor stops a sub-300ms call from inflating the score.
 //
-// Free models get a 1.3x multiplier on their composite score so they rank
-// above paid models with similar accuracy/latency — the whole point is that
-// free models are preferred when they work well enough.
-func compositeScore(accuracy float64, avgLatencyMs int64, free bool) float64 {
+// Cost (USD per 1M tokens, blended) enters as a (1 + cost) divisor: free models
+// (cost 0) divide by 1 — no penalty — and every dollar/1M pushes the score down.
+// So ranking is value-based, not a binary free/paid flag: a cheap accurate model
+// beats an expensive one, and free beats a same-quality paid model. (This replaced
+// the old flat 1.3x free bonus — with cost 0 for every free model the relative
+// order among them is unchanged.)
+func compositeScore(accuracy float64, avgLatencyMs int64, costPer1M float64) float64 {
 	seconds := math.Max(0.3, float64(avgLatencyMs)/1000.0)
-	score := accuracy / math.Sqrt(seconds)
-	if free {
-		score *= 1.3
-	}
-	return score
+	cost := math.Max(0, costPer1M)
+	return accuracy / math.Sqrt(seconds) / (1 + cost)
 }
 
 var alnumRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -271,7 +271,7 @@ const warmupTimeout = 300 * time.Second
 // fully load the model. The median ignores that lone outlier, so the score
 // reflects steady-state inference latency, which is what we're ranking on.
 func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, warmup bool) SlotScore {
-	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model, Free: s.Free}
+	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model, Free: s.Free, CostPer1M: s.CostPer1M}
 	if warmup {
 		warmCtx, warmCancel := context.WithTimeout(ctx, warmupTimeout)
 		_, _, _ = c.metadataWithSlot(warmCtx, s, "warmup")
@@ -296,7 +296,7 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		// next to a failure reason. Latency is the median over the USABLE replies.
 		score.Accuracy = accSum / float64(scored)
 		score.AvgLatencyMs = medianDuration(lats).Milliseconds()
-		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.Free)
+		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.CostPer1M)
 	} else if paymentFail {
 		score.Composite = -1
 	}
@@ -439,7 +439,7 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 			continue
 		}
 		existing["ollama|"+m.Name] = true
-		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key, Local: localModel("ollama", m.Name)})
+		out = append(out, Slot{ID: "ollama:" + m.Name, Provider: "ollama", Model: m.Name, BaseURL: base, apiKey: key, Free: true, Local: localModel("ollama", m.Name)})
 	}
 	return out
 }
@@ -482,6 +482,18 @@ func (c *Client) DiscoverModels(ctx context.Context) []Slot {
 	return out
 }
 
+// modelCostPer1M turns OpenAI-style per-TOKEN pricing (strings, USD) into a
+// blended (prompt+completion)/2 price per 1M tokens. known=false when neither
+// field is numeric — e.g. OpenCode Zen, which returns no pricing at all.
+func modelCostPer1M(promptStr, completionStr string) (cost float64, known bool) {
+	p, perr := strconv.ParseFloat(strings.TrimSpace(promptStr), 64)
+	cmp, cerr := strconv.ParseFloat(strings.TrimSpace(completionStr), 64)
+	if perr != nil && cerr != nil {
+		return 0, false
+	}
+	return (p + cmp) / 2 * 1_000_000, true
+}
+
 // discoverViaModelsAPI hits the OpenAI-compatible GET /models on a provider.
 func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config.AIProvider, capN int, existing map[string]bool) []Slot {
 	base := strings.TrimRight(p.BaseURL, "/")
@@ -514,22 +526,23 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 		if m.ID == "" || existing[name+"|"+m.ID] || len(out) >= capN {
 			continue
 		}
-		freeTier := freeTierProviders[name]
-		// Free if: a free marker on the id (:free/-free) or free-tier provider
-		// (isFreeModel), OR pricing is EXPLICITLY zero. Absent pricing (empty
-		// strings) does NOT count as free — OpenCode Zen returns no pricing at all
-		// and is full of costly frontier models.
-		isFree := isFreeModel(name, m.ID) ||
-			(m.Pricing.Prompt == "0" && m.Pricing.Completion == "0")
-		// On a metered provider (anything not free-tier — OpenRouter, OpenCode Zen,
-		// or any unknown provider, treated as paid by default), only auto-discover
-		// models we can POSITIVELY tell are free. Benchmarking paid frontier models
-		// burns real credits/quota fast.
-		if !freeTier && !isFree {
+		// Cost in USD per 1M tokens. Free-tier providers and :free/-free ids are 0;
+		// a numeric price is blended; absent pricing (OpenCode Zen) is UNKNOWN.
+		var cost float64
+		known := true
+		if isFreeModel(name, m.ID) {
+			cost = 0
+		} else {
+			cost, known = modelCostPer1M(m.Pricing.Prompt, m.Pricing.Completion)
+		}
+		// Only discover models we can PAY for: known cost within the ceiling (0 =
+		// free only, the default). Unknown-cost models (no pricing) are never
+		// auto-tested — that's what keeps Zen's costly frontier models out.
+		if !known || cost > c.maxCostPer1M {
 			continue
 		}
 		existing[name+"|"+m.ID] = true
-		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey, Free: isFree})
+		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey, Free: cost == 0, CostPer1M: cost})
 	}
 	return out
 }
@@ -675,8 +688,12 @@ func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slo
 		}
 	}
 	base := strings.TrimRight(p.BaseURL, "/")
+	cost := -1.0
+	if isFreeModel(provider, repl) {
+		cost = 0
+	}
 	log.Printf("ai: self-heal — added %s replacement %q (untested; run the benchmark to re-optimize)", provider, repl)
-	return Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey, Local: localModel(provider, repl)}
+	return Slot{ID: provider + ":" + repl, Provider: provider, Model: repl, BaseURL: base, apiKey: p.APIKey, Free: cost == 0, Local: localModel(provider, repl), CostPer1M: cost}
 }
 
 // AdoptBenchmark rebuilds the live chain from benchmark scores: every model that
@@ -712,7 +729,7 @@ func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []
 			}
 		}
 	}
-	slots = FreeOnly(slots)
+	slots = c.AffordableSlots(slots)
 	if len(slots) == 0 {
 		return prev
 	}

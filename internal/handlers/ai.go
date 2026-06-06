@@ -66,10 +66,11 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		// Groq's models + OpenRouter free models), deduped against the chain.
 		slots := client.Slots()
 		slots = append(slots, client.DiscoverModels(ctx)...)
-		// Drop paid models before scoring so we never spend credits benchmarking
-		// them — this also purges paid leftovers a pre-filter run adopted into the
-		// chain (e.g. a Zen "big-pickle"), in a single run.
-		slots = ai.FreeOnly(slots)
+		// Drop models we're not allowed to pay for (cost > ceiling, or unknown cost)
+		// before scoring — with the default ceiling of 0 this is free-only, so we
+		// never spend; it also purges paid leftovers a pre-filter run adopted (e.g.
+		// a Zen "big-pickle").
+		slots = client.AffordableSlots(slots)
 
 		scores := client.RunSlots(ctx, slots, cases)
 		if store != nil {

@@ -55,6 +55,12 @@ type AIConfig struct {
 	Enabled   bool                  `yaml:"enabled"`
 	Providers map[string]AIProvider `yaml:"providers"`
 	Chain     []AIChainSlot         `yaml:"chain"`
+	// MaxCostPer1M caps which models the benchmark will TEST (and thus pay for),
+	// in USD per 1M tokens (blended prompt+completion). 0 (default) = free models
+	// only — paid models are never called, so the benchmark spends nothing. Raise
+	// it to also test paid models up to that price; the composite score then ranks
+	// by cost too (cheaper wins), so it's value-based, not a binary free/paid flag.
+	MaxCostPer1M float64 `yaml:"max_cost_per_1m"`
 }
 
 type AIProvider struct {
@@ -305,7 +311,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_SMTP_HOST", "JACKUI_SMTP_PORT", "JACKUI_SMTP_USER", "JACKUI_SMTP_PASS", "JACKUI_SMTP_FROM",
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
-		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL",
+		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M",
 		"JACKUI_MAX_UPLOAD_MB",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
@@ -517,6 +523,12 @@ func applyAIEnv(cfg *Config) {
 	applyAIProviderEnv(cfg, "OPENROUTER_API_KEY", "openrouter", "https://openrouter.ai/api/v1")
 	applyAIProviderEnv(cfg, "OPENCODE_API_KEY", "opencode", "https://opencode.ai/zen/v1")
 	applyOllamaEnv(cfg)
+
+	if v := os.Getenv("JACKUI_AI_MAX_COST_PER_1M"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			cfg.AI.MaxCostPer1M = f
+		}
+	}
 
 	if v := os.Getenv("JACKUI_AI_ENABLED"); v == "0" || v == "false" {
 		cfg.AI.Enabled = false
