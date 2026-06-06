@@ -12,7 +12,8 @@ import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
-import { SearchResult, Indexer, getIndexers, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
+import SavedSearches from '../components/SavedSearches'
+import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { isIncognito } from '../lib/incognito'
@@ -357,10 +358,13 @@ export default function SearchPage() {
   // Infinite scroll pagination (grows as user scrolls)
   const PAGE_SIZE = 60
   const [visible, setVisible] = useState(PAGE_SIZE)
+  const [historyQueries, setHistoryQueries] = useState<string[]>([])
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     getIndexers().then(setIndexers).catch(() => {})
+    // Past queries → autocomplete suggestions + "recent" chips on the idle screen.
+    getHistory().then(h => setHistoryQueries(h.map(e => e.query))).catch(() => {})
     // Populate the global favorites cache so cards know which results are starred
     favoritesList()
       .then(list => refreshFavoritesCache(list.map(f => ({ name: f.name, infoHash: f.infoHash }))))
@@ -855,6 +859,7 @@ export default function SearchPage() {
           indexers={allIndexers}
           onSearch={() => handleSearch(activeTab.id)}
           loading={isSearching}
+          suggestions={historyQueries}
         />
 
         {/* Status bar */}
@@ -999,6 +1004,10 @@ export default function SearchPage() {
         {activeTab.phase === 'idle' && (
           <div className="flex flex-col items-center justify-center py-20 text-text-muted">
             <p className="text-lg">Digite algo para buscar torrents</p>
+            <SavedSearches
+              recent={historyQueries}
+              onPick={q => { updateTab(activeTab.id, { query: q }); handleSearch(activeTab.id, q) }}
+            />
           </div>
         )}
       </main>
