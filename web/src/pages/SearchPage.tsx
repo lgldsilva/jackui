@@ -1046,18 +1046,28 @@ export default function SearchPage() {
 
         {/* Results grid (paginated via infinite scroll) */}
         {hasResults && filteredResults.length > 0 && groupSeries && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {buildSeriesLayout(filteredResults).map((item, i) => (
-              item.kind === 'header' ? (
-                <div key={item.id} className="col-span-full flex items-center gap-2 mt-2 first:mt-0">
-                  <Layers className="w-4 h-4 text-green-400 flex-shrink-0" />
-                  <h3 className="text-sm font-semibold text-text-primary truncate">{item.series}</h3>
-                  <span className="text-xs text-text-muted whitespace-nowrap">Temporada {item.season} • {item.count} ep.</span>
-                  <div className="flex-1 h-px bg-strong/40" />
-                </div>
-              ) : renderResultCard(item.result, `${item.result.infoHash || item.result.link}-${i}`)
-            ))}
-          </div>
+          <>
+            {/* Paginate by RESULTS first (same `visible` window + sentinel as the
+                flat view), then group what's visible — so a huge result set
+                doesn't mount every card at once. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {buildSeriesLayout(filteredResults.slice(0, visible)).map((item, i) => (
+                item.kind === 'header' ? (
+                  <div key={item.id} className="col-span-full flex items-center gap-2 mt-2 first:mt-0">
+                    <Layers className="w-4 h-4 text-green-400 flex-shrink-0" />
+                    <h3 className="text-sm font-semibold text-text-primary truncate">{item.series}</h3>
+                    <span className="text-xs text-text-muted whitespace-nowrap">Temporada {item.season} • {item.count} ep.</span>
+                    <div className="flex-1 h-px bg-strong/40" />
+                  </div>
+                ) : renderResultCard(item.result, `${item.result.infoHash || item.result.link}-${i}`)
+              ))}
+            </div>
+            {visible < filteredResults.length && (
+              <div ref={sentinelRef} className="text-center py-6 text-xs text-text-muted">
+                Mostrando {visible} de {filteredResults.length} • role pra ver mais
+              </div>
+            )}
+          </>
         )}
         {hasResults && filteredResults.length > 0 && !groupSeries && (
           <>

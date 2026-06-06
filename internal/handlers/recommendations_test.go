@@ -147,6 +147,27 @@ func TestRecommendations_EmptyLibraryReturns200(t *testing.T) {
 	}
 }
 
+func TestRecCache_PutSweepsExpired(t *testing.T) {
+	base := time.Now()
+	recCacheMu.Lock()
+	recCache[91001] = recCacheEntry{at: base} // stale relative to the Put below
+	recCacheMu.Unlock()
+
+	// A later Put (past TTL) must sweep the stale entry while keeping the new one.
+	recCachePut(91002, []recItem{{Match: m(1, "X", 1)}}, base.Add(recTTL+time.Minute))
+
+	recCacheMu.Lock()
+	_, oldThere := recCache[91001]
+	_, newThere := recCache[91002]
+	recCacheMu.Unlock()
+	if oldThere {
+		t.Error("expired entry should have been swept on Put")
+	}
+	if !newThere {
+		t.Error("fresh entry should remain after sweep")
+	}
+}
+
 func TestRecCache_HitAndExpiry(t *testing.T) {
 	base := time.Now()
 	recCachePut(4242, []recItem{{Match: m(1, "X", 1)}}, base)
