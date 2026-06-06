@@ -1685,7 +1685,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   if (isSeeding) {
     borderClass = 'border-violet-500/30 hover:border-violet-500/50'
   } else if (isPaused) {
-    borderClass = 'border-strong/50 hover:border-gray-500/60'
+    borderClass = 'border-strong/50 hover:border-strong/60'
   } else if (isComplete) {
     borderClass = 'border-green-500/30 hover:border-green-500/50'
   } else {
@@ -1808,7 +1808,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
 function downloadBorderClass(completed: boolean, failed: boolean, paused: boolean): string {
   if (completed) return 'border-green-500/30 hover:border-green-500/50'
   if (failed) return 'border-red-500/30 hover:border-red-500/50'
-  if (paused) return 'border-strong/50 hover:border-gray-500/60'
+  if (paused) return 'border-strong/50 hover:border-strong/60'
   return 'border-cyan-500/30 hover:border-cyan-500/50'
 }
 
@@ -2092,7 +2092,7 @@ function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
 function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentInfo['status']> }) {
   const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
     downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-text-primary border-gray-500/30',          icon: <Pause className="w-3 h-3" /> },
+    paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-text-primary border-strong/30',          icon: <Pause className="w-3 h-3" /> },
     seeding:     { label: 'Semeando',  cls: 'bg-violet-500/15 text-violet-300 border-violet-500/30',    icon: <ArrowUpCircle className="w-3 h-3" /> },
     complete:    { label: 'Completo',  cls: 'bg-green-500/15 text-green-300 border-green-500/30',       icon: <CheckCircle2 className="w-3 h-3" /> },
   }
@@ -2110,7 +2110,7 @@ function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['statu
     downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     completed:   { label: 'Concluído',   cls: 'bg-green-500/15 text-green-300 border-green-500/30',      icon: <CheckCircle2 className="w-3 h-3" /> },
     failed:      { label: 'Falhou',      cls: 'bg-red-500/15 text-red-300 border-red-500/30',            icon: <AlertCircle className="w-3 h-3" /> },
-    paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-text-primary border-gray-500/30',         icon: <Pause className="w-3 h-3" /> },
+    paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-text-primary border-strong/30',         icon: <Pause className="w-3 h-3" /> },
   }
   const s = map[status]
   return (

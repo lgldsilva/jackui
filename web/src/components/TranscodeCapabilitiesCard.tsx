@@ -16,7 +16,7 @@ const BACKEND_COLORS: Record<string, string> = {
   'amd-vaapi': 'text-red-400 border-red-500/30 bg-red-500/10',
   'amd-amf':   'text-red-400 border-red-500/30 bg-red-500/10',
   'intel-qsv': 'text-blue-400 border-blue-500/30 bg-blue-500/10',
-  'apple-vt':  'text-text-primary border-gray-500/30 bg-gray-500/10',
+  'apple-vt':  'text-text-primary border-strong/30 bg-gray-500/10',
   'cpu':       'text-yellow-400 border-yellow-500/30 bg-yellow-500/10',
 }
 
