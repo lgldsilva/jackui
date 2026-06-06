@@ -520,21 +520,30 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 	mi := t.Metainfo()
 	path := s.metainfoPath(t.InfoHash())
 	// Write to tmp + rename for atomicity (avoid leaving a half-written
-	// file that loadCachedMetainfo would treat as garbage).
+	// file that loadCachedMetainfo would treat as garbage). Disk-full / perms
+	// failures were silently swallowed — the .torrent cache never built and
+	// future plays fell back to slow DHT with no log to explain why; surface it.
+	short := t.InfoHash().HexString()[:8]
 	f, err := os.CreateTemp(s.metainfoDir, ".tmp-*.torrent")
 	if err != nil {
+		log.Printf("streamer: persist metainfo (create temp) failed for %s: %v", short, err)
 		return
 	}
 	if err := mi.Write(f); err != nil {
 		_ = f.Close()
 		_ = os.Remove(f.Name())
+		log.Printf("streamer: persist metainfo (write) failed for %s: %v", short, err)
 		return
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(f.Name())
+		log.Printf("streamer: persist metainfo (close) failed for %s: %v", short, err)
 		return
 	}
-	_ = os.Rename(f.Name(), path)
+	if err := os.Rename(f.Name(), path); err != nil {
+		_ = os.Remove(f.Name())
+		log.Printf("streamer: persist metainfo (rename) failed for %s: %v", short, err)
+	}
 }
 
 func (s *Streamer) Close() {
