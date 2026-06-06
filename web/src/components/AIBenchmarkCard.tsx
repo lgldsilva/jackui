@@ -40,7 +40,9 @@ function scoreCells(s: AISlotScore) {
     acc: `${Math.round(s.accuracy * 100)}%`,
     lat: s.avgLatencyMs > 0 ? `${s.avgLatencyMs} ms` : '—',
     comp: s.composite > 0 ? s.composite.toFixed(3) : '—',
-    cost: (s.costPer1M ?? 0) > 0 ? `$${s.costPer1M!.toFixed(2)}/1M` : 'grátis',
+    // Energy cost of local models can be small (cents/1M) — show 3 decimals
+    // below $0.10 so it doesn't round to "$0.00".
+    cost: (s.costPer1M ?? 0) > 0 ? `$${s.costPer1M!.toFixed(s.costPer1M! < 0.1 ? 3 : 2)}/1M` : 'grátis',
   }
 }
 
@@ -223,9 +225,12 @@ export default function AIBenchmarkCard() {
         modelo, calcula o score composto (acurácia ÷ √latência ÷ (1 + custo/1M)) e reordena a chain.
         A latência é a <strong className="text-text-secondary">mediana</strong> das chamadas (desconta
         o tempo de carga do modelo); o <strong className="text-text-secondary">custo</strong> ($/1M
-        tokens) penaliza modelos caros, então grátis/barato sobe. Por padrão só modelos grátis são
-        testados — defina <code className="text-text-primary">JACKUI_AI_MAX_COST_PER_1M</code> para
-        incluir pagos até esse teto.
+        tokens, em USD) penaliza modelos caros, então grátis/barato sobe. Por padrão só modelos
+        grátis são testados — defina <code className="text-text-primary">JACKUI_AI_MAX_COST_PER_1M</code> para
+        incluir pagos até esse teto. Modelos locais não são grátis: com
+        <code className="text-text-primary"> JACKUI_AI_KWH_PRICE</code> (tarifa em USD/kWh) e
+        <code className="text-text-primary"> JACKUI_AI_LOCAL_WATTS</code> (potência da GPU), o custo
+        de energia (latência × tokens × potência × tarifa) entra no score.
       </p>
 
       {status.results.length > 0 && (

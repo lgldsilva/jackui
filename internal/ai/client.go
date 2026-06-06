@@ -75,6 +75,8 @@ type Client struct {
 	http         *http.Client
 	healing      sync.Map // provider -> in-flight, dedupes self-heal
 	maxCostPer1M float64  // benchmark cost ceiling ($/1M); 0 = free only (see AffordableSlots)
+	kwhPrice     float64  // electricity tariff ($/kWh); 0 = local models stay cost 0
+	localWatts   float64  // GPU power draw under load (W) for the local-energy estimate
 }
 
 // slotList returns a snapshot of the live chain (safe to iterate without holding
@@ -97,6 +99,8 @@ func New(cfg config.AIConfig) *Client {
 		providers:    cfg.Providers,
 		breaker:      newBreaker(),
 		maxCostPer1M: cfg.MaxCostPer1M,
+		kwhPrice:     cfg.ElectricityPricePerKWh,
+		localWatts:   localWattsOrDefault(cfg.LocalPowerWatts),
 		// Generous backstop only — real per-call limits come from the ctx the
 		// caller passes (resolve ~25s, benchmark ~90s, warmup ~120s for cold
 		// local models loading into VRAM).
@@ -195,7 +199,7 @@ func (c *Client) MusicQuery(ctx context.Context, rawName string) string {
 		if !c.breaker.available(s.Provider, s.ID) {
 			continue
 		}
-		content, _, err := c.chat(ctx, s, musicSystem, rawName, false)
+		content, _, _, err := c.chat(ctx, s, musicSystem, rawName, false)
 		if err != nil {
 			c.noteChainFailure(s, err)
 			continue
@@ -226,7 +230,7 @@ func (c *Client) IdentifyWithSlot(ctx context.Context, slotID, rawName string) (
 }
 
 func (c *Client) identifyWithSlot(ctx context.Context, s Slot, rawName string) (*TitleResult, time.Duration, error) {
-	content, latency, err := c.chat(ctx, s, identifySystem, rawName, true)
+	content, latency, _, err := c.chat(ctx, s, identifySystem, rawName, true)
 	if err != nil {
 		return nil, latency, err
 	}
@@ -242,16 +246,16 @@ func (c *Client) identifyWithSlot(ctx context.Context, s Slot, rawName string) (
 // this richer extraction — not the title-only path — so accuracy reflects the
 // actual rename task (séries with the right season/episode), which is what the
 // "Renomear e Organizar via IA" feature depends on.
-func (c *Client) metadataWithSlot(ctx context.Context, s Slot, rawName string) (*RenameMetadata, time.Duration, error) {
-	content, latency, err := c.chat(ctx, s, renameSystem, rawName, true)
+func (c *Client) metadataWithSlot(ctx context.Context, s Slot, rawName string) (*RenameMetadata, time.Duration, int, error) {
+	content, latency, tokens, err := c.chat(ctx, s, renameSystem, rawName, true)
 	if err != nil {
-		return nil, latency, err
+		return nil, latency, tokens, err
 	}
 	res, perr := parseRenameJSON(content)
 	if perr != nil {
-		return nil, latency, fmt.Errorf("%w: %v", errBadOutput, perr)
+		return nil, latency, tokens, fmt.Errorf("%w: %v", errBadOutput, perr)
 	}
-	return res, latency, nil
+	return res, latency, tokens, nil
 }
 
 // ─── OpenAI-compatible /chat/completions ─────────────────────────────────────
@@ -289,6 +293,9 @@ type chatResp struct {
 	Choices []struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
+	Usage struct {
+		TotalTokens int `json:"total_tokens"`
+	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 		Code    string `json:"code"`
@@ -358,6 +365,26 @@ func (c *Client) AffordableSlots(slots []Slot) []Slot {
 		}
 	}
 	return out
+}
+
+// localWattsOrDefault falls back to a mid-range GPU-under-load figure when unset.
+func localWattsOrDefault(w float64) float64 {
+	if w <= 0 {
+		return 250
+	}
+	return w
+}
+
+// localEnergyCostPer1M estimates a LOCAL model's energy cost in USD per 1M tokens
+// from the benchmark's measured total latency and token count: energy(kWh) =
+// power × time, cost = energy × tariff, scaled to 1M tokens. Returns 0 when the
+// tariff is unset (local stays free until configured) or there's nothing measured.
+func (c *Client) localEnergyCostPer1M(totalLatency time.Duration, totalTokens int) float64 {
+	if c.kwhPrice <= 0 || totalTokens <= 0 || totalLatency <= 0 {
+		return 0
+	}
+	powerKW := c.localWatts / 1000.0
+	return powerKW * c.kwhPrice * (totalLatency.Hours() / float64(totalTokens) * 1_000_000)
 }
 
 // retryAfterOf pulls the vendor's Retry-After out of a rate-limit error (0 if the
@@ -457,7 +484,7 @@ func httpResponseError(s Slot, status int, raw string, retryAfter time.Duration)
 	return fmt.Errorf("ai: %s returned %d: %s", s.ID, status, strings.TrimSpace(raw))
 }
 
-func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode bool) (string, time.Duration, error) {
+func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode bool) (content string, latency time.Duration, tokens int, err error) {
 	reqBody := chatReq{
 		Model:       s.Model,
 		Temperature: 0, // deterministic — we want the same title every time
@@ -479,9 +506,9 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 		reqBody.ReasoningEffort = "low"
 	}
 	body, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.BaseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return "", 0, err
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, s.BaseURL+"/chat/completions", bytes.NewReader(body))
+	if reqErr != nil {
+		return "", 0, 0, reqErr
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if s.apiKey != "" {
@@ -489,29 +516,29 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 	}
 
 	start := time.Now()
-	resp, err := c.http.Do(req)
-	latency := time.Since(start)
-	if err != nil {
-		return "", latency, err
+	resp, doErr := c.http.Do(req)
+	latency = time.Since(start)
+	if doErr != nil {
+		return "", latency, 0, doErr
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
-	if err := httpResponseError(s, resp.StatusCode, string(raw), parseRetryAfter(resp.Header.Get("Retry-After"))); err != nil {
-		return "", latency, err
+	if e := httpResponseError(s, resp.StatusCode, string(raw), parseRetryAfter(resp.Header.Get("Retry-After"))); e != nil {
+		return "", latency, 0, e
 	}
 
 	var cr chatResp
-	if err := json.Unmarshal(raw, &cr); err != nil {
-		return "", latency, fmt.Errorf("ai: %s bad json: %w", s.ID, err)
+	if e := json.Unmarshal(raw, &cr); e != nil {
+		return "", latency, 0, fmt.Errorf("ai: %s bad json: %w", s.ID, e)
 	}
 	if cr.Error != nil && cr.Error.Message != "" {
-		return "", latency, fmt.Errorf("ai: %s error: %s", s.ID, cr.Error.Message)
+		return "", latency, 0, fmt.Errorf("ai: %s error: %s", s.ID, cr.Error.Message)
 	}
 	if len(cr.Choices) == 0 {
-		return "", latency, fmt.Errorf("ai: %s returned no choices", s.ID)
+		return "", latency, 0, fmt.Errorf("ai: %s returned no choices", s.ID)
 	}
-	return cr.Choices[0].Message.Content, latency, nil
+	return cr.Choices[0].Message.Content, latency, cr.Usage.TotalTokens, nil
 }
 
 // parseTitleJSON pulls the JSON object out of a model reply (possibly wrapped in
@@ -580,7 +607,7 @@ func (c *Client) ExtractRenameMetadata(ctx context.Context, rawName string) (*Re
 		if !c.breaker.available(s.Provider, s.ID) {
 			continue
 		}
-		content, _, err := c.chat(ctx, s, renameSystem, rawName, true)
+		content, _, _, err := c.chat(ctx, s, renameSystem, rawName, true)
 		if err != nil {
 			lastErr = err
 			c.noteChainFailure(s, err)
