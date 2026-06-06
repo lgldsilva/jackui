@@ -667,7 +667,7 @@ function VideoPlayerElement({
           // Áudio: a capa não precisa de tela cheia. Encolhe a faixa (mantendo a
           // largura total p/ a barra de controles nativa respirar) e o espaço
           // sobra vai pra lista de faixas abaixo — estilo "tela de álbum".
-          ? 'h-[17dvh] sm:h-[38dvh]'
+          ? 'h-[14dvh] sm:h-[36dvh]'
           : 'max-h-[70dvh] sm:max-h-[58dvh]'
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
@@ -1291,6 +1291,7 @@ function serverDownloadIcon(loading: boolean, success: boolean): React.ReactNode
 
 type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
+  readonly audioMode: boolean
   readonly currentFile: TorrentInfo['files'][number] | null | undefined
   readonly videoFileIndices: number[]
   readonly videoCursor: number
@@ -1355,6 +1356,7 @@ type PlayerControlsPanelProps = {
 // OpenSubtitles picker. Hidden entirely while minimized.
 function PlayerControlsPanel({
   info,
+  audioMode,
   currentFile,
   videoFileIndices,
   videoCursor,
@@ -1418,7 +1420,11 @@ function PlayerControlsPanel({
           provides the seek bar, play/pause and ±skip, so we keep only
           what it lacks: series navigation (prev/next episode) and a time
           readout. "Back to start" / "resume" are now offered as a prompt
-          on play (see resume overlay); ±10s removed (native bar seeks). */}
+          on play (see resume overlay); ±10s removed (native bar seeks).
+          Hidden in audio mode (no episode nav, the native controls already
+          show the time) unless a subtitle offset control needs to show —
+          frees a whole row for the track list. */}
+      {(!audioMode || subActive) && (
       <div className="px-3 sm:px-4 py-2 bg-surface border-b border-default flex items-center gap-2 min-w-0">
         {videoFileIndices.length > 1 && (
           <>
@@ -1487,6 +1493,7 @@ function PlayerControlsPanel({
           </div>
         )}
       </div>
+      )}
 
       {/* Mobile-only toggle that collapses everything below (status,
           transcode controls, subtitle picker, VLC/download) so the file
@@ -2840,6 +2847,7 @@ export default function PlayerModal({
         {!minimized && (
           <PlayerControlsPanel
             info={info}
+            audioMode={audioMode}
             currentFile={currentFile}
             videoFileIndices={videoFileIndices}
             videoCursor={videoCursor}
