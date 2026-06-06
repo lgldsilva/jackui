@@ -327,7 +327,7 @@ func parseRange(header string, totalSize int64) (int64, int64, bool) {
 // reliably played those HEVC sources before #61). Direct-play sources (H.264)
 // are unaffected either way; they never use HLS. Flip to true to resume the
 // seek work.
-const hlsVODEnabled = true
+const hlsVODEnabled = false // mantido false para evitar regressões do Safari; mude para true para testes
 
 // ffprobePathFrom derives the ffprobe binary path from the ffmpeg path so a
 // custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
@@ -764,19 +764,17 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
 	path := filepath.Join(s.Dir, "index.m3u8")
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		// Check the file FIRST so a fast encode (whole input <4s) that
 		// closes between our last check and now still gets a positive
-		// result. The previous order returned "session ended" for files
-		// short enough that ffmpeg exited inside the 150ms sleep window.
+		// result.
 		if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
 			return nil
 		}
-		// Keep the session alive while a client is actively waiting. Without
-		// this the gcLoop (idle > 60s) reaps the ffmpeg mid-startup for slow
-		// inputs (HEVC + torrent I/O can take >60s to the first segment),
-		// killing it before this 90s wait even completes. A pending
-		// WaitForMaster IS activity — bump LastAccess so the reaper backs off.
+		// Keep the session alive while a client is actively waiting.
 		s.mu.Lock()
 		s.LastAccess = time.Now()
 		closed := s.closed
@@ -789,9 +787,14 @@ func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
 			}
 			return errors.New("hls session ended before producing playlist")
 		}
-		time.Sleep(150 * time.Millisecond)
+
+		select {
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("hls master not ready within %s", timeout)
+			}
+		}
 	}
-	return fmt.Errorf("hls master not ready within %s", timeout)
 }
 
 // WaitForSegment blocks for the named segment file (basename only) to exist
@@ -810,7 +813,10 @@ func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string,
 	s.LastAccess = time.Now()
 	s.mu.Unlock()
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
 		s.mu.Lock()
 		closed := s.closed
 		s.mu.Unlock()
@@ -827,9 +833,14 @@ func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string,
 			}
 			return "", errors.New("segment not found and encoder ended")
 		}
-		time.Sleep(150 * time.Millisecond)
+
+		select {
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return "", fmt.Errorf("segment %s not ready within %s", name, timeout)
+			}
+		}
 	}
-	return "", fmt.Errorf("segment %s not ready within %s", name, timeout)
 }
 
 // stop kills ffmpeg, shuts down the loopback source server, and removes the

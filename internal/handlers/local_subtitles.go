@@ -49,7 +49,10 @@ type localProbeKey struct {
 	mtime int64
 }
 
-var localProbeCache sync.Map // localProbeKey → streamer.ProbeResult
+var (
+	localProbeCacheMu sync.RWMutex
+	localProbeCache   = make(map[localProbeKey]streamer.ProbeResult)
+)
 
 func LocalProbe(b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -67,15 +70,23 @@ func LocalProbe(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 		key := localProbeKey{abs, st.ModTime().UnixNano()}
-		if v, ok := localProbeCache.Load(key); ok {
-			c.JSON(http.StatusOK, v.(streamer.ProbeResult))
+		localProbeCacheMu.RLock()
+		v, ok := localProbeCache[key]
+		localProbeCacheMu.RUnlock()
+		if ok {
+			c.JSON(http.StatusOK, v)
 			return
 		}
 		result, ok := runLocalFFProbe(c, abs)
 		if !ok {
 			return
 		}
-		localProbeCache.Store(key, result)
+		localProbeCacheMu.Lock()
+		if len(localProbeCache) >= 2000 {
+			localProbeCache = make(map[localProbeKey]streamer.ProbeResult)
+		}
+		localProbeCache[key] = result
+		localProbeCacheMu.Unlock()
 		c.JSON(http.StatusOK, result)
 	}
 }

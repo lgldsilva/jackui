@@ -1247,6 +1247,36 @@ func TestHandleJSONRPC_SessionGet(t *testing.T) {
 	}
 }
 
+// Regression: a JSON-RPC 2.0 call that OMITS "params" (valid per spec, e.g.
+// session-get) must dispatch normally, not fail with -32602. A nil params was
+// being passed straight to convertMapKeys (→ nil → not a map → error).
+func TestHandleJSONRPC_SessionGet_NoParams(t *testing.T) {
+	h := NewHandler(nil, nil, nil, "/data", "/data")
+	gin.SetMode(gin.ReleaseMode)
+
+	body := `{"jsonrpc":"2.0","method":"session_get","id":7}`
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/transmission/rpc", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	router := gin.New()
+	h.RegisterRoutes(router)
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var jr jsonRPCResp
+	if err := json.NewDecoder(resp.Body).Decode(&jr); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if jr.Error != nil {
+		t.Fatalf("params-less call must not error, got: %+v", jr.Error)
+	}
+	if _, ok := jr.Result.(map[string]interface{}); !ok {
+		t.Fatalf("expected a result map, got: %v", jr.Result)
+	}
+}
+
 func TestHandleJSONRPC_Notification(t *testing.T) {
 	h := NewHandler(nil, nil, nil, "/data", "/data")
 	gin.SetMode(gin.ReleaseMode)
