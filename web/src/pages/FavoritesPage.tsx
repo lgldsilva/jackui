@@ -55,9 +55,14 @@ async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW
   for (const file of files) {
     try {
       const buf = await file.arrayBuffer()
-      let bin = ''
+      // Byte→binary-string in 32KB chunks. The old char-by-char `bin +=` was
+      // O(n²) and stalled (read as "import failed") on real .torrent files.
       const bytes = new Uint8Array(buf)
-      for (const byte of bytes) bin += String.fromCodePoint(byte)
+      let bin = ''
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+      }
       await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
       ok++
     } catch (e: unknown) {
