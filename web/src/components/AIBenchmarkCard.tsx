@@ -43,6 +43,13 @@ function scoreCells(s: AISlotScore) {
   }
 }
 
+// A result is worth re-running ("Rodar faltantes") when it was left incomplete OR
+// failed with a rate limit — the latter also covers results saved before the
+// incomplete flag existed, so the button shows for pre-existing rate-limited rows.
+function needsRerun(s: AISlotScore): boolean {
+  return !!s.incomplete || /rate limit/i.test(s.failureReason || '')
+}
+
 function scoreRow(s: AISlotScore) {
   const { acc, lat, comp } = scoreCells(s)
   return (
@@ -52,8 +59,8 @@ function scoreRow(s: AISlotScore) {
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums font-medium text-green-400">{comp}</td>
       <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>
-        {s.incomplete && <span className="text-amber-400">incompleto</span>}
-        {s.incomplete && s.failureReason ? ' · ' : ''}
+        {needsRerun(s) && <span className="text-amber-400">faltante</span>}
+        {needsRerun(s) && s.failureReason ? ' · ' : ''}
         {s.failureReason || ''}
       </td>
     </tr>
@@ -82,8 +89,8 @@ function scoreCard(s: AISlotScore) {
           <div className="tabular-nums font-medium text-green-400">{comp}</div>
         </div>
       </div>
-      {s.incomplete && (
-        <div className="text-amber-400 text-xs">incompleto — rode os faltantes</div>
+      {needsRerun(s) && (
+        <div className="text-amber-400 text-xs">faltante — rode os faltantes</div>
       )}
       {s.failureReason && (
         <div className="text-text-muted text-xs break-words">Falha: {s.failureReason}</div>
@@ -156,7 +163,7 @@ export default function AIBenchmarkCard() {
     try {
       const results = await runAIBenchmarkIncomplete()
       setStatus(s => s ? { ...s, results } : s)
-      const left = results.filter(r => r.incomplete).length
+      const left = results.filter(needsRerun).length
       setMsg(left > 0 ? `Faltantes re-rodados — ${left} ainda incompleto(s) (tente fora da janela do rate limit).` : 'Faltantes re-rodados — todos completos agora.')
     } catch (e: any) {
       setMsg(e?.response?.data?.error || 'Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
@@ -175,7 +182,7 @@ export default function AIBenchmarkCard() {
   }
 
   const busy = running || runningIncomplete
-  const incompleteCount = status.results.filter(r => r.incomplete).length
+  const incompleteCount = status.results.filter(needsRerun).length
 
   return (
     <section className="card flex flex-col gap-4">
