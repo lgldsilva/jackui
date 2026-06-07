@@ -67,6 +67,25 @@ export const tmdbTrending = async (opts?: { year?: number; genre?: number }): Pr
   }
 }
 
+// A recommendation is a TMDB match plus why it surfaced (the watched title that
+// seeded it) and how many watched titles point to it.
+export type TmdbRecommendation = TmdbMatch & {
+  becauseOf?: string
+  score?: number
+}
+
+// tmdbRecommendations returns personalized recommendations derived from the
+// user's watched library. Empty array when TMDB is disabled or nothing has been
+// watched yet — the Discover page just hides the section.
+export const tmdbRecommendations = async (): Promise<TmdbRecommendation[]> => {
+  try {
+    const { data } = await api.get<TmdbRecommendation[]>('/recommendations', { validateStatus: () => true })
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
 // tmdbGenres returns the merged movie+tv genre list for the Discover filter.
 export const tmdbGenres = async (): Promise<TmdbGenre[]> => {
   try {
