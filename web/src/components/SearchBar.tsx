@@ -13,6 +13,8 @@ type SearchBarProps = {
   readonly indexers: Indexer[]
   readonly onSearch: () => void
   readonly loading: boolean
+  // Past queries (server-side history) surfaced as native autocomplete.
+  readonly suggestions?: readonly string[]
 }
 
 const CATEGORIES = [
@@ -36,6 +38,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
   indexers,
   onSearch,
   loading,
+  suggestions,
 }, ref) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -57,7 +60,13 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
             placeholder="Buscar torrents... (pressione / para focar)"
             className="input-field pl-10 text-lg py-3"
             autoFocus
+            list={suggestions && suggestions.length > 0 ? 'search-suggestions' : undefined}
           />
+          {suggestions && suggestions.length > 0 && (
+            <datalist id="search-suggestions">
+              {suggestions.map(s => <option key={s} value={s} />)}
+            </datalist>
+          )}
         </div>
         <button
           onClick={onSearch}
