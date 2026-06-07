@@ -617,6 +617,13 @@ export type StreamCacheStats = {
   maxSize: number
   numActive: number
   entries: CacheEntry[]
+  /** Filesystem usage of the disk hosting dataDir (0 when statfs unavailable). */
+  diskFree: number
+  diskTotal: number
+  /** Lifetime LRU eviction counters since the server started. */
+  evictedCount: number
+  evictedBytes: number
+  lastEvictionAt?: string
 }
 
 export const streamCacheStats = async (): Promise<StreamCacheStats> => {

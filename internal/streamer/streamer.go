@@ -26,6 +26,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
+	"github.com/luizg/jackui/internal/diskutil"
 	"golang.org/x/time/rate"
 )
 
@@ -148,6 +149,14 @@ type Streamer struct {
 	// readahead é o buffer de leitura à frente por stream, em bytes. Lido sob mu;
 	// mutável ao vivo via SetStreamReadahead. 0 → streamReadaheadDefault.
 	readahead int64
+	// Eviction observability: lifetime counters bumped by evictCandidates and
+	// surfaced via Stats(), so the cache UI can show how much the LRU has been
+	// reclaiming (and when it last fired). Guarded by their own mutex so the
+	// eviction path doesn't contend on s.mu while deleting from disk.
+	evictMu        sync.Mutex
+	evictedCount   int64
+	evictedBytes   int64
+	lastEvictionAt time.Time
 }
 
 // streamReadaheadDefault é o readahead de streaming quando não configurado: 32
@@ -1486,6 +1495,13 @@ type CacheStats struct {
 	MaxSize   int64        `json:"maxSize"`   // 0 = unlimited
 	NumActive int          `json:"numActive"` // currently loaded torrents
 	Entries   []CacheEntry `json:"entries"`
+	// Filesystem footprint of the disk hosting DataDir (0 = statfs unavailable).
+	DiskFree  int64 `json:"diskFree"`
+	DiskTotal int64 `json:"diskTotal"`
+	// Lifetime LRU eviction counters (since process start).
+	EvictedCount   int64      `json:"evictedCount"`
+	EvictedBytes   int64      `json:"evictedBytes"`
+	LastEvictionAt *time.Time `json:"lastEvictionAt,omitempty"`
 }
 
 // Stats walks the DataDir and returns disk usage stats.
@@ -1529,6 +1545,17 @@ func (s *Streamer) Stats() (*CacheStats, error) {
 	sort.Slice(st.Entries, func(i, j int) bool {
 		return st.Entries[i].ModTime.After(st.Entries[j].ModTime)
 	})
+
+	st.DiskFree, st.DiskTotal = diskutil.Usage(s.cfg.DataDir)
+
+	s.evictMu.Lock()
+	st.EvictedCount = s.evictedCount
+	st.EvictedBytes = s.evictedBytes
+	if !s.lastEvictionAt.IsZero() {
+		last := s.lastEvictionAt
+		st.LastEvictionAt = &last
+	}
+	s.evictMu.Unlock()
 
 	return st, nil
 }
@@ -1686,8 +1713,18 @@ func (s *Streamer) evictCandidates(candidates []CacheEntry, total int64) {
 			fmtBytes(s.cfg.MaxCacheSize), e.Path, fmtBytes(e.Size), e.ModTime.Format(time.RFC3339))
 		if err := os.RemoveAll(filepath.Join(s.cfg.DataDir, e.Path)); err == nil {
 			current -= e.Size
+			s.recordEviction(e.Size)
 		}
 	}
+}
+
+// recordEviction bumps the lifetime eviction counters surfaced by Stats().
+func (s *Streamer) recordEviction(bytes int64) {
+	s.evictMu.Lock()
+	s.evictedCount++
+	s.evictedBytes += bytes
+	s.lastEvictionAt = time.Now()
+	s.evictMu.Unlock()
 }
 
 // dirSizeAndMTime returns the *physical* bytes allocated on disk under a path
