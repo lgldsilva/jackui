@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/luizg/jackui/internal/config"
@@ -68,15 +69,38 @@ func (r *TitleResult) Query() string {
 }
 
 type Client struct {
-	mu           sync.RWMutex // guards slots (self-heal mutates while requests read)
-	slots        []Slot
-	providers    map[string]config.AIProvider // kept so ApplyChain can resolve new slots
-	breaker      *breaker
-	http         *http.Client
-	healing      sync.Map // provider -> in-flight, dedupes self-heal
-	maxCostPer1M float64  // benchmark cost ceiling ($/1M); 0 = free only (see AffordableSlots)
-	kwhPrice     float64  // electricity tariff ($/kWh); 0 = local models stay cost 0
-	localWatts   float64  // GPU power draw under load (W) for the local-energy estimate
+	mu        sync.RWMutex // guards slots (self-heal mutates while requests read)
+	slots     []Slot
+	providers map[string]config.AIProvider // kept so ApplyChain can resolve new slots
+	breaker   *breaker
+	http      *http.Client
+	healing   sync.Map // provider -> in-flight, dedupes self-heal
+	// cost is the runtime-tunable cost config (ceiling + energy tariff/watts),
+	// swapped atomically so the Settings UI can update it live without a restart.
+	cost atomic.Pointer[CostConfig]
+}
+
+// CostConfig holds the knobs that drive the value-based score: the benchmark cost
+// ceiling, the electricity tariff, and the GPU power draw used to price local
+// models' energy. See SetCostConfig / CostConfig().
+type CostConfig struct {
+	MaxCostPer1M float64 `json:"maxCostPer1M"` // ceiling for testing paid models ($/1M); 0 = free only
+	KWhPrice     float64 `json:"kwhPrice"`     // electricity tariff ($/kWh); 0 = local stays free
+	LocalWatts   float64 `json:"localWatts"`   // GPU power draw under load (W)
+}
+
+// CostConfig returns the live cost config (never nil after New).
+func (c *Client) CostConfig() CostConfig {
+	if cc := c.cost.Load(); cc != nil {
+		return *cc
+	}
+	return CostConfig{}
+}
+
+// SetCostConfig swaps in new cost knobs live (watts falls back to a default).
+func (c *Client) SetCostConfig(cc CostConfig) {
+	cc.LocalWatts = localWattsOrDefault(cc.LocalWatts)
+	c.cost.Store(&cc)
 }
 
 // slotList returns a snapshot of the live chain (safe to iterate without holding
@@ -96,16 +120,14 @@ func New(cfg config.AIConfig) *Client {
 		return nil
 	}
 	c := &Client{
-		providers:    cfg.Providers,
-		breaker:      newBreaker(),
-		maxCostPer1M: cfg.MaxCostPer1M,
-		kwhPrice:     cfg.ElectricityPricePerKWh,
-		localWatts:   localWattsOrDefault(cfg.LocalPowerWatts),
+		providers: cfg.Providers,
+		breaker:   newBreaker(),
 		// Generous backstop only — real per-call limits come from the ctx the
 		// caller passes (resolve ~25s, benchmark ~90s, warmup ~120s for cold
 		// local models loading into VRAM).
 		http: &http.Client{Timeout: 130 * time.Second},
 	}
+	c.SetCostConfig(CostConfig{MaxCostPer1M: cfg.MaxCostPer1M, KWhPrice: cfg.ElectricityPricePerKWh, LocalWatts: cfg.LocalPowerWatts})
 	for _, s := range cfg.Chain {
 		if s.Disabled {
 			continue
@@ -358,9 +380,10 @@ func isFreeModel(provider, model string) bool {
 // models in. This also prunes paid leftovers a pre-filter run adopted (e.g. Zen
 // "big-pickle", which is unknown-cost).
 func (c *Client) AffordableSlots(slots []Slot) []Slot {
+	ceiling := c.CostConfig().MaxCostPer1M
 	out := make([]Slot, 0, len(slots))
 	for _, s := range slots {
-		if s.CostPer1M >= 0 && s.CostPer1M <= c.maxCostPer1M {
+		if s.CostPer1M >= 0 && s.CostPer1M <= ceiling {
 			out = append(out, s)
 		}
 	}
@@ -380,11 +403,12 @@ func localWattsOrDefault(w float64) float64 {
 // power × time, cost = energy × tariff, scaled to 1M tokens. Returns 0 when the
 // tariff is unset (local stays free until configured) or there's nothing measured.
 func (c *Client) localEnergyCostPer1M(totalLatency time.Duration, totalTokens int) float64 {
-	if c.kwhPrice <= 0 || totalTokens <= 0 || totalLatency <= 0 {
+	cc := c.CostConfig()
+	if cc.KWhPrice <= 0 || totalTokens <= 0 || totalLatency <= 0 {
 		return 0
 	}
-	powerKW := c.localWatts / 1000.0
-	return powerKW * c.kwhPrice * (totalLatency.Hours() / float64(totalTokens) * 1_000_000)
+	powerKW := localWattsOrDefault(cc.LocalWatts) / 1000.0
+	return powerKW * cc.KWhPrice * (totalLatency.Hours() / float64(totalTokens) * 1_000_000)
 }
 
 // retryAfterOf pulls the vendor's Retry-After out of a rate-limit error (0 if the

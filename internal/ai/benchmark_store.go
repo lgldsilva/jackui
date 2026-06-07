@@ -41,6 +41,10 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 			raw    TEXT NOT NULL,
 			expect TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS benchmark_setting (
+			key   TEXT PRIMARY KEY,
+			value REAL NOT NULL
+		);
 	`); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -165,6 +169,57 @@ func (s *BenchmarkStore) SetCases(cases []BenchmarkCase) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// SaveCostConfig persists the runtime cost knobs (set from the Settings UI) so
+// they survive a restart and override the env/yaml defaults on boot.
+func (s *BenchmarkStore) SaveCostConfig(cc CostConfig) error {
+	if s == nil {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for k, v := range map[string]float64{"max_cost_per_1m": cc.MaxCostPer1M, "kwh_price": cc.KWhPrice, "local_watts": cc.LocalWatts} {
+		if _, err := tx.Exec(`INSERT INTO benchmark_setting(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, v); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// LoadCostConfig returns the persisted cost knobs and ok=true when any were saved
+// (so boot can apply a UI override; otherwise the env/yaml config stands).
+func (s *BenchmarkStore) LoadCostConfig() (CostConfig, bool) {
+	if s == nil {
+		return CostConfig{}, false
+	}
+	rows, err := s.db.Query(`SELECT key, value FROM benchmark_setting`)
+	if err != nil {
+		return CostConfig{}, false
+	}
+	defer rows.Close()
+	var cc CostConfig
+	found := false
+	for rows.Next() {
+		var k string
+		var v float64
+		if rows.Scan(&k, &v) != nil {
+			continue
+		}
+		found = true
+		switch k {
+		case "max_cost_per_1m":
+			cc.MaxCostPer1M = v
+		case "kwh_price":
+			cc.KWhPrice = v
+		case "local_watts":
+			cc.LocalWatts = v
+		}
+	}
+	return cc, found
 }
 
 // DefaultBenchmarkStorePath returns the standard location inside the data dir.

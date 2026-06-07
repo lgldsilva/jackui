@@ -516,6 +516,7 @@ func modelCostPer1M(promptStr, completionStr string) (cost float64, known bool) 
 
 // discoverViaModelsAPI hits the OpenAI-compatible GET /models on a provider.
 func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config.AIProvider, capN int, existing map[string]bool) []Slot {
+	ceiling := c.CostConfig().MaxCostPer1M
 	base := strings.TrimRight(p.BaseURL, "/")
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
 	if p.APIKey != "" {
@@ -558,7 +559,7 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 		// Only discover models we can PAY for: known cost within the ceiling (0 =
 		// free only, the default). Unknown-cost models (no pricing) are never
 		// auto-tested — that's what keeps Zen's costly frontier models out.
-		if !known || cost > c.maxCostPer1M {
+		if !known || cost > ceiling {
 			continue
 		}
 		existing[name+"|"+m.ID] = true

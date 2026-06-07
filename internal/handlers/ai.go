@@ -16,6 +16,7 @@ type aiStatusResponse struct {
 	Chain   []aiSlotView       `json:"chain"`
 	Results []ai.SlotScore     `json:"results"`
 	Cases   []ai.BenchmarkCase `json:"cases"`
+	Cost    ai.CostConfig      `json:"cost"`
 }
 
 type aiSlotView struct {
@@ -33,6 +34,7 @@ func GetAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 			for _, s := range client.Slots() {
 				resp.Chain = append(resp.Chain, aiSlotView{ID: s.ID, Provider: s.Provider, Model: s.Model})
 			}
+			resp.Cost = client.CostConfig()
 		}
 		if store != nil {
 			resp.Results = store.Results()
@@ -138,5 +140,34 @@ func PutAICases(store *ai.BenchmarkStore) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"cases": store.Cases()})
+	}
+}
+
+// PutAICostConfig — PUT /api/ai/settings. Updates the cost knobs (ceiling, energy
+// tariff, GPU watts) live and persists them so they survive a restart. Lets the
+// admin tune the value-based score from the UI without editing env/yaml.
+func PutAICostConfig(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if client == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI chain disabled"})
+			return
+		}
+		var cc ai.CostConfig
+		if err := c.ShouldBindJSON(&cc); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if cc.MaxCostPer1M < 0 || cc.KWhPrice < 0 || cc.LocalWatts < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "valores não podem ser negativos"})
+			return
+		}
+		client.SetCostConfig(cc)
+		if store != nil {
+			if err := store.SaveCostConfig(client.CostConfig()); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"cost": client.CostConfig()})
 	}
 }
