@@ -51,7 +51,8 @@ import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
-import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, useAirPlay, hlsFatalAction, type AirPlayState } from './player/playerHooks'
+import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, useAirPlay, hlsFatalAction, type AirPlayState } from './player/playerHooks'
+import { AudioTransportBar } from './player/AudioTransportBar'
 import type { ErrorData } from 'hls.js'
 
 type PlaylistMeta = {
@@ -590,6 +591,54 @@ function PlayerLoadingOverlay({
   )
 }
 
+// Prev/next navigation for the in-torrent queue (episodes/tracks) shown in the
+// video transport row. Extracted from PlayerControlsPanel so its conditional
+// JSX (the show-gate + episode label + position) lives here instead of inflating
+// that panel's cognitive complexity (keeps it under the gate).
+function MediaNavButtons({ mediaFileIndices, mediaCursor, currentEp, onPrevMedia, onNextMedia, hasPrevMedia, hasNextMedia }: {
+  readonly mediaFileIndices: number[]
+  readonly mediaCursor: number
+  readonly currentEp: string | null
+  readonly onPrevMedia: () => void
+  readonly onNextMedia: () => void
+  readonly hasPrevMedia: boolean
+  readonly hasNextMedia: boolean
+}) {
+  if (mediaFileIndices.length <= 1 && !hasPrevMedia && !hasNextMedia) return null
+  return (
+    <>
+      <button
+        onClick={onPrevMedia}
+        disabled={!hasPrevMedia}
+        title="Episódio anterior"
+        className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+      >
+        <ChevronLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+        <span className="hidden xs:inline">Ep ant.</span>
+      </button>
+      <button
+        onClick={onNextMedia}
+        disabled={!hasNextMedia}
+        title="Próximo episódio"
+        className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+      >
+        <span className="hidden xs:inline">Próx.</span>
+        <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+      </button>
+      {currentEp && (
+        <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
+          {currentEp}
+        </span>
+      )}
+      {mediaFileIndices.length > 1 && (
+        <span className="text-xs text-text-muted flex-shrink-0">
+          {mediaCursor + 1}/{mediaFileIndices.length}
+        </span>
+      )}
+    </>
+  )
+}
+
 // Small presentational overlays, extracted from VideoPlayerElement so its
 // cognitive complexity stays under the gate (each one keeps its own guard
 // instead of a `cond && (...)` inline in the player's JSX).
@@ -736,7 +785,7 @@ function VideoPlayerElement({
         <video
           ref={videoRef}
           src={useHlsJs ? undefined : (streamURL || undefined)}
-          controls
+          controls={!audioMode}
           autoPlay
           playsInline
           {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
@@ -1264,23 +1313,6 @@ function EmbeddedTracksPanel({
 
 // Slim time readout shown below the cover art when an audio track plays in the
 // minimized (PiP) card, so the user knows where they are without expanding.
-function MinimizedAudioProgress({ currentTime, duration, formatTime }: {
-  readonly currentTime: number
-  readonly duration: number
-  readonly formatTime: (s: number) => string
-}) {
-  const pct = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'
-  return (
-    <div className="px-3 py-1.5 bg-surface border-t border-default flex items-center gap-2 text-xs text-text-secondary">
-      <span className="font-mono tabular-nums">{formatTime(currentTime)}</span>
-      <div className="flex-1 h-1 bg-surface-tertiary rounded-full overflow-hidden">
-        <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: pct }} />
-      </div>
-      <span className="font-mono tabular-nums">{formatTime(duration)}</span>
-    </div>
-  )
-}
-
 function subtitleButtonTitle(enabled: boolean, source: string | null): string {
   if (!enabled) return 'Configure OpenSubtitles API key em Settings'
   if (source === 'embedded') return 'Legenda embutida no arquivo (sync perfeito)'
@@ -1308,10 +1340,12 @@ type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
   readonly audioMode: boolean
   readonly currentFile: TorrentInfo['files'][number] | null | undefined
-  readonly videoFileIndices: number[]
-  readonly videoCursor: number
-  readonly prevVideoIdx: number
-  readonly nextVideoIdx: number
+  readonly mediaFileIndices: number[]
+  readonly mediaCursor: number
+  readonly onPrevMedia: () => void
+  readonly onNextMedia: () => void
+  readonly hasPrevMedia: boolean
+  readonly hasNextMedia: boolean
   readonly currentEp: string | null
   readonly currentTime: number
   readonly duration: number
@@ -1342,7 +1376,6 @@ type PlayerControlsPanelProps = {
   readonly subError: string
   readonly subResults: Subtitle[]
   readonly formatTime: (s: number) => string
-  readonly playFile: (idx: number) => void
   readonly adjustSubOffset: (delta: number) => void
   readonly resetSubOffset: () => void
   readonly setShowMobileOpts: (fn: (prev: boolean) => boolean) => void
@@ -1373,10 +1406,12 @@ function PlayerControlsPanel({
   info,
   audioMode,
   currentFile,
-  videoFileIndices,
-  videoCursor,
-  prevVideoIdx,
-  nextVideoIdx,
+  mediaFileIndices,
+  mediaCursor,
+  onPrevMedia,
+  onNextMedia,
+  hasPrevMedia,
+  hasNextMedia,
   currentEp,
   currentTime,
   duration,
@@ -1407,7 +1442,6 @@ function PlayerControlsPanel({
   subError,
   subResults,
   formatTime,
-  playFile,
   adjustSubOffset,
   resetSubOffset,
   setShowMobileOpts,
@@ -1441,36 +1475,15 @@ function PlayerControlsPanel({
           frees a whole row for the track list. */}
       {(!audioMode || subActive) && (
       <div className="px-3 sm:px-4 py-2 bg-surface border-b border-default flex items-center gap-2 min-w-0">
-        {videoFileIndices.length > 1 && (
-          <>
-            <button
-              onClick={() => playFile(prevVideoIdx)}
-              disabled={prevVideoIdx < 0}
-              title="Episódio anterior"
-              className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
-            >
-              <ChevronLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-              <span className="hidden xs:inline">Ep ant.</span>
-            </button>
-            <button
-              onClick={() => playFile(nextVideoIdx)}
-              disabled={nextVideoIdx < 0}
-              title="Próximo episódio"
-              className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
-            >
-              <span className="hidden xs:inline">Próx.</span>
-              <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-            </button>
-            {currentEp && (
-              <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
-                {currentEp}
-              </span>
-            )}
-            <span className="text-xs text-text-muted flex-shrink-0">
-              {videoCursor + 1}/{videoFileIndices.length}
-            </span>
-          </>
-        )}
+        <MediaNavButtons
+          mediaFileIndices={mediaFileIndices}
+          mediaCursor={mediaCursor}
+          currentEp={currentEp}
+          onPrevMedia={onPrevMedia}
+          onNextMedia={onNextMedia}
+          hasPrevMedia={hasPrevMedia}
+          hasNextMedia={hasNextMedia}
+        />
         <span className="text-xs text-text-secondary ml-auto font-mono tabular-nums flex-shrink-0">
           {formatTime(currentTime)} <span className="text-text-muted">/</span> {formatTime(duration)}
         </span>
@@ -2328,7 +2341,7 @@ export default function PlayerModal({
   const handleVideoEnded = () => {
     console.debug('[player] video onEnded', {
       repeat,
-      nextVideoIdx,
+      nextIdx: mediaQueue.nextIdx,
       hasPlaylistAdvance: !!onPlaylistAdvance,
       playlistName: playlist?.name,
       audioMode,
@@ -2338,13 +2351,8 @@ export default function PlayerModal({
       if (v) { v.currentTime = 0; v.play().catch(() => {}) }
       return
     }
-    if (nextVideoIdx >= 0) {
-      playFile(nextVideoIdx)
-      return
-    }
-    if (onPlaylistAdvance) {
-      onPlaylistAdvance()
-    }
+    // Continuous advance: next track/episode, else next playlist item.
+    handleNext()
   }
 
   // Safari HEVC silent-failure backstop. Safari on macOS does NOT fire
@@ -2642,7 +2650,7 @@ export default function PlayerModal({
     tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
     trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
     trySyncUrlPlayhead(now, lastUrlSyncRef)
-    tryPrefetchNext({ v, now, nextVideoIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref })
+    tryPrefetchNext({ v, now, nextVideoIdx: mediaQueue.nextIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref })
   }
 
   // Apply playback speed + pitch preservation whenever the user changes it or
@@ -2659,10 +2667,30 @@ export default function PlayerModal({
     localStorage.setItem('jackui.playbackSpeed', String(playbackSpeed))
   }, [playbackSpeed, selectedFile, info?.infoHash])
 
+  // Unified in-torrent queue (album tracks / series episodes) of the same kind
+  // as the current file. Generalises the old video-only navigation so audio
+  // albums get ⏮⏭ too. Hook keeps the logic out of this god-file (gate).
+  const mediaQueue = useMediaQueue(info, selectedFile)
+
+  // Continuous transport: stay within the current torrent's queue, then spill
+  // over into the user's playlist (next/prev torrent) at the boundary — one
+  // logical timeline (Spotify/VLC style). Reused by the buttons, MediaSession
+  // (lock-screen/headphones) and onEnded auto-advance.
+  const handleNext = () => {
+    if (mediaQueue.nextIdx >= 0) { playFile(mediaQueue.nextIdx); return }
+    onPlaylistAdvance?.()
+  }
+  const handlePrev = () => {
+    if (mediaQueue.prevIdx >= 0) { playFile(mediaQueue.prevIdx); return }
+    onPlaylistPrevious?.()
+  }
+  const hasNext = mediaQueue.nextIdx >= 0 || !!onPlaylistAdvance
+  const hasPrev = mediaQueue.prevIdx >= 0 || !!onPlaylistPrevious
+
   // Media Session API — exposes "what's playing" + media keys / lock-screen
   // controls to the OS. Without this, iOS shows "JackUI" with no metadata and
   // AirPods/bluetooth controls don't fire next/previous on the playlist.
-  useMediaSession({ videoRef, info, selectedFile, playlistName: playlist?.name, onNext: onPlaylistAdvance, onPrev: onPlaylistPrevious })
+  useMediaSession({ videoRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
 
   // Load initial favorite state when torrent info arrives. Match by infoHash
   // first (precise — same content always returns same hash) and fall back to
@@ -2766,11 +2794,9 @@ export default function PlayerModal({
   const currentFile = selectedFile >= 0 ? info?.files[selectedFile] : null
   const currentEp = currentFile ? parseEpisode(currentFile.path) : null
 
-  // Series-in-torrent navigation: detect prev/next video file (by index order, restricted to video files)
-  const videoFileIndices = (info?.files || []).filter(f => f.isVideo).map(f => f.index)
-  const videoCursor = videoFileIndices.indexOf(selectedFile)
-  const prevVideoIdx = videoCursor > 0 ? videoFileIndices[videoCursor - 1] : -1
-  const nextVideoIdx = videoCursor >= 0 && videoCursor < videoFileIndices.length - 1 ? videoFileIndices[videoCursor + 1] : -1
+  // In-torrent queue of the current file's kind (computed by useMediaQueue above).
+  const mediaFileIndices = mediaQueue.indices
+  const mediaCursor = mediaQueue.cursor
 
   // URL builder: raw direct play unless any transcoding option is active.
   // Safari + HEVC/x265/AV1 short-circuits to transcode (which is HLS for Safari)
@@ -2858,12 +2884,48 @@ export default function PlayerModal({
           }}
         />
 
-        {/* Minimized audio: show a slim time readout below the cover-art box
-            so the user knows where they are in the track without expanding.
-            Native <video controls> handle play/pause/seek (visible once the
-            video element is sized — see audioMode w-full h-full above). */}
-        {minimized && audioMode && duration > 0 && (
-          <MinimizedAudioProgress currentTime={currentTime} duration={duration} formatTime={formatTime} />
+        {/* Minimized audio: the mini-player dock — play/pause + ⏮⏭ + slim seek
+            below the cover. In audio mode the <video> has no native controls,
+            so this custom bar drives playback (Spotify-style mini-player). */}
+        {minimized && audioMode && (
+          <AudioTransportBar
+            videoRef={videoRef}
+            info={info}
+            selectedFile={selectedFile}
+            mediaToken={mediaToken}
+            currentTime={currentTime}
+            duration={duration}
+            formatTime={formatTime}
+            onPrev={handlePrev}
+            onNext={handleNext}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            compact
+          />
+        )}
+
+        {/* Music mode: full custom transport (cover · title · ⏮⏯⏭ · seek ·
+            shuffle/repeat) for audio when expanded — replaces the native
+            controls the <video> no longer renders in audio mode. */}
+        {!minimized && audioMode && (
+          <AudioTransportBar
+            videoRef={videoRef}
+            info={info}
+            selectedFile={selectedFile}
+            mediaToken={mediaToken}
+            currentTime={currentTime}
+            duration={duration}
+            formatTime={formatTime}
+            onPrev={handlePrev}
+            onNext={handleNext}
+            hasPrev={hasPrev}
+            hasNext={hasNext}
+            queueLabel={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
+            shuffle={shuffle}
+            repeat={repeat}
+            onToggleShuffle={onToggleShuffle}
+            onCycleRepeat={onCycleRepeat}
+          />
         )}
 
         {/* Everything below the video (transport, status, subtitle panel)
@@ -2875,10 +2937,12 @@ export default function PlayerModal({
             info={info}
             audioMode={audioMode}
             currentFile={currentFile}
-            videoFileIndices={videoFileIndices}
-            videoCursor={videoCursor}
-            prevVideoIdx={prevVideoIdx}
-            nextVideoIdx={nextVideoIdx}
+            mediaFileIndices={mediaFileIndices}
+            mediaCursor={mediaCursor}
+            onPrevMedia={handlePrev}
+            onNextMedia={handleNext}
+            hasPrevMedia={hasPrev}
+            hasNextMedia={hasNext}
             currentEp={currentEp}
             currentTime={currentTime}
             duration={duration}
@@ -2909,7 +2973,6 @@ export default function PlayerModal({
             subError={subError}
             subResults={subResults}
             formatTime={formatTime}
-            playFile={playFile}
             adjustSubOffset={adjustSubOffset}
             resetSubOffset={resetSubOffset}
             setShowMobileOpts={setShowMobileOpts}
