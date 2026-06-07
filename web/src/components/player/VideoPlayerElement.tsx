@@ -35,20 +35,28 @@ type VideoPlayerElementProps = {
   readonly onResumeRestart: () => void
 }
 
-// <track> elements for the <video>. Extracted so the chain of subtitleVttURL
-// ternaries doesn't inflate VideoPlayerElement's cognitive complexity (gate).
-function SubtitleTracks({ subtitleVttURL }: { readonly subtitleVttURL: string }) {
+// Album cover shown behind the audio player (audio mode only). Extracted with
+// its own audioMode/info guard so VideoPlayerElement's JSX loses the inline
+// `audioMode && info &&` conditional → keeps its cognitive complexity under the
+// gate. (The <track> elements stay inline in the <video> so the captions-track
+// accessibility rule S4084 sees a literal child.)
+function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
+  readonly audioMode: boolean
+  readonly info: TorrentInfo | null
+  readonly selectedFile: number
+  readonly mediaToken: string
+}) {
+  if (!audioMode || !info) return null
   return (
-    <>
-      <track
-        kind={subtitleVttURL ? 'subtitles' : 'metadata'}
-        src={subtitleVttURL || ''}
-        srcLang={subtitleVttURL ? 'pt' : ''}
-        label={subtitleVttURL ? 'Português (BR)' : ''}
-        default
+    <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+      <Volume2 className="absolute w-12 h-12 text-text-muted" />
+      <img
+        src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
+        alt=""
+        className="relative max-h-full max-w-full object-contain"
+        onError={(e) => { e.currentTarget.style.display = 'none' }}
       />
-      <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
-    </>
+    </div>
   )
 }
 
@@ -136,17 +144,7 @@ export function VideoPlayerElement({
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
     >
-      {audioMode && info && (
-        <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
-          <Volume2 className="absolute w-12 h-12 text-text-muted" />
-          <img
-            src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
-            alt=""
-            className="relative max-h-full max-w-full object-contain"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-          />
-        </div>
-      )}
+      <AudioCoverArt audioMode={audioMode} info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
       {showResumePrompt && resumePosition !== null && (
         <ResumePrompt
           resumePosition={resumePosition}
@@ -191,7 +189,14 @@ export function VideoPlayerElement({
           onEnded={onVideoEnded}
           onCanPlay={onVideoCanPlay}
         >
-          <SubtitleTracks subtitleVttURL={subtitleVttURL} />
+          <track
+            kind={subtitleVttURL ? 'subtitles' : 'metadata'}
+            src={subtitleVttURL || ''}
+            srcLang={subtitleVttURL ? 'pt' : ''}
+            label={subtitleVttURL ? 'Português (BR)' : ''}
+            default
+          />
+          <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
         </video>
       )}
       {videoError && renderVideoError()}
