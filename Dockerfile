@@ -35,7 +35,17 @@ COPY internal/ ./internal/
 COPY ui/ ./ui/
 COPY --from=frontend /app/ui/dist ./ui/dist
 
-RUN go build -o jackui ./cmd/server
+# Build metadata injected into internal/version (served by GET /status). The
+# build runs from a tree WITHOUT .git, so the commit arrives as a build-arg
+# (CI passes $GIT_COMMIT; the Makefile passes `git rev-parse HEAD`).
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIMESTAMP=unknown
+ARG APP_VERSION=dev
+RUN go build -ldflags "\
+      -X github.com/luizg/jackui/internal/version.Commit=${GIT_COMMIT} \
+      -X github.com/luizg/jackui/internal/version.BuildTime=${BUILD_TIMESTAMP} \
+      -X github.com/luizg/jackui/internal/version.Version=${APP_VERSION}" \
+      -o jackui ./cmd/server
 
 # Stage 3: Final image
 FROM alpine:3.20
