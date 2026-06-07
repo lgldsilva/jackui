@@ -171,7 +171,10 @@ export default function NavHeader({ rightExtra }: Props) {
           its icon. md:hidden only affects desktop, so the mobile drawer (always
           expanded) still shows everything. */}
       <div className={`flex-shrink-0 border-t border-default/60 p-2 flex flex-col gap-2 safe-bottom overflow-hidden ${collapsed ? 'md:items-center' : ''}`}>
-        <div className={`flex items-center gap-2 ${collapsed ? 'md:justify-center' : ''}`}>
+        {/* Tema + incógnito: só na sidebar do DESKTOP. No mobile a barra de topo
+            já tem esses toggles, então escondemos a linha aqui (hidden) p/ não
+            duplicar no drawer; md:flex traz de volta no desktop, que não tem topo. */}
+        <div className={`hidden md:flex items-center gap-2 ${collapsed ? 'md:justify-center' : ''}`}>
           <ThemeToggle variant="sidebar" />
           {incognitoToggle('sidebar')}
           {incognito && !collapsed && (
