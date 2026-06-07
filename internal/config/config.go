@@ -61,6 +61,13 @@ type AIConfig struct {
 	// it to also test paid models up to that price; the composite score then ranks
 	// by cost too (cheaper wins), so it's value-based, not a binary free/paid flag.
 	MaxCostPer1M float64 `yaml:"max_cost_per_1m"`
+	// ElectricityPricePerKWh and LocalPowerWatts price the ENERGY of LOCAL models —
+	// they aren't truly free (the GPU draws power). When the price is > 0 the
+	// benchmark estimates a local model's $/1M from its measured latency × tokens ×
+	// power × tariff, so a slow/power-hungry local model ranks below a fast
+	// cloud-free one. Price 0 (default) keeps local at cost 0. Watts defaults to 250.
+	ElectricityPricePerKWh float64 `yaml:"electricity_price_per_kwh"`
+	LocalPowerWatts        float64 `yaml:"local_power_watts"`
 }
 
 type AIProvider struct {
@@ -311,7 +318,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_SMTP_HOST", "JACKUI_SMTP_PORT", "JACKUI_SMTP_USER", "JACKUI_SMTP_PASS", "JACKUI_SMTP_FROM",
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
-		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M",
+		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
 		"JACKUI_MAX_UPLOAD_MB",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
@@ -527,6 +534,16 @@ func applyAIEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_AI_MAX_COST_PER_1M"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
 			cfg.AI.MaxCostPer1M = f
+		}
+	}
+	if v := os.Getenv("JACKUI_AI_KWH_PRICE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			cfg.AI.ElectricityPricePerKWh = f
+		}
+	}
+	if v := os.Getenv("JACKUI_AI_LOCAL_WATTS"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			cfg.AI.LocalPowerWatts = f
 		}
 	}
 

@@ -274,15 +274,17 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	score := SlotScore{SlotID: s.ID, Provider: s.Provider, Model: s.Model, Free: s.Free, CostPer1M: s.CostPer1M}
 	if warmup {
 		warmCtx, warmCancel := context.WithTimeout(ctx, warmupTimeout)
-		_, _, _ = c.metadataWithSlot(warmCtx, s, "warmup")
+		_, _, _, _ = c.metadataWithSlot(warmCtx, s, "warmup")
 		warmCancel()
 	}
 	var accSum float64
 	scored := 0 // cases that count toward accuracy: usable replies + bad-output failures
+	tokens := 0 // total tokens billed across usable replies (for the energy estimate)
 	lats := make([]time.Duration, 0, len(cases))
+	var totalLatency time.Duration
 	paymentFail := false
 	for _, tc := range cases {
-		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &scored, &lats) {
+		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &scored, &tokens, &lats, &totalLatency) {
 			paymentFail = true
 			break
 		}
@@ -290,6 +292,15 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	// Incomplete = some cases were transiently skipped (didn't reach the full set).
 	// Not for a paid no-balance abort (re-running won't help).
 	score.Incomplete = !paymentFail && scored < len(cases)
+	// Local models aren't free — price their energy (latency × tokens × power ×
+	// tariff) so a slow/power-hungry local ranks below a fast cloud-free one. No-op
+	// unless a tariff is configured.
+	if s.Local {
+		if e := c.localEnergyCostPer1M(totalLatency, tokens); e > 0 {
+			score.CostPer1M = e
+			score.Free = false
+		}
+	}
 	if score.Samples > 0 {
 		// Denominator is `scored`, not Samples: a case the model botched (bad output)
 		// counts as a 0, so a model that fails some inputs can't show a clean 100%
@@ -331,21 +342,21 @@ const (
 
 // metadataWithRetry runs one case, retrying transient rate limits with backoff so
 // the model is measured on the whole case set.
-func (c *Client) metadataWithRetry(ctx context.Context, s Slot, raw string) (*RenameMetadata, time.Duration, error) {
+func (c *Client) metadataWithRetry(ctx context.Context, s Slot, raw string) (*RenameMetadata, time.Duration, int, error) {
 	for attempt := 0; ; attempt++ {
-		res, latency, err := c.metadataWithSlot(ctx, s, raw)
+		res, latency, tokens, err := c.metadataWithSlot(ctx, s, raw)
 		if err == nil || !errors.Is(err, errRateLimited) || attempt >= maxRateLimitRetries {
-			return res, latency, err
+			return res, latency, tokens, err
 		}
 		wait := rateLimitBackoff(err, attempt)
 		if wait <= 0 || wait > maxRateLimitWait || ctx.Err() != nil {
-			return res, latency, err // per-day quota or no time left → give up, skip the case
+			return res, latency, tokens, err // per-day quota or no time left → give up, skip the case
 		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return res, latency, err
+			return res, latency, tokens, err
 		case <-timer.C:
 		}
 	}
@@ -370,8 +381,8 @@ func rateLimitBackoff(err error, attempt int) time.Duration {
 //   - anything else (rate limit after retries, 5xx, network, a crashed local
 //     llama-server) → transient/infra: skip silently, don't penalize accuracy. If
 //     every case is transient the slot ends with Samples==0 → 0% / — / —.
-func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, scored *int, lats *[]time.Duration) bool {
-	res, latency, err := c.metadataWithRetry(ctx, s, tc.Raw)
+func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, scored, tokens *int, lats *[]time.Duration, totalLatency *time.Duration) bool {
+	res, latency, tk, err := c.metadataWithRetry(ctx, s, tc.Raw)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
 			if score.FailureReason == "" {
@@ -389,6 +400,8 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 	}
 	score.Samples++
 	*scored++
+	*tokens += tk
+	*totalLatency += latency
 	*lats = append(*lats, latency)
 	*accSum += caseAccuracy(res, tc.Expect)
 	return false
