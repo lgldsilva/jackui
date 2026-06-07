@@ -15,6 +15,7 @@ import {
   revokeSession,
   revokeOtherSessions,
   SessionInfo,
+  getStatus,
 } from '../api/client'
 import StreamCacheCard from '../components/StreamCacheCard'
 import StreamSettingsCard from '../components/StreamSettingsCard'
@@ -509,19 +510,29 @@ export default function SettingsPage() {
 }
 
 function VersionInfo() {
-  const [ver, setVer] = useState<{ version: string; commit: string; date: string } | null>(null)
+  const [ver, setVer] = useState<{ version: string; commit: string; date: string; goVersion?: string } | null>(null)
   // Plataforma vem do Electron (getPlatform) — navigator.platform é deprecado (S1874).
   const [platform, setPlatform] = useState('')
   useEffect(() => {
-    globalThis.electronAPI?.getAppVersion().then(setVer).catch(() => {})
-    globalThis.electronAPI?.getPlatform().then(setPlatform).catch(() => {})
+    if (globalThis.electronAPI?.getAppVersion) {
+      // App desktop: metadados vêm do main process do Electron.
+      globalThis.electronAPI.getAppVersion().then(setVer).catch(() => {})
+      globalThis.electronAPI.getPlatform?.().then(setPlatform).catch(() => {})
+    } else {
+      // Navegador: metadados de build vêm do endpoint público /status (sem
+      // Electron, o getAppVersion não existe e o card ficava em "Carregando…").
+      getStatus()
+        .then(s => setVer({ version: s.version, commit: s.commit, date: s.buildTime, goVersion: s.goVersion }))
+        .catch(() => {})
+    }
   }, [])
   if (!ver) return <p className="animate-pulse">Carregando…</p>
   return (
     <>
       <p>Versão: <span className="text-text-primary">{ver.version}</span></p>
-      <p>Commit: <span className="text-text-primary font-mono">{ver.commit}</span></p>
+      <p>Commit: <span className="text-text-primary font-mono">{ver.commit.slice(0, 12)}</span></p>
       <p>Build: <span className="text-text-primary">{new Date(ver.date).toLocaleString('pt-BR')}</span></p>
+      {ver.goVersion && <p>Go: <span className="text-text-primary">{ver.goVersion}</span></p>}
       {platform && <p>Plataforma: <span className="text-text-primary">{platform}</span></p>}
     </>
   )
