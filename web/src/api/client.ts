@@ -486,6 +486,7 @@ export type AISlotScore = {
   composite: number
   samples: number
   failureReason?: string
+  incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Rodar faltantes"
 }
 export type AIBenchmarkCase = { raw: string; expect: string }
 export type AIStatus = {
@@ -501,6 +502,12 @@ export const aiBenchmarkStatus = async (): Promise<AIStatus> => {
 }
 export const runAIBenchmark = async (): Promise<AISlotScore[]> => {
   const { data } = await api.post<{ results: AISlotScore[] }>('/ai/benchmark')
+  return data.results || []
+}
+// Re-runs ONLY the models left incomplete (cases skipped by a rate limit) and
+// merges them in — trigger it later so the retry lands outside the limit window.
+export const runAIBenchmarkIncomplete = async (): Promise<AISlotScore[]> => {
+  const { data } = await api.post<{ results: AISlotScore[] }>('/ai/benchmark/rerun-incomplete')
   return data.results || []
 }
 export const saveAICases = async (cases: AIBenchmarkCase[]): Promise<AIBenchmarkCase[]> => {
