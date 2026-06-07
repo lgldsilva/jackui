@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload, Info, Hash, Server, Copy, Laptop } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minimize2, Minus, Plus, RotateCcw, FastForward, Cpu, Volume2, Flame, Heart, ChevronLeft, ChevronRight, ChevronDown, ListMusic, Shuffle, Repeat, EyeOff, Eye, ArrowDownWideNarrow, ArrowUpWideNarrow, Upload, Info, Hash, Server, Copy, Laptop, Airplay } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -51,7 +51,7 @@ import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal, { detectPreviewKind } from './FilePreviewModal'
 import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
-import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, hlsFatalAction } from './player/playerHooks'
+import { useKeyboardShortcuts, useMediaSession, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop, useAirPlay, hlsFatalAction } from './player/playerHooks'
 import type { ErrorData } from 'hls.js'
 
 type PlaylistMeta = {
@@ -655,6 +655,11 @@ function VideoPlayerElement({
     return () => hls.destroy()
   }, [videoRef, streamURL, useHlsJs])
 
+  // AirPlay (Safari/iOS): native <video controls> already shows the route button,
+  // but a custom one aids discovery and works while minimized (controls hidden).
+  // Only rendered when a target is on the network.
+  const airplay = useAirPlay(videoRef, streamURL)
+
   return (
     <div className="bg-black relative w-full mx-auto flex items-center justify-center max-h-[70dvh] sm:max-h-[58dvh]" style={{ aspectRatio: '16 / 9' }}>
       {audioMode && info && (
@@ -693,6 +698,15 @@ function VideoPlayerElement({
           Convertendo via GPU
         </div>
       )}
+      {airplay.available && !videoError && (
+        <button
+          onClick={airplay.show}
+          title={airplay.active ? 'Transmitindo via AirPlay' : 'Transmitir via AirPlay'}
+          className={`absolute top-2 left-2 z-20 p-2 rounded-md backdrop-blur-sm transition-colors ${airplay.active ? 'bg-blue-600/85 text-white' : 'bg-black/55 text-white hover:bg-black/75'}`}
+        >
+          <Airplay className="w-4 h-4" />
+        </button>
+      )}
       {videoError ? null : (
         <video
           ref={videoRef}
@@ -700,7 +714,7 @@ function VideoPlayerElement({
           controls
           autoPlay
           playsInline
-          {...{ 'webkit-playsinline': 'true' } as any}
+          {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
           className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
           onError={onVideoError}
           onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
