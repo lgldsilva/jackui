@@ -81,7 +81,7 @@ export function AudioTransportBar({
     if (v && Number.isFinite(t)) v.currentTime = t
   }
   const trackName = info.files[selectedFile]?.path?.split('/').pop() || info.name
-  const max = duration > 0 ? duration : 0
+  const max = Math.max(duration, 0)
 
   const seekInput = (
     <input
@@ -125,7 +125,7 @@ export function AudioTransportBar({
           src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
           alt=""
           className="w-10 h-10 rounded object-cover bg-surface-tertiary flex-shrink-0"
-          onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden' }}
+          onError={e => { e.currentTarget.style.visibility = 'hidden' }}
         />
         <div className="min-w-0 flex-1">
           <p className="text-sm text-text-primary truncate" title={trackName}>{trackName}</p>
