@@ -157,6 +157,72 @@ func TestRunAIBenchmark_NilClient(t *testing.T) {
 	}
 }
 
+func TestPutAICostConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := ai.New(config.AIConfig{
+		Enabled:   true,
+		Providers: map[string]config.AIProvider{"groq": {BaseURL: "http://x"}},
+		Chain:     []config.AIChainSlot{{ID: "groq:m", Provider: "groq", Model: "m"}},
+	})
+	store, err := ai.NewBenchmarkStore(t.TempDir() + "/b.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("PUT", "/api/ai/settings", bytes.NewReader([]byte(`{"maxCostPer1M":0.5,"kwhPrice":0.16,"localWatts":300}`)))
+	PutAICostConfig(client, store)(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if cc := client.CostConfig(); cc.MaxCostPer1M != 0.5 || cc.KWhPrice != 0.16 || cc.LocalWatts != 300 {
+		t.Fatalf("live cost not applied: %+v", cc)
+	}
+	if got, ok := store.LoadCostConfig(); !ok || got.MaxCostPer1M != 0.5 {
+		t.Fatalf("not persisted: %+v ok=%v", got, ok)
+	}
+
+	// Nil client → 503.
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	c2.Request = httptest.NewRequest("PUT", "/x", nil)
+	PutAICostConfig(nil, nil)(c2)
+	if w2.Code != http.StatusServiceUnavailable {
+		t.Fatalf("nil client want 503, got %d", w2.Code)
+	}
+
+	// Negative value → 400.
+	w3 := httptest.NewRecorder()
+	c3, _ := gin.CreateTestContext(w3)
+	c3.Request = httptest.NewRequest("PUT", "/x", bytes.NewReader([]byte(`{"kwhPrice":-1}`)))
+	PutAICostConfig(client, store)(c3)
+	if w3.Code != http.StatusBadRequest {
+		t.Fatalf("negative want 400, got %d", w3.Code)
+	}
+
+	// Malformed JSON → 400.
+	w4 := httptest.NewRecorder()
+	c4, _ := gin.CreateTestContext(w4)
+	c4.Request = httptest.NewRequest("PUT", "/x", bytes.NewReader([]byte(`not json`)))
+	PutAICostConfig(client, store)(c4)
+	if w4.Code != http.StatusBadRequest {
+		t.Fatalf("malformed want 400, got %d", w4.Code)
+	}
+
+	// Nil store (client ok) still applies live and returns 200.
+	w5 := httptest.NewRecorder()
+	c5, _ := gin.CreateTestContext(w5)
+	c5.Request = httptest.NewRequest("PUT", "/x", bytes.NewReader([]byte(`{"maxCostPer1M":1}`)))
+	PutAICostConfig(client, nil)(c5)
+	if w5.Code != http.StatusOK {
+		t.Fatalf("nil store want 200, got %d", w5.Code)
+	}
+	if client.CostConfig().MaxCostPer1M != 1 {
+		t.Fatal("nil store should still apply live")
+	}
+}
+
 func TestRunAIBenchmarkIncomplete_NilClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

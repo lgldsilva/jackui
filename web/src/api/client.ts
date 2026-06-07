@@ -490,11 +490,17 @@ export type AISlotScore = {
   incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Rodar faltantes"
 }
 export type AIBenchmarkCase = { raw: string; expect: string }
+export type AICostConfig = {
+  maxCostPer1M: number // teto p/ incluir pagos no benchmark ($/1M); 0 = só grátis
+  kwhPrice: number     // tarifa de energia (USD/kWh); 0 = local fica grátis
+  localWatts: number   // potência da GPU sob carga (W)
+}
 export type AIStatus = {
   enabled: boolean
   chain: { id: string; provider: string; model: string }[]
   results: AISlotScore[]
   cases: AIBenchmarkCase[]
+  cost: AICostConfig
 }
 
 export const aiBenchmarkStatus = async (): Promise<AIStatus> => {
@@ -504,6 +510,11 @@ export const aiBenchmarkStatus = async (): Promise<AIStatus> => {
 export const runAIBenchmark = async (): Promise<AISlotScore[]> => {
   const { data } = await api.post<{ results: AISlotScore[] }>('/ai/benchmark')
   return data.results || []
+}
+// Updates the cost knobs (ceiling, energy tariff, GPU watts) live + persisted.
+export const saveAICostConfig = async (cost: AICostConfig): Promise<AICostConfig> => {
+  const { data } = await api.put<{ cost: AICostConfig }>('/ai/settings', cost)
+  return data.cost
 }
 // Re-runs ONLY the models left incomplete (cases skipped by a rate limit) and
 // merges them in — trigger it later so the retry lands outside the limit window.

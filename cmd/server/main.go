@@ -514,6 +514,10 @@ func initAIClient(deps *appDeps) {
 		if res := bs.Results(); len(res) > 0 {
 			aiClient.AdoptBenchmark(res)
 		}
+		// A cost config set via the Settings UI overrides the env/yaml defaults.
+		if cc, ok := bs.LoadCostConfig(); ok {
+			aiClient.SetCostConfig(cc)
+		}
 	}
 	ids := make([]string, 0, len(aiClient.Slots()))
 	for _, s := range aiClient.Slots() {
@@ -794,6 +798,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))
 		adminAPI.POST("/ai/benchmark/rerun-incomplete", handlers.RunAIBenchmarkIncomplete(deps.aiClient, deps.aiBench))
 		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
+		adminAPI.PUT("/ai/settings", handlers.PutAICostConfig(deps.aiClient, deps.aiBench))
 
 		if deps.downloadsStore != nil && deps.authStore != nil {
 			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv))

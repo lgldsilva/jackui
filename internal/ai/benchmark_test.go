@@ -485,8 +485,10 @@ func TestAffordableSlots(t *testing.T) {
 		t.Fatalf("ceiling 0 should keep only free, got %+v", free)
 	}
 	// Raised ceiling lets cheap paid in, but not pricey/unknown.
+	paid := &Client{}
+	paid.SetCostConfig(CostConfig{MaxCostPer1M: 0.5})
 	got := map[string]bool{}
-	for _, s := range (&Client{maxCostPer1M: 0.5}).AffordableSlots(in) {
+	for _, s := range paid.AffordableSlots(in) {
 		got[s.Model] = true
 	}
 	for _, m := range []string{"free-a", "cheap", "exactly"} {
@@ -754,14 +756,35 @@ func TestDiscoverViaModelsAPI_FreeTier(t *testing.T) {
 	}
 }
 
+func TestCostConfigRoundTrip(t *testing.T) {
+	st, err := NewBenchmarkStore(filepath.Join(t.TempDir(), "b.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, ok := st.LoadCostConfig(); ok {
+		t.Fatal("fresh store should have no cost config")
+	}
+	if err := st.SaveCostConfig(CostConfig{MaxCostPer1M: 0.5, KWhPrice: 0.16, LocalWatts: 300}); err != nil {
+		t.Fatal(err)
+	}
+	cc, ok := st.LoadCostConfig()
+	if !ok || cc.MaxCostPer1M != 0.5 || cc.KWhPrice != 0.16 || cc.LocalWatts != 300 {
+		t.Fatalf("round-trip wrong: %+v ok=%v", cc, ok)
+	}
+}
+
 func TestLocalEnergyCostPer1M(t *testing.T) {
-	c := &Client{kwhPrice: 0.20, localWatts: 300}
+	c := &Client{}
+	c.SetCostConfig(CostConfig{KWhPrice: 0.20, LocalWatts: 300})
 	// 1h of inference for 1M tokens at 0.3 kW × $0.20/kWh = $0.06.
 	if got := c.localEnergyCostPer1M(time.Hour, 1_000_000); math.Abs(got-0.06) > 1e-9 {
 		t.Fatalf("localEnergyCostPer1M = %v, want 0.06", got)
 	}
 	// No tariff → free (local stays cost 0 until configured).
-	if got := (&Client{kwhPrice: 0, localWatts: 300}).localEnergyCostPer1M(time.Hour, 1000); got != 0 {
+	free := &Client{}
+	free.SetCostConfig(CostConfig{KWhPrice: 0, LocalWatts: 300})
+	if got := free.localEnergyCostPer1M(time.Hour, 1000); got != 0 {
 		t.Fatalf("no tariff should yield 0, got %v", got)
 	}
 }
@@ -782,7 +805,8 @@ func TestScoreSlotPricesLocalEnergy(t *testing.T) {
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"title\":\"Inception\",\"year\":2010,\"kind\":\"movie\"}"}}],"usage":{"total_tokens":300}}`))
 	}))
 	defer srv.Close()
-	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"ollama": {BaseURL: srv.URL}}, kwhPrice: 0.20, localWatts: 300}
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"ollama": {BaseURL: srv.URL}}}
+	c.SetCostConfig(CostConfig{KWhPrice: 0.20, LocalWatts: 300})
 	local := Slot{ID: "ollama:m", Provider: "ollama", Model: "m", BaseURL: srv.URL, Local: true}
 	scores := c.RunSlots(context.Background(), []Slot{local}, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
 	if scores[0].CostPer1M <= 0 {
