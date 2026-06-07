@@ -202,6 +202,20 @@ export default function StreamCacheCard() {
             <span className="ml-2">— quando ultrapassar o limite, entradas inativas mais antigas são removidas automaticamente.</span>
           )}
         </p>
+        {stats.diskTotal > 0 && (
+          <p className="text-xs text-text-muted">
+            Disco: <span className="text-text-secondary">{formatSize(stats.diskFree)} livres</span> de {formatSize(stats.diskTotal)}
+          </p>
+        )}
+        {stats.evictedCount > 0 && (
+          <p className="text-xs text-text-muted">
+            Reciclado pelo LRU:{' '}
+            <span className="text-text-secondary">
+              {stats.evictedCount} {stats.evictedCount === 1 ? 'item' : 'itens'} ({formatSize(stats.evictedBytes)})
+            </span>
+            {stats.lastEvictionAt && <span> • último {formatDate(stats.lastEvictionAt)}</span>}
+          </p>
+        )}
       </div>
 
       {/* Sort + filter controls (only worth showing with a few entries) */}
