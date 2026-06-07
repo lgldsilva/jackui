@@ -494,6 +494,49 @@ func TestFreeOnly(t *testing.T) {
 	}
 }
 
+// TestScoreSlotMarksIncompleteOnRateLimit: a model throttled on every case (cases
+// skipped) is flagged Incomplete so "Rodar faltantes" can pick it up later.
+func TestScoreSlotMarksIncompleteOnRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "999") // > cap → metadataWithRetry gives up at once (no wait)
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer srv.Close()
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	scores := c.RunSlots(context.Background(), []Slot{{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}},
+		[]BenchmarkCase{{Raw: "A", Expect: "A"}, {Raw: "B", Expect: "B"}})
+	if !scores[0].Incomplete {
+		t.Fatal("a fully-throttled model should be flagged Incomplete")
+	}
+	if scores[0].Samples != 0 {
+		t.Fatalf("no case completed, expected 0 samples, got %d", scores[0].Samples)
+	}
+}
+
+// TestRerunIncomplete: re-runs ONLY the Incomplete model (now answering) and merges
+// it in; the complete model is left untouched.
+func TestRerunIncomplete(t *testing.T) {
+	srv := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
+	defer srv.Close()
+	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+	prev := []SlotScore{
+		{SlotID: "groq:done", Provider: "groq", Model: "done", Composite: 2.0, Accuracy: 1, Samples: 1},
+		{SlotID: "groq:m1", Provider: "groq", Model: "m1", Incomplete: true, Composite: 0.1, Samples: 0},
+	}
+	merged := c.RerunIncomplete(context.Background(), prev, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	byID := map[string]SlotScore{}
+	for _, s := range merged {
+		byID[s.SlotID] = s
+	}
+	if byID["groq:m1"].Incomplete || byID["groq:m1"].Accuracy != 1 {
+		t.Fatalf("m1 should be re-run to a complete, accurate score, got %+v", byID["groq:m1"])
+	}
+	if byID["groq:done"].Composite != 2.0 {
+		t.Fatalf("the complete model must be left untouched, got %+v", byID["groq:done"])
+	}
+}
+
 func TestRunSlotsFreeBonus(t *testing.T) {
 	good := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
 	defer good.Close()
