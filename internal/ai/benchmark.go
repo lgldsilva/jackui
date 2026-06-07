@@ -310,17 +310,59 @@ func medianDuration(lats []time.Duration) time.Duration {
 	return (sorted[n/2-1] + sorted[n/2]) / 2
 }
 
+// Rate-limit retry budget. A throttle is transient, so we wait the vendor's reset
+// window and retry — that's how a model gets a COMPLETE score (all cases) instead
+// of a misleading 100% over the few that slipped past the limit. Capped so a
+// per-DAY quota (Retry-After of minutes/hours) doesn't stall the benchmark: past
+// the cap we give up and the case is skipped.
+const (
+	maxRateLimitRetries = 3
+	maxRateLimitWait    = 20 * time.Second
+)
+
+// metadataWithRetry runs one case, retrying transient rate limits with backoff so
+// the model is measured on the whole case set.
+func (c *Client) metadataWithRetry(ctx context.Context, s Slot, raw string) (*RenameMetadata, time.Duration, error) {
+	for attempt := 0; ; attempt++ {
+		res, latency, err := c.metadataWithSlot(ctx, s, raw)
+		if err == nil || !errors.Is(err, errRateLimited) || attempt >= maxRateLimitRetries {
+			return res, latency, err
+		}
+		wait := rateLimitBackoff(err, attempt)
+		if wait <= 0 || wait > maxRateLimitWait || ctx.Err() != nil {
+			return res, latency, err // per-day quota or no time left → give up, skip the case
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return res, latency, err
+		case <-timer.C:
+		}
+	}
+}
+
+// rateLimitBackoff picks the wait before retrying a throttled call: the vendor's
+// Retry-After (plus a small cushion) when present, else exponential (2s, 4s, 8s).
+func rateLimitBackoff(err error, attempt int) time.Duration {
+	var rl *rateLimitError
+	if errors.As(err, &rl) && rl.RetryAfter > 0 {
+		return rl.RetryAfter + 500*time.Millisecond
+	}
+	return time.Duration(1<<uint(attempt)) * 2 * time.Second
+}
+
 // scoreSingleCase runs one case and folds it into the running score. Returns true
 // only to ABORT the whole slot (no point continuing) — i.e. the model is paid with
 // no balance. Error handling has three tiers:
 //   - insufficient balance → abort the slot ("pago — sem saldo").
 //   - bad output (errBadOutput: HTTP 400 / unparseable JSON) → a quality failure of
 //     this model on this input: counts as a 0-accuracy case (scored++, accSum += 0).
-//   - anything else (rate limit, 5xx, network, a crashed local llama-server) →
-//     transient/infra: skip silently, don't penalize accuracy. The case just isn't
-//     scored; if every case is transient the slot ends with Samples==0 → 0% / — / —.
+//   - anything else (rate limit after retries, 5xx, network, a crashed local
+//     llama-server) → transient/infra: skip silently, don't penalize accuracy. If
+//     every case is transient the slot ends with Samples==0 → 0% / — / —.
 func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, scored *int, lats *[]time.Duration) bool {
-	res, latency, err := c.metadataWithSlot(ctx, s, tc.Raw)
+	res, latency, err := c.metadataWithRetry(ctx, s, tc.Raw)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
 			if score.FailureReason == "" {
@@ -464,18 +506,16 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 			continue
 		}
 		freeTier := freeTierProviders[name]
-		// Free if: the provider is a free tier (no per-token billing), OR the id
-		// carries a free marker (:free / -free), OR pricing is EXPLICITLY zero.
-		// Note: absent pricing (empty strings) does NOT count as free — OpenCode
-		// Zen returns no pricing at all and is full of costly frontier models.
-		isFree := freeTier ||
-			strings.HasSuffix(m.ID, ":free") || strings.HasSuffix(m.ID, "-free") ||
+		// Free if: a free marker on the id (:free/-free) or free-tier provider
+		// (isFreeModel), OR pricing is EXPLICITLY zero. Absent pricing (empty
+		// strings) does NOT count as free — OpenCode Zen returns no pricing at all
+		// and is full of costly frontier models.
+		isFree := isFreeModel(name, m.ID) ||
 			(m.Pricing.Prompt == "0" && m.Pricing.Completion == "0")
 		// On a metered provider (anything not free-tier — OpenRouter, OpenCode Zen,
 		// or any unknown provider, treated as paid by default), only auto-discover
 		// models we can POSITIVELY tell are free. Benchmarking paid frontier models
-		// burns real credits/quota fast. A paid model the user explicitly put in the
-		// chain is still benchmarked — this filter only touches discovered catalog.
+		// burns real credits/quota fast.
 		if !freeTier && !isFree {
 			continue
 		}
