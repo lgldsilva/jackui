@@ -350,6 +350,32 @@ func looksModelNotFound(status int, body string) bool {
 	return false
 }
 
+// httpResponseError classifies a /chat/completions response status into one of
+// the error sentinels (rate limit, model-not-found, no-balance, bad-output) or a
+// generic error. Returns nil for a 2xx status. Kept out of chat() so the request
+// path stays simple (and under the cognitive-complexity gate).
+func httpResponseError(s Slot, status int, raw string) error {
+	if status >= 200 && status < 300 {
+		return nil
+	}
+	if status == http.StatusTooManyRequests {
+		return fmt.Errorf("%w: %s", errRateLimited, s.ID)
+	}
+	if looksModelNotFound(status, raw) {
+		return fmt.Errorf("%w: %s/%s", errModelNotFound, s.Provider, s.Model)
+	}
+	if looksPaymentError(status, raw) {
+		return fmt.Errorf("%w: %s/%s — sem saldo", errInsufficientBalance, s.Provider, s.Model)
+	}
+	// A 400 is the vendor rejecting the model's own output (e.g. Groq's
+	// json_validate_failed) — a quality failure of this model, not a transient
+	// infra error like a 5xx. Mark it so the benchmark scores it as a 0.
+	if status == http.StatusBadRequest {
+		return fmt.Errorf("%w: %s returned 400: %s", errBadOutput, s.ID, strings.TrimSpace(raw))
+	}
+	return fmt.Errorf("ai: %s returned %d: %s", s.ID, status, strings.TrimSpace(raw))
+}
+
 func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode bool) (string, time.Duration, error) {
 	reqBody := chatReq{
 		Model:       s.Model,
@@ -390,23 +416,8 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
-	if resp.StatusCode == http.StatusTooManyRequests {
-		return "", latency, fmt.Errorf("%w: %s", errRateLimited, s.ID)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if looksModelNotFound(resp.StatusCode, string(raw)) {
-			return "", latency, fmt.Errorf("%w: %s/%s", errModelNotFound, s.Provider, s.Model)
-		}
-		if looksPaymentError(resp.StatusCode, string(raw)) {
-			return "", latency, fmt.Errorf("%w: %s/%s — sem saldo", errInsufficientBalance, s.Provider, s.Model)
-		}
-		// A 400 here is the vendor rejecting the model's own output (e.g. Groq's
-		// json_validate_failed) — a quality failure of this model, not a transient
-		// infra error like a 5xx. Mark it so the benchmark scores it as a 0.
-		if resp.StatusCode == http.StatusBadRequest {
-			return "", latency, fmt.Errorf("%w: %s returned 400: %s", errBadOutput, s.ID, strings.TrimSpace(string(raw)))
-		}
-		return "", latency, fmt.Errorf("ai: %s returned %d: %s", s.ID, resp.StatusCode, strings.TrimSpace(string(raw)))
+	if err := httpResponseError(s, resp.StatusCode, string(raw)); err != nil {
+		return "", latency, err
 	}
 
 	var cr chatResp
