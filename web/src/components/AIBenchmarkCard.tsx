@@ -40,6 +40,7 @@ function scoreCells(s: AISlotScore) {
     acc: `${Math.round(s.accuracy * 100)}%`,
     lat: s.avgLatencyMs > 0 ? `${s.avgLatencyMs} ms` : '—',
     comp: s.composite > 0 ? s.composite.toFixed(3) : '—',
+    cost: (s.costPer1M ?? 0) > 0 ? `$${s.costPer1M!.toFixed(2)}/1M` : 'grátis',
   }
 }
 
@@ -51,12 +52,13 @@ function needsRerun(s: AISlotScore): boolean {
 }
 
 function scoreRow(s: AISlotScore) {
-  const { acc, lat, comp } = scoreCells(s)
+  const { acc, lat, comp, cost } = scoreCells(s)
   return (
     <tr key={s.slotId} className="border-t border-default/60">
       <td className="py-1.5 pr-3 text-text-primary">{s.model}<span className="text-text-muted text-xs block">{s.provider}</span></td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
+      <td className="py-1.5 pr-3 text-right tabular-nums text-text-secondary">{cost}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums font-medium text-green-400">{comp}</td>
       <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>
         {needsRerun(s) && <span className="text-amber-400">faltante</span>}
@@ -68,14 +70,14 @@ function scoreRow(s: AISlotScore) {
 }
 
 function scoreCard(s: AISlotScore) {
-  const { acc, lat, comp } = scoreCells(s)
+  const { acc, lat, comp, cost } = scoreCells(s)
   return (
     <div key={s.slotId} className="rounded-lg border border-default/60 bg-surface/40 p-3 flex flex-col gap-2">
       <div className="min-w-0">
         <div className="text-text-primary text-sm truncate">{s.model}</div>
         <div className="text-text-muted text-xs">{s.provider}</div>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-xs">
+      <div className="grid grid-cols-4 gap-2 text-xs">
         <div>
           <div className="text-text-muted">Acurácia</div>
           <div className="tabular-nums text-text-primary">{acc}</div>
@@ -83,6 +85,10 @@ function scoreCard(s: AISlotScore) {
         <div>
           <div className="text-text-muted">Latência</div>
           <div className="tabular-nums text-text-primary">{lat}</div>
+        </div>
+        <div>
+          <div className="text-text-muted">Custo</div>
+          <div className="tabular-nums text-text-secondary">{cost}</div>
         </div>
         <div>
           <div className="text-text-muted">Score</div>
@@ -214,9 +220,12 @@ export default function AIBenchmarkCard() {
       <p className="text-xs text-text-muted">
         Chain atual: {status.chain.map(s => s.id).join(' → ') || '—'}. O benchmark mede a extração
         completa (título + ano para filmes, série + temporada/episódio para TV) e a latência por
-        modelo, calcula o score composto (acurácia ÷ √latência) e reordena a chain. A latência é a
-        <strong className="text-text-secondary"> mediana</strong> das chamadas (desconta o tempo de
-        carga do modelo).
+        modelo, calcula o score composto (acurácia ÷ √latência ÷ (1 + custo/1M)) e reordena a chain.
+        A latência é a <strong className="text-text-secondary">mediana</strong> das chamadas (desconta
+        o tempo de carga do modelo); o <strong className="text-text-secondary">custo</strong> ($/1M
+        tokens) penaliza modelos caros, então grátis/barato sobe. Por padrão só modelos grátis são
+        testados — defina <code className="text-text-primary">JACKUI_AI_MAX_COST_PER_1M</code> para
+        incluir pagos até esse teto.
       </p>
 
       {status.results.length > 0 && (
@@ -229,6 +238,7 @@ export default function AIBenchmarkCard() {
                   <th className="py-1 pr-3 font-medium">Modelo</th>
                   <th className="py-1 pr-3 font-medium text-right">Acurácia</th>
                   <th className="py-1 pr-3 font-medium text-right">Latência</th>
+                  <th className="py-1 pr-3 font-medium text-right">Custo</th>
                   <th className="py-1 pr-3 font-medium text-right">Score</th>
                   <th className="py-1 font-medium">Falha</th>
                 </tr>

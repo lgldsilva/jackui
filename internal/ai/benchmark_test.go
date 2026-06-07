@@ -103,9 +103,9 @@ func TestTitleAccuracy(t *testing.T) {
 }
 
 func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
-	fastAccurate := compositeScore(0.9, 400, false)
-	slowAccurate := compositeScore(0.9, 4000, false)
-	fastSloppy := compositeScore(0.4, 400, false)
+	fastAccurate := compositeScore(0.9, 400, 0)
+	slowAccurate := compositeScore(0.9, 4000, 0)
+	fastSloppy := compositeScore(0.4, 400, 0)
 	if fastAccurate <= slowAccurate {
 		t.Fatalf("faster should score higher at equal accuracy: %v vs %v", fastAccurate, slowAccurate)
 	}
@@ -116,13 +116,16 @@ func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
 
 // ── Property-based tests ─────────────────────────────────────────────────────
 
-func TestPropFreeBonusAlwaysHigher(t *testing.T) {
+// TestPropCheaperScoresHigher: at equal accuracy/latency, a cheaper model (incl.
+// free, cost 0) always scores >= a more expensive one.
+func TestPropCheaperScoresHigher(t *testing.T) {
 	for acc := 0.0; acc <= 1.0; acc += 0.1 {
 		for lat := int64(100); lat <= 10000; lat += 500 {
-			paid := compositeScore(acc, lat, false)
-			free := compositeScore(acc, lat, true)
-			if free < paid {
-				t.Fatalf("free=%.4f < paid=%.4f at acc=%.1f lat=%d", free, paid, acc, lat)
+			free := compositeScore(acc, lat, 0)
+			cheap := compositeScore(acc, lat, 0.2)
+			pricey := compositeScore(acc, lat, 2.0)
+			if free < cheap || cheap < pricey {
+				t.Fatalf("cheaper must score >= pricier at acc=%.1f lat=%d: free=%.4f cheap=%.4f pricey=%.4f", acc, lat, free, cheap, pricey)
 			}
 		}
 	}
@@ -130,9 +133,9 @@ func TestPropFreeBonusAlwaysHigher(t *testing.T) {
 
 func TestPropScoreIncreasesWithAccuracy(t *testing.T) {
 	for lat := int64(200); lat <= 5000; lat += 500 {
-		prev := compositeScore(0.0, lat, false)
+		prev := compositeScore(0.0, lat, 0)
 		for acc := 0.1; acc <= 1.0; acc += 0.1 {
-			cur := compositeScore(acc, lat, false)
+			cur := compositeScore(acc, lat, 0)
 			if cur < prev {
 				t.Fatalf("score decresceu acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
 			}
@@ -143,9 +146,9 @@ func TestPropScoreIncreasesWithAccuracy(t *testing.T) {
 
 func TestPropScoreDecreasesWithLatency(t *testing.T) {
 	for acc := 0.1; acc <= 1.0; acc += 0.2 {
-		prev := compositeScore(acc, 100, false)
+		prev := compositeScore(acc, 100, 0)
 		for lat := int64(200); lat <= 10000; lat += 500 {
-			cur := compositeScore(acc, lat, false)
+			cur := compositeScore(acc, lat, 0)
 			if cur > prev {
 				t.Fatalf("score subiu com latencia maior acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
 			}
@@ -157,7 +160,7 @@ func TestPropScoreDecreasesWithLatency(t *testing.T) {
 func TestPropScoreAlwaysFinite(t *testing.T) {
 	for acc := 0.0; acc <= 1.0; acc += 0.1 {
 		for lat := int64(0); lat <= 30000; lat += 1000 {
-			s := compositeScore(acc, lat, false)
+			s := compositeScore(acc, lat, 0)
 			if s < 0 || math.IsInf(s, 0) || math.IsNaN(s) {
 				t.Fatalf("score invalido acc=%.1f lat=%d: %v", acc, lat, s)
 			}
@@ -468,28 +471,32 @@ func TestParseRetryAfter(t *testing.T) {
 	}
 }
 
-func TestFreeOnly(t *testing.T) {
+func TestAffordableSlots(t *testing.T) {
 	in := []Slot{
-		{Provider: "groq", Model: "openai/gpt-oss-20b"},          // free-tier provider → keep
-		{Provider: "ollama", Model: "qwen2.5:7b"},                // local → keep
-		{Provider: "ollama", Model: "gpt-oss:120b-cloud"},        // ollama free-tier → keep
-		{Provider: "openrouter", Model: "deepseek/r1:free"},      // :free → keep
-		{Provider: "opencode", Model: "deepseek-v4-flash-free"},  // -free → keep
-		{Provider: "opencode", Model: "big-pickle"},              // paid Zen → DROP
-		{Provider: "openrouter", Model: "anthropic/claude-opus"}, // paid → DROP
+		{Model: "free-a", CostPer1M: 0},    // free → keep
+		{Model: "cheap", CostPer1M: 0.2},   // within a $0.5 ceiling → keep
+		{Model: "pricey", CostPer1M: 2.0},  // over ceiling → DROP
+		{Model: "unknown", CostPer1M: -1},  // unknown cost (Zen) → DROP
+		{Model: "exactly", CostPer1M: 0.5}, // == ceiling → keep
 	}
+	// Default ceiling 0 = free only.
+	free := (&Client{}).AffordableSlots(in)
+	if len(free) != 1 || free[0].Model != "free-a" {
+		t.Fatalf("ceiling 0 should keep only free, got %+v", free)
+	}
+	// Raised ceiling lets cheap paid in, but not pricey/unknown.
 	got := map[string]bool{}
-	for _, s := range FreeOnly(in) {
+	for _, s := range (&Client{maxCostPer1M: 0.5}).AffordableSlots(in) {
 		got[s.Model] = true
 	}
-	for _, m := range []string{"openai/gpt-oss-20b", "qwen2.5:7b", "gpt-oss:120b-cloud", "deepseek/r1:free", "deepseek-v4-flash-free"} {
+	for _, m := range []string{"free-a", "cheap", "exactly"} {
 		if !got[m] {
-			t.Errorf("free model %q should be kept", m)
+			t.Errorf("%q (cost within ceiling) should be kept", m)
 		}
 	}
-	for _, m := range []string{"big-pickle", "anthropic/claude-opus"} {
+	for _, m := range []string{"pricey", "unknown"} {
 		if got[m] {
-			t.Errorf("paid model %q must be dropped (burns credits)", m)
+			t.Errorf("%q (over ceiling / unknown cost) must be dropped", m)
 		}
 	}
 }
@@ -569,7 +576,9 @@ func TestRerunIncompleteAlsoRerunsRateLimited(t *testing.T) {
 	}
 }
 
-func TestRunSlotsFreeBonus(t *testing.T) {
+// TestRunSlotsCheaperWins: at equal accuracy, the cheaper model gets the higher
+// composite (cost factor), so the chain prefers cheap/free over expensive.
+func TestRunSlotsCheaperWins(t *testing.T) {
 	good := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
 	defer good.Close()
 
@@ -578,24 +587,23 @@ func TestRunSlotsFreeBonus(t *testing.T) {
 		providers: map[string]config.AIProvider{"p": {BaseURL: good.URL, APIKey: "k"}},
 	}
 
-	paid := Slot{ID: "paid", Provider: "p", Model: "paid-model", BaseURL: good.URL, apiKey: "k", Free: false}
-	free := Slot{ID: "free", Provider: "p", Model: "free-model", BaseURL: good.URL, apiKey: "k", Free: true}
+	pricey := Slot{ID: "pricey", Provider: "p", Model: "pricey-model", BaseURL: good.URL, apiKey: "k", CostPer1M: 1.0}
+	free := Slot{ID: "free", Provider: "p", Model: "free-model", BaseURL: good.URL, apiKey: "k", CostPer1M: 0}
 
-	scores := c.RunSlots(context.Background(), []Slot{paid, free}, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	scores := c.RunSlots(context.Background(), []Slot{pricey, free}, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
 	if len(scores) != 2 {
 		t.Fatalf("expected 2 scores, got %d", len(scores))
 	}
-
-	var paidScore, freeScore float64
+	var priceyScore, freeScore float64
 	for _, s := range scores {
-		if s.Free {
+		if s.CostPer1M == 0 {
 			freeScore = s.Composite
 		} else {
-			paidScore = s.Composite
+			priceyScore = s.Composite
 		}
 	}
-	if freeScore <= paidScore {
-		t.Fatalf("free bonus not applied: free=%.4f <= paid=%.4f", freeScore, paidScore)
+	if freeScore <= priceyScore {
+		t.Fatalf("cheaper should score higher: free=%.4f <= pricey=%.4f", freeScore, priceyScore)
 	}
 }
 
@@ -743,6 +751,54 @@ func TestDiscoverViaModelsAPI_FreeTier(t *testing.T) {
 		if !got[m] {
 			t.Errorf("free-tier provider should discover its whole catalog; missing %q", m)
 		}
+	}
+}
+
+func TestModelCostPer1M(t *testing.T) {
+	cases := []struct {
+		p, c      string
+		wantCost  float64
+		wantKnown bool
+	}{
+		{"0", "0", 0, true},
+		{"0.0000005", "0.0000005", 0.5, true}, // blended 0.5 $/1M
+		{"0.000001", "0.000003", 2.0, true},   // (1e-6+3e-6)/2*1e6
+		{"", "", 0, false},                    // no pricing → unknown (Zen)
+	}
+	for _, tc := range cases {
+		cost, known := modelCostPer1M(tc.p, tc.c)
+		if known != tc.wantKnown || (known && math.Abs(cost-tc.wantCost) > 1e-9) {
+			t.Errorf("modelCostPer1M(%q,%q) = %v,%v; want %v,%v", tc.p, tc.c, cost, known, tc.wantCost, tc.wantKnown)
+		}
+	}
+}
+
+// TestDiscoverIncludesCheapPaidWithinCeiling: with a raised ceiling, a cheap paid
+// model is discovered (and carries its cost); a pricey one is still excluded.
+func TestDiscoverIncludesCheapPaidWithinCeiling(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[
+			{"id":"cheap","pricing":{"prompt":"0.0000002","completion":"0.0000002"}},
+			{"id":"pricey","pricing":{"prompt":"0.000005","completion":"0.000005"}}
+		]}`))
+	}))
+	defer srv.Close()
+	cfg := config.AIConfig{Enabled: true, MaxCostPer1M: 0.5, Providers: map[string]config.AIProvider{
+		"or": {BaseURL: srv.URL, APIKey: "k"},
+	}, Chain: []config.AIChainSlot{{ID: "or:x", Provider: "or", Model: "x"}}}
+	c := New(cfg)
+	if c == nil {
+		t.Fatal("New nil")
+	}
+	got := map[string]float64{}
+	for _, s := range c.DiscoverModels(context.Background()) {
+		got[s.Model] = s.CostPer1M
+	}
+	if v, ok := got["cheap"]; !ok || v <= 0 {
+		t.Errorf("cheap model within ceiling should be discovered with its cost, got %v (ok=%v)", v, ok)
+	}
+	if _, ok := got["pricey"]; ok {
+		t.Error("pricey model over ceiling must be excluded")
 	}
 }
 

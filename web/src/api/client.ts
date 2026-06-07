@@ -485,6 +485,7 @@ export type AISlotScore = {
   avgLatencyMs: number
   composite: number
   samples: number
+  costPer1M?: number     // blended USD per 1M tokens (0 = free); factored into the score
   failureReason?: string
   incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Rodar faltantes"
 }
