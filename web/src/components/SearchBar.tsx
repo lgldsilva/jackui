@@ -1,5 +1,5 @@
 import { forwardRef } from 'react'
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import { Indexer } from '../api/client'
 import IndexerMultiSelect from './IndexerMultiSelect'
 
@@ -12,6 +12,8 @@ type SearchBarProps = {
   readonly onCategoryChange: (category: string) => void
   readonly indexers: Indexer[]
   readonly onSearch: () => void
+  // Abort the in-flight search (closes the SSE → backend cancels the indexers).
+  readonly onStop: () => void
   readonly loading: boolean
   // Past queries (server-side history) surfaced as native autocomplete.
   readonly suggestions?: readonly string[]
@@ -37,6 +39,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
   onCategoryChange,
   indexers,
   onSearch,
+  onStop,
   loading,
   suggestions,
 }, ref) {
@@ -68,18 +71,28 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
             </datalist>
           )}
         </div>
-        <button
-          onClick={onSearch}
-          disabled={loading || !query.trim()}
-          className="btn-primary px-6 py-3 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          {loading ? (
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          ) : (
+        {loading ? (
+          // While searching, the same button becomes "Parar" — clicking closes
+          // the SSE (handleSearch.onStop), which cancels the request context on
+          // the backend so the indexers stop being polled.
+          <button
+            onClick={onStop}
+            title="Parar a busca em andamento"
+            className="px-6 py-3 text-lg rounded-lg font-medium flex items-center gap-2 bg-red-600 text-white hover:bg-red-500 transition-colors"
+          >
+            <X className="w-5 h-5" />
+            Parar
+          </button>
+        ) : (
+          <button
+            onClick={onSearch}
+            disabled={!query.trim()}
+            className="btn-primary px-6 py-3 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
             <Search className="w-5 h-5" />
-          )}
-          Buscar
-        </button>
+            Buscar
+          </button>
+        )}
       </div>
 
       <div className="flex gap-3">
