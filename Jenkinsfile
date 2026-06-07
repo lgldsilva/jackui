@@ -156,7 +156,7 @@ pipeline {
               set -e
               cd /tmp/jackui-build
               echo '$GITEA_TOKEN' | docker login $REGISTRY -u '$GITEA_USER' --password-stdin
-              docker build -f $DOCKERFILE --build-arg BUILD_TIMESTAMP=\\$(date +%s) -t $IMAGE:$TAG -t $IMAGE:nvidia .
+              docker build -f $DOCKERFILE --build-arg BUILD_TIMESTAMP=\\$(date +%s) --build-arg GIT_COMMIT=$GIT_COMMIT --build-arg APP_VERSION=$TAG -t $IMAGE:$TAG -t $IMAGE:nvidia .
               docker push $IMAGE:$TAG
               docker push $IMAGE:nvidia
               docker logout $REGISTRY

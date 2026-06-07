@@ -30,6 +30,15 @@ IMAGE_CPU      := jackui:latest
 IMAGE_NVIDIA   := jackui:nvidia
 IMAGE_VAAPI    := jackui:vaapi
 
+# Build metadata (served by GET /status). Resolved from the local git tree.
+GIT_COMMIT     := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+BUILD_TIME     := $(shell date +%s)
+APP_VERSION    := $(shell git describe --tags --always 2>/dev/null || echo dev)
+VERSION_PKG    := github.com/luizg/jackui/internal/version
+GO_LDFLAGS     := -X $(VERSION_PKG).Commit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME) -X $(VERSION_PKG).Version=$(APP_VERSION)
+# Build-args reused by every `docker build` target below.
+BUILD_ARGS     := --build-arg BUILD_TIMESTAMP="$(BUILD_TIME)" --build-arg GIT_COMMIT="$(GIT_COMMIT)" --build-arg APP_VERSION="$(APP_VERSION)"
+
 # Cores
 GREEN  := \033[0;32m
 YELLOW := \033[0;33m
@@ -161,7 +170,7 @@ deploy-auto-vpn:
 
 deploy-cpu: _sync-config
 	$(call step,Construindo imagem CPU (Alpine)...)
-	@docker --context $(DOCKER_CONTEXT) build --progress=plain --build-arg BUILD_TIMESTAMP="$$(date +%s)" -f Dockerfile -t $(IMAGE_CPU) .
+	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile -t $(IMAGE_CPU) .
 	$(call ok,Imagem CPU pronta)
 	$(call step,Subindo container (CPU-only)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml up -d --remove-orphans
@@ -169,7 +178,7 @@ deploy-cpu: _sync-config
 
 deploy-nvidia: _sync-config
 	$(call step,Construindo imagem NVIDIA (CUDA + ffmpeg-nvenc)...)
-	@docker --context $(DOCKER_CONTEXT) build --progress=plain --build-arg BUILD_TIMESTAMP="$$(date +%s)" -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
+	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
 	$(call ok,Imagem NVIDIA pronta)
 	$(call step,Subindo container (NVIDIA)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --remove-orphans
@@ -177,7 +186,7 @@ deploy-nvidia: _sync-config
 
 deploy-vaapi: _sync-config
 	$(call step,Construindo imagem VAAPI (Debian + mesa/iHD)...)
-	@docker --context $(DOCKER_CONTEXT) build --progress=plain --build-arg BUILD_TIMESTAMP="$$(date +%s)" -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
+	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
 	$(call ok,Imagem VAAPI pronta)
 	$(call step,Subindo container (VAAPI)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --remove-orphans
@@ -186,7 +195,7 @@ deploy-vaapi: _sync-config
 # ─── With VPN (gluetun overlay) ────────────────────────────────────────────
 deploy-vpn: _sync-config
 	$(call step,Construindo imagem CPU + gluetun overlay...)
-	@docker --context $(DOCKER_CONTEXT) build --progress=plain --build-arg BUILD_TIMESTAMP="$$(date +%s)" -f Dockerfile -t $(IMAGE_CPU) .
+	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile -t $(IMAGE_CPU) .
 	$(call ok,Imagem pronta)
 	$(call step,Subindo container atrás do gluetun (VPN)...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d --remove-orphans
@@ -194,7 +203,7 @@ deploy-vpn: _sync-config
 
 deploy-nvidia-vpn: _sync-config
 	$(call step,Construindo imagem NVIDIA + gluetun overlay...)
-	@docker --context $(DOCKER_CONTEXT) build --progress=plain --build-arg BUILD_TIMESTAMP="$$(date +%s)" -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
+	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
 	$(call ok,Imagem pronta)
 	$(call step,Subindo container NVIDIA atrás do gluetun...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml -f docker-compose.gluetun.yml up -d --remove-orphans
@@ -202,7 +211,7 @@ deploy-nvidia-vpn: _sync-config
 
 deploy-vaapi-vpn: _sync-config
 	$(call step,Construindo imagem VAAPI + gluetun overlay...)
-	@docker --context $(DOCKER_CONTEXT) build --progress=plain --build-arg BUILD_TIMESTAMP="$$(date +%s)" -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
+	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
 	$(call ok,Imagem pronta)
 	$(call step,Subindo container VAAPI atrás do gluetun...)
 	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml -f docker-compose.gluetun.yml up -d --remove-orphans
@@ -238,7 +247,7 @@ build:
 	$(call ok,Frontend pronto em ui/dist/)
 
 	$(call step,[2/2] Compilando binário Go...)
-	@go build -o jackui ./cmd/server
+	@go build -ldflags "$(GO_LDFLAGS)" -o jackui ./cmd/server
 	$(call ok,Binário gerado: ./jackui)
 
 clean:
