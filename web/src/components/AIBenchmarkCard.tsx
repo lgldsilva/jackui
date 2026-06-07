@@ -35,14 +35,20 @@ function textToCases(text: string): AIBenchmarkCase[] {
     .filter((c): c is AIBenchmarkCase => c !== null)
 }
 
+// formatCost renders $/1M; small local-energy costs (cents) keep 3 decimals so
+// they don't round to "$0.00".
+function formatCost(c?: number): string {
+  if (!c || c <= 0) return 'grátis'
+  const decimals = c < 0.1 ? 3 : 2
+  return `$${c.toFixed(decimals)}/1M`
+}
+
 function scoreCells(s: AISlotScore) {
   return {
     acc: `${Math.round(s.accuracy * 100)}%`,
     lat: s.avgLatencyMs > 0 ? `${s.avgLatencyMs} ms` : '—',
     comp: s.composite > 0 ? s.composite.toFixed(3) : '—',
-    // Energy cost of local models can be small (cents/1M) — show 3 decimals
-    // below $0.10 so it doesn't round to "$0.00".
-    cost: (s.costPer1M ?? 0) > 0 ? `$${s.costPer1M!.toFixed(s.costPer1M! < 0.1 ? 3 : 2)}/1M` : 'grátis',
+    cost: formatCost(s.costPer1M),
   }
 }
 
@@ -227,9 +233,9 @@ export default function AIBenchmarkCard() {
         o tempo de carga do modelo); o <strong className="text-text-secondary">custo</strong> ($/1M
         tokens, em USD) penaliza modelos caros, então grátis/barato sobe. Por padrão só modelos
         grátis são testados — defina <code className="text-text-primary">JACKUI_AI_MAX_COST_PER_1M</code> para
-        incluir pagos até esse teto. Modelos locais não são grátis: com
-        <code className="text-text-primary"> JACKUI_AI_KWH_PRICE</code> (tarifa em USD/kWh) e
-        <code className="text-text-primary"> JACKUI_AI_LOCAL_WATTS</code> (potência da GPU), o custo
+        incluir pagos até esse teto. Modelos locais não são grátis: com{' '}
+        <code className="text-text-primary">JACKUI_AI_KWH_PRICE</code> (tarifa em USD/kWh) e{' '}
+        <code className="text-text-primary">JACKUI_AI_LOCAL_WATTS</code> (potência da GPU), o custo
         de energia (latência × tokens × potência × tarifa) entra no score.
       </p>
 

@@ -277,26 +277,22 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		_, _, _, _ = c.metadataWithSlot(warmCtx, s, "warmup")
 		warmCancel()
 	}
-	var accSum float64
-	scored := 0 // cases that count toward accuracy: usable replies + bad-output failures
-	tokens := 0 // total tokens billed across usable replies (for the energy estimate)
-	lats := make([]time.Duration, 0, len(cases))
-	var totalLatency time.Duration
+	t := &slotTally{lats: make([]time.Duration, 0, len(cases))}
 	paymentFail := false
 	for _, tc := range cases {
-		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &scored, &tokens, &lats, &totalLatency) {
+		if c.scoreSingleCase(ctx, s, tc, &score, t) {
 			paymentFail = true
 			break
 		}
 	}
 	// Incomplete = some cases were transiently skipped (didn't reach the full set).
 	// Not for a paid no-balance abort (re-running won't help).
-	score.Incomplete = !paymentFail && scored < len(cases)
+	score.Incomplete = !paymentFail && t.scored < len(cases)
 	// Local models aren't free — price their energy (latency × tokens × power ×
 	// tariff) so a slow/power-hungry local ranks below a fast cloud-free one. No-op
 	// unless a tariff is configured.
 	if s.Local {
-		if e := c.localEnergyCostPer1M(totalLatency, tokens); e > 0 {
+		if e := c.localEnergyCostPer1M(t.totalLatency, t.tokens); e > 0 {
 			score.CostPer1M = e
 			score.Free = false
 		}
@@ -305,13 +301,24 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		// Denominator is `scored`, not Samples: a case the model botched (bad output)
 		// counts as a 0, so a model that fails some inputs can't show a clean 100%
 		// next to a failure reason. Latency is the median over the USABLE replies.
-		score.Accuracy = accSum / float64(scored)
-		score.AvgLatencyMs = medianDuration(lats).Milliseconds()
+		score.Accuracy = t.accSum / float64(t.scored)
+		score.AvgLatencyMs = medianDuration(t.lats).Milliseconds()
 		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.CostPer1M)
 	} else if paymentFail {
 		score.Composite = -1
 	}
 	return score
+}
+
+// slotTally accumulates a slot's per-case outcomes across the run: accuracy sum,
+// count of scored cases (usable + bad-output), total tokens + latency (for the
+// local-energy estimate), and the per-call latencies (for the median).
+type slotTally struct {
+	accSum       float64
+	scored       int
+	tokens       int
+	lats         []time.Duration
+	totalLatency time.Duration
 }
 
 // medianDuration returns the median of the samples (the mean of the two middle
@@ -381,7 +388,7 @@ func rateLimitBackoff(err error, attempt int) time.Duration {
 //   - anything else (rate limit after retries, 5xx, network, a crashed local
 //     llama-server) → transient/infra: skip silently, don't penalize accuracy. If
 //     every case is transient the slot ends with Samples==0 → 0% / — / —.
-func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, scored, tokens *int, lats *[]time.Duration, totalLatency *time.Duration) bool {
+func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, t *slotTally) bool {
 	res, latency, tk, err := c.metadataWithRetry(ctx, s, tc.Raw)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
@@ -394,16 +401,16 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 			score.FailureReason = err.Error()
 		}
 		if errors.Is(err, errBadOutput) {
-			*scored++ // model replied but botched it → a 0-accuracy case
+			t.scored++ // model replied but botched it → a 0-accuracy case
 		}
 		return false
 	}
 	score.Samples++
-	*scored++
-	*tokens += tk
-	*totalLatency += latency
-	*lats = append(*lats, latency)
-	*accSum += caseAccuracy(res, tc.Expect)
+	t.scored++
+	t.tokens += tk
+	t.totalLatency += latency
+	t.lats = append(t.lats, latency)
+	t.accSum += caseAccuracy(res, tc.Expect)
 	return false
 }
 
