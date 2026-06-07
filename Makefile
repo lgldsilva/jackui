@@ -33,7 +33,7 @@ IMAGE_VAAPI    := jackui:vaapi
 # Build metadata (served by GET /status). Resolved from the local git tree.
 GIT_COMMIT     := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 BUILD_TIME     := $(shell date +%s)
-APP_VERSION    := $(shell git describe --tags --always 2>/dev/null || echo dev)
+APP_VERSION    := $(shell bash scripts/semver.sh 2>/dev/null || git describe --tags --always 2>/dev/null || echo dev)
 VERSION_PKG    := github.com/luizg/jackui/internal/version
 GO_LDFLAGS     := -X $(VERSION_PKG).Commit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME) -X $(VERSION_PKG).Version=$(APP_VERSION)
 # Build-args reused by every `docker build` target below.

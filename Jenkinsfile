@@ -75,6 +75,21 @@ pipeline {
 
     // ───────── A PARTIR DAQUI: só entrega (main / single-branch legado) ─────────
 
+    // Auto-incremento de versão (semver por Conventional Commits). Aqui só
+    // CALCULA a próxima vX.Y.Z desde a última tag (feat→minor, fix→patch,
+    // !/BREAKING→major) → vira o APP_VERSION do build (aparece no /status). A
+    // tag só é CRIADA/publicada depois do deploy OK (stage final), para não
+    // deixar tag órfã se o gate ou o deploy falharem.
+    stage('Versão (semver)') {
+      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
+      steps {
+        script {
+          env.SEMVER = sh(returnStdout: true, script: 'git fetch --tags --quiet || true; bash scripts/semver.sh').trim()
+          echo "Versão calculada: ${env.SEMVER}"
+        }
+      }
+    }
+
     // Quality gate obrigatório: QUEBRA o build se o gate falhar
     // (-Dsonar.qualitygate.wait=true). Token via Jenkins credentials.
     stage('SonarQube') {
@@ -156,7 +171,7 @@ pipeline {
               set -e
               cd /tmp/jackui-build
               echo '$GITEA_TOKEN' | docker login $REGISTRY -u '$GITEA_USER' --password-stdin
-              docker build -f $DOCKERFILE --build-arg BUILD_TIMESTAMP=\\$(date +%s) --build-arg GIT_COMMIT=$GIT_COMMIT --build-arg APP_VERSION=$TAG -t $IMAGE:$TAG -t $IMAGE:nvidia .
+              docker build -f $DOCKERFILE --build-arg BUILD_TIMESTAMP=\\$(date +%s) --build-arg GIT_COMMIT=$GIT_COMMIT --build-arg APP_VERSION=${SEMVER:-$TAG} -t $IMAGE:$TAG -t $IMAGE:nvidia .
               docker push $IMAGE:$TAG
               docker push $IMAGE:nvidia
               docker logout $REGISTRY
@@ -192,6 +207,33 @@ pipeline {
                 docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui &&
                 docker image prune -f >/dev/null 2>&1 || true
               "
+          '''
+        }
+      }
+    }
+
+    // Tag de versão só DEPOIS do deploy OK (evita tag órfã se algo acima falhar).
+    // Idempotente em rebuilds; push best-effort (não derruba um deploy já feito).
+    stage('Publicar tag de versão') {
+      when {
+        allOf {
+          anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } }
+          expression { return env.SEMVER?.trim() }
+        }
+      }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')]) {
+          sh '''
+            if git rev-parse "refs/tags/$SEMVER" >/dev/null 2>&1; then
+              echo "Tag $SEMVER já existe — nada a publicar."
+            else
+              git tag "$SEMVER"
+              if git push "http://$GITEA_USER:$GITEA_TOKEN@10.228.143.12:3000/lgldsilva/jackui.git" "refs/tags/$SEMVER"; then
+                echo "Tag $SEMVER publicada no Gitea."
+              else
+                echo "aviso: push da tag $SEMVER falhou (deploy já concluído; só não registrou a tag)."
+              fi
+            fi
           '''
         }
       }
