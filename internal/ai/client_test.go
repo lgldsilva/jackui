@@ -205,18 +205,90 @@ func TestParseTitleJSONStripsFences(t *testing.T) {
 
 func TestBreakerOpensAfterThreshold(t *testing.T) {
 	b := newBreaker()
-	if !b.available("x") {
+	if !b.available("groq", "groq:x") {
 		t.Fatal("fresh slot should be available")
 	}
 	for i := 0; i < breakerFailureThreshold; i++ {
-		b.recordFailure("x", false)
+		b.recordFailure("groq:x")
 	}
-	if b.available("x") {
+	if b.available("groq", "groq:x") {
 		t.Fatal("slot should be open after reaching failure threshold")
 	}
-	b.recordSuccess("x")
-	if !b.available("x") {
+	b.recordSuccess("groq", "groq:x")
+	if !b.available("groq", "groq:x") {
 		t.Fatal("recordSuccess should close the breaker")
+	}
+}
+
+// TestNoteChainFailureRoutes covers the three recovery routes + retryAfterOf.
+func TestNoteChainFailureRoutes(t *testing.T) {
+	s := Slot{ID: "groq:m", Provider: "groq", Model: "m"}
+
+	// Rate limit → park the WHOLE provider, honoring Retry-After.
+	c := &Client{breaker: newBreaker(), providers: map[string]config.AIProvider{}}
+	c.noteChainFailure(s, &rateLimitError{slotID: "groq:m", RetryAfter: 2 * time.Second})
+	if c.breaker.available("groq", "groq:m") {
+		t.Fatal("rate limit should park the provider")
+	}
+
+	// Generic error → trip just the slot after the threshold.
+	c = &Client{breaker: newBreaker(), providers: map[string]config.AIProvider{}}
+	for i := 0; i < breakerFailureThreshold; i++ {
+		c.noteChainFailure(s, errors.New("boom"))
+	}
+	if c.breaker.available("groq", "groq:m") {
+		t.Fatal("repeated generic failures should open the slot")
+	}
+
+	// Model-not-found → heal (no provider park). Empty BaseURL makes healProvider a no-op.
+	c = &Client{breaker: newBreaker(), providers: map[string]config.AIProvider{"groq": {}}}
+	c.noteChainFailure(s, fmt.Errorf("%w: groq/m", errModelNotFound))
+	if !c.breaker.available("groq", "groq:m") {
+		t.Fatal("model-not-found must not park the provider")
+	}
+
+	// retryAfterOf: 0 when the error isn't a rateLimitError.
+	if d := retryAfterOf(errors.New("plain")); d != 0 {
+		t.Fatalf("retryAfterOf(plain) = %v, want 0", d)
+	}
+}
+
+// TestBreakerRateLimitParksWholeProvider: a 429 parks EVERY model on that provider
+// (shared free quota), but leaves other providers untouched.
+func TestBreakerRateLimitParksWholeProvider(t *testing.T) {
+	b := newBreaker()
+	b.recordRateLimit("groq", 0) // no Retry-After → default backoff
+	if b.available("groq", "groq:a") || b.available("groq", "groq:b") {
+		t.Fatal("a rate limit must park ALL of the provider's models")
+	}
+	if !b.available("openrouter", "openrouter:m") {
+		t.Fatal("a Groq rate limit must not park other providers")
+	}
+	// A success on the provider clears the park (key isn't actually exhausted).
+	b.recordSuccess("groq", "groq:a")
+	if !b.available("groq", "groq:b") {
+		t.Fatal("recordSuccess should lift the provider park")
+	}
+}
+
+// TestBreakerRateLimitHonorsRetryAfter: a long Retry-After (a daily quota) parks
+// the provider well beyond the short default; a bogus huge one is capped.
+func TestBreakerRateLimitHonorsRetryAfter(t *testing.T) {
+	b := newBreaker()
+	b.recordRateLimit("groq", 6*time.Hour)
+	b.mu.Lock()
+	until := b.provider["groq"]
+	b.mu.Unlock()
+	if d := time.Until(until); d < 5*time.Hour {
+		t.Fatalf("should honor a multi-hour Retry-After, got ~%v", d)
+	}
+	// Cap: an absurd hint can't wedge the provider past the max.
+	b.recordRateLimit("groq", 1000*time.Hour)
+	b.mu.Lock()
+	until = b.provider["groq"]
+	b.mu.Unlock()
+	if d := time.Until(until); d > breakerRateLimitMaxWait+time.Minute {
+		t.Fatalf("Retry-After should be capped at %v, got ~%v", breakerRateLimitMaxWait, d)
 	}
 }
 
@@ -385,7 +457,7 @@ func TestRateLimitDetected(t *testing.T) {
 	defer srv.Close()
 	c := clientForURL(t, srv.URL)
 	_, _, err := c.identifyWithSlot(context.Background(), c.slots[0], "whatever")
-	if !isRateLimit(err) {
+	if !errors.Is(err, errRateLimited) {
 		t.Fatalf("expected rate-limit error, got %v", err)
 	}
 }
@@ -791,23 +863,23 @@ func TestMusicQuerySkipsBreaker(t *testing.T) {
 
 func TestRecordFailureRateLimit(t *testing.T) {
 	b := newBreaker()
-	// Rate-limit failure opens breaker for 3 min (shorter than 10 min normal)
-	b.recordFailure("x", true)
-	if b.available("x") {
-		t.Fatal("rate-limit should open breaker immediately")
+	// Rate-limit parks the whole provider immediately (shared free quota).
+	b.recordRateLimit("p", 0)
+	if b.available("p", "p:x") {
+		t.Fatal("rate-limit should park the provider immediately")
 	}
-	// Normal failure: first time still available (threshold=2)
-	b.recordFailure("y", false)
-	if !b.available("y") {
+	// Normal model failure: first time still available (threshold=2).
+	b.recordFailure("q:y")
+	if !b.available("q", "q:y") {
 		t.Fatal("single normal failure should not open breaker")
 	}
-	b.recordFailure("y", false) // second failure opens
-	if b.available("y") {
+	b.recordFailure("q:y") // second failure opens the slot
+	if b.available("q", "q:y") {
 		t.Fatal("two failures should open breaker")
 	}
-	// Success closes breaker
-	b.recordSuccess("y")
-	if !b.available("y") {
+	// Success closes breaker.
+	b.recordSuccess("q", "q:y")
+	if !b.available("q", "q:y") {
 		t.Fatal("success should close breaker")
 	}
 }
