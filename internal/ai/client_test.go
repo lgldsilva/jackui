@@ -41,6 +41,48 @@ func clientForURL(t *testing.T, urls ...string) *Client {
 	return c
 }
 
+func TestChatReasoningEffortAndTokenBudget(t *testing.T) {
+	type capt struct {
+		MaxTokens       int    `json:"max_tokens"`
+		ReasoningEffort string `json:"reasoning_effort"`
+	}
+	ch := make(chan capt, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c capt
+		_ = json.NewDecoder(r.Body).Decode(&c)
+		ch <- c
+		jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK)(w, r)
+	}))
+	defer srv.Close()
+
+	client := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
+
+	// gpt-oss is a reasoning model → cap reasoning to "low" and give a generous
+	// token budget so the chain-of-thought doesn't starve the JSON (the 400s).
+	if _, _, err := client.metadataWithSlot(context.Background(),
+		Slot{ID: "groq:o", Provider: "groq", Model: "openai/gpt-oss-20b", BaseURL: srv.URL}, "Inception.2010"); err != nil {
+		t.Fatalf("gpt-oss call: %v", err)
+	}
+	got := <-ch
+	if got.ReasoningEffort != "low" {
+		t.Errorf("gpt-oss should send reasoning_effort=low, got %q", got.ReasoningEffort)
+	}
+	if got.MaxTokens < 512 {
+		t.Errorf("token budget too small for a reasoning model: %d", got.MaxTokens)
+	}
+
+	// A non-reasoning model must NOT get reasoning_effort (e.g. Qwen uses a
+	// different knob — a blanket value would be wrong).
+	if _, _, err := client.metadataWithSlot(context.Background(),
+		Slot{ID: "groq:l", Provider: "groq", Model: "llama-3.1-70b-versatile", BaseURL: srv.URL}, "Inception.2010"); err != nil {
+		t.Fatalf("llama call: %v", err)
+	}
+	got = <-ch
+	if got.ReasoningEffort != "" {
+		t.Errorf("non-gpt-oss should not send reasoning_effort, got %q", got.ReasoningEffort)
+	}
+}
+
 func TestIdentifyTitleParsesJSON(t *testing.T) {
 	srv := httptest.NewServer(jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK))
 	defer srv.Close()
@@ -126,10 +168,10 @@ func TestLooksModelNotFound(t *testing.T) {
 		want   bool
 	}{
 		{404, `{"error":{"message":"The model ` + "`x`" + ` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}`, true}, // groq (verified)
-		{400, `{"error":{"message":"vendor/x:free is not a valid model ID","code":400}}`, true},                                                                                  // openrouter (verified)
-		{404, `{"error":{"message":"model 'x:99b' not found","type":"not_found_error","code":null}}`, true},                                                                      // ollama (verified)
-		{404, `{"error":{"message":"No endpoints found for model x"}}`, true},                                                                                                    // openrouter (alt)
-		{500, `{"error":"internal server error"}`, false},                                                                                                                       // transient, NOT model-not-found
+		{400, `{"error":{"message":"vendor/x:free is not a valid model ID","code":400}}`, true},                                                                                // openrouter (verified)
+		{404, `{"error":{"message":"model 'x:99b' not found","type":"not_found_error","code":null}}`, true},                                                                    // ollama (verified)
+		{404, `{"error":{"message":"No endpoints found for model x"}}`, true},                                                                                                  // openrouter (alt)
+		{500, `{"error":"internal server error"}`, false},                                                                                                                      // transient, NOT model-not-found
 		{200, `ok`, false},
 	}
 	for _, tc := range cases {
