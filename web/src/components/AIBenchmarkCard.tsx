@@ -252,21 +252,21 @@ export default function AIBenchmarkCard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="text-xs text-text-muted flex flex-col gap-1">
-          Teto p/ pagos ($/1M)
+          <span>Teto p/ pagos ($/1M)</span>
           <input type="number" step="0.01" min="0" value={cost.maxCostPer1M}
-            onChange={e => setCost({ ...cost, maxCostPer1M: parseFloat(e.target.value) || 0 })}
+            onChange={e => setCost({ ...cost, maxCostPer1M: Number.parseFloat(e.target.value) || 0 })}
             className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
         </label>
         <label className="text-xs text-text-muted flex flex-col gap-1">
-          Tarifa energia ($/kWh)
+          <span>Tarifa energia ($/kWh)</span>
           <input type="number" step="0.01" min="0" value={cost.kwhPrice}
-            onChange={e => setCost({ ...cost, kwhPrice: parseFloat(e.target.value) || 0 })}
+            onChange={e => setCost({ ...cost, kwhPrice: Number.parseFloat(e.target.value) || 0 })}
             className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
         </label>
         <label className="text-xs text-text-muted flex flex-col gap-1">
-          Potência GPU (W)
+          <span>Potência GPU (W)</span>
           <input type="number" step="10" min="0" value={cost.localWatts}
-            onChange={e => setCost({ ...cost, localWatts: parseFloat(e.target.value) || 0 })}
+            onChange={e => setCost({ ...cost, localWatts: Number.parseFloat(e.target.value) || 0 })}
             className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
         </label>
       </div>

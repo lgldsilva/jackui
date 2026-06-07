@@ -10,6 +10,8 @@ import (
 	"github.com/luizg/jackui/internal/ai"
 )
 
+const errAIDisabled = "AI chain disabled"
+
 // aiStatusResponse is the read model for the Settings AI card.
 type aiStatusResponse struct {
 	Enabled bool               `json:"enabled"`
@@ -54,7 +56,7 @@ func GetAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI chain disabled"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
 			return
 		}
 		var cases []ai.BenchmarkCase
@@ -98,7 +100,7 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI chain disabled"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
 			return
 		}
 		if store == nil {
@@ -149,7 +151,7 @@ func PutAICases(store *ai.BenchmarkStore) gin.HandlerFunc {
 func PutAICostConfig(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI chain disabled"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
 			return
 		}
 		var cc ai.CostConfig
