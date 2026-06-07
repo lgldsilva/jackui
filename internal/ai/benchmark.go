@@ -43,7 +43,7 @@ type SlotScore struct {
 	AvgLatencyMs  int64   `json:"avgLatencyMs"` // MEDIAN wall-clock per call (resilient to model-load residual)
 	Composite     float64 `json:"composite"`    // accuracy / sqrt(latencySeconds)
 	Samples       int     `json:"samples"`      // cases that produced a usable reply
-	Free          bool    `json:"free"`          // true when model is free (no billing cost)
+	Free          bool    `json:"free"`         // true when model is free (no billing cost)
 	FailureReason string  `json:"failureReason,omitempty"`
 }
 
@@ -272,16 +272,20 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		warmCancel()
 	}
 	var accSum float64
+	scored := 0 // cases that count toward accuracy: usable replies + bad-output failures
 	lats := make([]time.Duration, 0, len(cases))
 	paymentFail := false
 	for _, tc := range cases {
-		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &lats) {
+		if c.scoreSingleCase(ctx, s, tc, &score, &accSum, &scored, &lats) {
 			paymentFail = true
 			break
 		}
 	}
 	if score.Samples > 0 {
-		score.Accuracy = accSum / float64(score.Samples)
+		// Denominator is `scored`, not Samples: a case the model botched (bad output)
+		// counts as a 0, so a model that fails some inputs can't show a clean 100%
+		// next to a failure reason. Latency is the median over the USABLE replies.
+		score.Accuracy = accSum / float64(scored)
 		score.AvgLatencyMs = medianDuration(lats).Milliseconds()
 		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.Free)
 	} else if paymentFail {
@@ -306,7 +310,16 @@ func medianDuration(lats []time.Duration) time.Duration {
 	return (sorted[n/2-1] + sorted[n/2]) / 2
 }
 
-func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, lats *[]time.Duration) bool {
+// scoreSingleCase runs one case and folds it into the running score. Returns true
+// only to ABORT the whole slot (no point continuing) — i.e. the model is paid with
+// no balance. Error handling has three tiers:
+//   - insufficient balance → abort the slot ("pago — sem saldo").
+//   - bad output (errBadOutput: HTTP 400 / unparseable JSON) → a quality failure of
+//     this model on this input: counts as a 0-accuracy case (scored++, accSum += 0).
+//   - anything else (rate limit, 5xx, network, a crashed local llama-server) →
+//     transient/infra: skip silently, don't penalize accuracy. The case just isn't
+//     scored; if every case is transient the slot ends with Samples==0 → 0% / — / —.
+func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, accSum *float64, scored *int, lats *[]time.Duration) bool {
 	res, latency, err := c.metadataWithSlot(ctx, s, tc.Raw)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
@@ -318,9 +331,13 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 		if score.FailureReason == "" {
 			score.FailureReason = err.Error()
 		}
+		if errors.Is(err, errBadOutput) {
+			*scored++ // model replied but botched it → a 0-accuracy case
+		}
 		return false
 	}
 	score.Samples++
+	*scored++
 	*lats = append(*lats, latency)
 	*accSum += caseAccuracy(res, tc.Expect)
 	return false
@@ -376,11 +393,22 @@ func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 	return out
 }
 
+// freeTierProviders bill nothing per token — local Ollama, and Groq's
+// rate-limited free tier. The benchmark may discover their WHOLE catalog. Every
+// other provider is treated as metered/paid (OpenRouter, OpenCode Zen, and any
+// unknown provider — paid by default): discovery there is limited to models we can
+// positively tell are free, so benchmarking costly frontier models can't quietly
+// burn credits/quota. See discoverViaModelsAPI.
+var freeTierProviders = map[string]bool{"groq": true, "ollama": true}
+
 // DiscoverModels lists candidate models across ALL providers so the benchmark
 // can test every available model, not just one per provider from the chain:
-//   - ollama:  every locally-installed model (/api/tags)
-//   - others:  ALL models from /v1/models (up to 100 per provider), with free
-//     status tracked via pricing info or naming convention (:free suffix).
+//   - ollama:      every locally-installed model (/api/tags)
+//   - free tier:   the whole /v1/models catalog (Groq) — nothing is billed
+//   - metered:     ONLY models we can prove are free (a :free/-free id, or an
+//     explicit 0 price). Paid frontier models on OpenRouter / OpenCode Zen are
+//     ignored so the benchmark can't burn credits. (Zen returns no pricing at
+//     all, so the suffix is the only signal there.)
 //
 // Skips models already in the chain. Caps at 100 per provider so the benchmark
 // doesn't take hours on OpenRouter's 300+ model catalog.
@@ -435,8 +463,22 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 		if m.ID == "" || existing[name+"|"+m.ID] || len(out) >= capN {
 			continue
 		}
-		isFree := strings.HasSuffix(m.ID, ":free") ||
-			((m.Pricing.Prompt == "" || m.Pricing.Prompt == "0") && (m.Pricing.Completion == "" || m.Pricing.Completion == "0"))
+		freeTier := freeTierProviders[name]
+		// Free if: the provider is a free tier (no per-token billing), OR the id
+		// carries a free marker (:free / -free), OR pricing is EXPLICITLY zero.
+		// Note: absent pricing (empty strings) does NOT count as free — OpenCode
+		// Zen returns no pricing at all and is full of costly frontier models.
+		isFree := freeTier ||
+			strings.HasSuffix(m.ID, ":free") || strings.HasSuffix(m.ID, "-free") ||
+			(m.Pricing.Prompt == "0" && m.Pricing.Completion == "0")
+		// On a metered provider (anything not free-tier — OpenRouter, OpenCode Zen,
+		// or any unknown provider, treated as paid by default), only auto-discover
+		// models we can POSITIVELY tell are free. Benchmarking paid frontier models
+		// burns real credits/quota fast. A paid model the user explicitly put in the
+		// chain is still benchmarked — this filter only touches discovered catalog.
+		if !freeTier && !isFree {
+			continue
+		}
 		existing[name+"|"+m.ID] = true
 		out = append(out, Slot{ID: name + ":" + m.ID, Provider: name, Model: m.ID, BaseURL: base, apiKey: p.APIKey, Free: isFree})
 	}

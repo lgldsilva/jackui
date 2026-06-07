@@ -75,13 +75,13 @@ type AIChainSlot struct {
 // queue's anti-starvation aging. RotationEnabled gates the Phase-2 automatic
 // source rotation (re-search Jackett when a source dries up).
 type DownloadsQueueConfig struct {
-	MaxActive         int  `yaml:"max_active"`           // GLOBAL ceiling: concurrent downloads across all users (streaming excluded); default 3
-	PerUserMaxActive  int  `yaml:"per_user_max_active"`  // per-user concurrent cap; 0 = no per-user limit (only the global ceiling applies); default 0
-	StallThresholdMin int  `yaml:"stall_threshold_min"`  // no-progress+no-seed minutes before a demote; default 30
-	MaxStalls         int  `yaml:"max_stalls"`           // stalls before pausing the download; default 3 (0 = cycle forever)
-	AgingStepMin      int  `yaml:"aging_step_min"`       // queue aging: minutes waited per +1 bonus; default 60
-	AgingCap          int  `yaml:"aging_cap"`            // ceiling on the aging bonus; default 150
-	RotationEnabled   bool `yaml:"rotation_enabled"`     // Phase 2: auto source rotation via Jackett; default false
+	MaxActive         int  `yaml:"max_active"`          // GLOBAL ceiling: concurrent downloads across all users (streaming excluded); default 3
+	PerUserMaxActive  int  `yaml:"per_user_max_active"` // per-user concurrent cap; 0 = no per-user limit (only the global ceiling applies); default 0
+	StallThresholdMin int  `yaml:"stall_threshold_min"` // no-progress+no-seed minutes before a demote; default 30
+	MaxStalls         int  `yaml:"max_stalls"`          // stalls before pausing the download; default 3 (0 = cycle forever)
+	AgingStepMin      int  `yaml:"aging_step_min"`      // queue aging: minutes waited per +1 bonus; default 60
+	AgingCap          int  `yaml:"aging_cap"`           // ceiling on the aging bonus; default 150
+	RotationEnabled   bool `yaml:"rotation_enabled"`    // Phase 2: auto source rotation via Jackett; default false
 }
 
 // ExternalConfig declares filesystem mounts the user wants browsable from
@@ -94,10 +94,10 @@ type ExternalConfig struct {
 }
 
 type ExternalMount struct {
-	Name         string   `yaml:"name" json:"name"`                   // Display name shown in the UI ("HD Externo", "NAS")
-	Path         string   `yaml:"path" json:"path"`                   // Absolute path inside the container
-	AllowedUsers []string `yaml:"allowed_users" json:"allowedUsers"`  // Empty = visible to all; otherwise only these usernames
-	UserSubpath  bool     `yaml:"user_subpath" json:"userSubpath"`    // When true, each user sees/writes only their own subdir
+	Name         string   `yaml:"name" json:"name"`                  // Display name shown in the UI ("HD Externo", "NAS")
+	Path         string   `yaml:"path" json:"path"`                  // Absolute path inside the container
+	AllowedUsers []string `yaml:"allowed_users" json:"allowedUsers"` // Empty = visible to all; otherwise only these usernames
+	UserSubpath  bool     `yaml:"user_subpath" json:"userSubpath"`   // When true, each user sees/writes only their own subdir
 }
 
 type NotificationsConfig struct {
@@ -393,7 +393,6 @@ func applyEnvInt64MB(target *int64, name string) {
 	}
 }
 
-
 // envInt lê uma env var inteira. Retorna (0,false) se ausente ou inválida.
 func envInt(name string) (int, bool) {
 	v := os.Getenv(name)
@@ -581,7 +580,10 @@ func (cfg *Config) appendOpenCodeSlot(chain []AIChainSlot) []AIChainSlot {
 		return chain
 	}
 	models := fetchModels(p.BaseURL, p.APIKey)
-	m := pickModel(models, "deepseek-v4-flash-free", "big-pickle")
+	// Prefer a free Zen model; fall through to matchFreeModel (any "-free"). Never
+	// default to a paid frontier model (e.g. "big-pickle") — Zen bills credits per
+	// call and the default slot is also what the benchmark runs.
+	m := pickModel(models, "deepseek-v4-flash-free")
 	if m != "" {
 		chain = append(chain, AIChainSlot{ID: "zen-" + m, Provider: "opencode", Model: m})
 	}

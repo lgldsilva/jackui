@@ -228,7 +228,7 @@ func (c *Client) identifyWithSlot(ctx context.Context, s Slot, rawName string) (
 	}
 	res, perr := parseTitleJSON(content)
 	if perr != nil {
-		return nil, latency, perr
+		return nil, latency, fmt.Errorf("%w: %v", errBadOutput, perr)
 	}
 	return res, latency, nil
 }
@@ -245,7 +245,7 @@ func (c *Client) metadataWithSlot(ctx context.Context, s Slot, rawName string) (
 	}
 	res, perr := parseRenameJSON(content)
 	if perr != nil {
-		return nil, latency, perr
+		return nil, latency, fmt.Errorf("%w: %v", errBadOutput, perr)
 	}
 	return res, latency, nil
 }
@@ -253,12 +253,21 @@ func (c *Client) metadataWithSlot(ctx context.Context, s Slot, rawName string) (
 // ─── OpenAI-compatible /chat/completions ─────────────────────────────────────
 
 type chatReq struct {
-	Model          string        `json:"model"`
-	Messages       []chatMessage `json:"messages"`
-	Temperature    float64       `json:"temperature"`
-	MaxTokens      int           `json:"max_tokens"`
-	ResponseFormat *respFormat   `json:"response_format,omitempty"`
+	Model           string        `json:"model"`
+	Messages        []chatMessage `json:"messages"`
+	Temperature     float64       `json:"temperature"`
+	MaxTokens       int           `json:"max_tokens"`
+	ResponseFormat  *respFormat   `json:"response_format,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
 }
+
+// maxOutputTokens caps the reply. It has to be generous because reasoning models
+// (gpt-oss, o-series) spend this same budget on chain-of-thought tokens BEFORE
+// emitting the JSON — with only 200 they ran out mid-reasoning and Groq returned
+// 400 "max completion tokens reached before generating a valid document". The cap
+// doesn't slow models that finish early (the JSON we want is ~40 tokens); it just
+// stops a reasoner from erroring. See https://console.groq.com/docs/reasoning.
+const maxOutputTokens = 1024
 
 // respFormat forces JSON output on providers that support it (Groq/OpenRouter/
 // Ollama OpenAI-compat). Set only for title identification, not the plain-text
@@ -285,6 +294,14 @@ type chatResp struct {
 var errRateLimited = errors.New("ai: rate limited")
 var errModelNotFound = errors.New("ai: model not found")
 var errInsufficientBalance = errors.New("ai: saldo insuficiente")
+
+// errBadOutput marks "the model responded but produced no usable answer" — a
+// genuine quality failure of THIS model on THIS input (HTTP 400 json_validate_failed,
+// or content we couldn't parse), as opposed to a transient/infra problem (rate
+// limit, 5xx, network). The benchmark scores a bad output as a 0-accuracy case
+// instead of silently skipping it, so a model that fails some cases can't show a
+// clean 100% next to a failure reason.
+var errBadOutput = errors.New("ai: model produced no usable output")
 
 func isRateLimit(err error) bool { return errors.Is(err, errRateLimited) }
 
@@ -337,7 +354,7 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 	reqBody := chatReq{
 		Model:       s.Model,
 		Temperature: 0, // deterministic — we want the same title every time
-		MaxTokens:   200,
+		MaxTokens:   maxOutputTokens,
 		Messages: []chatMessage{
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
@@ -345,6 +362,14 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 	}
 	if jsonMode {
 		reqBody.ResponseFormat = &respFormat{Type: "json_object"}
+	}
+	// gpt-oss are reasoning models: cap reasoning to "low" so the tiny JSON output
+	// is reached fast (keeps latency down) and the token budget isn't burned on
+	// chain-of-thought. Scoped to gpt-oss by name — Groq/OpenRouter honor it, and
+	// we deliberately don't send it to other families (e.g. Qwen3 uses a different
+	// reasoning knob, so a blanket value would be wrong there).
+	if strings.Contains(s.Model, "gpt-oss") {
+		reqBody.ReasoningEffort = "low"
 	}
 	body, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.BaseURL+"/chat/completions", bytes.NewReader(body))
@@ -374,6 +399,12 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 		}
 		if looksPaymentError(resp.StatusCode, string(raw)) {
 			return "", latency, fmt.Errorf("%w: %s/%s — sem saldo", errInsufficientBalance, s.Provider, s.Model)
+		}
+		// A 400 here is the vendor rejecting the model's own output (e.g. Groq's
+		// json_validate_failed) — a quality failure of this model, not a transient
+		// infra error like a 5xx. Mark it so the benchmark scores it as a 0.
+		if resp.StatusCode == http.StatusBadRequest {
+			return "", latency, fmt.Errorf("%w: %s returned 400: %s", errBadOutput, s.ID, strings.TrimSpace(string(raw)))
 		}
 		return "", latency, fmt.Errorf("ai: %s returned %d: %s", s.ID, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
