@@ -1,4 +1,4 @@
-import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useState } from 'react'
+import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useMemo, useState } from 'react'
 import {
   StreamProbe,
   TorrentInfo,
@@ -8,6 +8,7 @@ import {
   streamSidecars,
 } from '../../api/client'
 import { clientLog } from '../../lib/diag'
+import { fileKind } from '../../lib/playable'
 import { load, save } from '../../lib/storage'
 
 // Per-file subtitle choice persisted in localStorage (mirrors the type in
@@ -104,6 +105,37 @@ export function useAirPlay(videoRef: RefObject<HTMLVideoElement | null>, srcKey:
   }
 
   return { available, active, show }
+}
+
+export type MediaQueue = {
+  /** File indices of playable files of the SAME kind as the current one, in file order. */
+  readonly indices: number[]
+  /** Position of selectedFile inside `indices` (-1 if not in queue). */
+  readonly cursor: number
+  /** File index of the previous track/episode, or -1 at the start. */
+  readonly prevIdx: number
+  /** File index of the next track/episode, or -1 at the end. */
+  readonly nextIdx: number
+}
+
+// useMediaQueue builds the in-torrent track/episode queue for the file currently
+// playing: the playable files of the SAME kind (audio↔audio in an album,
+// video↔video in a series), in file order, with prev/next. 'other' files
+// (.nfo, .jpg) are excluded. Generalises the old `videoFileIndices` so audio
+// albums get track navigation too. Extracted from PlayerModal to ease the gate.
+export function useMediaQueue(info: TorrentInfo | null, selectedFile: number): MediaQueue {
+  return useMemo(() => {
+    const files = info?.files || []
+    const cur = selectedFile >= 0 ? files[selectedFile] : undefined
+    const curKind = cur ? fileKind(cur.path, cur.isVideo) : 'other'
+    const indices = curKind === 'other'
+      ? []
+      : files.filter(f => fileKind(f.path, f.isVideo) === curKind).map(f => f.index)
+    const cursor = indices.indexOf(selectedFile)
+    const prevIdx = cursor > 0 ? indices[cursor - 1] : -1
+    const nextIdx = cursor >= 0 && cursor < indices.length - 1 ? indices[cursor + 1] : -1
+    return { indices, cursor, prevIdx, nextIdx }
+  }, [info, selectedFile])
 }
 
 type MediaSessionOpts = {

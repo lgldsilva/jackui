@@ -39,6 +39,18 @@ export function detectKind(title: string, categoryId = 0): 'audio' | 'video' {
 }
 
 /**
+ * Kind of a single FILE inside a torrent (by path + the backend's isVideo flag).
+ * Used to build the in-torrent track/episode queue: navigation stays within the
+ * same kind (audio↔audio in an album, video↔video in a series). 'other' files
+ * (e.g. .nfo, .jpg) are excluded from the queue.
+ */
+export function fileKind(path: string, isVideo?: boolean): 'audio' | 'video' | 'other' {
+  if (isVideo || VIDEO_EXT_RE.test(path)) return 'video'
+  if (AUDIO_EXT_RE.test(path)) return 'audio'
+  return 'other'
+}
+
+/**
  * Heuristic: can we stream this torrent (video or audio) in our player?
  * Uses positive signals (allowlist of extensions/categories/hints).
  * Falls back to "yes" for unknown — better to offer than to hide.
