@@ -667,7 +667,9 @@ function VideoPlayerElement({
           // Áudio: a capa não precisa de tela cheia. Encolhe a faixa (mantendo a
           // largura total p/ a barra de controles nativa respirar) e o espaço
           // sobra vai pra lista de faixas abaixo — estilo "tela de álbum".
-          ? 'h-[14dvh] sm:h-[36dvh]'
+          // min-h garante espaço pros controles nativos (play/seek) não cortarem
+          // em telas pequenas; ainda bem menor que o 16:9 original → lista respira.
+          ? 'h-[20dvh] min-h-[152px] sm:h-[38dvh] sm:min-h-0'
           : 'max-h-[70dvh] sm:max-h-[58dvh]'
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
@@ -2734,6 +2736,17 @@ export default function PlayerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFileIndex])
 
+  // "Nenhum arquivo de vídeo": é só um aviso informativo — some sozinho após uns
+  // segundos pra não ocupar a tela permanentemente. Reaparece a cada torrent novo.
+  const [showNoVideoBanner, setShowNoVideoBanner] = useState(true)
+  useEffect(() => {
+    if (!info || info.files.some(f => f.isVideo)) return // tem vídeo → nem aparece
+    setShowNoVideoBanner(true)
+    const t = setTimeout(() => setShowNoVideoBanner(false), 8000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.infoHash])
+
   if (!result) return null
 
   const videoFiles = info?.files.filter(f => f.isVideo) || []
@@ -3043,9 +3056,9 @@ export default function PlayerModal({
           {/* Active stream */}
           {renderActiveStream()}
 
-          {/* No video files in torrent */}
-          {info && videoFiles.length === 0 && (
-            <div className="m-5 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+          {/* No video files in torrent — auto-dismisses after a few seconds. */}
+          {info && videoFiles.length === 0 && showNoVideoBanner && (
+            <div className="m-5 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl transition-opacity">
               <p className="flex items-center gap-2 text-yellow-400 font-medium">
                 <AlertCircle className="w-4 h-4" />
                 Nenhum arquivo de vídeo encontrado
