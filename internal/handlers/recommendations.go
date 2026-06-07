@@ -52,6 +52,13 @@ func recCacheGet(userID int, now time.Time) ([]recItem, bool) {
 
 func recCachePut(userID int, items []recItem, now time.Time) {
 	recCacheMu.Lock()
+	// Drop expired entries on write so the map can't grow unbounded across users
+	// (cheap: len is bounded by the user base, swept only on cache-miss writes).
+	for uid, e := range recCache {
+		if now.Sub(e.at) > recTTL {
+			delete(recCache, uid)
+		}
+	}
 	recCache[userID] = recCacheEntry{at: now, items: items}
 	recCacheMu.Unlock()
 }
