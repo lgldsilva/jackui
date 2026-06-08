@@ -548,6 +548,16 @@ export default function SearchPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, updateTab])
 
+  // Abort the in-flight search for a tab. Closing the EventSource cancels the
+  // request on the backend (the SSE handler watches c.Request.Context()), so the
+  // indexers stop being polled. Partial results already received stay on screen;
+  // the phase goes to 'done' (not 'error') since the stop was intentional.
+  const stopSearch = useCallback((tabId: string) => {
+    const es = esMap.current.get(tabId)
+    if (es) { es.close(); esMap.current.delete(tabId) }
+    updateTab(tabId, { phase: 'done' })
+  }, [updateTab])
+
   // Seed a search from ?q= (e.g. clicking a poster on the Discover page). Runs
   // once: fills the active tab's query, fires the search via the override (so it
   // doesn't wait for state to propagate), then clears the param so a refresh
@@ -943,6 +953,7 @@ export default function SearchPage() {
           onCategoryChange={cat => updateTab(activeTab.id, { selectedCategory: cat })}
           indexers={allIndexers}
           onSearch={() => handleSearch(activeTab.id)}
+          onStop={() => stopSearch(activeTab.id)}
           loading={isSearching}
           suggestions={historyQueries}
         />
