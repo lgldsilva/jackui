@@ -13,7 +13,57 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localstream"
 )
+
+func TestParseDurationSec(t *testing.T) {
+	cases := map[string]float64{"": 0, "nan": 0, "-3": 0, "0": 0, "12.5": 12.5, "120": 120}
+	for in, want := range cases {
+		if got := parseDurationSec(in); got != want {
+			t.Errorf("parseDurationSec(%q)=%v want %v", in, got, want)
+		}
+	}
+}
+
+func TestFirstFormatName(t *testing.T) {
+	cases := map[string]string{"": "", "matroska,webm": "matroska", "MOV,mp4": "mov", "Webm": "webm"}
+	for in, want := range cases {
+		if got := firstFormatName(in); got != want {
+			t.Errorf("firstFormatName(%q)=%q want %q", in, got, want)
+		}
+	}
+}
+
+func TestMountSourceAndCloseSource(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f.bin")
+	if err := os.WriteFile(p, []byte("abcdef"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	reg := localstream.NewRegistry(0)
+	defer reg.Close()
+
+	f, _ := os.Open(p)
+	src, key := mountSource(reg, "k-hls", f, 6)
+	if key != "k-hls" {
+		t.Fatalf("key=%q want k-hls", key)
+	}
+	if _, ok := reg.Get("k-hls"); !ok {
+		t.Fatal("mountSource did not register the session")
+	}
+	if _, isSession := src.(*localstream.Session); !isSession {
+		t.Fatal("expected a *localstream.Session source")
+	}
+	closeSource(reg, key, src, f)
+
+	// nil registry → raw file passthrough.
+	f2, _ := os.Open(p)
+	src2, key2 := mountSource(nil, "x", f2, 6)
+	if src2 != f2 || key2 != "x" {
+		t.Fatal("nil-reg mountSource should return the raw file unchanged")
+	}
+	closeSource(nil, key2, src2, f2)
+}
 
 // TestClassifyForBrowser pins the direct-play vs HLS decision so a future tweak
 // to the codec/container whitelist doesn't accidentally route MKV/HEVC through

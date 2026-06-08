@@ -173,6 +173,59 @@ func TestDeleteDuplicates_RemovesAndGuards(t *testing.T) {
 	}
 }
 
+func TestLocalDuplicatesDelete_Endpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	// "meus downloads" is the writable mount, so canModifyMount passes anon.
+	b := local.NewBrowser([]config.ExternalMount{{Name: "meus downloads", Path: dir}})
+	writeFile(t, filepath.Join(dir, "dup.mkv"), []byte("xx"))
+
+	r := gin.New()
+	r.POST("/d", LocalDuplicatesDelete(b, nil, nil))
+	req := httptest.NewRequest("POST", "/d", strings.NewReader(`{"mount":"meus downloads","paths":["dup.mkv"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Deleted int `json:"deleted"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Deleted != 1 {
+		t.Fatalf("deleted=%d want 1", resp.Deleted)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dup.mkv")); !os.IsNotExist(err) {
+		t.Fatal("file should be gone")
+	}
+}
+
+func TestLocalDuplicatesDelete_BadRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	b, _ := dedupBrowser(t)
+	r := gin.New()
+	r.POST("/d", LocalDuplicatesDelete(b, nil, nil))
+
+	// malformed JSON → 400
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/d", strings.NewReader("not json")))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed: status=%d want 400", w.Code)
+	}
+	// empty paths → 400
+	w = httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/d", strings.NewReader(`{"mount":"Test","paths":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("empty paths: status=%d want 400", w.Code)
+	}
+}
+
 func TestWithinBase(t *testing.T) {
 	base := filepath.Join(string(filepath.Separator), "mnt", "user")
 	if !withinBase(base, filepath.Join(base, "movies", "a.mkv")) {
