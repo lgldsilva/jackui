@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func TestRemoveEmptyDirs(t *testing.T) {
@@ -42,12 +42,12 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			t.Fatalf("expected %q to be removed", rel)
 		}
 	}
-	assertExists("keep", true)            // holds a file
-	assertExists("keep/film.mkv", true)   // file untouched
-	assertExists(".thumbs", true)         // hidden dir never touched
-	assertExists("empty", false)          // empty → gone
-	assertExists("nested", false)         // emptied bottom-up → gone
-	assertExists(".", true)               // mount root never removed
+	assertExists("keep", true)          // holds a file
+	assertExists("keep/film.mkv", true) // file untouched
+	assertExists(".thumbs", true)       // hidden dir never touched
+	assertExists("empty", false)        // empty → gone
+	assertExists("nested", false)       // emptied bottom-up → gone
+	assertExists(".", true)             // mount root never removed
 }
 
 func TestRemoveEmptyDirs_NeverRemovesMountRoot(t *testing.T) {

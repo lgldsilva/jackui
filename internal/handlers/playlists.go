@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/playlists"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/playlists"
 )
 
 // PlaylistsList handles GET /api/playlists

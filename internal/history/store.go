@@ -7,8 +7,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/luizg/jackui/internal/dbutil"
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 const queryUserClause = " AND user_id = ?"
@@ -261,7 +261,7 @@ func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResul
 		); err != nil {
 			continue
 		}
-		r.SavedAt= dbutil.ParseTime(savedAt)
+		r.SavedAt = dbutil.ParseTime(savedAt)
 		r.Cached = true
 		out = append(out, r)
 	}
@@ -317,7 +317,7 @@ func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) 
 			}
 			seenHash[r.InfoHash] = true
 		}
-		r.SavedAt= dbutil.ParseTime(savedAt)
+		r.SavedAt = dbutil.ParseTime(savedAt)
 		r.Cached = true
 		out = append(out, r)
 	}
@@ -361,7 +361,7 @@ func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, 
 		if err := rows.Scan(&e.Query, &e.ResultCount, &lastSeen); err != nil {
 			continue
 		}
-		e.LastSaved= dbutil.ParseTime(lastSeen)
+		e.LastSaved = dbutil.ParseTime(lastSeen)
 		out = append(out, e)
 	}
 	return out, rows.Err()

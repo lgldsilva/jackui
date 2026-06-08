@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/auth"
 )
 
 func TestMe_NoClaims(t *testing.T) {

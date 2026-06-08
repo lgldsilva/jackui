@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/local"
-	"github.com/luizg/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
 // LocalPlayResp tells the frontend HOW to load the source — either as a direct
@@ -25,11 +25,11 @@ import (
 // HLS playlist (we transcode on the fly). Mirrors the torrent-side decision so
 // the player can stay codec-agnostic.
 type LocalPlayResp struct {
-	Kind    string `json:"kind"`           // "direct" | "hls"
-	URL     string `json:"url"`            // ready-to-use URL with ?token= when applicable
-	Reason  string `json:"reason,omitempty"` // why HLS was chosen (codec/container) — debugging aid
-	VCodec  string `json:"vcodec,omitempty"`
-	ACodec  string `json:"acodec,omitempty"`
+	Kind      string `json:"kind"`             // "direct" | "hls"
+	URL       string `json:"url"`              // ready-to-use URL with ?token= when applicable
+	Reason    string `json:"reason,omitempty"` // why HLS was chosen (codec/container) — debugging aid
+	VCodec    string `json:"vcodec,omitempty"`
+	ACodec    string `json:"acodec,omitempty"`
 	Container string `json:"container,omitempty"`
 }
 
@@ -44,13 +44,13 @@ type LocalPlayResp struct {
 //     desktop).
 //   - AC3/EAC3/DTS audio → HLS (no browser plays these inline).
 var browserSafeContainers = map[string]bool{
-	"mp4":      true,
-	"m4v":      true,
-	"mov":      true,
-	"webm":     true,
-	"isom":     true, // ffprobe sometimes reports the brand
-	"mp42":     true,
-	"qt":       true,
+	"mp4":  true,
+	"m4v":  true,
+	"mov":  true,
+	"webm": true,
+	"isom": true, // ffprobe sometimes reports the brand
+	"mp42": true,
+	"qt":   true,
 }
 var browserSafeVideoCodecs = map[string]bool{
 	"h264": true,
@@ -58,9 +58,9 @@ var browserSafeVideoCodecs = map[string]bool{
 	"vp9":  true, // good Chrome support; Safari 14+ via WebM
 }
 var browserSafeAudioCodecs = map[string]bool{
-	"aac":  true,
-	"mp3":  true,
-	"opus": true,
+	"aac":    true,
+	"mp3":    true,
+	"opus":   true,
 	"vorbis": true,
 }
 
@@ -68,7 +68,7 @@ var browserSafeAudioCodecs = map[string]bool{
 // plus the FIRST video and audio codec names. Fast (a few hundred ms typical);
 // happens once when the user clicks Play.
 type localProbe struct {
-	Container string
+	Container  string
 	VideoCodec string
 	AudioCodec string
 }

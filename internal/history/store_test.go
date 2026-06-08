@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 	_ "modernc.org/sqlite"
 )
 

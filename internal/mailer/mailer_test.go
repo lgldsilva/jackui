@@ -3,7 +3,7 @@ package mailer
 import (
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func TestNew(t *testing.T) {

@@ -3,7 +3,7 @@ package downloader
 import (
 	"fmt"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 // Client defines the interface for download clients

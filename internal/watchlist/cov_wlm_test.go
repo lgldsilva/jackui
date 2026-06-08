@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 // wlmErrSearcher always fails — exercises processOne's search-error branch.

@@ -5,13 +5,13 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/history"
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/middleware"
-	"github.com/luizg/jackui/internal/parser"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/history"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/parser"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // searchResult é o que o /api/search devolve por item. Estende
@@ -25,12 +25,12 @@ import (
 //     do usuário, eliminando o ResultCard ter que manter Sets module-scope
 type searchResult struct {
 	jackett.Result
-	Cached       bool            `json:"cached"`
-	Quality      parser.Quality  `json:"quality"`
-	Playable     bool            `json:"playable"`
+	Cached       bool             `json:"cached"`
+	Quality      parser.Quality   `json:"quality"`
+	Playable     bool             `json:"playable"`
 	MediaKind    parser.MediaKind `json:"mediaKind"`
-	IsFavorited  bool            `json:"isFavorited"`
-	IsDownloaded bool            `json:"isDownloaded"`
+	IsFavorited  bool             `json:"isFavorited"`
+	IsDownloaded bool             `json:"isDownloaded"`
 }
 
 // resultEnricher pré-carrega os sets de favorites/downloads do usuário uma

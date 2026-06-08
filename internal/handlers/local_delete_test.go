@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/local"
 )
 
 // TestLocalDeleteRemovesLinkedTorrent verifies that deleting a local file also

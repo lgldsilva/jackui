@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/luizg/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/ai"
 )
 
 const errAIDisabled = "AI chain disabled"

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func newTestStore(t *testing.T) *downloads.Store {
@@ -31,7 +31,7 @@ func TestSessionGet(t *testing.T) {
 	h := &Handler{
 		dataDir:     "/data/streams",
 		downloadDir: "/data/downloads",
-		sessions: make(map[string]int),
+		sessions:    make(map[string]int),
 	}
 	gin.SetMode(gin.ReleaseMode)
 
@@ -856,9 +856,9 @@ func TestTrackerHost(t *testing.T) {
 
 func TestBuildFiles_Empty(t *testing.T) {
 	v := torrentView{
-		d: downloads.Download{Name: "test", BytesDownloaded: 500},
+		d:         downloads.Download{Name: "test", BytesDownloaded: 500},
 		totalSize: 1000,
-		files: nil,
+		files:     nil,
 	}
 	result := buildFiles(v)
 	if len(result) != 1 {
@@ -1392,7 +1392,7 @@ func TestBuildTorrent_UploadRatio_NoTorrent(t *testing.T) {
 
 	d := downloads.Download{
 		ID: 5, InfoHash: "abc123", Name: "Test",
-		Status: downloads.StatusCompleted,
+		Status:    downloads.StatusCompleted,
 		CreatedAt: time.Now(),
 	}
 

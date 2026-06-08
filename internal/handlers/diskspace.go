@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"github.com/luizg/jackui/internal/diskutil"
-	"github.com/luizg/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/diskutil"
+	"github.com/lgldsilva/jackui/internal/local"
 )
 
 // mountWithSpace is a Mount enriched with the free/total bytes of the

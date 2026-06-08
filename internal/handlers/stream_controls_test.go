@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // streamRouter wires every Transmission-style endpoint to a fresh streamer

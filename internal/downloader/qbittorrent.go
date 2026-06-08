@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 type QBittorrent struct {

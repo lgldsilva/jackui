@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func newStreamerWithFavs(t *testing.T) *streamer.Streamer {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func TestMounts_EmptyReturnsPublic(t *testing.T) {

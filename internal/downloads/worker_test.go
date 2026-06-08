@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // The downloads worker has its own ntfy sender (separate from the watchlist's);

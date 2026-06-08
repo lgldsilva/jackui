@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -58,7 +58,7 @@ type ListFilter struct {
 type Download struct {
 	ID              int        `json:"id"`
 	UserID          int        `json:"userId"`
-	Username        string     `json:"username,omitempty"`   // populated only for admin listing
+	Username        string     `json:"username,omitempty"` // populated only for admin listing
 	InfoHash        string     `json:"infoHash"`
 	FileIndex       int        `json:"fileIndex"`
 	FilePath        string     `json:"filePath"`
@@ -70,22 +70,22 @@ type Download struct {
 	Status          string     `json:"status"`
 	BytesDownloaded int64      `json:"bytesDownloaded"`
 	Progress        float64    `json:"progress"`
-	DownRate        int64      `json:"downRate,omitempty"`   // bytes/sec, populated by handler
-	ETA             int        `json:"eta,omitempty"`         // remaining seconds, populated by handler
+	DownRate        int64      `json:"downRate,omitempty"` // bytes/sec, populated by handler
+	ETA             int        `json:"eta,omitempty"`      // remaining seconds, populated by handler
 	StartedAt       *time.Time `json:"startedAt"`
 	CompletedAt     *time.Time `json:"completedAt"`
 	Error           string     `json:"error"`
 	CreatedAt       time.Time  `json:"createdAt"`
 	// Promoted is true when the file has been moved outside the download dir (computed, not stored).
-	Promoted        bool       `json:"promoted,omitempty"`
+	Promoted bool `json:"promoted,omitempty"`
 	// Queue scheduling fields.
-	Priority        string     `json:"priority"`                  // high/normal/low
-	Stalls          int        `json:"stalls,omitempty"`          // times demoted for no-seed
-	QueuedSince     *time.Time `json:"queuedSince,omitempty"`     // base for fair ordering + aging
-	QueuePosition   int        `json:"queuePosition,omitempty"`   // 1-based rank among the user's queued rows (computed by handler)
+	Priority      string     `json:"priority"`                // high/normal/low
+	Stalls        int        `json:"stalls,omitempty"`        // times demoted for no-seed
+	QueuedSince   *time.Time `json:"queuedSince,omitempty"`   // base for fair ordering + aging
+	QueuePosition int        `json:"queuePosition,omitempty"` // 1-based rank among the user's queued rows (computed by handler)
 	// Source rotation (Phase 2): the magnet currently active when it differs from
 	// the original (an alternative source). Empty = downloading the original.
-	ActiveMagnet    string     `json:"activeMagnet,omitempty"`
+	ActiveMagnet string `json:"activeMagnet,omitempty"`
 }
 
 // EffectiveMagnet returns the magnet the worker should download: the active
@@ -430,7 +430,7 @@ func (s *Store) ListActive() ([]Download, error) {
 // "protected from eviction" set on startup (any non-final entry should keep
 // its torrent data on disk).
 func (s *Store) ListAll() ([]Download, error) {
-	rows, err := s.db.Query(dlSelect+"ORDER BY id")
+	rows, err := s.db.Query(dlSelect + "ORDER BY id")
 	if err != nil {
 		return nil, err
 	}

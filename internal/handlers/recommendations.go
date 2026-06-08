@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/library"
-	"github.com/luizg/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 // recItem is a recommended title plus why it surfaced. Embeds tmdb.Match so the

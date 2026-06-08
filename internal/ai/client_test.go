@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func TestRateLimitBackoff(t *testing.T) {

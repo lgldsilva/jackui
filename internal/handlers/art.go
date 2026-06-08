@@ -10,10 +10,10 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 
-	"github.com/luizg/jackui/internal/ai"
-	"github.com/luizg/jackui/internal/imagesearch"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/imagesearch"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 // artNegativeTTL bounds how long a "no art found" marker suppresses re-running
