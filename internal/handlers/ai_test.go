@@ -295,3 +295,71 @@ func TestRunAIBenchmarkIncomplete_RerunsIncomplete(t *testing.T) {
 		}
 	}
 }
+
+func TestRunAIBenchmark_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"title\":\"Inception\",\"year\":2010,\"kind\":\"movie\"}"}}]}`))
+	}))
+	defer srv.Close()
+
+	client := ai.New(config.AIConfig{
+		Enabled:   true,
+		Providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}},
+		Chain:     []config.AIChainSlot{{ID: "groq:m", Provider: "groq", Model: "m"}},
+	})
+	if client == nil {
+		t.Fatal("client nil")
+	}
+	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCases([]ai.BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Run all (no query params)
+	{
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark", nil)
+		RunAIBenchmark(client, store)(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// 2. Run with query params provider & model
+	{
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark?provider=groq&model=m", nil)
+		RunAIBenchmark(client, store)(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// 3. Run with query param provider (no model)
+	{
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark?provider=groq", nil)
+		RunAIBenchmark(client, store)(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// 4. Run with query param model (no provider)
+	{
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark?model=m", nil)
+		RunAIBenchmark(client, store)(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+		}
+	}
+}
