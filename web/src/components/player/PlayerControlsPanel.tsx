@@ -1,5 +1,6 @@
 import { X, Loader2, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Upload, Laptop, Download } from 'lucide-react'
-import { TorrentInfo, Subtitle, StreamProbe, SidecarSubtitle } from '../../api/client'
+import { TorrentInfo, Subtitle, StreamProbe, SidecarSubtitle, isLocalHash } from '../../api/client'
+import { LocalCacheButton } from './LocalCacheButton'
 import { formatRate } from '../../lib/format'
 import { formatSize, subtitleButtonTitle, subtitleBtnClass, serverDownloadIcon, SPEED_OPTIONS } from './playerFormat'
 import { MediaNavButtons } from './PlayerOverlays'
@@ -339,21 +340,27 @@ export function PlayerControlsPanel({
             <ExternalLink className="w-3.5 h-3.5" />
             VLC
           </a>
-          <button
-            onClick={handleServerDownload}
-            disabled={serverDownloadLoading || serverDownloadSuccess}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
-              serverDownloadSuccess
-                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                : 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
-            }`}
-            title="Salvar download completo no servidor (Background Download)"
-          >
-            {serverDownloadIcon(serverDownloadLoading, serverDownloadSuccess)}
-            <span>
-              {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
-            </span>
-          </button>
+          {isLocalHash(info.infoHash) ? (
+            // Local/rclone file: there's no torrent to "baixar no servidor".
+            // Instead, cache the whole file to local disk (instant + seekable).
+            <LocalCacheButton hash={info.infoHash} />
+          ) : (
+            <button
+              onClick={handleServerDownload}
+              disabled={serverDownloadLoading || serverDownloadSuccess}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
+                serverDownloadSuccess
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
+              }`}
+              title="Salvar download completo no servidor (Background Download)"
+            >
+              {serverDownloadIcon(serverDownloadLoading, serverDownloadSuccess)}
+              <span>
+                {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
+              </span>
+            </button>
+          )}
           {globalThis.electronAPI && (
             <button
               onClick={handleLocalDownload}

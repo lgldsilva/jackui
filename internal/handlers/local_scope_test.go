@@ -47,7 +47,7 @@ func setUpLocalScopeMount(t *testing.T) (*local.Browser, string) {
 func newLocalRouter(b *local.Browser, claims *auth.Claims) *gin.Engine {
 	r := gin.New()
 	r.Use(withClaims(claims))
-	r.GET("/api/local/file", LocalFile(b, nil))
+	r.GET("/api/local/file", LocalFile(b, nil, nil))
 	r.GET("/api/local/play", LocalPlay(b))
 	return r
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -137,7 +138,7 @@ func listHandleError(b *local.Browser, c *gin.Context, err error) {
 // Serves via http.ServeContent over a metered, read-ahead Session (Range
 // requests preserved) so the UI can report transfer speed and rclone/Drive
 // mounts get aligned reads. reg may be nil (falls back to a plain stream).
-func LocalFile(b *local.Browser, reg *localstream.Registry) gin.HandlerFunc {
+func LocalFile(b *local.Browser, reg *localstream.Registry, cache *localcache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -155,6 +156,8 @@ func LocalFile(b *local.Browser, reg *localstream.Registry) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// Prefer the locally-cached copy when ready: fast disk, no rclone EIO.
+		abs = cachedAbs(cache, mount, scoped, abs)
 
 		if !statLocalFile(c, abs) {
 			return

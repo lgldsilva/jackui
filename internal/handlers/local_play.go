@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
@@ -313,7 +314,7 @@ func isAudioByExt(path string) bool {
 	return false
 }
 
-func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *localstream.Registry) gin.HandlerFunc {
+func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *localstream.Registry, cache *localcache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -328,17 +329,9 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		// UserSubpath mounts); it also keys the HLS session so two users with
 		// same-named files don't collide. path stays logical for the seg URLs.
 		scoped := scopePath(b, c, mount, path)
-		abs, stat, err := resolveLocalFileStat(b, mount, scoped)
-		if err != nil || abs == "" {
+		abs, stat, knownDur, ok := resolveLocalHLSInput(c, b, cache, mount, scoped)
+		if !ok {
 			return
-		}
-		// Probe the duration directly off the file (fast on local disk; bounded by
-		// a 10s timeout on rclone) and hand it to the session so it skips the 30s
-		// seekable probe — which today runs on EVERY local HLS session and is a
-		// big chunk of the "Gdrive play is slow to load" symptom.
-		knownDur := 0.0
-		if probe, perr := probeLocalFile(c.Request.Context(), abs); perr == nil {
-			knownDur = probe.DurationSec
 		}
 		sess, err := startLocalHLSSession(c, mgr, reg, mount, scoped, abs, stat, nativeHLSParam(c), knownDur)
 		if err != nil {
@@ -350,6 +343,26 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), nativeHLSParam(c))
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
+}
+
+// resolveLocalHLSInput resolves the file the HLS session should transcode:
+// prefers the cached local copy when ready (fast disk, no rclone EIO), and
+// probes the duration off it so the session can skip the slow 30s seekable
+// probe (the rclone "slow to load" win). Returns ok=false (after writing any
+// error) when the file can't be resolved.
+func resolveLocalHLSInput(c *gin.Context, b *local.Browser, cache *localcache.Cache, mount, scoped string) (string, os.FileInfo, float64, bool) {
+	abs, stat, err := resolveLocalFileStat(b, mount, scoped)
+	if err != nil || abs == "" {
+		return "", nil, 0, false
+	}
+	if cp, ok := cacheReady(cache, mount, scoped); ok {
+		abs, stat = cp.abs, cp.stat
+	}
+	knownDur := 0.0
+	if probe, perr := probeLocalFile(c.Request.Context(), abs); perr == nil {
+		knownDur = probe.DurationSec
+	}
+	return abs, stat, knownDur, true
 }
 
 func resolveLocalFileStat(b *local.Browser, mount, path string) (string, os.FileInfo, error) {
