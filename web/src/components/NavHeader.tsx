@@ -170,11 +170,15 @@ export default function NavHeader({ rightExtra }: Props) {
           there (they're back on expand); keep the user badge, which shrinks to
           its icon. md:hidden only affects desktop, so the mobile drawer (always
           expanded) still shows everything. */}
-      <div className={`flex-shrink-0 border-t border-default/60 p-2 flex flex-col gap-2 safe-bottom overflow-hidden ${collapsed ? 'md:items-center' : ''}`}>
+      {/* SEM overflow-hidden: o dropdown do UserBadge abre pra cima (bottom-full)
+          e era clipado por aqui; os toggles, quando colapsados, empilham na
+          vertical (md:flex-col abaixo) em vez de vazar a rail estreita. */}
+      <div className={`flex-shrink-0 border-t border-default/60 p-2 flex flex-col gap-2 safe-bottom ${collapsed ? 'md:items-center' : ''}`}>
         {/* Tema + incógnito: só na sidebar do DESKTOP. No mobile a barra de topo
             já tem esses toggles, então escondemos a linha aqui (hidden) p/ não
-            duplicar no drawer; md:flex traz de volta no desktop, que não tem topo. */}
-        <div className={`hidden md:flex items-center gap-2 ${collapsed ? 'md:justify-center' : ''}`}>
+            duplicar no drawer; md:flex traz de volta no desktop, que não tem topo.
+            Colapsado: empilha vertical (md:flex-col) p/ caber na rail de 64px. */}
+        <div className={`hidden md:flex items-center gap-2 ${collapsed ? 'md:flex-col md:justify-center' : ''}`}>
           <ThemeToggle variant="sidebar" />
           {incognitoToggle('sidebar')}
           {incognito && !collapsed && (
