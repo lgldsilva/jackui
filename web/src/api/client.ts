@@ -519,14 +519,22 @@ export type AIStatus = {
   results: AISlotScore[]
   cases: AIBenchmarkCase[]
   cost: AICostConfig
+  providers?: string[]
 }
 
 export const aiBenchmarkStatus = async (): Promise<AIStatus> => {
   const { data } = await api.get<AIStatus>('/ai/benchmark')
   return data
 }
-export const runAIBenchmark = async (): Promise<AISlotScore[]> => {
-  const { data } = await api.post<{ results: AISlotScore[] }>('/ai/benchmark')
+export const runAIBenchmark = async (provider?: string, model?: string): Promise<AISlotScore[]> => {
+  let url = '/ai/benchmark'
+  const params = new URLSearchParams()
+  if (provider) params.append('provider', provider)
+  if (model) params.append('model', model)
+  const query = params.toString()
+  if (query) url += `?${query}`
+
+  const { data } = await api.post<{ results: AISlotScore[] }>(url)
   return data.results || []
 }
 // Updates the cost knobs (ceiling, energy tariff, GPU watts) live + persisted.

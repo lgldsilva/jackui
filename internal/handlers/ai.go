@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,11 +15,12 @@ const errAIDisabled = "AI chain disabled"
 
 // aiStatusResponse is the read model for the Settings AI card.
 type aiStatusResponse struct {
-	Enabled bool               `json:"enabled"`
-	Chain   []aiSlotView       `json:"chain"`
-	Results []ai.SlotScore     `json:"results"`
-	Cases   []ai.BenchmarkCase `json:"cases"`
-	Cost    ai.CostConfig      `json:"cost"`
+	Enabled   bool               `json:"enabled"`
+	Chain     []aiSlotView       `json:"chain"`
+	Results   []ai.SlotScore     `json:"results"`
+	Cases     []ai.BenchmarkCase `json:"cases"`
+	Cost      ai.CostConfig      `json:"cost"`
+	Providers []string           `json:"providers"`
 }
 
 type aiSlotView struct {
@@ -37,6 +39,7 @@ func GetAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 				resp.Chain = append(resp.Chain, aiSlotView{ID: s.ID, Provider: s.Provider, Model: s.Model})
 			}
 			resp.Cost = client.CostConfig()
+			resp.Providers = client.Providers()
 		}
 		if store != nil {
 			resp.Results = store.Results()
@@ -59,6 +62,9 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
 			return
 		}
+		provider := c.Query("provider")
+		model := c.Query("model")
+
 		var cases []ai.BenchmarkCase
 		if store != nil {
 			cases = store.Cases()
@@ -66,29 +72,71 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 
-		// Chain slots + discovered models across all providers (local Ollama +
-		// Groq's models + OpenRouter free models), deduped against the chain.
-		slots := client.Slots()
-		slots = append(slots, client.DiscoverModels(ctx)...)
-		// Drop models we're not allowed to pay for (cost > ceiling, or unknown cost)
-		// before scoring — with the default ceiling of 0 this is free-only, so we
-		// never spend; it also purges paid leftovers a pre-filter run adopted (e.g.
-		// a Zen "big-pickle").
+		var slots []ai.Slot
+		for _, s := range client.Slots() {
+			if (provider == "" || s.Provider == provider) && (model == "" || s.Model == model) {
+				slots = append(slots, s)
+			}
+		}
+		if model != "" {
+			var discovered []ai.Slot
+			if provider == "" {
+				discovered = client.DiscoverModels(ctx)
+			} else {
+				discovered = client.DiscoverModelsForProvider(ctx, provider)
+			}
+			for _, s := range discovered {
+				if s.Model == model {
+					slots = append(slots, s)
+				}
+			}
+		} else {
+			if provider == "" {
+				slots = append(slots, client.DiscoverModels(ctx)...)
+			} else {
+				slots = append(slots, client.DiscoverModelsForProvider(ctx, provider)...)
+			}
+		}
 		slots = client.AffordableSlots(slots)
+		slots = dedupeSlots(slots)
 
 		scores := client.RunSlots(ctx, slots, cases)
+
+		var merged []ai.SlotScore
 		if store != nil {
-			if err := store.SaveResults(scores); err != nil {
+			if provider != "" || model != "" {
+				// Map existing scores by SlotID
+				existingMap := make(map[string]ai.SlotScore)
+				for _, s := range store.Results() {
+					existingMap[s.SlotID] = s
+				}
+				// Overwrite/insert new scores
+				for _, s := range scores {
+					existingMap[s.SlotID] = s
+				}
+				// Rebuild merged slice
+				for _, s := range existingMap {
+					merged = append(merged, s)
+				}
+				// Sort merged by Composite descending
+				sort.SliceStable(merged, func(i, j int) bool {
+					return merged[i].Composite > merged[j].Composite
+				})
+			} else {
+				merged = scores
+			}
+
+			if err := store.SaveResults(merged); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
+		} else {
+			merged = scores
 		}
-		// Adopt the ranking as the live chain: best model first, every working
-		// model (incl. discovered free locals) kept as fallback. The breaker then
-		// skips a rate-limited vendor at runtime, falling through to the next.
-		client.AdoptBenchmark(scores)
 
-		c.JSON(http.StatusOK, gin.H{"results": scores})
+		client.AdoptBenchmark(merged)
+
+		c.JSON(http.StatusOK, gin.H{"results": merged})
 	}
 }
 
@@ -172,4 +220,16 @@ func PutAICostConfig(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFun
 		}
 		c.JSON(http.StatusOK, gin.H{"cost": client.CostConfig()})
 	}
+}
+
+func dedupeSlots(slots []ai.Slot) []ai.Slot {
+	seen := make(map[string]bool)
+	var out []ai.Slot
+	for _, s := range slots {
+		if !seen[s.ID] {
+			seen[s.ID] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }

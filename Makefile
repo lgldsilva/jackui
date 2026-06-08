@@ -34,7 +34,7 @@ IMAGE_VAAPI    := jackui:vaapi
 GIT_COMMIT     := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 BUILD_TIME     := $(shell date +%s)
 APP_VERSION    := $(shell bash scripts/semver.sh 2>/dev/null || git describe --tags --always 2>/dev/null || echo dev)
-VERSION_PKG    := github.com/luizg/jackui/internal/version
+VERSION_PKG    := github.com/lgldsilva/jackui/internal/version
 GO_LDFLAGS     := -X $(VERSION_PKG).Commit=$(GIT_COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME) -X $(VERSION_PKG).Version=$(APP_VERSION)
 # Build-args reused by every `docker build` target below.
 BUILD_ARGS     := --build-arg BUILD_TIMESTAMP="$(BUILD_TIME)" --build-arg GIT_COMMIT="$(GIT_COMMIT)" --build-arg APP_VERSION="$(APP_VERSION)"
@@ -239,9 +239,28 @@ probe-gpu:
 	@ssh $(DEPLOY_HOST) "curl -s http://localhost:8989/api/transcode/capabilities?refresh=1" | python3 -m json.tool
 
 # ─────────────────────────────────────────
+# verificação e instalação de dependências
+# ─────────────────────────────────────────
+_check-go:
+	@command -v go >/dev/null 2>&1 || { printf "$(YELLOW)Erro: Go não está instalado. Por favor, instale o Go SDK (go >= 1.22).$(RESET)\n"; exit 1; }
+
+_check-npm:
+	@command -v npm >/dev/null 2>&1 || { printf "$(YELLOW)Erro: npm não está instalado. Por favor, instale o Node.js e o npm.$(RESET)\n"; exit 1; }
+
+web/node_modules: _check-npm web/package.json
+	$(call step,web/node_modules não encontrado ou desatualizado. Executando npm install no frontend...)
+	@cd web && npm install
+	@touch web/node_modules
+
+node_modules: _check-npm package.json
+	$(call step,node_modules não encontrado ou desatualizado. Executando npm install...)
+	@npm install
+	@touch node_modules
+
+# ─────────────────────────────────────────
 # build local (binário sem Docker)
 # ─────────────────────────────────────────
-build:
+build: _check-go web/node_modules
 	$(call step,[1/2] Compilando frontend...)
 	@cd web && npm run build
 	$(call ok,Frontend pronto em ui/dist/)
@@ -257,10 +276,10 @@ clean:
 # ─────────────────────────────────────────
 # desenvolvimento
 # ─────────────────────────────────────────
-dev-frontend:
+dev-frontend: web/node_modules
 	@cd web && npm run dev
 
-dev-backend:
+dev-backend: _check-go
 	@go run ./cmd/server
 
 # ─────────────────────────────────────────
@@ -271,14 +290,11 @@ dev-backend:
 # 1. Build the React frontend (so Go embeds the latest)
 # 2. Run Go server in background
 # 3. Run Electron pointing to Go server
-dev-electron:
-	$(call step,[1/3] Compilando frontend...)
+dev-electron: _check-go web/node_modules node_modules
+	$(call step,[1/2] Compilando frontend...)
 	@cd web && npm run build
 	$(call ok,Frontend pronto)
-	$(call step,[2/3] Instalando deps do Electron se necessário...)
-	@npm install --silent 2>/dev/null || true
-	$(call ok,Deps prontas)
-	$(call step,[3/3] Iniciando Go + Electron...)
+	$(call step,[2/2] Iniciando Go + Electron...)
 	@npm run dev
 
 # build-electron: produce distributable packages (.dmg / .exe / .AppImage).
