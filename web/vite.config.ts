@@ -9,7 +9,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8989'
+      '/api': 'http://localhost:8989',
+      // /status is a root endpoint (build metadata), not under /api.
+      '/status': 'http://localhost:8989'
     }
   }
 })

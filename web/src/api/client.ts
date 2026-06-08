@@ -123,6 +123,24 @@ export const getIndexers = async (): Promise<Indexer[]> => {
   return data
 }
 
+export type SystemStatus = {
+  status: string
+  version: string
+  commit: string
+  buildTime: string
+  goVersion: string
+  db: string
+  time: string
+}
+
+// Build metadata served by GET /status (a public ROOT endpoint, not under /api).
+// Plain fetch: it needs no auth header and lives outside the api baseURL.
+export const getStatus = async (): Promise<SystemStatus> => {
+  const res = await fetch('/status')
+  if (!res.ok) throw new Error(`status ${res.status}`)
+  return res.json()
+}
+
 export const getClients = async (): Promise<DownloadClient[]> => {
   const { data } = await api.get<DownloadClient[]>('/clients')
   return data
