@@ -31,6 +31,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/playlists"
@@ -115,6 +116,7 @@ type appDeps struct {
 	mlr            *mailer.Mailer
 	promoteDests   []handlers.PromoteDest
 	hlsMgr         *transcode.HLSSessionManager
+	localStream    *localstream.Registry
 	cleanup        []func()
 }
 
@@ -134,6 +136,8 @@ func main() {
 	jackettClient := jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
 	deps.jackettClient = jackettClient
 	deps.localBrowser = local.NewBrowser(deps.cfg.External.Mounts)
+	deps.localStream = localstream.NewRegistry(deps.cfg.External.LocalReadaheadMB)
+	deps.addCleanup(deps.localStream.Close)
 	deps.webSearch = imagesearch.Default()
 	deps.mlr = mailer.New(deps.cfg.SMTP)
 
@@ -893,7 +897,8 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/mounts", handlers.LocalMounts(deps.localBrowser))
 	api.GET("/local/list", handlers.LocalList(deps.localBrowser))
-	api.GET("/local/file", handlers.LocalFile(deps.localBrowser))
+	api.GET("/local/file", handlers.LocalFile(deps.localBrowser, deps.localStream))
+	api.GET("/local/transfer-status", handlers.LocalTransferStatus(deps.localBrowser, deps.localStream))
 	api.GET("/local/thumb", handlers.LocalThumb(deps.localBrowser))
 	api.GET("/local/transcode", handlers.LocalTranscode(deps.localBrowser))
 	api.DELETE("/local/file", handlers.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
@@ -949,7 +954,7 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	}
 	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr))
+	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream))
 	api.GET("/local/hls/seg", handlers.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
 	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
 	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))

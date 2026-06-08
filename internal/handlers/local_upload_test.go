@@ -176,7 +176,7 @@ func TestLocalFile_SecurityHeaders(t *testing.T) {
 		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "admin", Role: auth.RoleAdmin})
 		c.Next()
 	})
-	router.GET("/api/local/file", LocalFile(b))
+	router.GET("/api/local/file", LocalFile(b, nil))
 
 	cases := []struct {
 		name, file, wantType, wantDisp string

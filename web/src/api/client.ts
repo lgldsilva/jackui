@@ -242,6 +242,9 @@ export type TorrentInfo = {
   status?: 'downloading' | 'paused' | 'seeding' | 'complete'
   priority?: 'low' | 'normal' | 'high' | ''
   trackers?: string[]
+  // stalled is set for local files served from a slow/rclone mount: the stream
+  // is open but no bytes have flowed recently (waiting on the network).
+  stalled?: boolean
 }
 
 // ─── Local file source (pseudo-hash routing) ─────────────────────────────
@@ -396,6 +399,46 @@ async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
   }
 }
 
+// localStreamInfo is the poll-time refresh for a local file. Unlike
+// synthesizeLocalInfo it does NOT re-run localPlay (ffprobe) every tick — it
+// reuses the URL resolved on the first add and only hits the cheap
+// transfer-status endpoint, mapping throughput onto the TorrentInfo the player
+// already understands (ratePerSec→downRate, bytesRead/size→progress). Falls
+// back to a full synthesize when the URL hasn't been resolved yet.
+async function localStreamInfo(hash: string): Promise<TorrentInfo> {
+  const loc = parseLocalHash(hash)
+  if (!loc) throw new Error('invalid local hash')
+  if (!localPlayableURLCache.has(hash)) return synthesizeLocalInfo(hash)
+
+  const st = await localTransferStatus(loc.mount, loc.path)
+  const size = st?.size ?? 0
+  const bytesRead = st?.bytesRead ?? 0
+  const progress = size > 0 ? Math.min(1, bytesRead / size) : 1
+  const name = loc.path.split('/').pop() || loc.path
+  const file: StreamFile = {
+    index: 0,
+    path: loc.path,
+    size,
+    isVideo: !/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(loc.path),
+    downloaded: bytesRead,
+    progress,
+    priority: 'normal',
+  }
+  return {
+    infoHash: hash,
+    name,
+    totalSize: size,
+    files: [file],
+    peers: 0,
+    seeders: 0,
+    downRate: st?.ratePerSec ?? 0,
+    upRate: 0,
+    progress,
+    primaryFile: 0,
+    stalled: st?.stalled ?? false,
+  }
+}
+
 // localResolvedURL returns the cached URL with auth token attached, or empty
 // string if not yet resolved. Used by all the streamFileURL/streamHLSMasterURL/
 // streamTranscodeURL builders when the hash is a local pseudo-hash — they all
@@ -411,7 +454,7 @@ export function pickTorrentSource(r: SearchResult): string {
 }
 
 export const streamInfo = async (hash: string): Promise<TorrentInfo> => {
-  if (isLocalHash(hash)) return synthesizeLocalInfo(hash)
+  if (isLocalHash(hash)) return localStreamInfo(hash)
   const { data } = await api.get<TorrentInfo>(`/stream/info/${hash}`)
   return data
 }
@@ -1257,6 +1300,32 @@ export const localPlay = async (mount: string, path: string): Promise<LocalPlayS
   // The backend builds data.url (direct file or HLS playlist) without the
   // ?user= override; re-append it so the <video> request re-scopes correctly.
   return { ...data, url: withViewAs(data.url) }
+}
+
+// LocalTransfer is the throughput snapshot for a playing local file, used to
+// show "downloading X MB/s" / "waiting for data" — the rclone/Drive case where
+// a play silently fetches over the network.
+export type LocalTransfer = {
+  key?: string
+  bytesRead: number
+  ratePerSec: number
+  size: number
+  active: boolean
+  stalled: boolean
+}
+
+// localTransferStatus polls the read throughput for a playing local file. It is
+// cheap (no ffprobe) so the player can call it every couple of seconds.
+export const localTransferStatus = async (mount: string, path: string): Promise<LocalTransfer | null> => {
+  try {
+    const { data, status } = await api.get<LocalTransfer>(
+      `/local/transfer-status?${localQS(mount, path)}`,
+      { validateStatus: () => true },
+    )
+    return status === 200 ? data : null
+  } catch {
+    return null
+  }
 }
 
 // Converte uma URL de arquivo .torrent para link magnet no backend.

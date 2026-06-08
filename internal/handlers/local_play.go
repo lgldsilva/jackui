@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
@@ -143,6 +145,14 @@ func localSessionKey(mount, relPath string) string {
 	sum := sha1.Sum([]byte(mount + "|" + relPath))
 	return "local-" + hex.EncodeToString(sum[:])
 }
+
+// transferKeyDirect / transferKeyHLS key the localstream metering Session for
+// the direct-play and HLS-transcode paths respectively. They are kept distinct
+// (a file plays via one path or the other) so a solo direct session never
+// evicts a shared HLS session from the registry. The transfer-status endpoint
+// checks the HLS key first, then the direct key.
+func transferKeyDirect(mount, scoped string) string { return localSessionKey(mount, scoped) }
+func transferKeyHLS(mount, scoped string) string    { return localSessionKey(mount, scoped) + "-hls" }
 
 func resolveLocalFile(b *local.Browser, c *gin.Context, mount, path string) (string, bool) {
 	if mount == "" || path == "" {
@@ -278,7 +288,7 @@ func isAudioByExt(path string) bool {
 	return false
 }
 
-func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager) gin.HandlerFunc {
+func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *localstream.Registry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -297,7 +307,7 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager) gin.Hand
 		if err != nil || abs == "" {
 			return
 		}
-		_, sess, err := startLocalHLSSession(c, mgr, mount, scoped, abs, stat)
+		sess, err := startLocalHLSSession(c, mgr, reg, mount, scoped, abs, stat)
 		if err != nil {
 			return
 		}
@@ -324,24 +334,48 @@ func resolveLocalFileStat(b *local.Browser, mount, path string) (string, os.File
 	return abs, stat, nil
 }
 
-func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount, path, abs string, stat os.FileInfo) (*os.File, *transcode.HLSSession, error) {
+func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, mount, path, abs string, stat os.FileInfo) (*transcode.HLSSession, error) {
 	key := localSessionKey(mount, path)
 	f, oerr := os.Open(abs)
 	if oerr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
-		return nil, nil, oerr
+		return nil, oerr
 	}
+	// Wrap the file in a metered, read-ahead Session before handing it to the
+	// transcoder: ffmpeg's Range reads now feed the speed indicator and benefit
+	// from aligned read-ahead on slow mounts. The registry owns the handle and
+	// reaps it when ffmpeg stops pulling (it outlives this request). The metering
+	// key (transferKeyHLS == key+"-hls") is what /local/transfer-status looks up.
+	source, meterKey := mountSource(reg, key+"-hls", f, stat.Size())
 	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
 		Key:        key,
-		Source:     f,
+		Source:     source,
 		SourceSize: stat.Size(),
 	})
 	if err != nil {
-		_ = f.Close()
+		closeSource(reg, meterKey, source, f)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return nil, nil, err
+		return nil, err
 	}
-	return f, sess, nil
+	return sess, nil
+}
+
+// mountSource returns the io.ReadSeeker the transcoder reads through plus the
+// registry key it was filed under. With a registry it is a shared metered
+// Session; without one it is the raw file (keeps tests / nil-reg paths working).
+func mountSource(reg *localstream.Registry, meterKey string, f *os.File, size int64) (io.ReadSeeker, string) {
+	if reg == nil {
+		return f, meterKey
+	}
+	return reg.OpenShared(meterKey, f, size), meterKey
+}
+
+func closeSource(reg *localstream.Registry, meterKey string, source io.ReadSeeker, f *os.File) {
+	if s, ok := source.(*localstream.Session); ok && reg != nil {
+		reg.Release(meterKey, s)
+		return
+	}
+	_ = f.Close()
 }
 
 func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {

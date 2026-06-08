@@ -142,7 +142,7 @@ func TestLocalFile_NoParams(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/file", nil)
 
-	LocalFile(b)(c)
+	LocalFile(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -156,7 +156,7 @@ func TestLocalFile_MissingPath(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/file?mount=Test", nil)
 
-	LocalFile(b)(c)
+	LocalFile(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -170,7 +170,7 @@ func TestLocalFile_UnknownMount(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/local/file", LocalFile(b))
+	router.GET("/api/local/file", LocalFile(b, nil))
 
 	req := httptest.NewRequest("GET", "/api/local/file?mount=DoesNotExist&path=test.mp4", nil)
 	w := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestLocalFile_NotFound(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/file?mount=Test&path=nonexistent.mp4", nil)
 
-	LocalFile(b)(c)
+	LocalFile(b, nil)(c)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
@@ -209,7 +209,7 @@ func TestLocalFile_IsDir(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/file?mount=Test&path=subdir", nil)
 
-	LocalFile(b)(c)
+	LocalFile(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -228,7 +228,7 @@ func TestLocalFile_ServesFile(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/file?mount=Test&path=test.txt", nil)
 
-	LocalFile(b)(c)
+	LocalFile(b, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -641,7 +641,7 @@ func TestLocalHLSMaster_NoMount(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/hls/index.m3u8", nil)
 
-	LocalHLSMaster(b, nil)(c)
+	LocalHLSMaster(b, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
