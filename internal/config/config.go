@@ -269,6 +269,13 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("JACKUI_HLS_VOD_MODE"); v != "" {
 		cfg.Stream.HLSVODMode = v
 	}
+	if cfg.Stream.HLSVODMode == "" {
+		// Default ON for hls.js clients (Chrome/Firefox/etc.): gives the seekbar
+		// on transcoded playback (incl. local MKV/HEVC that would otherwise be a
+		// headless EVENT/live stream with no seek). Safari stays on EVENT until
+		// the #61 stall is validated there. Set "off" to disable, "all" for Safari.
+		cfg.Stream.HLSVODMode = "hlsjs"
+	}
 	if cfg.External.MaxUploadMB <= 0 {
 		cfg.External.MaxUploadMB = 65536 // 64 GiB
 	}

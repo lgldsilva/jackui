@@ -39,10 +39,19 @@ func TestApplyEnvOverrides_LocalReadaheadMB_InvalidIgnored(t *testing.T) {
 
 func TestApplyEnvOverrides_HLSVODMode(t *testing.T) {
 	cfg := &Config{}
-	t.Setenv("JACKUI_HLS_VOD_MODE", "hlsjs")
+	t.Setenv("JACKUI_HLS_VOD_MODE", "all")
+	applyEnvOverrides(cfg)
+	if cfg.Stream.HLSVODMode != "all" {
+		t.Fatalf("HLSVODMode = %q, want all", cfg.Stream.HLSVODMode)
+	}
+}
+
+func TestApplyEnvOverrides_HLSVODMode_DefaultsToHlsjs(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_HLS_VOD_MODE", "")
 	applyEnvOverrides(cfg)
 	if cfg.Stream.HLSVODMode != "hlsjs" {
-		t.Fatalf("HLSVODMode = %q, want hlsjs", cfg.Stream.HLSVODMode)
+		t.Fatalf("HLSVODMode default = %q, want hlsjs (seekbar on for hls.js)", cfg.Stream.HLSVODMode)
 	}
 }
 
