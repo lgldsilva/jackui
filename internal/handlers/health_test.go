@@ -145,6 +145,81 @@ func TestStatus_DbDegraded(t *testing.T) {
 	}
 }
 
+func TestBuildInfo_NilStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/status", nil)
+
+	BuildInfo(nil)(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal("invalid JSON:", err)
+	}
+	if body["db"] != "disabled" {
+		t.Errorf("db = %v, want 'disabled'", body["db"])
+	}
+	// Build metadata fields must always be present (defaults when not injected).
+	for _, k := range []string{"version", "commit", "buildTime", "goVersion", "time"} {
+		if _, ok := body[k]; !ok {
+			t.Errorf("missing field %q", k)
+		}
+	}
+}
+
+func TestBuildInfo_WithStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := history.New(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/status", nil)
+
+	BuildInfo(db)(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+	var body map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if body["db"] != "ok" {
+		t.Errorf("db = %v, want 'ok'", body["db"])
+	}
+	if body["goVersion"] == "" {
+		t.Error("goVersion should be populated from runtime")
+	}
+}
+
+func TestBuildInfo_DbDown(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := history.New(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close() // closed store → DB probe fails, but the endpoint stays 200.
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/status", nil)
+
+	BuildInfo(store)(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (build info is informational)", w.Code)
+	}
+	var body map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &body)
+	if !strings.HasPrefix(body["db"].(string), "down:") {
+		t.Errorf("db = %v, want 'down:...'", body["db"])
+	}
+}
+
 func TestStatus_Healthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store, err := history.New(t.TempDir() + "/test.db")
