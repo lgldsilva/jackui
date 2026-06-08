@@ -7,7 +7,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func TestServeFromCompletedStoreNilStore(t *testing.T) {
@@ -125,4 +125,3 @@ func TestStreamFavoritesUninitialized(t *testing.T) {
 		t.Errorf("status = %d, want 200", w.Code)
 	}
 }
-

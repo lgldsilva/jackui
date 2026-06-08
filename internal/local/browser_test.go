@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func setupTestMount(t *testing.T) (string, *Browser) {

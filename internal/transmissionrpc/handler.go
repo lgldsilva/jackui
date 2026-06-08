@@ -22,9 +22,9 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 const errListDownloads = "failed to list downloads: %v"
@@ -47,10 +47,10 @@ const (
 	keySpeedLimitDownEn = "speed-limit-down-enabled"
 	keySpeedLimitUpEn   = "speed-limit-up-enabled"
 
-	keyStartAdded   = "start-added-torrents"
-	keyDLQueueEn    = "download-queue-enabled"
-	keyDLQueueSize  = "download-queue-size"
-	keySeedQueueEn  = "seed-queue-enabled"
+	keyStartAdded    = "start-added-torrents"
+	keyDLQueueEn     = "download-queue-enabled"
+	keyDLQueueSize   = "download-queue-size"
+	keySeedQueueEn   = "seed-queue-enabled"
 	keySeedQueueSize = "seed-queue-size"
 
 	magnetPrefix = "magnet:?xt=urn:btih:"
@@ -89,10 +89,10 @@ type jsonRPCReq struct {
 
 // JSON-RPC 2.0 response
 type jsonRPCResp struct {
-	JSONRPC string        `json:"jsonrpc"`
-	Result  interface{}   `json:"result,omitempty"`
-	Error   *jsonRPCErr   `json:"error,omitempty"`
-	ID      interface{}   `json:"id"`
+	JSONRPC string      `json:"jsonrpc"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   *jsonRPCErr `json:"error,omitempty"`
+	ID      interface{} `json:"id"`
 }
 
 type jsonRPCErr struct {
@@ -107,7 +107,7 @@ type Handler struct {
 	dataDir     string
 	downloadDir string
 
-	mu         sync.RWMutex
+	mu sync.RWMutex
 	// sessionID → userID. When auth is disabled all sessions map to 0 (system).
 	sessions map[string]int
 
@@ -122,9 +122,9 @@ type Handler struct {
 	seedQueueSize        int
 
 	// Port test caching (port-test RPC)
-	portTestResult       bool
-	portTestCheckedAt    time.Time
-	portTestInProgress   bool
+	portTestResult     bool
+	portTestCheckedAt  time.Time
+	portTestInProgress bool
 }
 
 func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.Store, dataDir, downloadDir string) *Handler {
@@ -666,12 +666,12 @@ func (h *Handler) methodGroupGet(args map[string]interface{}) rpcResponse {
 	nameFilter, _ := args["name"].(string)
 
 	defaultGroup := map[string]interface{}{
-		"name":                   "Default",
-		keySpeedLimitDown:        0,
-		keySpeedLimitDownEn:      false,
-		keySpeedLimitUp:          0,
-		keySpeedLimitUpEn:        false,
-		"honors-session-limits":  true,
+		"name":                  "Default",
+		keySpeedLimitDown:       0,
+		keySpeedLimitDownEn:     false,
+		keySpeedLimitUp:         0,
+		keySpeedLimitUpEn:       false,
+		"honors-session-limits": true,
 	}
 
 	groups := []interface{}{defaultGroup}
@@ -727,67 +727,67 @@ func (h *Handler) methodSessionGet() rpcResponse {
 	sessionID := h.generateSessionID(dir)
 
 	return successResp(map[string]interface{}{
-		"version":                          "4.1.1",
-		"rpc-version":                      19,
-		"rpc-version-semver":               "6.0.1",
-		"rpc-version-minimum":              14,
-		"session-id":                       sessionID,
-		"download-dir":                     dir,
-		"download-dir-free-space":          freeSpace,
-		"incomplete-dir":                   h.dataDir,
-		"incomplete-dir-enabled":           true,
-		"config-dir":                       "/config",
-		"cache-size-mb":                    4,
-		"seedRatioLimit":                   2.0,
-		"seedRatioLimited":                 false,
-		"peer-port":                        51469,
-		"peer-port-random-on-start":        false,
-		"peer-limit-global":                200,
-		"peer-limit-per-torrent":           50,
-		"pex-enabled":                      true,
-		"dht-enabled":                      true,
-		"lpd-enabled":                      false,
-		"utp-enabled":                      true,
-		"tcp-enabled":                      true,
-		"encryption":                       "preferred",
-		"start-added-torrents":             h.startAddedTorrents,
-		"alt-speed-enabled":                h.altSpeedEnabled,
-		"alt-speed-down":                   h.altSpeedDown,
-		"alt-speed-up":                     h.altSpeedUp,
-		"alt-speed-time-begin":             540,
-		"alt-speed-time-day":               127,
-		"alt-speed-time-enabled":           false,
-		"alt-speed-time-end":               1020,
-		keySpeedLimitDown:        0,
-		keySpeedLimitDownEn:      false,
-		keySpeedLimitUp:          0,
-		keySpeedLimitUpEn:        false,
-		"download-queue-enabled":           h.downloadQueueEnabled,
-		"download-queue-size":              h.downloadQueueSize,
-		"seed-queue-enabled":               h.seedQueueEnabled,
-		"seed-queue-size":                  h.seedQueueSize,
-		"queue-stalled-enabled":            true,
-		"queue-stalled-minutes":            30,
-		"idle-seeding-limit":               3000,
-		"idle-seeding-limit-enabled":       true,
-		"anti-brute-force-enabled":         false,
-		"anti-brute-force-threshold":       100,
-		"blocklist-enabled":                false,
-		"blocklist-size":                   0,
-		"blocklist-url":                    "http://www.example.com/blocklist",
-		"default-trackers":                 "",
-		"preferred_transports":             []string{"utp", "tcp"},
-		"rename-partial-files":             true,
-		"reqq":                             2000,
-		"script-torrent-added-enabled":     false,
-		"script-torrent-added-filename":    "",
-		"script-torrent-done-enabled":      false,
-		"script-torrent-done-filename":     "",
-		"script-torrent-done-seeding-enabled": false,
+		"version":                              "4.1.1",
+		"rpc-version":                          19,
+		"rpc-version-semver":                   "6.0.1",
+		"rpc-version-minimum":                  14,
+		"session-id":                           sessionID,
+		"download-dir":                         dir,
+		"download-dir-free-space":              freeSpace,
+		"incomplete-dir":                       h.dataDir,
+		"incomplete-dir-enabled":               true,
+		"config-dir":                           "/config",
+		"cache-size-mb":                        4,
+		"seedRatioLimit":                       2.0,
+		"seedRatioLimited":                     false,
+		"peer-port":                            51469,
+		"peer-port-random-on-start":            false,
+		"peer-limit-global":                    200,
+		"peer-limit-per-torrent":               50,
+		"pex-enabled":                          true,
+		"dht-enabled":                          true,
+		"lpd-enabled":                          false,
+		"utp-enabled":                          true,
+		"tcp-enabled":                          true,
+		"encryption":                           "preferred",
+		"start-added-torrents":                 h.startAddedTorrents,
+		"alt-speed-enabled":                    h.altSpeedEnabled,
+		"alt-speed-down":                       h.altSpeedDown,
+		"alt-speed-up":                         h.altSpeedUp,
+		"alt-speed-time-begin":                 540,
+		"alt-speed-time-day":                   127,
+		"alt-speed-time-enabled":               false,
+		"alt-speed-time-end":                   1020,
+		keySpeedLimitDown:                      0,
+		keySpeedLimitDownEn:                    false,
+		keySpeedLimitUp:                        0,
+		keySpeedLimitUpEn:                      false,
+		"download-queue-enabled":               h.downloadQueueEnabled,
+		"download-queue-size":                  h.downloadQueueSize,
+		"seed-queue-enabled":                   h.seedQueueEnabled,
+		"seed-queue-size":                      h.seedQueueSize,
+		"queue-stalled-enabled":                true,
+		"queue-stalled-minutes":                30,
+		"idle-seeding-limit":                   3000,
+		"idle-seeding-limit-enabled":           true,
+		"anti-brute-force-enabled":             false,
+		"anti-brute-force-threshold":           100,
+		"blocklist-enabled":                    false,
+		"blocklist-size":                       0,
+		"blocklist-url":                        "http://www.example.com/blocklist",
+		"default-trackers":                     "",
+		"preferred_transports":                 []string{"utp", "tcp"},
+		"rename-partial-files":                 true,
+		"reqq":                                 2000,
+		"script-torrent-added-enabled":         false,
+		"script-torrent-added-filename":        "",
+		"script-torrent-done-enabled":          false,
+		"script-torrent-done-filename":         "",
+		"script-torrent-done-seeding-enabled":  false,
 		"script-torrent-done-seeding-filename": "",
-		"sequential_download":              false,
-		"trash-original-torrent-files":     false,
-		"port-forwarding-enabled":          false,
+		"sequential_download":                  false,
+		"trash-original-torrent-files":         false,
+		"port-forwarding-enabled":              false,
 		"units": map[string]interface{}{
 			"memory-bytes": 1024,
 			"memory-units": []string{"B", "KiB", "MiB", "GiB", "TiB"},
@@ -1564,22 +1564,22 @@ func buildPeers(v torrentView) []interface{} {
 				addr = p.Addr.String()
 			}
 			peers = append(peers, map[string]interface{}{
-				"address":             addr,
-				"clientName":          "",
-				"clientIsChoked":      true,
-				"clientIsInterested":  false,
-				"isDownloadingFrom":   false,
-				"isEncrypted":         p.SupportsEncryption,
-				"isIncoming":          false,
-				"isUploadingTo":       false,
-				"isUTP":               false,
-				"peerId":              "",
-				"peerIsChoked":        true,
-				"peerIsInterested":    false,
-				"port":                0,
-				"progress":            0.0,
-				"rateToClient":        0,
-				"rateToPeer":          0,
+				"address":            addr,
+				"clientName":         "",
+				"clientIsChoked":     true,
+				"clientIsInterested": false,
+				"isDownloadingFrom":  false,
+				"isEncrypted":        p.SupportsEncryption,
+				"isIncoming":         false,
+				"isUploadingTo":      false,
+				"isUTP":              false,
+				"peerId":             "",
+				"peerIsChoked":       true,
+				"peerIsInterested":   false,
+				"port":               0,
+				"progress":           0.0,
+				"rateToClient":       0,
+				"rateToPeer":         0,
 			})
 		}
 		return peers
@@ -2336,5 +2336,3 @@ func (h *Handler) runPortTest() {
 	h.portTestInProgress = false
 	h.mu.Unlock()
 }
-
-

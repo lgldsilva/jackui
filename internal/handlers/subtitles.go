@@ -8,9 +8,9 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/parser"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/subtitles"
+	"github.com/lgldsilva/jackui/internal/parser"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/subtitles"
 )
 
 // SubtitlesSearch handles GET /api/subtitles/search?q=...&season=...&episode=...&langs=pt-BR,pt

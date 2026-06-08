@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // Folder CRUD handlers. Routes are mounted under /api/stream/favorites/folders
@@ -141,8 +141,8 @@ func FavoriteMoveToFolder(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		name := c.Param("name")
 		var body struct {
-			FolderID    *int `json:"folderId"`
-			ToRoot      bool `json:"toRoot"` // explicit null move (vs unset)
+			FolderID *int `json:"folderId"`
+			ToRoot   bool `json:"toRoot"` // explicit null move (vs unset)
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

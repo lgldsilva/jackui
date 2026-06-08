@@ -18,10 +18,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/luizg/jackui/internal/local"
-	"github.com/luizg/jackui/internal/parser"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/subtitles"
+	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/parser"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/subtitles"
 )
 
 const errMissingMountOrPath = "missing mount or path"

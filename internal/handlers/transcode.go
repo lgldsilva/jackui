@@ -10,9 +10,9 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
 // TranscodeCapabilities handles GET /api/transcode/capabilities — returns the cached

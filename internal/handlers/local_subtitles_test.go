@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/local"
 )
 
 func TestLocalProbe_NoMount(t *testing.T) {
@@ -304,8 +304,8 @@ func TestLocalSubtitlesAuto_NoFile(t *testing.T) {
 
 func TestDetectLangFromName(t *testing.T) {
 	tests := []struct {
-		name     string
-		want     string
+		name string
+		want string
 	}{
 		{"movie.pt-BR.srt", "pt-BR"},
 		{"movie.pt_br.srt", "pt-BR"},

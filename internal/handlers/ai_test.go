@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/ai"
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func TestGetAIBenchmark_NilClientNilStore(t *testing.T) {

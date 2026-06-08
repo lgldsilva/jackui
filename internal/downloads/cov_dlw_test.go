@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // dlwNewStore mirrors the package's newTestStore helper but with a dlw-prefixed
@@ -388,4 +388,3 @@ func Test_dlw_ResolveFileIndex(t *testing.T) {
 		t.Fatalf("esperava status failed, obteve %s", got.Status)
 	}
 }
-

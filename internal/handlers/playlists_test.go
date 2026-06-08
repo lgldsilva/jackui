@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/playlists"
+	"github.com/lgldsilva/jackui/internal/playlists"
 )
 
 func TestPlaylistsList_Empty(t *testing.T) {

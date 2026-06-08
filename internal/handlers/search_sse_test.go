@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func TestSearchSSE_NoQuery(t *testing.T) {
@@ -61,5 +61,3 @@ func TestDedupKey_EmptyReturnedWhenNoData(t *testing.T) {
 		t.Errorf("dedupKey = %q, want empty string", got)
 	}
 }
-
-

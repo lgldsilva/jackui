@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/watchlist"
+	"github.com/lgldsilva/jackui/internal/watchlist"
 )
 
 func TestWatchlistList_Empty(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -30,21 +30,21 @@ type UpsertInput struct {
 
 // Entry is one row in the library — a torrent the user has touched.
 type Entry struct {
-	ID               int       `json:"id"`
-	UserID           int       `json:"userId"`
-	InfoHash         string    `json:"infoHash"`
-	Magnet           string    `json:"magnet"`
-	Name             string    `json:"name"`
-	PrimaryFileIndex int       `json:"primaryFileIndex"`
+	ID               int    `json:"id"`
+	UserID           int    `json:"userId"`
+	InfoHash         string `json:"infoHash"`
+	Magnet           string `json:"magnet"`
+	Name             string `json:"name"`
+	PrimaryFileIndex int    `json:"primaryFileIndex"`
 	// LastFileIndex is the file the user actually last watched (for multi-file
 	// torrents / season packs). -1 = never tracked → fall back to primary.
-	LastFileIndex int       `json:"lastFileIndex"`
-	TotalSize     int64     `json:"totalSize"`
-	ResumeSeconds float64   `json:"resumeSeconds"`
-	DurationSeconds  float64   `json:"durationSeconds"`
-	Kind             string    `json:"kind"` // "video" | "audio" | ""
-	LastPlayedAt     time.Time `json:"lastPlayedAt"`
-	AddedAt          time.Time `json:"addedAt"`
+	LastFileIndex   int       `json:"lastFileIndex"`
+	TotalSize       int64     `json:"totalSize"`
+	ResumeSeconds   float64   `json:"resumeSeconds"`
+	DurationSeconds float64   `json:"durationSeconds"`
+	Kind            string    `json:"kind"` // "video" | "audio" | ""
+	LastPlayedAt    time.Time `json:"lastPlayedAt"`
+	AddedAt         time.Time `json:"addedAt"`
 }
 
 type Store struct {
@@ -356,8 +356,8 @@ func scanEntry(row interface{ Scan(...any) error }) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.LastPlayedAt= dbutil.ParseTime(lastPlayed)
-	e.AddedAt= dbutil.ParseTime(added)
+	e.LastPlayedAt = dbutil.ParseTime(lastPlayed)
+	e.AddedAt = dbutil.ParseTime(added)
 	return &e, nil
 }
 
@@ -374,7 +374,7 @@ func scanEntryRows(rows *sql.Rows) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.LastPlayedAt= dbutil.ParseTime(lastPlayed)
-	e.AddedAt= dbutil.ParseTime(added)
+	e.LastPlayedAt = dbutil.ParseTime(lastPlayed)
+	e.AddedAt = dbutil.ParseTime(added)
 	return &e, nil
 }

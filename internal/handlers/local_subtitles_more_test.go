@@ -11,13 +11,12 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/ai"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/local"
-	"github.com/luizg/jackui/internal/mailer"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/mailer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
-
 
 func TestComputeOSHash_Valid(t *testing.T) {
 	data := make([]byte, 128*1024)
@@ -493,11 +492,6 @@ func TestSanitizeSubdir_Dot(t *testing.T) {
 		t.Errorf("got %q, want ''", got)
 	}
 }
-
-
-
-
-
 
 func TestComputePromoteDst_NoAIClient(t *testing.T) {
 	dst, dir := computePromoteDst(&promoteDstDeps{base: "/base"}, "test.mp4", "/base/filmes")

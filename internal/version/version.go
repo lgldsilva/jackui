@@ -2,9 +2,9 @@
 // The values are injected at build time via -ldflags "-X ...":
 //
 //	go build -ldflags "\
-//	  -X github.com/luizg/jackui/internal/version.Commit=$(git rev-parse HEAD) \
-//	  -X github.com/luizg/jackui/internal/version.BuildTime=$(date +%s) \
-//	  -X github.com/luizg/jackui/internal/version.Version=$(git describe --tags --always)"
+//	  -X github.com/lgldsilva/jackui/internal/version.Commit=$(git rev-parse HEAD) \
+//	  -X github.com/lgldsilva/jackui/internal/version.BuildTime=$(date +%s) \
+//	  -X github.com/lgldsilva/jackui/internal/version.Version=$(git describe --tags --always)"
 //
 // Without ldflags (e.g. `go run` in dev) they keep the defaults below, so the
 // /status endpoint still answers — it just reports "dev"/"unknown".

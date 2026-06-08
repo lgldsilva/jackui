@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/auth"
 )
 
 // ClientLogPayload is the shape the browser sends.

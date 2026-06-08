@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func TestProxyResponse_WithHeaders(t *testing.T) {
@@ -60,5 +60,3 @@ func TestInjectAPIKey_WithKey(t *testing.T) {
 		t.Errorf("expected apikey=mykey, got %s", u.Query().Get("apikey"))
 	}
 }
-
-

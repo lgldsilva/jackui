@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -43,8 +43,8 @@ type Match struct {
 	Kind        string  `json:"kind"`                 // "movie" | "tv"
 	Popularity  float64 `json:"popularity,omitempty"` // TMDB popularity score
 	// Trending direction vs last week's ranking: "up" | "down" | "new" | "same".
-	Direction   string  `json:"direction,omitempty"`
-	RankDelta   int     `json:"rankDelta,omitempty"` // positions moved (absolute) vs last week
+	Direction string `json:"direction,omitempty"`
+	RankDelta int    `json:"rankDelta,omitempty"` // positions moved (absolute) vs last week
 }
 
 type Client struct {

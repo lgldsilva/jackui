@@ -3,7 +3,7 @@ package history
 import (
 	"testing"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func TestDeleteIncognito(t *testing.T) {
@@ -315,7 +315,7 @@ func TestSearchAllLimitDefault(t *testing.T) {
 	s := newTestStore(t)
 
 	for i := 0; i < 300; i++ {
-		hash := string(rune('a' + i%26)) + string(rune('a'+(i/26)%26))
+		hash := string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
 		s.Save("test", []jackett.Result{
 			{Title: "Item", InfoHash: hash},
 		}, 1, false)

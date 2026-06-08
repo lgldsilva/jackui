@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/auth"
 )
 
 // Passkey (WebAuthn) handlers. A ceremony is two requests: a "begin" that mints
