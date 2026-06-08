@@ -789,6 +789,16 @@ export default function LocalPage() {
                   </button>
                 </>
               )}
+              {isAdmin && (
+                <button
+                  onClick={() => setReclassifyItem({ name: path ? path.split('/').pop() || path : activeMount, path, isDir: true, size: 0, modTime: '', isPlayable: false })}
+                  title="Reclassificar e organizar esta pasta via IA (estilo Plex), mantendo o vínculo com o torrent"
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                >
+                  <FolderSync className="w-4 h-4" />
+                  <span className="hidden sm:inline">Reclassificar pasta</span>
+                </button>
+              )}
             </div>
           )}
 
