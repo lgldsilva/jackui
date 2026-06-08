@@ -534,6 +534,37 @@ func dropTorrentFromStreamer(s *streamer.Streamer, d downloads.Download) {
 	}
 }
 
+// relinkMovedTorrents keeps the torrent↔file link intact after a local file or
+// folder is moved/renamed (promote, reclassify or move-between-mounts). For every
+// download whose on-disk path sat under oldAbs it rewrites file_path to the new
+// location — so the FilePathResolver (and thus the next play) resolves the file
+// where it now lives — and drops the active torrent so the streamer re-resolves +
+// re-verifies pieces at the new path on the next access (~free when the file is
+// already complete), instead of holding a stale descriptor on the old path. The
+// piece cache and the favorite (both keyed by torrent name, not file_path) are
+// left untouched. Best-effort: a failure on one row doesn't abort the rest.
+func relinkMovedTorrents(dls *downloads.Store, s *streamer.Streamer, oldAbs, newAbs string) int {
+	if dls == nil {
+		return 0
+	}
+	linked, _ := dls.FindByPathPrefix(oldAbs)
+	relinked := 0
+	for _, d := range linked {
+		newPath := newAbs + strings.TrimPrefix(d.FilePath, oldAbs)
+		if err := dls.SetFilePath(d.UserID, d.ID, newPath); err != nil {
+			continue
+		}
+		if s != nil && d.InfoHash != "" {
+			var h metainfo.Hash
+			if err := h.FromHexString(d.InfoHash); err == nil {
+				s.Drop(h)
+			}
+		}
+		relinked++
+	}
+	return relinked
+}
+
 func canModifyMount(c *gin.Context, mount string) bool {
 	claims, _ := auth.ClaimsFromCtx(c)
 	isAdmin := claims != nil && claims.Role == auth.RoleAdmin
@@ -572,7 +603,7 @@ func isMountRoot(b *local.Browser, abs string) bool {
 	return false
 }
 
-func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
@@ -592,7 +623,7 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
-		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base}
+		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base, dls: dls, s: s}
 		moved, errs := execPromoteMoves(b, deps, req.Mount, paths, targetDir)
 		if moved == 0 {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"moved": 0, "failed": len(errs), "errors": errs})
@@ -656,6 +687,7 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 		_ = os.Remove(filepath.Dir(dst))
 		return gin.H{"path": scopedRel, "error": "mover arquivo: " + err.Error()}
 	}
+	relinkMovedTorrents(deps.dls, deps.s, src, dst)
 	return nil
 }
 
@@ -701,6 +733,8 @@ type promoteDstDeps struct {
 	aiClient   *ai.Client
 	tmdbClient *tmdb.Client
 	base       string
+	dls        *downloads.Store   // to re-link a moved file's torrent (may be nil)
+	s          *streamer.Streamer // to drop the active torrent so it re-verifies
 }
 
 type localPromoteReq struct {
@@ -996,13 +1030,13 @@ type moveEntryReq struct {
 // LocalMoveEntry handles POST /api/local/move — moves a file or directory
 // from one mount to another (or within the same mount). Admin only.
 // Body: { srcMount, srcPath, dstMount, dstPath (target directory) }
-func LocalMoveEntry(b *local.Browser) gin.HandlerFunc {
+func LocalMoveEntry(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		localMoveHandler(c, b)
+		localMoveHandler(c, b, dls, s)
 	}
 }
 
-func localMoveHandler(c *gin.Context, b *local.Browser) {
+func localMoveHandler(c *gin.Context, b *local.Browser, dls *downloads.Store, s *streamer.Streamer) {
 	var req moveEntryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1054,7 +1088,8 @@ func localMoveHandler(c *gin.Context, b *local.Browser) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "mover: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"moved": filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath))})
+	relinked := relinkMovedTorrents(dls, s, srcAbs, dstAbs)
+	c.JSON(http.StatusOK, gin.H{"moved": filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath)), "relinked": relinked})
 }
 
 func isAdminMove(c *gin.Context) bool {
