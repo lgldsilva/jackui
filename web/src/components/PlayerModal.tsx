@@ -1384,6 +1384,7 @@ export default function PlayerModal({
             showMobileOpts={showMobileOpts}
             playbackSpeed={playbackSpeed}
             probe={probe}
+            onSeek={(sec) => { const v = videoRef.current; if (v && Number.isFinite(sec)) v.currentTime = sec }}
             sidecars={sidecars}
             transcodeAudio={transcodeAudio}
             forceH264={forceH264}

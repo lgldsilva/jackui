@@ -970,9 +970,17 @@ export type MediaTrack = {
   image?: boolean // subtitle is image-based (PGS, DVD) — requires burn-in
 }
 
+export type MediaChapter = {
+  index: number
+  startSec: number
+  endSec?: number
+  title?: string
+}
+
 export type StreamProbe = {
   audio: MediaTrack[]
   subtitles: MediaTrack[]
+  chapters?: MediaChapter[]
   // Decisão de transcode vinda do backend (ffprobe), navegador-agnóstica:
   // MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum → HLS. O player
   // decide por isto, não pelo nome do arquivo.

@@ -79,6 +79,30 @@ func TestParseFFProbeStreams_Empty(t *testing.T) {
 	}
 }
 
+func TestParseFFProbeStreams_Chapters(t *testing.T) {
+	json := `{
+		"streams": [{"index": 0, "codec_type": "video", "codec_name": "h264"}],
+		"chapters": [
+			{"id": 0, "start_time": "0.000000", "end_time": "60.000000", "tags": {"title": "Cold open"}},
+			{"id": 1, "start_time": "60.000000", "end_time": "180.000000"}
+		],
+		"format": {"duration": "180.0"}
+	}`
+	result, err := parseFFProbeStreams([]byte(json))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Chapters) != 2 {
+		t.Fatalf("expected 2 chapters, got %d", len(result.Chapters))
+	}
+	if result.Chapters[0].Title != "Cold open" || result.Chapters[0].StartSec != 0 || result.Chapters[0].EndSec != 60 {
+		t.Errorf("chapter0 = %+v", result.Chapters[0])
+	}
+	if result.Chapters[1].StartSec != 60 || result.Chapters[1].Title != "" {
+		t.Errorf("chapter1 = %+v", result.Chapters[1])
+	}
+}
+
 func TestParseFFProbeStreams_WithStreams(t *testing.T) {
 	json := `{
 		"streams": [
