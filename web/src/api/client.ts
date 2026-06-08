@@ -1157,6 +1157,24 @@ export const localCleanEmptyDirs = async (mount: string, path = ''): Promise<{ c
   return data
 }
 
+// Duplicate detection: content-identical files (different names) under a folder.
+export type DuplicateFile = { path: string; name: string; size: number; modTime: string }
+export type DuplicateGroup = { hash: string; size: number; files: DuplicateFile[] }
+
+// localDuplicates scans `path` (recursive) for byte-identical files. Read-only;
+// can be slow on rclone (hashes file content) so the UI shows a spinner.
+export const localDuplicates = async (mount: string, path = ''): Promise<DuplicateGroup[]> => {
+  const { data } = await api.get<{ groups: DuplicateGroup[] }>(`/local/duplicates?${localQS(mount, path)}`)
+  return data.groups || []
+}
+
+// localDeleteDuplicates removes the selected duplicate files (mount-root-relative
+// paths from localDuplicates). Writable mount / admin only.
+export const localDeleteDuplicates = async (mount: string, paths: string[]): Promise<{ deleted: number; errors: string[] }> => {
+  const { data } = await api.post<{ deleted: number; errors: string[] }>(withViewAs('/local/duplicates/delete'), { mount, paths })
+  return data
+}
+
 export type LocalUploadResult = { uploaded: string; path: string }
 
 // localUpload streams a file to the destination folder via multipart/form-data.
