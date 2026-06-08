@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +115,7 @@ func (c *Client) Providers() []string {
 	for name := range c.providers {
 		out = append(out, name)
 	}
+	sort.Strings(out) // stable order so the UI dropdown doesn't shuffle between reloads
 	return out
 }
 
