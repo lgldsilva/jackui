@@ -12,7 +12,7 @@ import (
 // master URL's query string when resolving relative segment names).
 func TestBuildVODPlaylistDeclaresAllSegments(t *testing.T) {
 	// 30s / 4s = 7.5 → ceil = 8 segments.
-	pl := string(buildVODPlaylist(30, "TOK"))
+	pl := string(buildVODPlaylist(30, "TOK", false))
 
 	if !strings.Contains(pl, "#EXT-X-PLAYLIST-TYPE:VOD") {
 		t.Error("playlist must be VOD")
@@ -33,7 +33,7 @@ func TestBuildVODPlaylistDeclaresAllSegments(t *testing.T) {
 }
 
 func TestBuildVODPlaylistTokenless(t *testing.T) {
-	pl := string(buildVODPlaylist(8, ""))
+	pl := string(buildVODPlaylist(8, "", false))
 	if strings.Contains(pl, "?token=") {
 		t.Errorf("no token should mean no query string; got:\n%s", pl)
 	}

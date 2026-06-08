@@ -670,6 +670,7 @@ func initHLSManager(deps *appDeps) {
 		log.Printf("Warning: HLS manager init failed: %v — Safari users won't get HLS fallback", err)
 		return
 	}
+	hlsMgr.SetVODMode(transcode.ParseVODMode(deps.cfg.Stream.HLSVODMode))
 	deps.hlsMgr = hlsMgr
 }
 

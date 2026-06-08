@@ -167,6 +167,12 @@ type StreamConfig struct {
 	HalfOpenConns      int `yaml:"half_open_conns"`
 	PeersHighWater     int `yaml:"peers_high_water"`
 	PieceHashers       int `yaml:"piece_hashers"`
+	// HLSVODMode controla o caminho de VOD finito (seekbar) no HLS transcodado:
+	// "off" (padrão, só EVENT/live), "hlsjs" (VOD apenas para clientes não-Safari),
+	// "all" (VOD para todos, inclusive HLS nativo do Safari). Permite ligar o VOD
+	// gradualmente sem recompilar; rollback instantâneo voltando para "off".
+	// Env: JACKUI_HLS_VOD_MODE. Aplicado ao vivo (vale na próxima sessão HLS).
+	HLSVODMode string `yaml:"hls_vod_mode"`
 }
 
 // StorageBackendFile/Mmap são os valores válidos de StreamConfig.StorageBackend.
@@ -260,6 +266,9 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.External.LocalReadaheadMB = n
 		}
 	}
+	if v := os.Getenv("JACKUI_HLS_VOD_MODE"); v != "" {
+		cfg.Stream.HLSVODMode = v
+	}
 	if cfg.External.MaxUploadMB <= 0 {
 		cfg.External.MaxUploadMB = 65536 // 64 GiB
 	}
@@ -329,7 +338,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
 		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
-		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB",
+		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB", "JACKUI_HLS_VOD_MODE",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
 	}

@@ -125,7 +125,7 @@ func TestEnrichETAListNilStreamer(t *testing.T) {
 }
 
 func TestBuildVODPlaylist(t *testing.T) {
-	data := buildVODPlaylist(10.0, "")
+	data := buildVODPlaylist(10.0, "", false)
 	if len(data) == 0 {
 		t.Fatal("expected non-empty playlist")
 	}
@@ -139,7 +139,7 @@ func TestBuildVODPlaylist(t *testing.T) {
 }
 
 func TestBuildVODPlaylistWithToken(t *testing.T) {
-	data := buildVODPlaylist(4.0, "mytoken")
+	data := buildVODPlaylist(4.0, "mytoken", false)
 	str := string(data)
 	if !contains(str, "?token=mytoken") {
 		t.Error("missing token in playlist")
