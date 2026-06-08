@@ -8,9 +8,36 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/luizg/jackui/internal/history"
 	"github.com/luizg/jackui/internal/jackett"
+	"github.com/luizg/jackui/internal/version"
 )
 
 const downPrefix = "down: "
+
+// BuildInfo handles GET /status — public build metadata (commit, build time,
+// version, Go version) plus a quick DB liveness flag. Public like /healthz so
+// the running version can be checked with a plain curl, no token needed (the
+// repo is open-source, so the commit/version aren't sensitive). The Jackett
+// probe lives in the authenticated /api/status instead.
+func BuildInfo(store *history.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		info := version.Get()
+		dbStatus := "ok"
+		if store == nil {
+			dbStatus = "disabled"
+		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
+			dbStatus = downPrefix + err.Error()
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":    "ok",
+			"version":   info.Version,
+			"commit":    info.Commit,
+			"buildTime": info.BuildTime,
+			"goVersion": info.GoVersion,
+			"db":        dbStatus,
+			"time":      time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+}
 
 // Health handles GET /healthz — liveness check. Fast, no external deps.
 // Returns 200 as long as the JackUI process and DB are alive.

@@ -731,6 +731,8 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.Use(cors.New(corsConfig))
 
 	router.GET("/healthz", handlers.Health(deps.historyStore))
+	// Public build metadata (commit/build time/version) — checkable without a token.
+	router.GET("/status", handlers.BuildInfo(deps.historyStore))
 	router.GET("/api/auth/config", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"enabled": deps.cfg.Auth.Enabled})
 	})
