@@ -751,8 +751,8 @@ export default function LocalPage() {
         {/* Content */}
         <section className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {activeMount && (
-            <div className="flex-shrink-0 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="flex-shrink-0 flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 {/* Dropdown de mount — só no mobile (a sidebar some em <md) */}
                 <button
                   onClick={() => setMountSheetOpen(true)}
@@ -764,6 +764,9 @@ export default function LocalPage() {
                 </button>
                 <Breadcrumbs mountName={activeMount} path={path} onNavigate={(p) => updateNavigation(activeMount, p)} />
               </div>
+              {/* Botões de ação agrupados: no mobile quebram juntos para a linha
+                  de baixo (antes encavalavam no breadcrumb); inline no desktop. */}
+              <div className="flex items-center gap-2 flex-shrink-0">
               {(canManipulate || isAdmin) && (
                 <>
                   <input
@@ -810,6 +813,7 @@ export default function LocalPage() {
                   <span className="hidden sm:inline">Reclassificar pasta</span>
                 </button>
               )}
+              </div>
             </div>
           )}
 
