@@ -8,6 +8,7 @@ import {
   FileAudio,
   File as FileIcon,
   HardDrive,
+  HardDriveDownload,
   Home,
   ArrowDown,
   ArrowUp,
@@ -51,6 +52,7 @@ import {
   localMounts,
   localDelete,
   localCleanEmptyDirs,
+  localCacheFolder,
   localUpload,
   adminListUsers,
   setLocalViewAsUser,
@@ -610,6 +612,23 @@ export default function LocalPage() {
     }
   }
 
+  // Cacheia a pasta inteira (recursivo) num clique — só aparece em mount
+  // remoto (rclone/NFS/CIFS). O LRU do cache cuida do tamanho: copia tudo e vai
+  // soltando os mais frios conforme novos chegam (favoritos/downloads ficam
+  // protegidos), então uma série grande não estoura o cache.
+  const requestCacheFolder = async () => {
+    if (!activeMount) return
+    setError(''); setNotice('')
+    try {
+      const { queued } = await localCacheFolder(activeMount, path)
+      setNotice(queued > 0
+        ? `${queued} arquivo${queued === 1 ? '' : 's'} enfileirado${queued === 1 ? '' : 's'} para o cache local.`
+        : 'Nenhum arquivo de mídia para cachear nesta pasta.')
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e.message || 'Erro ao cachear pasta')
+    }
+  }
+
   const handleUploadPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     // Reset the input so picking the same file again re-fires onChange.
@@ -791,6 +810,16 @@ export default function LocalPage() {
               {/* Botões de ação agrupados: no mobile quebram juntos para a linha
                   de baixo (antes encavalavam no breadcrumb); inline no desktop. */}
               <div className="flex items-center gap-2 flex-shrink-0">
+              {activeMountObj?.cacheable && (
+                <button
+                  onClick={requestCacheFolder}
+                  title="Baixar todos os arquivos de mídia desta pasta para o cache local (playback instantâneo, com seek e imune a falhas do mount)"
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-green-500/15 hover:bg-green-500/25 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                >
+                  <HardDriveDownload className="w-4 h-4" />
+                  <span className="hidden sm:inline">Cachear pasta</span>
+                </button>
+              )}
               {(canManipulate || isAdmin) && (
                 <>
                   <input
