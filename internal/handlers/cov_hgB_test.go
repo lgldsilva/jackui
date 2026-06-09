@@ -264,7 +264,7 @@ func Test_hgB_LocalHLSMaster_MissingParams(t *testing.T) {
 	b, _ := hgBBrowser(t)
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/hls", LocalHLSMaster(b, mgr))
+	r.GET("/hls", LocalHLSMaster(b, mgr, nil))
 
 	w := hgBGET(t, r, "/hls?mount=Test")
 	if w.Code != http.StatusBadRequest {
@@ -280,7 +280,7 @@ func Test_hgB_LocalHLSMaster_ForbiddenMount(t *testing.T) {
 	b, _ := hgBBrowser(t)
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/hls", LocalHLSMaster(b, mgr))
+	r.GET("/hls", LocalHLSMaster(b, mgr, nil))
 
 	// Unknown mount → UserCanAccess false → 403.
 	w := hgBGET(t, r, "/hls?mount=Nope&path=x.mkv")
@@ -294,7 +294,7 @@ func Test_hgB_LocalHLSMaster_FileNotFound(t *testing.T) {
 	b, _ := hgBBrowser(t)
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/hls", LocalHLSMaster(b, mgr))
+	r.GET("/hls", LocalHLSMaster(b, mgr, nil))
 
 	w := hgBGET(t, r, "/hls?mount=Test&path=missing.mkv")
 	// resolveLocalFileStat returns an os.Stat error; handler returns silently
@@ -313,7 +313,7 @@ func Test_hgB_LocalHLSMaster_PathIsDir(t *testing.T) {
 	}
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/hls", LocalHLSMaster(b, mgr))
+	r.GET("/hls", LocalHLSMaster(b, mgr, nil))
 
 	w := hgBGET(t, r, "/hls?mount=Test&path=sub")
 	// resolveLocalFileStat errors (ErrPathIsDir) → silent return, default 200.
@@ -403,12 +403,12 @@ func Test_hgB_StartLocalHLSSession_OpenError(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	f, sess, err := startLocalHLSSession(c, mgr, "Test", "x.mkv", "/no/such/file.mkv", nil)
+	sess, err := startLocalHLSSession(c, mgr, nil, "Test", "x.mkv", "/no/such/file.mkv", nil)
 	if err == nil {
 		t.Fatal("expected open error")
 	}
-	if f != nil || sess != nil {
-		t.Error("expected nil file/session on error")
+	if sess != nil {
+		t.Error("expected nil session on error")
 	}
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status=%d want 500", w.Code)

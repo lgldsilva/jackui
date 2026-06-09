@@ -150,6 +150,7 @@ function renderTorrentInfoModal(props: {
       <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
       <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
       {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
+      {info.stalled && (info.downRate ?? 0) === 0 && <Row icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />} label="Transferência">aguardando dados…</Row>}
       {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
       {globalThis.electronAPI ? (
         <Row label="Categoria">

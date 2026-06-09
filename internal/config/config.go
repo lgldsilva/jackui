@@ -104,6 +104,11 @@ type ExternalConfig struct {
 	Mounts []ExternalMount `yaml:"mounts"`
 	// MaxUploadMB caps a single local upload (anti disk-fill DoS). 0 = default.
 	MaxUploadMB int `yaml:"max_upload_mb"`
+	// LocalReadaheadMB is the read-ahead buffer used when serving/transcoding a
+	// file from a local mount. On rclone/Drive mounts a larger aligned read-ahead
+	// turns many tiny FUSE Range reads into a few big fetches, smoothing playback.
+	// 0 → 16 MiB default. Distinct from Stream.ReadaheadMB (torrent-only).
+	LocalReadaheadMB int `yaml:"local_readahead_mb"`
 }
 
 type ExternalMount struct {
@@ -250,6 +255,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.External.MaxUploadMB = n
 		}
 	}
+	if v := os.Getenv("JACKUI_LOCAL_READAHEAD_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.External.LocalReadaheadMB = n
+		}
+	}
 	if cfg.External.MaxUploadMB <= 0 {
 		cfg.External.MaxUploadMB = 65536 // 64 GiB
 	}
@@ -319,7 +329,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
 		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
-		"JACKUI_MAX_UPLOAD_MB",
+		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
 	}

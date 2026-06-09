@@ -19,6 +19,24 @@ func TestApplyJackettEnv(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_LocalReadaheadMB(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_LOCAL_READAHEAD_MB", "48")
+	applyEnvOverrides(cfg)
+	if cfg.External.LocalReadaheadMB != 48 {
+		t.Fatalf("LocalReadaheadMB = %d, want 48", cfg.External.LocalReadaheadMB)
+	}
+}
+
+func TestApplyEnvOverrides_LocalReadaheadMB_InvalidIgnored(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_LOCAL_READAHEAD_MB", "nope")
+	applyEnvOverrides(cfg)
+	if cfg.External.LocalReadaheadMB != 0 {
+		t.Fatalf("LocalReadaheadMB = %d, want 0 (invalid ignored)", cfg.External.LocalReadaheadMB)
+	}
+}
+
 func TestApplyStreamEnv(t *testing.T) {
 	cfg := &Config{}
 

@@ -20,6 +20,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
@@ -133,8 +134,10 @@ func listHandleError(b *local.Browser, c *gin.Context, err error) {
 }
 
 // LocalFile handles GET /api/local/file?mount=NAME&path=REL/FILE
-// Uses http.ServeFile which handles Range requests natively.
-func LocalFile(b *local.Browser) gin.HandlerFunc {
+// Serves via http.ServeContent over a metered, read-ahead Session (Range
+// requests preserved) so the UI can report transfer speed and rclone/Drive
+// mounts get aligned reads. reg may be nil (falls back to a plain stream).
+func LocalFile(b *local.Browser, reg *localstream.Registry) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -146,7 +149,8 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 
-		abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
+		scoped := scopePath(b, c, mount, path)
+		abs, err := b.ResolvePath(mount, scoped)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -157,8 +161,36 @@ func LocalFile(b *local.Browser) gin.HandlerFunc {
 		}
 
 		setLocalFileSecurityHeaders(c, path)
-		http.ServeFile(c.Writer, c.Request, abs)
+		serveLocalFileMetered(c, reg, mount, scoped, abs)
 	}
+}
+
+// serveLocalFileMetered opens abs and serves it through a metered Session so
+// the direct-play path also reports speed. The session is registered under the
+// direct transfer key for /local/transfer-status to find. Falls back to
+// http.ServeFile when reg is nil (e.g. older tests).
+func serveLocalFileMetered(c *gin.Context, reg *localstream.Registry, mount, scoped, abs string) {
+	if reg == nil {
+		http.ServeFile(c.Writer, c.Request, abs)
+		return
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	st, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	key := transferKeyDirect(mount, scoped)
+	sess := reg.OpenSolo(key, f, st.Size())
+	defer reg.Release(key, sess)
+	// ServeContent infers Content-Type from the file name (unless a header was
+	// already forced by setLocalFileSecurityHeaders) and honours Range/HEAD.
+	http.ServeContent(c.Writer, c.Request, filepath.Base(abs), st.ModTime(), sess)
 }
 
 // statLocalFile stats abs and writes the appropriate JSON error (returning
