@@ -96,10 +96,17 @@ function formatSize(bytes: number): string {
 
 function formatDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString()
+    const d = new Date(iso)
+    // Date + time (HH:MM) — the user wants the hour visible, not just the day.
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
   } catch {
     return ''
   }
+}
+
+// formatCount renders a directory's child count ("12 itens" / "1 item").
+function formatCount(n: number): string {
+  return `${n} ${n === 1 ? 'item' : 'itens'}`
 }
 
 // Barra de espaço livre/total do filesystem do mount (discos físicos, rclone).
@@ -361,14 +368,17 @@ function EntryRow(props: EntryRowProps) {
               direita (hidden sm:block). Sem isso a row no celular mostrava só
               ícone + nome. */}
           <span className="sm:hidden text-[11px] text-text-muted flex items-center gap-1.5">
-            {!e.isDir && <>{formatSize(e.size)}<span className="text-text-muted">·</span></>}
+            {e.isDir
+              ? <>{formatCount(e.childCount ?? 0)}<span className="text-text-muted">·</span></>
+              : <>{formatSize(e.size)}<span className="text-text-muted">·</span></>}
             {formatDate(e.modTime)}
           </span>
         </span>
-        {!e.isDir && (
-          <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-20">{formatSize(e.size)}</span>
-        )}
-        <span className="text-xs text-text-muted w-24 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
+        {/* Tamanho (arquivo) ou quantidade de itens (pasta). */}
+        <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-24">
+          {e.isDir ? formatCount(e.childCount ?? 0) : formatSize(e.size)}
+        </span>
+        <span className="text-xs text-text-muted w-32 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
       </button>
 
       {/* Ações por-item: desktop = botões no hover; mobile = ⋮ → Sheet. */}
