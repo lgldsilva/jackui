@@ -968,9 +968,12 @@ export default function SearchPage() {
           suggestions={historyQueries}
         />
 
-        {/* Status bar */}
+        {/* Status bar — no mobile a contagem e o controle de ordenação NÃO
+            dividem a mesma linha (encavalavam com o `ml-auto`): empilham, com a
+            ordenação numa linha própria full-width (scroll horizontal). No
+            sm:+ voltam pra mesma linha, com o sort empurrado pra direita. */}
         {activeTab.phase !== 'idle' && (
-          <div className="flex items-center gap-3 text-sm flex-wrap">
+          <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
             {activeTab.phase === 'cache' && (
               <span className="flex items-center gap-2 text-blue-400">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />Carregando cache...
@@ -1011,7 +1014,7 @@ export default function SearchPage() {
               </span>
             )}
             {hasResults && (
-              <div className="ml-auto flex items-center gap-3 min-w-0">
+              <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-3 min-w-0">
                 {isSearching && (
                   <span className="text-text-muted flex-shrink-0">{activeTab.results.length} até agora</span>
                 )}
