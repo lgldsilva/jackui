@@ -59,11 +59,34 @@ function needsRerun(s: AISlotScore): boolean {
   return !!s.incomplete || /rate limit/i.test(s.failureReason || '')
 }
 
-function scoreRow(s: AISlotScore) {
+function scoreRow(
+  s: AISlotScore,
+  onRunSingle: (provider: string, model: string) => void,
+  busy: boolean,
+  runningSlotId: string | null
+) {
   const { acc, lat, comp, cost } = scoreCells(s)
+  const isThisRunning = runningSlotId === s.slotId
   return (
     <tr key={s.slotId} className="border-t border-default/60">
-      <td className="py-1.5 pr-3 text-text-primary">{s.model}<span className="text-text-muted text-xs block">{s.provider}</span></td>
+      <td className="py-1.5 pr-3 text-text-primary">
+        <div className="flex items-center gap-2">
+          <span>{s.model}</span>
+          <button
+            onClick={() => onRunSingle(s.provider, s.model)}
+            disabled={busy}
+            title={`Rodar benchmark para ${s.model}`}
+            className="p-1 text-text-muted hover:text-green-500 hover:bg-surface disabled:opacity-30 rounded-md transition-colors"
+          >
+            {isThisRunning ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-green-500" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <span className="text-text-muted text-xs font-normal">({s.provider})</span>
+        </div>
+      </td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums text-text-secondary">{cost}</td>
@@ -77,13 +100,33 @@ function scoreRow(s: AISlotScore) {
   )
 }
 
-function scoreCard(s: AISlotScore) {
+function scoreCard(
+  s: AISlotScore,
+  onRunSingle: (provider: string, model: string) => void,
+  busy: boolean,
+  runningSlotId: string | null
+) {
   const { acc, lat, comp, cost } = scoreCells(s)
+  const isThisRunning = runningSlotId === s.slotId
   return (
     <div key={s.slotId} className="rounded-lg border border-default/60 bg-surface/40 p-3 flex flex-col gap-2">
-      <div className="min-w-0">
-        <div className="text-text-primary text-sm truncate">{s.model}</div>
-        <div className="text-text-muted text-xs">{s.provider}</div>
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div>
+          <div className="text-text-primary text-sm truncate">{s.model}</div>
+          <div className="text-text-muted text-xs">{s.provider}</div>
+        </div>
+        <button
+          onClick={() => onRunSingle(s.provider, s.model)}
+          disabled={busy}
+          title={`Rodar benchmark para ${s.model}`}
+          className="p-1 text-text-muted hover:text-green-500 hover:bg-surface disabled:opacity-30 rounded-md transition-colors"
+        >
+          {isThisRunning ? (
+            <Loader2 className="w-4 h-4 animate-spin text-green-500" />
+          ) : (
+            <Play className="w-4 h-4" />
+          )}
+        </button>
       </div>
       <div className="grid grid-cols-4 gap-2 text-xs">
         <div>
@@ -123,14 +166,15 @@ export default function AIBenchmarkCard() {
   const [savingCost, setSavingCost] = useState(false)
   const [cost, setCost] = useState<AICostConfig>({ maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 })
   const [msg, setMsg] = useState('')
+  const [selectedProvider, setSelectedProvider] = useState<string>('')
 
   const emptyCost: AICostConfig = { maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 }
   useEffect(() => {
     aiBenchmarkStatus()
       // Normalize: the Go backend marshals empty slices as null, which would
       // crash status.chain.map / status.results.length downstream.
-      .then(s => { s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [], cost: s.cost || emptyCost }; setStatus(s); setCasesText(casesToText(s.cases)); setCost(s.cost) })
-      .catch(() => setStatus({ enabled: false, chain: [], results: [], cases: [], cost: emptyCost }))
+      .then(s => { s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [], cost: s.cost || emptyCost, providers: s.providers || [] }; setStatus(s); setCasesText(casesToText(s.cases)); setCost(s.cost) })
+      .catch(() => setStatus({ enabled: false, chain: [], results: [], cases: [], cost: emptyCost, providers: [] }))
   }, [])
 
   if (!status) {
@@ -156,18 +200,19 @@ export default function AIBenchmarkCard() {
 
   const run = async () => {
     // Intentional: each run spends free-tier quota (remote models are rate-limited).
+    const providerLabel = selectedProvider ? ` para ${selectedProvider}` : ''
     const ok = await confirm({
       title: 'Rodar benchmark',
-      message: 'Rodar o benchmark consome cota dos modelos free (testa cada modelo várias vezes). Continuar?',
+      message: `Rodar o benchmark${providerLabel} consome cota dos modelos (testa cada modelo várias vezes). Continuar?`,
       confirmLabel: 'Rodar',
       destructive: false,
     })
     if (!ok) return
     setRunning(true); setMsg('')
     try {
-      const results = await runAIBenchmark()
+      const results = await runAIBenchmark(selectedProvider || undefined)
       setStatus(s => s ? { ...s, results } : s)
-      setMsg('Benchmark concluído — chain adotada pelo melhor score.')
+      setMsg(`Benchmark${providerLabel} concluído — chain adotada pelo melhor score.`)
     } catch (e: any) {
       setMsg(e?.response?.data?.error || 'Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
     } finally { setRunning(false) }
@@ -209,7 +254,21 @@ export default function AIBenchmarkCard() {
     } finally { setSavingCost(false) }
   }
 
-  const busy = running || runningIncomplete
+  const [runningSlotId, setRunningSlotId] = useState<string | null>(null)
+
+  const runSingle = async (provider: string, model: string) => {
+    const slotId = `${provider}:${model}`
+    setRunningSlotId(slotId); setMsg('')
+    try {
+      const results = await runAIBenchmark(provider, model)
+      setStatus(s => s ? { ...s, results } : s)
+      setMsg(`Benchmark para ${model} concluído.`)
+    } catch (e: any) {
+      setMsg(e?.response?.data?.error || `Falha ao rodar benchmark para ${model}.`)
+    } finally { setRunningSlotId(null) }
+  }
+
+  const busy = running || runningIncomplete || !!runningSlotId
   const incompleteCount = status.results.filter(needsRerun).length
 
   return (
@@ -217,6 +276,19 @@ export default function AIBenchmarkCard() {
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
         <div className="flex items-center gap-2">
+          {status.providers && status.providers.length > 0 && (
+            <select
+              value={selectedProvider}
+              onChange={e => setSelectedProvider(e.target.value)}
+              disabled={busy}
+              className="bg-surface border border-default rounded-lg px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-green-600"
+            >
+              <option value="">Todos os provedores</option>
+              {status.providers.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
           {incompleteCount > 0 && (
             <button
               onClick={runIncomplete}
@@ -293,12 +365,12 @@ export default function AIBenchmarkCard() {
                   <th className="py-1 font-medium">Falha</th>
                 </tr>
               </thead>
-              <tbody>{status.results.map(scoreRow)}</tbody>
+              <tbody>{status.results.map(s => scoreRow(s, runSingle, busy, runningSlotId))}</tbody>
             </table>
           </div>
           {/* Mobile: stacked cards */}
           <div className="flex flex-col gap-2 sm:hidden">
-            {status.results.map(scoreCard)}
+            {status.results.map(s => scoreCard(s, runSingle, busy, runningSlotId))}
           </div>
         </>
       )}

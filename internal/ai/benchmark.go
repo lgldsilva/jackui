@@ -546,6 +546,24 @@ func (c *Client) DiscoverModels(ctx context.Context) []Slot {
 	return out
 }
 
+// DiscoverModelsForProvider lists candidate models for a specific provider.
+func (c *Client) DiscoverModelsForProvider(ctx context.Context, provider string) []Slot {
+	existing := map[string]bool{}
+	for _, s := range c.slots {
+		existing[s.Provider+"|"+s.Model] = true
+	}
+	var out []Slot
+	if provider == "ollama" {
+		out = append(out, c.DiscoverOllamaModels(ctx)...)
+	} else {
+		p, ok := c.providers[provider]
+		if ok && p.BaseURL != "" {
+			out = append(out, c.discoverViaModelsAPI(ctx, provider, p, 100, existing)...)
+		}
+	}
+	return out
+}
+
 // modelCostPer1M turns OpenAI-style per-TOKEN pricing (strings, USD) into a
 // blended (prompt+completion)/2 price per 1M tokens. known=false when neither
 // field is numeric — e.g. OpenCode Zen, which returns no pricing at all.
