@@ -120,18 +120,7 @@ func TestCleanQueryEmptyForJunkOnly(t *testing.T) {
 }
 
 func TestBuildMatchFromResult_Movie(t *testing.T) {
-	r := struct {
-		ID           int     `json:"id"`
-		MediaType    string  `json:"media_type"`
-		Title        string  `json:"title"`
-		Name         string  `json:"name"`
-		Overview     string  `json:"overview"`
-		PosterPath   string  `json:"poster_path"`
-		ReleaseDate  string  `json:"release_date"`
-		FirstAirDate string  `json:"first_air_date"`
-		VoteAverage  float64 `json:"vote_average"`
-		Popularity   float64 `json:"popularity"`
-	}{
+	r := tmdbResult{
 		ID: 123, MediaType: "movie", Title: "Test Movie",
 		Overview: "A test", ReleaseDate: "2024-01-15", VoteAverage: 7.5,
 	}
@@ -142,18 +131,7 @@ func TestBuildMatchFromResult_Movie(t *testing.T) {
 }
 
 func TestBuildMatchFromResult_TV(t *testing.T) {
-	r := struct {
-		ID           int     `json:"id"`
-		MediaType    string  `json:"media_type"`
-		Title        string  `json:"title"`
-		Name         string  `json:"name"`
-		Overview     string  `json:"overview"`
-		PosterPath   string  `json:"poster_path"`
-		ReleaseDate  string  `json:"release_date"`
-		FirstAirDate string  `json:"first_air_date"`
-		VoteAverage  float64 `json:"vote_average"`
-		Popularity   float64 `json:"popularity"`
-	}{
+	r := tmdbResult{
 		ID: 456, MediaType: "tv", Name: "Test Show",
 		Overview: "A show", FirstAirDate: "2023-06-01", VoteAverage: 8.0,
 	}
@@ -163,19 +141,25 @@ func TestBuildMatchFromResult_TV(t *testing.T) {
 	}
 }
 
+func TestBuildMatchFromResult_OriginalTitle(t *testing.T) {
+	// Movie: original_title carries the untranslated title.
+	mv := buildMatchFromResult(tmdbResult{
+		ID: 1, MediaType: "movie", Title: "A Origem", OriginalTitle: "Inception", ReleaseDate: "2010-01-01",
+	})
+	if mv.OriginalTitle != "Inception" {
+		t.Errorf("movie OriginalTitle = %q, want Inception", mv.OriginalTitle)
+	}
+	// TV: original_name is the untranslated name.
+	tv := buildMatchFromResult(tmdbResult{
+		ID: 2, MediaType: "tv", Name: "Round 6", OriginalName: "Squid Game", FirstAirDate: "2021-01-01",
+	})
+	if tv.OriginalTitle != "Squid Game" {
+		t.Errorf("tv OriginalTitle = %q, want Squid Game", tv.OriginalTitle)
+	}
+}
+
 func TestBuildMatchFromResult_MovieNoYear(t *testing.T) {
-	r := struct {
-		ID           int     `json:"id"`
-		MediaType    string  `json:"media_type"`
-		Title        string  `json:"title"`
-		Name         string  `json:"name"`
-		Overview     string  `json:"overview"`
-		PosterPath   string  `json:"poster_path"`
-		ReleaseDate  string  `json:"release_date"`
-		FirstAirDate string  `json:"first_air_date"`
-		VoteAverage  float64 `json:"vote_average"`
-		Popularity   float64 `json:"popularity"`
-	}{
+	r := tmdbResult{
 		ID: 789, MediaType: "movie", Title: "No Year",
 	}
 	m := buildMatchFromResult(r)
@@ -212,18 +196,7 @@ func TestTrendingCached(t *testing.T) {
 
 func TestBuildTrendingItems(t *testing.T) {
 	out := multiSearchResp{
-		Results: []struct {
-			ID           int     `json:"id"`
-			MediaType    string  `json:"media_type"`
-			Title        string  `json:"title"`
-			Name         string  `json:"name"`
-			Overview     string  `json:"overview"`
-			PosterPath   string  `json:"poster_path"`
-			ReleaseDate  string  `json:"release_date"`
-			FirstAirDate string  `json:"first_air_date"`
-			VoteAverage  float64 `json:"vote_average"`
-			Popularity   float64 `json:"popularity"`
-		}{
+		Results: []tmdbResult{
 			{ID: 1, MediaType: "movie", Title: "M1", PosterPath: "/p1.jpg"},
 			{ID: 2, MediaType: "tv", Name: "S1", PosterPath: "/p2.jpg"},
 			{ID: 3, MediaType: "person"},
@@ -271,18 +244,7 @@ func TestFetchEpisodeName_InvalidParams(t *testing.T) {
 func TestMatch_WithCache(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := multiSearchResp{
-			Results: []struct {
-				ID           int     `json:"id"`
-				MediaType    string  `json:"media_type"`
-				Title        string  `json:"title"`
-				Name         string  `json:"name"`
-				Overview     string  `json:"overview"`
-				PosterPath   string  `json:"poster_path"`
-				ReleaseDate  string  `json:"release_date"`
-				FirstAirDate string  `json:"first_air_date"`
-				VoteAverage  float64 `json:"vote_average"`
-				Popularity   float64 `json:"popularity"`
-			}{
+			Results: []tmdbResult{
 				{ID: 1, MediaType: "movie", Title: "Inception", PosterPath: "/p.jpg", ReleaseDate: "2010-07-16", VoteAverage: 8.8},
 			},
 		}
@@ -566,18 +528,7 @@ func TestPickBestMatch_SkipsNonMovieTv(t *testing.T) {
 	c, _ := New("key", "", dbPath)
 
 	out := &multiSearchResp{
-		Results: []struct {
-			ID           int     `json:"id"`
-			MediaType    string  `json:"media_type"`
-			Title        string  `json:"title"`
-			Name         string  `json:"name"`
-			Overview     string  `json:"overview"`
-			PosterPath   string  `json:"poster_path"`
-			ReleaseDate  string  `json:"release_date"`
-			FirstAirDate string  `json:"first_air_date"`
-			VoteAverage  float64 `json:"vote_average"`
-			Popularity   float64 `json:"popularity"`
-		}{
+		Results: []tmdbResult{
 			{ID: 1, MediaType: "person", Title: "Someone"},
 			{ID: 2, MediaType: "movie", Title: "Real Movie", PosterPath: "/p.jpg", ReleaseDate: "2020-01-01"},
 		},
@@ -660,18 +611,7 @@ func TestCachedTTLCheck(t *testing.T) {
 func TestMatch_DisableOmdbStillWorks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := multiSearchResp{
-			Results: []struct {
-				ID           int     `json:"id"`
-				MediaType    string  `json:"media_type"`
-				Title        string  `json:"title"`
-				Name         string  `json:"name"`
-				Overview     string  `json:"overview"`
-				PosterPath   string  `json:"poster_path"`
-				ReleaseDate  string  `json:"release_date"`
-				FirstAirDate string  `json:"first_air_date"`
-				VoteAverage  float64 `json:"vote_average"`
-				Popularity   float64 `json:"popularity"`
-			}{
+			Results: []tmdbResult{
 				{ID: 1, MediaType: "movie", Title: "Test", PosterPath: "/p.jpg", ReleaseDate: "2022-01-01"},
 			},
 		}
