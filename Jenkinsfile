@@ -63,7 +63,7 @@ pipeline {
     }
 
     stage('Frontend build') {
-      agent { docker { image 'node:22-alpine'; reuseNode true; args '--platform linux/arm64 -e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
+      agent { docker { image 'node:24-alpine'; reuseNode true; args '--platform linux/arm64 -e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
       steps {
         dir('web') {
           sh 'npm ci'
@@ -101,11 +101,15 @@ pipeline {
             docker run --rm --user 0 --platform linux/arm64 -e SONAR_TOKEN -e SONAR_HOST -v "$HOST_WS":/usr/src -w /usr/src \
               eclipse-temurin:21 \
               sh -c '
-                echo "Installing Node.js..."
+                echo "Installing Node.js 24..."
+                apt-get update -q && apt-get install -y -q ca-certificates curl gnupg unzip wget >/dev/null
+                install -m 0755 -d /etc/apt/keyrings
+                curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+                echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
                 apt-get update -q && apt-get install -y -q nodejs >/dev/null
+                NODE_BIN=$(command -v node)
+                node -v
                 if [ ! -d .sonar-scanner ]; then
-                  echo "Installing unzip..."
-                  apt-get install -y -q unzip wget >/dev/null
                   echo "Downloading native arm64 SonarScanner..."
                   wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-aarch64.zip -O /tmp/sonar-scanner.zip
                   unzip -q /tmp/sonar-scanner.zip -d .
@@ -115,6 +119,7 @@ pipeline {
                 ./.sonar-scanner/bin/sonar-scanner \
                   -Dsonar.host.url=$SONAR_HOST \
                   -Dsonar.token=$SONAR_TOKEN \
+                  -Dsonar.nodejs.executable=$NODE_BIN \
                   -Dsonar.projectKey=jackui \
                   -Dsonar.sources=. \
                   -Dsonar.exclusions="**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**,**/streamer/streams/**" \
