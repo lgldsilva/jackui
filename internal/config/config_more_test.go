@@ -37,6 +37,15 @@ func TestApplyEnvOverrides_LocalReadaheadMB_InvalidIgnored(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_LocalCacheGB(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_LOCAL_CACHE_GB", "120")
+	applyEnvOverrides(cfg)
+	if cfg.External.LocalCacheGB != 120 {
+		t.Fatalf("LocalCacheGB = %d, want 120", cfg.External.LocalCacheGB)
+	}
+}
+
 func TestApplyEnvOverrides_HLSVODMode(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("JACKUI_HLS_VOD_MODE", "all")

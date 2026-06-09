@@ -31,6 +31,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/middleware"
@@ -117,6 +118,7 @@ type appDeps struct {
 	promoteDests   []handlers.PromoteDest
 	hlsMgr         *transcode.HLSSessionManager
 	localStream    *localstream.Registry
+	localCache     *localcache.Cache
 	cleanup        []func()
 }
 
@@ -146,6 +148,14 @@ func main() {
 	// Persist local-file thumbnails (and negative markers) under the stream
 	// DataDir so they survive restarts instead of regenerating in /tmp.
 	handlers.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
+	// Dedicated cache for pre-fetching whole files from slow mounts (rclone) to
+	// local disk — instant, seekable, EIO-proof playback. LRU-capped.
+	if cache, cerr := localcache.New(filepath.Join(deps.streamCfg.DataDir, "local-cache"), deps.cfg.External.LocalCacheGB); cerr == nil {
+		deps.localCache = cache
+		deps.addCleanup(cache.Close)
+	} else {
+		log.Printf("Warning: local cache init failed: %v — local caching disabled", cerr)
+	}
 	initStreamer(deps)
 	initLibraryStore(deps)
 	initPlaylistsStore(deps)
@@ -898,8 +908,11 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/mounts", handlers.LocalMounts(deps.localBrowser))
 	api.GET("/local/list", handlers.LocalList(deps.localBrowser))
-	api.GET("/local/file", handlers.LocalFile(deps.localBrowser, deps.localStream))
+	api.GET("/local/file", handlers.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
 	api.GET("/local/transfer-status", handlers.LocalTransferStatus(deps.localBrowser, deps.localStream))
+	api.POST("/local/cache", handlers.LocalCacheStart(deps.localBrowser, deps.localCache))
+	api.GET("/local/cache/status", handlers.LocalCacheStatus(deps.localBrowser, deps.localCache))
+	api.DELETE("/local/cache", handlers.LocalCacheDelete(deps.localBrowser, deps.localCache))
 	api.GET("/local/thumb", handlers.LocalThumb(deps.localBrowser))
 	api.GET("/local/transcode", handlers.LocalTranscode(deps.localBrowser))
 	api.DELETE("/local/file", handlers.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
@@ -957,7 +970,7 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	}
 	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream))
+	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
 	api.GET("/local/hls/seg", handlers.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
 	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
 	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))

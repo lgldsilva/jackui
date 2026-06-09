@@ -30,6 +30,7 @@ import {
   downloadCreate,
   downloadLocalFileDirect,
   classifyCategory,
+  isLocalHash,
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
@@ -406,6 +407,10 @@ export default function PlayerModal({
 
   const handleServerDownload = async () => {
     if (!info || selectedFile < 0) return
+    // Local/rclone files have no magnet — building one from the `local-…`
+    // pseudo-hash makes the torrent client throw "error parsing infohash".
+    // The UI shows LocalCacheButton for these instead; guard defensively.
+    if (isLocalHash(info.infoHash)) return
     setServerDownloadLoading(true)
     try {
       const magnet = result?.magnetUri || `magnet:?xt=urn:btih:${info.infoHash}`

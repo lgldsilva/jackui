@@ -109,6 +109,10 @@ type ExternalConfig struct {
 	// turns many tiny FUSE Range reads into a few big fetches, smoothing playback.
 	// 0 → 16 MiB default. Distinct from Stream.ReadaheadMB (torrent-only).
 	LocalReadaheadMB int `yaml:"local_readahead_mb"`
+	// LocalCacheGB caps the dedicated cache that pre-fetches whole files from
+	// slow mounts (rclone/Drive) to local disk for instant, seekable, EIO-proof
+	// playback. LRU eviction keeps it under the cap. 0 → 50 GiB default.
+	LocalCacheGB int `yaml:"local_cache_gb"`
 }
 
 type ExternalMount struct {
@@ -266,6 +270,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.External.LocalReadaheadMB = n
 		}
 	}
+	if v := os.Getenv("JACKUI_LOCAL_CACHE_GB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.External.LocalCacheGB = n
+		}
+	}
 	if v := os.Getenv("JACKUI_HLS_VOD_MODE"); v != "" {
 		cfg.Stream.HLSVODMode = v
 	}
@@ -345,7 +354,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
 		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
-		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB", "JACKUI_HLS_VOD_MODE",
+		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB", "JACKUI_LOCAL_CACHE_GB", "JACKUI_HLS_VOD_MODE",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
 	}

@@ -145,7 +145,7 @@ func TestLocalFile_MeteredServesRange(t *testing.T) {
 	defer reg.Close()
 
 	router := gin.New()
-	router.GET("/api/local/file", LocalFile(b, reg))
+	router.GET("/api/local/file", LocalFile(b, reg, nil))
 
 	req := httptest.NewRequest("GET", "/api/local/file?mount=Test&path=clip.mp4", nil)
 	req.Header.Set("Range", "bytes=100-199")
@@ -179,7 +179,7 @@ func TestLocalFile_MeteredServesWhole(t *testing.T) {
 	defer reg.Close()
 
 	router := gin.New()
-	router.GET("/api/local/file", LocalFile(b, reg))
+	router.GET("/api/local/file", LocalFile(b, reg, nil))
 	req := httptest.NewRequest("GET", "/api/local/file?mount=Test&path=whole.mp4", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

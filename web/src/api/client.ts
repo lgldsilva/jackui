@@ -1328,6 +1328,30 @@ export const localPlay = async (mount: string, path: string): Promise<LocalPlayS
   return { ...data, url: withViewAs(data.url) }
 }
 
+// LocalCacheStatus is the "cache mark" for a local file: whether it's been
+// pre-fetched to fast local disk (instant, seekable, EIO-proof playback).
+export type LocalCacheStatus = {
+  status: 'none' | 'queued' | 'copying' | 'ready' | 'error'
+  size: number
+  copied: number
+  percent: number
+  error?: string
+}
+
+// localCacheStart enqueues a full-file copy of a local/rclone file to the local
+// cache. localCacheStatus polls the progress; localCacheDelete drops the copy.
+export const localCacheStart = async (mount: string, path: string): Promise<LocalCacheStatus> => {
+  const { data } = await api.post<LocalCacheStatus>(`/local/cache?${localQS(mount, path)}`)
+  return data
+}
+export const localCacheStatus = async (mount: string, path: string): Promise<LocalCacheStatus> => {
+  const { data } = await api.get<LocalCacheStatus>(`/local/cache/status?${localQS(mount, path)}`)
+  return data
+}
+export const localCacheDelete = async (mount: string, path: string): Promise<void> => {
+  await api.delete(`/local/cache?${localQS(mount, path)}`)
+}
+
 // LocalTransfer is the throughput snapshot for a playing local file, used to
 // show "downloading X MB/s" / "waiting for data" — the rclone/Drive case where
 // a play silently fetches over the network.
