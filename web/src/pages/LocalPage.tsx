@@ -313,6 +313,17 @@ function EntryRow(props: EntryRowProps) {
     <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-surface-tertiary/20'}`}>
       <button
         onClick={() => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))}
+        onContextMenu={(ev) => {
+          // Botão direito abre numa nova aba (tela toda): pasta → o browser
+          // daquela pasta; arquivo → o player via deep-link ?play=local-hash.
+          if (!clickable) return
+          ev.preventDefault()
+          const origin = globalThis.location.origin
+          const url = e.isDir
+            ? `${origin}/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
+            : `${origin}/?play=${buildLocalHash(mount, e.path)}`
+          globalThis.open(url, '_blank', 'noopener')
+        }}
         disabled={!selectMode && !clickable}
         {...pressHandlers}
         className={`flex-1 min-w-0 flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${

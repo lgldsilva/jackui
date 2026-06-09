@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { SearchResult, PlaylistItem, streamAdd, libraryList } from '../api/client'
+import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
 import PlayerModal from './PlayerModal'
 
@@ -309,6 +309,22 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       lastSyncedHashRef.current = null
       return
     }
+    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : Number.NaN
+    const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
+    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : Number.NaN
+    const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
+
+    // Local pseudo-hash (`local-<base64url>`): a deep link to a file on a mount,
+    // used by "open in new tab" from the local browser. No library lookup —
+    // playSingle with a synthetic result; the client routes it to /api/local/*.
+    if (isLocalHash(hash)) {
+      lastSyncedHashRef.current = hash
+      const loc = parseLocalHash(hash)
+      const name = loc ? (loc.path.split('/').pop() || loc.path) : hash
+      playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
+      return
+    }
+
     // Validate: info_hash is 40 hex chars. Reject malformed values silently —
     // a stray ?play=foo in the URL shouldn't blow up the app.
     if (!/^[a-fA-F0-9]{40}$/.test(hash)) {
@@ -316,10 +332,6 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       return
     }
     lastSyncedHashRef.current = hash
-    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : Number.NaN
-    const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
-    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : Number.NaN
-    const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
 
     // Best effort: lookup the library entry to get a proper title + magnet
     // (some trackers' magnets carry display_name + trackers, which is nice to
