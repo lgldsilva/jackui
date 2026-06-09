@@ -260,21 +260,9 @@ func applyEnvOverrides(cfg *Config) {
 	applyAIEnv(cfg)
 	applyDownloadsQueueEnv(cfg)
 
-	if v := os.Getenv("JACKUI_MAX_UPLOAD_MB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.External.MaxUploadMB = n
-		}
-	}
-	if v := os.Getenv("JACKUI_LOCAL_READAHEAD_MB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.External.LocalReadaheadMB = n
-		}
-	}
-	if v := os.Getenv("JACKUI_LOCAL_CACHE_GB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			cfg.External.LocalCacheGB = n
-		}
-	}
+	applyEnvPositiveInt(&cfg.External.MaxUploadMB, "JACKUI_MAX_UPLOAD_MB")
+	applyEnvPositiveInt(&cfg.External.LocalReadaheadMB, "JACKUI_LOCAL_READAHEAD_MB")
+	applyEnvPositiveInt(&cfg.External.LocalCacheGB, "JACKUI_LOCAL_CACHE_GB")
 	if v := os.Getenv("JACKUI_HLS_VOD_MODE"); v != "" {
 		cfg.Stream.HLSVODMode = v
 	}
@@ -431,6 +419,14 @@ func applyStreamPerfEnv(cfg *Config) {
 
 func applyEnvInt(target *int, name string) {
 	if n, ok := envInt(name); ok && n >= 0 {
+		*target = n
+	}
+}
+
+// applyEnvPositiveInt sets *target from a strictly-positive env int. A 0,
+// negative or non-numeric value is ignored (keeps the current value/default).
+func applyEnvPositiveInt(target *int, name string) {
+	if n, ok := envInt(name); ok && n > 0 {
 		*target = n
 	}
 }

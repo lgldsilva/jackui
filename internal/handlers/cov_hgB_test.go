@@ -403,7 +403,9 @@ func Test_hgB_StartLocalHLSSession_OpenError(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	sess, err := startLocalHLSSession(c, mgr, nil, "Test", "x.mkv", "/no/such/file.mkv", nil, false, 0)
+	sess, err := startLocalHLSSession(c, mgr, nil, localHLSSource{
+		mount: "Test", path: "x.mkv", abs: "/no/such/file.mkv",
+	})
 	if err == nil {
 		t.Fatal("expected open error")
 	}
