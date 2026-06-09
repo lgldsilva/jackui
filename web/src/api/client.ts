@@ -786,6 +786,7 @@ export type FavoriteFolder = {
   name: string
   parentId: number | null  // null = root-level folder
   position: number
+  hidden?: boolean         // hidden folders only show after the UI's easter egg
   createdAt: string
 }
 
@@ -835,8 +836,8 @@ export const streamSidecarURL = (hash: string, fileIdx: number, tokenOverride?: 
   return withToken(`/api/stream/sidecar/${hash}/${fileIdx}`, tokenOverride)
 }
 
-export const favoritesList = async (): Promise<StreamFavorite[]> => {
-  const { data } = await api.get<StreamFavorite[]>('/stream/favorites')
+export const favoritesList = async (includeHidden = false): Promise<StreamFavorite[]> => {
+  const { data } = await api.get<StreamFavorite[]>(`/stream/favorites${includeHidden ? '?includeHidden=1' : ''}`)
   return data
 }
 
@@ -863,14 +864,19 @@ export const streamImport = async (
 // Folders live alongside favorites; each favorite can have an optional
 // folder_id. Server prevents cycles when moving subfolders.
 
-export const folderList = async (): Promise<FavoriteFolder[]> => {
-  const { data } = await api.get<FavoriteFolder[]>('/stream/favorites/folders')
+export const folderList = async (includeHidden = false): Promise<FavoriteFolder[]> => {
+  const { data } = await api.get<FavoriteFolder[]>(`/stream/favorites/folders${includeHidden ? '?includeHidden=1' : ''}`)
   return data || []
 }
 
-export const folderCreate = async (name: string, parentId: number | null = null): Promise<FavoriteFolder> => {
-  const { data } = await api.post<FavoriteFolder>('/stream/favorites/folders', { name, parentId })
+export const folderCreate = async (name: string, parentId: number | null = null, hidden = false): Promise<FavoriteFolder> => {
+  const { data } = await api.post<FavoriteFolder>('/stream/favorites/folders', { name, parentId, hidden })
   return data
+}
+
+// folderSetHidden flips a folder's hidden curtain (PATCH hidden).
+export const folderSetHidden = async (id: number, hidden: boolean): Promise<void> => {
+  await api.patch(`/stream/favorites/folders/${id}`, { hidden })
 }
 
 export const folderRename = async (id: number, name: string): Promise<void> => {
