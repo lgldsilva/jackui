@@ -34,13 +34,25 @@ type Track struct {
 	Default  bool   `json:"default"`
 	Forced   bool   `json:"forced,omitempty"`
 	Channels int    `json:"channels,omitempty"`
-	Image    bool   `json:"image,omitempty"`    // true if subtitle is image-based (PGS, DVD) — needs burn-in
+	Image    bool   `json:"image,omitempty"` // true if subtitle is image-based (PGS, DVD) — needs burn-in
+}
+
+// Chapter is one chapter marker embedded in the media (MKV/MP4). Times are in
+// seconds. The player navigates by setting video.currentTime to StartSec — this
+// works for both direct-play and HLS (the transcode drops embedded chapters, so
+// a <track kind="chapters"> would be empty; the probe list is the source).
+type Chapter struct {
+	Index    int     `json:"index"`
+	StartSec float64 `json:"startSec"`
+	EndSec   float64 `json:"endSec,omitempty"`
+	Title    string  `json:"title,omitempty"`
 }
 
 // ProbeResult lists all switchable tracks in a torrent file.
 type ProbeResult struct {
-	Audio     []Track `json:"audio"`
-	Subtitles []Track `json:"subtitles"`
+	Audio     []Track   `json:"audio"`
+	Subtitles []Track   `json:"subtitles"`
+	Chapters  []Chapter `json:"chapters"`
 	// DurationSec is the total media duration in seconds, 0 when ffprobe
 	// couldn't determine it (e.g. MP4 with moov-at-end whose tail isn't
 	// downloaded yet). Callers must treat 0 as "unknown" and fall back.
@@ -51,10 +63,10 @@ type ProbeResult struct {
 	// (não mais pelo NOME do arquivo, que errava e mandava incompatível pro
 	// direct-play → errorCode 4 no Safari). Mesma lógica do classifyForBrowser
 	// dos arquivos locais. Vazio até o ffprobe rodar.
-	VideoCodec     string `json:"videoCodec"`
-	Container      string `json:"container"`
-	AudioCodec     string `json:"audioCodec"`
-	NeedsTranscode bool   `json:"needsTranscode"`
+	VideoCodec      string `json:"videoCodec"`
+	Container       string `json:"container"`
+	AudioCodec      string `json:"audioCodec"`
+	NeedsTranscode  bool   `json:"needsTranscode"`
 	TranscodeReason string `json:"transcodeReason,omitempty"`
 }
 
@@ -141,6 +153,7 @@ func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, err
 		"-of", "json",
 		"-show_streams",
 		"-show_format",
+		"-show_chapters",
 		"-i", input,
 	)
 	if stdin != nil {
@@ -167,12 +180,41 @@ type ffprobeStream struct {
 	} `json:"disposition"`
 }
 
+type ffprobeChapter struct {
+	ID        int               `json:"id"`
+	StartTime string            `json:"start_time"`
+	EndTime   string            `json:"end_time"`
+	Tags      map[string]string `json:"tags"`
+}
+
 type ffprobeOutput struct {
-	Streams []ffprobeStream `json:"streams"`
-	Format  struct {
+	Streams  []ffprobeStream  `json:"streams"`
+	Chapters []ffprobeChapter `json:"chapters"`
+	Format   struct {
 		Duration   string `json:"duration"`
 		FormatName string `json:"format_name"`
 	} `json:"format"`
+}
+
+// parseChapters maps ffprobe's chapter list to Chapters. start_time/end_time are
+// seconds as strings (same shape as Format.Duration); a missing/garbage value
+// just leaves the field at 0. Always returns a non-nil slice.
+func parseChapters(chs []ffprobeChapter) []Chapter {
+	out := []Chapter{}
+	for _, ch := range chs {
+		c := Chapter{Index: ch.ID}
+		if s, err := strconv.ParseFloat(ch.StartTime, 64); err == nil {
+			c.StartSec = s
+		}
+		if e, err := strconv.ParseFloat(ch.EndTime, 64); err == nil {
+			c.EndSec = e
+		}
+		if ch.Tags != nil {
+			c.Title = ch.Tags["title"]
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 func streamToTrack(st ffprobeStream) Track {
@@ -235,6 +277,7 @@ func parseProbeOutput(out []byte) (*ProbeResult, error) {
 	result := &ProbeResult{
 		Audio:      audio,
 		Subtitles:  subs,
+		Chapters:   parseChapters(parsed.Chapters),
 		VideoCodec: videoCodec,
 	}
 	if parsed.Format.Duration != "" {
@@ -328,7 +371,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		"-i", pi.input,
 		"-frames:v", "1",
 		"-vf", "scale=240:-2", // 240 wide preserving aspect — height auto-computed
-		"-q:v", "5",            // 1-31, lower=better; 5 is sweet spot for previews
+		"-q:v", "5", // 1-31, lower=better; 5 is sweet spot for previews
 		"-f", "mjpeg",
 		"-y",
 		pipe1,

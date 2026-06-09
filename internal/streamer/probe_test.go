@@ -84,8 +84,43 @@ func TestParseProbeOutput_Empty(t *testing.T) {
 	if len(result.Subtitles) != 0 {
 		t.Errorf("expected 0 subtitles, got %d", len(result.Subtitles))
 	}
+	if result.Chapters == nil {
+		t.Error("Chapters must be a non-nil slice")
+	}
+	if len(result.Chapters) != 0 {
+		t.Errorf("expected 0 chapters, got %d", len(result.Chapters))
+	}
 	if result.DurationSec != 0 {
 		t.Errorf("DurationSec = %f, want 0", result.DurationSec)
+	}
+}
+
+func TestParseProbeOutput_Chapters(t *testing.T) {
+	json := `{
+		"streams": [{"index": 0, "codec_type": "video", "codec_name": "h264"}],
+		"chapters": [
+			{"id": 0, "start_time": "0.000000", "end_time": "300.000000", "tags": {"title": "Intro"}},
+			{"id": 1, "start_time": "300.000000", "end_time": "1200.500000", "tags": {"title": "Part 2"}},
+			{"id": 2, "start_time": "1200.500000", "end_time": "1800.000000"}
+		],
+		"format": {"duration": "1800.0"}
+	}`
+	result, err := parseProbeOutput([]byte(json))
+	if err != nil {
+		t.Fatalf("parseProbeOutput: %v", err)
+	}
+	if len(result.Chapters) != 3 {
+		t.Fatalf("expected 3 chapters, got %d", len(result.Chapters))
+	}
+	if result.Chapters[0].Title != "Intro" || result.Chapters[0].StartSec != 0 {
+		t.Errorf("chapter0 = %+v", result.Chapters[0])
+	}
+	if result.Chapters[1].StartSec != 300 || result.Chapters[1].EndSec != 1200.5 {
+		t.Errorf("chapter1 times = %+v", result.Chapters[1])
+	}
+	// A chapter with no tags keeps an empty title (the UI falls back to "Capítulo N").
+	if result.Chapters[2].Title != "" {
+		t.Errorf("chapter2 title = %q, want empty", result.Chapters[2].Title)
 	}
 }
 
@@ -173,7 +208,6 @@ func TestSaveAndReadArtBytes(t *testing.T) {
 	}
 }
 
-
 func TestReadArtBytes_NonExistent(t *testing.T) {
 	dir := t.TempDir()
 	s := &Streamer{cfg: Config{DataDir: dir}}
@@ -233,8 +267,6 @@ func TestComputeOSHash_Exact64K(t *testing.T) {
 	}
 }
 
-
-
 type readSeekerWrapper struct {
 	data   []byte
 	offset int
@@ -281,8 +313,6 @@ func TestProbeHealthAsync_EmptyMagnetNoOp(t *testing.T) {
 	hash := metainfo.Hash{}
 	s.ProbeHealthAsync(hash, "")
 }
-
-
 
 func TestMetadataCache_NewAndClose(t *testing.T) {
 	dir := t.TempDir()
@@ -459,7 +489,6 @@ func TestHealthSnapshot_UnknownHash(t *testing.T) {
 	}
 }
 
-
 func TestRegisterDownload_Empty(t *testing.T) {
 	s := NewForTesting()
 	s.RegisterDownload("")
@@ -496,7 +525,6 @@ func TestIsDownloadProtected_NoMatch(t *testing.T) {
 	}
 }
 
-
 func TestSetFavorites(t *testing.T) {
 	s := NewForTesting()
 	f := &FavoritesStore{}
@@ -520,7 +548,6 @@ func TestSetMetadataCache(t *testing.T) {
 	}
 }
 
-
 func TestEnsureActive_FailsWithNoClient(t *testing.T) {
 	s := NewForTesting()
 	_, err := s.EnsureActive(nil, "magnet:?xt=urn:btih:abc")
@@ -543,17 +570,12 @@ func TestParseMagnet_Valid(t *testing.T) {
 	}
 }
 
-
-
-
-
 func TestLabelFromPriority_Unknown(t *testing.T) {
 	got := labelFromPriority(100)
 	if got != "normal" {
 		t.Errorf("got %q, want 'normal'", got)
 	}
 }
-
 
 func TestGlobalStats(t *testing.T) {
 	s := NewForTesting()
@@ -728,15 +750,15 @@ func TestClassifyTranscode(t *testing.T) {
 		container, vcodec, acodec string
 		want                      bool
 	}{
-		{"mov", "h264", "aac", false},       // MP4/H.264/AAC → direct
-		{"mp4", "h264", "aac", false},       //
-		{"matroska", "h264", "aac", true},   // MKV → HLS
-		{"mp4", "hevc", "aac", true},        // HEVC → HLS
-		{"mp4", "av1", "aac", true},         // AV1 → HLS
-		{"mp4", "h264", "ac3", true},        // AC3 → HLS
-		{"mp4", "h264", "dts", true},        // DTS → HLS
-		{"webm", "vp9", "opus", false},      // VP9/Opus/webm → direct
-		{"", "", "", false},                 // desconhecido → não força
+		{"mov", "h264", "aac", false},     // MP4/H.264/AAC → direct
+		{"mp4", "h264", "aac", false},     //
+		{"matroska", "h264", "aac", true}, // MKV → HLS
+		{"mp4", "hevc", "aac", true},      // HEVC → HLS
+		{"mp4", "av1", "aac", true},       // AV1 → HLS
+		{"mp4", "h264", "ac3", true},      // AC3 → HLS
+		{"mp4", "h264", "dts", true},      // DTS → HLS
+		{"webm", "vp9", "opus", false},    // VP9/Opus/webm → direct
+		{"", "", "", false},               // desconhecido → não força
 	}
 	for _, c := range cases {
 		got, reason := classifyTranscode(c.container, c.vcodec, c.acodec)

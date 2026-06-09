@@ -4,6 +4,7 @@ import { formatRate } from '../../lib/format'
 import { formatSize, subtitleButtonTitle, subtitleBtnClass, serverDownloadIcon, SPEED_OPTIONS } from './playerFormat'
 import { MediaNavButtons } from './PlayerOverlays'
 import { EmbeddedTracksPanel } from './EmbeddedTracksPanel'
+import { ChaptersPanel } from './ChaptersPanel'
 
 type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
@@ -25,6 +26,7 @@ type PlayerControlsPanelProps = {
   readonly showMobileOpts: boolean
   readonly playbackSpeed: number
   readonly probe: StreamProbe | null
+  readonly onSeek: (sec: number) => void
   readonly sidecars: SidecarSubtitle[]
   readonly transcodeAudio: number | null
   readonly forceH264: boolean
@@ -91,6 +93,7 @@ export function PlayerControlsPanel({
   showMobileOpts,
   playbackSpeed,
   probe,
+  onSeek,
   sidecars,
   transcodeAudio,
   forceH264,
@@ -296,6 +299,16 @@ export function PlayerControlsPanel({
             setEmbeddedSub={setEmbeddedSub}
             setSubActive={setSubActive}
             setAutoSource={setAutoSource}
+          />
+        )}
+
+        {/* Chapter markers — only worth showing when there's more than one */}
+        {probe?.chapters && probe.chapters.length > 1 && (
+          <ChaptersPanel
+            chapters={probe.chapters}
+            currentTime={currentTime}
+            onSeek={onSeek}
+            formatTime={formatTime}
           />
         )}
 

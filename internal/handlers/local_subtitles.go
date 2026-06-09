@@ -10,8 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -113,6 +113,7 @@ func runLocalFFProbe(c *gin.Context, abs string) (streamer.ProbeResult, bool) {
 		"-of", "json",
 		"-show_streams",
 		"-show_format",
+		"-show_chapters",
 		"-i", abs,
 	)
 	out, err := cmd.Output()
@@ -143,6 +144,12 @@ func parseFFProbeStreams(out []byte) (streamer.ProbeResult, error) {
 				Forced  int `json:"forced"`
 			} `json:"disposition"`
 		} `json:"streams"`
+		Chapters []struct {
+			ID        int               `json:"id"`
+			StartTime string            `json:"start_time"`
+			EndTime   string            `json:"end_time"`
+			Tags      map[string]string `json:"tags"`
+		} `json:"chapters"`
 		Format struct {
 			Duration string `json:"duration"`
 		} `json:"format"`
@@ -153,6 +160,20 @@ func parseFFProbeStreams(out []byte) (streamer.ProbeResult, error) {
 	result := streamer.ProbeResult{
 		Audio:     []streamer.Track{},
 		Subtitles: []streamer.Track{},
+		Chapters:  []streamer.Chapter{},
+	}
+	for _, ch := range parsed.Chapters {
+		c := streamer.Chapter{Index: ch.ID}
+		if s, perr := strconv.ParseFloat(ch.StartTime, 64); perr == nil {
+			c.StartSec = s
+		}
+		if e, perr := strconv.ParseFloat(ch.EndTime, 64); perr == nil {
+			c.EndSec = e
+		}
+		if ch.Tags != nil {
+			c.Title = ch.Tags["title"]
+		}
+		result.Chapters = append(result.Chapters, c)
 	}
 	for _, st := range parsed.Streams {
 		var lang, title string
