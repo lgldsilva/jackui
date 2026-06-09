@@ -438,7 +438,7 @@ func TestLocalMoveEntry_NoBody(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/local/move", nil)
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -453,7 +453,7 @@ func TestLocalMoveEntry_MissingFields(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/api/local/move", bytes.NewReader([]byte(`{}`)))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -472,7 +472,7 @@ func TestLocalMoveEntry_NotAdmin(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/api/local/move", bytes.NewReader([]byte(`{"srcMount":"Src","srcPath":"test.txt","dstMount":"Dst"}`)))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403 (not admin); body: %s", w.Code, w.Body.String())
@@ -491,7 +491,7 @@ func TestLocalMoveEntry_Admin_SourceNotFound(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -685,7 +685,7 @@ func TestLocalPromote_NoSharedDir(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/api/local/promote", bytes.NewReader([]byte(`{"mount":"Test","path":"video.mp4"}`)))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	LocalPromote(b, nil, nil, "", nil)(c)
+	LocalPromote(b, nil, nil, "", nil, nil, nil)(c)
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409; body: %s", w.Code, w.Body.String())
@@ -714,7 +714,7 @@ func TestLocalPromote_NoBody(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/local/promote", nil)
 
-	LocalPromote(b, nil, nil, "/shared", nil)(c)
+	LocalPromote(b, nil, nil, "/shared", nil, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())

@@ -362,7 +362,7 @@ func Test_hgC_LocalMove_Success(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -393,7 +393,7 @@ func Test_hgC_LocalMove_SelfMove(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 (self-move); body: %s", w.Code, w.Body.String())
@@ -423,7 +423,7 @@ func Test_hgC_LocalMove_CollisionRefused(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b)(c)
+	LocalMoveEntry(b, nil, nil)(c)
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 (collision); body: %s", w.Code, w.Body.String())

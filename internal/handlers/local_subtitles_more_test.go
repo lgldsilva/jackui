@@ -657,7 +657,7 @@ func TestLocalMoveHandler_SelfMove(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b)
+	localMoveHandler(c, b, nil, nil)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400 for self-move; body: %s", w.Code, w.Body.String())
 	}
@@ -671,7 +671,7 @@ func TestLocalMoveHandler_MissingFields(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/", strings.NewReader(`{"srcMount":"M"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	localMoveHandler(c, b)
+	localMoveHandler(c, b, nil, nil)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
@@ -690,7 +690,7 @@ func TestLocalMoveHandler_SourceNotFound(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b)
+	localMoveHandler(c, b, nil, nil)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
@@ -710,7 +710,7 @@ func TestLocalMoveHandler_UnknownDstMount(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b)
+	localMoveHandler(c, b, nil, nil)
 	if w.Code != 403 {
 		t.Errorf("status = %d, want 403; body: %s", w.Code, w.Body.String())
 	}
@@ -732,7 +732,7 @@ func TestLocalMoveHandler_Success(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b)
+	localMoveHandler(c, b, nil, nil)
 	if w.Code != 200 {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
