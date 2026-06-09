@@ -20,6 +20,9 @@ type Entry struct {
 	Size       int64     `json:"size"`
 	ModTime    time.Time `json:"modTime"`
 	IsPlayable bool      `json:"isPlayable"`
+	// ChildCount is the number of (non-hidden) entries directly inside a
+	// directory — shown in the UI where files show their size. 0 for files.
+	ChildCount int `json:"childCount"`
 }
 
 type Mount struct {
@@ -470,6 +473,27 @@ func (b *Browser) findMountPath(name string) string {
 
 // List returns directory entries at relPath inside the given mount.
 // Files are flagged isPlayable when extension matches a known video/audio type.
+// childCount returns the number of non-hidden entries directly inside dirAbs,
+// or 0 for files / on error. Best-effort: one ReadDir per directory in a
+// listing. On rclone/network mounts this leans on the VFS dir cache; if it ever
+// shows up as slow there, make it lazy (count on expand) rather than eager.
+func childCount(isDir bool, dirAbs string) int {
+	if !isDir {
+		return 0
+	}
+	des, err := os.ReadDir(dirAbs)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, de := range des {
+		if !strings.HasPrefix(de.Name(), ".") {
+			n++
+		}
+	}
+	return n
+}
+
 func (b *Browser) List(mountName, relPath string) ([]Entry, error) {
 	abs, err := b.ResolvePath(mountName, relPath)
 	if err != nil {
@@ -520,6 +544,7 @@ func (b *Browser) List(mountName, relPath string) ([]Entry, error) {
 			Size:       info.Size(),
 			ModTime:    info.ModTime(),
 			IsPlayable: !isDir && IsPlayable(name),
+			ChildCount: childCount(isDir, filepath.Join(abs, name)),
 		})
 	}
 
