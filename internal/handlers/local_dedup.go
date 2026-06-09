@@ -82,43 +82,55 @@ func findDuplicates(ctx context.Context, b *local.Browser, mount, scopedBase str
 	if err != nil {
 		return nil, err
 	}
-	// Pre-filter: a content match requires identical size, so only sizes shared
-	// by ≥2 files are worth hashing.
-	bySize := map[int64][]local.Entry{}
-	for _, e := range entries {
-		if e.Size > 0 { // skip empty files (they'd all "match" trivially)
-			bySize[e.Size] = append(bySize[e.Size], e)
-		}
-	}
 	groups := []dupGroup{}
-	for size, list := range bySize {
+	// Pre-filter by size: a content match is impossible across different sizes,
+	// so only sizes shared by ≥2 files are worth hashing.
+	for size, list := range groupBySize(entries) {
 		if len(list) < 2 {
 			continue
 		}
-		byHash := map[string][]local.Entry{}
-		for _, e := range list {
-			if ctx.Err() != nil {
-				return groups, ctx.Err()
+		for hash, dups := range fingerprintGroup(ctx, b, mount, list) {
+			if len(dups) >= 2 {
+				groups = append(groups, makeDupGroup(hash, size, dups))
 			}
-			abs, rerr := b.ResolvePath(mount, e.Path)
-			if rerr != nil {
-				continue
-			}
-			h, herr := fingerprintFile(abs, e.Size)
-			if herr != nil {
-				continue
-			}
-			byHash[h] = append(byHash[h], e)
-		}
-		for h, dups := range byHash {
-			if len(dups) < 2 {
-				continue
-			}
-			groups = append(groups, makeDupGroup(h, size, dups))
 		}
 	}
 	sortDupGroups(groups)
 	return groups, nil
+}
+
+// groupBySize buckets files by byte size, skipping empty files (which would all
+// "match" trivially).
+func groupBySize(entries []local.Entry) map[int64][]local.Entry {
+	bySize := map[int64][]local.Entry{}
+	for _, e := range entries {
+		if e.Size > 0 {
+			bySize[e.Size] = append(bySize[e.Size], e)
+		}
+	}
+	return bySize
+}
+
+// fingerprintGroup hashes each file in a same-size bucket and groups by
+// fingerprint. Unreadable files are skipped; a cancelled context stops early
+// (the partial result is still useful for the read-only scan).
+func fingerprintGroup(ctx context.Context, b *local.Browser, mount string, list []local.Entry) map[string][]local.Entry {
+	byHash := map[string][]local.Entry{}
+	for _, e := range list {
+		if ctx.Err() != nil {
+			break
+		}
+		abs, rerr := b.ResolvePath(mount, e.Path)
+		if rerr != nil {
+			continue
+		}
+		h, herr := fingerprintFile(abs, e.Size)
+		if herr != nil {
+			continue
+		}
+		byHash[h] = append(byHash[h], e)
+	}
+	return byHash
 }
 
 func makeDupGroup(hash string, size int64, dups []local.Entry) dupGroup {

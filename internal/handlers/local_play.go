@@ -105,22 +105,12 @@ func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
 	if jerr := json.Unmarshal(out, &parsed); jerr != nil {
 		return localProbe{}, fmt.Errorf("decode ffprobe: %w", jerr)
 	}
-	p := localProbe{}
-	// Reuse the duration ffprobe already computed here so the HLS session can
-	// skip the slow 30s seekable probe — the rclone/Drive latency win.
-	if parsed.Format.Duration != "" {
-		if d, perr := strconv.ParseFloat(parsed.Format.Duration, 64); perr == nil && d > 0 {
-			p.DurationSec = d
-		}
-	}
-	// format_name is comma-separated; first entry is usually the canonical one
-	// for our matching ("matroska,webm" → "matroska"). Lowercase for the map.
-	if parsed.Format.FormatName != "" {
-		first := parsed.Format.FormatName
-		if i := strings.IndexByte(first, ','); i >= 0 {
-			first = first[:i]
-		}
-		p.Container = strings.ToLower(first)
+	// DurationSec is reused by the HLS session to skip the slow 30s seekable
+	// probe (the rclone/Drive latency win); Container drives the direct-vs-HLS
+	// decision.
+	p := localProbe{
+		DurationSec: parseDurationSec(parsed.Format.Duration),
+		Container:   firstFormatName(parsed.Format.FormatName),
 	}
 	for _, st := range parsed.Streams {
 		if p.VideoCodec == "" && st.CodecType == "video" {
@@ -131,6 +121,31 @@ func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
 		}
 	}
 	return p, nil
+}
+
+// parseDurationSec parses ffprobe's format.duration (seconds as a string),
+// returning 0 when it's empty or unparseable.
+func parseDurationSec(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	if d, err := strconv.ParseFloat(s, 64); err == nil && d > 0 {
+		return d
+	}
+	return 0
+}
+
+// firstFormatName takes ffprobe's comma-separated format_name and returns the
+// canonical first entry, lowercased ("matroska,webm" → "matroska").
+func firstFormatName(fn string) string {
+	if fn == "" {
+		return ""
+	}
+	first := fn
+	if i := strings.IndexByte(first, ','); i >= 0 {
+		first = first[:i]
+	}
+	return strings.ToLower(first)
 }
 
 // classifyForBrowser decides whether a local file is direct-playable by a

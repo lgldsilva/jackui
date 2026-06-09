@@ -123,30 +123,43 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
             </button>
           </div>
           {groups.map(g => (
-            <div key={g.hash} className="border border-default rounded-lg overflow-hidden">
-              <div className="bg-surface-tertiary/40 px-3 py-1.5 text-xs text-text-secondary">
-                {g.files.length} cópias · {formatSize(g.size)} cada
-              </div>
-              <div className="flex flex-col divide-y divide-default/40">
-                {g.files.map(f => (
-                  <label key={f.path} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-tertiary/30">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(f.path)}
-                      onChange={() => toggle(f.path)}
-                      className="flex-shrink-0 accent-red-500"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-text-primary truncate">{f.name}</div>
-                      <div className="text-[11px] text-text-muted truncate">{f.path}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </div>
+            <GroupCard key={g.hash} group={g} selected={selected} onToggle={toggle} />
           ))}
         </div>
       )}
     </Sheet>
+  )
+}
+
+// GroupCard renders one duplicate group (the files that share a fingerprint)
+// with a checkbox per copy. Split out of DuplicatesModal to keep that component
+// simple (the nested map/ternary lived here).
+function GroupCard({ group, selected, onToggle }: {
+  readonly group: DuplicateGroup
+  readonly selected: Set<string>
+  readonly onToggle: (path: string) => void
+}) {
+  return (
+    <div className="border border-default rounded-lg overflow-hidden">
+      <div className="bg-surface-tertiary/40 px-3 py-1.5 text-xs text-text-secondary">
+        {group.files.length} cópias · {formatSize(group.size)} cada
+      </div>
+      <div className="flex flex-col divide-y divide-default/40">
+        {group.files.map(f => (
+          <label key={f.path} className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-surface-tertiary/30">
+            <input
+              type="checkbox"
+              checked={selected.has(f.path)}
+              onChange={() => onToggle(f.path)}
+              className="flex-shrink-0 accent-red-500"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-text-primary truncate">{f.name}</div>
+              <div className="text-[11px] text-text-muted truncate">{f.path}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+    </div>
   )
 }
