@@ -206,7 +206,7 @@ func Test_str5_NewMetadataCache_OpenError(t *testing.T) {
 func Test_str5_Favorites_NilStore_FolderMutators(t *testing.T) {
 	var f *FavoritesStore // nil receiver
 
-	if _, err := f.CreateFolder(1, "x", nil); err == nil {
+	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
 		t.Error("expected CreateFolder on nil store to error")
 	}
 	if err := f.RenameFolder(1, 1, "x"); err != nil {
@@ -228,11 +228,11 @@ func Test_str5_Favorites_NilStore_FolderMutators(t *testing.T) {
 func Test_str5_Favorites_NestedFolder_AndMoveFavorite(t *testing.T) {
 	f := str5NewFavorites(t)
 
-	root, err := f.CreateFolder(7, "str5-root", nil)
+	root, err := f.CreateFolder(7, "str5-root", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder root: %v", err)
 	}
-	child, err := f.CreateFolder(7, "str5-child", &root.ID)
+	child, err := f.CreateFolder(7, "str5-child", &root.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
@@ -247,7 +247,7 @@ func Test_str5_Favorites_NestedFolder_AndMoveFavorite(t *testing.T) {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 
-	list, err := f.List(7, false)
+	list, err := f.List(7, false, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -268,11 +268,11 @@ func Test_str5_Favorites_NestedFolder_AndMoveFavorite(t *testing.T) {
 func Test_str5_Favorites_MoveFolder_ValidReparent(t *testing.T) {
 	f := str5NewFavorites(t)
 
-	a, err := f.CreateFolder(9, "str5-a", nil)
+	a, err := f.CreateFolder(9, "str5-a", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := f.CreateFolder(9, "str5-b", nil)
+	b, err := f.CreateFolder(9, "str5-b", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,7 +59,7 @@ func TestFolderCreate_WithParentID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	parent, err := fs.CreateFolder(0, "Parent", nil)
+	parent, err := fs.CreateFolder(0, "Parent", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestFolderPatch_ValidRename(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, err := fs.CreateFolder(0, "ToRename", nil)
+	f, err := fs.CreateFolder(0, "ToRename", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +123,8 @@ func TestFolderPatch_MoveToRoot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	parent, _ := fs.CreateFolder(0, "Parent", nil)
-	child, _ := fs.CreateFolder(0, "Child", &parent.ID)
+	parent, _ := fs.CreateFolder(0, "Parent", nil, false)
+	child, _ := fs.CreateFolder(0, "Child", &parent.ID, false)
 
 	router := gin.New()
 	router.PATCH("/api/stream/favorites/folders/:id", FolderPatch(s))
@@ -144,9 +144,9 @@ func TestFolderPatch_MoveToParent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	p1, _ := fs.CreateFolder(0, "Parent1", nil)
-	p2, _ := fs.CreateFolder(0, "Parent2", nil)
-	child, _ := fs.CreateFolder(0, "Child", &p1.ID)
+	p1, _ := fs.CreateFolder(0, "Parent1", nil, false)
+	p2, _ := fs.CreateFolder(0, "Parent2", nil, false)
+	child, _ := fs.CreateFolder(0, "Child", &p1.ID, false)
 
 	router := gin.New()
 	router.PATCH("/api/stream/favorites/folders/:id", FolderPatch(s))
@@ -166,7 +166,7 @@ func TestFolderDelete_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, err := fs.CreateFolder(0, "ToDelete", nil)
+	f, err := fs.CreateFolder(0, "ToDelete", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestFavoriteMoveToFolder_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, err := fs.CreateFolder(0, "Target", nil)
+	f, err := fs.CreateFolder(0, "Target", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestFavoriteMoveToFolder_ToRoot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, _ := fs.CreateFolder(0, "Folder", nil)
+	f, _ := fs.CreateFolder(0, "Folder", nil, false)
 	fs.Add("Test2", "testhash2", "magnet:?xt=urn:btih:testhash2", "", 0)
 	fs.MoveFavoriteToFolder(0, "testhash2", &f.ID)
 
@@ -236,8 +236,8 @@ func TestFavoriteMoveToFolder_ToRoot(t *testing.T) {
 func TestApplyFolderPatch_RenameAndMove(t *testing.T) {
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, _ := fs.CreateFolder(0, "Original", nil)
-	p, _ := fs.CreateFolder(0, "NewParent", nil)
+	f, _ := fs.CreateFolder(0, "Original", nil, false)
+	p, _ := fs.CreateFolder(0, "NewParent", nil, false)
 
 	newName := "Renamed"
 	err := applyFolderPatch(fs, 0, f.ID, &folderPatchBody{
@@ -252,8 +252,8 @@ func TestApplyFolderPatch_RenameAndMove(t *testing.T) {
 func TestApplyFolderPatch_OnlyMove(t *testing.T) {
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, _ := fs.CreateFolder(0, "Movable", nil)
-	p, _ := fs.CreateFolder(0, "Dest", nil)
+	f, _ := fs.CreateFolder(0, "Movable", nil, false)
+	p, _ := fs.CreateFolder(0, "Dest", nil, false)
 
 	err := applyFolderPatch(fs, 0, f.ID, &folderPatchBody{
 		ParentID: &p.ID,
