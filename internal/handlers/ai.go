@@ -49,14 +49,20 @@ func GetAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 	}
 }
 
-// filterSlotsForBenchmark filters and dedupes candidate slots for benchmarking.
-func filterSlotsForBenchmark(ctx context.Context, client *ai.Client, provider, model string) []ai.Slot {
+// filterExistingSlots filters candidate slots currently configured.
+func filterExistingSlots(client *ai.Client, provider, model string) []ai.Slot {
 	var slots []ai.Slot
 	for _, s := range client.Slots() {
 		if (provider == "" || s.Provider == provider) && (model == "" || s.Model == model) {
 			slots = append(slots, s)
 		}
 	}
+	return slots
+}
+
+// discoverSlotsForBenchmark lists and filters candidate models from providers.
+func discoverSlotsForBenchmark(ctx context.Context, client *ai.Client, provider, model string) []ai.Slot {
+	var slots []ai.Slot
 	if model != "" {
 		var discovered []ai.Slot
 		if provider == "" {
@@ -76,6 +82,14 @@ func filterSlotsForBenchmark(ctx context.Context, client *ai.Client, provider, m
 			slots = append(slots, client.DiscoverModelsForProvider(ctx, provider)...)
 		}
 	}
+	return slots
+}
+
+// filterSlotsForBenchmark filters and dedupes candidate slots for benchmarking.
+func filterSlotsForBenchmark(ctx context.Context, client *ai.Client, provider, model string) []ai.Slot {
+	slots := filterExistingSlots(client, provider, model)
+	discovered := discoverSlotsForBenchmark(ctx, client, provider, model)
+	slots = append(slots, discovered...)
 	slots = client.AffordableSlots(slots)
 	return dedupeSlots(slots)
 }
