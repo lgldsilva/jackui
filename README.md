@@ -158,6 +158,7 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 | [docs/design-decisions.md](docs/design-decisions.md) | Why the tricky bits are the way they are (and what not to "fix") |
 | [docs/TRANSMISSION_RPC.md](docs/TRANSMISSION_RPC.md) | Using JackUI as a Sonarr/Radarr/Prowlarr download client |
 | [docs/CICD.md](docs/CICD.md) | Build pipeline, quality gates, deploy |
+| [docs/RCLONE.md](docs/RCLONE.md) | Tuning rclone/Google-Drive mounts for streaming (cache, chunking, read-ahead) |
 
 ## License
 
