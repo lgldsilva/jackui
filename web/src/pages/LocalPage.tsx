@@ -16,6 +16,7 @@ import {
   FolderSync,
   FolderX,
   FolderInput,
+  CopyCheck,
   Upload,
   Search,
   Check,
@@ -30,6 +31,7 @@ import { formatBytes } from '../lib/format'
 import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ConfirmDialog'
+import { DuplicatesModal } from '../components/local/DuplicatesModal'
 import { useLongPress } from '../lib/useLongPress'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { Sheet } from '../components/Sheet'
@@ -366,6 +368,7 @@ export default function LocalPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [showDuplicates, setShowDuplicates] = useState(false)
   const { playSingle } = usePlayer()
   const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
   const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
@@ -787,6 +790,14 @@ export default function LocalPage() {
                     <FolderX className="w-4 h-4" />
                     <span className="hidden sm:inline">Limpar vazias</span>
                   </button>
+                  <button
+                    onClick={() => setShowDuplicates(true)}
+                    title="Encontrar arquivos com conteúdo idêntico (nomes diferentes) e apagar as cópias"
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border border-strong px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    <CopyCheck className="w-4 h-4" />
+                    <span className="hidden sm:inline">Duplicados</span>
+                  </button>
                 </>
               )}
               {isAdmin && (
@@ -987,6 +998,19 @@ export default function LocalPage() {
             }}
             onMoved={refresh}
           />
+
+          {/* Modal de limpar duplicados por conteúdo (pasta atual, recursivo) */}
+          {showDuplicates && activeMount && (
+            <DuplicatesModal
+              mount={activeMount}
+              path={path}
+              onClose={() => setShowDuplicates(false)}
+              onDeleted={(n) => {
+                setNotice(n > 0 ? `${n} duplicado${n === 1 ? '' : 's'} removido${n === 1 ? '' : 's'}.` : 'Nenhum arquivo removido.')
+                refresh()
+              }}
+            />
+          )}
         </section>
       </main>
 

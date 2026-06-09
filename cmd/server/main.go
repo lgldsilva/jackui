@@ -904,6 +904,8 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/transcode", handlers.LocalTranscode(deps.localBrowser))
 	api.DELETE("/local/file", handlers.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/clean-empty", handlers.LocalCleanEmptyDirs(deps.localBrowser))
+	api.GET("/local/duplicates", handlers.LocalDuplicates(deps.localBrowser))
+	api.POST("/local/duplicates/delete", handlers.LocalDuplicatesDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/promote", handlers.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
