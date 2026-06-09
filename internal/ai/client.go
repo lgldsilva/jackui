@@ -103,6 +103,20 @@ func (c *Client) SetCostConfig(cc CostConfig) {
 	c.cost.Store(&cc)
 }
 
+// Providers returns the list of configured provider names (e.g. "ollama", "groq").
+func (c *Client) Providers() []string {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []string
+	for name := range c.providers {
+		out = append(out, name)
+	}
+	return out
+}
+
 // slotList returns a snapshot of the live chain (safe to iterate without holding
 // the lock while making slow network calls).
 func (c *Client) slotList() []Slot {
