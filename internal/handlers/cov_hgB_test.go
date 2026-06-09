@@ -237,7 +237,7 @@ func Test_hgB_ResolveTranscodeSource_CompletedFile(t *testing.T) {
 
 // serveHLSPlaylist's VOD branch synthesises a finite playlist via buildVODPlaylist.
 func Test_hgB_BuildVODPlaylist_ZeroDuration(t *testing.T) {
-	pl := string(buildVODPlaylist(0, ""))
+	pl := string(buildVODPlaylist(0, "", false))
 	if !strings.Contains(pl, "#EXT-X-ENDLIST") {
 		t.Error("zero-duration playlist must still be finite")
 	}
@@ -403,7 +403,7 @@ func Test_hgB_StartLocalHLSSession_OpenError(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	sess, err := startLocalHLSSession(c, mgr, nil, "Test", "x.mkv", "/no/such/file.mkv", nil)
+	sess, err := startLocalHLSSession(c, mgr, nil, "Test", "x.mkv", "/no/such/file.mkv", nil, false, 0)
 	if err == nil {
 		t.Fatal("expected open error")
 	}
@@ -438,7 +438,7 @@ func Test_hgB_ResolveLocalFileStat_Missing(t *testing.T) {
 // to drive without ffmpeg; instead verify the VOD synth builder used by it.
 func Test_hgB_BuildLocalVODPlaylist_Rewrites(t *testing.T) {
 	seen := []string{}
-	build := segURLBuilder("Test", "movie.mkv", "TOK", "")
+	build := segURLBuilder("Test", "movie.mkv", "TOK", "", false)
 	pl := string(buildLocalVODPlaylist(10, func(name string) string {
 		u := build(name)
 		seen = append(seen, u)

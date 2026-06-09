@@ -39,6 +39,84 @@ type HLSSessionManager struct {
 	baseDir string
 	mu      sync.Mutex
 	sess    map[string]*HLSSession
+	vodMode VODMode
+	// durCache memoises the probed duration per content key (the raw key, shared
+	// across the -vod/-evt session variants) so a re-created session on a slow
+	// rclone/Drive mount enters VOD immediately instead of re-probing for 30s.
+	durMu    sync.Mutex
+	durCache map[string]float64
+}
+
+// VODMode gates the finite-VOD (seekbar) HLS path, by client class. See
+// StreamConfig.HLSVODMode. The zero value is VODOff (current/safe behaviour).
+type VODMode int
+
+const (
+	VODOff   VODMode = iota // EVENT/live for everyone (no seekbar)
+	VODHLSJS                // VOD for hls.js clients (non-Safari); Safari stays EVENT
+	VODAll                  // VOD for everyone, including Safari native HLS
+)
+
+// ParseVODMode maps the config/env string to a VODMode (default VODOff).
+func ParseVODMode(s string) VODMode {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "hlsjs", "hls.js":
+		return VODHLSJS
+	case "all", "on", "true", "1":
+		return VODAll
+	default:
+		return VODOff
+	}
+}
+
+// allows reports whether a client (nativeHLS = Safari/iOS native HLS) is
+// eligible for the VOD path under this mode.
+func (m VODMode) allows(nativeHLS bool) bool {
+	switch m {
+	case VODAll:
+		return true
+	case VODHLSJS:
+		return !nativeHLS
+	default:
+		return false
+	}
+}
+
+// SetVODMode sets the VOD policy (called once at wiring time from config).
+func (m *HLSSessionManager) SetVODMode(mode VODMode) { m.vodMode = mode }
+
+// EffectiveKey maps a raw content key to the session key actually used. When
+// VOD is off the key is unchanged (one shared EVENT session per content, zero
+// behaviour change). When VOD is on, VOD-eligible and non-eligible clients are
+// split into distinct sessions (-vod/-evt) so a VOD session created by one
+// client never serves a VOD playlist to a client that must stay on EVENT
+// (the Safari #61 safeguard). Master and segment handlers must agree on this.
+func (m *HLSSessionManager) EffectiveKey(rawKey string, nativeHLS bool) string {
+	if m.vodMode == VODOff {
+		return rawKey
+	}
+	if m.vodMode.allows(nativeHLS) {
+		return rawKey + "-vod"
+	}
+	return rawKey + "-evt"
+}
+
+func (m *HLSSessionManager) cachedDuration(contentKey string) float64 {
+	m.durMu.Lock()
+	defer m.durMu.Unlock()
+	return m.durCache[contentKey]
+}
+
+func (m *HLSSessionManager) cacheDuration(contentKey string, dur float64) {
+	if dur <= 0 {
+		return
+	}
+	m.durMu.Lock()
+	defer m.durMu.Unlock()
+	if m.durCache == nil {
+		m.durCache = make(map[string]float64)
+	}
+	m.durCache[contentKey] = dur
 }
 
 // HLSSession is a single ongoing HLS transcode. Same key = same session
@@ -139,11 +217,18 @@ func (m *HLSSessionManager) gcLoop() {
 // fails on MP4 with `moov` at end of file because pipe input is non-seekable
 // — ffmpeg can't walk past a multi-GB mdat box to read the metadata.
 type HLSStartOpts struct {
-	Key                 string        // unique session id, typically `${hash}-${fileIdx}-${codec}`
+	Key                 string        // raw content key, e.g. `${hash}-${fileIdx}`; EffectiveKey may add a mode suffix
 	Source              io.ReadSeeker // seekable input — wrapped by an internal HTTP server
 	SourceSize          int64         // total size hint; required when the underlying reader lies about EOF
 	VideoCodec          string        // "h264_nvenc" | "libx264" | etc.
 	PreserveSourceAudio bool          // when true and source audio is AAC, -c:a copy; else transcode to AAC
+	// NativeHLS marks a Safari/iOS client (native HLS). Combined with the VOD
+	// policy it decides whether this session uses the finite-VOD path.
+	NativeHLS bool
+	// KnownDurationSec lets the caller supply a duration it already probed (the
+	// local-file path runs ffprobe at play time). >0 skips the in-session 30s
+	// seekable probe — the rclone/Drive latency win.
+	KnownDurationSec float64
 }
 
 // readSeekerContent adapts a single-cursor io.ReadSeeker (e.g. anacrolix
@@ -319,15 +404,14 @@ func parseRange(header string, totalSize int64) (int64, int64, bool) {
 	return start, end, true
 }
 
-// hlsVODEnabled gates the #61 finite-VOD playlist (synthetic playlist + forced
-// keyframes + seek-restart). It gives a full seekbar BUT regressed HLS-transcode
-// playback (HEVC sources that fall back to H.264): Safari buffers only ~1
-// segment per position and stalls. Until that's debugged with a real Safari in
-// hand, keep it OFF — every source plays via the proven EVENT/live path (which
-// reliably played those HEVC sources before #61). Direct-play sources (H.264)
-// are unaffected either way; they never use HLS. Flip to true to resume the
-// seek work.
-const hlsVODEnabled = false // mantido false para evitar regressões do Safari; mude para true para testes
+// The #61 finite-VOD path (synthetic playlist + forced keyframes + seek-restart)
+// gives a full seekbar but regressed HLS-transcode playback on Safari (HEVC→H.264
+// sources buffered only ~1 segment then stalled). It is now gated at runtime by
+// the per-manager VODMode (config JACKUI_HLS_VOD_MODE) instead of a compile-time
+// const, so it can be enabled gradually — non-Safari first ("hlsjs"), then "all"
+// once validated on a real Safari — and rolled back instantly to "off". The vod
+// flag per session is `durationSec > 0 && vodMode.allows(nativeHLS)`. Direct-play
+// (H.264) sources never use HLS and are unaffected either way.
 
 // ffprobePathFrom derives the ffprobe binary path from the ffmpeg path so a
 // custom install (e.g. /usr/local/bin/ffmpeg) finds its sibling ffprobe. Falls
@@ -594,8 +678,8 @@ func (s *HLSSession) highestSeg() int {
 }
 
 // IsVOD reports whether this session serves a finite VOD playlist (full
-// seekbar) vs the incremental EVENT/live playlist. Tied to hlsVODEnabled so the
-// handler and encoder agree on a single source of truth.
+// seekbar) vs the incremental EVENT/live playlist. Decided once at start from
+// the VOD policy + known duration; handler and encoder read this single flag.
 func (s *HLSSession) IsVOD() bool { return s.spec != nil && s.spec.vod }
 
 // ParseSegIndex is the exported form of parseSegName for handlers that need to
@@ -661,8 +745,10 @@ func (s *HLSSession) RestartAt(seg int) error {
 // On new-session, ffmpeg begins encoding immediately; the caller should poll
 // for index.m3u8 to appear via WaitForMaster.
 func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (*HLSSession, error) {
+	// effKey splits VOD-eligible from non-eligible clients (see EffectiveKey).
+	effKey := m.EffectiveKey(opts.Key, opts.NativeHLS)
 	m.mu.Lock()
-	if s, ok := m.sess[opts.Key]; ok {
+	if s, ok := m.sess[effKey]; ok {
 		s.mu.Lock()
 		s.LastAccess = time.Now()
 		s.mu.Unlock()
@@ -676,7 +762,7 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		return nil, errors.New("transcode caps not probed yet")
 	}
 
-	dir := filepath.Join(m.baseDir, opts.Key)
+	dir := filepath.Join(m.baseDir, effKey)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir hls dir: %w", err)
 	}
@@ -717,18 +803,34 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	go func() { _ = srv.Serve(listener) }()
 	inputURL := fmt.Sprintf("http://%s/source", listener.Addr().String())
 
-	// Probe the total duration BEFORE starting ffmpeg, using the same Range-
-	// capable source. This also pulls the moov/Cues tail into the torrent cache
-	// (anacrolix blocks until the piece arrives). A non-zero result unlocks the
-	// finite VOD playlist (full seekbar); 0 keeps us on the EVENT/live path.
-	durationSec := probeDurationSeekable(ctx, caps.FFmpegPath, inputURL)
-	log.Printf("hls: probed duration=%.1fs for session %s (0 = unknown → EVENT fallback)", durationSec, opts.Key)
+	// Determine the total duration. Prefer a value the caller already probed
+	// (KnownDurationSec, set by the local-file path), then the per-content cache
+	// (a re-created session reuses it), and only then run the 30s seekable probe.
+	// The probe also pulls the moov/Cues tail into the torrent cache — but ffmpeg
+	// reads through the same Range-capable source, so skipping it just defers that
+	// fetch to ffmpeg, not a correctness loss. A non-zero result unlocks VOD.
+	durationSec := opts.KnownDurationSec
+	switch {
+	case durationSec > 0:
+		log.Printf("hls: using known duration=%.1fs for session %s", durationSec, effKey)
+	default:
+		if cached := m.cachedDuration(opts.Key); cached > 0 {
+			durationSec = cached
+			log.Printf("hls: using cached duration=%.1fs for session %s", durationSec, effKey)
+		} else {
+			durationSec = probeDurationSeekable(ctx, caps.FFmpegPath, inputURL)
+			log.Printf("hls: probed duration=%.1fs for session %s (0 = unknown → EVENT fallback)", durationSec, effKey)
+		}
+	}
+	m.cacheDuration(opts.Key, durationSec)
 
 	// Encoding flags live in encodeSpec.args so seek-restart can rebuild them.
-	// vod=true (duration known) switches on forced 4s keyframes + the handler's
-	// synthesised finite playlist; vod=false keeps the proven EVENT/live path.
+	// vod=true switches on forced 4s keyframes + the handler's synthesised finite
+	// playlist; it requires both a known duration AND a VOD-eligible client under
+	// the current policy. vod=false keeps the proven EVENT/live path.
+	vod := durationSec > 0 && m.vodMode.allows(opts.NativeHLS)
 	s := &HLSSession{
-		Key:         opts.Key,
+		Key:         effKey,
 		Dir:         dir,
 		StartedAt:   time.Now(),
 		LastAccess:  time.Now(),
@@ -739,11 +841,11 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 			inputURL:   inputURL,
 			encoder:    encoder,
 			ffmpegPath: caps.FFmpegPath,
-			vod:        durationSec > 0 && hlsVODEnabled,
+			vod:        vod,
 		},
 	}
 
-	log.Printf("hls: starting session %s (vod=%v)", opts.Key, s.spec.vod)
+	log.Printf("hls: starting session %s (vod=%v)", effKey, s.spec.vod)
 	if err := s.launch(0); err != nil {
 		_ = srv.Close()
 		_ = os.RemoveAll(dir)
@@ -751,7 +853,7 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	}
 
 	m.mu.Lock()
-	m.sess[opts.Key] = s
+	m.sess[effKey] = s
 	m.mu.Unlock()
 
 	return s, nil

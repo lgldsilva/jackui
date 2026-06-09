@@ -12,6 +12,7 @@ import {
 import Hls from 'hls.js'
 import type { ErrorData } from 'hls.js'
 import { hlsFatalAction } from './playerHooks'
+import { canPlayNativeHls } from './playerFormat'
 
 export type MediaUrlInput = {
   info: TorrentInfo | null
@@ -40,7 +41,18 @@ export type MediaUrlInput = {
 function buildStreamURL(info: TorrentInfo | null, selectedFile: number, serverReady: boolean, tokenMissing: boolean, isTranscoded: boolean, mediaToken: string): string {
   if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
   if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
-  return streamHLSMasterURL(info.infoHash, selectedFile, mediaToken)
+  return appendNativeHLS(streamHLSMasterURL(info.infoHash, selectedFile, mediaToken))
+}
+
+// appendNativeHLS marks the HLS master URL when the client plays HLS natively
+// (Safari/iOS). The server uses it to apply the VOD policy per client class and
+// to key the session (see HLSSessionManager.EffectiveKey); segment URLs in the
+// playlist already carry the flag, so only the master needs it here. Omitted
+// for hls.js clients (treated as not-native server-side).
+function appendNativeHLS(url: string): string {
+  if (!url || !canPlayNativeHls()) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}native_hls=1`
 }
 
 function buildSubtitleVttURL(input: MediaUrlInput, tokenMissing: boolean): string {

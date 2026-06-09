@@ -151,7 +151,7 @@ func TestTryServeFromCompleted_NilStore(t *testing.T) {
 }
 
 func TestBuildVODPlaylist_ZeroDuration(t *testing.T) {
-	playlist := buildVODPlaylist(0, "")
+	playlist := buildVODPlaylist(0, "", false)
 	if len(playlist) == 0 {
 		t.Error("expected non-empty playlist")
 	}
@@ -161,14 +161,14 @@ func TestBuildVODPlaylist_ZeroDuration(t *testing.T) {
 }
 
 func TestBuildVODPlaylist_WithToken(t *testing.T) {
-	playlist := buildVODPlaylist(10, "mytoken")
+	playlist := buildVODPlaylist(10, "mytoken", false)
 	if !bytes.Contains(playlist, []byte("?token=mytoken")) {
 		t.Error("expected token in playlist URLs")
 	}
 }
 
 func TestBuildVODPlaylist_SegmentCount(t *testing.T) {
-	playlist := buildVODPlaylist(10, "")
+	playlist := buildVODPlaylist(10, "", false)
 	// 10 seconds / 4s segments = 3 segments (ceil)
 	if !bytes.Contains(playlist, []byte("seg_00002")) {
 		t.Error("expected at least seg_00002")

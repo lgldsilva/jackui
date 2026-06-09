@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,9 +71,10 @@ var browserSafeAudioCodecs = map[string]bool{
 // plus the FIRST video and audio codec names. Fast (a few hundred ms typical);
 // happens once when the user clicks Play.
 type localProbe struct {
-	Container  string
-	VideoCodec string
-	AudioCodec string
+	Container   string
+	VideoCodec  string
+	AudioCodec  string
+	DurationSec float64 // 0 when ffprobe couldn't determine it
 }
 
 func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
@@ -97,12 +99,20 @@ func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
 		} `json:"streams"`
 		Format struct {
 			FormatName string `json:"format_name"`
+			Duration   string `json:"duration"`
 		} `json:"format"`
 	}
 	if jerr := json.Unmarshal(out, &parsed); jerr != nil {
 		return localProbe{}, fmt.Errorf("decode ffprobe: %w", jerr)
 	}
 	p := localProbe{}
+	// Reuse the duration ffprobe already computed here so the HLS session can
+	// skip the slow 30s seekable probe — the rclone/Drive latency win.
+	if parsed.Format.Duration != "" {
+		if d, perr := strconv.ParseFloat(parsed.Format.Duration, 64); perr == nil && d > 0 {
+			p.DurationSec = d
+		}
+	}
 	// format_name is comma-separated; first entry is usually the canonical one
 	// for our matching ("matroska,webm" → "matroska"). Lowercase for the map.
 	if parsed.Format.FormatName != "" {
@@ -307,14 +317,22 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		if err != nil || abs == "" {
 			return
 		}
-		sess, err := startLocalHLSSession(c, mgr, reg, mount, scoped, abs, stat)
+		// Probe the duration directly off the file (fast on local disk; bounded by
+		// a 10s timeout on rclone) and hand it to the session so it skips the 30s
+		// seekable probe — which today runs on EVERY local HLS session and is a
+		// big chunk of the "Gdrive play is slow to load" symptom.
+		knownDur := 0.0
+		if probe, perr := probeLocalFile(c.Request.Context(), abs); perr == nil {
+			knownDur = probe.DurationSec
+		}
+		sess, err := startLocalHLSSession(c, mgr, reg, mount, scoped, abs, stat, nativeHLSParam(c), knownDur)
 		if err != nil {
 			return
 		}
 		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"))
+		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), nativeHLSParam(c))
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
 }
@@ -334,7 +352,7 @@ func resolveLocalFileStat(b *local.Browser, mount, path string) (string, os.File
 	return abs, stat, nil
 }
 
-func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, mount, path, abs string, stat os.FileInfo) (*transcode.HLSSession, error) {
+func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, mount, path, abs string, stat os.FileInfo, nativeHLS bool, knownDur float64) (*transcode.HLSSession, error) {
 	key := localSessionKey(mount, path)
 	f, oerr := os.Open(abs)
 	if oerr != nil {
@@ -348,9 +366,11 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	// key (transferKeyHLS == key+"-hls") is what /local/transfer-status looks up.
 	source, meterKey := mountSource(reg, key+"-hls", f, stat.Size())
 	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
-		Key:        key,
-		Source:     source,
-		SourceSize: stat.Size(),
+		Key:              key,
+		Source:           source,
+		SourceSize:       stat.Size(),
+		NativeHLS:        nativeHLS,
+		KnownDurationSec: knownDur,
 	})
 	if err != nil {
 		closeSource(reg, meterKey, source, f)
@@ -386,7 +406,7 @@ func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	return true
 }
 
-func segURLBuilder(mount, path, token, user string) func(name string) string {
+func segURLBuilder(mount, path, token, user string, nativeHLS bool) func(name string) string {
 	return func(name string) string {
 		p := url.Values{}
 		p.Set("mount", mount)
@@ -399,6 +419,11 @@ func segURLBuilder(mount, path, token, user string) func(name string) string {
 		// re-scopes to the same subdir the master playlist resolved against.
 		if user != "" {
 			p.Set("user", user)
+		}
+		// Carry native_hls so the segment resolves to the same session key the
+		// master created (see HLSSessionManager.EffectiveKey).
+		if nativeHLS {
+			p.Set("native_hls", "1")
 		}
 		return "/api/local/hls/seg?" + p.Encode()
 	}
@@ -502,7 +527,8 @@ func validLocalSegPath(b *local.Browser, mount, path string) bool {
 }
 
 func resolveLocalSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount, path string) *transcode.HLSSession {
-	key := localSessionKey(mount, path)
+	// EffectiveKey must match the master's — native_hls rides on every seg URL.
+	key := mgr.EffectiveKey(localSessionKey(mount, path), nativeHLSParam(c))
 	sess, err := mgr.Peek(key)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
