@@ -68,7 +68,7 @@ func TestApplyPeerTuning(t *testing.T) {
 // sem panic. Valida o caminho de storage configurável de ponta a ponta.
 func TestNewWithMmapStorageClosesCleanly(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir, StorageBackend: "mmap"})
+	s, err := New(Config{DataDir: dir, StorageBackend: "mmap", ListenPort: str3FreePort(t)})
 	if err != nil {
 		t.Fatalf("New(mmap): %v", err)
 	}
@@ -82,7 +82,7 @@ func TestNewWithMmapStorageClosesCleanly(t *testing.T) {
 // pelo client.
 func TestNewWithFileStorageHasNoExplicitImpl(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir, StorageBackend: "file"})
+	s, err := New(Config{DataDir: dir, StorageBackend: "file", ListenPort: str3FreePort(t)})
 	if err != nil {
 		t.Fatalf("New(file): %v", err)
 	}
@@ -95,7 +95,7 @@ func TestNewWithFileStorageHasNoExplicitImpl(t *testing.T) {
 // Readahead configurado no New é refletido por streamReadahead.
 func TestNewAppliesConfiguredReadahead(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir, Readahead: 16 << 20})
+	s, err := New(Config{DataDir: dir, Readahead: 16 << 20, ListenPort: str3FreePort(t)})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

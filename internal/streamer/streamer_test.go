@@ -603,7 +603,7 @@ func TestPhysicalBytes(t *testing.T) {
 
 func TestNew_DefaultConfig(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir})
+	s, err := New(Config{DataDir: dir, ListenPort: str3FreePort(t)})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -628,6 +628,7 @@ func TestNew_CustomConfig(t *testing.T) {
 		DataDir:      dir,
 		IdleTimeout:  5 * time.Minute,
 		MetadataWait: 10 * time.Second,
+		ListenPort:   str3FreePort(t),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

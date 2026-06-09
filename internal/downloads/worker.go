@@ -258,11 +258,15 @@ func (w *Worker) tick() {
 	// (user paused/cancelled, or a prior tick demoted them). Cancel in-flight
 	// inits too so a cancelled download stops resolving metadata immediately.
 	w.mu.Lock()
+	var toDrop []metainfo.Hash
 	for id, td := range w.tracked {
 		if !wantIDs[id] {
 			w.unregisterLocked(td)
 			delete(w.tracked, id)
 			delete(w.retries, id)
+			if td.hash != (metainfo.Hash{}) {
+				toDrop = append(toDrop, td.hash)
+			}
 		}
 	}
 	for id, cancel := range w.pending {
@@ -273,6 +277,17 @@ func (w *Worker) tick() {
 		}
 	}
 	w.mu.Unlock()
+
+	// Stop the torrent in anacrolix too. Pause/cancel/delete only flip the DB
+	// status; without an explicit Drop the torrent kept leeching in the
+	// background until the streamer's idle reaper — so "Pause" looked like it did
+	// nothing ("fica lá baixando"). unregisterLocked above already cleared the
+	// download protection, so Drop won't be blocked by the protected guard. Drop
+	// runs OUTSIDE w.mu (it takes the streamer lock + does I/O) and is a safe
+	// no-op if a player still holds a viewer lease on the same torrent.
+	for _, h := range toDrop {
+		w.streamer.Drop(h)
+	}
 
 	for _, d := range active {
 		w.reconcile(d)
