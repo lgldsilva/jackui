@@ -790,32 +790,6 @@ export default function SearchPage() {
         <Layers className="w-3.5 h-3.5" />
         Séries
       </button>
-      <div className={`flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ${stacked ? 'w-full justify-between' : 'ml-auto'}`}>
-        {SORT_OPTIONS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => {
-              if (activeTab.resultSort === key) {
-                updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
-              } else {
-                updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
-              }
-            }}
-            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors ${
-              activeTab.resultSort === key
-                ? 'bg-green-500/20 text-green-400'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            {label}
-            {activeTab.resultSort === key && (
-              activeTab.resultSortAsc
-                ? <SortAsc className="w-3 h-3" />
-                : <SortDesc className="w-3 h-3" />
-            )}
-          </button>
-        ))}
-      </div>
       {activeFilterCount > 0 && (
         <button
           onClick={() => updateTab(activeTab.id, {
@@ -831,6 +805,42 @@ export default function SearchPage() {
         </button>
       )}
     </>
+  )
+
+  // sortControls is the result-ordering segmented control. It lives in the
+  // results header (next to the count) — NOT in the filter bar — so the filter
+  // row stays a clean set of filters and the sort no longer floats/wraps to its
+  // own awkward right-aligned line. Scrolls horizontally if the header is tight.
+  const sortControls = () => (
+    <div className="flex items-center gap-1.5 max-w-full overflow-x-auto">
+      <span className="text-xs text-text-muted flex-shrink-0">Ordenar:</span>
+      <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 flex-shrink-0">
+        {SORT_OPTIONS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => {
+              if (activeTab.resultSort === key) {
+                updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
+              } else {
+                updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
+              }
+            }}
+            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
+              activeTab.resultSort === key
+                ? 'bg-green-500/20 text-green-400'
+                : 'text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {label}
+            {activeTab.resultSort === key && (
+              activeTab.resultSortAsc
+                ? <SortAsc className="w-3 h-3" />
+                : <SortDesc className="w-3 h-3" />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 
   return (
@@ -1000,18 +1010,22 @@ export default function SearchPage() {
                 <WifiOff className="w-3.5 h-3.5" />{activeTab.error || 'Erro na busca'}
               </span>
             )}
-            {isSearching && hasResults && (
-              <span className="text-text-muted ml-auto">{activeTab.results.length} até agora</span>
+            {hasResults && (
+              <div className="ml-auto flex items-center gap-3 min-w-0">
+                {isSearching && (
+                  <span className="text-text-muted flex-shrink-0">{activeTab.results.length} até agora</span>
+                )}
+                {sortControls()}
+              </div>
             )}
           </div>
         )}
 
-        {/* Filter + Sort toolbar — shown once results start arriving.
-            Só vira barra inline no XL+ (≥1280), onde os chips + ordenação cabem
-            numa única linha. Abaixo disso (telefone E TABLET, incl. iPad) a barra
-            densa quebrava feio — o grupo de sort com `ml-auto` ia pra uma 2ª linha
-            colado à direita. Nesses tamanhos usa o botão "Filtros e ordenação"
-            que abre o Sheet empilhado (mesmos campos, layout limpo). */}
+        {/* Filter toolbar — shown once results start arriving. A ordenação NÃO
+            vive mais aqui: foi pro cabeçalho dos resultados (junto da contagem),
+            então a barra é só filtros e não tem mais o grupo de sort com
+            `ml-auto` quebrando pra uma 2ª linha colada à direita. Inline no XL+;
+            abaixo disso (telefone E TABLET) usa o botão que abre o Sheet. */}
         {hasResults && (
           <>
             <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
@@ -1023,7 +1037,7 @@ export default function SearchPage() {
               className="xl:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-default bg-surface-secondary/60 text-sm text-text-primary"
             >
               <Filter className="w-4 h-4" />
-              Filtros e ordenação
+              Filtros
               {activeFilterCount > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
                   {activeFilterCount}
@@ -1129,7 +1143,7 @@ export default function SearchPage() {
       <Sheet
         open={filterSheetOpen}
         onClose={() => setFilterSheetOpen(false)}
-        title="Filtros e ordenação"
+        title="Filtros"
         icon={<Filter className="w-4 h-4 text-text-secondary flex-shrink-0" />}
         size="md"
       >
