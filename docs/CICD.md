@@ -9,7 +9,7 @@ Gitea (push to main / PR)
    ▼
 Jenkins @ oracle-desktop (arm64 controller)
    ├─ Backend test        (golang:1.26-alpine)
-   ├─ Frontend build      (node:22-alpine)
+   ├─ Frontend build      (node:24-alpine)
    ├─ SonarQube           (quality gate, -Dsonar.qualitygate.wait=true)
    ├─ SBOM → Dependency-Track  (cdxgen → DT upload)
    ├─ Build & Push        (ssh → raspberrypi-srv builds the image NATIVELY (amd64),
