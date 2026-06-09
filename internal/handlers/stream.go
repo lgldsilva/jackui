@@ -706,8 +706,9 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && c.Query("all") == "1"
-		// ?includeHidden=1 (the UI's easter egg) reveals favourites inside hidden folders.
-		list, err := favs.List(userID, includeAll, c.Query("includeHidden") == "1")
+		// The global reveal curtain (X-JackUI-Reveal-Hidden, the easter egg) or the
+		// legacy ?includeHidden=1 reveal favourites inside hidden folders.
+		list, err := favs.List(userID, includeAll, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
@@ -9,6 +9,7 @@ import UserBadge from './UserBadge'
 import RateWidget from './RateWidget'
 import ThemeToggle from './ThemeToggle'
 import { useIncognito } from '../lib/incognito'
+import { useRevealHidden, isRevealHidden } from '../lib/reveal'
 import { useSwipe } from '../lib/useSwipe'
 
 type Props = {
@@ -47,7 +48,25 @@ export default function NavHeader({ rightExtra }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [incognito, setIncognito] = useIncognito()
+  const [revealed, setRevealed] = useRevealHidden()
   const location = useLocation()
+
+  // Easter egg: 7 taps on the JackUI logo (within 1.5s) flip the global "hidden
+  // curtain" for this session — revealing hidden favourites/Continue Watching/
+  // downloads/local everywhere. Works on mobile and desktop (the logo shows on
+  // both). Each tap still navigates home, which is harmless.
+  const tapCount = useRef(0)
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const onLogoTap = () => {
+    setDrawerOpen(false)
+    tapCount.current += 1
+    if (tapTimer.current) clearTimeout(tapTimer.current)
+    tapTimer.current = setTimeout(() => { tapCount.current = 0 }, 1500)
+    if (tapCount.current >= 7) {
+      tapCount.current = 0
+      setRevealed(!isRevealHidden())
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0')
@@ -122,9 +141,10 @@ export default function NavHeader({ rightExtra }: Props) {
       <div className="flex items-center justify-between px-3 h-14 flex-shrink-0 border-b border-default/60">
         {/* Logo — hidden on the DESKTOP collapsed rail (no room beside the toggle);
             always shown on mobile (drawer) and on the expanded desktop rail. */}
-        <Link to="/" onClick={() => setDrawerOpen(false)} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title="Início">
+        <Link to="/" onClick={onLogoTap} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title="Início">
           <span className="text-xl font-bold text-green-500">Jack</span>
           <span className="text-xl font-bold text-text-primary">UI</span>
+          {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label="ocultos visíveis" />}
         </Link>
         {/* Desktop: collapse/expand. Centered (mx-auto) when collapsed so it
             doesn't overlap the (hidden) logo. Hidden on mobile (drawer closes via X). */}
@@ -209,9 +229,10 @@ export default function NavHeader({ rightExtra }: Props) {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <Link to="/" onClick={() => setDrawerOpen(false)} className="flex items-center gap-1 flex-1 min-w-0" title="Início">
+          <Link to="/" onClick={onLogoTap} className="flex items-center gap-1 flex-1 min-w-0" title="Início">
             <span className="text-xl font-bold text-green-500">Jack</span>
             <span className="text-xl font-bold text-text-primary">UI</span>
+            {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label="ocultos visíveis" />}
             {incognito && (
               <span className="ml-2 text-[9px] font-semibold tracking-wider text-amber-300/90 uppercase">
                 Incógnito

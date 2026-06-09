@@ -7,11 +7,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // LibraryList handles GET /api/library — user's playback history (most recent first).
-// Admin with ?all=1 sees everyone's entries.
-func LibraryList(lib *library.Store) gin.HandlerFunc {
+// Admin with ?all=1 sees everyone's entries. Entries tied to a hidden favourite
+// folder are dropped unless the request opened the curtain (X-JackUI-Reveal-Hidden).
+func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && c.Query("all") == "1"
@@ -26,6 +28,7 @@ func LibraryList(lib *library.Store) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, includeAll))
 		c.JSON(http.StatusOK, list)
 	}
 }

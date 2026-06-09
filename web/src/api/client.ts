@@ -1368,6 +1368,22 @@ export const localCacheDelete = async (mount: string, path: string): Promise<voi
   await api.delete(`/local/cache?${localQS(mount, path)}`)
 }
 
+// HiddenLocalPath mirrors the backend: a (mount, path) the user marked hidden.
+export type HiddenLocalPath = { mount: string; path: string }
+
+// localSetHidden marks (or unmarks) a local folder/file as hidden — it then
+// drops out of the listing unless the global reveal curtain is open.
+export const localSetHidden = async (mount: string, path: string, hidden: boolean): Promise<void> => {
+  await api.post('/local/hidden', { mount, path, hidden })
+}
+
+// localListHidden returns the user's hidden local paths (to flag them when the
+// curtain is open).
+export const localListHidden = async (): Promise<HiddenLocalPath[]> => {
+  const { data } = await api.get<HiddenLocalPath[]>('/local/hidden')
+  return data
+}
+
 // LocalTransfer is the throughput snapshot for a playing local file, used to
 // show "downloading X MB/s" / "waiting for data" — the rclone/Drive case where
 // a play silently fetches over the network.

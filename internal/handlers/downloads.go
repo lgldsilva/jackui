@@ -111,6 +111,7 @@ func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, download
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		list = dropHiddenDownloads(list, hiddenHashSet(c, streamer, userID, false))
 		enrichETAList(list, streamer)
 		markPromoted(list, downloadDir)
 		downloads.AssignQueuePositions(list)
@@ -144,6 +145,7 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		list = dropHiddenDownloads(list, hiddenHashSet(c, streamer, userID, false))
 		enrichETAList(list, streamer)
 		downloads.AssignQueuePositions(list)
 		c.JSON(http.StatusOK, list)
@@ -177,6 +179,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 			return
 		}
 
+		list = dropHiddenDownloads(list, hiddenHashSet(c, streamer, 0, true))
 		uc := userCache{}
 		for i := range list {
 			list[i].Username = uc.get(authStore, list[i].UserID)

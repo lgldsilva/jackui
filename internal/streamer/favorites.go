@@ -120,6 +120,22 @@ func NewFavorites(path string) (*FavoritesStore, error) {
 			return nil, err
 		}
 	}
+	// The hidden curtain also covers local files, which have no info_hash — they
+	// are keyed by (mount, path). A row here hides that path (and everything
+	// under it) from the local browser unless the easter egg is open. Lives in
+	// the favourites DB because it's the same "hidden curtain" domain.
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS hidden_local_paths (
+			user_id    INTEGER NOT NULL,
+			mount      TEXT    NOT NULL,
+			path       TEXT    NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, mount, path)
+		);
+	`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	// Recovery: an earlier client bug (PlayerModal favoriteAdd args swap) wrote the literal
 	// string "manual" into the magnet column instead of the reason. Repair those rows in-place
 	// by reconstructing a tracker-less magnet from info_hash. Idempotent: runs on every open
@@ -238,6 +254,83 @@ func (f *FavoritesStore) HashSetForUser(userID int, includeAll bool) (map[string
 		}
 	}
 	return set, rows.Err()
+}
+
+// HiddenHashSet returns, as a set, the info_hashes of favourites that live in a
+// hidden folder. Used to keep hidden-folder titles out of Continue Watching and
+// the downloads list the same way they're kept out of the favourites view.
+// includeAll=true (admin) spans every user's hidden folders.
+func (f *FavoritesStore) HiddenHashSet(userID int, includeAll bool) (map[string]bool, error) {
+	if f == nil {
+		return map[string]bool{}, nil
+	}
+	q := `SELECT info_hash FROM favorites
+	      WHERE info_hash != ''
+	        AND folder_id IN (SELECT id FROM favorite_folders WHERE hidden = 1`
+	args := []any{}
+	if !includeAll {
+		q += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	q += `)`
+	rows, err := f.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	set := map[string]bool{}
+	for rows.Next() {
+		var h string
+		if rows.Scan(&h) == nil && h != "" {
+			set[h] = true
+		}
+	}
+	return set, rows.Err()
+}
+
+// HiddenLocalPath is a (mount, path) the user has marked hidden in the local browser.
+type HiddenLocalPath struct {
+	Mount string `json:"mount"`
+	Path  string `json:"path"`
+}
+
+// HiddenLocalPaths returns the local (mount, path) pairs the user has hidden.
+func (f *FavoritesStore) HiddenLocalPaths(userID int) ([]HiddenLocalPath, error) {
+	if f == nil {
+		return nil, nil
+	}
+	rows, err := f.db.Query(`SELECT mount, path FROM hidden_local_paths WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []HiddenLocalPath
+	for rows.Next() {
+		var hp HiddenLocalPath
+		if err := rows.Scan(&hp.Mount, &hp.Path); err != nil {
+			return nil, err
+		}
+		out = append(out, hp)
+	}
+	return out, rows.Err()
+}
+
+// SetLocalPathHidden hides (hidden=true) or unhides a local (mount, path) for a
+// user. Idempotent: hiding an already-hidden path is a no-op.
+func (f *FavoritesStore) SetLocalPathHidden(userID int, mount, path string, hidden bool) error {
+	if f == nil {
+		return fmt.Errorf(ErrFavoritesUnavail)
+	}
+	if hidden {
+		_, err := f.db.Exec(
+			`INSERT OR IGNORE INTO hidden_local_paths(user_id, mount, path) VALUES(?, ?, ?)`,
+			userID, mount, path)
+		return err
+	}
+	_, err := f.db.Exec(
+		`DELETE FROM hidden_local_paths WHERE user_id = ? AND mount = ? AND path = ?`,
+		userID, mount, path)
+	return err
 }
 
 // IsFavoriteByHash reports whether any favorite row references this infoHash.

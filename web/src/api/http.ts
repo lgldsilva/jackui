@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { isIncognito } from '../lib/incognito'
+import { isRevealHidden } from '../lib/reveal'
 
 export const MAGNET_PREFIX = 'magnet:?xt=urn:btih:'
 
@@ -19,6 +20,11 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   if (isIncognito()) {
     config.headers['X-JackUI-Incognito'] = '1'
+  }
+  // When the hidden curtain is open (easter egg), let the backend include
+  // hidden favourites / Continue Watching / downloads / local entries.
+  if (isRevealHidden()) {
+    config.headers['X-JackUI-Reveal-Hidden'] = '1'
   }
   return config
 })

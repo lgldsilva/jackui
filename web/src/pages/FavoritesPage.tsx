@@ -15,6 +15,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
+import { useRevealHidden } from '../lib/reveal'
 import { formatDate } from '../lib/format'
 
 type FolderNode = {
@@ -219,10 +220,10 @@ export default function FavoritesPage() {
   const [folders, setFolders] = useState<FavoriteFolder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  // Easter egg: tocar 7x no cabeçalho "Pastas" revela/esconde as pastas ocultas
-  // (e os favoritos dentro delas). Estado de sessão — não persiste.
-  const [revealHidden, setRevealHidden] = useState(false)
-  const hiddenTapsRef = useRef(0)
+  // The hidden curtain is now GLOBAL: the easter egg lives on the header logo
+  // (7 taps) and reveals hidden folders/favourites here as well as Continue
+  // Watching, downloads and local. Session-only — see lib/reveal.
+  const [revealHidden] = useRevealHidden()
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
@@ -293,15 +294,6 @@ export default function FavoritesPage() {
   // the hidden folders + their favourites).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [revealHidden])
-
-  // Easter egg trigger: 7 taps on the "Pastas" header flips revealHidden.
-  const onSecretTap = () => {
-    hiddenTapsRef.current += 1
-    if (hiddenTapsRef.current >= 7) {
-      hiddenTapsRef.current = 0
-      setRevealHidden(v => !v)
-    }
-  }
 
   const handleToggleHidden = async (id: number, hidden: boolean) => {
     await folderSetHidden(id, hidden)
@@ -483,7 +475,7 @@ export default function FavoritesPage() {
         {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
         <aside className="w-64 flex-shrink-0 hidden md:block">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs uppercase tracking-wider text-text-muted cursor-default select-none" onClick={onSecretTap} title={revealHidden ? 'Pastas ocultas visíveis' : undefined}>
+            <h2 className="text-xs uppercase tracking-wider text-text-muted cursor-default select-none" title={revealHidden ? 'Pastas ocultas visíveis' : undefined}>
               Pastas{revealHidden && <Eye className="inline w-3 h-3 ml-1 text-amber-400" aria-label="ocultas visíveis" />}
             </h2>
             <button
