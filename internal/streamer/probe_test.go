@@ -668,8 +668,8 @@ func TestStreamerNilMethods(t *testing.T) {
 
 func TestNewWithConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{DataDir: dir, IdleTimeout: time.Minute, MetadataWait: 2 * time.Second, ListenPort: str3FreePort(t)}
-	s, err := New(cfg)
+	cfg := Config{DataDir: dir, IdleTimeout: time.Minute, MetadataWait: 2 * time.Second}
+	s, err := newTestStreamer(t, cfg)
 	if err != nil {
 		t.Fatalf("New with config: %v", err)
 	}
@@ -680,7 +680,7 @@ func TestNewWithConfig(t *testing.T) {
 }
 
 func TestNewWithDefaults(t *testing.T) {
-	s, err := New(Config{ListenPort: str3FreePort(t)})
+	s, err := newTestStreamer(t, Config{})
 	if err != nil {
 		return // may fail without torrent client
 	}
@@ -692,8 +692,8 @@ func TestNewWithDefaults(t *testing.T) {
 
 func TestNewWithDataDir(t *testing.T) {
 	dir := t.TempDir()
-	cfg := Config{DataDir: dir, ListenPort: str3FreePort(t)}
-	s, err := New(cfg)
+	cfg := Config{DataDir: dir}
+	s, err := newTestStreamer(t, cfg)
 	if err != nil {
 		t.Fatalf("New with data dir: %v", err)
 	}
