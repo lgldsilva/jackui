@@ -16,8 +16,11 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 // sourceSearcher is the subset of the Jackett client the worker needs for source
@@ -65,6 +68,8 @@ type WorkerConfig struct {
 	ResolveUsername func(int) string     // optional username resolver for per-user subdir
 	Settings        func() QueueSettings // live queue settings; nil → DefaultQueueSettings
 	Jackett         sourceSearcher       // Phase 2 source rotation; nil disables Jackett re-search
+	AIClient        *ai.Client           // nil → no AI auto-rename on completion
+	TMDBClient      *tmdb.Client         // enriches the AI rename; may be nil
 }
 
 // Worker reconciles download rows in the store with the running anacrolix
@@ -109,6 +114,11 @@ type Worker struct {
 
 	// jackett re-searches for alternative sources during rotation. nil disables it.
 	jackett sourceSearcher
+
+	// AI auto-rename on completion: when aiClient != nil, a completed download is
+	// re-organized Plex-style (best-effort, async). tmdbClient enriches it.
+	aiClient   *ai.Client
+	tmdbClient *tmdb.Client
 }
 
 type trackedDL struct {
@@ -151,6 +161,8 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		resolveUsername: cfg.ResolveUsername,
 		settings:        cfg.Settings,
 		jackett:         cfg.Jackett,
+		aiClient:        cfg.AIClient,
+		tmdbClient:      cfg.TMDBClient,
 	}
 	// Pre-register eviction protection + self-heal completed orphans (extracted
 	// to keep NewWorker's cognitive complexity low).
@@ -497,7 +509,8 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	if completed < td.file.Length() || td.file.Length() <= 0 {
 		return
 	}
-	if err := w.moveCompletedFile(d, td.file.Path(), td.name); err != nil {
+	dst, err := w.moveCompletedFile(d, td.file.Path(), td.name)
+	if err != nil {
 		// Don't flip to completed — the file never reached the destination. Retry
 		// next tick (e.g. the anacrolix storage is still renaming the .part).
 		// Avoids a phantom "completed" whose file_path points to a missing file.
@@ -511,6 +524,11 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	delete(w.tracked, d.ID)
 	w.mu.Unlock()
 	log.Printf("downloads: completed #%d %q", d.ID, td.name)
+	// AI auto-rename (Plex-style) when an AI client is configured. Off the tick
+	// loop — the download is already usable; this just re-organizes it.
+	if w.aiClient != nil && dst != "" {
+		go w.aiRenameCompleted(d, dst)
+	}
 	body := fmt.Sprintf("%s · %.2f MB", td.name, float64(td.file.Length())/1048576)
 	go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
 }
@@ -586,9 +604,9 @@ func isOrphanedCompletion(d Download, dataDir string) bool {
 // an error (instead of failing silently) so the caller only flips the row to
 // "completed" when the file actually reached its home — handling the case where
 // the anacrolix storage left a complete ".part" that wasn't renamed yet.
-func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) error {
+func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) (string, error) {
 	if w.downloadDir == "" {
-		return nil
+		return "", nil
 	}
 	username := ""
 	if w.resolveUsername != nil {
@@ -597,14 +615,80 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) erro
 	destDir := completedDestDir(w.downloadDir, username, torrentName)
 	dst, err := moveDownloadedFile(w.dataDir, destDir, relPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
 		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
 	}
 	w.streamer.UnregisterDownload(torrentName)
 	log.Printf("downloads: moved #%d %q → %s", d.ID, torrentName, dst)
-	return nil
+	return dst, nil
+}
+
+// aiRenameCompleted re-organizes a completed download into a Plex-style path
+// under downloadDir, using the AI+TMDB rename chain — the same one the promote
+// flow uses. Runs in its own goroutine (off the tick loop) and is best-effort:
+// any failure leaves the file where moveCompletedFile already put it. Only
+// invoked when an AI client is configured ("se a IA estiver disponível").
+func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
+	base := w.downloadDir
+	if w.resolveUsername != nil {
+		if u := w.resolveUsername(d.UserID); u != "" {
+			base = filepath.Join(base, u)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	preview, err := renamer.GeneratePreview(ctx, w.aiClient, w.tmdbClient, filepath.Base(currentPath))
+	if err != nil || preview == nil || preview.TargetPath == "" {
+		return
+	}
+	targetRel := renamer.ResolveTargetConflict(base, preview.TargetPath)
+	newDst := filepath.Join(base, targetRel)
+	if newDst == currentPath {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(newDst), 0o755); err != nil {
+		log.Printf("downloads: AI-rename mkdir #%d: %v", d.ID, err)
+		return
+	}
+	if err := moveFileWithFallback(currentPath, newDst); err != nil {
+		log.Printf("downloads: AI-rename move #%d: %v", d.ID, err)
+		return
+	}
+	if err := w.store.SetFilePath(d.UserID, d.ID, newDst); err != nil {
+		log.Printf("downloads: AI-rename set path #%d: %v", d.ID, err)
+		return
+	}
+	// The per-torrent folder moveCompletedFile created is now empty — tidy it.
+	_ = os.Remove(filepath.Dir(currentPath))
+	log.Printf("downloads: AI-renamed #%d → %s", d.ID, newDst)
+}
+
+// moveFileWithFallback renames src→dst, falling back to copy+remove across
+// filesystems (EXDEV). Mirrors the promote move semantics.
+func moveFileWithFallback(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Remove(src)
 }
 
 // sanitizeFolderName turns a torrent name into ONE safe path segment for the

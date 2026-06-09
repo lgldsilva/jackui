@@ -187,7 +187,7 @@ func TestMoveCompletedFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(srcDir, "f.mkv.part"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.moveCompletedFile(*d, "T/f.mkv", "T"); err != nil {
+	if _, err := w.moveCompletedFile(*d, "T/f.mkv", "T"); err != nil {
 		t.Fatalf("moveCompletedFile: %v", err)
 	}
 	// moved to downloadDir/{user}/{torrent}/file (final name, no .part)
@@ -200,7 +200,7 @@ func TestMoveCompletedFile(t *testing.T) {
 		t.Errorf("file_path = %q, want %q", got.FilePath, want)
 	}
 	// error path: source missing for this relPath
-	if err := w.moveCompletedFile(*d, "Nope/x.mkv", "Nope"); err == nil {
+	if _, err := w.moveCompletedFile(*d, "Nope/x.mkv", "Nope"); err == nil {
 		t.Error("expected error when source is missing")
 	}
 }
