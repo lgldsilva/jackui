@@ -1106,7 +1106,7 @@ export const deleteHistoryEntry = async (q: string): Promise<void> => {
 // without going through anacrolix. http.ServeFile handles HTTP Range for
 // progressive playback; HEVC files still need browser support locally.
 
-export type LocalMount = { name: string; path: string; userSubpath?: boolean; restricted?: boolean; freeBytes?: number; totalBytes?: number }
+export type LocalMount = { name: string; path: string; userSubpath?: boolean; restricted?: boolean; freeBytes?: number; totalBytes?: number; cacheable?: boolean }
 
 // ExternalMount is the full admin-side mount config (includes allowedUsers).
 export type ExternalMount = {
@@ -1350,6 +1350,12 @@ export const localCacheStart = async (mount: string, path: string): Promise<Loca
 }
 export const localCacheStatus = async (mount: string, path: string): Promise<LocalCacheStatus> => {
   const { data } = await api.get<LocalCacheStatus>(`/local/cache/status?${localQS(mount, path)}`)
+  return data
+}
+// localCacheFolder enqueues a full-file copy of EVERY playable file under a
+// folder (recursive) — pre-fetch a whole rclone/Drive series in one click.
+export const localCacheFolder = async (mount: string, path: string): Promise<{ queued: number; cacheable: boolean }> => {
+  const { data } = await api.post<{ queued: number; cacheable: boolean }>(`/local/cache/folder?${localQS(mount, path)}`)
   return data
 }
 export const localCacheDelete = async (mount: string, path: string): Promise<void> => {
