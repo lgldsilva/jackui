@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 // BenchmarkCase is one labelled example: a raw torrent/release name and the

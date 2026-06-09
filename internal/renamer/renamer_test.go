@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luizg/jackui/internal/ai"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 // ── sanitizeFilename ────────────────────────────────────────────────────────

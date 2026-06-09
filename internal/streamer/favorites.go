@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,13 +19,13 @@ type FavoritesStore struct {
 }
 
 type Favorite struct {
-	Name        string    `json:"name"`        // matches CacheEntry.Path (filesystem name)
-	InfoHash    string    `json:"infoHash"`    // hex hash, if known
-	Magnet      string    `json:"magnet"`      // magnet URI — enables Play from /favorites without re-search
+	Name        string    `json:"name"`     // matches CacheEntry.Path (filesystem name)
+	InfoHash    string    `json:"infoHash"` // hex hash, if known
+	Magnet      string    `json:"magnet"`   // magnet URI — enables Play from /favorites without re-search
 	UserID      int       `json:"userId"`
 	FavoritedAt time.Time `json:"favoritedAt"`
-	Reason      string    `json:"reason"`      // "manual" | "auto-5min"
-	FolderID    *int      `json:"folderId"`    // nil = root level; otherwise nested in a FavoriteFolder
+	Reason      string    `json:"reason"`   // "manual" | "auto-5min"
+	FolderID    *int      `json:"folderId"` // nil = root level; otherwise nested in a FavoriteFolder
 }
 
 // FavoriteFolder represents an organizational folder in the user's favorites tree.

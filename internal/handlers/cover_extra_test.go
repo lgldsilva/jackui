@@ -14,10 +14,10 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/local"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // ─── Auth 0% coverage ─────────────────────────────────────────────────────
@@ -604,7 +604,7 @@ func TestStreamPause_BadHash_Extra(t *testing.T) {
 
 func TestClassifyForBrowser_More_Extra(t *testing.T) {
 	cases := []struct {
-		probe     localProbe
+		probe      localProbe
 		wantDirect bool
 	}{
 		{localProbe{Container: "isom", VideoCodec: "h264", AudioCodec: "aac"}, true},

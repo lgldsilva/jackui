@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/luizg/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/local"
 )
 
 func TestMountsWithSpace(t *testing.T) {

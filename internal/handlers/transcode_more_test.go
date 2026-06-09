@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
 func TestTranscodeCapabilities_Handler(t *testing.T) {

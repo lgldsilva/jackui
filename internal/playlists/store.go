@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -134,8 +134,8 @@ func (s *Store) List(userID int, includeAll bool) ([]Playlist, error) {
 		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &c, &u, &p.ItemCount); err != nil {
 			continue
 		}
-		p.CreatedAt= dbutil.ParseTime(c)
-		p.UpdatedAt= dbutil.ParseTime(u)
+		p.CreatedAt = dbutil.ParseTime(c)
+		p.UpdatedAt = dbutil.ParseTime(u)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -160,8 +160,8 @@ func (s *Store) Get(id, userID int, includeAll bool) (*Playlist, error) {
 	if err != nil {
 		return nil, err
 	}
-	p.CreatedAt= dbutil.ParseTime(c)
-	p.UpdatedAt= dbutil.ParseTime(u)
+	p.CreatedAt = dbutil.ParseTime(c)
+	p.UpdatedAt = dbutil.ParseTime(u)
 	return &p, nil
 }
 
@@ -274,7 +274,7 @@ func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 			v := int(libID.Int64)
 			it.LibraryID = &v
 		}
-		it.AddedAt= dbutil.ParseTime(added)
+		it.AddedAt = dbutil.ParseTime(added)
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -372,6 +372,6 @@ func (s *Store) getItem(id int) (*Item, error) {
 		v := int(libID.Int64)
 		it.LibraryID = &v
 	}
-	it.AddedAt= dbutil.ParseTime(added)
+	it.AddedAt = dbutil.ParseTime(added)
 	return &it, nil
 }

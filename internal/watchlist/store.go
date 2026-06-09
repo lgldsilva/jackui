@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	_ "modernc.org/sqlite"
 )
 
@@ -147,8 +147,8 @@ func (s *Store) Get(userID, id int) (*Watchlist, error) {
 	if err := row.Scan(&w.ID, &w.UserID, &w.Query, &w.Category, &w.MinSeeders, &w.NtfyTopic, &lastChecked, &createdAt); err != nil {
 		return nil, err
 	}
-	w.LastChecked= dbutil.ParseTime(lastChecked)
-	w.CreatedAt= dbutil.ParseTime(createdAt)
+	w.LastChecked = dbutil.ParseTime(lastChecked)
+	w.CreatedAt = dbutil.ParseTime(createdAt)
 	return w, nil
 }
 
@@ -173,8 +173,8 @@ func (s *Store) List(userID int) ([]Watchlist, error) {
 		if err := rows.Scan(&w.ID, &w.UserID, &w.Query, &w.Category, &w.MinSeeders, &w.NtfyTopic, &lastChecked, &createdAt, &w.HitCount); err != nil {
 			continue
 		}
-		w.LastChecked= dbutil.ParseTime(lastChecked)
-		w.CreatedAt= dbutil.ParseTime(createdAt)
+		w.LastChecked = dbutil.ParseTime(lastChecked)
+		w.CreatedAt = dbutil.ParseTime(createdAt)
 		out = append(out, w)
 	}
 	return out, rows.Err()
@@ -199,8 +199,8 @@ func (s *Store) ListAll() ([]Watchlist, error) {
 		if err := rows.Scan(&w.ID, &w.UserID, &w.Query, &w.Category, &w.MinSeeders, &w.NtfyTopic, &lastChecked, &createdAt); err != nil {
 			continue
 		}
-		w.LastChecked= dbutil.ParseTime(lastChecked)
-		w.CreatedAt= dbutil.ParseTime(createdAt)
+		w.LastChecked = dbutil.ParseTime(lastChecked)
+		w.CreatedAt = dbutil.ParseTime(createdAt)
 		out = append(out, w)
 	}
 	return out, rows.Err()
@@ -252,7 +252,7 @@ func (s *Store) Hits(userID, watchlistID, limit int) ([]Hit, error) {
 		if err := rows.Scan(&h.InfoHash, &h.Title, &h.Magnet, &h.Seeders, &h.Size, &seenAt); err != nil {
 			continue
 		}
-		h.SeenAt= dbutil.ParseTime(seenAt)
+		h.SeenAt = dbutil.ParseTime(seenAt)
 		out = append(out, h)
 	}
 	return out, rows.Err()

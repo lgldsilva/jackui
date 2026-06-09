@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func TestBuildArtQuery_FromCache(t *testing.T) {
@@ -445,11 +445,11 @@ func TestResolveFrameCapture_NegativeFileIdx(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/api/stream/art/hash/resolve", nil)
 
 	a := &artResolveCtx{
-		c:     cGin,
-		s:     s,
-		cache: cache,
-		hash:  "hash",
-		ctx:   cGin.Request.Context(),
+		c:       cGin,
+		s:       s,
+		cache:   cache,
+		hash:    "hash",
+		ctx:     cGin.Request.Context(),
 		fileIdx: -1,
 	}
 	frameJobs := &sync.Map{}

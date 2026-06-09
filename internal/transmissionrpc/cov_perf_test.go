@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // session-set aplica alt-speed + queue + speed-limits (estado do handler observável).
@@ -117,17 +117,17 @@ func TestTorrentSet_AcceptsAllArgs(t *testing.T) {
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
-		"ids":                 []interface{}{float64(id)},
-		"paused":              true,
-		"labels":              []interface{}{"Filmes"},
-		"bandwidthPriority":   float64(1),
-		"sequentialDownload":  true,
-		"peerLimit":           float64(50),
-		"trackerList":         "udp://tracker.example:80/announce",
-		"trackerAdd":          []interface{}{"udp://add.example:80"},
-		"trackerReplace":      []interface{}{[]interface{}{float64(0), "udp://new.example:80"}},
-		"downloadLimit":       float64(1000), "downloadLimited": true,
-		"uploadLimit":         float64(500), "uploadLimited": true,
+		"ids":                []interface{}{float64(id)},
+		"paused":             true,
+		"labels":             []interface{}{"Filmes"},
+		"bandwidthPriority":  float64(1),
+		"sequentialDownload": true,
+		"peerLimit":          float64(50),
+		"trackerList":        "udp://tracker.example:80/announce",
+		"trackerAdd":         []interface{}{"udp://add.example:80"},
+		"trackerReplace":     []interface{}{[]interface{}{float64(0), "udp://new.example:80"}},
+		"downloadLimit":      float64(1000), "downloadLimited": true,
+		"uploadLimit": float64(500), "uploadLimited": true,
 		"seedRatioLimit":      float64(2),
 		"seedIdleLimit":       float64(30),
 		"queuePosition":       float64(0),

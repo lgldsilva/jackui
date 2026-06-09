@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/tmdb"
-	"github.com/luizg/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
 // hgH targets handler branches that the other cov_*_test.go files leave red:

@@ -14,12 +14,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/history"
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/local"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/history"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // hgCListIndexersXML mirrors the XML shape Jackett returns for ?t=indexers so

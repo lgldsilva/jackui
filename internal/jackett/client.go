@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 )
 
 const (
@@ -77,19 +77,19 @@ type jackettResponse struct {
 }
 
 type jackettResult struct {
-	Title                string  `json:"Title"`
-	Tracker              string  `json:"Tracker"`
-	TrackerId            string  `json:"TrackerId"`
-	CategoryDesc         string  `json:"CategoryDesc"`
-	Category             []int   `json:"Category"`
-	Size                 int64   `json:"Size"`
-	Seeders              int     `json:"Seeders"`
-	Peers                int     `json:"Peers"`
-	MagnetUri            string  `json:"MagnetUri"`
-	Link                 string  `json:"Link"`
-	InfoHash             string  `json:"InfoHash"`
-	PublishDate          string  `json:"PublishDate"`
-	Gain                 float64 `json:"Gain"`
+	Title        string  `json:"Title"`
+	Tracker      string  `json:"Tracker"`
+	TrackerId    string  `json:"TrackerId"`
+	CategoryDesc string  `json:"CategoryDesc"`
+	Category     []int   `json:"Category"`
+	Size         int64   `json:"Size"`
+	Seeders      int     `json:"Seeders"`
+	Peers        int     `json:"Peers"`
+	MagnetUri    string  `json:"MagnetUri"`
+	Link         string  `json:"Link"`
+	InfoHash     string  `json:"InfoHash"`
+	PublishDate  string  `json:"PublishDate"`
+	Gain         float64 `json:"Gain"`
 }
 
 type jackettIndexer struct {

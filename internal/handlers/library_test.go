@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/library"
 )
 
 func TestLibraryList_Empty(t *testing.T) {

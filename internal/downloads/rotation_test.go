@@ -3,8 +3,8 @@ package downloads
 import (
 	"testing"
 
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // fakeSearcher is a stub sourceSearcher for rotation tests.

@@ -8,14 +8,14 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/luizg/jackui/internal/ai"
-	"github.com/luizg/jackui/internal/parser"
-	"github.com/luizg/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/parser"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 type PreviewResult struct {
 	OriginalName string `json:"originalName"`
-	CleanName    string `json:"cleanName"` // TMDB official name
+	CleanName    string `json:"cleanName"`  // TMDB official name
 	TargetPath   string `json:"targetPath"` // Organized Plex path (relative to sharedDir)
 	Kind         string `json:"kind"`       // "movie" | "tv"
 	Year         int    `json:"year,omitempty"`

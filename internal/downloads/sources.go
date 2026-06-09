@@ -3,7 +3,7 @@ package downloads
 import (
 	"time"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 )
 
 // Source lifecycle within a download's catalog of magnets.

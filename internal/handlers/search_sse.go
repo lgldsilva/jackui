@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/history"
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/middleware"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/history"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // dedupKey returns the canonical dedup key for a result. The Jackett client
@@ -62,11 +62,11 @@ func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 	if hit.Err != nil {
 		s.indexersFailed++
 		writeSSE(s.c, "progress", gin.H{
-			"phase":    "indexer",
-			"indexer":  hit.IndexerName,
-			"error":    hit.Err.Error(),
-			"durMs":    hit.Duration.Milliseconds(),
-			"done":     s.indexersDone,
+			"phase":   "indexer",
+			"indexer": hit.IndexerName,
+			"error":   hit.Err.Error(),
+			"durMs":   hit.Duration.Milliseconds(),
+			"done":    s.indexersDone,
 		})
 		return
 	}

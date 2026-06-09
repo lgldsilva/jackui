@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func newTestStore(t *testing.T) *Store {

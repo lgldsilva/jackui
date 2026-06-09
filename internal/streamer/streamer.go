@@ -26,7 +26,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
-	"github.com/luizg/jackui/internal/diskutil"
+	"github.com/lgldsilva/jackui/internal/diskutil"
 	"golang.org/x/time/rate"
 )
 
@@ -422,11 +422,11 @@ func New(cfg Config) (*Streamer, error) {
 	_ = os.MkdirAll(metainfoDir, 0o755)
 
 	s := &Streamer{
-		cfg:         cfg,
-		client:      client,
-		active:      make(map[metainfo.Hash]*entry),
-		stop:        make(chan struct{}),
-		downloads:   make(map[string]struct{}),
+		cfg:           cfg,
+		client:        client,
+		active:        make(map[metainfo.Hash]*entry),
+		stop:          make(chan struct{}),
+		downloads:     make(map[string]struct{}),
 		metainfoDir:   metainfoDir,
 		verifiedFiles: make(map[string]bool),
 		dlLimiter:     dlLimiter,
@@ -491,8 +491,8 @@ func (s *Streamer) MetainfoPath(h metainfo.Hash) string {
 }
 
 const (
-	magnetPrefix          = "magnet:"
-	errTorrentNotActive   = "torrent não está ativo"
+	magnetPrefix           = "magnet:"
+	errTorrentNotActive    = "torrent não está ativo"
 	errFileIndexOutOfRange = "file index %d out of range"
 )
 

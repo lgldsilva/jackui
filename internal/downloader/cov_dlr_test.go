@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 // dlrUnreachableQBit builds a qBittorrent client pointed at an address that is
