@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/ai"
 )
 
 // Rótulos legíveis das categorias (consts p/ não duplicar literais — go:S1192).
@@ -25,9 +25,9 @@ const (
 
 // CategoryResult is what the classify endpoint returns.
 type CategoryResult struct {
-	Category  string `json:"category"`  // "movies" | "tv" | "music" | "games" | "software" | "adult" | "other"
-	Label     string `json:"label"`     // human-readable: "Filmes" | "Séries" | …
-	Source    string `json:"source"`    // "regex" | "ai" | "fallback"
+	Category   string  `json:"category"`   // "movies" | "tv" | "music" | "games" | "software" | "adult" | "other"
+	Label      string  `json:"label"`      // human-readable: "Filmes" | "Séries" | …
+	Source     string  `json:"source"`     // "regex" | "ai" | "fallback"
 	Confidence float64 `json:"confidence"` // 0..1
 }
 

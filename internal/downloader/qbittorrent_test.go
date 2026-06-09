@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func newTestQBit(t *testing.T, serverURL string) *QBittorrent {

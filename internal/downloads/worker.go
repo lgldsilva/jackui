@@ -16,8 +16,8 @@ import (
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // sourceSearcher is the subset of the Jackett client the worker needs for source
@@ -34,10 +34,10 @@ const maxInitRetries = 3
 // QueueSettings are the live scheduling knobs the worker reads each tick. A nil
 // Settings getter (or zero values) falls back to DefaultQueueSettings.
 type QueueSettings struct {
-	MaxActive         int // GLOBAL ceiling: concurrent downloads across all users (streaming excluded)
-	PerUserMaxActive  int // per-user concurrent cap; 0 = no per-user limit
-	StallThresholdMin int // minutes with no progress AND no seeders before a demote
-	MaxStalls         int // stalls before the download is paused (0 = never pause, cycle forever)
+	MaxActive         int  // GLOBAL ceiling: concurrent downloads across all users (streaming excluded)
+	PerUserMaxActive  int  // per-user concurrent cap; 0 = no per-user limit
+	StallThresholdMin int  // minutes with no progress AND no seeders before a demote
+	MaxStalls         int  // stalls before the download is paused (0 = never pause, cycle forever)
 	AgingStepMin      int  // queue aging: minutes of waiting per +1 bonus (0 disables)
 	AgingCap          int  // ceiling on the aging bonus
 	RotationEnabled   bool // Phase 2: on a no-seed stall, try alternative sources before demoting
@@ -59,12 +59,12 @@ type WorkerConfig struct {
 	DataDir         string // streamer DataDir — where anacrolix stores pieces
 	DownloadDir     string // destination for completed files (empty = keep in DataDir)
 	Interval        time.Duration
-	NtfyBaseURL     string                // default https://ntfy.sh
-	NtfyTopic       string                // global default topic; per-user override via store
-	NtfyToken       string                // optional access token for protected topics (Authorization: Bearer)
-	ResolveUsername func(int) string      // optional username resolver for per-user subdir
-	Settings        func() QueueSettings  // live queue settings; nil → DefaultQueueSettings
-	Jackett         sourceSearcher        // Phase 2 source rotation; nil disables Jackett re-search
+	NtfyBaseURL     string               // default https://ntfy.sh
+	NtfyTopic       string               // global default topic; per-user override via store
+	NtfyToken       string               // optional access token for protected topics (Authorization: Bearer)
+	ResolveUsername func(int) string     // optional username resolver for per-user subdir
+	Settings        func() QueueSettings // live queue settings; nil → DefaultQueueSettings
+	Jackett         sourceSearcher       // Phase 2 source rotation; nil disables Jackett re-search
 }
 
 // Worker reconciles download rows in the store with the running anacrolix

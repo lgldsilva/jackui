@@ -3,8 +3,8 @@ package downloads
 import (
 	"sort"
 
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/parser"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/parser"
 )
 
 // sizeTolerance is how far an alternative's size may differ from the original

@@ -3,7 +3,7 @@ package downloads
 import (
 	"testing"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func TestSizeWithinTolerance(t *testing.T) {
@@ -31,10 +31,10 @@ func TestMatchAlternatives_FiltersAndSorts(t *testing.T) {
 	results := []jackett.Result{
 		{Title: "The Show S01E02 1080p WEB-DL", InfoHash: "alt1", MagnetURI: "magnet:alt1", Size: 1_050_000_000, Seeders: 10},
 		{Title: "The Show S01E02 720p", InfoHash: "alt2", MagnetURI: "magnet:alt2", Size: 980_000_000, Seeders: 50},
-		{Title: "The Show S01E03 1080p", InfoHash: "alt3", MagnetURI: "magnet:alt3", Size: 1_010_000_000, Seeders: 99}, // wrong episode
-		{Title: "The Show S01E02 1080p", InfoHash: "orighash", MagnetURI: "magnet:orig", Size: 1_000_000_000, Seeders: 80}, // same hash
+		{Title: "The Show S01E03 1080p", InfoHash: "alt3", MagnetURI: "magnet:alt3", Size: 1_010_000_000, Seeders: 99},      // wrong episode
+		{Title: "The Show S01E02 1080p", InfoHash: "orighash", MagnetURI: "magnet:orig", Size: 1_000_000_000, Seeders: 80},  // same hash
 		{Title: "The Show S01E02 4GB REMUX", InfoHash: "alt4", MagnetURI: "magnet:alt4", Size: 4_000_000_000, Seeders: 100}, // size off
-		{Title: "The Show S01E02 no magnet", InfoHash: "alt5", MagnetURI: "", Size: 1_000_000_000, Seeders: 70}, // no magnet
+		{Title: "The Show S01E02 no magnet", InfoHash: "alt5", MagnetURI: "", Size: 1_000_000_000, Seeders: 70},             // no magnet
 	}
 	got := matchAlternatives(orig, results, 5)
 	if len(got) != 2 {

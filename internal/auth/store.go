@@ -24,7 +24,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
-	"github.com/luizg/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 )
 
 // Role identifies a user's authorization level.

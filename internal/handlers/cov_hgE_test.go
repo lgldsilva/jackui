@@ -9,14 +9,14 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/history"
-	"github.com/luizg/jackui/internal/jackett"
-	"github.com/luizg/jackui/internal/library"
-	"github.com/luizg/jackui/internal/playlists"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/subtitles"
-	"github.com/luizg/jackui/internal/watchlist"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/history"
+	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/playlists"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/subtitles"
+	"github.com/lgldsilva/jackui/internal/watchlist"
 )
 
 // hgE prefix on every identifier to avoid collisions with the other test files

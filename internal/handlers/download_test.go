@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func makeTestConfig(clients ...config.DownloadClient) *config.Config {

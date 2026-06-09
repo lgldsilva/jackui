@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 type mockEnricher struct {
@@ -121,8 +121,8 @@ func TestHandleHit_Results(t *testing.T) {
 	setSSEHeaders(c)
 
 	state := &liveSearchState{
-		c:        c,
-		enricher: &resultEnricher{},
+		c:          c,
+		enricher:   &resultEnricher{},
 		cachedSeen: map[string]bool{},
 		liveSeen:   map[string]bool{},
 	}
@@ -153,8 +153,8 @@ func TestHandleHit_Dedupe(t *testing.T) {
 	setSSEHeaders(c)
 
 	state := &liveSearchState{
-		c:        c,
-		enricher: &resultEnricher{},
+		c:          c,
+		enricher:   &resultEnricher{},
 		cachedSeen: map[string]bool{"dupe": true},
 		liveSeen:   map[string]bool{},
 	}
@@ -182,8 +182,8 @@ func TestHandleHit_EmptyInfoHash(t *testing.T) {
 	setSSEHeaders(c)
 
 	state := &liveSearchState{
-		c:        c,
-		enricher: &resultEnricher{},
+		c:          c,
+		enricher:   &resultEnricher{},
 		cachedSeen: map[string]bool{},
 		liveSeen:   map[string]bool{},
 	}

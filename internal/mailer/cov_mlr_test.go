@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 // mlrScript drives a fake SMTP server: for each client line read it writes the

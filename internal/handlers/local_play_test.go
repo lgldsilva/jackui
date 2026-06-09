@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/local"
 )
 
 // TestClassifyForBrowser pins the direct-play vs HLS decision so a future tweak
@@ -21,16 +21,16 @@ import (
 // the local-HLS path was added to fix).
 func TestClassifyForBrowser(t *testing.T) {
 	cases := []struct {
-		name      string
-		probe     localProbe
+		name       string
+		probe      localProbe
 		wantDirect bool
 		// matchReason is a substring expected in the rejection reason; "" means
 		// no reason expected (direct-play).
 		matchReason string
 	}{
 		{
-			name:      "mp4_h264_aac_direct",
-			probe:     localProbe{Container: "mov", VideoCodec: "h264", AudioCodec: "aac"},
+			name:       "mp4_h264_aac_direct",
+			probe:      localProbe{Container: "mov", VideoCodec: "h264", AudioCodec: "aac"},
 			wantDirect: true,
 		},
 		{
@@ -52,9 +52,9 @@ func TestClassifyForBrowser(t *testing.T) {
 			matchReason: "acodec=ac3",
 		},
 		{
-			name:        "webm_vp9_opus_direct",
-			probe:       localProbe{Container: "webm", VideoCodec: "vp9", AudioCodec: "opus"},
-			wantDirect:  true,
+			name:       "webm_vp9_opus_direct",
+			probe:      localProbe{Container: "webm", VideoCodec: "vp9", AudioCodec: "opus"},
+			wantDirect: true,
 		},
 		{
 			name:        "av1_in_mp4_hls",

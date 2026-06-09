@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/luizg/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/config"
 )
 
 func newTestTransmission(serverURL string) *Transmission {

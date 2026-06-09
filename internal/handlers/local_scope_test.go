@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/local"
 )
 
 // withClaims injects auth Claims into the gin context, mimicking what the

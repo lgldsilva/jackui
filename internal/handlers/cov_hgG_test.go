@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // cov_hgG_test.go targets handler error paths that the original *_test.go and

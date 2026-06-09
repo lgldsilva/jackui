@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 // TmdbMatch — GET /api/tmdb/match?title=Inception+2010

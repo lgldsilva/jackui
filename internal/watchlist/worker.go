@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 // Searcher is the subset of jackett.Client the worker depends on. Stays small

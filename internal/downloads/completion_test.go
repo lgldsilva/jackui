@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func TestResolveCompletedSrc(t *testing.T) {

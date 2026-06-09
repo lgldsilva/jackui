@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 var proxyHTTP = &http.Client{Timeout: 30 * time.Second}

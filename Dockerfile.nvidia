@@ -47,9 +47,9 @@ ARG GIT_COMMIT=unknown
 ARG BUILD_TIMESTAMP=unknown
 ARG APP_VERSION=dev
 RUN go build -ldflags "\
-      -X github.com/luizg/jackui/internal/version.Commit=${GIT_COMMIT} \
-      -X github.com/luizg/jackui/internal/version.BuildTime=${BUILD_TIMESTAMP} \
-      -X github.com/luizg/jackui/internal/version.Version=${APP_VERSION}" \
+      -X github.com/lgldsilva/jackui/internal/version.Commit=${GIT_COMMIT} \
+      -X github.com/lgldsilva/jackui/internal/version.BuildTime=${BUILD_TIMESTAMP} \
+      -X github.com/lgldsilva/jackui/internal/version.Version=${APP_VERSION}" \
       -o jackui ./cmd/server
 
 # Stage 3: Final runtime — Ubuntu 22.04 + NVIDIA CUDA runtime + ffmpeg

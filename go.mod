@@ -1,4 +1,4 @@
-module github.com/luizg/jackui
+module github.com/lgldsilva/jackui
 
 go 1.25.0
 

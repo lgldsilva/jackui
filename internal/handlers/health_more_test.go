@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/history"
-	"github.com/luizg/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/history"
+	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func TestHealth_Handler(t *testing.T) {

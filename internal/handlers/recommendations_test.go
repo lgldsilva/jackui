@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/library"
-	"github.com/luizg/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
 func TestBuildSeeds_ResolvesCapsAndWatched(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func newQueueWorker(t *testing.T, store *Store, qs QueueSettings) *Worker {

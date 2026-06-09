@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/downloader"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/downloader"
 )
 
 type downloadRequest struct {

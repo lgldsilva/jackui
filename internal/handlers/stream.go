@@ -12,13 +12,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"strings"
 
-	"github.com/luizg/jackui/internal/auth"
-	"github.com/luizg/jackui/internal/downloads"
-	"github.com/luizg/jackui/internal/library"
-	"github.com/luizg/jackui/internal/middleware"
-	"github.com/luizg/jackui/internal/streamer"
-	"github.com/luizg/jackui/internal/subtitles"
-	"github.com/luizg/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/subtitles"
+	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
 const errInvalidFileIndex = "invalid file index"
@@ -535,8 +535,8 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "no cached metadata"})
 			return
 		}
-	c.Header(CacheControl, CachePublicDay) // 1d browser cache
-	c.JSON(http.StatusOK, meta)
+		c.Header(CacheControl, CachePublicDay) // 1d browser cache
+		c.JSON(http.StatusOK, meta)
 	}
 }
 

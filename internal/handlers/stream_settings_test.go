@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/luizg/jackui/internal/config"
-	"github.com/luizg/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func newTestConfig(t *testing.T) (*config.Config, string) {
