@@ -14,6 +14,33 @@ import (
 // mount's intermittent I/O errors. The player's "cache" button / mark drives
 // these; serving (LocalFile, HLS source) transparently prefers the cached copy.
 
+// isRemoteFS reports whether a path lives on a slow/remote mount (rclone, NFS,
+// CIFS) worth caching. Indirected through a var so tests can force either side
+// without a real FUSE/NAS mount.
+var isRemoteFS = detectRemoteFS
+
+// cacheStatusResponse is the cache "mark" plus a flag telling the UI whether
+// caching even makes sense here. Files already on a local disk return
+// cacheable=false, so the player hides the cache button entirely — there's
+// nothing to pre-fetch (they're already fast and seekable).
+type cacheStatusResponse struct {
+	localcache.Snapshot
+	Cacheable bool `json:"cacheable"`
+}
+
+// mountCacheable is true only when the cache is enabled AND the resolved file
+// sits on a remote/FUSE mount. A nil cache or a local-disk file → false.
+func mountCacheable(b *local.Browser, cache *localcache.Cache, mount, scoped string) bool {
+	if cache == nil {
+		return false
+	}
+	abs, err := b.ResolvePath(mount, scoped)
+	if err != nil {
+		return false
+	}
+	return isRemoteFS(abs)
+}
+
 // LocalCacheStart handles POST /api/local/cache?mount=&path= — enqueues a
 // background full-file copy. Read access is enough (it's a read of the source).
 func LocalCacheStart(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc {
@@ -45,7 +72,10 @@ func LocalCacheStart(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc 
 			return
 		}
 		cache.Enqueue(mount, scoped, abs, st.Size())
-		c.JSON(http.StatusAccepted, cache.StatusFor(mount, scoped))
+		c.JSON(http.StatusAccepted, cacheStatusResponse{
+			Snapshot:  cache.StatusFor(mount, scoped),
+			Cacheable: isRemoteFS(abs),
+		})
 	}
 }
 
@@ -60,11 +90,15 @@ func LocalCacheStatus(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc
 		if !checkMountAccess(b, c, mount) {
 			return
 		}
-		if cache == nil {
-			c.JSON(http.StatusOK, localcache.Snapshot{Status: "none"})
-			return
+		scoped := scopePath(b, c, mount, path)
+		snap := localcache.Snapshot{Status: "none"}
+		if cache != nil {
+			snap = cache.StatusFor(mount, scoped)
 		}
-		c.JSON(http.StatusOK, cache.StatusFor(mount, scopePath(b, c, mount, path)))
+		c.JSON(http.StatusOK, cacheStatusResponse{
+			Snapshot:  snap,
+			Cacheable: mountCacheable(b, cache, mount, scoped),
+		})
 	}
 }
 

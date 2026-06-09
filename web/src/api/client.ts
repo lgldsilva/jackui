@@ -1336,6 +1336,10 @@ export type LocalCacheStatus = {
   copied: number
   percent: number
   error?: string
+  // True only when the file lives on a slow/remote mount (rclone/NFS/CIFS).
+  // Files already on local disk are cacheable=false → the player hides the
+  // cache button (there's nothing to pre-fetch — they're already fast).
+  cacheable?: boolean
 }
 
 // localCacheStart enqueues a full-file copy of a local/rclone file to the local
