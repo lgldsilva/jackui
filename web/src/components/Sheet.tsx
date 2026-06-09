@@ -100,7 +100,7 @@ export function Sheet({
             play na lista do TorrentContentsModal) fica atrás da barra do sistema.
             Com footer, é o footer que carrega a safe-area (abaixo). */}
         <div
-          className="flex-1 overflow-y-auto px-4 pt-4 overscroll-contain"
+          className="flex-auto min-h-0 overflow-y-auto px-4 pt-4 overscroll-contain"
           style={{ paddingBottom: footer == null ? 'calc(1rem + env(safe-area-inset-bottom, 0px))' : '1rem' }}
         >
           {children}

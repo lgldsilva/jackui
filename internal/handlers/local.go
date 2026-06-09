@@ -92,8 +92,10 @@ func LocalMounts(b *local.Browser) gin.HandlerFunc {
 	}
 }
 
-// LocalList handles GET /api/local/list?mount=NAME&path=REL -> []Entry
-func LocalList(b *local.Browser) gin.HandlerFunc {
+// LocalList handles GET /api/local/list?mount=NAME&path=REL -> []Entry.
+// Entries the user has hidden are dropped unless the request opened the curtain
+// (X-JackUI-Reveal-Hidden).
+func LocalList(b *local.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -113,6 +115,8 @@ func LocalList(b *local.Browser) gin.HandlerFunc {
 			return
 		}
 		entries = b.StripUserScope(mount, username, entries)
+		userID, _, _ := auth.UserIDFromCtx(c)
+		entries = dropHiddenLocalEntries(entries, hiddenLocalSet(c, s, userID, mount))
 		c.JSON(http.StatusOK, entries)
 	}
 }
