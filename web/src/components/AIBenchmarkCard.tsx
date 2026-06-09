@@ -167,6 +167,7 @@ export default function AIBenchmarkCard() {
   const [cost, setCost] = useState<AICostConfig>({ maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 })
   const [msg, setMsg] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<string>('')
+  const [runningSlotId, setRunningSlotId] = useState<string | null>(null)
 
   const emptyCost: AICostConfig = { maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 }
   useEffect(() => {
@@ -253,8 +254,6 @@ export default function AIBenchmarkCard() {
       setMsg(e?.response?.data?.error || 'Falha ao salvar os custos.')
     } finally { setSavingCost(false) }
   }
-
-  const [runningSlotId, setRunningSlotId] = useState<string | null>(null)
 
   const runSingle = async (provider: string, model: string) => {
     const slotId = `${provider}:${model}`

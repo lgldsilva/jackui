@@ -49,6 +49,56 @@ func GetAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 	}
 }
 
+// filterSlotsForBenchmark filters and dedupes candidate slots for benchmarking.
+func filterSlotsForBenchmark(ctx context.Context, client *ai.Client, provider, model string) []ai.Slot {
+	var slots []ai.Slot
+	for _, s := range client.Slots() {
+		if (provider == "" || s.Provider == provider) && (model == "" || s.Model == model) {
+			slots = append(slots, s)
+		}
+	}
+	if model != "" {
+		var discovered []ai.Slot
+		if provider == "" {
+			discovered = client.DiscoverModels(ctx)
+		} else {
+			discovered = client.DiscoverModelsForProvider(ctx, provider)
+		}
+		for _, s := range discovered {
+			if s.Model == model {
+				slots = append(slots, s)
+			}
+		}
+	} else {
+		if provider == "" {
+			slots = append(slots, client.DiscoverModels(ctx)...)
+		} else {
+			slots = append(slots, client.DiscoverModelsForProvider(ctx, provider)...)
+		}
+	}
+	slots = client.AffordableSlots(slots)
+	return dedupeSlots(slots)
+}
+
+// mergeBenchmarkScores overwrites/inserts new scores into the existing benchmark results.
+func mergeBenchmarkScores(existing []ai.SlotScore, newScores []ai.SlotScore) []ai.SlotScore {
+	existingMap := make(map[string]ai.SlotScore)
+	for _, s := range existing {
+		existingMap[s.SlotID] = s
+	}
+	for _, s := range newScores {
+		existingMap[s.SlotID] = s
+	}
+	var merged []ai.SlotScore
+	for _, s := range existingMap {
+		merged = append(merged, s)
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		return merged[i].Composite > merged[j].Composite
+	})
+	return merged
+}
+
 // RunAIBenchmark — POST /api/ai/benchmark. Benchmarks the chain PLUS every model
 // installed on the local Ollama (auto-discovered) — each warmed up first — then
 // persists the scores and re-orders the live chain best-first.
@@ -72,56 +122,13 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 
-		var slots []ai.Slot
-		for _, s := range client.Slots() {
-			if (provider == "" || s.Provider == provider) && (model == "" || s.Model == model) {
-				slots = append(slots, s)
-			}
-		}
-		if model != "" {
-			var discovered []ai.Slot
-			if provider == "" {
-				discovered = client.DiscoverModels(ctx)
-			} else {
-				discovered = client.DiscoverModelsForProvider(ctx, provider)
-			}
-			for _, s := range discovered {
-				if s.Model == model {
-					slots = append(slots, s)
-				}
-			}
-		} else {
-			if provider == "" {
-				slots = append(slots, client.DiscoverModels(ctx)...)
-			} else {
-				slots = append(slots, client.DiscoverModelsForProvider(ctx, provider)...)
-			}
-		}
-		slots = client.AffordableSlots(slots)
-		slots = dedupeSlots(slots)
-
+		slots := filterSlotsForBenchmark(ctx, client, provider, model)
 		scores := client.RunSlots(ctx, slots, cases)
 
 		var merged []ai.SlotScore
 		if store != nil {
 			if provider != "" || model != "" {
-				// Map existing scores by SlotID
-				existingMap := make(map[string]ai.SlotScore)
-				for _, s := range store.Results() {
-					existingMap[s.SlotID] = s
-				}
-				// Overwrite/insert new scores
-				for _, s := range scores {
-					existingMap[s.SlotID] = s
-				}
-				// Rebuild merged slice
-				for _, s := range existingMap {
-					merged = append(merged, s)
-				}
-				// Sort merged by Composite descending
-				sort.SliceStable(merged, func(i, j int) bool {
-					return merged[i].Composite > merged[j].Composite
-				})
+				merged = mergeBenchmarkScores(store.Results(), scores)
 			} else {
 				merged = scores
 			}
