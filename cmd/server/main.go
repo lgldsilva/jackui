@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io/fs"
 	"log"
@@ -782,6 +783,30 @@ func spaFallback(distFS fs.FS, fileServer http.Handler) gin.HandlerFunc {
 	}
 }
 
+// metricsStaticTokenBypass lets a Prometheus scraper authenticate with the
+// static JACKUI_METRICS_TOKEN (Bearer header or ?token=) when auth is on.
+// On match it serves the metrics and aborts the chain; otherwise it falls
+// through to the regular admin-JWT requirement. Constant-time compare.
+func metricsStaticTokenBypass(prom gin.HandlerFunc) gin.HandlerFunc {
+	static := strings.TrimSpace(os.Getenv("JACKUI_METRICS_TOKEN"))
+	return func(c *gin.Context) {
+		if static == "" {
+			c.Next()
+			return
+		}
+		presented := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		if presented == "" || presented == c.GetHeader("Authorization") {
+			presented = c.Query("token")
+		}
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(static)) == 1 {
+			prom(c)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func setupRouter(deps *appDeps) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger())
@@ -797,7 +822,16 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.GET("/healthz", handlers.Health(deps.historyStore))
 	// Public build metadata (commit/build time/version) — checkable without a token.
 	router.GET("/status", handlers.BuildInfo(deps.historyStore))
-	router.GET("/api/metrics", gin.WrapH(promhttp.Handler()))
+	// Prometheus metrics. With auth enabled the endpoint requires either the
+	// static scraper token (JACKUI_METRICS_TOKEN — JWTs expire, scrape configs
+	// don't refresh) or an admin JWT; labels could otherwise leak torrent/file
+	// names past the auth layer. Without auth it stays open as before.
+	promHandler := gin.WrapH(promhttp.Handler())
+	if deps.cfg.Auth.Enabled && deps.tokenMgr != nil {
+		router.GET("/api/metrics", metricsStaticTokenBypass(promHandler), auth.Required(deps.tokenMgr), auth.AdminOnly(), promHandler)
+	} else {
+		router.GET("/api/metrics", promHandler)
+	}
 	router.GET("/api/auth/config", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"enabled": deps.cfg.Auth.Enabled})
 	})
