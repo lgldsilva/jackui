@@ -1137,6 +1137,7 @@ export type LocalEntry = {
   size: number
   modTime: string
   isPlayable: boolean
+  childCount?: number // # of entries inside a directory (0/absent for files)
 }
 
 export const localMounts = async (): Promise<LocalMount[]> => {
