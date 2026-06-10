@@ -85,6 +85,17 @@ func (m VODMode) allows(nativeHLS bool) bool {
 // SetVODMode sets the VOD policy (called once at wiring time from config).
 func (m *HLSSessionManager) SetVODMode(mode VODMode) { m.vodMode = mode }
 
+// shouldVOD decides whether a session serves the finite-VOD (seekbar) path.
+// VOD requires a known duration (>0); EVENT/live is the last resort for
+// unknown-duration streams. With a known duration it's VOD when EITHER the
+// caller forces it (forceVOD — the local-file path, whose sources are complete
+// and seekable, so live is simply wrong) OR the per-client policy allows it.
+// Torrents pass forceVOD=false, so the global vodMode still guards the #61
+// Safari seek instability on incomplete torrent sources.
+func shouldVOD(durationSec float64, forceVOD bool, mode VODMode, nativeHLS bool) bool {
+	return durationSec > 0 && (forceVOD || mode.allows(nativeHLS))
+}
+
 // EffectiveKey maps a raw content key to the session key actually used. When
 // VOD is off the key is unchanged (one shared EVENT session per content, zero
 // behaviour change). When VOD is on, VOD-eligible and non-eligible clients are
@@ -229,6 +240,14 @@ type HLSStartOpts struct {
 	// local-file path runs ffprobe at play time). >0 skips the in-session 30s
 	// seekable probe — the rclone/Drive latency win.
 	KnownDurationSec float64
+	// ForceVOD opts this session into the finite-VOD (seekbar) path whenever the
+	// duration is known, BYPASSING the per-client vodMode gate. Used by the
+	// local-file path: a fully-downloaded file on disk/rclone is complete and
+	// seekable, so EVENT/live (the last-resort path for unknown-duration
+	// streams) is wrong for it — VOD is the correct default per the playback
+	// premise. Torrents leave this false so the global vodMode still guards the
+	// #61 Safari seek instability on (incomplete) torrent sources.
+	ForceVOD bool
 }
 
 // readSeekerContent adapts a single-cursor io.ReadSeeker (e.g. anacrolix
@@ -826,9 +845,8 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 
 	// Encoding flags live in encodeSpec.args so seek-restart can rebuild them.
 	// vod=true switches on forced 4s keyframes + the handler's synthesised finite
-	// playlist; it requires both a known duration AND a VOD-eligible client under
-	// the current policy. vod=false keeps the proven EVENT/live path.
-	vod := durationSec > 0 && m.vodMode.allows(opts.NativeHLS)
+	// playlist; vod=false keeps the proven EVENT/live path. See shouldVOD.
+	vod := shouldVOD(durationSec, opts.ForceVOD, m.vodMode, opts.NativeHLS)
 	s := &HLSSession{
 		Key:         effKey,
 		Dir:         dir,

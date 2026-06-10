@@ -8,10 +8,11 @@ import {
   streamSidecarURL,
   streamPlaylistM3UURL,
   subtitleDownloadURL,
+  isLocalHash,
 } from '../../api/client'
 import Hls from 'hls.js'
 import type { ErrorData } from 'hls.js'
-import { hlsFatalAction } from './playerHooks'
+import { hlsFatalAction, startGapNudgeTarget } from './playerHooks'
 import { canPlayNativeHls } from './playerFormat'
 
 export type MediaUrlInput = {
@@ -26,6 +27,11 @@ export type MediaUrlInput = {
   sidecarIdx: number | null
   embeddedSub: number | null
   customSubURL: string | null
+  // localEmbeddedVttURL: blob URL of a LOCAL embedded sub fetched with retry (the
+  // server extracts large rclone files in the background). '' while extracting —
+  // the <track> stays empty until ready instead of 502ing. Local-only; torrent
+  // embedded subs keep the direct streamSubtrackURL.
+  localEmbeddedVttURL: string
   caps: TranscodeCapabilities | null
   authEnabled: boolean
   probe: StreamProbe | null
@@ -56,11 +62,16 @@ function appendNativeHLS(url: string): string {
 }
 
 function buildSubtitleVttURL(input: MediaUrlInput, tokenMissing: boolean): string {
-  const { info, selectedFile, customSubURL, sidecarIdx, embeddedSub, subActive, mediaToken } = input
+  const { info, selectedFile, customSubURL, sidecarIdx, embeddedSub, subActive, mediaToken, localEmbeddedVttURL } = input
   if (customSubURL) return customSubURL
   if (tokenMissing) return ''
   if (info && sidecarIdx !== null) return streamSidecarURL(info.infoHash, sidecarIdx, mediaToken)
-  if (info && embeddedSub !== null) return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
+  if (info && embeddedSub !== null) {
+    // Local embedded subs ride the retry-fetched blob ('' until extracted); the
+    // torrent path serves the track URL directly.
+    if (isLocalHash(info.infoHash)) return localEmbeddedVttURL
+    return streamSubtrackURL(info.infoHash, selectedFile, embeddedSub, mediaToken)
+  }
   if (subActive) return subtitleDownloadURL(subActive, mediaToken)
   return ''
 }
@@ -137,4 +148,19 @@ export function tryAutoplayMutedFallback(v: HTMLVideoElement) {
     v.muted = true
     v.play().catch(() => {})
   })
+}
+
+// kickPastStartGap: aplica o nudge calculado por startGapNudgeTarget. Se o vídeo
+// estiver travado no buraco inicial do t=0 (ver startGapNudgeTarget), pula o
+// currentTime pra dentro do buffer e (re)tenta o autoplay — destrava o Safari
+// que não inicia quando buffered.start(0) é um fio > 0. No-op quando não há esse
+// buraco. Idempotente: depois do nudge o currentTime passa de buffered.start(0),
+// então a próxima chamada já devolve null e nada acontece (sem reseek em loop).
+export function kickPastStartGap(v: HTMLVideoElement): boolean {
+  const start = v.buffered.length > 0 ? v.buffered.start(0) : null
+  const target = startGapNudgeTarget(v.currentTime, start)
+  if (target === null) return false
+  v.currentTime = target
+  tryAutoplayMutedFallback(v)
+  return true
 }

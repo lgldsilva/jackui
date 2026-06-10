@@ -45,6 +45,38 @@ func TestVODModeAllows(t *testing.T) {
 	}
 }
 
+func TestShouldVOD(t *testing.T) {
+	type row struct {
+		name      string
+		dur       float64
+		forceVOD  bool
+		mode      VODMode
+		nativeHLS bool
+		want      bool
+	}
+	rows := []row{
+		// Duração desconhecida → SEMPRE EVENT, mesmo forçando VOD.
+		{"dur=0 nunca VOD mesmo forçado", 0, true, VODAll, false, false},
+		// Arquivos locais (forceVOD) → VOD com duração conhecida, em qualquer
+		// cliente e qualquer política — inclusive Safari nativo (o bug reportado).
+		{"local Safari hlsjs → VOD", 2763, true, VODHLSJS, true, true},
+		{"local Safari off → VOD", 100, true, VODOff, true, true},
+		{"local Chrome → VOD", 100, true, VODHLSJS, false, true},
+		// Torrents (forceVOD=false) → política global manda; Safari fica em EVENT
+		// sob hlsjs (guarda do #61), mas Chrome ganha VOD.
+		{"torrent Safari hlsjs → EVENT", 100, false, VODHLSJS, true, false},
+		{"torrent Chrome hlsjs → VOD", 100, false, VODHLSJS, false, true},
+		{"torrent Safari off → EVENT", 100, false, VODOff, true, false},
+		{"torrent Safari all → VOD", 100, false, VODAll, true, true},
+	}
+	for _, r := range rows {
+		if got := shouldVOD(r.dur, r.forceVOD, r.mode, r.nativeHLS); got != r.want {
+			t.Errorf("%s: shouldVOD(%v,%v,%v,native=%v)=%v want %v",
+				r.name, r.dur, r.forceVOD, r.mode, r.nativeHLS, got, r.want)
+		}
+	}
+}
+
 func TestEffectiveKey(t *testing.T) {
 	m := &HLSSessionManager{}
 

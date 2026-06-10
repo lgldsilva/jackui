@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { backstopStuck, backstopShouldFire, hlsFatalAction } from './playerHooks'
+import { backstopStuck, backstopShouldFire, hlsFatalAction, startGapNudgeTarget } from './playerHooks'
 
 // Regressão do bug do Star Wars (a376440b): um H264/AAC/MP4 (browser-safe) que
 // trava por falta de dados (moov do MP4 ainda não baixou → readyState 0,
@@ -50,6 +50,33 @@ describe('backstopShouldFire', () => {
     expect(backstopShouldFire(false, true, true)).toBe(false)
     expect(backstopShouldFire(false, undefined, true)).toBe(false)
     expect(backstopShouldFire(false, false, true)).toBe(false)
+  })
+})
+
+// Regressão do "28 Years Later" (arquivo local MKV/H264 no Safari): o transcode
+// EVENT/live bufferiza 12s começando em buffered.start=0.000002, mas o
+// currentTime fica em 0 (logo ANTES do buffer) → Safari nunca chega a canplay e
+// trava. O nudge avança o currentTime pra dentro do buffer.
+describe('startGapNudgeTarget', () => {
+  it('nudga quando travado em 0 com buraco sub-tick (0.000002)', () => {
+    expect(startGapNudgeTarget(0, 0.000002)).toBeCloseTo(0.050002, 5)
+  })
+  it('nudga no histórico initial_offset de 1,4s', () => {
+    expect(startGapNudgeTarget(0, 1.4)).toBeCloseTo(1.45, 5)
+  })
+  it('NÃO nudga sem buffer ainda', () => {
+    expect(startGapNudgeTarget(0, null)).toBeNull()
+  })
+  it('NÃO nudga quando o buffer já cobre o t=0 (gap<=0)', () => {
+    expect(startGapNudgeTarget(0, 0)).toBeNull()
+    expect(startGapNudgeTarget(0.1, 0.05)).toBeNull()
+  })
+  it('NÃO nudga quando o tempo já andou (>0.25) — playback normal', () => {
+    expect(startGapNudgeTarget(5, 5.2)).toBeNull()
+    expect(startGapNudgeTarget(0.3, 0.5)).toBeNull()
+  })
+  it('NÃO nudga com gap grande demais (>1.5s) — seria pular conteúdo real', () => {
+    expect(startGapNudgeTarget(0, 3)).toBeNull()
   })
 })
 
