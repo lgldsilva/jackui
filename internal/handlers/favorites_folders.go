@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -21,8 +22,9 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		// ?includeHidden=1 (the UI's easter egg) reveals hidden folders.
-		folders, err := fs.ListFolders(userID, c.Query("includeHidden") == "1")
+		// The global reveal curtain (X-JackUI-Reveal-Hidden, the easter egg) or the
+		// legacy ?includeHidden=1 reveal hidden folders.
+		folders, err := fs.ListFolders(userID, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

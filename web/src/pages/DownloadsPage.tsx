@@ -10,6 +10,7 @@ import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
 import { usePersistedState } from '../lib/storage'
+import { useRevealHidden } from '../lib/reveal'
 import {
   DownloadEntry, DownloadFilterParams, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
   downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
@@ -85,6 +86,9 @@ export default function DownloadsPage() {
   const [showAllUsers, setShowAllUsers] = useState(false)
   const [availableUsers, setAvailableUsers] = useState<DownloadUserEntry[]>([])
   const [filterUserId, setFilterUserId] = useState('')
+  // Global hidden curtain: downloads tied to a hidden favourite folder drop out
+  // unless it's open (re-fetch on flip; backend filters by the header).
+  const [revealHidden] = useRevealHidden()
 
   // Add Torrent & Magnet Modals State
   const [showAddModal, setShowAddModal] = useState(false)
@@ -285,7 +289,7 @@ export default function DownloadsPage() {
     }, filterSearch ? 300 : 0)
     return () => { if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus, filterTracker, filterCategory, filterSearch, sortCol, sortDir, filterUserId, showAllUsers])
+  }, [filterStatus, filterTracker, filterCategory, filterSearch, sortCol, sortDir, filterUserId, showAllUsers, revealHidden])
 
   // Roteia play: se file_path está dentro de algum mount navegável → player
   // local (sem tocar no anacrolix); senão → player do torrent (cache em

@@ -25,6 +25,8 @@ import {
   Lock,
   Users,
   MoreVertical,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
@@ -56,7 +58,10 @@ import {
   localUpload,
   adminListUsers,
   setLocalViewAsUser,
+  localSetHidden,
+  localListHidden,
 } from '../api/client'
+import { useRevealHidden } from '../lib/reveal'
 
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
@@ -222,6 +227,8 @@ type EntryRowProps = {
   readonly onReclassify: (e: LocalEntry) => void
   readonly onMove: (e: LocalEntry) => void
   readonly onDelete: (e: LocalEntry) => void
+  readonly hidden: boolean
+  readonly onToggleHidden: (e: LocalEntry) => void
 }
 
 // Ações por-item (promover/reclassificar/mover/apagar). No desktop aparecem no
@@ -237,20 +244,24 @@ const ACTION_COLOR: Record<string, string> = {
 }
 type EntryAction = { key: string; icon: typeof Trash2; label: string; color: keyof typeof ACTION_COLOR; run: () => void }
 
-function EntryActions({ entry: e, isAdmin, canAct, onPromote, onReclassify, onMove, onDelete }: {
+function EntryActions({ entry: e, isAdmin, canAct, hidden, onPromote, onReclassify, onMove, onDelete, onToggleHidden }: {
   readonly entry: LocalEntry
   readonly isAdmin: boolean
   readonly canAct: boolean
+  readonly hidden: boolean
   readonly onPromote: (e: LocalEntry) => void
   readonly onReclassify: (e: LocalEntry) => void
   readonly onMove: (e: LocalEntry) => void
   readonly onDelete: (e: LocalEntry) => void
+  readonly onToggleHidden: (e: LocalEntry) => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const actions: EntryAction[] = [
     canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: 'Promover / Organizar via IA', color: 'cyan', run: () => onPromote(e) },
     isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA', color: 'purple', run: () => onReclassify(e) },
     isAdmin && { key: 'move', icon: FolderInput, label: 'Mover para outro mount', color: 'amber', run: () => onMove(e) },
+    // Hide/unhide is per-user and harmless on any mount, so it's always offered.
+    { key: 'hide', icon: hidden ? Eye : EyeOff, label: hidden ? 'Mostrar (tirar do oculto)' : 'Ocultar', color: 'amber', run: () => onToggleHidden(e) },
     canAct && { key: 'delete', icon: Trash2, label: e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente', color: 'red', run: () => onDelete(e) },
   ].filter(Boolean) as EntryAction[]
   if (actions.length === 0) return null
@@ -342,7 +353,10 @@ function EntryRow(props: EntryRowProps) {
         )}
         <EntryIcon entry={e} mount={mount} />
         <span className="flex-1 min-w-0 flex flex-col gap-0.5">
-          <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere]">{e.name}</span>
+          <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere] flex items-center gap-1.5">
+            {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="oculto" />}
+            {e.name}
+          </span>
           {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
               direita (hidden sm:block). Sem isso a row no celular mostrava só
               ícone + nome. */}
@@ -363,10 +377,12 @@ function EntryRow(props: EntryRowProps) {
           entry={e}
           isAdmin={isAdmin}
           canAct={canAct}
+          hidden={props.hidden}
           onPromote={props.onPromote}
           onReclassify={props.onReclassify}
           onMove={props.onMove}
           onDelete={props.onDelete}
+          onToggleHidden={props.onToggleHidden}
         />
       )}
     </li>
@@ -395,6 +411,12 @@ export default function LocalPage() {
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
   const confirm = useConfirm()
+
+  // Hidden curtain (global easter egg): hidden entries drop from the list unless
+  // it's open. hiddenSet (paths in the active mount) flags which rows are hidden
+  // so the row shows a "Mostrar" action + indicator while revealed.
+  const [revealHidden] = useRevealHidden()
+  const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set())
 
   // Busca textual por nome (filtra a lista visível) + seleção múltipla / lote.
   const [search, setSearch] = useState('')
@@ -561,7 +583,26 @@ export default function LocalPage() {
     setNotice('') // stale "N folders removed" shouldn't linger across navigation
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeMount, path, viewAsUser])
+  }, [activeMount, path, viewAsUser, revealHidden])
+
+  // Which entries in this mount are hidden — flags them + offers "Mostrar" while
+  // the curtain is open (closed → they're filtered server-side, empty set is ok).
+  const loadHidden = () => {
+    if (!activeMount) { setHiddenSet(new Set()); return }
+    localListHidden()
+      .then((paths) => setHiddenSet(new Set(paths.filter((p) => p.mount === activeMount).map((p) => p.path))))
+      .catch(() => setHiddenSet(new Set()))
+  }
+  useEffect(() => {
+    loadHidden()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMount, revealHidden])
+
+  const handleToggleHidden = async (e: LocalEntry) => {
+    await localSetHidden(activeMount, e.path, !hiddenSet.has(e.path))
+    loadHidden()
+    refresh()
+  }
 
   // Load the user list once for the admin "view as user" selector.
   useEffect(() => {
@@ -1034,6 +1075,8 @@ export default function LocalPage() {
                   onReclassify={setReclassifyItem}
                   onMove={setMoveItem}
                   onDelete={requestDelete}
+                  hidden={hiddenSet.has(e.path)}
+                  onToggleHidden={handleToggleHidden}
                 />
               ))}
             </ul>

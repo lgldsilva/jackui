@@ -3,6 +3,7 @@ import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, 
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
 import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult, downloadCreate } from '../api/client'
+import { useRevealHidden } from '../lib/reveal'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import SeedBadge from '../components/SeedBadge'
 import { Sheet } from '../components/Sheet'
@@ -23,11 +24,15 @@ export default function LibraryPage() {
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
 
+  const [revealHidden] = useRevealHidden()
+
   const reload = () => {
     setLoading(true)
     libraryList({ limit: 50 }).then(setEntries).catch(() => {}).finally(() => setLoading(false))
   }
-  useEffect(() => { reload() }, [])
+  // Re-fetch when the hidden curtain flips: hidden-folder titles drop in/out of
+  // Continue Watching (the backend filters by the X-JackUI-Reveal-Hidden header).
+  useEffect(() => { reload() }, [revealHidden])
 
   const handleRemoveOne = async (e: LibraryEntry) => {
     const ok = await confirm({ title: 'Remover', message: `Remover "${e.name}" do Continuar Assistindo?`, confirmLabel: 'Remover', destructive: true })

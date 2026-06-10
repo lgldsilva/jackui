@@ -226,7 +226,7 @@ func TestLocalList_WalkErr(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/local/list", LocalList(b))
+	router.GET("/api/local/list", LocalList(b, nil))
 
 	req := httptest.NewRequest("GET", "/api/local/list?mount=Test&path=../escape", nil)
 	w := httptest.NewRecorder()
