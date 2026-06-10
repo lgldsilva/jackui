@@ -225,13 +225,17 @@ func Test_hgB_ResolveTranscodeSource_CompletedFile(t *testing.T) {
 	h, _ := parseHash(hgBHexHash)
 	hc := &hlsCtx{c: c, s: streamer.NewForTesting(), store: store, h: h, fileIdx: 0}
 
-	src, size := resolveTranscodeSource(hc)
+	src, size, complete := resolveTranscodeSource(hc)
 	if src == nil {
 		t.Fatal("expected a source reader for the completed file")
 	}
 	defer func() { _ = src.Close() }()
 	if size != int64(len("payload-bytes")) {
 		t.Errorf("size=%d want %d", size, len("payload-bytes"))
+	}
+	// A completed file on disk is a complete/seekable source → forces VOD.
+	if !complete {
+		t.Error("completed-file source must report complete=true (forces VOD)")
 	}
 }
 
@@ -709,7 +713,7 @@ func Test_hgB_LocalSubtitleExtract_MissingParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b, _ := hgBBrowser(t)
 	r := gin.New()
-	r.GET("/ex", LocalSubtitleExtract(b))
+	r.GET("/ex", LocalSubtitleExtract(b, nil))
 	w := hgBGET(t, r, "/ex?mount=Test&path=x.mkv")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d want 400; body=%s", w.Code, w.Body.String())
@@ -720,7 +724,7 @@ func Test_hgB_LocalSubtitleExtract_ForbiddenMount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b, _ := hgBBrowser(t)
 	r := gin.New()
-	r.GET("/ex", LocalSubtitleExtract(b))
+	r.GET("/ex", LocalSubtitleExtract(b, nil))
 	w := hgBGET(t, r, "/ex?mount=Nope&path=x.mkv&track=0")
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status=%d want 403; body=%s", w.Code, w.Body.String())
@@ -731,7 +735,7 @@ func Test_hgB_LocalSubtitleExtract_BadTrack(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b, _ := hgBBrowser(t)
 	r := gin.New()
-	r.GET("/ex", LocalSubtitleExtract(b))
+	r.GET("/ex", LocalSubtitleExtract(b, nil))
 	w := hgBGET(t, r, "/ex?mount=Test&path=x.mkv&track=notnum")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d want 400; body=%s", w.Code, w.Body.String())

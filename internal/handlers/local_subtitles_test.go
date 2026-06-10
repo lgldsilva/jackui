@@ -127,7 +127,7 @@ func TestLocalSubtitleExtract_NoMount(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/subtrack", nil)
 
-	LocalSubtitleExtract(b)(c)
+	LocalSubtitleExtract(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -141,7 +141,7 @@ func TestLocalSubtitleExtract_NoTrack(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/subtrack?mount=Test&path=video.mp4", nil)
 
-	LocalSubtitleExtract(b)(c)
+	LocalSubtitleExtract(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -161,7 +161,7 @@ func TestLocalSubtitleExtract_InvalidTrack(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/subtrack?mount=Test&path=video.mp4&track=abc", nil)
 
-	LocalSubtitleExtract(b)(c)
+	LocalSubtitleExtract(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())

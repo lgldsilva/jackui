@@ -982,7 +982,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
 	api.GET("/local/sidecar", handlers.LocalSidecarRead(deps.localBrowser))
-	api.GET("/local/subtrack", handlers.LocalSubtitleExtract(deps.localBrowser))
+	api.GET("/local/subtrack", handlers.LocalSubtitleExtract(deps.localBrowser, deps.localCache))
 	if deps.subtitleClient != nil {
 		api.GET("/local/subtitles/auto", handlers.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
 	}

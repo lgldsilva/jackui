@@ -1015,6 +1015,34 @@ export const streamSubtrackURL = (hash: string, fileIdx: number, trackIdx: numbe
   return withToken(`/api/stream/subtrack/${hash}/${fileIdx}/${trackIdx}`, tokenOverride)
 }
 
+// localSubtrackBlobURL fetches a LOCAL embedded subtitle track as a WebVTT blob
+// URL, retrying while the server reports 503 {code:"extracting"}. Extracting an
+// embedded sub demuxes the whole container, so on a large rclone file the server
+// does it in the background and 503s until ready — we poll instead of letting a
+// <track src> fail. Returns '' when cancelled or on a hard (non-503) failure.
+export async function localSubtrackBlobURL(
+  hash: string, fileIdx: number, trackIdx: number, token: string,
+  isCancelled: () => boolean,
+): Promise<string> {
+  const url = streamSubtrackURL(hash, fileIdx, trackIdx, token)
+  for (let attempt = 0; attempt < 40 && !isCancelled(); attempt++) {
+    let res: Response
+    try {
+      res = await fetch(url)
+    } catch {
+      return '' // network error — give up quietly
+    }
+    if (res.status === 200) {
+      const text = await res.text()
+      if (isCancelled()) return ''
+      return URL.createObjectURL(new Blob([text], { type: 'text/vtt' }))
+    }
+    if (res.status !== 503) return '' // hard failure (e.g. image-based sub)
+    await new Promise(r => setTimeout(r, 10000)) // still extracting → wait & retry
+  }
+  return ''
+}
+
 // ─── Transcoding capabilities ──────────────────────────────────────────────
 
 export type TranscodeEncoder = {

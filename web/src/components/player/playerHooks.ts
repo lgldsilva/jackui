@@ -373,6 +373,25 @@ export function backstopStuck(readyState: number, currentTime: number, bufferedE
   return readyState < 2 && currentTime < 0.1 && bufferedEnd < 0.5
 }
 
+// startGapNudgeTarget: o Safari (HLS nativo, caminho EVENT/live dos arquivos
+// locais transcodados) às vezes bufferiza o primeiro segmento começando um fio
+// DEPOIS de 0 (resíduo sub-tick de PTS que o muxer MPEG-TS deixa mesmo com
+// -muxdelay 0; observado: buffered.start = 0.000002). O currentTime fica
+// EXATAMENTE em 0 — logo ANTES de buffered.start(0) — então o Safari nunca
+// chega a readyState 3, o `canplay` não dispara, o autoplay não roda e o vídeo
+// trava no t=0 com segundos já bufferizados (sintoma: "pulou pro live mas não
+// tocou"). Detecta exatamente essa forma (parado em ~0, com o 1º range
+// começando em (currentTime, gapMax]) e devolve o alvo do nudge; o caller
+// avança o currentTime pra dentro do buffer. gapMax (1,5s) cobre desde o
+// resíduo de µs até o histórico initial_offset de 1,4s do muxer.
+export function startGapNudgeTarget(currentTime: number, bufferedStart: number | null): number | null {
+  if (currentTime > 0.25) return null        // já andou / passou do buraco inicial
+  if (bufferedStart === null) return null
+  const gap = bufferedStart - currentTime
+  if (gap <= 0 || gap > 1.5) return null      // sem buraco, ou grande demais p/ ser o resíduo de PTS
+  return bufferedStart + 0.05                 // pousa 50ms dentro do range bufferizado
+}
+
 // backstopShouldFire decide se o backstop deve FORÇAR transcode (h264) num stall.
 // Regra (#16): se o probe já confirmou codec browser-safe (needsTranscode===false),
 // o stall é de rede/moov — transcodar H264→H264 da mesma fonte fria não ajuda →

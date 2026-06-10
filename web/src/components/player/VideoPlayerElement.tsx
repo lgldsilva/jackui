@@ -5,7 +5,7 @@ import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
 import { canPlayNativeHls } from './playerFormat'
-import { recoverHlsFatal, tryAutoplayMutedFallback } from './mediaUrls'
+import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
 
 type VideoPlayerElementProps = {
@@ -177,15 +177,27 @@ export function VideoPlayerElement({
           className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
           onError={onVideoError}
           onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
-          onStalled={() => clientLog('warn', 'player', 'stalled', videoDiagnostic())}
-          onWaiting={() => clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })}
+          onStalled={() => {
+            clientLog('warn', 'player', 'stalled', videoDiagnostic())
+            const v = videoRef.current
+            if (v && kickPastStartGap(v)) clientLog('info', 'player', 'start-gap nudge (stalled)', { currentTime: v.currentTime })
+          }}
+          onWaiting={() => {
+            clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })
+            const v = videoRef.current
+            if (v) kickPastStartGap(v)
+          }}
           onTimeUpdate={onTimeUpdate}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget
             clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
             onTimeUpdate()
           }}
-          onProgress={onTimeUpdate}
+          onProgress={() => {
+            const v = videoRef.current
+            if (v) kickPastStartGap(v)
+            onTimeUpdate()
+          }}
           onEnded={onVideoEnded}
           onCanPlay={onVideoCanPlay}
         >
