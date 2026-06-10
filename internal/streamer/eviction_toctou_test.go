@@ -18,7 +18,7 @@ import (
 // variant) as blocked, which is what makes the concurrent gap safe.
 
 func Test_evictionBlocked_ActiveTorrentByName(t *testing.T) {
-	s, err := New(Config{DataDir: t.TempDir(), ListenPort: str3FreePort(t)})
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -129,7 +129,7 @@ func Test_evictCandidates_StopsAtLimit(t *testing.T) {
 // paths (Stats/buildActiveMaps, evictionBlocked, AcquireViewer/ReleaseViewer)
 // against each other to catch any data race on s.active / s.downloads.
 func Test_EnforceCacheLimit_RaceWithViewerChurn(t *testing.T) {
-	s, err := New(Config{DataDir: t.TempDir(), ListenPort: str3FreePort(t)})
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -292,7 +293,7 @@ func Test_str3_AddFromCapturedMagnetValid(t *testing.T) {
 	// A well-formed magnet with a real btih is accepted by AddMagnet; the helper
 	// must return the torrent and no error (covers the happy path).
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir, ListenPort: str3FreePort(t)})
+	s, err := newTestStreamer(t, Config{DataDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -315,7 +316,7 @@ func Test_str3_AddFromCapturedMagnetValid(t *testing.T) {
 
 func Test_str3_SampleRateLocked(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir, ListenPort: str3FreePort(t)})
+	s, err := newTestStreamer(t, Config{DataDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -377,12 +378,34 @@ func str3FreePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
+// newTestStreamer builds a Streamer on a fresh ephemeral peer port. str3FreePort
+// probes a free port and closes it before New binds it, so under the heavy
+// parallel load of `go test ./...` another package's test process can steal the
+// port in that window (TOCTOU) → anacrolix fails to bind with "address already
+// in use". We retry with a new port a few times; any other error is returned as
+// is. cfg.ListenPort is overwritten on every attempt.
+func newTestStreamer(t *testing.T, cfg Config) (*Streamer, error) {
+	t.Helper()
+	var err error
+	for attempt := 0; attempt < 8; attempt++ {
+		cfg.ListenPort = str3FreePort(t)
+		var s *Streamer
+		if s, err = New(cfg); err == nil {
+			return s, nil
+		}
+		if !strings.Contains(err.Error(), "address already in use") {
+			return nil, err
+		}
+	}
+	return nil, err
+}
+
 // Test_str3_DropActiveReadGuard covers the activeReadGuard branch in Drop():
 // a torrent read within activeReadGuard is treated as still being watched, so an
 // explicit Drop() (player close) must be a no-op — the entry stays in s.active.
 func Test_str3_DropActiveReadGuard(t *testing.T) {
 	dir := t.TempDir()
-	s, err := New(Config{DataDir: dir, ListenPort: str3FreePort(t)})
+	s, err := newTestStreamer(t, Config{DataDir: dir})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
