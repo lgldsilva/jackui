@@ -787,6 +787,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		api.Use(auth.GuestRestrict())
 	}
 	api.Use(middleware.Incognito())
+	api.Use(middleware.RevealHidden())
 	{
 		api.GET("/classify", handlers.ClassifyCategory(deps.aiClient))
 		api.POST("/diag/log", handlers.ClientLog())
@@ -907,7 +908,9 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/mounts", handlers.LocalMounts(deps.localBrowser))
-	api.GET("/local/list", handlers.LocalList(deps.localBrowser))
+	api.GET("/local/list", handlers.LocalList(deps.localBrowser, deps.streamSrv))
+	api.POST("/local/hidden", handlers.LocalSetHidden(deps.localBrowser, deps.streamSrv))
+	api.GET("/local/hidden", handlers.LocalListHidden(deps.streamSrv))
 	api.GET("/local/file", handlers.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
 	api.GET("/local/transfer-status", handlers.LocalTransferStatus(deps.localBrowser, deps.localStream))
 	api.POST("/local/cache", handlers.LocalCacheStart(deps.localBrowser, deps.localCache))
@@ -988,7 +991,7 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 	if deps.libraryStore == nil {
 		return
 	}
-	api.GET("/library", handlers.LibraryList(deps.libraryStore))
+	api.GET("/library", handlers.LibraryList(deps.libraryStore, deps.streamSrv))
 	// Personalized recommendations derived from the watched library (additive).
 	api.GET("/recommendations", handlers.Recommendations(deps.libraryStore, deps.tmdbClient))
 	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore))

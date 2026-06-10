@@ -19,7 +19,7 @@ func TestLibraryList_Empty(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/api/library", LibraryList(lib))
+	router.GET("/api/library", LibraryList(lib, nil))
 
 	req := httptest.NewRequest("GET", "/api/library", nil)
 	w := httptest.NewRecorder()
@@ -210,7 +210,7 @@ func TestLibraryList_WithLimit(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/api/library", LibraryList(lib))
+	router.GET("/api/library", LibraryList(lib, nil))
 
 	req := httptest.NewRequest("GET", "/api/library?limit=5", nil)
 	w := httptest.NewRecorder()
@@ -229,7 +229,7 @@ func TestLibraryList_WithInvalidLimit(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/api/library", LibraryList(lib))
+	router.GET("/api/library", LibraryList(lib, nil))
 
 	req := httptest.NewRequest("GET", "/api/library?limit=-1", nil)
 	w := httptest.NewRecorder()

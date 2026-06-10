@@ -66,7 +66,7 @@ func TestLocalList_NoMount(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/list", nil)
 
-	LocalList(b)(c)
+	LocalList(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -81,7 +81,7 @@ func TestLocalList_UnknownMount(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/local/list", LocalList(b))
+	router.GET("/api/local/list", LocalList(b, nil))
 
 	req := httptest.NewRequest("GET", "/api/local/list?mount=DoesNotExist", nil)
 	w := httptest.NewRecorder()
@@ -105,7 +105,7 @@ func TestLocalList_WithRealDir(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/list?mount=Test", nil)
 
-	LocalList(b)(c)
+	LocalList(b, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -128,7 +128,7 @@ func TestLocalList_NonExistentPath(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/list?mount=Test&path=nonexistent", nil)
 
-	LocalList(b)(c)
+	LocalList(b, nil)(c)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
