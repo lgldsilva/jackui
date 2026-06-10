@@ -199,7 +199,7 @@ func TestRevokeSession(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	tok, _ := s.CreateRefreshToken(u.ID, time.Hour, false)
+	tok, _ := s.CreateRefreshToken(u.ID, time.Hour, false, "", "")
 	hash := sha256Hex(tok)
 
 	// Revoke a different session ID (not the one we created)
@@ -217,8 +217,8 @@ func TestRevokeOtherSessions(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	tok1, _ := s.CreateRefreshToken(u.ID, time.Hour, false)
-	s.CreateRefreshToken(u.ID, time.Hour, false)
+	tok1, _ := s.CreateRefreshToken(u.ID, time.Hour, false, "", "")
+	s.CreateRefreshToken(u.ID, time.Hour, false, "", "")
 
 	n, err := s.RevokeOtherSessions(u.ID, tok1)
 	if err != nil {
@@ -234,8 +234,8 @@ func TestRevokeAllSessions(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	s.CreateRefreshToken(u.ID, time.Hour, false)
-	s.CreateRefreshToken(u.ID, time.Hour, false)
+	s.CreateRefreshToken(u.ID, time.Hour, false, "", "")
+	s.CreateRefreshToken(u.ID, time.Hour, false, "", "")
 
 	if err := s.RevokeAllSessions(u.ID); err != nil {
 		t.Fatalf("RevokeAllSessions: %v", err)
@@ -251,8 +251,8 @@ func TestListSessions(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	tok1, _ := s.CreateRefreshToken(u.ID, time.Hour, true)
-	s.CreateRefreshToken(u.ID, 2*time.Hour, false)
+	tok1, _ := s.CreateRefreshToken(u.ID, time.Hour, true, "", "")
+	s.CreateRefreshToken(u.ID, 2*time.Hour, false, "", "")
 
 	sessions, err := s.ListSessions(u.ID, tok1)
 	if err != nil {

@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Users, Check, Ban, Trash2, UserPlus, RotateCcw, Link2, Copy } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Loader2, Users, Check, Ban, Trash2, UserPlus, RotateCcw, Link2, Copy, KeyRound, MonitorSmartphone } from 'lucide-react'
 import { adminListUsers, adminCreateUser, adminDeleteUser, adminSetUserStatus, adminInvite, AdminUser } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import AdminResetPasswordModal from './AdminResetPasswordModal'
+import AdminUserSessionsModal from './AdminUserSessionsModal'
 
 // UsersAdminCard — admin-only user management: see everyone (with status/email),
 // approve pending accounts, disable/re-enable, delete, and create users.
 export default function UsersAdminCard() {
+  const { t } = useTranslation()
   const { isAdmin, user } = useAuth()
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [err, setErr] = useState('')
@@ -13,6 +17,8 @@ export default function UsersAdminCard() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteLink, setInviteLink] = useState('')
   const [copied, setCopied] = useState(false)
+  const [resetUser, setResetUser] = useState<AdminUser | null>(null)
+  const [sessionsUser, setSessionsUser] = useState<AdminUser | null>(null)
 
   const load = () => {
     adminListUsers().then(setUsers).catch(e => setErr(e?.response?.data?.error || 'Falha ao listar'))
@@ -52,6 +58,10 @@ export default function UsersAdminCard() {
               </div>
               {statusChip(u.status)}
               <div className="flex items-center gap-1 flex-shrink-0">
+                <button onClick={() => setResetUser(u)} title={t('admin.reset_password')}
+                  className="p-1.5 rounded text-text-muted hover:text-amber-400 hover:bg-amber-500/10"><KeyRound className="w-4 h-4" /></button>
+                <button onClick={() => setSessionsUser(u)} title={t('admin.user_sessions')}
+                  className="p-1.5 rounded text-text-muted hover:text-blue-400 hover:bg-blue-500/10"><MonitorSmartphone className="w-4 h-4" /></button>
                 {u.status === 'pending' && (
                   <button onClick={() => act(() => adminSetUserStatus(u.id, 'active'))} title="Aprovar"
                     className="p-1.5 rounded text-green-400 hover:bg-green-500/15"><Check className="w-4 h-4" /></button>
@@ -112,6 +122,9 @@ export default function UsersAdminCard() {
           <UserPlus className="w-4 h-4" /> Criar
         </button>
       </div>
+
+      <AdminResetPasswordModal user={resetUser} onClose={() => setResetUser(null)} />
+      <AdminUserSessionsModal user={sessionsUser} onClose={() => setSessionsUser(null)} />
     </section>
   )
 }
