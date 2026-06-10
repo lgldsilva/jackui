@@ -41,6 +41,13 @@ export function getTabResults(tabId: string): CachedTabResults | undefined {
   return cache.get(tabId)
 }
 
+// True while at least one tab keeps results in memory. An EMPTY cache at
+// SearchPage mount is the post-reload signal (module state dies with the
+// page) — an SPA remount still sees whatever the session produced.
+export function hasAnyTabResults(): boolean {
+  return cache.size > 0
+}
+
 export function setTabResults(tabId: string, entry: Omit<CachedTabResults, 'savedAt'>): void {
   cache.delete(tabId) // re-insert so this tab becomes the most recent
   cache.set(tabId, { ...entry, savedAt: Date.now() })
@@ -64,6 +71,12 @@ export function clearTabResults(): void {
 // unchanged tabs (results is replaced immutably on every change, so reference
 // equality suffices) keeps the recency order meaningful: a tab only becomes
 // "most recent" when its results actually change.
+//
+// Known degradation with MORE than MAX_TABS live tabs holding results: an
+// evicted entry is re-inserted by the next sync, evicting another live one —
+// the retained set converges to "last MAX_TABS in array order" instead of
+// true recency. Accepted: memory stays bounded, merge guards make a stale
+// miss harmless, and >8 result-bearing tabs is already pathological.
 export function syncTabsToCache(tabs: readonly SyncableTab[]): void {
   const alive = new Set(tabs.map(t => t.id))
   for (const id of [...cache.keys()]) {
