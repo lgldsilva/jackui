@@ -185,8 +185,12 @@ export function EmbeddedTracksPanel({
             >
               Nenhuma
             </button>
-            {probe.subtitles.map(s => {
+            {probe.subtitles.map((s, i) => {
               const isActive = embeddedSub === s.index || burnSubTrack === s.index
+              // Sem tag de língua (comum em releases tipo MeGusta com N subs
+              // sem rótulo), o "??" deixa 34 faixas idênticas — usa o título, ou
+              // um ordinal "Faixa N" pra serem ao menos distinguíveis.
+              const subLabel = s.language ? s.language.toUpperCase() : (s.title || `Faixa ${i + 1}`)
               return (
                 <button
                   key={s.index}
@@ -211,7 +215,7 @@ export function EmbeddedTracksPanel({
                   }
                   className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
                 >
-                  {s.language ? s.language.toUpperCase() : '??'}
+                  {subLabel}
                   <span className="text-text-muted ml-1">{s.codec}</span>
                   {s.forced && <span className="ml-1 text-[9px] text-yellow-400">FORCED</span>}
                   {s.image && <span className="ml-1 text-[9px] text-orange-400">IMG</span>}

@@ -130,6 +130,11 @@ func (c *Cache) Enqueue(mount, path, srcAbs string, size int64) {
 	}
 }
 
+// Root returns the cache's on-disk root directory. Callers use it to derive
+// sibling caches (e.g. an extracted-subtitle VTT cache) that share the same
+// fast-disk location without coupling to this package's internals.
+func (c *Cache) Root() string { return c.root }
+
 // CachedPath returns the local cached path for (mount, path) when ready, and
 // bumps its LRU recency so an actively-watched file isn't evicted.
 func (c *Cache) CachedPath(mount, path string) (string, bool) {

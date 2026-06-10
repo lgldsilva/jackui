@@ -31,6 +31,7 @@ import {
   downloadLocalFileDirect,
   classifyCategory,
   isLocalHash,
+  localSubtrackBlobURL,
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
@@ -285,6 +286,10 @@ export default function PlayerModal({
   const [embeddedSub, setEmbeddedSub] = useState<number | null>(null) // selected embedded sub track index
   const [customSubURL, setCustomSubURL] = useState<string | null>(null)
   const [customSubName, setCustomSubName] = useState<string | null>(null)
+  // Blob URL of a LOCAL embedded sub fetched with retry — the server extracts
+  // large rclone files in the background (503 until ready), so a <track src>
+  // pointing straight at the endpoint would 502/hang. '' until extracted.
+  const [localEmbeddedVttURL, setLocalEmbeddedVttURL] = useState('')
 
   useEffect(() => {
     return () => {
@@ -392,6 +397,24 @@ export default function PlayerModal({
   // playback pra 0. URLs ficam vazias até o token chegar — gate equivalente
   // ao serverReady abaixo, garantindo que o <src> só é setado uma vez.
   const [mediaToken, setMediaToken] = useState('')
+
+  // Fetch (with retry) the selected LOCAL embedded subtitle as a VTT blob. Polls
+  // while the server reports "extracting"; sets the blob when ready so the track
+  // appears without the player hanging. Revokes the previous blob on change.
+  // (Placed after mediaToken so its value is available when the effect runs.)
+  useEffect(() => {
+    setLocalEmbeddedVttURL(prev => { if (prev) URL.revokeObjectURL(prev); return '' })
+    if (!info || !isLocalHash(info.infoHash) || embeddedSub === null) return
+    let cancelled = false
+    localSubtrackBlobURL(info.infoHash, selectedFile, embeddedSub, mediaToken, () => cancelled)
+      .then(url => {
+        if (cancelled) { if (url) URL.revokeObjectURL(url); return }
+        if (url) setLocalEmbeddedVttURL(url)
+      })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.infoHash, selectedFile, embeddedSub, mediaToken])
+
   // Frozen snapshot of the diagnostic at the moment onVideoError fired. Used by
   // the error UI which re-renders AFTER the <video> element unmounted, so by
   // then videoRef.current is null and a live diagnostic would come back empty.
@@ -1246,7 +1269,7 @@ export default function PlayerModal({
   //     a level Safari's <video> rejects; trying direct-play first just burns
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled, probe })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe })
   const { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, encoderLabel, isTranscoded } = videoUrls
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
