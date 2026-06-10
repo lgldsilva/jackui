@@ -32,6 +32,13 @@ type Enqueuer interface {
 	EnqueueMagnet(userID int, infoHash, name, magnet, tracker string) error
 }
 
+// UserNotifier delivers a hit to the user's own channels (in-app feed + Web
+// Push) — implemented by push.(*Sender). Runs alongside ntfy, which remains
+// topic-based.
+type UserNotifier interface {
+	NotifyUser(ctx context.Context, userID int, title, body, magnet string) error
+}
+
 // maxAutoPerPass caps auto-downloads per watchlist per worker pass so a sudden
 // burst of matching releases can't flood the queue in one sweep — the rest are
 // still recorded as seen and notified, never silently dropped.
@@ -45,7 +52,8 @@ type Worker struct {
 	store        *Store
 	searcher     Searcher
 	notifier     Notifier
-	enqueuer     Enqueuer // optional: enables auto-download (nil = notify-only)
+	enqueuer     Enqueuer     // optional: enables auto-download (nil = notify-only)
+	userNotifier UserNotifier // optional: in-app feed + Web Push per user
 	defaultTopic string
 	interval     time.Duration // server default for "interval" items with Minutes <= 0
 	tick         time.Duration // scheduler resolution (1 min; tests shrink it)
@@ -79,6 +87,10 @@ func NewWorker(store *Store, searcher Searcher, notifier Notifier, defaultTopic 
 		stop:         make(chan struct{}),
 	}
 }
+
+// SetUserNotifier wires the per-user channel (in-app feed + Web Push). Call
+// before Start — the worker goroutine reads the field without a lock.
+func (w *Worker) SetUserNotifier(n UserNotifier) { w.userNotifier = n }
 
 func (w *Worker) Start() {
 	w.wg.Add(1)
@@ -225,12 +237,18 @@ func (w *Worker) processOneResult(ctx context.Context, wl *Watchlist, topic stri
 		return false
 	}
 	auto := w.maybeAutoDownload(wl, r, allowAuto)
-	if topic == "" || w.notifier == nil {
-		return auto
-	}
 	body := fmt.Sprintf("%d seeders · %s", r.Seeders, humanSize(r.Size))
 	if auto {
 		body = "⬇ na fila de downloads · " + body
+	}
+	// Per-user channel (in-app feed + Web Push) — independent of ntfy topics.
+	if w.userNotifier != nil {
+		if err := w.userNotifier.NotifyUser(ctx, wl.UserID, r.Title, body, pickMagnet(r)); err != nil {
+			log.Printf("watchlist[%d]: user notify failed: %v", wl.ID, err)
+		}
+	}
+	if topic == "" || w.notifier == nil {
+		return auto
 	}
 	if err := w.notifier.Notify(ctx, topic, r.Title, body, pickMagnet(r)); err != nil {
 		log.Printf("watchlist[%d]: notify failed: %v", wl.ID, err)

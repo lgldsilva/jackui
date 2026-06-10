@@ -3,6 +3,7 @@ module github.com/lgldsilva/jackui
 go 1.25.0
 
 require (
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/anacrolix/log v0.17.1-0.20251118025802-918f1157b7bb
 	github.com/anacrolix/torrent v1.61.0
 	github.com/gin-contrib/cors v1.7.7

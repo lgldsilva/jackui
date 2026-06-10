@@ -152,5 +152,11 @@
     "sessions_failed": "Failed to list sessions.",
     "copy": "Copy",
     "copied": "Copied!"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications yet. Watchlist hits show up here.",
+    "enable_push": "Enable push in this browser",
+    "push_on": "Push on"
   }
 }

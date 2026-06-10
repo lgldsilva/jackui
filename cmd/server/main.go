@@ -39,6 +39,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/playlists"
+	"github.com/lgldsilva/jackui/internal/push"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/subtitles"
 	"github.com/lgldsilva/jackui/internal/tmdb"
@@ -113,6 +114,8 @@ type appDeps struct {
 	webSearch      *imagesearch.Chain
 	watchlistStore *watchlist.Store
 	watchlistWkr   *watchlist.Worker
+	pushStore      *push.Store
+	pushSender     *push.Sender
 	subtitleClient *subtitles.Client
 	authStore      *auth.Store
 	tokenMgr       *auth.TokenManager
@@ -170,6 +173,7 @@ func main() {
 	initDownloadsStore(deps)
 	initTMDBClient(deps)
 	initAIClient(deps)
+	initPushStore(deps)
 	initWatchlistStore(deps)
 	deps.subtitleClient = initSubtitles(deps.cfg)
 	initAuth(deps)
@@ -555,6 +559,29 @@ func initAIClient(deps *appDeps) {
 	log.Printf("AI title identification: enabled — chain: %s", strings.Join(ids, " → "))
 }
 
+// initPushStore opens the Web Push / in-app feed store and prepares the sender
+// (generating the VAPID pair on first boot). Best-effort: failure only logs —
+// the app works without push.
+func initPushStore(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
+	}
+	p, err := push.New(deps.stateDir + "/.push.db")
+	if err != nil {
+		log.Printf("Warning: push store init failed: %v", err)
+		return
+	}
+	deps.pushStore = p
+	deps.addCleanup(p.Close)
+	sender, err := push.NewSender(p)
+	if err != nil {
+		log.Printf("Warning: push sender init failed: %v", err)
+		return
+	}
+	deps.pushSender = sender
+	log.Printf("Web Push: enabled (state=%s/.push.db)", deps.stateDir)
+}
+
 func initWatchlistStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
@@ -576,6 +603,9 @@ func initWatchlistStore(deps *appDeps) {
 	worker := watchlist.NewWorker(w, deps.jackettClient, notifier, deps.cfg.Notifications.NtfyDefaultTopic, interval)
 	if deps.downloadsStore != nil {
 		worker.SetEnqueuer(deps.downloadsStore)
+	}
+	if deps.pushSender != nil {
+		worker.SetUserNotifier(deps.pushSender)
 	}
 	worker.Start()
 	deps.watchlistWkr = worker
@@ -1096,6 +1126,14 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 }
 
 func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
+	// Web Push + in-app notification feed. Handlers tolerate nil stores (503 /
+	// empty feed), so these are registered unconditionally.
+	api.GET("/push/vapid", handlers.PushVapidKey(deps.pushSender))
+	api.POST("/push/subscribe", handlers.PushSubscribe(deps.pushStore))
+	api.POST("/push/unsubscribe", handlers.PushUnsubscribe(deps.pushStore))
+	api.GET("/notifications", handlers.NotificationsList(deps.pushStore))
+	api.POST("/notifications/read", handlers.NotificationsMarkRead(deps.pushStore))
+
 	if deps.watchlistStore == nil {
 		return
 	}
