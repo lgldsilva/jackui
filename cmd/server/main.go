@@ -685,11 +685,50 @@ func initHLSManager(deps *appDeps) {
 }
 
 func buildPromoteDests(cfg *config.Config) []handlers.PromoteDest {
-	dests := make([]handlers.PromoteDest, 0, len(cfg.Stream.PromoteDirs))
+	dests := make([]handlers.PromoteDest, 0, len(cfg.Stream.PromoteDirs)+len(cfg.External.Mounts))
+	seen := map[string]bool{}
+	if cfg.Stream.SharedDir != "" {
+		seen[cfg.Stream.SharedDir] = true // added by BuildPromoteDests as "Biblioteca"
+	}
+	add := func(name, path string) {
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		dests = append(dests, handlers.PromoteDest{Name: name, Path: path})
+	}
 	for _, pd := range cfg.Stream.PromoteDirs {
-		dests = append(dests, handlers.PromoteDest{Name: pd.Name, Path: pd.Path})
+		add(pd.Name, pd.Path)
+	}
+	// Writable external mounts (e.g. an rclone/GDrive mount) double as
+	// promote/move targets, so a completed download or local file can be sent
+	// straight there. Per-user (UserSubpath) mounts are skipped — their root
+	// isn't a single destination. Writability is probed once at boot; a mount
+	// that isn't mounted/writable yet simply won't be offered until a restart.
+	for _, m := range cfg.External.Mounts {
+		if m.UserSubpath || !dirWritable(m.Path) {
+			continue
+		}
+		add(m.Name, m.Path)
 	}
 	return dests
+}
+
+// dirWritable reports whether path is a writable directory, by creating and
+// removing a probe file. Best-effort — used to decide if an external mount can
+// be offered as a promote destination.
+func dirWritable(path string) bool {
+	if path == "" {
+		return false
+	}
+	probe := filepath.Join(path, ".jackui-wtest")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
+	return true
 }
 
 func mustGetDistFS() fs.FS {
