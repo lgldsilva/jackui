@@ -2,6 +2,8 @@ import { api } from './http'
 
 // ─── Watchlists ────────────────────────────────────────────────────────────
 
+export type SchedKind = 'interval' | 'daily' | 'weekly'
+
 export type Watchlist = {
   id: number
   userId: number
@@ -9,9 +11,27 @@ export type Watchlist = {
   category: string
   minSeeders: number
   ntfyTopic: string
+  schedKind: SchedKind
+  schedMinutes: number // interval: every N minutes (<= 0 → server default)
+  schedWeekday: number // weekly: 0=Sunday … 6=Saturday
+  schedHour: number
+  schedMinute: number
+  nextCheckAt: string
   lastChecked: string
   createdAt: string
   hitCount?: number
+}
+
+export type WatchlistInput = {
+  query: string
+  category?: string
+  minSeeders?: number
+  ntfyTopic?: string
+  schedKind?: SchedKind
+  schedMinutes?: number
+  schedWeekday?: number
+  schedHour?: number
+  schedMinute?: number
 }
 
 export type WatchlistHit = {
@@ -28,17 +48,13 @@ export const watchlistsList = async (): Promise<Watchlist[]> => {
   return data || []
 }
 
-export const watchlistsCreate = async (
-  query: string, category = '', minSeeders = 1, ntfyTopic = '',
-): Promise<Watchlist> => {
-  const { data } = await api.post<Watchlist>('/watchlists', { query, category, minSeeders, ntfyTopic })
+export const watchlistsCreate = async (input: WatchlistInput): Promise<Watchlist> => {
+  const { data } = await api.post<Watchlist>('/watchlists', input)
   return data
 }
 
-export const watchlistsUpdate = async (
-  id: number, query: string, category = '', minSeeders = 1, ntfyTopic = '',
-): Promise<void> => {
-  await api.put(`/watchlists/${id}`, { query, category, minSeeders, ntfyTopic })
+export const watchlistsUpdate = async (id: number, input: WatchlistInput): Promise<void> => {
+  await api.put(`/watchlists/${id}`, input)
 }
 
 export const watchlistsDelete = async (id: number): Promise<void> => {

@@ -22,7 +22,7 @@ func newTestStore(t *testing.T) *Store {
 
 func TestCreateAndGet(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, "test query", "2000", 5, "mytopic")
+	w, err := s.Create(1, "test query", "2000", 5, "mytopic", Schedule{})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestCreateAndGet(t *testing.T) {
 
 func TestCreate_EmptyQuery(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.Create(1, "", "", 0, "")
+	_, err := s.Create(1, "", "", 0, "", Schedule{})
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -51,7 +51,7 @@ func TestCreate_EmptyQuery(t *testing.T) {
 
 func TestCreate_NegativeMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, "query", "", -5, "")
+	w, err := s.Create(1, "query", "", -5, "", Schedule{})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -62,8 +62,8 @@ func TestCreate_NegativeMinSeeders(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "old", "2000", 1, "")
-	err := s.Update(1, w.ID, "new", "5000", 10, "newtopic")
+	w, _ := s.Create(1, "old", "2000", 1, "", Schedule{})
+	err := s.Update(1, w.ID, "new", "5000", 10, "newtopic", Schedule{})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -75,8 +75,8 @@ func TestUpdate(t *testing.T) {
 
 func TestUpdate_EmptyQuery(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
-	err := s.Update(1, w.ID, "", "", 0, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	err := s.Update(1, w.ID, "", "", 0, "", Schedule{})
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -84,8 +84,8 @@ func TestUpdate_EmptyQuery(t *testing.T) {
 
 func TestUpdate_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
-	err := s.Update(2, w.ID, "new", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	err := s.Update(2, w.ID, "new", "", 1, "", Schedule{})
 	if err == nil || err.Error() != "watchlist n\u00e3o encontrada" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestUpdate_WrongUser(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	if err := s.Delete(1, w.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestDelete(t *testing.T) {
 
 func TestDelete_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	err := s.Delete(2, w.ID)
 	if err == nil || err.Error() != "watchlist n\u00e3o encontrada" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
@@ -113,9 +113,9 @@ func TestDelete_WrongUser(t *testing.T) {
 
 func TestList(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "q1", "", 1, "")
-	s.Create(1, "q2", "", 1, "")
-	s.Create(2, "q3", "", 1, "")
+	_, _ = s.Create(1, "q1", "", 1, "", Schedule{})
+	_, _ = s.Create(1, "q2", "", 1, "", Schedule{})
+	_, _ = s.Create(2, "q3", "", 1, "", Schedule{})
 	items, err := s.List(1)
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -127,8 +127,8 @@ func TestList(t *testing.T) {
 
 func TestListAll(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "q1", "", 1, "")
-	s.Create(2, "q2", "", 1, "")
+	_, _ = s.Create(1, "q1", "", 1, "", Schedule{})
+	_, _ = s.Create(2, "q2", "", 1, "", Schedule{})
 	all, err := s.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
@@ -140,7 +140,7 @@ func TestListAll(t *testing.T) {
 
 func TestMarkSeen_NewHit(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	isNew, err := s.MarkSeen(w.ID, "hash1", "Test Movie", "magnet:abc", 10, 1000)
 	if err != nil {
 		t.Fatalf("MarkSeen: %v", err)
@@ -159,8 +159,8 @@ func TestMarkSeen_NewHit(t *testing.T) {
 
 func TestMarkChecked(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
-	if err := s.MarkChecked(w.ID); err != nil {
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	if err := s.MarkChecked(w.ID, time.Now().Add(time.Minute)); err != nil {
 		t.Fatalf("MarkChecked: %v", err)
 	}
 	got, _ := s.Get(1, w.ID)
@@ -171,7 +171,7 @@ func TestMarkChecked(t *testing.T) {
 
 func TestHits(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	s.MarkSeen(w.ID, "h1", "T1", "m:1", 10, 100)
 	s.MarkSeen(w.ID, "h2", "T2", "m:2", 5, 200)
 	hits, err := s.Hits(1, w.ID, 10)
@@ -185,7 +185,7 @@ func TestHits(t *testing.T) {
 
 func TestHits_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	_, err := s.Hits(2, w.ID, 10)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
@@ -194,7 +194,7 @@ func TestHits_WrongUser(t *testing.T) {
 
 func TestHits_DefaultLimit(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	_, err := s.Hits(1, w.ID, 0)
 	if err != nil {
 		t.Fatalf("Hits with zero limit: %v", err)
@@ -203,7 +203,7 @@ func TestHits_DefaultLimit(t *testing.T) {
 
 func TestGet_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "")
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
 	_, err := s.Get(2, w.ID)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
@@ -234,7 +234,7 @@ func (n *recorderNotifier) Notify(ctx context.Context, topic, title, body, magne
 
 func TestWorker_RunOnce(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "test", "", 1, "mytopic")
+	_, _ = s.Create(1, "test", "", 1, "mytopic", Schedule{})
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie 1", MagnetURI: "magnet:abc", Seeders: 10, Size: 1000},
@@ -254,7 +254,7 @@ func TestWorker_RunOnce(t *testing.T) {
 
 func TestWorker_RunOnce_NoResults(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "test", "", 1, "")
+	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
 	searcher := &fakeSearcher{results: []jackett.Result{}}
 	notifier := &recorderNotifier{}
 	w := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
@@ -274,7 +274,7 @@ func TestWorker_RunOnce_NoWatchlists(t *testing.T) {
 
 func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "test", "", 5, "")
+	_, _ = s.Create(1, "test", "", 5, "", Schedule{})
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie", MagnetURI: "magnet:abc", Seeders: 3, Size: 1000},
@@ -290,7 +290,7 @@ func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 
 func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "test", "", 1, "")
+	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{Title: "No hash", MagnetURI: "magnet:xyz", Seeders: 10, Size: 1000},
@@ -306,7 +306,7 @@ func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 
 func TestWorker_RunOnce_ResolveTopic_Fallback(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "test", "", 1, "")
+	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie", MagnetURI: "magnet:abc", Seeders: 10, Size: 1000},
@@ -370,7 +370,7 @@ func TestNewWorker_PositiveInterval(t *testing.T) {
 
 func TestWorker_StartAndStop(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "test", "", 1, "")
+	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
 	w := NewWorker(s, &fakeSearcher{}, &recorderNotifier{}, "topic", 100*time.Millisecond)
 	w.Start()
 	w.Stop()
