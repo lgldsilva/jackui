@@ -43,6 +43,7 @@ import {
   LocalEntry,
   LocalMount,
   SearchResult,
+  PlaylistItem,
   AdminUser,
   buildLocalHash,
   localThumbURL,
@@ -369,7 +370,7 @@ export default function LocalPage() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [showDuplicates, setShowDuplicates] = useState(false)
-  const { playSingle } = usePlayer()
+  const { playSingle, playPlaylist } = usePlayer()
   const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
   const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
@@ -665,6 +666,29 @@ export default function LocalPage() {
     // OpenSubtitles auto, escolha persistida, tudo. As funções do client (streamProbe,
     // streamSidecars, subtitlesAuto, etc.) detectam o prefixo e roteiam pra
     // /api/local/* sem mudar PlayerModal.
+    //
+    // Os irmãos playable da MESMA modalidade (vídeo↔vídeo, áudio↔áudio), na ordem
+    // exibida (`visible`), viram uma playlist implícita — assim ⏮⏭ navegam entre
+    // os episódios/faixas da pasta. Cada arquivo local mantém seu próprio
+    // pseudo-hash (que o player já toca sozinho); sem isso o player recebia só 1
+    // arquivo e os botões de próximo/anterior ficavam inertes.
+    const clickedIsVideo = isVideo(e.name)
+    const siblings = visible.filter(
+      (x) => !x.isDir && x.isPlayable && (clickedIsVideo ? isVideo(x.name) : isAudio(x.name)),
+    )
+    if (siblings.length > 1) {
+      const items: PlaylistItem[] = siblings.map((x, pos) => {
+        const h = buildLocalHash(activeMount, x.path)
+        return {
+          id: pos, playlistId: 0, position: pos, title: x.name,
+          magnet: `magnet:?xt=urn:btih:${h}`, infoHash: h, fileIndex: 0, addedAt: '',
+        }
+      })
+      const start = Math.max(0, siblings.findIndex((x) => x.path === e.path))
+      const folderName = path ? path.split('/').pop() || path : activeMount
+      playPlaylist(folderName, items, start)
+      return
+    }
     const hash = buildLocalHash(activeMount, e.path)
     const synthetic: SearchResult = {
       title: e.name,
