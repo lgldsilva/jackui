@@ -83,7 +83,12 @@
     "summary_weekly": "{{weekday}} às {{time}}",
     "server_default": "padrão do servidor",
     "next_check": "próxima checagem {{time}}",
-    "hits_empty": "Nenhuma detecção ainda. A primeira checagem roda logo após criar; depois segue o agendamento."
+    "hits_empty": "Nenhuma detecção ainda. A primeira checagem roda logo após criar; depois segue o agendamento.",
+    "ai_placeholder": "Descreva em texto livre (ex.: toda segunda às 9h)",
+    "ai_button": "Interpretar com IA",
+    "ai_applied": "Interpretado: {{summary}} — confira e salve",
+    "ai_unclear": "Não entendi como agendamento — tente reformular (ex.: \"a cada 3 horas\")",
+    "ai_error": "Falha ao interpretar — tente de novo"
   },
   "settings": {
     "title": "Configurações",

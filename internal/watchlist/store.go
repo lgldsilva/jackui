@@ -150,7 +150,7 @@ func (s *Store) Create(userID int, query, category string, minSeeders int, ntfyT
 	if minSeeders < 0 {
 		minSeeders = 0
 	}
-	sched = sched.normalized()
+	sched = sched.Normalized()
 	next := s.nextFor(sched, time.Now())
 	res, err := s.db.Exec(`
 		INSERT INTO watchlists(user_id, query, category, min_seeders, ntfy_topic,
@@ -171,7 +171,7 @@ func (s *Store) Update(userID, id int, query, category string, minSeeders int, n
 	if query == "" {
 		return errors.New("query é obrigatória")
 	}
-	sched = sched.normalized()
+	sched = sched.Normalized()
 	next := s.nextFor(sched, time.Now())
 	res, err := s.db.Exec(`
 		UPDATE watchlists SET query=?, category=?, min_seeders=?, ntfy_topic=?,

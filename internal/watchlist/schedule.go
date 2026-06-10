@@ -24,10 +24,11 @@ type Schedule struct {
 	Minute  int    `json:"schedMinute"`  // daily/weekly: 0–59
 }
 
-// normalized clamps out-of-range values so the DB only ever holds a schedule
+// Normalized clamps out-of-range values so the DB only ever holds a schedule
 // nextCheckTime can act on. Minutes <= 0 is preserved on purpose: it means
-// "use the server-wide default interval".
-func (s Schedule) normalized() Schedule {
+// "use the server-wide default interval". Exported because the AI schedule
+// parser (handlers) clamps the model's output through the same single path.
+func (s Schedule) Normalized() Schedule {
 	switch s.Kind {
 	case SchedDaily, SchedWeekly, SchedInterval:
 	default:
@@ -49,7 +50,7 @@ func (s Schedule) normalized() Schedule {
 // defaultEvery is the server-wide interval applied when an interval schedule
 // has Minutes <= 0; pass 0 to fall back to DefaultInterval.
 func nextCheckTime(s Schedule, now time.Time, defaultEvery time.Duration) time.Time {
-	s = s.normalized()
+	s = s.Normalized()
 	switch s.Kind {
 	case SchedDaily:
 		next := time.Date(now.Year(), now.Month(), now.Day(), s.Hour, s.Minute, 0, 0, now.Location())

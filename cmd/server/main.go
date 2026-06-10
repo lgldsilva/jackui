@@ -1098,6 +1098,8 @@ func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.PUT("/watchlists/:id", handlers.WatchlistUpdate(deps.watchlistStore))
 	api.DELETE("/watchlists/:id", handlers.WatchlistDelete(deps.watchlistStore))
 	api.GET("/watchlists/:id/hits", handlers.WatchlistHits(deps.watchlistStore))
+	// Free-text → schedule via the AI chain (nil aiClient → 503 inside).
+	api.POST("/watchlists/schedule/parse", handlers.WatchlistScheduleParse(deps.aiClient))
 }
 
 func registerPlaylistRoutes(api *gin.RouterGroup, deps *appDeps) {

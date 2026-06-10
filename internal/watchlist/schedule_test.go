@@ -113,14 +113,14 @@ func TestNextCheckTime_AlwaysAfterNow_Property(t *testing.T) {
 }
 
 func TestScheduleNormalized_ClampsRanges(t *testing.T) {
-	s := Schedule{Kind: "bogus", Minutes: -3, Weekday: 9, Hour: 31, Minute: 99}.normalized()
+	s := Schedule{Kind: "bogus", Minutes: -3, Weekday: 9, Hour: 31, Minute: 99}.Normalized()
 	if s.Kind != SchedInterval || s.Weekday != 0 || s.Hour != 0 || s.Minute != 0 {
 		t.Fatalf("normalized = %+v", s)
 	}
 	if s.Minutes != -3 {
 		t.Fatalf("Minutes must be preserved (server-default marker), got %d", s.Minutes)
 	}
-	ok := Schedule{Kind: SchedWeekly, Minutes: 10, Weekday: 6, Hour: 23, Minute: 59}.normalized()
+	ok := Schedule{Kind: SchedWeekly, Minutes: 10, Weekday: 6, Hour: 23, Minute: 59}.Normalized()
 	if ok.Kind != SchedWeekly || ok.Weekday != 6 || ok.Hour != 23 || ok.Minute != 59 {
 		t.Fatalf("valid schedule mutated: %+v", ok)
 	}
