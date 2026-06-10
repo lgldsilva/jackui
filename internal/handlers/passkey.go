@@ -138,7 +138,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 		if c.Query("remember") == "1" {
 			ttl = refreshTTLRemember
 		}
-		refresh, err := store.CreateRefreshToken(user.ID, ttl, ttl == refreshTTLRemember)
+		refresh, err := store.CreateRefreshToken(user.ID, ttl, ttl == refreshTTLRemember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

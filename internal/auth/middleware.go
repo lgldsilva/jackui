@@ -98,9 +98,32 @@ func guestStreamAllowed(method, path string) bool {
 	}
 }
 
+// guestAuthSelfAllowed lists the self-service account endpoints a guest may
+// call with mutating methods: own password/email, own sessions and the media
+// token playback needs. Exact paths only — /api/auth/users* (admin surface)
+// must stay blocked, and AdminOnly remains the second fence there anyway.
+func guestAuthSelfAllowed(method, path string) bool {
+	switch method {
+	case http.MethodPost:
+		return path == "/api/auth/password" ||
+			path == "/api/auth/email" ||
+			path == "/api/auth/sessions" ||
+			path == "/api/auth/sessions/revoke-others" ||
+			path == "/api/auth/media-token"
+	case http.MethodDelete:
+		// DELETE /api/auth/sessions/:id — exactly one extra segment, so nothing
+		// nested deeper (or under another root) can ride this exception.
+		rest, ok := strings.CutPrefix(path, "/api/auth/sessions/")
+		return ok && rest != "" && !strings.Contains(rest, "/")
+	default:
+		return false
+	}
+}
+
 // GuestRestrict blocks mutating methods (POST, DELETE, PUT, PATCH) for guests.
 // Playback-only mutations under /api/stream are allowlisted via
-// guestStreamAllowed. /api/local/file is NOT exempt: its only mutating method
+// guestStreamAllowed; self-service account management via guestAuthSelfAllowed.
+// /api/local/file is NOT exempt: its only mutating method
 // is DELETE (LocalDelete), which a read-only guest must never reach. GET on any
 // media route is already unaffected (it isn't a mutating method).
 func GuestRestrict() gin.HandlerFunc {
@@ -113,7 +136,7 @@ func GuestRestrict() gin.HandlerFunc {
 		if claims.Role == RoleGuest {
 			method := c.Request.Method
 			if method == http.MethodPost || method == http.MethodDelete || method == http.MethodPut || method == http.MethodPatch {
-				if guestStreamAllowed(method, c.Request.URL.Path) {
+				if guestStreamAllowed(method, c.Request.URL.Path) || guestAuthSelfAllowed(method, c.Request.URL.Path) {
 					c.Next()
 					return
 				}

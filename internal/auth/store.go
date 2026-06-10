@@ -110,10 +110,17 @@ func (s *Store) migrate() error {
 	if err != nil {
 		return err
 	}
-	// Idempotent ALTER for older DBs that pre-date the remember_me column
-	if !s.hasColumn("refresh_tokens", "remember_me") {
-		if _, err := s.db.Exec(`ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return err
+	// Idempotent ALTERs for older DBs that pre-date these columns. user_agent/ip
+	// identify the device behind each session (shown in "active sessions").
+	for col, ddl := range map[string]string{
+		"remember_me": `ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`,
+		"user_agent":  `ALTER TABLE refresh_tokens ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''`,
+		"ip":          `ALTER TABLE refresh_tokens ADD COLUMN ip TEXT NOT NULL DEFAULT ''`,
+	} {
+		if !s.hasColumn("refresh_tokens", col) {
+			if _, err := s.db.Exec(ddl); err != nil {
+				return err
+			}
 		}
 	}
 	// Account-lifecycle columns. Default status 'active' so EXISTING users (incl.
@@ -395,6 +402,27 @@ func (s *Store) CreateUserFull(username, email, password string, role Role, stat
 	}
 	id, _ := res.LastInsertId()
 	return int(id), nil
+}
+
+// UpdateEmail changes a user's email and resets email_verified — the new
+// address must be (re)confirmed via the verify-email link.
+func (s *Store) UpdateEmail(userID int, email string) error {
+	_, err := s.db.Exec("UPDATE users SET email = ?, email_verified = 0 WHERE id = ?", email, userID)
+	return err
+}
+
+// EmailInUse reports whether a non-empty email belongs to any user other than
+// excludeID (so changing the case of your own address never collides).
+func (s *Store) EmailInUse(email string, excludeID int) (bool, error) {
+	if email == "" {
+		return false, nil
+	}
+	var n int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM users WHERE email = ? AND id != ?",
+		email, excludeID,
+	).Scan(&n)
+	return n > 0, err
 }
 
 // SetNtfyTopic updates a user's ntfy.sh notification topic.
@@ -686,7 +714,8 @@ func (s *Store) DeleteCredential(userID int, credIDB64 string) error {
 // CreateRefreshToken generates a fresh random token, stores its hash, returns the plain string.
 // `remember` controls TTL behavior on refresh: when true, every successful refresh re-extends
 // the expiration by 30 days from now (sliding window — only logs out after 30d of inactivity).
-func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool) (string, error) {
+// userAgent/ip identify the creating device so sessions are recognizable in the UI.
+func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool, userAgent, ip string) (string, error) {
 	plain, err := randomToken(32)
 	if err != nil {
 		return "", err
@@ -697,8 +726,8 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool)
 		rem = 1
 	}
 	_, err = s.db.Exec(
-		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me) VALUES(?, ?, ?, ?)",
-		hash, userID, time.Now().Add(ttl).UTC().Format(dbutil.TimeFormat), rem,
+		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me, user_agent, ip) VALUES(?, ?, ?, ?, ?, ?)",
+		hash, userID, time.Now().Add(ttl).UTC().Format(dbutil.TimeFormat), rem, userAgent, ip,
 	)
 	if err != nil {
 		return "", err
@@ -774,13 +803,15 @@ type SessionInfo struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 	Remember  bool      `json:"remember"`
 	Current   bool      `json:"current"`
+	UserAgent string    `json:"userAgent"`
+	IP        string    `json:"ip"`
 }
 
 // ListSessions returns a user's active sessions, newest first. currentPlain (the
 // caller's own refresh token, may be empty) flags which row is "this device".
 func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, error) {
 	rows, err := s.db.Query(
-		"SELECT token_hash, created_at, expires_at, remember_me FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC",
+		"SELECT token_hash, created_at, expires_at, remember_me, user_agent, ip FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -793,12 +824,12 @@ func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, er
 	}
 	out := []SessionInfo{}
 	for rows.Next() {
-		var hash, created, expires string
+		var hash, created, expires, ua, ip string
 		var remember int
-		if err := rows.Scan(&hash, &created, &expires, &remember); err != nil {
+		if err := rows.Scan(&hash, &created, &expires, &remember, &ua, &ip); err != nil {
 			continue
 		}
-		si := SessionInfo{ID: hash, Remember: remember == 1, Current: hash == curHash}
+		si := SessionInfo{ID: hash, Remember: remember == 1, Current: hash == curHash, UserAgent: ua, IP: ip}
 		var errParse error
 		si.CreatedAt, errParse = parseTime(created)
 		if errParse != nil {

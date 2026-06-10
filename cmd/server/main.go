@@ -1138,6 +1138,7 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	}
 	api.GET("/auth/me", handlers.Me(deps.authStore))
 	api.POST("/auth/password", handlers.ChangePassword(deps.authStore))
+	api.POST("/auth/email", handlers.ChangeEmail(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 	api.POST("/auth/mfa/enroll", handlers.MFAEnrollStart(deps.authStore))
 	api.POST("/auth/mfa/verify", handlers.MFAEnrollVerify(deps.authStore))
 	api.POST("/auth/mfa/disable", handlers.MFADisable(deps.authStore))
@@ -1164,6 +1165,10 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	adminGroup.DELETE("/:id", handlers.DeleteUser(deps.authStore))
 	adminGroup.PATCH("/:id/status", handlers.SetUserStatus(deps.authStore))
 	adminGroup.POST("/invite", handlers.Invite(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+	adminGroup.POST("/:id/reset-password", handlers.AdminResetPassword(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+	adminGroup.GET("/:id/sessions", handlers.AdminListUserSessions(deps.authStore))
+	adminGroup.DELETE("/:id/sessions", handlers.AdminRevokeUserSessions(deps.authStore))
+	adminGroup.DELETE("/:id/sessions/:sid", handlers.AdminRevokeUserSession(deps.authStore))
 }
 
 func setupLogger() {
