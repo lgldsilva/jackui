@@ -2,7 +2,7 @@ import { Play, FileVideo, ChevronRight, ArrowDownWideNarrow, ArrowUpWideNarrow }
 import { TorrentInfo, streamThumbnailURL } from '../../api/client'
 import { detectPreviewKind } from '../FilePreviewModal'
 import { useHoverThumb } from '../FileThumbHover'
-import { fileType, formatSize, FILE_EXTRA_RE, FILE_AUDIO_RE, type FileType } from './playerFormat'
+import { fileType, formatSize, filterAndSortFiles, FILE_EXTRA_RE, FILE_AUDIO_RE, type FileType } from './playerFormat'
 
 type FilePickerSidebarProps = {
   readonly info: TorrentInfo
@@ -49,30 +49,15 @@ export function FilePickerSidebar({
   setPreviewFileIdx,
 }: FilePickerSidebarProps) {
   const filterLower = fileFilter.trim().toLowerCase()
-  const matchesFile = (path: string, ep: string | null) =>
-    !filterLower ||
-    path.toLowerCase().includes(filterLower) ||
-    (ep || '').toLowerCase().includes(filterLower)
   const isExtra = (path: string) => FILE_EXTRA_RE.test(path)
   const typeCounts = { video: 0, audio: 0, other: 0 }
   for (const f of info.files) typeCounts[fileType(f)]++
-  const filteredFiles = info.files
-    .filter(f => matchesFile(f.path, parseEpisode(f.path)))
-    .filter(f => fileTypeFilter === 'all' || fileType(f) === fileTypeFilter)
-    .slice()
-    .sort((a, b) => {
-      if (fileSortBySize) {
-        if (a.size !== b.size) return fileSizeDesc ? b.size - a.size : a.size - b.size
-        return a.index - b.index
-      }
-      const ax = isExtra(a.path), bx = isExtra(b.path)
-      if (ax !== bx) return ax ? 1 : -1
-      const ae = parseEpisode(a.path), be = parseEpisode(b.path)
-      if (ae && be) return ae.localeCompare(be)
-      if (ae) return -1
-      if (be) return 1
-      return a.index - b.index
-    })
+  // Shared with useMediaQueue (PlayerModal) — the prev/next buttons follow
+  // exactly this display order.
+  const filteredFiles = filterAndSortFiles(info.files, {
+    filter: fileFilter, typeFilter: fileTypeFilter,
+    sortBySize: fileSortBySize, sizeDesc: fileSizeDesc,
+  })
   const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
     if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
     if (isPlayable) {
