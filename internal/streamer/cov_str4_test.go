@@ -206,7 +206,7 @@ func Test_str4_Favorites_HasColumn(t *testing.T) {
 // List de store nil → erro ErrFavoritesUnavail.
 func Test_str4_Favorites_List_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if _, err := f.List(0, false); err == nil || err.Error() != ErrFavoritesUnavail {
+	if _, err := f.List(0, false, false); err == nil || err.Error() != ErrFavoritesUnavail {
 		t.Fatalf("expected %q, got %v", ErrFavoritesUnavail, err)
 	}
 }
@@ -220,7 +220,7 @@ func Test_str4_Favorites_List_IncludeAll(t *testing.T) {
 	if err := f.Add("b", "h2", "", "manual", 2); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	all, err := f.List(0, true)
+	all, err := f.List(0, true, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -232,7 +232,7 @@ func Test_str4_Favorites_List_IncludeAll(t *testing.T) {
 // ListFolders nil-store → (nil, nil).
 func Test_str4_Favorites_ListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	got, err := f.ListFolders(1)
+	got, err := f.ListFolders(1, false)
 	if err != nil || got != nil {
 		t.Fatalf("nil ListFolders: got=%v err=%v", got, err)
 	}
@@ -241,14 +241,14 @@ func Test_str4_Favorites_ListFolders_NilStore(t *testing.T) {
 // ListFolders devolve uma árvore com subpasta — exercita o scan + parent_id válido.
 func Test_str4_Favorites_ListFolders_WithTree(t *testing.T) {
 	f := str4NewFavorites(t)
-	root, err := f.CreateFolder(1, "root", nil)
+	root, err := f.CreateFolder(1, "root", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder root: %v", err)
 	}
-	if _, err := f.CreateFolder(1, "child", &root.ID); err != nil {
+	if _, err := f.CreateFolder(1, "child", &root.ID, false); err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
-	folders, err := f.ListFolders(1)
+	folders, err := f.ListFolders(1, false)
 	if err != nil {
 		t.Fatalf("ListFolders: %v", err)
 	}
@@ -272,7 +272,7 @@ func Test_str4_Favorites_ListFolders_WithTree(t *testing.T) {
 // CreateFolder nil-store → erro.
 func Test_str4_Favorites_CreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if _, err := f.CreateFolder(1, "x", nil); err == nil {
+	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
 		t.Fatal("expected error from nil-store CreateFolder")
 	}
 }
@@ -281,11 +281,11 @@ func Test_str4_Favorites_CreateFolder_NilStore(t *testing.T) {
 // rejeitado (caminhada da cadeia parent detecta o ciclo).
 func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 	f := str4NewFavorites(t)
-	parent, err := f.CreateFolder(7, "parent", nil)
+	parent, err := f.CreateFolder(7, "parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(7, "child", &parent.ID)
+	child, err := f.CreateFolder(7, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
@@ -306,11 +306,11 @@ func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 // MoveFolder para root (newParent nil) é válido e não dispara a checagem de ciclo.
 func Test_str4_Favorites_MoveFolder_ToRoot(t *testing.T) {
 	f := str4NewFavorites(t)
-	parent, err := f.CreateFolder(8, "parent", nil)
+	parent, err := f.CreateFolder(8, "parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(8, "child", &parent.ID)
+	child, err := f.CreateFolder(8, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
@@ -358,14 +358,14 @@ func Test_str4_Favorites_MoveFavoriteToFolder(t *testing.T) {
 	if err := f.Add("movie", "h9", "", "manual", 3); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	folder, err := f.CreateFolder(3, "box", nil)
+	folder, err := f.CreateFolder(3, "box", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
 	if err := f.MoveFavoriteToFolder(3, "movie", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder into folder: %v", err)
 	}
-	favs, err := f.List(3, false)
+	favs, err := f.List(3, false, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -375,7 +375,7 @@ func Test_str4_Favorites_MoveFavoriteToFolder(t *testing.T) {
 	if err := f.MoveFavoriteToFolder(3, "movie", nil); err != nil {
 		t.Fatalf("MoveFavoriteToFolder to root: %v", err)
 	}
-	favs, _ = f.List(3, false)
+	favs, _ = f.List(3, false, false)
 	if len(favs) != 1 || favs[0].FolderID != nil {
 		t.Fatalf("expected favorite back at root, got %+v", favs)
 	}

@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square } from 'lucide-react'
+import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
-  FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, favoriteSetFolder,
+  FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden, favoriteSetFolder,
   streamImport, SearchResult,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
@@ -93,6 +93,7 @@ type TreeProps = {
   readonly onCancelEdit: () => void
   readonly onDelete: (id: number) => void
   readonly onCreateSub: (parentId: number) => void
+  readonly onToggleHidden: (id: number, hidden: boolean) => void
   readonly onDropOnFolder: (folderId: number, favoriteName: string) => void
 }
 
@@ -127,6 +128,7 @@ function FolderTree(p: TreeProps) {
                 <span className="w-3" />
               )}
               {isOpen ? <FolderOpen className="w-3.5 h-3.5 text-pink-400" /> : <Folder className="w-3.5 h-3.5 text-text-muted" />}
+              {node.folder.hidden && <EyeOff className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label="pasta oculta" />}
               {isEditing ? (
                 <input
                   autoFocus
@@ -154,6 +156,9 @@ function FolderTree(p: TreeProps) {
                 </button>
                 <button onClick={() => p.onStartEdit(node.folder.id)} title="Renomear" className="p-0.5 text-text-muted hover:text-text-primary">
                   <Pencil className="w-3 h-3" />
+                </button>
+                <button onClick={() => p.onToggleHidden(node.folder.id, !node.folder.hidden)} title={node.folder.hidden ? 'Mostrar pasta' : 'Ocultar pasta'} className="p-0.5 text-text-muted hover:text-amber-400">
+                  {node.folder.hidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                 </button>
                 <button onClick={() => p.onDelete(node.folder.id)} title="Excluir" className="p-0.5 text-text-muted hover:text-red-400">
                   <Trash2 className="w-3 h-3" />
@@ -214,6 +219,10 @@ export default function FavoritesPage() {
   const [folders, setFolders] = useState<FavoriteFolder[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // Easter egg: tocar 7x no cabeçalho "Pastas" revela/esconde as pastas ocultas
+  // (e os favoritos dentro delas). Estado de sessão — não persiste.
+  const [revealHidden, setRevealHidden] = useState(false)
+  const hiddenTapsRef = useRef(0)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
@@ -252,7 +261,7 @@ export default function FavoritesPage() {
     setLoading(true)
     setError('')
     try {
-      const [favsList, foldersList] = await Promise.all([favoritesList(), folderList()])
+      const [favsList, foldersList] = await Promise.all([favoritesList(revealHidden), folderList(revealHidden)])
       setFavs(favsList || [])
       setFolders(foldersList || [])
     } catch (e: unknown) {
@@ -280,8 +289,26 @@ export default function FavoritesPage() {
     return () => observer.disconnect()
   }, [filteredFavs.length])
 
-  // Load data on mount
-  useEffect(() => { load() }, [])
+  // Load on mount and whenever the hidden curtain is toggled (re-fetch with/without
+  // the hidden folders + their favourites).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [revealHidden])
+
+  // Easter egg trigger: 7 taps on the "Pastas" header flips revealHidden.
+  const onSecretTap = () => {
+    hiddenTapsRef.current += 1
+    if (hiddenTapsRef.current >= 7) {
+      hiddenTapsRef.current = 0
+      setRevealHidden(v => !v)
+    }
+  }
+
+  const handleToggleHidden = async (id: number, hidden: boolean) => {
+    await folderSetHidden(id, hidden)
+    // Quando esconde a pasta selecionada sem o modo revelado, volta pra raiz.
+    if (hidden && !revealHidden && viewMode === id) { setSelectedFolderId(null); setViewMode(ALL_VIEW) }
+    load()
+  }
 
   const ptr = usePullToRefresh({ onRefresh: load, disabled: loading })
 
@@ -456,7 +483,9 @@ export default function FavoritesPage() {
         {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
         <aside className="w-64 flex-shrink-0 hidden md:block">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs uppercase tracking-wider text-text-muted">Pastas</h2>
+            <h2 className="text-xs uppercase tracking-wider text-text-muted cursor-default select-none" onClick={onSecretTap} title={revealHidden ? 'Pastas ocultas visíveis' : undefined}>
+              Pastas{revealHidden && <Eye className="inline w-3 h-3 ml-1 text-amber-400" aria-label="ocultas visíveis" />}
+            </h2>
             <button
               onClick={() => setCreatingRoot(true)}
               title="Nova pasta"
@@ -536,6 +565,7 @@ export default function FavoritesPage() {
             onCancelEdit={() => setEditingId(null)}
             onDelete={handleDeleteFolder}
             onCreateSub={handleCreateSub}
+            onToggleHidden={handleToggleHidden}
             onDropOnFolder={(fid, name) => handleDropOnFolder(fid, name)}
           />
         </aside>

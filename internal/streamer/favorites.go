@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
@@ -37,6 +38,7 @@ type FavoriteFolder struct {
 	Name      string    `json:"name"`
 	ParentID  *int      `json:"parentId"`
 	Position  int       `json:"position"`
+	Hidden    bool      `json:"hidden"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -104,6 +106,16 @@ func NewFavorites(path string) (*FavoritesStore, error) {
 	}
 	if !s.hasColumn("favorites", "folder_id") {
 		if _, err := db.Exec(`ALTER TABLE favorites ADD COLUMN folder_id INTEGER REFERENCES favorite_folders(id) ON DELETE SET NULL`); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	// `hidden` folders are kept out of the normal listing (sidebar AND the "all"
+	// view) unless the caller explicitly opts in (the UI's easter egg). A light
+	// privacy curtain, not encryption — for a category you'd rather not show on a
+	// casual glance.
+	if !s.hasColumn("favorite_folders", "hidden") {
+		if _, err := db.Exec(`ALTER TABLE favorite_folders ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -241,15 +253,25 @@ func (f *FavoritesStore) IsFavoriteByHash(infoHash string) bool {
 }
 
 // List returns favorites for a user (or all when includeAll=true), most recent first.
-func (f *FavoritesStore) List(userID int, includeAll bool) ([]Favorite, error) {
+func (f *FavoritesStore) List(userID int, includeAll, includeHidden bool) ([]Favorite, error) {
 	if f == nil {
 		return nil, fmt.Errorf(ErrFavoritesUnavail)
 	}
 	q := `SELECT name, COALESCE(info_hash,''), COALESCE(magnet,''), user_id, favorited_at, reason, folder_id FROM favorites`
 	args := []any{}
+	conds := []string{}
 	if !includeAll {
-		q += " WHERE user_id = ?"
+		conds = append(conds, "user_id = ?")
 		args = append(args, userID)
+	}
+	// Keep favourites that live inside a hidden folder out of the default view —
+	// otherwise the "all" listing would leak the items even though the folder is
+	// hidden from the sidebar. The easter egg opts in via includeHidden.
+	if !includeHidden {
+		conds = append(conds, "(folder_id IS NULL OR folder_id NOT IN (SELECT id FROM favorite_folders WHERE hidden = 1))")
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
 	}
 	q += " ORDER BY favorited_at DESC"
 	rows, err := f.db.Query(q, args...)
@@ -284,16 +306,19 @@ func DefaultFavoritesPath(dataDir string) string {
 
 // ListFolders returns all folders for a user. The UI builds the tree
 // client-side via parent_id linkage — simpler than recursive SQL.
-func (f *FavoritesStore) ListFolders(userID int) ([]FavoriteFolder, error) {
+func (f *FavoritesStore) ListFolders(userID int, includeHidden bool) ([]FavoriteFolder, error) {
 	if f == nil {
 		return nil, nil
 	}
-	rows, err := f.db.Query(`
-		SELECT id, user_id, name, parent_id, position, created_at
+	q := `
+		SELECT id, user_id, name, parent_id, position, hidden, created_at
 		FROM favorite_folders
-		WHERE user_id = ?
-		ORDER BY parent_id, position, name
-	`, userID)
+		WHERE user_id = ?`
+	if !includeHidden {
+		q += ` AND hidden = 0`
+	}
+	q += ` ORDER BY parent_id, position, name`
+	rows, err := f.db.Query(q, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +328,7 @@ func (f *FavoritesStore) ListFolders(userID int) ([]FavoriteFolder, error) {
 		var fl FavoriteFolder
 		var parent sql.NullInt64
 		var ts string
-		if err := rows.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &ts); err != nil {
+		if err := rows.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &fl.Hidden, &ts); err != nil {
 			return nil, err
 		}
 		if parent.Valid {
@@ -317,8 +342,8 @@ func (f *FavoritesStore) ListFolders(userID int) ([]FavoriteFolder, error) {
 }
 
 // CreateFolder makes a new folder under the optional parent. parentID nil
-// creates a root-level folder.
-func (f *FavoritesStore) CreateFolder(userID int, name string, parentID *int) (*FavoriteFolder, error) {
+// creates a root-level folder. hidden keeps it out of the default listing.
+func (f *FavoritesStore) CreateFolder(userID int, name string, parentID *int, hidden bool) (*FavoriteFolder, error) {
 	if f == nil {
 		return nil, fmt.Errorf("favorites store nil")
 	}
@@ -327,9 +352,9 @@ func (f *FavoritesStore) CreateFolder(userID int, name string, parentID *int) (*
 		parent = *parentID
 	}
 	res, err := f.db.Exec(`
-		INSERT INTO favorite_folders (user_id, name, parent_id, position)
-		VALUES (?, ?, ?, COALESCE((SELECT MAX(position)+1 FROM favorite_folders WHERE user_id = ? AND parent_id IS ?), 0))
-	`, userID, name, parent, userID, parent)
+		INSERT INTO favorite_folders (user_id, name, parent_id, position, hidden)
+		VALUES (?, ?, ?, COALESCE((SELECT MAX(position)+1 FROM favorite_folders WHERE user_id = ? AND parent_id IS ?), 0), ?)
+	`, userID, name, parent, userID, parent, hidden)
 	if err != nil {
 		return nil, err
 	}
@@ -337,16 +362,25 @@ func (f *FavoritesStore) CreateFolder(userID int, name string, parentID *int) (*
 	return f.GetFolder(userID, int(id))
 }
 
+// SetFolderHidden flips a folder's hidden curtain.
+func (f *FavoritesStore) SetFolderHidden(userID, id int, hidden bool) error {
+	if f == nil {
+		return nil
+	}
+	_, err := f.db.Exec(`UPDATE favorite_folders SET hidden = ? WHERE id = ? AND user_id = ?`, hidden, id, userID)
+	return err
+}
+
 // GetFolder fetches a single folder; returns error if it doesn't belong to user.
 func (f *FavoritesStore) GetFolder(userID, id int) (*FavoriteFolder, error) {
 	row := f.db.QueryRow(`
-		SELECT id, user_id, name, parent_id, position, created_at
+		SELECT id, user_id, name, parent_id, position, hidden, created_at
 		FROM favorite_folders WHERE id = ? AND user_id = ?
 	`, id, userID)
 	var fl FavoriteFolder
 	var parent sql.NullInt64
 	var ts string
-	if err := row.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &ts); err != nil {
+	if err := row.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &fl.Hidden, &ts); err != nil {
 		return nil, err
 	}
 	if parent.Valid {

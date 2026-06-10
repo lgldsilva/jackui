@@ -23,7 +23,7 @@ func TestFavoritesAddAndList(t *testing.T) {
 	if err := f.Add("movie A", "hashA", "magnet:A", "manual", 1); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	list, _ := f.List(1, false)
+	list, _ := f.List(1, false, false)
 	if len(list) != 1 {
 		t.Fatalf("expected 1, got %d", len(list))
 	}
@@ -40,15 +40,15 @@ func TestFavoritesPerUserIsolation(t *testing.T) {
 	f.Add("A's movie", "hA", "magnet:A", "manual", 1)
 	f.Add("B's movie", "hB", "magnet:B", "manual", 2)
 
-	listA, _ := f.List(1, false)
+	listA, _ := f.List(1, false, false)
 	if len(listA) != 1 || listA[0].UserID != 1 {
 		t.Errorf("user 1 leak: %v", listA)
 	}
-	listB, _ := f.List(2, false)
+	listB, _ := f.List(2, false, false)
 	if len(listB) != 1 || listB[0].UserID != 2 {
 		t.Errorf("user 2 leak: %v", listB)
 	}
-	listAll, _ := f.List(0, true)
+	listAll, _ := f.List(0, true, false)
 	if len(listAll) != 2 {
 		t.Errorf("admin: expected 2, got %d", len(listAll))
 	}
@@ -74,7 +74,7 @@ func TestFavoritesUpsertOnConflict(t *testing.T) {
 	f.Add("movie", "h1", "magnet:OLD", "manual", 1)
 	f.Add("movie", "h1", "magnet:NEW", "auto-5min", 1)
 
-	list, _ := f.List(1, false)
+	list, _ := f.List(1, false, false)
 	if len(list) != 1 {
 		t.Fatalf("expected 1 row after upsert, got %d", len(list))
 	}
@@ -124,7 +124,7 @@ func TestFavoritesMigrateLegacyDB(t *testing.T) {
 	}
 
 	// Legacy row still queryable (with default user_id=0)
-	list, _ := f.List(0, false)
+	list, _ := f.List(0, false, false)
 	if len(list) != 1 {
 		t.Errorf("expected legacy row preserved, got %d rows", len(list))
 	}
@@ -133,7 +133,7 @@ func TestFavoritesMigrateLegacyDB(t *testing.T) {
 	if err := f.Add("new fav", "newhash", "magnet:new", "manual", 5); err != nil {
 		t.Fatalf("Add after migration: %v", err)
 	}
-	list5, _ := f.List(5, false)
+	list5, _ := f.List(5, false, false)
 	if len(list5) != 1 || list5[0].Magnet != "magnet:new" {
 		t.Errorf("new favorite not isolated to user 5: %v", list5)
 	}
@@ -172,7 +172,7 @@ func TestFavoritesRecoversManualMagnetCorruption(t *testing.T) {
 	}
 	defer f.Close()
 
-	rows, _ := f.List(1, false)
+	rows, _ := f.List(1, false, false)
 	got := map[string]string{}
 	for _, r := range rows {
 		got[r.Name] = r.Magnet
@@ -255,7 +255,7 @@ func TestFavoritesHashSetForUser_NilStore(t *testing.T) {
 
 func TestFavoritesCreateFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, err := f.CreateFolder(1, "My Folder", nil)
+	folder, err := f.CreateFolder(1, "My Folder", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
@@ -272,11 +272,11 @@ func TestFavoritesCreateFolder(t *testing.T) {
 
 func TestFavoritesCreateFolder_Subfolder(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, err := f.CreateFolder(1, "Parent", nil)
+	parent, err := f.CreateFolder(1, "Parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(1, "Child", &parent.ID)
+	child, err := f.CreateFolder(1, "Child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
@@ -287,11 +287,11 @@ func TestFavoritesCreateFolder_Subfolder(t *testing.T) {
 
 func TestFavoritesListFolders(t *testing.T) {
 	f := newTestFavorites(t)
-	f.CreateFolder(1, "Folder A", nil)
-	f.CreateFolder(1, "Folder B", nil)
-	f.CreateFolder(2, "Other User", nil)
+	f.CreateFolder(1, "Folder A", nil, false)
+	f.CreateFolder(1, "Folder B", nil, false)
+	f.CreateFolder(2, "Other User", nil, false)
 
-	folders, err := f.ListFolders(1)
+	folders, err := f.ListFolders(1, false)
 	if err != nil {
 		t.Fatalf("ListFolders: %v", err)
 	}
@@ -302,7 +302,7 @@ func TestFavoritesListFolders(t *testing.T) {
 
 func TestFavoritesListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	folders, err := f.ListFolders(1)
+	folders, err := f.ListFolders(1, false)
 	if err != nil {
 		t.Fatalf("ListFolders nil: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestFavoritesListFolders_NilStore(t *testing.T) {
 
 func TestFavoritesRenameFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, _ := f.CreateFolder(1, "Old Name", nil)
+	folder, _ := f.CreateFolder(1, "Old Name", nil, false)
 	if err := f.RenameFolder(1, folder.ID, "New Name"); err != nil {
 		t.Fatalf("RenameFolder: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestFavoritesRenameFolder(t *testing.T) {
 
 func TestFavoritesDeleteFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, _ := f.CreateFolder(1, "Delete Me", nil)
+	folder, _ := f.CreateFolder(1, "Delete Me", nil, false)
 	if err := f.DeleteFolder(1, folder.ID); err != nil {
 		t.Fatalf("DeleteFolder: %v", err)
 	}
@@ -339,8 +339,8 @@ func TestFavoritesDeleteFolder(t *testing.T) {
 
 func TestFavoritesMoveFolder_CyclePrevention(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, _ := f.CreateFolder(1, "Parent", nil)
-	child, _ := f.CreateFolder(1, "Child", &parent.ID)
+	parent, _ := f.CreateFolder(1, "Parent", nil, false)
+	child, _ := f.CreateFolder(1, "Child", &parent.ID, false)
 	// Trying to move parent into child should reject (cycle)
 	err := f.MoveFolder(1, parent.ID, &child.ID)
 	if err == nil {
@@ -350,8 +350,8 @@ func TestFavoritesMoveFolder_CyclePrevention(t *testing.T) {
 
 func TestFavoritesMoveFolder_ToRoot(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, _ := f.CreateFolder(1, "Parent", nil)
-	child, _ := f.CreateFolder(1, "Child", &parent.ID)
+	parent, _ := f.CreateFolder(1, "Parent", nil, false)
+	child, _ := f.CreateFolder(1, "Child", &parent.ID, false)
 	if err := f.MoveFolder(1, child.ID, nil); err != nil {
 		t.Fatalf("MoveFolder to root: %v", err)
 	}
@@ -364,12 +364,12 @@ func TestFavoritesMoveFolder_ToRoot(t *testing.T) {
 func TestFavoritesMoveFavoriteToFolder(t *testing.T) {
 	f := newTestFavorites(t)
 	f.Add("movie", "h1", "magnet:1", "manual", 1)
-	folder, _ := f.CreateFolder(1, "My Folder", nil)
+	folder, _ := f.CreateFolder(1, "My Folder", nil, false)
 
 	if err := f.MoveFavoriteToFolder(1, "movie", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
-	list, _ := f.List(1, false)
+	list, _ := f.List(1, false, false)
 	if len(list) != 1 || list[0].FolderID == nil || *list[0].FolderID != folder.ID {
 		t.Fatalf("folder assignment not persisted: %+v", list[0])
 	}
@@ -378,12 +378,12 @@ func TestFavoritesMoveFavoriteToFolder(t *testing.T) {
 func TestFavoritesMoveFavoriteToRoot(t *testing.T) {
 	f := newTestFavorites(t)
 	f.Add("movie", "h1", "magnet:1", "manual", 1)
-	folder, _ := f.CreateFolder(1, "F", nil)
+	folder, _ := f.CreateFolder(1, "F", nil, false)
 	f.MoveFavoriteToFolder(1, "movie", &folder.ID)
 	if err := f.MoveFavoriteToFolder(1, "movie", nil); err != nil {
 		t.Fatalf("MoveFavoriteToFolder to root: %v", err)
 	}
-	list, _ := f.List(1, false)
+	list, _ := f.List(1, false, false)
 	if list[0].FolderID != nil {
 		t.Fatal("folder should be nil after moving to root")
 	}
@@ -421,7 +421,7 @@ func TestFavoritesList_IncludeAll(t *testing.T) {
 	f := newTestFavorites(t)
 	f.Add("a", "ha", "ma", "manual", 1)
 	f.Add("b", "hb", "mb", "manual", 2)
-	all, err := f.List(0, true)
+	all, err := f.List(0, true, false)
 	if err != nil {
 		t.Fatalf("List all: %v", err)
 	}
@@ -432,10 +432,10 @@ func TestFavoritesList_IncludeAll(t *testing.T) {
 
 func TestFavoritesList_UsesFolderID(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, _ := f.CreateFolder(1, "F", nil)
+	folder, _ := f.CreateFolder(1, "F", nil, false)
 	f.Add("a", "ha", "ma", "manual", 1)
 	f.MoveFavoriteToFolder(1, "a", &folder.ID)
-	list, _ := f.List(1, false)
+	list, _ := f.List(1, false, false)
 	if len(list) != 1 || list[0].FolderID == nil || *list[0].FolderID != folder.ID {
 		t.Fatalf("folder_id not present: %+v", list[0])
 	}
@@ -459,7 +459,7 @@ func TestFavoritesRemove_NilStore(t *testing.T) {
 
 func TestFavoritesCreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	_, err := f.CreateFolder(1, "name", nil)
+	_, err := f.CreateFolder(1, "name", nil, false)
 	if err == nil {
 		t.Fatal("expected error from nil store")
 	}
@@ -580,7 +580,7 @@ func TestFavoritesIsFavoriteByHash_FailClosed(t *testing.T) {
 
 func TestFavoritesList_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	_, err := f.List(1, false)
+	_, err := f.List(1, false, false)
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
@@ -588,7 +588,7 @@ func TestFavoritesList_NilStore(t *testing.T) {
 
 func TestListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	folders, err := f.ListFolders(1)
+	folders, err := f.ListFolders(1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +599,7 @@ func TestListFolders_NilStore(t *testing.T) {
 
 func TestListFolders_Empty(t *testing.T) {
 	f := newTestFavorites(t)
-	folders, err := f.ListFolders(1)
+	folders, err := f.ListFolders(1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,11 +619,11 @@ func TestMoveFolder_NilStore(t *testing.T) {
 func TestMoveFolder_CycleDetection(t *testing.T) {
 	f := newTestFavorites(t)
 
-	parent, err := f.CreateFolder(1, "parent", nil)
+	parent, err := f.CreateFolder(1, "parent", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := f.CreateFolder(1, "child", &parent.ID)
+	child, err := f.CreateFolder(1, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +638,7 @@ func TestMoveFolder_CycleDetection(t *testing.T) {
 func TestMoveFolder_MoveToSameParent(t *testing.T) {
 	f := newTestFavorites(t)
 
-	folder, err := f.CreateFolder(1, "folder", nil)
+	folder, err := f.CreateFolder(1, "folder", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +657,7 @@ func TestMoveFolder_MoveToSameParent(t *testing.T) {
 
 func TestCreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	_, err := f.CreateFolder(1, "test", nil)
+	_, err := f.CreateFolder(1, "test", nil, false)
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
