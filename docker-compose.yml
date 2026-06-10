@@ -40,8 +40,17 @@ services:
       - ${JACKUI_STORAGE_DIR:-./data/storage}:/mnt/storage
       # Optional extra mounts (e.g. rclone/NFS). Leave the *_MOUNT vars unset in
       # .env to fall back to harmless local dirs; set them to your real paths.
-      - ${JACKUI_MEDIA_MOUNT:-./data/media}:/mnt/gdrive/media:rw
-      - ${JACKUI_SENSITIVE_MOUNT:-./data/sensitive}:/mnt/gdrive/sensitive:rw
+      #
+      # rslave (mount propagation): when the host's rclone/FUSE mount is torn
+      # down and re-created (rclone restart, vfs cache reset, a mover script),
+      # a default (rprivate) bind keeps pointing at the now-dead mount inode —
+      # every ReadDir then fails with "transport endpoint is not connected" and
+      # the Local page 500s until the container is restarted. As a slave, the
+      # bind tracks the host's remounts automatically, so no restart is needed.
+      # Requires the host mount to be shared (systemd makes / rshared by default,
+      # which the rclone mounts inherit — verify with `findmnt -no PROPAGATION`).
+      - ${JACKUI_MEDIA_MOUNT:-./data/media}:/mnt/gdrive/media:rw,rslave
+      - ${JACKUI_SENSITIVE_MOUNT:-./data/sensitive}:/mnt/gdrive/sensitive:rw,rslave
       # NOTE: a "sensitive" mount also needs config.yaml to set allowed_users:
       #   external:
       #     mounts:
