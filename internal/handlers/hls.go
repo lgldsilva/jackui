@@ -103,11 +103,11 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 			return
 		}
 		hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
-		transcodeSource, transcodeSourceSize := resolveTranscodeSource(hc)
+		transcodeSource, transcodeSourceSize, complete := resolveTranscodeSource(hc)
 		if transcodeSource == nil {
 			return
 		}
-		sess, err := startHLSSession(hc, transcodeSource, transcodeSourceSize)
+		sess, err := startHLSSession(hc, transcodeSource, transcodeSourceSize, complete)
 		if err != nil {
 			return
 		}
@@ -118,13 +118,17 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 	}
 }
 
-func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64) (*transcode.HLSSession, error) {
+func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
 	key := fmt.Sprintf("%s-%d", hc.h.HexString(), hc.fileIdx)
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
 		Key:        key,
 		Source:     source,
 		SourceSize: sourceSize,
 		NativeHLS:  nativeHLSParam(hc.c),
+		// A fully-downloaded torrent (served from the completed path on disk) is
+		// complete & seekable — same VOD case as a local file. An in-progress
+		// stream stays under the global vodMode (#61 Safari seek guard).
+		ForceVOD: complete,
 	})
 	if err != nil {
 		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -212,11 +216,11 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 	// Sessão ausente → respawn. resolveTranscodeSource resolve do store ou do
 	// torrent (e já responde 404 se a fonte sumiu de vez).
 	hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
-	source, size := resolveTranscodeSource(hc)
+	source, size, complete := resolveTranscodeSource(hc)
 	if source == nil {
 		return nil
 	}
-	sess, err := startHLSSession(hc, source, size)
+	sess, err := startHLSSession(hc, source, size, complete)
 	if err != nil {
 		return nil
 	}
@@ -266,13 +270,17 @@ func getSession(mgr *transcode.HLSSessionManager, key string) (*transcode.HLSSes
 }
 
 // resolveTranscodeSource tries the completed-download store first, then falls
-// back to activating the torrent and opening a streaming reader.
-func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64) {
+// back to activating the torrent and opening a streaming reader. It returns the
+// seekable input plus its size and whether it is a COMPLETE on-disk file (a
+// finished download served from the completed path) — the caller forces VOD for
+// complete sources. The in-progress streaming path returns complete=false (the
+// #61 Safari seek guard).
+func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 	if hc.store != nil {
 		if path, err := hc.store.GetCompletedPath(hc.h.HexString(), hc.fileIdx); err == nil && path != "" {
 			if stat, err := os.Stat(path); err == nil {
 				if f, err := os.Open(path); err == nil {
-					return f, stat.Size()
+					return f, stat.Size(), true
 				}
 			}
 		}
@@ -281,15 +289,15 @@ func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64) {
 		bareMagnet := MagnetPrefix + hc.h.HexString()
 		if _, addErr := hc.s.Add(hc.c.Request.Context(), bareMagnet); addErr != nil {
 			hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-			return nil, 0
+			return nil, 0, false
 		}
 	}
 	reader, file, err := hc.s.FileReader(hc.h, hc.fileIdx)
 	if err != nil {
 		hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return nil, 0
+		return nil, 0, false
 	}
-	return reader, file.Length()
+	return reader, file.Length(), false
 }
 
 // waitForMasterPlaylist blocks until the first HLS segment is ready. On failure

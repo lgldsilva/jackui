@@ -413,6 +413,10 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 		SourceSize:       src.stat.Size(),
 		NativeHLS:        src.nativeHLS,
 		KnownDurationSec: src.knownDur,
+		// Local files are complete & seekable → always VOD when the duration is
+		// known (incl. Safari/iOS native HLS), regardless of the global vodMode.
+		// EVENT/live is the last resort for unknown-duration streams only.
+		ForceVOD: true,
 	})
 	if err != nil {
 		closeSource(reg, meterKey, source, f)

@@ -3,6 +3,8 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/parser"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/subtitles"
@@ -441,59 +444,191 @@ func serveAutoSubtitles(ctx *gin.Context, subClient *subtitles.Client, baseName 
 	})
 }
 
-// LocalSubtitleExtract handles GET /api/local/subtrack?mount=&path=&track=
-// Extracts an embedded subtitle stream by ABSOLUTE ffprobe stream index and
-// converts to WebVTT via ffmpeg. Image-based subs (PGS/VobSub) fail here —
-// the frontend should filter them out using the probe response's Image flag.
-func LocalSubtitleExtract(b *local.Browser) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		mount := c.Query("mount")
-		path := c.Query("path")
-		trackStr := c.Query("track")
-		if mount == "" || path == "" || trackStr == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount, path or track"})
-			return
-		}
-		if !checkMountAccess(b, c, mount) {
-			return
-		}
-		track, err := strconv.Atoi(trackStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
-			return
-		}
-		abs, err := b.ResolvePath(mount, scopePath(b, c, mount, path))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
+// subExtractJobs dedupes in-flight background extractions so two players (or a
+// retrying client) selecting the same track don't spawn duplicate ffmpeg runs.
+// Keyed by the VTT cache key. Value is unused (presence == in flight).
+var subExtractJobs sync.Map
 
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+// localSubVTTPath derives the on-disk VTT cache path for an extracted track,
+// keyed by (abs, mtime, size, track) so a re-encoded/replaced source misses the
+// stale cache. Lives under <cacheRoot>/subs so it shares the fast-disk volume
+// and is wiped with the cache. Returns "" when no cache is configured.
+func localSubVTTPath(cache *localcache.Cache, abs string, st os.FileInfo, track int) string {
+	if cache == nil || st == nil {
+		return ""
+	}
+	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d|%d", abs, st.ModTime().UnixNano(), st.Size(), track)))
+	return filepath.Join(cache.Root(), "subs", hex.EncodeToString(sum[:])+".vtt")
+}
+
+// extractEmbeddedVTT runs ffmpeg to convert one embedded subtitle stream (by
+// absolute ffprobe index) to WebVTT, returning the bytes. Image-based subs
+// (PGS/VobSub) fail here — the frontend filters them via the probe's Image flag.
+func extractEmbeddedVTT(ctx context.Context, src string, track int) ([]byte, error) {
+	// -map 0:<absoluteIndex> selects the stream; ffmpeg accepts the absolute idx.
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		ffHideBanner, ffLogLevel, "error",
+		"-i", src,
+		"-map", fmt.Sprintf("0:%d", track),
+		"-c:s", "webvtt",
+		"-f", "webvtt",
+		"-",
+	)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), nil
+}
+
+// startBgSubExtract kicks off a deduped background extraction that reads the
+// (slow, uncached) source to completion and writes the VTT to the cache, then
+// future requests serve it instantly. Reading an embedded text sub requires
+// demuxing the WHOLE container (subtitle packets are interleaved), so on a
+// multi-GB rclone file this can take minutes — hence background, not blocking
+// the player. Also enqueues the source for caching so playback + a re-extract
+// get the fast local copy. No-op when the job is already in flight or no cache.
+func startBgSubExtract(cache *localcache.Cache, mount, scoped, abs string, st os.FileInfo, track int, vttPath string) {
+	if cache == nil || vttPath == "" {
+		return
+	}
+	if _, loaded := subExtractJobs.LoadOrStore(vttPath, struct{}{}); loaded {
+		return // already extracting this exact (file, track)
+	}
+	cache.Enqueue(mount, scoped, abs, st.Size()) // prime the fast-disk copy
+	go func() {
+		defer subExtractJobs.Delete(vttPath)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
-		// -map 0:s:N selects the Nth subtitle stream relatively; we receive the
-		// absolute ffprobe index but ffmpeg's stream specifier prefers relative.
-		// Easier: use 0:<absoluteIndex>. ffmpeg accepts both.
-		cmd := exec.CommandContext(ctx, "ffmpeg",
-			ffHideBanner, ffLogLevel, "error",
-			"-i", abs,
-			"-map", fmt.Sprintf("0:%d", track),
-			"-c:s", "webvtt",
-			"-f", "webvtt",
-			"-",
-		)
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error":  "ffmpeg: " + err.Error(),
-				"stderr": stderr.String(),
-			})
+		data, err := extractEmbeddedVTT(ctx, abs, track)
+		if err != nil {
+			return // leave no file; the client retry triggers a fresh attempt
+		}
+		persistVTT(vttPath, data) // atomic temp+rename
+	}()
+}
+
+func serveVTTBytes(c *gin.Context, data []byte) {
+	c.Header(ContentType, MIMEVTT)
+	c.Header(CacheControl, "public, max-age=3600")
+	_, _ = c.Writer.Write(data)
+}
+
+// persistVTT atomically caches an extracted VTT (write temp + rename) so a
+// concurrent reader never sees a half-written file. No-op when vttPath is "".
+func persistVTT(vttPath string, data []byte) {
+	if vttPath == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(vttPath), 0o755); err != nil {
+		return
+	}
+	tmp := vttPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, vttPath)
+}
+
+// subtrackReq is the resolved subtitle-extract request (post validation).
+type subtrackReq struct {
+	mount, scoped, abs string
+	st                 os.FileInfo
+	track              int
+}
+
+// parseSubtrackReq validates the query params + mount access and resolves the
+// file. Returns ok=false (after writing the error response) on any failure.
+func parseSubtrackReq(b *local.Browser, c *gin.Context) (subtrackReq, bool) {
+	mount, path, trackStr := c.Query("mount"), c.Query("path"), c.Query("track")
+	if mount == "" || path == "" || trackStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount, path or track"})
+		return subtrackReq{}, false
+	}
+	if !checkMountAccess(b, c, mount) {
+		return subtrackReq{}, false
+	}
+	track, err := strconv.Atoi(trackStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
+		return subtrackReq{}, false
+	}
+	scoped := scopePath(b, c, mount, path)
+	abs, err := b.ResolvePath(mount, scoped)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return subtrackReq{}, false
+	}
+	st, _ := os.Stat(abs)
+	return subtrackReq{mount: mount, scoped: scoped, abs: abs, st: st, track: track}, true
+}
+
+// serveCachedVTT serves a previously-extracted VTT from disk. Returns true when
+// it handled the request.
+func serveCachedVTT(c *gin.Context, vttPath string) bool {
+	if vttPath == "" {
+		return false
+	}
+	data, err := os.ReadFile(vttPath)
+	if err != nil {
+		return false
+	}
+	serveVTTBytes(c, data)
+	return true
+}
+
+// extractAndServe extracts the track synchronously (bounded by timeout), caches
+// it under vttPath, and serves it; 502 on ffmpeg error.
+func extractAndServe(c *gin.Context, src string, track int, timeout time.Duration, vttPath string) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+	defer cancel()
+	data, err := extractEmbeddedVTT(ctx, src, track)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	persistVTT(vttPath, data)
+	serveVTTBytes(c, data)
+}
+
+// LocalSubtitleExtract handles GET /api/local/subtrack?mount=&path=&track=
+// Serves an embedded subtitle track as WebVTT. To avoid the old 2-minute hang →
+// 502 on large rclone files (extraction must demux the whole container), it:
+//  1. serves a previously-extracted VTT from the on-disk cache instantly;
+//  2. else extracts SYNCHRONOUSLY when the source is on fast disk (a ready cache
+//     copy) — seconds;
+//  3. else (slow, uncached mount) kicks off a background extraction and returns
+//     503 {code:"extracting"} so the client can retry shortly instead of hanging.
+func LocalSubtitleExtract(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		req, ok := parseSubtrackReq(b, c)
+		if !ok {
 			return
 		}
-		c.Header(ContentType, MIMEVTT)
-		c.Header(CacheControl, "public, max-age=3600")
-		_, _ = c.Writer.Write(stdout.Bytes())
+		vttPath := localSubVTTPath(cache, req.abs, req.st, req.track)
+		// 1) Already-extracted VTT on disk → instant.
+		if serveCachedVTT(c, vttPath) {
+			return
+		}
+		// 2) Fast-disk source (a ready cache copy) → extract synchronously.
+		if cp, hit := cacheReady(cache, req.mount, req.scoped); hit {
+			extractAndServe(c, cp.abs, req.track, 60*time.Second, vttPath)
+			return
+		}
+		// 3a) No cache infra → legacy synchronous extract (small local files).
+		if cache == nil || req.st == nil {
+			extractAndServe(c, req.abs, req.track, 2*time.Minute, vttPath)
+			return
+		}
+		// 3b) Slow uncached mount → background-extract + 503 so the client polls.
+		startBgSubExtract(cache, req.mount, req.scoped, req.abs, req.st, req.track, vttPath)
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":         "extracting embedded subtitle — retry shortly",
+			"code":          "extracting",
+			"retryAfterSec": 10,
+		})
 	}
 }
 
