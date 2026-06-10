@@ -60,7 +60,13 @@ export default {
         'hover-overlay': 'var(--hover-overlay)',
       },
       boxShadow: {
+        card: 'var(--shadow-card)',
         elevated: 'var(--shadow-elevated)',
+      },
+      ringColor: {
+        // Brand-green focus ring — green-600 in light (enough contrast on the
+        // white inputs), green-500 in dark. Defined per-theme in index.css.
+        focus: 'var(--focus-ring)',
       },
     },
   },
