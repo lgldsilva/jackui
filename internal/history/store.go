@@ -208,6 +208,16 @@ func (s *Store) Save(query string, results []jackett.Result, userID int, incogni
 	return tx.Commit()
 }
 
+// DistinctQueryCount returns how many different searches the user has saved
+// (incognito excluded) — feeds the stats endpoint.
+func (s *Store) DistinctQueryCount(userID int) (int, error) {
+	var n int
+	err := s.db.QueryRow(`
+		SELECT COUNT(DISTINCT LOWER(query)) FROM results WHERE user_id = ? AND incognito = 0
+	`, userID).Scan(&n)
+	return n, err
+}
+
 // DeleteIncognito removes all incognito-flagged entries for a user.
 // Called when the user ends their incognito session (logout or toggle-off).
 func (s *Store) DeleteIncognito(userID int) error {
