@@ -10,18 +10,17 @@ export default function SortableTh<K extends string>({
   sort,
   align = 'left',
   className = 'py-1 pr-3',
-}: {
+}: Readonly<{
   label: string
   columnKey: K
   sort: TableSort<K>
   align?: 'left' | 'right'
   className?: string
-}) {
+}>) {
   const { t } = useTranslation()
   const active = sort.sortKey === columnKey
-  const Icon = active
-    ? (sort.dir === 'asc' ? ArrowUpWideNarrow : ArrowDownWideNarrow)
-    : ChevronsUpDown
+  const ascending = sort.dir === 'asc' ? ArrowUpWideNarrow : ArrowDownWideNarrow
+  const Icon = active ? ascending : ChevronsUpDown
   return (
     <th
       scope="col"

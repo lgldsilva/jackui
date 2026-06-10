@@ -45,7 +45,7 @@ export default function AdminUserSessionsModal({ user, onClose }: {
         {sessions !== null && sessions.length === 0 && (
           <p className="text-sm text-text-muted text-center py-4">{t('admin.sessions_none')}</p>
         )}
-        {sessions !== null && sessions.map(sess => (
+        {sessions?.map(sess => (
           <div key={sess.id} className="flex items-center gap-2 bg-surface border border-default rounded-lg px-3 py-2 text-sm">
             <div className="flex-1 min-w-0">
               <div className="text-text-primary text-xs truncate" title={sess.userAgent}>
