@@ -21,7 +21,8 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		folders, err := fs.ListFolders(userID)
+		// ?includeHidden=1 (the UI's easter egg) reveals hidden folders.
+		folders, err := fs.ListFolders(userID, c.Query("includeHidden") == "1")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -33,6 +34,7 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 type folderBody struct {
 	Name     string `json:"name"`
 	ParentID *int   `json:"parentId"`
+	Hidden   bool   `json:"hidden"`
 }
 
 func FolderCreate(s *streamer.Streamer) gin.HandlerFunc {
@@ -48,7 +50,7 @@ func FolderCreate(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		f, err := fs.CreateFolder(userID, body.Name, body.ParentID)
+		f, err := fs.CreateFolder(userID, body.Name, body.ParentID, body.Hidden)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -61,6 +63,7 @@ type folderPatchBody struct {
 	Name         *string `json:"name"`
 	ParentID     *int    `json:"parentId"`
 	ParentToRoot bool    `json:"parentToRoot"`
+	Hidden       *bool   `json:"hidden"`
 }
 
 func FolderPatch(s *streamer.Streamer) gin.HandlerFunc {
@@ -105,6 +108,11 @@ func applyFolderPatch(fs *streamer.FavoritesStore, userID, id int, body *folderP
 			newParent = body.ParentID
 		}
 		if err := fs.MoveFolder(userID, id, newParent); err != nil {
+			return err
+		}
+	}
+	if body.Hidden != nil {
+		if err := fs.SetFolderHidden(userID, id, *body.Hidden); err != nil {
 			return err
 		}
 	}

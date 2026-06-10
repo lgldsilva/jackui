@@ -374,13 +374,13 @@ func Test_str2_Favorites_OpsAfterClose_Error(t *testing.T) {
 	}
 	f.Close()
 
-	if _, err := f.List(1, false); err == nil {
+	if _, err := f.List(1, false, false); err == nil {
 		t.Error("expected List to error after Close")
 	}
-	if _, err := f.ListFolders(1); err == nil {
+	if _, err := f.ListFolders(1, false); err == nil {
 		t.Error("expected ListFolders to error after Close")
 	}
-	if _, err := f.CreateFolder(1, "x", nil); err == nil {
+	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
 		t.Error("expected CreateFolder to error after Close")
 	}
 	if err := f.RenameFolder(1, 1, "x"); err == nil {
@@ -412,11 +412,11 @@ func Test_str2_Favorites_hasColumn(t *testing.T) {
 
 func Test_str2_MoveFolder_CycleAndRoot(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, err := f.CreateFolder(1, "parent", nil)
+	parent, err := f.CreateFolder(1, "parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(1, "child", &parent.ID)
+	child, err := f.CreateFolder(1, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}

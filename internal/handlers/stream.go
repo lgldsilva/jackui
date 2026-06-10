@@ -706,7 +706,8 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && c.Query("all") == "1"
-		list, err := favs.List(userID, includeAll)
+		// ?includeHidden=1 (the UI's easter egg) reveals favourites inside hidden folders.
+		list, err := favs.List(userID, includeAll, c.Query("includeHidden") == "1")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
