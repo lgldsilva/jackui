@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
   Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
@@ -21,16 +22,16 @@ const STORAGE_KEY = 'jackui.sidebar.collapsed'
 // Single source of truth for the nav routes. `hover` keeps the per-section
 // accent colour the old header used.
 const LINKS = [
-  { to: '/', icon: Search, label: 'Buscar', hover: 'hover:!text-text-primary' },
-  { to: '/discover', icon: Flame, label: 'Em alta', hover: 'hover:!text-orange-400' },
-  { to: '/playlists', icon: ListMusic, label: 'Playlists', hover: 'hover:!text-blue-400' },
-  { to: '/library', icon: LibraryIcon, label: 'Continuar', hover: 'hover:!text-purple-400' },
-  { to: '/local', icon: HardDrive, label: 'Local', hover: 'hover:!text-cyan-400' },
-  { to: '/downloads', icon: Download, label: 'Downloads', hover: 'hover:!text-green-400' },
-  { to: '/watchlist', icon: Bell, label: 'Watch', hover: 'hover:!text-amber-400' },
-  { to: '/favorites', icon: Heart, label: 'Favoritos', hover: 'hover:!text-pink-400' },
-  { to: '/history', icon: History, label: 'Histórico', hover: 'hover:!text-text-primary' },
-  { to: '/settings', icon: Settings, label: 'Settings', hover: 'hover:!text-text-primary' },
+  { to: '/', icon: Search, labelKey: 'nav.search', hover: 'hover:!text-text-primary' },
+  { to: '/discover', icon: Flame, labelKey: 'nav.discover', hover: 'hover:!text-orange-400' },
+  { to: '/playlists', icon: ListMusic, labelKey: 'nav.playlists', hover: 'hover:!text-blue-400' },
+  { to: '/library', icon: LibraryIcon, labelKey: 'nav.continue', hover: 'hover:!text-purple-400' },
+  { to: '/local', icon: HardDrive, labelKey: 'nav.local', hover: 'hover:!text-cyan-400' },
+  { to: '/downloads', icon: Download, labelKey: 'nav.downloads', hover: 'hover:!text-green-400' },
+  { to: '/watchlist', icon: Bell, labelKey: 'nav.watchlist', hover: 'hover:!text-amber-400' },
+  { to: '/favorites', icon: Heart, labelKey: 'nav.favorites', hover: 'hover:!text-pink-400' },
+  { to: '/history', icon: History, labelKey: 'nav.history', hover: 'hover:!text-text-primary' },
+  { to: '/settings', icon: Settings, labelKey: 'nav.settings', hover: 'hover:!text-text-primary' },
 ]
 
 /**
@@ -45,6 +46,7 @@ const LINKS = [
  * destinations and gives each page the full viewport height.
  */
 export default function NavHeader({ rightExtra }: Props) {
+  const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [incognito, setIncognito] = useIncognito()
@@ -122,9 +124,9 @@ export default function NavHeader({ rightExtra }: Props) {
         type="button"
         onClick={() => setIncognito(!incognito)}
         className={`${base} ${size} ${cls}`}
-        title={incognito ? 'Modo incógnito ATIVO — clique para sair' : 'Ativar modo incógnito (não grava histórico nem biblioteca)'}
+        title={incognito ? t('nav.incognito_title_active') : t('nav.incognito_title_inactive')}
         aria-pressed={incognito}
-        aria-label="Modo incógnito"
+        aria-label={t('nav.incognito')}
       >
         {incognito ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
       </button>
@@ -141,17 +143,17 @@ export default function NavHeader({ rightExtra }: Props) {
       <div className="flex items-center justify-between px-3 h-14 flex-shrink-0 border-b border-default/60">
         {/* Logo — hidden on the DESKTOP collapsed rail (no room beside the toggle);
             always shown on mobile (drawer) and on the expanded desktop rail. */}
-        <Link to="/" onClick={onLogoTap} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title="Início">
+        <Link to="/" onClick={onLogoTap} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title={t('nav.home')}>
           <span className="text-xl font-bold text-green-500">Jack</span>
           <span className="text-xl font-bold text-text-primary">UI</span>
-          {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label="ocultos visíveis" />}
+          {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label={t('nav.revealed_visible')} />}
         </Link>
         {/* Desktop: collapse/expand. Centered (mx-auto) when collapsed so it
             doesn't overlap the (hidden) logo. Hidden on mobile (drawer closes via X). */}
         <button
           onClick={() => setCollapsed((c) => !c)}
           className={`hidden md:flex items-center justify-center w-9 h-9 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40 transition-colors ${collapsed ? 'md:mx-auto' : ''}`}
-          title={collapsed ? 'Expandir menu' : 'Retrair menu'}
+          title={collapsed ? t('nav.expand_menu') : t('nav.collapse_menu')}
         >
           {collapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
         </button>
@@ -159,7 +161,7 @@ export default function NavHeader({ rightExtra }: Props) {
         <button
           onClick={() => setDrawerOpen(false)}
           className="md:hidden flex items-center justify-center w-11 h-11 rounded-lg text-text-secondary hover:text-text-primary"
-          title="Fechar menu"
+          title={t('nav.close_menu')}
         >
           <X className="w-5 h-5" />
         </button>
@@ -167,11 +169,11 @@ export default function NavHeader({ rightExtra }: Props) {
 
       {/* Links */}
       <nav className="flex-1 overflow-y-auto py-2 px-2 flex flex-col gap-0.5">
-        {LINKS.map(({ to, icon: Icon, label, hover }) => (
+        {LINKS.map(({ to, icon: Icon, labelKey, hover }) => (
           <Link
             key={to}
             to={to}
-            title={label}
+            title={t(labelKey)}
             onClick={() => setDrawerOpen(false)}
             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm transition-colors
               ${isActive(to)
@@ -180,7 +182,7 @@ export default function NavHeader({ rightExtra }: Props) {
               ${collapsed ? 'md:justify-center md:px-2' : ''}`}
           >
             <Icon className="w-5 h-5 flex-shrink-0" />
-            <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
+            <span className={collapsed ? 'md:hidden' : ''}>{t(labelKey)}</span>
           </Link>
         ))}
       </nav>
@@ -203,7 +205,7 @@ export default function NavHeader({ rightExtra }: Props) {
           {incognitoToggle('sidebar')}
           {incognito && !collapsed && (
             <span className="text-[10px] font-semibold tracking-wider text-amber-300/90 uppercase">
-              Incógnito
+              {t('nav.incognito')}
             </span>
           )}
         </div>
@@ -225,17 +227,17 @@ export default function NavHeader({ rightExtra }: Props) {
           <button
             onClick={() => setDrawerOpen(true)}
             className="flex items-center justify-center w-10 h-10 -ml-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40"
-            title="Abrir menu"
+            title={t('nav.open_menu')}
           >
             <Menu className="w-6 h-6" />
           </button>
-          <Link to="/" onClick={onLogoTap} className="flex items-center gap-1 flex-1 min-w-0" title="Início">
+          <Link to="/" onClick={onLogoTap} className="flex items-center gap-1 flex-1 min-w-0" title={t('nav.home')}>
             <span className="text-xl font-bold text-green-500">Jack</span>
             <span className="text-xl font-bold text-text-primary">UI</span>
-            {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label="ocultos visíveis" />}
+            {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label={t('nav.revealed_visible')} />}
             {incognito && (
               <span className="ml-2 text-[9px] font-semibold tracking-wider text-amber-300/90 uppercase">
-                Incógnito
+                {t('nav.incognito')}
               </span>
             )}
           </Link>

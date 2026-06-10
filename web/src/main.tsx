@@ -9,6 +9,8 @@ import './index.css'
 // already matches the user's stored choice (avoids a flash of the wrong theme).
 bootstrapTheme()
 
+import './lib/i18n'
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>

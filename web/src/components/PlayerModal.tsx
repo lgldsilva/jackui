@@ -1247,7 +1247,7 @@ export default function PlayerModal({
   //     ~18s before the fallback. The whole point is to NOT attempt the path
   //     we know fails. Misses still get rescued by onError/backstop fallback.
   const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, caps, authEnabled, probe })
-  const { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded } = videoUrls
+  const { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, encoderLabel, isTranscoded } = videoUrls
 
   const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
 
@@ -1402,6 +1402,8 @@ export default function PlayerModal({
             subLoading={subLoading}
             subtitleLabel={subtitleLabel}
             vlcURL={vlcURL}
+            iinaURL={iinaURL}
+            infuseURL={infuseURL}
             streamURL={streamURL}
             serverDownloadLoading={serverDownloadLoading}
             serverDownloadSuccess={serverDownloadSuccess}

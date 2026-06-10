@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,10 +17,10 @@ import (
 	"time"
 
 	"crypto/rand"
-
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
@@ -34,6 +35,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/mailer"
+	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/playlists"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -133,6 +135,7 @@ func (d *appDeps) runCleanup() {
 }
 
 func main() {
+	setupLogger()
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
 	jackettClient := jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
@@ -172,6 +175,11 @@ func main() {
 	// Incognito reaper: delete stale incognito data after 1h of inactivity
 	// (tab closed / crash). Both stores are guaranteed initialized by here.
 	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+
+	if deps.streamSrv != nil {
+		metrics.StartWorker(context.Background(), deps.streamSrv, deps.hlsMgr)
+		streamer.StartBandwidthScheduler(context.Background(), deps.streamSrv, deps.cfg)
+	}
 
 	startTranscodeProbe()
 
@@ -789,6 +797,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.GET("/healthz", handlers.Health(deps.historyStore))
 	// Public build metadata (commit/build time/version) — checkable without a token.
 	router.GET("/status", handlers.BuildInfo(deps.historyStore))
+	router.GET("/api/metrics", gin.WrapH(promhttp.Handler()))
 	router.GET("/api/auth/config", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"enabled": deps.cfg.Auth.Enabled})
 	})
@@ -1121,4 +1130,23 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	adminGroup.DELETE("/:id", handlers.DeleteUser(deps.authStore))
 	adminGroup.PATCH("/:id/status", handlers.SetUserStatus(deps.authStore))
 	adminGroup.POST("/invite", handlers.Invite(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+}
+
+func setupLogger() {
+	var handler slog.Handler
+	if os.Getenv("JACKUI_LOG_FORMAT") == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
+	}
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	// Redireciona os logs do pacote standard "log" para o handler slog
+	log.SetOutput(slog.NewLogLogger(handler, slog.LevelInfo).Writer())
+	log.SetFlags(0)
 }

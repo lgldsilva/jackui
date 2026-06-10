@@ -40,6 +40,8 @@ type PlayerControlsPanelProps = {
   readonly subLoading: boolean
   readonly subtitleLabel: string
   readonly vlcURL: string
+  readonly iinaURL?: string
+  readonly infuseURL?: string
   readonly streamURL: string
   readonly serverDownloadLoading: boolean
   readonly serverDownloadSuccess: boolean
@@ -107,6 +109,8 @@ export function PlayerControlsPanel({
   subLoading,
   subtitleLabel,
   vlcURL,
+  iinaURL,
+  infuseURL,
   streamURL,
   serverDownloadLoading,
   serverDownloadSuccess,
@@ -340,6 +344,26 @@ export function PlayerControlsPanel({
             <ExternalLink className="w-3.5 h-3.5" />
             VLC
           </a>
+          {iinaURL && (
+            <a
+              href={iinaURL}
+              className="flex items-center gap-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              title="Abrir o stream no app IINA local (macOS)"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              IINA
+            </a>
+          )}
+          {infuseURL && (
+            <a
+              href={infuseURL}
+              className="flex items-center gap-1.5 text-xs bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              title="Abrir o stream no app Infuse local (iOS/macOS/Apple TV)"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Infuse
+            </a>
+          )}
           {isLocalHash(info.infoHash) ? (
             // Local/rclone file: there's no torrent to "baixar no servidor".
             // Instead, cache the whole file to local disk (instant + seekable).

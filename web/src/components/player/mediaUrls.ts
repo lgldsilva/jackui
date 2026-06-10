@@ -100,9 +100,18 @@ export function computeMediaUrls(input: MediaUrlInput) {
     vlcURL = streamPlaylistM3UURL(info.infoHash, selectedFile, transcodeParam)
   }
 
+  let iinaURL = ''
+  let infuseURL = ''
+  if (info && selectedFile >= 0) {
+    const directPath = streamFileURL(info.infoHash, selectedFile, mediaToken)
+    const absoluteDirectURL = `${globalThis.location?.origin ?? ''}${directPath}`
+    iinaURL = `iina://weblink?url=${encodeURIComponent(absoluteDirectURL)}`
+    infuseURL = `infuse://x-callback-url/play?url=${encodeURIComponent(absoluteDirectURL)}`
+  }
+
   const encoderLabel = pickEncoderLabel(caps)
 
-  return { streamURL, subtitleVttURL, vlcURL, encoderLabel, isTranscoded }
+  return { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, encoderLabel, isTranscoded }
 }
 
 // recoverHlsFatal trata erro FATAL do hls.js fora do componente (mantém a
