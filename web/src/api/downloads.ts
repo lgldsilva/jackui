@@ -61,6 +61,12 @@ export type DownloadSource = {
   createdAt: string
 }
 
+// WHOLE_TORRENT_FILE_INDEX espelha downloads.FileIndexWholeTorrent no backend:
+// UMA linha na fila que baixa o torrent INTEIRO (progresso agregado, conclusão
+// move todos os arquivos preservando a estrutura). -1 já significa "auto-pick"
+// (shim Transmission RPC), por isso -2.
+export const WHOLE_TORRENT_FILE_INDEX = -2
+
 export type DownloadCreateParams = {
   infoHash: string
   fileIndex: number

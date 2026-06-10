@@ -137,5 +137,17 @@
     "sessions_failed": "Falha ao listar sessões.",
     "copy": "Copiar",
     "copied": "Copiado!"
+  },
+  "downloads": {
+    "whole_torrent_queued": "Torrent inteiro enfileirado — {{count}} arquivos, {{size}}",
+    "whole_torrent_badge": "Torrent completo",
+    "whole_torrent_files": "{{count}} arquivos",
+    "clear_failed": "Limpar falhados",
+    "clear_failed_title": "Limpar downloads falhados?",
+    "clear_failed_message": "Remover {{count}} download(s) com erro da lista? Os arquivos no disco NÃO são apagados.",
+    "clear_queued": "Limpar fila",
+    "clear_queued_title": "Limpar a fila?",
+    "clear_queued_message": "Remover {{count}} download(s) aguardando na fila? O que já está baixando não é afetado.",
+    "clear_confirm": "Remover"
   }
 }
