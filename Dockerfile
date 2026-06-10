@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:22-alpine AS frontend
+FROM node:24-alpine AS frontend
 
 # ImageMagick renders SVG → PNG for PWA icons (iOS requires PNG for apple-touch-icon)
 RUN apk add --no-cache imagemagick imagemagick-svg
