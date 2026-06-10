@@ -345,9 +345,10 @@ export default function SettingsPage() {
             <section className="card flex flex-col gap-3">
               <h2 className="text-base font-semibold text-text-primary">Sobre o JackUI</h2>
               <div className="space-y-1.5 text-xs text-text-secondary">
-                {globalThis.electronAPI ? <VersionInfo /> : (
-                  <><p>Versão: desenvolvimento</p><p>Executando via navegador</p></>
-                )}
+                {/* VersionInfo lida com ambos: Electron (getAppVersion) e
+                    navegador (GET /status). Antes só renderizava no Electron,
+                    então o navegador nunca via os metadados de build. */}
+                <VersionInfo />
               </div>
             </section>
           </>
@@ -527,11 +528,17 @@ function VersionInfo() {
     }
   }, [])
   if (!ver) return <p className="animate-pulse">Carregando…</p>
+  // Sem ldflags (dev / `go run`) os metadados vêm como "dev"/"unknown" — evita
+  // "Invalid Date" e o slice de string vazia.
+  const parsed = ver.date ? new Date(ver.date) : null
+  const buildLabel = parsed && !Number.isNaN(parsed.getTime())
+    ? parsed.toLocaleString('pt-BR')
+    : (ver.date || '—')
   return (
     <>
-      <p>Versão: <span className="text-text-primary">{ver.version}</span></p>
-      <p>Commit: <span className="text-text-primary font-mono">{ver.commit.slice(0, 12)}</span></p>
-      <p>Build: <span className="text-text-primary">{new Date(ver.date).toLocaleString('pt-BR')}</span></p>
+      <p>Versão: <span className="text-text-primary">{ver.version || '—'}</span></p>
+      <p>Commit: <span className="text-text-primary font-mono">{ver.commit ? ver.commit.slice(0, 12) : '—'}</span></p>
+      <p>Build: <span className="text-text-primary">{buildLabel}</span></p>
       {ver.goVersion && <p>Go: <span className="text-text-primary">{ver.goVersion}</span></p>}
       {platform && <p>Plataforma: <span className="text-text-primary">{platform}</span></p>}
     </>
