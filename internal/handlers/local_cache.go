@@ -79,6 +79,54 @@ func LocalCacheStart(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc 
 	}
 }
 
+// LocalCacheFolder handles POST /api/local/cache/folder?mount=&path= — enqueues
+// a background full-file copy for EVERY playable file under the folder
+// (recursive). One click pre-fetches a whole rclone/Drive series folder to local
+// disk instead of caching file by file. A big folder won't overrun the cache:
+// the LRU drops the coldest cached files as new copies land (favourites/active
+// downloads stay protected); the enqueue just lines them up.
+func LocalCacheFolder(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		if mount == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
+			return
+		}
+		path := c.Query("path") // empty = mount root
+		if !checkMountAccess(b, c, mount) {
+			return
+		}
+		if cache == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cache local desabilitado"})
+			return
+		}
+		scoped := scopePath(b, c, mount, path)
+		if !mountCacheable(b, cache, mount, scoped) {
+			// Local-disk mount: nothing to pre-fetch (already fast/seekable).
+			c.JSON(http.StatusOK, gin.H{"queued": 0, "cacheable": false})
+			return
+		}
+		entries, err := b.Walk(mount, scoped, true) // mediaOnly
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		queued := 0
+		for _, e := range entries {
+			if e.IsDir {
+				continue
+			}
+			abs, rerr := b.ResolvePath(mount, e.Path)
+			if rerr != nil {
+				continue
+			}
+			cache.Enqueue(mount, e.Path, abs, e.Size)
+			queued++
+		}
+		c.JSON(http.StatusAccepted, gin.H{"queued": queued, "cacheable": true})
+	}
+}
+
 // LocalCacheStatus handles GET /api/local/cache/status?mount=&path= — the cache
 // "mark" the UI polls (none/queued/copying/ready/error + percent).
 func LocalCacheStatus(b *local.Browser, cache *localcache.Cache) gin.HandlerFunc {
