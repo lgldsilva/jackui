@@ -139,6 +139,9 @@ func main() {
 	setupLogger()
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
+	if err := config.CheckWritable(deps.configPath); err != nil {
+		log.Printf("WARNING: config %s não é gravável (%v) — alterações em Settings/Mounts não vão persistir; ajuste dono/permissão no host para o uid do container", deps.configPath, err)
+	}
 	jackettClient := jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
 	deps.jackettClient = jackettClient
 	deps.localBrowser = local.NewBrowser(deps.cfg.External.Mounts)
