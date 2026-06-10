@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft, Plus, Trash2, Save, Wifi, Loader2, CheckCircle, XCircle,
   Settings, Download, Server, BrainCircuit, Shield, Monitor,
@@ -53,12 +54,12 @@ function EnvBadge({ envVar }: { readonly envVar: string }) {
 
 type TabId = 'geral' | 'downloads' | 'stream' | 'conta' | 'ia'
 
-const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: 'geral', label: 'Geral', icon: <Settings className="w-4 h-4" /> },
-  { id: 'downloads', label: 'Downloads', icon: <Download className="w-4 h-4" /> },
-  { id: 'stream', label: 'Stream', icon: <Server className="w-4 h-4" /> },
-  { id: 'conta', label: 'Conta', icon: <Shield className="w-4 h-4" /> },
-  { id: 'ia', label: 'IA', icon: <BrainCircuit className="w-4 h-4" /> },
+const TABS: { id: TabId; labelKey: string; icon: React.ReactNode }[] = [
+  { id: 'geral', labelKey: 'nav.general_tab', icon: <Settings className="w-4 h-4" /> },
+  { id: 'downloads', labelKey: 'nav.downloads_tab', icon: <Download className="w-4 h-4" /> },
+  { id: 'stream', labelKey: 'nav.stream_tab', icon: <Server className="w-4 h-4" /> },
+  { id: 'conta', labelKey: 'nav.account_tab', icon: <Shield className="w-4 h-4" /> },
+  { id: 'ia', labelKey: 'nav.ia_tab', icon: <BrainCircuit className="w-4 h-4" /> },
 ]
 
 // TabButton — fora do componente pai (evita recriar a cada render; S6478).
@@ -67,6 +68,7 @@ function TabButton({ tab, active, onClick }: {
   readonly active: boolean
   readonly onClick: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <button
       onClick={onClick}
@@ -77,7 +79,7 @@ function TabButton({ tab, active, onClick }: {
       }`}
     >
       {tab.icon}
-      {tab.label}
+      {t(tab.labelKey)}
     </button>
   )
 }
@@ -129,6 +131,7 @@ function SessionsList({ loading, sessions, onRevoke, onRevokeOthers }: {
 }
 
 export default function SettingsPage() {
+  const { t, i18n } = useTranslation()
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -242,11 +245,11 @@ export default function SettingsPage() {
             <Link to="/" className="text-text-secondary hover:text-text-primary transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            <h1 className="text-xl font-bold text-text-primary">Configuracoes</h1>
+            <h1 className="text-xl font-bold text-text-primary">{t('settings.title')}</h1>
           </div>
           <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 disabled:opacity-50">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Salvar
+            {t('settings.save')}
           </button>
         </div>
       </header>
@@ -266,13 +269,31 @@ export default function SettingsPage() {
               : 'bg-red-500/10 border border-red-500/30 text-red-400'
           }`}>
             {saveResult === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-            {saveResult === 'success' ? 'Configuracoes salvas com sucesso!' : 'Erro ao salvar configuracoes'}
+            {saveResult === 'success' ? t('settings.success') : 'Erro ao salvar configuracoes'}
           </div>
         )}
 
         {/* ════════ GUIA GERAL ════════ */}
         {activeTab === 'geral' && (
           <>
+            <section className="card flex flex-col gap-4">
+              <h2 className="text-lg font-semibold text-text-primary">{t('settings.language')}</h2>
+              <div>
+                <select
+                  value={i18n.language}
+                  onChange={e => {
+                    const newLang = e.target.value
+                    i18n.changeLanguage(newLang)
+                    localStorage.setItem('jackui_language', newLang)
+                  }}
+                  className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 w-64"
+                >
+                  <option value="pt-BR">{t('settings.language_pt')}</option>
+                  <option value="en-US">{t('settings.language_en')}</option>
+                </select>
+              </div>
+            </section>
+
             <section className="card flex flex-col gap-4">
               <h2 className="text-lg font-semibold text-text-primary">Jackett</h2>
               <div>

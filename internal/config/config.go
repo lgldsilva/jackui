@@ -142,15 +142,22 @@ type AuthConfig struct {
 	DBPath        string `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
 }
 
+type BandwidthSchedule struct {
+	TimeRange       string `yaml:"time_range"`       // e.g. "08:00-18:00"
+	MaxDownloadRate int64  `yaml:"max_download_rate"` // bytes/sec
+	MaxUploadRate   int64  `yaml:"max_upload_rate"`   // bytes/sec
+}
+
 type StreamConfig struct {
-	DataDir         string       `yaml:"data_dir"`         // where torrent pieces are stored
-	DownloadDir     string       `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
-	SharedDir       string       `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
-	StateDir        string       `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
-	IdleMinutes     int          `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
-	MetadataSeconds int          `yaml:"metadata_seconds"` // metadata fetch timeout
-	MaxCacheGB      int          `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
-	PromoteDirs     []PromoteDir `yaml:"promote_dirs"`     // additional promote destinations (name + path)
+	DataDir            string              `yaml:"data_dir"`         // where torrent pieces are stored
+	DownloadDir        string              `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
+	SharedDir          string              `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
+	StateDir           string              `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
+	IdleMinutes        int                 `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
+	MetadataSeconds    int                 `yaml:"metadata_seconds"` // metadata fetch timeout
+	MaxCacheGB         int                 `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
+	PromoteDirs        []PromoteDir        `yaml:"promote_dirs"`     // additional promote destinations (name + path)
+	BandwidthSchedules []BandwidthSchedule `yaml:"bandwidth_schedules"`
 
 	// ── Performance / hardware tuning (0/"" = usar default; aplicado no streamer) ──
 	// Banda: caps de peer em bytes/seg; 0 = ilimitado. Aplicados AO VIVO via

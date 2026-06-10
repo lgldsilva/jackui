@@ -21,6 +21,7 @@ import { isIncognito } from '../lib/incognito'
 import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
 import { shouldPromptJackettSetup } from '../lib/jackettSetup'
+import { useTranslation } from 'react-i18next'
 
 const TABS_KEY = 'searchTabs'
 const ACTIVE_KEY = 'activeTabId'
@@ -221,6 +222,7 @@ const SORT_OPTIONS: { key: ResultSortKey; label: string }[] = [
 ]
 
 export default function SearchPage() {
+  const { t } = useTranslation()
   const initial = hydrateTabs()
   const [tabs, setTabs] = useState<TabState[]>(initial.tabs)
   const [activeId, setActiveId] = useState(initial.activeId)
@@ -685,7 +687,7 @@ export default function SearchPage() {
     <>
       <input
         type="text"
-        placeholder="Filtrar título..."
+        placeholder={t('search.filter_title')}
         value={activeTab.titleFilter}
         onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
         className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : 'w-full sm:w-44'}`}
@@ -695,8 +697,8 @@ export default function SearchPage() {
         onChange={e => updateTab(activeTab.id, { trackerFilter: e.target.value })}
         className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
       >
-        {trackers.map(t => (
-          <option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>
+        {trackers.map(tOption => (
+          <option key={tOption} value={tOption}>{tOption === 'all' ? t('search.all_servers') : tOption}</option>
         ))}
       </select>
       <div className={stacked ? 'grid grid-cols-3 gap-2' : 'contents'}>
@@ -741,7 +743,7 @@ export default function SearchPage() {
         }`}
       >
         <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
-        Playable
+        {t('search.playable')}
       </button>
       <select
         value={activeTab.resolution}
@@ -749,7 +751,7 @@ export default function SearchPage() {
         title="Filtrar por resolução"
         className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
       >
-        <option value="">Resolução</option>
+        <option value="">{t('search.resolution')}</option>
         <option value="2160p">4K (2160p)</option>
         <option value="1080p">1080p</option>
         <option value="720p">720p</option>
@@ -761,7 +763,7 @@ export default function SearchPage() {
         title="Filtrar por codec de vídeo"
         className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
       >
-        <option value="">Codec</option>
+        <option value="">{t('search.codec')}</option>
         <option value="hevc">H.265 / HEVC</option>
         <option value="h264">H.264</option>
         <option value="av1">AV1</option>
@@ -776,7 +778,7 @@ export default function SearchPage() {
         }`}
       >
         <Sparkles className={`w-3.5 h-3.5 ${activeTab.hdrOnly ? 'fill-current' : ''}`} />
-        HDR
+        {t('search.hdr')}
       </button>
       <button
         onClick={toggleGroupSeries}
@@ -788,7 +790,7 @@ export default function SearchPage() {
         }`}
       >
         <Layers className="w-3.5 h-3.5" />
-        Séries
+        {t('search.series')}
       </button>
       {activeFilterCount > 0 && (
         <button
@@ -799,9 +801,9 @@ export default function SearchPage() {
             resolution: '', hdrOnly: false, codecGroup: '',
           })}
           className={`text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
-          title="Limpar filtros"
+          title={t('search.clean_filters')}
         >
-          <X className="w-3.5 h-3.5" />Limpar
+          <X className="w-3.5 h-3.5" />{t('search.clean')}
         </button>
       )}
     </>

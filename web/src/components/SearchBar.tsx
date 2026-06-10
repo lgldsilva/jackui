@@ -1,5 +1,6 @@
 import { forwardRef } from 'react'
 import { Search, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Indexer } from '../api/client'
 import IndexerMultiSelect from './IndexerMultiSelect'
 
@@ -20,14 +21,14 @@ type SearchBarProps = {
 }
 
 const CATEGORIES = [
-  { value: 'all', label: 'Todos' },
-  { value: '2000', label: 'Filmes' },
-  { value: '5000', label: 'Series' },
-  { value: '3000', label: 'Musica' },
-  { value: '4000', label: 'Jogos' },
-  { value: '4500', label: 'Software' },
-  { value: '6000', label: 'Adulto' },
-  { value: '7000', label: 'Outros' },
+  { value: 'all', labelKey: 'search.categories.all' },
+  { value: '2000', labelKey: 'search.categories.movies' },
+  { value: '5000', labelKey: 'search.categories.series' },
+  { value: '3000', labelKey: 'search.categories.music' },
+  { value: '4000', labelKey: 'search.categories.games' },
+  { value: '4500', labelKey: 'search.categories.software' },
+  { value: '6000', labelKey: 'search.categories.adult' },
+  { value: '7000', labelKey: 'search.categories.others' },
 ]
 
 const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBar({
@@ -43,6 +44,8 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
   loading,
   suggestions,
 }, ref) {
+  const { t } = useTranslation()
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       onSearch()
@@ -60,7 +63,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Buscar torrents... (pressione / para focar)"
+            placeholder={t('search.placeholder')}
             className="input-field pl-10 text-lg py-3"
             autoFocus
             list={suggestions && suggestions.length > 0 ? 'search-suggestions' : undefined}
@@ -77,11 +80,11 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
           // the backend so the indexers stop being polled.
           <button
             onClick={onStop}
-            title="Parar a busca em andamento"
+            title={t('search.stop_title')}
             className="px-6 py-3 text-lg rounded-lg font-medium flex items-center gap-2 bg-red-600 text-white hover:bg-red-500 transition-colors"
           >
             <X className="w-5 h-5" />
-            Parar
+            {t('search.stop')}
           </button>
         ) : (
           <button
@@ -90,7 +93,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
             className="btn-primary px-6 py-3 text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <Search className="w-5 h-5" />
-            Buscar
+            {t('nav.search')}
           </button>
         )}
       </div>
@@ -112,7 +115,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(function SearchBa
           >
             {CATEGORIES.map((cat) => (
               <option key={cat.value} value={cat.value}>
-                {cat.label}
+                {t(cat.labelKey)}
               </option>
             ))}
           </select>
