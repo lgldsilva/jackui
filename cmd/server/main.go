@@ -420,6 +420,8 @@ func initDownloadsStore(deps *appDeps) {
 		ResolveUsername: usernameResolver,
 		Settings:        queueSettings,
 		Jackett:         deps.jackettClient,
+		AIClient:        deps.aiClient,
+		TMDBClient:      deps.tmdbClient,
 	})
 	worker.Start()
 	deps.addCleanup(worker.Stop)
