@@ -32,16 +32,17 @@ const (
 
 // Match is the simplified view we expose to the frontend.
 type Match struct {
-	TmdbID      int     `json:"tmdbId"`
-	ImdbID      string  `json:"imdbId,omitempty"` // resolved via external_ids; persisted so we never reprocess
-	Title       string  `json:"title"`
-	Year        int     `json:"year"`
-	PosterURL   string  `json:"posterUrl"`
-	Overview    string  `json:"overview"`
-	VoteAverage float64 `json:"voteAverage"`          // TMDB community score (0-10)
-	ImdbRating  float64 `json:"imdbRating,omitempty"` // real IMDb rating via OMDb (0-10), when available
-	Kind        string  `json:"kind"`                 // "movie" | "tv"
-	Popularity  float64 `json:"popularity,omitempty"` // TMDB popularity score
+	TmdbID        int     `json:"tmdbId"`
+	ImdbID        string  `json:"imdbId,omitempty"` // resolved via external_ids; persisted so we never reprocess
+	Title         string  `json:"title"`
+	OriginalTitle string  `json:"originalTitle,omitempty"` // untranslated title — used to seed torrent search (releases use the original)
+	Year          int     `json:"year"`
+	PosterURL     string  `json:"posterUrl"`
+	Overview      string  `json:"overview"`
+	VoteAverage   float64 `json:"voteAverage"`          // TMDB community score (0-10)
+	ImdbRating    float64 `json:"imdbRating,omitempty"` // real IMDb rating via OMDb (0-10), when available
+	Kind          string  `json:"kind"`                 // "movie" | "tv"
+	Popularity    float64 `json:"popularity,omitempty"` // TMDB popularity score
 	// Trending direction vs last week's ranking: "up" | "down" | "new" | "same".
 	Direction string `json:"direction,omitempty"`
 	RankDelta int    `json:"rankDelta,omitempty"` // positions moved (absolute) vs last week
@@ -227,19 +228,26 @@ func (c *Client) setCached(key string, m *Match) {
 	`, key, payload)
 }
 
+// tmdbResult is one entry in a TMDB results page (multi/trending/discover).
+// Named (not anonymous) so adding a field doesn't break every literal that
+// builds it. original_title/original_name carry the untranslated title.
+type tmdbResult struct {
+	ID            int     `json:"id"`
+	MediaType     string  `json:"media_type"`
+	Title         string  `json:"title"`
+	Name          string  `json:"name"`
+	OriginalTitle string  `json:"original_title"` // movie: untranslated title
+	OriginalName  string  `json:"original_name"`  // tv: untranslated name
+	Overview      string  `json:"overview"`
+	PosterPath    string  `json:"poster_path"`
+	ReleaseDate   string  `json:"release_date"`
+	FirstAirDate  string  `json:"first_air_date"`
+	VoteAverage   float64 `json:"vote_average"`
+	Popularity    float64 `json:"popularity"`
+}
+
 type multiSearchResp struct {
-	Results []struct {
-		ID           int     `json:"id"`
-		MediaType    string  `json:"media_type"`
-		Title        string  `json:"title"`
-		Name         string  `json:"name"`
-		Overview     string  `json:"overview"`
-		PosterPath   string  `json:"poster_path"`
-		ReleaseDate  string  `json:"release_date"`
-		FirstAirDate string  `json:"first_air_date"`
-		VoteAverage  float64 `json:"vote_average"`
-		Popularity   float64 `json:"popularity"`
-	} `json:"results"`
+	Results []tmdbResult `json:"results"`
 }
 
 // fetchImdbID resolves the IMDb id for a TMDB movie/tv via the external_ids
@@ -453,18 +461,7 @@ func (c *Client) pickBestMatch(ctx context.Context, out *multiSearchResp) *Match
 	return nil
 }
 
-func buildMatchFromResult(r struct {
-	ID           int     `json:"id"`
-	MediaType    string  `json:"media_type"`
-	Title        string  `json:"title"`
-	Name         string  `json:"name"`
-	Overview     string  `json:"overview"`
-	PosterPath   string  `json:"poster_path"`
-	ReleaseDate  string  `json:"release_date"`
-	FirstAirDate string  `json:"first_air_date"`
-	VoteAverage  float64 `json:"vote_average"`
-	Popularity   float64 `json:"popularity"`
-}) *Match {
+func buildMatchFromResult(r tmdbResult) *Match {
 	m := &Match{
 		TmdbID:      r.ID,
 		Kind:        r.MediaType,
@@ -474,11 +471,13 @@ func buildMatchFromResult(r struct {
 	}
 	if r.MediaType == "movie" {
 		m.Title = r.Title
+		m.OriginalTitle = r.OriginalTitle
 		if y, _ := strconv.Atoi(safePrefix(r.ReleaseDate, 4)); y > 0 {
 			m.Year = y
 		}
 	} else {
 		m.Title = r.Name
+		m.OriginalTitle = r.OriginalName
 		if y, _ := strconv.Atoi(safePrefix(r.FirstAirDate, 4)); y > 0 {
 			m.Year = y
 		}

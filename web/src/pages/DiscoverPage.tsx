@@ -115,7 +115,10 @@ export default function DiscoverPage() {
   }, [year, genre])
 
   const openSearch = (m: TmdbMatch) => {
-    const q = m.year ? `${m.title} ${m.year}` : m.title
+    // Torrent releases are named by the ORIGINAL title, not the pt-BR one — seed
+    // the search with original_title, falling back to the localized title.
+    const name = m.originalTitle?.trim() || m.title
+    const q = m.year ? `${name} ${m.year}` : name
     navigate(`/?q=${encodeURIComponent(q)}`)
   }
 
