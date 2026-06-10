@@ -911,6 +911,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/file", handlers.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
 	api.GET("/local/transfer-status", handlers.LocalTransferStatus(deps.localBrowser, deps.localStream))
 	api.POST("/local/cache", handlers.LocalCacheStart(deps.localBrowser, deps.localCache))
+	api.POST("/local/cache/folder", handlers.LocalCacheFolder(deps.localBrowser, deps.localCache))
 	api.GET("/local/cache/status", handlers.LocalCacheStatus(deps.localBrowser, deps.localCache))
 	api.DELETE("/local/cache", handlers.LocalCacheDelete(deps.localBrowser, deps.localCache))
 	api.GET("/local/thumb", handlers.LocalThumb(deps.localBrowser))
