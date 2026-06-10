@@ -39,6 +39,6 @@ func RedactingLogFormatter(p gin.LogFormatterParams) string {
 		p.ClientIP,
 		p.Method,
 		RedactToken(p.Path),
-		p.ErrorMessage,
+		RedactToken(p.ErrorMessage),
 	)
 }

@@ -83,6 +83,7 @@ func TestDurationRetryUnlocksVODOnNextSession(t *testing.T) {
 func TestStopCancelsDurationRetry(t *testing.T) {
 	stubCaps(t)
 	m := lifecycleManager(t)
+	m.SetVODMode(VODAll) // retry only fires when VOD is enabled (mode != off)
 	calls := stubProbe(t, 150*time.Millisecond, func(int32) float64 { return 0 })
 
 	s, err := m.GetOrStart(context.Background(), HLSStartOpts{
@@ -108,6 +109,7 @@ func TestStopCancelsDurationRetry(t *testing.T) {
 func TestDurationRetryGivesUpAfterMaxAttempts(t *testing.T) {
 	stubCaps(t)
 	m := lifecycleManager(t)
+	m.SetVODMode(VODAll) // retry only fires when VOD is enabled (mode != off)
 	calls := stubProbe(t, 10*time.Millisecond, func(int32) float64 { return 0 })
 
 	s, err := m.GetOrStart(context.Background(), HLSStartOpts{
@@ -129,5 +131,26 @@ func TestDurationRetryGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 	if got := m.cachedDuration("raw3"); got != 0 {
 		t.Fatalf("cachedDuration=%v want 0 (all probes failed)", got)
+	}
+}
+
+// With VOD disabled entirely a session can never become VOD, so the background
+// re-probe must not fire — only the startup probe runs.
+func TestDurationRetrySkippedWhenVODOff(t *testing.T) {
+	stubCaps(t)
+	m := lifecycleManager(t)
+	calls := stubProbe(t, 10*time.Millisecond, func(int32) float64 { return 0 })
+
+	s, err := m.GetOrStart(context.Background(), HLSStartOpts{
+		Key: "raw4", Source: &fakeSource{}, SourceSize: 1,
+	})
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	defer m.Close(s.Key)
+
+	time.Sleep(150 * time.Millisecond) // would catch a retry attempt
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("probe calls=%d want 1 (startup only — no retry with VOD off)", got)
 	}
 }
