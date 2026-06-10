@@ -73,7 +73,7 @@ func (b *Browser) Mounts() []Mount {
 // MountsFor returns mounts visible to the given username.
 // Empty username = only public mounts (AllowedUsers empty).
 func (b *Browser) MountsFor(username string) []Mount {
-	mounts := b.snapshot()
+	mounts := dedupePreferRestricted(b.snapshot())
 	out := make([]Mount, 0, len(mounts))
 	for _, m := range mounts {
 		visible := len(m.AllowedUsers) == 0
@@ -89,6 +89,28 @@ func (b *Browser) MountsFor(username string) []Mount {
 			continue
 		}
 		out = append(out, Mount{Name: m.Name, Path: m.Path, UserSubpath: m.UserSubpath, Restricted: len(m.AllowedUsers) > 0})
+	}
+	return out
+}
+
+// dedupePreferRestricted collapses duplicate mount names (defense in depth —
+// config-level dedupe should prevent them, but a stray twin must never WIDEN
+// visibility): when two entries share a name, the restricted one (AllowedUsers
+// non-empty) wins over an unrestricted duplicate.
+func dedupePreferRestricted(mounts []config.ExternalMount) []config.ExternalMount {
+	byName := make(map[string]int, len(mounts))
+	out := make([]config.ExternalMount, 0, len(mounts))
+	for _, m := range mounts {
+		key := strings.ToLower(strings.TrimSpace(m.Name))
+		idx, dup := byName[key]
+		if !dup {
+			byName[key] = len(out)
+			out = append(out, m)
+			continue
+		}
+		if len(out[idx].AllowedUsers) == 0 && len(m.AllowedUsers) > 0 {
+			out[idx] = m
+		}
 	}
 	return out
 }

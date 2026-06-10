@@ -34,9 +34,17 @@ func MountsUpdate(cfg *config.Config, configPath string, browser *local.Browser)
 			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			return
 		}
+		// Snapshot → mutate → Save. On a Save failure the in-memory config is
+		// ROLLED BACK so GET /api/mounts keeps reporting what is actually
+		// persisted (and the browser is never updated with unsaved state).
+		old := cfg.External.Mounts
 		cfg.External.Mounts = mounts
 		if err := cfg.Save(configPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
+			cfg.External.Mounts = old
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "failed to save config: " + err.Error() +
+					" — nada foi alterado; o config.yaml precisa ser gravável pelo uid do container (ajuste dono/permissão no host)",
+			})
 			return
 		}
 		if browser != nil {
