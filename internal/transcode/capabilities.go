@@ -207,6 +207,16 @@ func ResetCachedForTesting() {
 	cacheMu.Unlock()
 }
 
+// SetCachedForTesting injeta uma matriz de capabilities fake (ex.: um script
+// stub no lugar do ffmpeg) para testes — inclusive de OUTROS pacotes — que
+// precisam iniciar sessões HLS sem probar o host. Parear com
+// ResetCachedForTesting no cleanup.
+func SetCachedForTesting(c *Capabilities) {
+	cacheMu.Lock()
+	cached = c
+	cacheMu.Unlock()
+}
+
 // Cached returns the last probe result without re-running it. nil if never probed.
 func Cached() *Capabilities {
 	cacheMu.RLock()

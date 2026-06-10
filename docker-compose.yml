@@ -68,6 +68,11 @@ services:
       # Jackett/Ollama. The piece cache (DataDir) stays on the LVM.
       - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
+      # HLS VOD finito (seekbar): off | hlsjs | all. Vazio = "all" (VOD para
+      # TODOS os clientes, Safari/iOS nativo incluso — causa raiz do stall #61
+      # corrigida). Rollback instantâneo se o Safari regredir: defina
+      # JACKUI_HLS_VOD_MODE=hlsjs no .env (Chrome/Firefox mantêm o seekbar).
+      - JACKUI_HLS_VOD_MODE=${JACKUI_HLS_VOD_MODE:-}
       # Fuso do processo. O scheduler de banda (bandwidth_schedules) compara as
       # janelas HH:MM com a hora LOCAL do container — sem TZ ele roda em UTC e
       # uma janela "23:00-06:00" pensada em Brasília vale 3h adiantada. tzdata

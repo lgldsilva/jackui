@@ -103,6 +103,26 @@ func shouldVOD(durationSec float64, forceVOD bool, mode VODMode, nativeHLS bool)
 	return durationSec > 0 && (forceVOD || mode.allows(nativeHLS))
 }
 
+// vodReason names why a session is NOT entering VOD, for the startup log. The
+// recurring production question is "why did this client get EVENT?" and the
+// answer used to be invisible — vod=false could mean a failed probe OR the
+// policy excluding Safari. Pure mirror of shouldVOD's conditions; only
+// meaningful when shouldVOD returned false (returns "" otherwise).
+func vodReason(durationSec float64, forceVOD bool, mode VODMode, nativeHLS bool) string {
+	switch {
+	case durationSec <= 0:
+		return "no-duration"
+	case forceVOD:
+		return "" // forced VOD with a known duration never falls to EVENT
+	case mode == VODOff:
+		return "mode-off"
+	case mode == VODHLSJS && nativeHLS:
+		return "mode-hlsjs-native"
+	default:
+		return ""
+	}
+}
+
 // EffectiveKey maps a raw content key to the session key actually used. When
 // VOD is off the key is unchanged (one shared EVENT session per content, zero
 // behaviour change). When VOD is on, VOD-eligible and non-eligible clients are
@@ -179,6 +199,10 @@ type HLSSession struct {
 	// seekable pipe — fatal for MP4 sources whose `moov` atom is at the END
 	// of the file, since pipe input has no way to seek back to read it.
 	sourceSrv *http.Server
+	// retryCancel stops the background duration re-probe of an EVENT session
+	// born with an unknown duration (see retryDuration). Called by stop() so a
+	// reaped session never leaks the goroutine.
+	retryCancel context.CancelFunc
 }
 
 // NewHLSManager constructs a manager rooted at baseDir/hls/. The directory
@@ -506,6 +530,48 @@ func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) flo
 		return 0
 	}
 	return d
+}
+
+// durationProbeFn matches probeDurationSeekable so tests can stub the probe.
+type durationProbeFn func(ctx context.Context, ffmpegPath, inputURL string) float64
+
+// Background re-probe schedule for sessions born EVENT because the startup
+// duration probe failed/timed out. Package vars (not consts) so tests can
+// shorten the backoff and stub the probe without spawning real ffprobes.
+// buildSession snapshots them on the caller's goroutine and passes them to
+// retryDuration BY VALUE — the goroutine must not read these vars directly or
+// it races a test cleanup restoring them.
+var (
+	durationRetryAttempts = 2
+	durationRetryBackoff  = 15 * time.Second
+	probeDurationFn       durationProbeFn = probeDurationSeekable
+)
+
+// retryDuration re-probes the duration of a session that was born EVENT
+// because the startup probe came up empty (slow swarm: the moov/Cues tail
+// wasn't downloadable within the 30s probe window). On success the value
+// lands in the manager's per-content duration cache, so the NEXT session of
+// the same raw key (re-play or respawn after reap) is born VOD with a seekbar.
+// The CURRENT session deliberately stays EVENT: switching
+// EXT-X-PLAYLIST-TYPE mid-session violates the HLS spec (RFC 8216 — the type
+// is immutable for the playlist's lifetime) and players don't re-evaluate it.
+//
+// The probe reuses the session's live loopback inputURL — the session owns
+// its Source, and opening a second reader over the same torrent file would
+// fight the encoder for the single cursor (see readSeekerContent).
+func (m *HLSSessionManager) retryDuration(ctx context.Context, s *HLSSession, rawKey string, attempts int, backoff time.Duration, probe durationProbeFn) {
+	for attempt := 1; attempt <= attempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if dur := probe(ctx, s.spec.ffmpegPath, s.spec.inputURL); dur > 0 {
+			m.cacheDuration(rawKey, dur)
+			log.Printf("hls: background re-probe got duration=%.1fs for %s (attempt %d) — next session of this content enters VOD", dur, s.Key, attempt)
+			return
+		}
+	}
 }
 
 // hlsSegDur is the fixed segment length in seconds. With forced keyframes
@@ -865,6 +931,27 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	return s, nil
 }
 
+// resolveDuration determines the total media duration for a new session.
+// Prefer a value the caller already probed (KnownDurationSec, set by the
+// local-file path), then the per-content cache (a re-created session reuses
+// it), and only then run the 30s seekable probe. The probe also pulls the
+// moov/Cues tail into the torrent cache — but ffmpeg reads through the same
+// Range-capable source, so skipping it just defers that fetch to ffmpeg, not
+// a correctness loss. A non-zero result unlocks VOD; 0 means unknown (EVENT).
+func (m *HLSSessionManager) resolveDuration(ctx context.Context, effKey string, opts HLSStartOpts, ffmpegPath, inputURL string) float64 {
+	if opts.KnownDurationSec > 0 {
+		log.Printf("hls: using known duration=%.1fs for session %s", opts.KnownDurationSec, effKey)
+		return opts.KnownDurationSec
+	}
+	if cached := m.cachedDuration(opts.Key); cached > 0 {
+		log.Printf("hls: using cached duration=%.1fs for session %s", cached, effKey)
+		return cached
+	}
+	durationSec := probeDurationFn(ctx, ffmpegPath, inputURL)
+	log.Printf("hls: probed duration=%.1fs for session %s (0 = unknown → EVENT fallback)", durationSec, effKey)
+	return durationSec
+}
+
 // buildSession does the slow part of GetOrStart (loopback server, duration
 // probe, ffmpeg launch) outside the manager lock. The caller holds the
 // `starting` slot for effKey, so exactly one build runs per key.
@@ -915,25 +1002,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	go func() { _ = srv.Serve(listener) }()
 	inputURL := fmt.Sprintf("http://%s/source", listener.Addr().String())
 
-	// Determine the total duration. Prefer a value the caller already probed
-	// (KnownDurationSec, set by the local-file path), then the per-content cache
-	// (a re-created session reuses it), and only then run the 30s seekable probe.
-	// The probe also pulls the moov/Cues tail into the torrent cache — but ffmpeg
-	// reads through the same Range-capable source, so skipping it just defers that
-	// fetch to ffmpeg, not a correctness loss. A non-zero result unlocks VOD.
-	durationSec := opts.KnownDurationSec
-	switch {
-	case durationSec > 0:
-		log.Printf("hls: using known duration=%.1fs for session %s", durationSec, effKey)
-	default:
-		if cached := m.cachedDuration(opts.Key); cached > 0 {
-			durationSec = cached
-			log.Printf("hls: using cached duration=%.1fs for session %s", durationSec, effKey)
-		} else {
-			durationSec = probeDurationSeekable(ctx, caps.FFmpegPath, inputURL)
-			log.Printf("hls: probed duration=%.1fs for session %s (0 = unknown → EVENT fallback)", durationSec, effKey)
-		}
-	}
+	durationSec := m.resolveDuration(ctx, effKey, opts, caps.FFmpegPath, inputURL)
 	m.cacheDuration(opts.Key, durationSec)
 
 	// Encoding flags live in encodeSpec.args so seek-restart can rebuild them.
@@ -957,11 +1026,27 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		},
 	}
 
-	log.Printf("hls: starting session %s (vod=%v)", effKey, s.spec.vod)
+	reason := ""
+	if !vod {
+		reason = " reason=" + vodReason(durationSec, opts.ForceVOD, m.vodMode, opts.NativeHLS)
+	}
+	log.Printf("hls: starting session %s (vod=%v%s)", effKey, s.spec.vod, reason)
 	if err := s.launch(0); err != nil {
 		_ = srv.Close()
 		_ = os.RemoveAll(dir)
 		return nil, err
+	}
+
+	if durationSec <= 0 {
+		// Born EVENT only because the probe failed — re-probe in background so
+		// the duration cache is warm for the next session (started AFTER launch:
+		// a failed build tears the loopback server down). Detached from the
+		// request ctx on purpose; stop() cancels it via retryCancel.
+		retryCtx, cancel := context.WithCancel(context.Background())
+		s.mu.Lock()
+		s.retryCancel = cancel
+		s.mu.Unlock()
+		go m.retryDuration(retryCtx, s, opts.Key, durationRetryAttempts, durationRetryBackoff, probeDurationFn)
 	}
 
 	return s, nil
@@ -1063,7 +1148,11 @@ func (s *HLSSession) stop() {
 	already := s.closed
 	s.dead = true
 	cancel, cmd, srv, src := s.Cancel, s.Cmd, s.sourceSrv, s.source
+	retryCancel := s.retryCancel
 	s.mu.Unlock()
+	if retryCancel != nil {
+		retryCancel() // halt the background duration re-probe, if any
+	}
 	if cancel != nil {
 		cancel()
 	}
