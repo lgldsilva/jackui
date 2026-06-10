@@ -606,7 +606,7 @@ export default function SearchPage() {
   // at apply time so an in-flight search is never overwritten.
   const applyRehydrated = useCallback((tabId: string, query: string, results: SearchResult[]) => {
     setTabs(prev => prev.map(t =>
-      canApplyRehydrated(t, tabId, query) ? { ...t, results, phase: 'done' as SearchPhase } : t))
+      canApplyRehydrated(t, tabId, query) ? { ...t, results, phase: 'done' } : t))
   }, [])
   useRehydratedResults(tabs, activeTab.id, applyRehydrated)
 

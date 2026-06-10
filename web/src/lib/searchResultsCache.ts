@@ -79,7 +79,8 @@ export function clearTabResults(): void {
 // miss harmless, and >8 result-bearing tabs is already pathological.
 export function syncTabsToCache(tabs: readonly SyncableTab[]): void {
   const alive = new Set(tabs.map(t => t.id))
-  for (const id of [...cache.keys()]) {
+  // Deleting the current entry while iterating a Map is well-defined in JS.
+  for (const id of cache.keys()) {
     if (!alive.has(id)) cache.delete(id)
   }
   for (const t of tabs) {
