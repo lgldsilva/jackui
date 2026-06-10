@@ -52,7 +52,11 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
     } catch { /* surfaced on next poll */ }
   }
 
-  if (!loc) return null
+  // Hide entirely for files that don't need caching: a bad hash, or a file
+  // already on local disk (cacheable=false — only rclone/NFS/CIFS mounts get
+  // the button). We wait for the first status fetch before showing anything,
+  // so a local file never flashes a pointless "Cachear" button.
+  if (!loc || !st?.cacheable) return null
 
   const status = st?.status ?? 'none'
   const busy = status === 'queued' || status === 'copying'
