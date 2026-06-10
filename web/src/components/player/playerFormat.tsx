@@ -47,6 +47,52 @@ export const FILE_EXTRA_RE = (() => {
 })()
 export const FILE_AUDIO_RE = /\.(mp3|flac|m4a|aac|ogg|wav|opus|alac|wma)$/i
 
+// parseEpisodeTag extracts a normalised SxxEyy label from a filename, or null.
+// Single source for the player + sidebar so both agree on what an "episode" is.
+export function parseEpisodeTag(path: string): string | null {
+  const m = /[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/.exec(path)
+  if (m) return `S${m[1].padStart(2, '0')}E${m[2].padStart(2, '0')}`
+  return null
+}
+
+export type SortableFile = { index: number; path: string; size: number; isVideo?: boolean }
+
+export type FileDisplayOpts = {
+  filter: string
+  typeFilter: FileType
+  sortBySize: boolean
+  sizeDesc: boolean
+}
+
+// filterAndSortFiles is THE display order of the player's file list. The
+// sidebar renders it and the prev/next media queue follows it — keeping them
+// on the same function is what makes the next button agree with the list the
+// user is looking at (torrents rarely store episodes in file order).
+export function filterAndSortFiles<T extends SortableFile>(files: readonly T[], opts: FileDisplayOpts): T[] {
+  const filterLower = opts.filter.trim().toLowerCase()
+  const matches = (f: T) =>
+    !filterLower ||
+    f.path.toLowerCase().includes(filterLower) ||
+    (parseEpisodeTag(f.path) || '').toLowerCase().includes(filterLower)
+  return files
+    .filter(f => matches(f))
+    .filter(f => opts.typeFilter === 'all' || fileType(f) === opts.typeFilter)
+    .slice()
+    .sort((a, b) => {
+      if (opts.sortBySize) {
+        if (a.size !== b.size) return opts.sizeDesc ? b.size - a.size : a.size - b.size
+        return a.index - b.index
+      }
+      const ax = FILE_EXTRA_RE.test(a.path), bx = FILE_EXTRA_RE.test(b.path)
+      if (ax !== bx) return ax ? 1 : -1
+      const ae = parseEpisodeTag(a.path), be = parseEpisodeTag(b.path)
+      if (ae && be) return ae.localeCompare(be)
+      if (ae) return -1
+      if (be) return 1
+      return a.index - b.index
+    })
+}
+
 export function audioTrackTitle(a: MediaTrack): string {
   let t = a.title || a.codec
   if (a.channels) t += ` (${a.channels}ch)`

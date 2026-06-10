@@ -1,4 +1,4 @@
-import { ListVideo } from 'lucide-react'
+import { ListVideo, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { MediaChapter } from '../../api/client'
 
 type ChaptersPanelProps = {
@@ -17,6 +17,59 @@ export function activeChapterIndex(chapters: MediaChapter[], currentTime: number
     else break
   }
   return active
+}
+
+// chapterSeekTargets resolves where the prev/next chapter buttons land from
+// the current position. "Prev" follows the convention every player uses: more
+// than `backThreshold` seconds into a chapter goes back to ITS start; right at
+// the start goes to the previous chapter. null = no target (edge reached).
+export function chapterSeekTargets(
+  chapters: MediaChapter[],
+  currentTime: number,
+  backThreshold = 3,
+): { prevSec: number | null; nextSec: number | null } {
+  if (!chapters.length) return { prevSec: null, nextSec: null }
+  const active = activeChapterIndex(chapters, currentTime)
+  const nextSec = active < chapters.length - 1 ? chapters[active + 1].startSec : null
+  let prevSec: number | null = null
+  if (active >= 0) {
+    const intoChapter = currentTime - chapters[active].startSec
+    if (intoChapter > backThreshold) prevSec = chapters[active].startSec
+    else if (active > 0) prevSec = chapters[active - 1].startSec
+    else prevSec = chapters[0].startSec === 0 && currentTime <= backThreshold ? null : chapters[0].startSec
+  }
+  return { prevSec, nextSec }
+}
+
+// ChapterNavButtons — compact prev/next chapter controls for the transport
+// row. Rendered only when the probe found more than one chapter.
+export function ChapterNavButtons({ chapters, currentTime, onSeek }: {
+  readonly chapters: MediaChapter[]
+  readonly currentTime: number
+  readonly onSeek: (sec: number) => void
+}) {
+  const { prevSec, nextSec } = chapterSeekTargets(chapters, currentTime)
+  const btn = 'flex items-center text-sm sm:text-xs bg-surface-tertiary hover:bg-surface-secondary text-text-secondary hover:text-text-primary border border-default px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0'
+  return (
+    <>
+      <button
+        onClick={() => { if (prevSec !== null) onSeek(prevSec) }}
+        disabled={prevSec === null}
+        title="Capítulo anterior"
+        className={btn}
+      >
+        <ChevronsLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+      </button>
+      <button
+        onClick={() => { if (nextSec !== null) onSeek(nextSec) }}
+        disabled={nextSec === null}
+        title="Próximo capítulo"
+        className={btn}
+      >
+        <ChevronsRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+      </button>
+    </>
+  )
 }
 
 // ChaptersPanel lists embedded chapter markers and seeks the <video> on click.
