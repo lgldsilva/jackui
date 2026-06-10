@@ -15,6 +15,9 @@ import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
 import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
+import { getTabResults, mergeCachedResults, syncTabsToCache } from '../lib/searchResultsCache'
+import type { SearchPhase } from '../lib/searchResultsCache'
+import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { buildSeriesLayout } from '../lib/seriesGroup'
 import { isIncognito } from '../lib/incognito'
@@ -71,7 +74,6 @@ type PersistedTab = {
   codecGroup: string
 }
 
-type SearchPhase = 'idle' | 'cache' | 'live' | 'done' | 'error'
 type ResultSortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'age'
 
 type TabState = {
@@ -143,7 +145,9 @@ function hydrateTabs(): { tabs: TabState[]; activeId: string } {
   const tabs = persisted.map(p => {
     const t = { ...newTab(p.id), ...p, onlyPlayable: false }
     if (!migrated && t.minSeeders < 1) t.minSeeders = 1
-    return t
+    // localStorage never stores results — pull them back from the in-memory
+    // cache (same tab id + same query) so SPA navigation keeps the search.
+    return mergeCachedResults(t, getTabResults(t.id))
   })
   if (!migrated) save(FILTER_MIGRATION_KEY, true)
   const savedActive = load<string>(ACTIVE_KEY, '')
@@ -412,6 +416,12 @@ export default function SearchPage() {
     }
   }, [tabs, activeId])
 
+  // Mirror results into the in-memory cache (survives SPA navigation — the
+  // localStorage persistence above intentionally drops them). The sync also
+  // evicts entries of closed tabs and of tabs whose results were cleared.
+  // Runs in incognito too: it never touches localStorage.
+  useEffect(() => { syncTabsToCache(tabs) }, [tabs])
+
   // Reset visible count when active tab or its filters change
   useEffect(() => { setVisible(PAGE_SIZE) }, [activeId])
 
@@ -605,6 +615,16 @@ export default function SearchPage() {
 
   const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0]
   const isSearching = activeTab.phase === 'cache' || activeTab.phase === 'live'
+
+  // Post-reload: the in-memory cache is gone, so a restored tab has a query
+  // but no results. Quietly refill the active one from the backend search
+  // cache (no live Jackett hit). The guard re-checks the tab at apply time so
+  // an in-flight search is never overwritten.
+  const applyRehydrated = useCallback((tabId: string, query: string, results: SearchResult[]) => {
+    setTabs(prev => prev.map(t =>
+      canApplyRehydrated(t, tabId, query) ? { ...t, results, phase: 'done' as SearchPhase } : t))
+  }, [])
+  useRehydratedResults(activeTab.id, activeTab.query, activeTab.phase, activeTab.results.length, applyRehydrated)
 
   // Mobile gesture: horizontal swipe over the content switches search tabs
   // (left = next, right = previous). Edge band is reserved (ignoreEdgePx) so a
