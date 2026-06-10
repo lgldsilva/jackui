@@ -39,7 +39,8 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 		CREATE TABLE IF NOT EXISTS benchmark_case (
 			id     INTEGER PRIMARY KEY AUTOINCREMENT,
 			raw    TEXT NOT NULL,
-			expect TEXT NOT NULL
+			expect TEXT NOT NULL,
+			origin TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE IF NOT EXISTS benchmark_setting (
 			key   TEXT PRIMARY KEY,
@@ -53,6 +54,7 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 	// "duplicate column" error on an already-migrated DB is expected and ignored.
 	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN incomplete INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN cost_per_1m REAL NOT NULL DEFAULT 0`)
+	_, _ = db.Exec(`ALTER TABLE benchmark_case ADD COLUMN origin TEXT NOT NULL DEFAULT ''`)
 	return &BenchmarkStore{db: db}, nil
 }
 
@@ -131,7 +133,7 @@ func (s *BenchmarkStore) Cases() []BenchmarkCase {
 	if s == nil {
 		return DefaultBenchmarkCases
 	}
-	rows, err := s.db.Query(`SELECT raw, expect FROM benchmark_case ORDER BY id`)
+	rows, err := s.db.Query(`SELECT raw, expect, origin FROM benchmark_case ORDER BY id`)
 	if err != nil {
 		return DefaultBenchmarkCases
 	}
@@ -139,11 +141,17 @@ func (s *BenchmarkStore) Cases() []BenchmarkCase {
 	var out []BenchmarkCase
 	for rows.Next() {
 		var bc BenchmarkCase
-		if rows.Scan(&bc.Raw, &bc.Expect) == nil {
+		if rows.Scan(&bc.Raw, &bc.Expect, &bc.Origin) == nil {
 			out = append(out, bc)
 		}
 	}
 	if len(out) == 0 {
+		_ = s.SetCases(DefaultBenchmarkCases)
+		return DefaultBenchmarkCases
+	}
+	// Upgrade path: a store still holding the original 7-case seed untouched gets
+	// the new, much broader default set. Any user-edited set is left alone.
+	if isLegacySeed(out) {
 		_ = s.SetCases(DefaultBenchmarkCases)
 		return DefaultBenchmarkCases
 	}
@@ -164,7 +172,7 @@ func (s *BenchmarkStore) SetCases(cases []BenchmarkCase) error {
 		if bc.Raw == "" {
 			continue
 		}
-		if _, err := tx.Exec(`INSERT INTO benchmark_case(raw, expect) VALUES(?, ?)`, bc.Raw, bc.Expect); err != nil {
+		if _, err := tx.Exec(`INSERT INTO benchmark_case(raw, expect, origin) VALUES(?, ?, ?)`, bc.Raw, bc.Expect, bc.Origin); err != nil {
 			return err
 		}
 	}
