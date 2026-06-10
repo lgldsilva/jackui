@@ -50,6 +50,12 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
   const reclaimable = groups.reduce((sum, g) =>
     sum + g.files.filter(f => selected.has(f.path)).reduce((s, f) => s + f.size, 0), 0)
 
+  // Footer summary — built without a nested ternary (Sonar S3358).
+  const plural = selected.size === 1 ? '' : 's'
+  const selectionSummary = selected.size > 0
+    ? `${selected.size} selecionado${plural} · libera ${formatSize(reclaimable)}`
+    : 'Nenhum selecionado'
+
   const doDelete = async () => {
     if (selected.size === 0) return
     setDeleting(true)
@@ -74,9 +80,7 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
       footer={
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-text-secondary">
-            {selected.size > 0
-              ? `${selected.size} selecionado${selected.size === 1 ? '' : 's'} · libera ${formatSize(reclaimable)}`
-              : 'Nenhum selecionado'}
+            {selectionSummary}
           </span>
           <button
             onClick={doDelete}
@@ -151,6 +155,7 @@ function GroupCard({ group, selected, onToggle }: {
               type="checkbox"
               checked={selected.has(f.path)}
               onChange={() => onToggle(f.path)}
+              aria-label={`Selecionar cópia ${f.name}`}
               className="flex-shrink-0 accent-red-500"
             />
             <div className="min-w-0 flex-1">

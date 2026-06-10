@@ -333,7 +333,10 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		if !ok {
 			return
 		}
-		sess, err := startLocalHLSSession(c, mgr, reg, mount, scoped, abs, stat, nativeHLSParam(c), knownDur)
+		sess, err := startLocalHLSSession(c, mgr, reg, localHLSSource{
+			mount: mount, path: scoped, abs: abs, stat: stat,
+			nativeHLS: nativeHLSParam(c), knownDur: knownDur,
+		})
 		if err != nil {
 			return
 		}
@@ -380,9 +383,20 @@ func resolveLocalFileStat(b *local.Browser, mount, path string) (string, os.File
 	return abs, stat, nil
 }
 
-func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, mount, path, abs string, stat os.FileInfo, nativeHLS bool, knownDur float64) (*transcode.HLSSession, error) {
-	key := localSessionKey(mount, path)
-	f, oerr := os.Open(abs)
+// localHLSSource bundles everything needed to start a local-file HLS session:
+// where the file lives (mount/path key it under, abs is what we open), its stat
+// (size), and the per-request transcode hints (native HLS client, known
+// duration). Grouped into a struct to keep startLocalHLSSession's signature lean.
+type localHLSSource struct {
+	mount, path, abs string
+	stat             os.FileInfo
+	nativeHLS        bool
+	knownDur         float64
+}
+
+func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, src localHLSSource) (*transcode.HLSSession, error) {
+	key := localSessionKey(src.mount, src.path)
+	f, oerr := os.Open(src.abs)
 	if oerr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
 		return nil, oerr
@@ -392,13 +406,13 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	// from aligned read-ahead on slow mounts. The registry owns the handle and
 	// reaps it when ffmpeg stops pulling (it outlives this request). The metering
 	// key (transferKeyHLS == key+"-hls") is what /local/transfer-status looks up.
-	source, meterKey := mountSource(reg, key+"-hls", f, stat.Size())
+	source, meterKey := mountSource(reg, key+"-hls", f, src.stat.Size())
 	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
 		Key:              key,
 		Source:           source,
-		SourceSize:       stat.Size(),
-		NativeHLS:        nativeHLS,
-		KnownDurationSec: knownDur,
+		SourceSize:       src.stat.Size(),
+		NativeHLS:        src.nativeHLS,
+		KnownDurationSec: src.knownDur,
 	})
 	if err != nil {
 		closeSource(reg, meterKey, source, f)

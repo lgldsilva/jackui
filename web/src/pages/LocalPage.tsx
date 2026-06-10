@@ -1010,7 +1010,8 @@ export default function LocalPage() {
               path={path}
               onClose={() => setShowDuplicates(false)}
               onDeleted={(n) => {
-                setNotice(n > 0 ? `${n} duplicado${n === 1 ? '' : 's'} removido${n === 1 ? '' : 's'}.` : 'Nenhum arquivo removido.')
+                const s = n === 1 ? '' : 's' // evita ternário aninhado (Sonar S3358)
+                setNotice(n > 0 ? `${n} duplicado${s} removido${s}.` : 'Nenhum arquivo removido.')
                 refresh()
               }}
             />
