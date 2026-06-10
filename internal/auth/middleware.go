@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -70,9 +71,36 @@ func AdminOnly() gin.HandlerFunc {
 	}
 }
 
+// guestViewerPath matches the player's viewer-lease route ONLY for a real
+// 40-hex infohash — a plain "/viewer" suffix check would also match
+// DELETE /api/stream/favorite/viewer (a favourite named "viewer").
+var guestViewerPath = regexp.MustCompile(`^/api/stream/[0-9a-fA-F]{40}/viewer$`)
+
+// guestStreamAllowed lists the ONLY mutating /api/stream endpoints a guest may
+// call — the ones playback itself needs. Everything else under /api/stream
+// (cache clear, torrent drop, favourites, folders, import, limits,
+// pause/resume, priority) is destructive or global and stays blocked for a
+// read-only role. A bare prefix exception here once let guests wipe the whole
+// piece cache and delete shared favourites.
+func guestStreamAllowed(method, path string) bool {
+	switch method {
+	case http.MethodPost:
+		return path == "/api/stream/add" ||
+			path == "/api/stream/add-file" ||
+			strings.HasPrefix(path, "/api/stream/prefetch/") ||
+			(strings.HasPrefix(path, "/api/stream/art/") && strings.HasSuffix(path, "/resolve")) ||
+			guestViewerPath.MatchString(path)
+	case http.MethodDelete:
+		// Closing the viewer lease on player exit.
+		return guestViewerPath.MatchString(path)
+	default:
+		return false
+	}
+}
+
 // GuestRestrict blocks mutating methods (POST, DELETE, PUT, PATCH) for guests.
-// The only exception is /api/stream/* — playing a torrent legitimately POSTs to
-// add it to the swarm. /api/local/file is NOT exempt: its only mutating method
+// Playback-only mutations under /api/stream are allowlisted via
+// guestStreamAllowed. /api/local/file is NOT exempt: its only mutating method
 // is DELETE (LocalDelete), which a read-only guest must never reach. GET on any
 // media route is already unaffected (it isn't a mutating method).
 func GuestRestrict() gin.HandlerFunc {
@@ -85,8 +113,7 @@ func GuestRestrict() gin.HandlerFunc {
 		if claims.Role == RoleGuest {
 			method := c.Request.Method
 			if method == http.MethodPost || method == http.MethodDelete || method == http.MethodPut || method == http.MethodPatch {
-				path := c.Request.URL.Path
-				if strings.HasPrefix(path, "/api/stream/") {
+				if guestStreamAllowed(method, c.Request.URL.Path) {
 					c.Next()
 					return
 				}
