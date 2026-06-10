@@ -50,7 +50,7 @@ export function EmbeddedTracksPanel({
             <Volume2 className="w-3 h-3" />
             Faixas de áudio ({probe.audio.length})
             {transcodeAudio !== null && (
-              <span className="text-[10px] text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] text-purple-700 dark:text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
                 <Cpu className="w-2.5 h-2.5 inline mr-0.5" />GPU encoding
               </span>
             )}
@@ -60,7 +60,7 @@ export function EmbeddedTracksPanel({
               onClick={() => setTranscodeAudio(null)}
               className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                 transcodeAudio === null
-                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                  ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30'
                   : 'bg-surface-secondary text-text-muted border-default hover:text-text-primary'
               }`}
               title="Faixa padrão do arquivo (direct play, com seek completo)"
@@ -73,7 +73,7 @@ export function EmbeddedTracksPanel({
                 onClick={() => setTranscodeAudio(a.index)}
                 title={audioTrackTitle(a)}
                 className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
-                  if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                  if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
                   if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
                   return 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
                 })()}`}
@@ -94,7 +94,7 @@ export function EmbeddedTracksPanel({
           title="Re-encoda vídeo para H.264 — útil quando o codec original é HEVC e o browser não decodifica"
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
             forceH264
-              ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+              ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
               : 'bg-surface-tertiary/50 text-text-secondary border-default hover:text-text-primary'
           }`}
         >
@@ -146,7 +146,7 @@ export function EmbeddedTracksPanel({
                 title={s.path}
                 className={`text-[11px] px-2 py-1 rounded border transition-colors ${
                   sidecarIdx === s.index
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
                     : 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
                 }`}
               >
@@ -165,7 +165,7 @@ export function EmbeddedTracksPanel({
             <Subtitles className="w-3 h-3" />
             Legendas embutidas ({probe.subtitles.length})
             {burnSubTrack !== null && (
-              <span className="text-[10px] text-orange-300 bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] text-orange-700 dark:text-orange-300 bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 rounded">
                 <Flame className="w-2.5 h-2.5 inline mr-0.5" />Burn-in
               </span>
             )}

@@ -162,7 +162,7 @@ export default function StreamCacheCard() {
             <button
               onClick={handleClearAll}
               disabled={busy}
-              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 transition-colors disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Limpar tudo
@@ -240,7 +240,7 @@ export default function StreamCacheCard() {
               }}
               className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border transition-colors ${
                 sortBy === col
-                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                  ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40'
                   : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary'
               }`}
             >
@@ -292,7 +292,7 @@ export default function StreamCacheCard() {
                     onClick={() => handlePlay(e.infoHash!, e.path)}
                     disabled={busy}
                     title="Reproduzir — reativa o torrent se necessário"
-                    className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
                     <span className="hidden sm:inline">Play</span>

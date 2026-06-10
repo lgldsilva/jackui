@@ -39,7 +39,7 @@ export function ChaptersPanel({ chapters, currentTime, onSeek, formatTime }: Cha
             title={`Ir para ${formatTime(ch.startSec)}`}
             className={`flex items-center gap-2 text-left text-[11px] px-2 py-1 rounded border transition-colors ${
               i === activeIdx
-                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30'
                 : 'bg-surface-secondary text-text-secondary border-default hover:text-text-primary'
             }`}
           >

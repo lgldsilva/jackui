@@ -697,7 +697,7 @@ export default function DownloadsPage() {
                   onClick={doResumeAll}
                   disabled={bulkBusy}
                   title="Iniciar todos os downloads e torrents pausados"
-                  className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                  className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <Play className="w-3 h-3" /> Iniciar todos
                 </button>
@@ -714,7 +714,7 @@ export default function DownloadsPage() {
                     onClick={doRemoveCompleted}
                     disabled={bulkBusy}
                     title="Remover da fila todos os downloads concluídos (arquivos não são apagados)"
-                    className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                    className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-3 h-3" /> Remover concluídos
                   </button>
@@ -754,7 +754,7 @@ export default function DownloadsPage() {
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors ${
                 showFilters || filterStatus || filterTracker || filterCategory
-                  ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-300'
+                  ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-300'
                   : 'bg-surface-secondary border-default text-text-secondary hover:text-text-primary'
               }`}
             >
@@ -843,7 +843,7 @@ export default function DownloadsPage() {
                   onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
                   title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
                   aria-label="Inverter ordem"
-                  className="flex-shrink-0 bg-surface border border-default rounded-lg px-2 py-1.5 text-text-primary hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
+                  className="flex-shrink-0 bg-surface border border-default rounded-lg px-2 py-1.5 text-text-primary hover:text-cyan-600 dark:hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
                 >
                   {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
                 </button>
@@ -1048,7 +1048,7 @@ export default function DownloadsPage() {
           <button
             onClick={() => { setBulkSheetOpen(false); void doResumeAll() }}
             disabled={bulkBusy}
-            className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 disabled:opacity-50"
+            className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 disabled:opacity-50"
           >
             <Play className="w-4 h-4" /> Iniciar todos
           </button>
@@ -1063,7 +1063,7 @@ export default function DownloadsPage() {
             <button
               onClick={() => { setBulkSheetOpen(false); void doRemoveCompleted() }}
               disabled={bulkBusy}
-              className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-300 border border-red-500/30 disabled:opacity-50"
+              className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
             >
               <Trash2 className="w-4 h-4" /> Remover concluídos ({completedDownloads.length})
             </button>
@@ -1090,13 +1090,13 @@ export default function DownloadsPage() {
           <button
             onClick={onBatchResume}
             disabled={bulkBusy}
-            className="flex items-center gap-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-300 px-3 py-1 rounded-full transition-colors"
+            className="flex items-center gap-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-700 dark:text-emerald-300 px-3 py-1 rounded-full transition-colors"
           >
             <Play className="w-3 h-3" /> Retomar
           </button>
           <button
             onClick={onPromoteSelected}
-            className="flex items-center gap-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 px-3 py-1 rounded-full transition-colors"
+            className="flex items-center gap-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 px-3 py-1 rounded-full transition-colors"
           >
             <ArrowUpCircle className="w-3 h-3" />
             Promover
@@ -1104,7 +1104,7 @@ export default function DownloadsPage() {
           <button
             onClick={onBatchDelete}
             disabled={bulkBusy}
-            className="flex items-center gap-1 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-300 px-3 py-1 rounded-full transition-colors"
+            className="flex items-center gap-1 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 px-3 py-1 rounded-full transition-colors"
           >
             <Trash2 className="w-3 h-3" /> Remover
           </button>
@@ -1286,7 +1286,7 @@ function DownloadGroupCard({
           <span className="font-semibold text-text-primary text-sm truncate" title={group.name}>{group.name}</span>
           <span className="text-[11px] text-text-muted flex-shrink-0">{group.files.length} arquivos</span>
           {group.seeding && (
-            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30 flex-shrink-0">
+            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 flex-shrink-0">
               <ArrowUpCircle className="w-3 h-3" />Semeando
             </span>
           )}
@@ -1333,7 +1333,7 @@ function CompletedFilterChips({ value, onChange, seedingN, onDiskN }: {
           key={o.key}
           onClick={() => onChange(o.key)}
           className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${value === o.key
-            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+            ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
             : 'bg-surface-secondary text-text-secondary border-default hover:text-text-primary'}`}
         >
           {o.label}
@@ -1567,7 +1567,7 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
   return (
     <div className="flex flex-col gap-6">
       {/* Live network overview */}
-      <div className="rounded-xl border border-default/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-6">
+      <div className="rounded-xl border border-default/50 bg-card dark:bg-gradient-to-br dark:from-gray-800/80 dark:to-gray-900/80 backdrop-blur-sm p-6">
         <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider flex items-center gap-2 mb-5">
           <Wifi className="w-4 h-4 text-cyan-400" />
           Monitoramento em Tempo Real
@@ -1589,7 +1589,7 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
       </div>
 
       {/* Bandwidth limits form */}
-      <div className="rounded-xl border border-default/50 bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm p-6">
+      <div className="rounded-xl border border-default/50 bg-card dark:bg-gradient-to-br dark:from-gray-800/60 dark:to-gray-900/60 backdrop-blur-sm p-6">
         <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider flex items-center gap-2 mb-5">
           <Gauge className="w-4 h-4 text-amber-400" />
           Limites de Velocidade
@@ -1631,7 +1631,7 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
           <button
             onClick={onSaveLimits}
             disabled={limitsSaving}
-            className="flex items-center gap-2 text-sm bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 text-emerald-300 border border-emerald-500/40 px-5 py-2 rounded-lg transition-all font-medium"
+            className="flex items-center gap-2 text-sm bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 px-5 py-2 rounded-lg transition-all font-medium"
           >
             {limitsSaving && <Loader2 className="w-4 h-4 animate-spin" />}
             Aplicar limites
@@ -1711,7 +1711,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
   return (
     <div className={`
       relative overflow-hidden rounded-xl border ${borderClass}
-      bg-gradient-to-br from-gray-800/80 to-gray-900/60 backdrop-blur-sm
+      bg-card dark:bg-gradient-to-br dark:from-gray-800/80 dark:to-gray-900/60 backdrop-blur-sm
       p-4 flex flex-col gap-3 transition-all duration-300
     `}>
       {/* Top row: name + badges */}
@@ -1733,7 +1733,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-            t.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
+            t.downRate > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
           }`}
           title="Velocidade de download deste torrent"
         >
@@ -1742,7 +1742,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
         </span>
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-            t.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-text-muted'
+            t.upRate > 0 ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30' : 'text-text-muted'
           }`}
           title="Velocidade de upload deste torrent"
         >
@@ -1750,7 +1750,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
           {formatRate(t.upRate)}
         </span>
         <span
-          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono tabular-nums"
+          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20 font-mono tabular-nums"
           title="Peers conectados / Seeders no swarm"
         >
           <Users className="w-3.5 h-3.5" />
@@ -1760,7 +1760,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
 
       {/* Progress bar */}
       <div>
-        <div className="h-2 bg-surface/80 rounded-full overflow-hidden">
+        <div className="h-2 bg-surface-tertiary dark:bg-surface/80 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500 ease-out`}
             style={{ width: `${pct.toFixed(1)}%` }}
@@ -1852,8 +1852,8 @@ type DownloadCardProps = {
 function PriorityBadge({ priority }: { readonly priority?: DownloadPriority }) {
   if (!priority || priority === 'normal') return null
   const cls = priority === 'high'
-    ? 'bg-orange-500/15 text-orange-300 border-orange-500/30'
-    : 'bg-blue-500/15 text-blue-300 border-blue-500/30'
+    ? 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30'
+    : 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30'
   return (
     <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${cls}`} title="Prioridade na fila">
       <ArrowUpCircle className="w-3 h-3" />{priority === 'high' ? 'Alta' : 'Baixa'}
@@ -1884,7 +1884,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
   return (
     <div className={`
       relative overflow-hidden rounded-xl border ${borderClass}
-      bg-gradient-to-br from-gray-800/80 to-gray-900/60 backdrop-blur-sm
+      bg-card dark:bg-gradient-to-br dark:from-gray-800/80 dark:to-gray-900/60 backdrop-blur-sm
       p-4 flex flex-col gap-3 transition-all duration-300
     `}>
       {/* Top row */}
@@ -1912,17 +1912,17 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             )}
             <PriorityBadge priority={d.priority} />
             {isStalled && (
-              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-300 border-amber-500/30" title="Sem progresso — sem peers/seeds. Após o limite vai pro fim da fila.">
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30" title="Sem progresso — sem peers/seeds. Após o limite vai pro fim da fila.">
                 <AlertTriangle className="w-3 h-3" /> Sem seed{(d.stalls ?? 0) > 0 ? ` (${d.stalls}×)` : ''}
               </span>
             )}
             {d.status === 'completed' && (
-              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
                 <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
               </span>
             )}
             {d.username && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/30 font-medium">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30 font-medium">
                 {d.username}
               </span>
             )}
@@ -1938,7 +1938,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span
             className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-              live.downRate > 0 ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
+              live.downRate > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
             }`}
             title="Download deste torrent"
           >
@@ -1947,7 +1947,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
           </span>
           <span
             className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-              live.upRate > 0 ? 'bg-violet-500/15 text-violet-300 border border-violet-500/30' : 'text-text-muted'
+              live.upRate > 0 ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30' : 'text-text-muted'
             }`}
             title="Upload deste torrent (seedando)"
           >
@@ -1955,7 +1955,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             {formatRate(live.upRate)}
           </span>
           <span
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono tabular-nums"
+            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20 font-mono tabular-nums"
             title="Peers conectados / Seeders no swarm"
           >
             <Users className="w-3.5 h-3.5" />
@@ -1966,7 +1966,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
 
       {/* Progress bar */}
       <div>
-        <div className="h-2 bg-surface/80 rounded-full overflow-hidden">
+        <div className="h-2 bg-surface-tertiary dark:bg-surface/80 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500 ease-out`}
             style={{ width: `${pct.toFixed(1)}%` }}
@@ -1992,7 +1992,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
 
       {/* Error banner */}
       {isFailed && d.error && (
-        <div className="flex items-start gap-2 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+        <div className="flex items-start gap-2 text-xs text-red-700 dark:text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
           <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
           <span className="break-all">{d.error}</span>
         </div>
@@ -2079,14 +2079,14 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
 function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
   if (kind === 'streaming') {
     return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 border border-emerald-500/30">
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
         <Activity className="w-2.5 h-2.5" />
         Streaming
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/30">
+    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
       <Server className="w-2.5 h-2.5" />
       Servidor
     </span>
@@ -2095,10 +2095,10 @@ function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
 
 function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentInfo['status']> }) {
   const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
-    downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+    downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
     paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-text-primary border-strong/30',          icon: <Pause className="w-3 h-3" /> },
-    seeding:     { label: 'Semeando',  cls: 'bg-violet-500/15 text-violet-300 border-violet-500/30',    icon: <ArrowUpCircle className="w-3 h-3" /> },
-    complete:    { label: 'Completo',  cls: 'bg-green-500/15 text-green-300 border-green-500/30',       icon: <CheckCircle2 className="w-3 h-3" /> },
+    seeding:     { label: 'Semeando',  cls: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30',    icon: <ArrowUpCircle className="w-3 h-3" /> },
+    complete:    { label: 'Completo',  cls: 'bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30',       icon: <CheckCircle2 className="w-3 h-3" /> },
   }
   const s = map[status]
   return (
@@ -2111,9 +2111,9 @@ function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentIn
 function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['status'] }) {
   const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
     queued:      { label: 'Na fila',     cls: 'bg-surface-tertiary/50 text-text-primary border-strong/50',         icon: <Clock className="w-3 h-3" /> },
-    downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    completed:   { label: 'Concluído',   cls: 'bg-green-500/15 text-green-300 border-green-500/30',      icon: <CheckCircle2 className="w-3 h-3" /> },
-    failed:      { label: 'Falhou',      cls: 'bg-red-500/15 text-red-300 border-red-500/30',            icon: <AlertCircle className="w-3 h-3" /> },
+    downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
+    completed:   { label: 'Concluído',   cls: 'bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30',      icon: <CheckCircle2 className="w-3 h-3" /> },
+    failed:      { label: 'Falhou',      cls: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',            icon: <AlertCircle className="w-3 h-3" /> },
     paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-text-primary border-strong/30',         icon: <Pause className="w-3 h-3" /> },
   }
   const s = map[status]
@@ -2134,10 +2134,10 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '',
   readonly title?: string
 }) {
   const styles: Record<typeof variant, string> = {
-    success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-    danger:  'bg-red-500/10 hover:bg-red-500/20 text-red-300 border-red-500/30',
+    success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
+    danger:  'bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30',
     neutral: 'bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border-strong/60',
-    info:    'bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border-blue-500/30',
+    info:    'bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30',
   }
   return (
     <button
@@ -2160,7 +2160,7 @@ function ActionButton({ onClick, disabled, variant, icon, label, className = '',
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function tabBadgeClass(activeTab: Tab, tabKey: string): string {
-  if (activeTab === tabKey) return 'bg-emerald-500/20 text-emerald-300'
+  if (activeTab === tabKey) return 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
   if (tabKey === 'failed') return 'bg-red-500/20 text-red-400'
   return 'bg-surface-tertiary text-text-secondary'
 }

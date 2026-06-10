@@ -264,7 +264,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               <p className="flex items-center gap-2 text-red-400 font-medium">
                 <AlertCircle className="w-4 h-4" /> Erro
               </p>
-              <p className="text-sm text-red-300 mt-1">{error}</p>
+              <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
             </div>
           )}
 
@@ -296,7 +296,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                           onClick={() => setTypeFilter(o.key)}
                           className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
                             typeFilter === o.key
-                              ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                              ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40'
                               : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
                           }`}
                         >
@@ -314,7 +314,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                       title="Ordenar por tamanho"
                       className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${
                         sortBySize
-                          ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                          ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40'
                           : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
                       }`}
                     >
@@ -371,7 +371,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                           >
                             {fileTypeIcon(f)}
                             {ep && (
-                              <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                              <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
                                 {ep}
                               </span>
                             )}

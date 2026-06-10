@@ -56,7 +56,7 @@ export default function RateWidget() {
   return (
     <Link
       to="/downloads"
-      className="header-link tabular-nums text-[11px] text-emerald-300 hover:!text-emerald-200"
+      className="header-link tabular-nums text-[11px] text-emerald-700 dark:text-emerald-300 hover:!text-emerald-800 dark:hover:!text-emerald-200"
       title={`${rate.activeTorrents} torrent(s) ativo(s) — ${formatRate(rate.upRate)} upload`}
     >
       <ArrowDownCircle className="w-4 h-4" />

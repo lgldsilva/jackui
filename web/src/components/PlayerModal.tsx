@@ -99,13 +99,13 @@ function renderPlayerHeader(props: {
       <h2 className="text-base font-semibold text-text-primary flex items-center gap-2 min-w-0">
         <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
         <span className="truncate">{info?.name || result.title}</span>
-        {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={`Encoder: ${caps.preferred}`}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
-        {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
+        {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={`Encoder: ${caps.preferred}`}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
+        {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
       </h2>
       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
         {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-text-secondary hover:text-text-primary transition-colors"><Info className="w-5 h-5" /></button>}
-        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
-        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-300' : 'text-text-secondary hover:text-text-primary'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
+        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-500 dark:hover:text-amber-300' : 'text-text-secondary hover:text-text-primary'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
         <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
         <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
       </div>
@@ -175,7 +175,7 @@ function renderTorrentInfoModal(props: {
             <button
               onClick={handleClassifyCategory}
               disabled={classifyingCat}
-              className="text-[10px] bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 px-1.5 py-0.5 rounded"
+              className="text-[10px] bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded"
               title="Detectar categoria automaticamente (IA)"
             >
               {classifyingCat ? '…' : 'IA'}
@@ -210,20 +210,20 @@ function renderPlaylistBar(
   onNext: (() => void) | undefined,
 ) {
   return (
-    <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-200 flex-shrink-0">
+    <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-700 dark:text-blue-200 flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0">
         <ListMusic className="w-3.5 h-3.5 flex-shrink-0" />
         <span className="font-medium truncate">{playlist.name}</span>
         <span className="text-blue-400/80 flex-shrink-0">· {playlist.currentIndex + 1} de {playlist.items.length}</span>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={onPrev} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
-        <button onClick={onToggleShuffle} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-300' : 'text-blue-200/60'} hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
-        <button onClick={onCycleRepeat} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-200/60' : 'text-green-300'} hover:text-white relative`} title={`Repeat: ${repeat}`}>
+        <button onClick={onPrev} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
+        <button onClick={onToggleShuffle} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-700 dark:text-green-300' : 'text-blue-700/60 dark:text-blue-200/60'} hover:text-blue-900 dark:hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
+        <button onClick={onCycleRepeat} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-700/60 dark:text-blue-200/60' : 'text-green-700 dark:text-green-300'} hover:text-blue-900 dark:hover:text-white relative`} title={`Repeat: ${repeat}`}>
           <Repeat className="w-3.5 h-3.5" />
-          {repeat === 'one' && <span className="absolute bottom-0.5 right-0.5 text-[8px] font-bold text-green-300">1</span>}
+          {repeat === 'one' && <span className="absolute bottom-0.5 right-0.5 text-[8px] font-bold text-green-700 dark:text-green-300">1</span>}
         </button>
-        <button onClick={onNext} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-200 hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
+        <button onClick={onNext} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
       </div>
     </div>
   )
@@ -1534,8 +1534,8 @@ export default function PlayerModal({
           <div className="flex items-center justify-between gap-2 px-2 py-1 bg-surface/80 border-b border-default flex-shrink-0">
             <span className="text-[11px] text-text-primary truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
             <div className="flex items-center gap-0.5 flex-shrink-0">
-              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-text-primary hover:text-white hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
-              <button onClick={onClose} title="Fechar" className="p-1 rounded text-text-primary hover:text-white hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
+              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
+              <button onClick={onClose} title="Fechar" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
             </div>
           </div>
         )}
@@ -1571,7 +1571,7 @@ export default function PlayerModal({
               The big buffering overlay over the video area covers the actual playback
               start; this strip is just to acknowledge that something is happening. */}
           {loading && info && !serverReady && (
-            <div className="px-4 py-1.5 text-xs text-blue-300 bg-blue-500/10 border-b border-blue-500/30 flex items-center gap-2 flex-shrink-0">
+            <div className="px-4 py-1.5 text-xs text-blue-700 dark:text-blue-300 bg-blue-500/10 border-b border-blue-500/30 flex items-center gap-2 flex-shrink-0">
               <Loader2 className="w-3 h-3 animate-spin" />
               Metadados em cache — conectando ao swarm em segundo plano...
             </div>
@@ -1584,7 +1584,7 @@ export default function PlayerModal({
                 <AlertCircle className="w-4 h-4" />
                 Erro ao iniciar stream
               </p>
-              <p className="text-sm text-red-300 mt-1">{error}</p>
+              <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
               <p className="text-xs text-text-muted mt-3">
                 Causas comuns: torrent sem seeders, metadados não obtidos a tempo, ou magnet inválido.
               </p>
