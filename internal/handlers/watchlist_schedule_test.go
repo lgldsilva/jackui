@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -123,5 +124,25 @@ func TestWatchlistScheduleParse_ClampsViaNormalized(t *testing.T) {
 	}
 	if out["schedWeekday"] != float64(0) || out["schedHour"] != float64(0) || out["schedMinute"] != float64(0) {
 		t.Errorf("expected clamped schedule, got: %v", out)
+	}
+}
+
+func TestWatchlistScheduleParse_TextTooLong(t *testing.T) {
+	// Bounded prompt: oversized free-text must be rejected before reaching the
+	// AI provider (token cost), and the stub must never be hit.
+	srv := aiChatStub(t, `{"kind":"interval","minutes":60}`, http.StatusOK)
+	long := strings.Repeat("a", maxScheduleTextLen+1)
+	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"`+long+`"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWatchlistScheduleParse_DisabledCodeInBody(t *testing.T) {
+	// The frontend hides the AI field only on code=ai_disabled; transient chain
+	// failures keep it visible — the codes must stay distinguishable.
+	w := postScheduleParse(t, nil, `{"text":"toda segunda"}`)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "ai_disabled") {
+		t.Fatalf("want 503 with code ai_disabled, got %d: %s", w.Code, w.Body.String())
 	}
 }
