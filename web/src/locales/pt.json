@@ -60,6 +60,36 @@
   "table": {
     "sort_by": "Ordenar por {{column}}"
   },
+  "watchlist": {
+    "intro": "Cada watchlist tem o próprio agendamento — intervalo fixo, diário ou semanal — e é checada na hora ao ser criada. Novos resultados acima do mínimo de seeders são enviados via push pro tópico ntfy.sh configurado. Para receber no celular: instale o ntfy.sh e subscreva no tópico.",
+    "sched_label": "Agendamento",
+    "kind_interval": "Intervalo",
+    "kind_daily": "Diário",
+    "kind_weekly": "Semanal",
+    "every_minutes": "A cada (minutos)",
+    "time_label": "Horário",
+    "weekday_label": "Dia da semana",
+    "weekdays": {
+      "0": "Domingo",
+      "1": "Segunda",
+      "2": "Terça",
+      "3": "Quarta",
+      "4": "Quinta",
+      "5": "Sexta",
+      "6": "Sábado"
+    },
+    "summary_interval": "a cada {{minutes}} min",
+    "summary_daily": "diário às {{time}}",
+    "summary_weekly": "{{weekday}} às {{time}}",
+    "server_default": "padrão do servidor",
+    "next_check": "próxima checagem {{time}}",
+    "hits_empty": "Nenhuma detecção ainda. A primeira checagem roda logo após criar; depois segue o agendamento.",
+    "ai_placeholder": "Descreva em texto livre (ex.: toda segunda às 9h)",
+    "ai_button": "Interpretar com IA",
+    "ai_applied": "Interpretado: {{summary}} — confira e salve",
+    "ai_unclear": "Não entendi como agendamento — tente reformular (ex.: \"a cada 3 horas\")",
+    "ai_error": "Falha ao interpretar — tente de novo"
+  },
   "settings": {
     "title": "Configurações",
     "language": "Idioma",
