@@ -145,10 +145,10 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 
 ## Roadmap
 
-- [ ] **i18n / multi-language UI** — the web UI is Portuguese-only today; extract strings and support English (and others).
+- [x] **i18n / multi-language UI** — the web UI is Portuguese-only today; extract strings and support English (and others).
 - [ ] HLS master playlist (Phase 2): N audio/subtitle tracks + multi-resolution in one VOD stream.
-- [ ] Streamer reconciles pieces with already-downloaded files (play without re-downloading).
-- [ ] "Promote" button on the local-files page; split the streamer's SQLite stores from the cache dir via `JACKUI_STATE_DIR`.
+- [x] Streamer reconciles pieces with already-downloaded files (play without re-downloading).
+- [x] "Promote" button on the local-files page; split the streamer's SQLite stores from the cache dir via `JACKUI_STATE_DIR`.
 
 ## Docs
 
