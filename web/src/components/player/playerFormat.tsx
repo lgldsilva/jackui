@@ -56,8 +56,8 @@ export function audioTrackTitle(a: MediaTrack): string {
 export function subBtnClass(active: boolean, image: boolean | undefined): string {
   if (active) {
     return image
-      ? 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-      : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300 border-orange-500/30'
+      : 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
   }
   return 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
 }
@@ -77,7 +77,7 @@ export function subtitleBtnClass(active: string | null, embedded: number | null,
     if (source === 'embedded' || source === 'hash') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
     return 'bg-green-500/20 text-green-400 border-green-500/30'
   }
-  if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border-blue-500/30'
+  if (enabled) return 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border-blue-500/30'
   return 'bg-surface-tertiary/50 text-text-muted border-default cursor-not-allowed opacity-50'
 }
 

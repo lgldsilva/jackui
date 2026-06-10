@@ -73,7 +73,7 @@ function Chip({ query, pinned, onPick, onTogglePin }: {
       <button
         onClick={() => onTogglePin(query)}
         title={pinned ? 'Desafixar busca' : 'Fixar busca'}
-        className={`p-0.5 rounded-full transition-colors flex-shrink-0 ${pinned ? 'text-green-400 hover:text-green-300' : 'text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100'}`}
+        className={`p-0.5 rounded-full transition-colors flex-shrink-0 ${pinned ? 'text-green-400 hover:text-green-500 dark:hover:text-green-300' : 'text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100'}`}
       >
         {pinned ? <X className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
       </button>

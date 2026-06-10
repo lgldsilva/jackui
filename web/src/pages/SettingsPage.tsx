@@ -74,7 +74,7 @@ function TabButton({ tab, active, onClick }: {
       onClick={onClick}
       className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg transition-colors whitespace-nowrap ${
         active
-          ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
+          ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30'
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-secondary border border-transparent'
       }`}
     >
@@ -405,7 +405,7 @@ export default function SettingsPage() {
                       <button onClick={() => handleSetDefault(i)} className="text-xs text-text-secondary hover:text-green-400 px-2 py-1 rounded">Padrao</button>
                     )}
                     <button onClick={() => handleEditClient(client, i)} className="text-xs btn-secondary py-1 px-2">Editar</button>
-                    <button onClick={() => handleDeleteClient(i)} className="text-red-400 hover:text-red-300 p-1 rounded"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => handleDeleteClient(i)} className="text-red-400 hover:text-red-500 dark:hover:text-red-300 p-1 rounded"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}

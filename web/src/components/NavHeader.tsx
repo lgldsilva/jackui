@@ -116,7 +116,7 @@ export default function NavHeader({ rightExtra }: Props) {
   const incognitoToggle = (variant: 'sidebar' | 'mobile') => {
     const base = 'flex items-center justify-center rounded-lg transition-colors'
     const cls = incognito
-      ? 'text-amber-300 bg-amber-500/10 ring-1 ring-amber-400/40 hover:bg-amber-500/20'
+      ? 'text-amber-700 dark:text-amber-300 bg-amber-500/10 ring-1 ring-amber-400/40 hover:bg-amber-500/20'
       : 'text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40'
     const size = variant === 'mobile' ? 'w-10 h-10' : 'w-9 h-9'
     return (
@@ -204,7 +204,7 @@ export default function NavHeader({ rightExtra }: Props) {
           <ThemeToggle variant="sidebar" />
           {incognitoToggle('sidebar')}
           {incognito && !collapsed && (
-            <span className="text-[10px] font-semibold tracking-wider text-amber-300/90 uppercase">
+            <span className="text-[10px] font-semibold tracking-wider text-amber-700/90 dark:text-amber-300/90 uppercase">
               {t('nav.incognito')}
             </span>
           )}
@@ -236,7 +236,7 @@ export default function NavHeader({ rightExtra }: Props) {
             <span className="text-xl font-bold text-text-primary">UI</span>
             {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label={t('nav.revealed_visible')} />}
             {incognito && (
-              <span className="ml-2 text-[9px] font-semibold tracking-wider text-amber-300/90 uppercase">
+              <span className="ml-2 text-[9px] font-semibold tracking-wider text-amber-700/90 dark:text-amber-300/90 uppercase">
                 {t('nav.incognito')}
               </span>
             )}

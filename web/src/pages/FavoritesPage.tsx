@@ -110,7 +110,7 @@ function FolderTree(p: TreeProps) {
             <button
               type="button"
               className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors w-full text-left ${
-                isSelected ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
+                isSelected ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
               }`}
               style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
               onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
@@ -179,8 +179,8 @@ function FolderTree(p: TreeProps) {
 const depthIndent = (depth: number) => 8 + depth * 14
 
 function rootFolderClass(viewMode: number | null, dropOnRoot: boolean): string {
-  if (viewMode === null) return 'bg-pink-500/15 text-pink-200 border border-pink-500/30'
-  if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-100'
+  if (viewMode === null) return 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30'
+  if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-700 dark:text-pink-100'
   return 'text-text-primary hover:bg-surface-secondary border border-transparent'
 }
 
@@ -494,7 +494,7 @@ export default function FavoritesPage() {
                 onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null) }}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(ALL_VIEW); setSelectedFolderId(null) } }}
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
-                  viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
+                  viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
                 }`}
               >
                 <Heart className="w-3.5 h-3.5 fill-current" />
@@ -591,7 +591,7 @@ export default function FavoritesPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { setShowImport(true); setImportMsg(null) }}
-                className="flex items-center gap-1.5 text-xs bg-pink-500/15 hover:bg-pink-500/25 text-pink-200 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 text-xs bg-pink-500/15 hover:bg-pink-500/25 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 Importar torrent
@@ -692,8 +692,8 @@ export default function FavoritesPage() {
                     <SeedBadge infoHash={fav.infoHash} magnet={fav.magnet} />
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                       fav.reason === 'auto-5min'
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                        : 'bg-pink-500/20 text-pink-300 border border-pink-500/30'
+                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30'
+                        : 'bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-500/30'
                     }`}>
                       {fav.reason === 'auto-5min' ? 'Auto (5min)' : 'Manual'}
                     </span>
@@ -712,7 +712,7 @@ export default function FavoritesPage() {
                       title={fav.magnet ? 'Play (usa magnet salvo)' : 'Magnet não salvo — refavorite'}
                       className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg flex-1 justify-center transition-colors ${
                         fav.magnet
-                          ? 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border border-green-500/30'
+                          ? 'bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border border-green-500/30'
                           : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
                       }`}
                     >
@@ -802,7 +802,7 @@ export default function FavoritesPage() {
             <button
               onClick={importMagnets}
               disabled={importing || !magnetInput.trim()}
-              className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
+              className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
             >
               {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               Importar magnet{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
@@ -870,7 +870,7 @@ export default function FavoritesPage() {
               setFavs(favs.filter(f => !selected.has(f.name)))
               clearSelection()
             }}
-            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1"
+            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 px-2 py-1"
             title="Excluir selecionados"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -902,7 +902,7 @@ export default function FavoritesPage() {
             <button
               onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null); setFolderSheetOpen(false) }}
               className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
-                viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
+                viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
               }`}
             >
               <Heart className="w-4 h-4 fill-current flex-shrink-0" />
@@ -914,7 +914,7 @@ export default function FavoritesPage() {
             <button
               onClick={() => { setViewMode(null); setSelectedFolderId(null); setFolderSheetOpen(false) }}
               className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
-                viewMode === null ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
+                viewMode === null ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
               }`}
             >
               <Inbox className="w-4 h-4 flex-shrink-0" />
@@ -927,7 +927,7 @@ export default function FavoritesPage() {
               <button
                 onClick={() => { setViewMode(folder.id); setSelectedFolderId(folder.id); setFolderSheetOpen(false) }}
                 className={`w-full flex items-center gap-2 min-h-[44px] rounded-lg text-sm transition-colors ${
-                  viewMode === folder.id ? 'bg-pink-500/15 text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
+                  viewMode === folder.id ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
                 }`}
                 style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
               >

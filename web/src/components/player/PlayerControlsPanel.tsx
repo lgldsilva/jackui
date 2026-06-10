@@ -338,7 +338,7 @@ export function PlayerControlsPanel({
           </button>
           <a
             href={vlcURL}
-            className="flex items-center gap-1.5 text-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 px-3 py-1.5 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-700 dark:text-orange-300 border border-orange-500/30 px-3 py-1.5 rounded-lg transition-colors"
             title="Abrir o stream no app VLC local — funciona com qualquer codec"
           >
             <ExternalLink className="w-3.5 h-3.5" />
@@ -347,7 +347,7 @@ export function PlayerControlsPanel({
           {iinaURL && (
             <a
               href={iinaURL}
-              className="flex items-center gap-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg transition-colors"
               title="Abrir o stream no app IINA local (macOS)"
             >
               <ExternalLink className="w-3.5 h-3.5" />
@@ -357,7 +357,7 @@ export function PlayerControlsPanel({
           {infuseURL && (
             <a
               href={infuseURL}
-              className="flex items-center gap-1.5 text-xs bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs bg-pink-500/20 hover:bg-pink-500/30 text-pink-700 dark:text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
               title="Abrir o stream no app Infuse local (iOS/macOS/Apple TV)"
             >
               <ExternalLink className="w-3.5 h-3.5" />
@@ -375,7 +375,7 @@ export function PlayerControlsPanel({
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${
                 serverDownloadSuccess
                   ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                  : 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
+                  : 'bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border-green-500/30'
               }`}
               title="Salvar download completo no servidor (Background Download)"
             >
@@ -389,7 +389,7 @@ export function PlayerControlsPanel({
             <button
               onClick={handleLocalDownload}
               disabled={localDownloadLoading}
-              className="flex items-center gap-1.5 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-lg transition-colors"
               title="Baixar para o computador local (com categorização automática)"
             >
               <Laptop className="w-3.5 h-3.5" />

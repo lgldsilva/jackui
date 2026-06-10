@@ -318,7 +318,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                     <button
                       type="button"
                       onClick={() => setSelectedFiles(new Set((files ?? []).map(f => f.index)))}
-                      className="text-cyan-400 hover:text-cyan-300"
+                      className="text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300"
                     >
                       Todos
                     </button>

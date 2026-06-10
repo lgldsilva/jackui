@@ -962,7 +962,7 @@ export default function LocalPage() {
           {uploadError && (
             <div className="flex-shrink-0 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-2">
               <span>{uploadError}</span>
-              <button onClick={() => setUploadError('')} className="text-amber-400/70 hover:text-amber-300">
+              <button onClick={() => setUploadError('')} className="text-amber-400/70 hover:text-amber-500 dark:hover:text-amber-300">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1051,9 +1051,9 @@ export default function LocalPage() {
           )}
 
           {notice && (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-3">
+            <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-3">
               <span>{notice}</span>
-              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-300 text-xs">Fechar</button>
+              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-500 dark:hover:text-emerald-300 text-xs">Fechar</button>
             </div>
           )}
 

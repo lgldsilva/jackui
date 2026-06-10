@@ -72,7 +72,7 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
                 setQuery('')
               }
             }}
-            className="mx-auto flex items-center gap-1 bg-green-500/25 hover:bg-green-500/35 text-green-300 border border-green-500/40 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
+            className="mx-auto flex items-center gap-1 bg-green-500/25 hover:bg-green-500/35 text-green-700 dark:text-green-300 border border-green-500/40 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" /> Adicionar &quot;{query.trim()}&quot;
           </button>
@@ -145,7 +145,7 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
               className="bg-transparent text-sm text-text-primary placeholder-gray-500 flex-1 focus:outline-none"
               autoFocus
             />
-            <button onClick={selectAll} className="text-[11px] text-green-400 hover:text-green-300 whitespace-nowrap">Todos</button>
+            <button onClick={selectAll} className="text-[11px] text-green-400 hover:text-green-500 dark:hover:text-green-300 whitespace-nowrap">Todos</button>
             <span className="text-text-muted">·</span>
             <button onClick={clear} className="text-[11px] text-text-secondary hover:text-text-primary whitespace-nowrap">Limpar</button>
           </div>

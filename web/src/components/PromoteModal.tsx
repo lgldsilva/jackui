@@ -146,7 +146,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
                 onClick={() => { setSelectedBase(d.path); setPath('') }}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                   selectedBase === d.path || (!selectedBase && d === dests[0])
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                    ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
                     : 'bg-surface-tertiary text-text-secondary border border-strong hover:bg-surface-tertiary'
                 }`}
               >
@@ -160,7 +160,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
         <div className="px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
           <button
             onClick={() => setPath('')}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded ${path === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded ${path === '' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
           >
             <Home className="w-3.5 h-3.5" /> {destLabel}
           </button>
@@ -169,7 +169,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               <ChevronRight className="w-3 h-3 text-text-muted" />
               <button
                 onClick={() => setPath(breadcrumb.slice(0, i + 1).join('/'))}
-                className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
               >
                 {seg}
               </button>
@@ -208,21 +208,21 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
             />
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer font-medium hover:text-white transition-colors">
+          <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer font-medium transition-colors">
             <input
               type="checkbox"
               checked={renameIA}
               onChange={e => setRenameIA(e.target.checked)}
               className="accent-cyan-500 w-4 h-4 rounded border-strong focus:ring-cyan-500 bg-surface-tertiary"
             />
-            <span className="flex items-center gap-1.5 text-cyan-300 font-semibold bg-cyan-950/40 border border-cyan-800/50 px-2 py-0.5 rounded-full text-xs">
+            <span className="flex items-center gap-1.5 text-cyan-700 dark:text-cyan-300 font-semibold bg-cyan-500/15 dark:bg-cyan-950/40 border border-cyan-500/30 dark:border-cyan-800/50 px-2 py-0.5 rounded-full text-xs">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
               Renomear e Organizar via IA (Plex style)
             </span>
           </label>
 
           {renameIA && (
-            <div className="mt-1 border border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
+            <div className="mt-1 border border-cyan-500/30 dark:border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
               <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
                 Visualização do Destino Organizado:
@@ -234,15 +234,15 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
                   <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
                     <div className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>De: {p.originalName}</div>
                     {p.error ? (
-                      <div className="text-red-400 text-[11px] bg-red-950/30 px-2 py-1 rounded border border-red-900/30">Erro: {p.error}</div>
+                      <div className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">Erro: {p.error}</div>
                     ) : (
-                      <div className="flex items-start gap-1.5 bg-emerald-950/10 border border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-300">
+                      <div className="flex items-start gap-1.5 bg-emerald-500/10 dark:bg-emerald-950/10 border border-emerald-500/30 dark:border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-700 dark:text-emerald-300">
                         <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                         <div className="font-mono text-[11px] break-all leading-tight">
                           <span className="text-text-muted">Para: </span>
-                          <span className="font-semibold text-emerald-450">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
-                          <span className="text-white font-bold">{p.targetPath.split('/').pop()}</span>
-                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">{p.kind === 'tv' ? 'Série' : 'Filme'}</span>
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-400">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
+                          <span className="text-text-primary font-bold">{p.targetPath.split('/').pop()}</span>
+                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">{p.kind === 'tv' ? 'Série' : 'Filme'}</span>
                         </div>
                       </div>
                     )}
@@ -285,7 +285,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
             <button
               onClick={handlePromote}
               disabled={submitting || previewLoading}
-              className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
+              className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
             >
               {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
               Promover {items.length > 1 ? `(${items.length})` : ''}
