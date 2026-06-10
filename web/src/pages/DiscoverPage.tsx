@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2 } from 'lucide-react'
+import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
-import { tmdbTrending, tmdbGenres, tmdbRecommendations, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
+import TrailerModal from '../components/TrailerModal'
+import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
 
 // DiscoverPage surfaces TMDB's weekly trending movies + shows so the user has a
 // starting point when they don't know what to search. Clicking a poster seeds a
@@ -40,19 +41,25 @@ function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
 // PosterCard renders one TMDB title as a clickable poster. Shared by the
 // trending grid and the recommendations grid so both look identical. `badge`
 // goes bottom-left (trending direction); `caption` replaces the year line (the
-// "porque você assistiu X" attribution on recommendations).
-function PosterCard({ m, onClick, badge, caption }: {
+// "porque você assistiu X" attribution on recommendations). The root is a div
+// with a full-bleed button overlay (not a <button> wrapper) so the trailer
+// mini-button can be a sibling — nested buttons are invalid HTML.
+function PosterCard({ m, onClick, badge, caption, onTrailer, trailerMuted }: {
   readonly m: TmdbMatch
   readonly onClick: () => void
   readonly badge?: React.ReactNode
   readonly caption?: string
+  readonly onTrailer?: () => void
+  readonly trailerMuted?: boolean // already probed: this title has no trailer
 }) {
   return (
-    <button
-      onClick={onClick}
-      title={`Buscar "${m.title}"`}
-      className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-surface-secondary border border-default hover:border-green-500/50 transition-colors"
-    >
+    <div className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-surface-secondary border border-default hover:border-green-500/50 transition-colors">
+      <button
+        onClick={onClick}
+        title={`Buscar "${m.title}"`}
+        aria-label={`Buscar "${m.title}"`}
+        className="absolute inset-0 z-[1]"
+      />
       <div className="aspect-[2/3] bg-surface relative">
         <img src={m.posterUrl} alt={m.title} loading="lazy" className="w-full h-full object-cover" />
         <span className="absolute top-1 left-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-white">
@@ -68,6 +75,17 @@ function PosterCard({ m, onClick, badge, caption }: {
           <Search className="w-7 h-7 text-green-400" />
         </div>
         {badge && <span className="absolute bottom-1 left-1">{badge}</span>}
+        {onTrailer && (
+          <button
+            onClick={onTrailer}
+            disabled={trailerMuted}
+            title={trailerMuted ? 'Sem trailer' : 'Assistir trailer'}
+            aria-label={trailerMuted ? 'Sem trailer' : `Trailer de "${m.title}"`}
+            className={`absolute bottom-1 right-1 z-[2] flex items-center justify-center w-8 h-8 rounded-full bg-black/70 transition-colors ${trailerMuted ? 'text-white/30' : 'text-white hover:text-red-400'}`}
+          >
+            <Clapperboard className="w-4 h-4" />
+          </button>
+        )}
       </div>
       <div className="p-2">
         <p className="text-xs text-text-primary line-clamp-2" title={m.title}>{m.title}</p>
@@ -75,7 +93,7 @@ function PosterCard({ m, onClick, badge, caption }: {
           ? <p className="text-[10px] text-green-400/90 line-clamp-1" title={caption}>{caption}</p>
           : (m.year > 0 && <p className="text-[10px] text-text-muted">{m.year}</p>)}
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -95,7 +113,20 @@ export default function DiscoverPage() {
   const [genre, setGenre] = useState(0) // 0 = sem filtro de gênero
   const [genres, setGenres] = useState<TmdbGenre[]>([])
   const [recs, setRecs] = useState<TmdbRecommendation[]>([])
+  const [trailer, setTrailer] = useState<{ videoKey: string; title: string } | null>(null)
+  const [noTrailer, setNoTrailer] = useState<Set<string>>(new Set())
   const navigate = useNavigate()
+
+  // openTrailer probes the title's videos on demand (session-cached in the API
+  // layer) and either plays the best one or marks the card as trailer-less.
+  const openTrailer = async (m: TmdbMatch) => {
+    const vids = await tmdbVideos(m.kind, m.tmdbId)
+    if (vids.length > 0) {
+      setTrailer({ videoKey: vids[0].key, title: `${m.title} — ${vids[0].name}` })
+    } else {
+      setNoTrailer(prev => new Set(prev).add(`${m.kind}-${m.tmdbId}`))
+    }
+  }
 
   // Genre list for the dropdown (loaded once).
   useEffect(() => {
@@ -145,6 +176,8 @@ export default function DiscoverPage() {
                   m={r}
                   onClick={() => openSearch(r)}
                   caption={r.becauseOf ? `Porque você viu ${r.becauseOf}` : undefined}
+                  onTrailer={() => openTrailer(r)}
+                  trailerMuted={noTrailer.has(`${r.kind}-${r.tmdbId}`)}
                 />
               ))}
             </div>
@@ -220,11 +253,22 @@ export default function DiscoverPage() {
           return (
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {shown.map(m => (
-              <PosterCard key={`${m.kind}-${m.tmdbId}`} m={m} onClick={() => openSearch(m)} badge={<DirectionBadge m={m} />} />
+              <PosterCard
+                key={`${m.kind}-${m.tmdbId}`}
+                m={m}
+                onClick={() => openSearch(m)}
+                badge={<DirectionBadge m={m} />}
+                onTrailer={() => openTrailer(m)}
+                trailerMuted={noTrailer.has(`${m.kind}-${m.tmdbId}`)}
+              />
             ))}
           </div>
         )})()}
       </main>
+
+      {trailer && (
+        <TrailerModal videoKey={trailer.videoKey} title={trailer.title} onClose={() => setTrailer(null)} />
+      )}
     </div>
   )
 }
