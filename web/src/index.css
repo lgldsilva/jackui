@@ -74,6 +74,13 @@
 }
 
 @layer base {
+  /* iOS Safari infla o texto sozinho ao ROTACIONAR (text autosizing) — virar
+     de paisagem p/ retrato deixava a página "com zoom". Travar em 100% mantém
+     o tamanho que definimos; não bloqueia o pinch-zoom do usuário. */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-surface text-text-primary min-h-screen transition-colors duration-200;
   }
