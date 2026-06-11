@@ -62,11 +62,17 @@ pipeline {
     stage('Limpeza + Checkout') {
       steps {
         sh 'rm -rf .scannerwork .sonar-scanner .cdx-src bom.json dt-payload.json coverage.out internal/streamer/streams 2>/dev/null || true'
-        checkout scm
-        // Agora que o checkout populou GIT_COMMIT, fixa a TAG por-commit (git-sha8)
-        // que alimenta o build/push e o sweep de retenção. Fallback p/ BUILD_NUMBER
-        // só num cenário degenerado sem SCM.
-        script { env.TAG = env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER }
+        // CAPTURA o retorno do checkout: com skipDefaultCheckout(true), o
+        // `checkout scm` sozinho NÃO exporta env.GIT_COMMIT pro resto do
+        // pipeline (só o checkout automático fazia). Sem isto, GIT_COMMIT fica
+        // vazio → build-arg vazio (/status sem commit) e TAG cai no BUILD_NUMBER
+        // numérico, que o regex de retenção (^[0-9a-f]{8,40}$) não casa → tags
+        // vazariam no registry. Pegamos o sha do mapa de retorno e exportamos.
+        script {
+          def scmVars = checkout scm
+          env.GIT_COMMIT = scmVars.GIT_COMMIT
+          env.TAG = env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER
+        }
       }
     }
 
