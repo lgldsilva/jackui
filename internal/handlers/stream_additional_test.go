@@ -730,7 +730,7 @@ func TestDownloadsList_WithPromoted(t *testing.T) {
 	s := streamer.NewForTesting()
 
 	router := gin.New()
-	router.GET("/api/downloads", DownloadsList(store, s, "/downloads"))
+	router.GET("/api/downloads", DownloadsList(store, s, nil, nil, "/downloads"))
 
 	req := httptest.NewRequest("GET", "/api/downloads", nil)
 	w := httptest.NewRecorder()
@@ -746,7 +746,7 @@ func TestDownloadsListAll_WithAuthStore(t *testing.T) {
 	dlStore := newDownloadsStore(t)
 
 	router := gin.New()
-	router.GET("/api/downloads/all", DownloadsListAll(dlStore, nil, nil))
+	router.GET("/api/downloads/all", DownloadsListAll(dlStore, nil, nil, nil))
 
 	req := httptest.NewRequest("GET", "/api/downloads/all", nil)
 	w := httptest.NewRecorder()
