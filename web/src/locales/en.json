@@ -205,5 +205,31 @@
     "clear_queued_title": "Clear the queue?",
     "clear_queued_message": "Remove {{count}} queued download(s)? Active downloads are not affected.",
     "clear_confirm": "Remove"
+  },
+  "viewer": {
+    "load_failed": "Failed to load",
+    "download": "Download",
+    "download_full": "Download full file",
+    "close": "Close",
+    "no_preview": "No preview available for this file type. Use the download button.",
+    "text_truncated": "Showing the first {{kb}} KB. Use the download button for the full file.",
+    "zoom_in": "Zoom in",
+    "zoom_out": "Zoom out",
+    "zoom_reset": "Fit to screen",
+    "prev": "Previous",
+    "next": "Next",
+    "pdf_fallback": "PDF didn't open? ",
+    "comic_loading": "Reading comic pages... (from a torrent this may wait for pieces to download)",
+    "comic_page_loading": "Loading page...",
+    "comic_page_alt": "Page {{page}}",
+    "comic_empty": "No image pages found in this file.",
+    "archive_loading": "Listing archive contents... (from a torrent this may wait for pieces to download)",
+    "archive_empty": "Empty archive or no readable entries.",
+    "archive_truncated": "Listing truncated — the archive has more entries than the display limit.",
+    "preview_inline": "Preview inline",
+    "epub_loading": "Opening the book... (from a torrent this may wait for pieces to download)",
+    "epub_empty": "EPUB with no readable chapters.",
+    "epub_chapter": "Chapter {{n}}",
+    "epub_chapter_select": "Choose chapter"
   }
 }
