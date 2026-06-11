@@ -304,6 +304,14 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                                 <span className="ml-1 px-1.5 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">
                                   {p.kind === 'tv' ? 'Série' : 'Filme'}
                                 </span>
+                                {p.reusedFolder && (
+                                  <span
+                                    title={`Reaproveitou a pasta existente "${p.reusedFolder}" em vez de criar uma nova`}
+                                    className="ml-1 px-1.5 text-[9px] font-bold rounded bg-emerald-500/15 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 dark:border-emerald-700/40"
+                                  >
+                                    ↻ {p.reusedFolder}
+                                  </span>
+                                )}
                               </span>
                             </div>
                           )}

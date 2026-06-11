@@ -1300,6 +1300,9 @@ export type PromotePreviewEntry = {
   season?: number
   episode?: number
   episodeName?: string
+  // reusedFolder is set when the IA landed the item in an EXISTING destination
+  // category folder (e.g. "Movies") instead of creating a near-duplicate.
+  reusedFolder?: string
   error?: string
 }
 

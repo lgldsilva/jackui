@@ -494,7 +494,7 @@ func TestSanitizeSubdir_Dot(t *testing.T) {
 }
 
 func TestComputePromoteDst_NoAIClient(t *testing.T) {
-	dst, dir := computePromoteDst(&promoteDstDeps{base: "/base"}, "test.mp4", "/base/filmes")
+	dst, dir := computePromoteDst(&promoteDstDeps{base: "/base"}, "test.mp4", "", "/base/filmes")
 	if dst != "/base/filmes/test.mp4" {
 		t.Errorf("dst = %q, want '/base/filmes/test.mp4'", dst)
 	}
@@ -534,7 +534,7 @@ func TestComputePromoteDst_WithAIClient(t *testing.T) {
 		ctx:      nil,
 		aiClient: aiClient,
 		base:     "/base",
-	}, "Test.Movie.2023.mp4", "/base/filmes")
+	}, "Test.Movie.2023.mp4", "", "/base/filmes")
 	// With AI enabled and context=nil, it may fail or succeed — either is fine
 	_ = dst
 	_ = dir
