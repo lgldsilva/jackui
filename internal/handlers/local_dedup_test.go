@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/contentid"
 	"github.com/lgldsilva/jackui/internal/local"
 )
 
@@ -60,10 +61,10 @@ func TestFindDuplicates_GroupsByContentNotName(t *testing.T) {
 
 func TestFindDuplicates_LargeFilesSampledHeadTail(t *testing.T) {
 	b, dir := dedupBrowser(t)
-	// Files larger than 2*dupSampleBytes exercise the head+tail sampling path
-	// (no full read). Two identical large files must group; one with a different
-	// head must not.
-	big := make([]byte, 3*dupSampleBytes)
+	// Files larger than 2*contentid.SampleBytes exercise the head+tail sampling
+	// path (no full read). Two identical large files must group; one with a
+	// different head must not.
+	big := make([]byte, 3*contentid.SampleBytes)
 	for i := range big {
 		big[i] = byte(i % 7)
 	}
@@ -89,8 +90,8 @@ func TestFingerprintFile_IdenticalSmallFilesMatch(t *testing.T) {
 	small := []byte("hello chapters and duplicates")
 	writeFile(t, filepath.Join(dir, "s1"), small)
 	writeFile(t, filepath.Join(dir, "s2"), small)
-	f1, _ := fingerprintFile(filepath.Join(dir, "s1"), int64(len(small)))
-	f2, _ := fingerprintFile(filepath.Join(dir, "s2"), int64(len(small)))
+	f1, _ := contentid.Fingerprint(filepath.Join(dir, "s1"), int64(len(small)))
+	f2, _ := contentid.Fingerprint(filepath.Join(dir, "s2"), int64(len(small)))
 	if f1 == "" || f1 != f2 {
 		t.Fatalf("identical small files must share a fingerprint: %q vs %q", f1, f2)
 	}

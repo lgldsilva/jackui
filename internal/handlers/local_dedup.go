@@ -2,10 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/contentid"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -27,16 +24,15 @@ import (
 //
 //  1. Group by byte size — a content match is impossible across sizes, so this
 //     free metadata pre-filter discards the vast majority of files.
-//  2. Within a size group, fingerprint each file by hashing only its size + the
-//     first and last dupSampleBytes (two small RANGED reads the FUSE layer turns
-//     into partial fetches), never the middle.
+//  2. Within a size group, fingerprint each file via contentid.Fingerprint
+//     (size + the first and last contentid.SampleBytes, two small RANGED reads
+//     the FUSE layer turns into partial fetches), never the middle.
 //
-// This is a fingerprint, not a full hash: distinct files that happen to share
-// size + head + tail but differ only in the middle would be reported as
-// duplicates. For real media (MKV/MP4 headers, trailing index/moov, container
-// CRCs) that's astronomically unlikely, and the user always reviews + selects
-// before anything is deleted — nothing is removed automatically.
-const dupSampleBytes = 64 << 10 // 64 KiB sampled from each end
+// contentid.Fingerprint is a fingerprint, not a full hash: files sharing size +
+// head + tail but differing only in the middle would be reported as duplicates.
+// For real media (MKV/MP4 headers, trailing index/moov, container CRCs) that's
+// astronomically unlikely, and the user always reviews + selects before anything
+// is deleted — nothing is removed automatically.
 
 type dupFile struct {
 	Path    string    `json:"path"` // mount-root-relative (the delete endpoint re-validates containment)
@@ -124,7 +120,7 @@ func fingerprintGroup(ctx context.Context, b *local.Browser, mount string, list 
 		if rerr != nil {
 			continue
 		}
-		h, herr := fingerprintFile(abs, e.Size)
+		h, herr := contentid.Fingerprint(abs, e.Size)
 		if herr != nil {
 			continue
 		}
@@ -151,37 +147,6 @@ func sortDupGroups(groups []dupGroup) {
 		}
 		return groups[i].Files[0].Path < groups[j].Files[0].Path
 	})
-}
-
-// fingerprintFile hashes size + head + tail WITHOUT reading the middle, so on
-// an rclone/Drive mount it costs two small ranged reads instead of downloading
-// the whole object. Files at or under 2*dupSampleBytes are hashed whole (they're
-// already tiny). The size is folded in so length alone always distinguishes.
-func fingerprintFile(abs string, size int64) (string, error) {
-	f, err := os.Open(abs)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	fmt.Fprintf(h, "%d:", size)
-	if size <= 2*dupSampleBytes {
-		if _, err := io.Copy(h, f); err != nil {
-			return "", err
-		}
-		return hex.EncodeToString(h.Sum(nil)), nil
-	}
-	head := make([]byte, dupSampleBytes)
-	if _, err := io.ReadFull(f, head); err != nil {
-		return "", err
-	}
-	h.Write(head)
-	tail := make([]byte, dupSampleBytes)
-	if _, err := f.ReadAt(tail, size-dupSampleBytes); err != nil && err != io.EOF {
-		return "", err
-	}
-	h.Write(tail)
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 type dedupDeleteReq struct {
