@@ -154,7 +154,6 @@
     "copy": "Copy",
     "copied": "Copied!"
   },
-<<<<<<< HEAD
   "stats": {
     "title": "Statistics",
     "watch_time": "Watch time",
@@ -184,7 +183,7 @@
       "sat": "sat"
     },
     "disclaimer": "Watch time is approximate (accumulated position per title; rewatching doesn't add). Days/hours use each title's last play."
-=======
+  },
   "downloads": {
     "whole_torrent_queued": "Whole torrent queued — {{count}} files, {{size}}",
     "whole_torrent_badge": "Whole torrent",
@@ -196,6 +195,5 @@
     "clear_queued_title": "Clear the queue?",
     "clear_queued_message": "Remove {{count}} queued download(s)? Active downloads are not affected.",
     "clear_confirm": "Remove"
->>>>>>> origin/main
   }
 }
