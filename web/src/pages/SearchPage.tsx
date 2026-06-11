@@ -617,14 +617,15 @@ export default function SearchPage() {
   const isSearching = activeTab.phase === 'cache' || activeTab.phase === 'live'
 
   // Post-reload: the in-memory cache is gone, so a restored tab has a query
-  // but no results. Quietly refill the active one from the backend search
-  // cache (no live Jackett hit). The guard re-checks the tab at apply time so
-  // an in-flight search is never overwritten.
+  // but no results. Quietly refill from the backend cache of that EXACT query
+  // (GET /api/history/results — no live Jackett hit). Only tabs captured at
+  // mount are eligible; typing never triggers it. The guard re-checks the tab
+  // at apply time so an in-flight search is never overwritten.
   const applyRehydrated = useCallback((tabId: string, query: string, results: SearchResult[]) => {
     setTabs(prev => prev.map(t =>
       canApplyRehydrated(t, tabId, query) ? { ...t, results, phase: 'done' as SearchPhase } : t))
   }, [])
-  useRehydratedResults(activeTab.id, activeTab.query, activeTab.phase, activeTab.results.length, applyRehydrated)
+  useRehydratedResults(tabs, activeTab.id, applyRehydrated)
 
   // Mobile gesture: horizontal swipe over the content switches search tabs
   // (left = next, right = previous). Edge band is reserved (ignoreEdgePx) so a
