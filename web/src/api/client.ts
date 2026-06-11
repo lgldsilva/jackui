@@ -14,6 +14,7 @@ export * from './watchlists'
 export * from './library'
 export * from './playlists'
 export * from './push'
+export * from './stats'
 
 export type Quality = {
   readonly resolution?: string

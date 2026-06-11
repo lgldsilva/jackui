@@ -96,3 +96,32 @@ export const tmdbGenres = async (): Promise<TmdbGenre[]> => {
     return []
   }
 }
+
+// ─── Trailers ───────────────────────────────────────────────────────────────
+
+export type TmdbVideo = {
+  key: string // YouTube video id
+  name: string
+  type: 'Trailer' | 'Teaser'
+  official: boolean
+}
+
+// Session cache: trailers don't change mid-session and the button can be
+// clicked repeatedly from cards sharing the same title.
+const videosCache = new Map<string, TmdbVideo[]>()
+
+// tmdbVideos returns the YouTube trailers of a title, best first. Empty array
+// when there's none / TMDB off / error — callers degrade to "no trailer".
+export const tmdbVideos = async (kind: 'movie' | 'tv', id: number): Promise<TmdbVideo[]> => {
+  const cacheKey = `${kind}:${id}`
+  const cached = videosCache.get(cacheKey)
+  if (cached) return cached
+  try {
+    const { data } = await api.get<TmdbVideo[]>(`/tmdb/videos?kind=${kind}&id=${id}`, { validateStatus: () => true })
+    const videos = Array.isArray(data) ? data : []
+    videosCache.set(cacheKey, videos)
+    return videos
+  } catch {
+    return []
+  }
+}
