@@ -112,34 +112,26 @@ func (s *Store) migrate() error {
 	}
 	// Idempotent ALTERs for older DBs that pre-date these columns. user_agent/ip
 	// identify the device behind each session (shown in "active sessions").
-	for col, ddl := range map[string]string{
+	if err := s.addMissingColumns("refresh_tokens", map[string]string{
 		"remember_me": `ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`,
 		"user_agent":  `ALTER TABLE refresh_tokens ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''`,
 		"ip":          `ALTER TABLE refresh_tokens ADD COLUMN ip TEXT NOT NULL DEFAULT ''`,
-	} {
-		if !s.hasColumn("refresh_tokens", col) {
-			if _, err := s.db.Exec(ddl); err != nil {
-				return err
-			}
-		}
+	}); err != nil {
+		return err
 	}
 	// Account-lifecycle columns. Default status 'active' so EXISTING users (incl.
 	// the bootstrap admin) keep logging in untouched; new self-registrations are
 	// inserted as 'pending' explicitly. email_verified defaults 1 for the same
 	// reason — pre-existing accounts aren't retroactively locked out.
-	for col, ddl := range map[string]string{
+	if err := s.addMissingColumns("users", map[string]string{
 		"email":          `ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
 		"status":         `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
 		"email_verified": `ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1`,
 		"totp_secret":    `ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
 		"totp_enabled":   `ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
 		"ntfy_topic":     `ALTER TABLE users ADD COLUMN ntfy_topic TEXT NOT NULL DEFAULT ''`,
-	} {
-		if !s.hasColumn("users", col) {
-			if _, err := s.db.Exec(ddl); err != nil {
-				return err
-			}
-		}
+	}); err != nil {
+		return err
 	}
 	// Generic single-use tokens for invite / email-verify / password-reset. Only
 	// the SHA-256 of the token is stored. user_id is NULL for invites (no account
@@ -187,6 +179,20 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_backupcode_user ON mfa_backup_codes(user_id);
 	`); err != nil {
 		return err
+	}
+	return nil
+}
+
+// addMissingColumns applies the given idempotent ALTERs for columns the table
+// doesn't have yet (cols maps column name → ALTER TABLE statement).
+func (s *Store) addMissingColumns(table string, cols map[string]string) error {
+	for col, ddl := range cols {
+		if s.hasColumn(table, col) {
+			continue
+		}
+		if _, err := s.db.Exec(ddl); err != nil {
+			return err
+		}
 	}
 	return nil
 }
