@@ -55,12 +55,23 @@ func TestApplyEnvOverrides_HLSVODMode(t *testing.T) {
 	}
 }
 
-func TestApplyEnvOverrides_HLSVODMode_DefaultsToHlsjs(t *testing.T) {
+func TestApplyEnvOverrides_HLSVODMode_DefaultsToAll(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("JACKUI_HLS_VOD_MODE", "")
 	applyEnvOverrides(cfg)
+	if cfg.Stream.HLSVODMode != "all" {
+		t.Fatalf("HLSVODMode default = %q, want all (seekbar for every client, Safari included)", cfg.Stream.HLSVODMode)
+	}
+}
+
+// Rollback path: an explicit "hlsjs" must survive the defaulting (Safari back
+// to EVENT without recompiling).
+func TestApplyEnvOverrides_HLSVODMode_RollbackHlsjs(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_HLS_VOD_MODE", "hlsjs")
+	applyEnvOverrides(cfg)
 	if cfg.Stream.HLSVODMode != "hlsjs" {
-		t.Fatalf("HLSVODMode default = %q, want hlsjs (seekbar on for hls.js)", cfg.Stream.HLSVODMode)
+		t.Fatalf("HLSVODMode = %q, want hlsjs", cfg.Stream.HLSVODMode)
 	}
 }
 

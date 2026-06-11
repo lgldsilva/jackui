@@ -31,7 +31,7 @@ func (n *wlmErrNotifier) Notify(ctx context.Context, topic, title, body, magnet 
 // path: no notification fires and MarkChecked is still skipped on that list.
 func Test_wlmRunOnceSearchError(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "boom", "", 1, "topic")
+	_, _ = s.Create(1, params("boom", "", 1, "topic"))
 	notifier := &recorderNotifier{}
 	w := NewWorker(s, wlmErrSearcher{}, notifier, "topic", 15*time.Minute)
 	w.RunOnce()
@@ -53,7 +53,7 @@ func Test_wlmRunOnceListAllError(t *testing.T) {
 // does not abort the pass and the notifier was actually invoked.
 func Test_wlmNotifyFailureIsSwallowed(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "q", "", 1, "topic")
+	_, _ = s.Create(1, params("q", "", 1, "topic"))
 	searcher := &fakeSearcher{results: []jackett.Result{
 		{InfoHash: "h1", Title: "M", MagnetURI: "magnet:h1", Seeders: 9, Size: 4096},
 	}}

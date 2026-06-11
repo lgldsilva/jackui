@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
@@ -227,6 +228,7 @@ export default function FavoritesPage() {
   const [revealHidden] = useRevealHidden()
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
+  const { t } = useTranslation()
   // Nome do favorito cujo "Baixar tudo" está resolvendo metadata/enfileirando.
   const [dlAllBusy, setDlAllBusy] = useState<string | null>(null)
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
@@ -407,7 +409,7 @@ export default function FavoritesPage() {
   }
 
   // "Baixar tudo": resolve o metadata (cache → streamAdd), confirma com a
-  // contagem/tamanho reais e enfileira um download por arquivo do torrent.
+  // contagem/tamanho reais e enfileira o torrent INTEIRO como UM download.
   const downloadAllFavorite = async (fav: StreamFavorite) => {
     if (!favHasValidMagnet(fav)) {
       alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar o download.')
@@ -423,8 +425,8 @@ export default function FavoritesPage() {
         destructive: false,
       })
       if (!ok) return
-      const res = await queueAllTorrentFiles(info, fav.magnet, fav.name)
-      if (res.failed > 0) alert(`${res.queued}/${res.total} enfileirados; ${res.failed} falharam.`)
+      await queueAllTorrentFiles(info, fav.magnet, fav.name)
+      alert(t('downloads.whole_torrent_queued', { count: info.files.length, size: formatBytes(info.totalSize) }))
     } catch (err: any) {
       alert(`Falha ao preparar o download: ${err?.response?.data?.error || err.message || err}`)
     } finally {

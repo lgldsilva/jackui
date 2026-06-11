@@ -112,6 +112,7 @@ type appDeps struct {
 	aiBench        *ai.BenchmarkStore
 	webSearch      *imagesearch.Chain
 	watchlistStore *watchlist.Store
+	watchlistWkr   *watchlist.Worker
 	subtitleClient *subtitles.Client
 	authStore      *auth.Store
 	tokenMgr       *auth.TokenManager
@@ -386,11 +387,14 @@ func initDownloadsStore(deps *appDeps) {
 	log.Printf("Downloads: %s", dlPath)
 
 	deps.streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
-		path, err := d.GetCompletedPath(h.HexString(), fileIdx)
+		// FileRelPath lets the store resolve files inside whole-torrent rows
+		// (file_path = destination DIRECTORY) without activating the torrent.
+		relPath := deps.streamSrv.FileRelPath(h, fileIdx)
+		path, err := d.GetCompletedPathRel(h.HexString(), fileIdx, relPath)
 		if err != nil || path == "" {
 			return "", false
 		}
-		if _, err := os.Stat(path); err != nil {
+		if st, err := os.Stat(path); err != nil || st.IsDir() {
 			return "", false
 		}
 		return path, true
@@ -573,9 +577,13 @@ func initWatchlistStore(deps *appDeps) {
 	}
 	notifier := &watchlist.NtfyPoster{BaseURL: deps.cfg.Notifications.NtfyBaseURL, Token: deps.cfg.Notifications.NtfyToken}
 	worker := watchlist.NewWorker(w, deps.jackettClient, notifier, deps.cfg.Notifications.NtfyDefaultTopic, interval)
+	if deps.downloadsStore != nil {
+		worker.SetEnqueuer(deps.downloadsStore)
+	}
 	worker.Start()
+	deps.watchlistWkr = worker
 	deps.addCleanup(worker.Stop)
-	log.Printf("Watchlist worker: interval=%s default_topic=%q", interval, deps.cfg.Notifications.NtfyDefaultTopic)
+	log.Printf("Watchlist worker: per-item scheduling (default interval=%s) default_topic=%q", interval, deps.cfg.Notifications.NtfyDefaultTopic)
 }
 
 func initSubtitles(cfg *config.Config) *subtitles.Client {
@@ -812,7 +820,10 @@ func metricsStaticTokenBypass(prom gin.HandlerFunc) gin.HandlerFunc {
 
 func setupRouter(deps *appDeps) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger())
+	// Custom formatter instead of gin.Logger(): media routes authenticate via
+	// ?token=<JWT> (<video> can't send headers), and the default access log was
+	// writing those JWTs verbatim into `docker logs`.
+	router.Use(gin.LoggerWithFormatter(middleware.RedactingLogFormatter))
 	router.Use(gin.Recovery())
 
 	corsConfig := cors.DefaultConfig()
@@ -1093,10 +1104,12 @@ func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/watchlists", handlers.WatchlistList(deps.watchlistStore))
-	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore))
+	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore, deps.watchlistWkr))
 	api.PUT("/watchlists/:id", handlers.WatchlistUpdate(deps.watchlistStore))
 	api.DELETE("/watchlists/:id", handlers.WatchlistDelete(deps.watchlistStore))
 	api.GET("/watchlists/:id/hits", handlers.WatchlistHits(deps.watchlistStore))
+	// Free-text → schedule via the AI chain (nil aiClient → 503 inside).
+	api.POST("/watchlists/schedule/parse", handlers.WatchlistScheduleParse(deps.aiClient))
 }
 
 func registerPlaylistRoutes(api *gin.RouterGroup, deps *appDeps) {

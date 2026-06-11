@@ -959,7 +959,7 @@ func (h *Handler) finalizeTorrentAdd(userID int, infoHash, name, magnet string, 
 		name = shortHash + "..."
 	}
 	d, err := h.store.Create(downloads.Download{
-		UserID: userID, InfoHash: infoHash, FileIndex: -1,
+		UserID: userID, InfoHash: infoHash, FileIndex: downloads.FileIndexAuto,
 		Name: name, Magnet: magnet, Category: category,
 	})
 	if err != nil {
