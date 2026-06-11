@@ -5,7 +5,7 @@ import { formatRate } from '../../lib/format'
 import { formatSize, subtitleButtonTitle, subtitleBtnClass, serverDownloadIcon, SPEED_OPTIONS } from './playerFormat'
 import { MediaNavButtons } from './PlayerOverlays'
 import { EmbeddedTracksPanel } from './EmbeddedTracksPanel'
-import { ChaptersPanel } from './ChaptersPanel'
+import { ChaptersPanel, ChapterNavButtons } from './ChaptersPanel'
 
 type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
@@ -161,6 +161,10 @@ export function PlayerControlsPanel({
           hasPrevMedia={hasPrevMedia}
           hasNextMedia={hasNextMedia}
         />
+        {/* Chapter prev/next — only when the probe found real chapters */}
+        {!audioMode && (probe?.chapters?.length ?? 0) > 1 && (
+          <ChapterNavButtons chapters={probe!.chapters!} currentTime={currentTime} onSeek={onSeek} />
+        )}
         <span className="text-xs text-text-secondary ml-auto font-mono tabular-nums flex-shrink-0">
           {formatTime(currentTime)} <span className="text-text-muted">/</span> {formatTime(duration)}
         </span>
