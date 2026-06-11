@@ -1449,9 +1449,33 @@ export const convertTorrentToMagnet = async (
   return data
 }
 
-// Retorna a URL para converter magnet em arquivo .torrent para download.
-export const convertMagnetToTorrentUrl = (magnet: string): string => {
-  return `/api/convert/magnet-to-torrent?magnet=${encodeURIComponent(magnet)}`
+// Baixa um arquivo pela camada autenticada (axios injeta Authorization e faz
+// refresh) e dispara o save via blob. Navegação direta (location.href) não
+// envia o header, e as rotas de .torrent não estão na whitelist de ?token= —
+// com auth ligada o usuário recebia um JSON 401 no lugar do arquivo.
+export const downloadFileAuthenticated = async (path: string, filename: string): Promise<void> => {
+  const { data } = await api.get<Blob>(path, { responseType: 'blob' })
+  const blobUrl = URL.createObjectURL(data)
+  const a = document.createElement('a')
+  a.href = blobUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
+}
+
+// Baixa o .torrent de um resultado: via link do indexer (proxy) ou convertendo
+// o magnet. O nome vem do título do resultado.
+export const downloadTorrentForResult = async (r: { title: string; link?: string; magnetUri?: string }): Promise<void> => {
+  const filename = `${r.title || 'download'}.torrent`
+  if (r.link) {
+    await downloadFileAuthenticated(`/proxy/torrent?url=${encodeURIComponent(r.link)}`, filename)
+    return
+  }
+  if (r.magnetUri) {
+    await downloadFileAuthenticated(`/convert/magnet-to-torrent?magnet=${encodeURIComponent(r.magnetUri)}`, filename)
+  }
 }
 
 export type HLSSessionSnapshot = {
