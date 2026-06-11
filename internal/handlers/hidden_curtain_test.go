@@ -22,11 +22,11 @@ func TestDropHiddenHelpers(t *testing.T) {
 	hidden := map[string]bool{"h1": true}
 
 	dl := []downloads.Download{{InfoHash: "h1"}, {InfoHash: "h2"}}
-	if got := dropHiddenDownloads(dl, hidden); len(got) != 1 || got[0].InfoHash != "h2" {
+	if got := dropHiddenDownloads(dl, hiddenDownloadFilter{hashes: hidden}); len(got) != 1 || got[0].InfoHash != "h2" {
 		t.Errorf("dropHiddenDownloads = %+v", got)
 	}
-	if got := dropHiddenDownloads(dl, nil); len(got) != 2 {
-		t.Errorf("nil set should be no-op, got %d", len(got))
+	if got := dropHiddenDownloads(dl, hiddenDownloadFilter{}); len(got) != 2 {
+		t.Errorf("empty filter should be no-op, got %d", len(got))
 	}
 
 	lib := []library.Entry{{InfoHash: "h1"}, {InfoHash: "h2"}}

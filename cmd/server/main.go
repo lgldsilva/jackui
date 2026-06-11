@@ -949,7 +949,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		adminAPI.PUT("/ai/settings", handlers.PutAICostConfig(deps.aiClient, deps.aiBench))
 
 		if deps.downloadsStore != nil && deps.authStore != nil {
-			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv))
+			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv, deps.localBrowser))
 			adminAPI.GET("/downloads/users", handlers.DownloadsUsers(deps.downloadsStore, deps.authStore))
 		}
 
@@ -1099,8 +1099,8 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	if deps.downloadsStore == nil {
 		return
 	}
-	api.GET("/downloads", handlers.DownloadsList(deps.downloadsStore, deps.streamSrv, deps.cfg.Stream.DownloadDir))
-	api.GET("/downloads/filtered", handlers.DownloadsListFiltered(deps.downloadsStore, deps.streamSrv))
+	api.GET("/downloads", handlers.DownloadsList(deps.downloadsStore, deps.streamSrv, deps.localBrowser, deps.authStore, deps.cfg.Stream.DownloadDir))
+	api.GET("/downloads/filtered", handlers.DownloadsListFiltered(deps.downloadsStore, deps.streamSrv, deps.localBrowser, deps.authStore))
 	api.GET("/downloads/trackers", handlers.DownloadsTrackers(deps.downloadsStore))
 	api.GET("/downloads/categories", handlers.DownloadsCategories(deps.downloadsStore))
 	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
