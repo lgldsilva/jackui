@@ -83,7 +83,12 @@
     "summary_weekly": "{{weekday}} at {{time}}",
     "server_default": "server default",
     "next_check": "next check {{time}}",
-    "hits_empty": "No detections yet. The first check runs right after creating; then it follows the schedule."
+    "hits_empty": "No detections yet. The first check runs right after creating; then it follows the schedule.",
+    "ai_placeholder": "Describe it freely (e.g. every Monday at 9am)",
+    "ai_button": "Interpret with AI",
+    "ai_applied": "Interpreted: {{summary}} — review and save",
+    "ai_unclear": "Couldn't read that as a schedule — try rephrasing (e.g. \"every 3 hours\")",
+    "ai_error": "Failed to interpret — try again"
   },
   "settings": {
     "title": "Settings",

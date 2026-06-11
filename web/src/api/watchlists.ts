@@ -65,3 +65,21 @@ export const watchlistsHits = async (id: number): Promise<WatchlistHit[]> => {
   const { data } = await api.get<WatchlistHit[]>(`/watchlists/${id}/hits`)
   return data || []
 }
+
+// ParsedSchedule is what POST /watchlists/schedule/parse returns: the same
+// sched* shape as Watchlist, already normalized (clamped) by the backend.
+export type ParsedSchedule = {
+  schedKind: SchedKind
+  schedMinutes: number
+  schedWeekday: number
+  schedHour: number
+  schedMinute: number
+}
+
+// watchlistsParseSchedule converts a free-text phrase ("toda segunda às 9h")
+// into a schedule via the server's AI chain. Errors: 400 empty text, 422 the
+// AI couldn't read it as a schedule, 503 AI disabled/unavailable.
+export const watchlistsParseSchedule = async (text: string): Promise<ParsedSchedule> => {
+  const { data } = await api.post<ParsedSchedule>('/watchlists/schedule/parse', { text })
+  return data
+}
