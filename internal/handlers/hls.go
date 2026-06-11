@@ -277,8 +277,9 @@ func getSession(mgr *transcode.HLSSessionManager, key string) (*transcode.HLSSes
 // #61 Safari seek guard).
 func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 	if hc.store != nil {
-		if path, err := hc.store.GetCompletedPath(hc.h.HexString(), hc.fileIdx); err == nil && path != "" {
-			if stat, err := os.Stat(path); err == nil {
+		relPath := hc.s.FileRelPath(hc.h, hc.fileIdx)
+		if path, err := hc.store.GetCompletedPathRel(hc.h.HexString(), hc.fileIdx, relPath); err == nil && path != "" {
+			if stat, err := os.Stat(path); err == nil && !stat.IsDir() {
 				if f, err := os.Open(path); err == nil {
 					return f, stat.Size(), true
 				}
