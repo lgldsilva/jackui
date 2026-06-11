@@ -657,19 +657,42 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		paths := resolveLocalPaths(b, req, scopeUser(c))
+		username := scopeUser(c)
+		orig := originalLocalPaths(req)
+		paths := resolveLocalPaths(b, req, username)
 		if len(paths) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
-		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base, dls: dls, s: s}
-		moved, errs := execPromoteMoves(b, deps, req.Mount, paths, targetDir)
-		if moved == 0 {
-			c.JSON(http.StatusUnprocessableEntity, gin.H{"moved": 0, "failed": len(errs), "errors": errs})
-			return
+		deps := &promoteDstDeps{
+			ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient,
+			base: base, mount: req.Mount, dls: dls, s: s,
+			overrides: scopedOverrides(b, req, username),
 		}
-		c.JSON(http.StatusOK, gin.H{"moved": moved, "failed": len(errs), "errors": errs})
+		moved, errs, results := execPromoteMoves(b, deps, req.Mount, paths, orig, targetDir)
+		// `errors` keeps the legacy {path,error} list (single-item callers);
+		// `results` is the per-item batch feedback (success/error keyed by the
+		// ORIGINAL un-scoped path the UI sent, so the reclassify table can mark
+		// each row). path in errors is also the original path now.
+		status := http.StatusOK
+		if moved == 0 {
+			status = http.StatusUnprocessableEntity
+		}
+		c.JSON(status, gin.H{"moved": moved, "failed": len(errs), "errors": errs, "results": results})
 	}
+}
+
+// originalLocalPaths returns the un-scoped source paths exactly as the UI sent
+// them (Paths first, else the single Path), so per-item results can be reported
+// against the same keys the client knows — not the user-scoped variants.
+func originalLocalPaths(req *localPromoteReq) []string {
+	if len(req.Paths) > 0 {
+		return req.Paths
+	}
+	if req.Path != "" {
+		return []string{req.Path}
+	}
+	return nil
 }
 
 func localPromoteTargetDir(base, subdirStr string) (string, error) {
@@ -683,17 +706,31 @@ func localPromoteTargetDir(base, subdirStr string) (string, error) {
 	return filepath.Join(base, subdir), nil
 }
 
-func execPromoteMoves(b *local.Browser, deps *promoteDstDeps, mount string, paths []string, targetDir string) (int, []gin.H) {
+// execPromoteMoves moves each scoped path, returning the success count, the
+// legacy {path,error} failure list, and a per-item results list (one entry per
+// input, ok=true/false). Both the error list and the results report the
+// ORIGINAL un-scoped path (orig[i]) so the caller can key feedback by what the
+// UI sent. orig may be shorter than paths (older callers pass nil) — it then
+// falls back to the scoped path.
+func execPromoteMoves(b *local.Browser, deps *promoteDstDeps, mount string, paths, orig []string, targetDir string) (int, []gin.H, []gin.H) {
 	moved := 0
 	errs := make([]gin.H, 0)
-	for _, scopedRel := range paths {
+	results := make([]gin.H, 0, len(paths))
+	for i, scopedRel := range paths {
+		key := scopedRel
+		if i < len(orig) && orig[i] != "" {
+			key = orig[i]
+		}
 		if e := promoteOnePath(b, deps, mount, scopedRel, targetDir); e != nil {
+			e["path"] = key
 			errs = append(errs, e)
+			results = append(results, gin.H{"path": key, "ok": false, "error": e["error"]})
 		} else {
 			moved++
+			results = append(results, gin.H{"path": key, "ok": true})
 		}
 	}
-	return moved, errs
+	return moved, errs, results
 }
 
 // promoteOnePath moves one already-scoped relative path into targetDir, applying
@@ -713,7 +750,7 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 		return gin.H{"path": scopedRel, "error": "arquivo de origem não existe"}
 	}
 	baseName := filepath.Base(src)
-	dst, dir := computePromoteDst(deps, baseName, targetDir)
+	dst, dir := computePromoteDst(deps, baseName, scopedRel, targetDir)
 	if src == dst {
 		return nil
 	}
@@ -730,9 +767,22 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 	return nil
 }
 
-func computePromoteDst(d *promoteDstDeps, baseName, targetDir string) (string, string) {
+// computePromoteDst decides where a file lands. Precedence:
+//  1. a valid user override (the edited target from the reclassify table) —
+//     sanitized + de-conflicted, never escaping base;
+//  2. the AI/TMDB suggestion (location-aware via LocalContext);
+//  3. the plain targetDir/baseName fallback.
+// scopedRel is the SCOPED source path — used to look up the override and to give
+// the AI its location hint (currentDirOf).
+func computePromoteDst(d *promoteDstDeps, baseName, scopedRel, targetDir string) (string, string) {
+	lc := localContextFor(d.base, d.mount, currentDirOf(scopedRel))
+	if rel, ok := overrideTargetRel(d, scopedRel, lc); ok {
+		targetRel := renamer.ResolveTargetConflict(d.base, rel)
+		dst := filepath.Join(d.base, targetRel)
+		return dst, filepath.Dir(dst)
+	}
 	if d.aiClient != nil {
-		preview, err := renamer.GeneratePreview(d.ctx, d.aiClient, d.tmdbClient, baseName)
+		preview, err := renamer.GeneratePreviewWithContext(d.ctx, d.aiClient, d.tmdbClient, baseName, lc)
 		if err == nil && preview != nil {
 			targetRel := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 			dst := filepath.Join(d.base, targetRel)
@@ -741,6 +791,61 @@ func computePromoteDst(d *promoteDstDeps, baseName, targetDir string) (string, s
 	}
 	return filepath.Join(targetDir, baseName), targetDir
 }
+
+// overrideTargetRel returns the sanitized override target (relative to base) for
+// the scoped source path, when the request carried a non-empty, valid one. The
+// guard is sanitizeOverrideTarget — the SAME path-traversal protection the AI
+// path goes through (per-segment sanitizeFilename + reject "..", absolute or
+// base escape) plus case-insensitive category-folder reuse.
+func overrideTargetRel(d *promoteDstDeps, scopedRel string, lc *renamer.LocalContext) (string, bool) {
+	if len(d.overrides) == 0 {
+		return "", false
+	}
+	raw, ok := d.overrides[scopedRel]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return "", false
+	}
+	return sanitizeOverrideTarget(raw, lc)
+}
+
+// currentDirOf returns the directory portion of a relative path for the AI
+// location hint ("" when the item is at the mount root). Defensive against the
+// filepath.Dir "." sentinel.
+func currentDirOf(rel string) string {
+	dir := filepath.Dir(filepath.Clean(rel))
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return dir
+}
+
+// localContextFor builds the renamer.LocalContext from the destination base and
+// the source location: a shallow ReadDir of the destination (top-level folders
+// only) so the renamer can reuse an existing category, plus the current path
+// for the AI's location hint. Cheap: a single ReadDir, results truncated. A
+// missing/unreadable base degrades to nil (legacy hardcoded labels).
+func localContextFor(base, mount, currentPath string) *renamer.LocalContext {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		if currentPath == "" {
+			return nil
+		}
+		return &renamer.LocalContext{CurrentPath: currentPath, MountName: mount}
+	}
+	folders := listDirs(entries)
+	if len(folders) > maxPromoteContextFolders {
+		folders = folders[:maxPromoteContextFolders]
+	}
+	return &renamer.LocalContext{
+		CurrentPath: currentPath,
+		MountName:   mount,
+		DestFolders: folders,
+	}
+}
+
+// maxPromoteContextFolders caps the top-level folder listing handed to the
+// renamer/AI so a huge library never blows up the prompt or the work.
+const maxPromoteContextFolders = 40
 
 func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -752,8 +857,9 @@ func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb
 		if !ok {
 			return
 		}
+		orig := originalLocalPaths(req)
 		paths := resolveLocalPaths(b, req, scopeUser(c))
-		previews := buildLocalPreviews(&localPreviewDeps{c: c, b: b, aiClient: aiClient, tmdbClient: tmdbClient, mount: req.Mount, base: base}, paths)
+		previews := buildLocalPreviews(&localPreviewDeps{c: c, b: b, aiClient: aiClient, tmdbClient: tmdbClient, mount: req.Mount, base: base}, paths, orig)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
 }
@@ -772,8 +878,13 @@ type promoteDstDeps struct {
 	aiClient   *ai.Client
 	tmdbClient *tmdb.Client
 	base       string
+	mount      string             // source mount name, for the AI location hint
 	dls        *downloads.Store   // to re-link a moved file's torrent (may be nil)
 	s          *streamer.Streamer // to drop the active torrent so it re-verifies
+	// overrides maps a SCOPED source path to the user-edited destination path
+	// (relative to base). When set for the item being moved, the edited target
+	// REPLACES the AI suggestion — after the same sanitize/anti-traversal guard.
+	overrides map[string]string
 }
 
 type localPromoteReq struct {
@@ -783,6 +894,14 @@ type localPromoteReq struct {
 	TargetSubdir string   `json:"targetSubdir"`
 	TargetBase   string   `json:"targetBase"`
 	RenameIA     bool     `json:"renameIA"`
+	// Overrides maps a source path (the un-scoped relative path the UI sent in
+	// Paths/Path) to the user-edited destination path, RELATIVE to the resolved
+	// base. When present for an item, the edited target REPLACES the AI's
+	// suggestion — but it is sanitized exactly like the AI path (sanitizeOverrideTarget:
+	// per-segment sanitizeFilename, reject "..", absolute or base-escaping, reuse
+	// an existing category folder case-insensitively) before any move. An empty
+	// or invalid override silently falls back to the AI computation.
+	Overrides map[string]string `json:"overrides"`
 }
 
 func extractLocalPromoteReq(c *gin.Context, b *local.Browser, sharedDir string, dests []PromoteDest) (*localPromoteReq, string, bool) {
@@ -824,41 +943,51 @@ func resolveLocalPaths(b *local.Browser, req *localPromoteReq, username string) 
 	return nil
 }
 
-func buildLocalPreviews(d *localPreviewDeps, paths []string) []gin.H {
+// buildLocalPreviews builds one preview per scoped path. orig (when present)
+// carries the matching un-scoped path the UI sent; the preview's reported
+// `path` uses it so the reclassify table can key rows and round-trip the same
+// value back as an override. orig may be nil/shorter — it falls back to the
+// scoped path.
+func buildLocalPreviews(d *localPreviewDeps, paths, orig []string) []gin.H {
 	if len(paths) == 0 {
 		return []gin.H{}
 	}
 	previews := make([]gin.H, 0, len(paths))
-	for _, p := range paths {
-		previews = append(previews, previewItem(d, p))
+	for i, p := range paths {
+		key := p
+		if i < len(orig) && orig[i] != "" {
+			key = orig[i]
+		}
+		previews = append(previews, previewItem(d, p, key))
 	}
 	return previews
 }
 
-func previewItem(d *localPreviewDeps, p string) gin.H {
+func previewItem(d *localPreviewDeps, p, key string) gin.H {
 	cleanPath := filepath.Clean(p)
 	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
-		return gin.H{"path": p, "error": "cannot promote mount root"}
+		return gin.H{"path": key, "error": "cannot promote mount root"}
 	}
 
 	src, err := d.b.ResolvePath(d.mount, p)
 	if err != nil {
-		return gin.H{"path": p, "error": err.Error()}
+		return gin.H{"path": key, "error": err.Error()}
 	}
 
 	if _, err := os.Stat(src); err != nil {
-		return gin.H{"path": p, "error": "arquivo não existe"}
+		return gin.H{"path": key, "error": "arquivo não existe"}
 	}
 
 	baseName := filepath.Base(src)
-	preview, err := renamer.GeneratePreview(d.c.Request.Context(), d.aiClient, d.tmdbClient, baseName)
+	lc := localContextFor(d.base, d.mount, currentDirOf(p))
+	preview, err := renamer.GeneratePreviewWithContext(d.c.Request.Context(), d.aiClient, d.tmdbClient, baseName, lc)
 	if err != nil {
-		return gin.H{"path": p, "error": err.Error()}
+		return gin.H{"path": key, "error": err.Error()}
 	}
 
 	nonConflicting := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 	return gin.H{
-		"path":         p,
+		"path":         key,
 		"originalName": baseName,
 		"cleanName":    preview.CleanName,
 		"targetPath":   nonConflicting,
@@ -867,6 +996,7 @@ func previewItem(d *localPreviewDeps, p string) gin.H {
 		"season":       preview.Season,
 		"episode":      preview.Episode,
 		"episodeName":  preview.EpisodeName,
+		"reusedFolder": preview.ReusedFolder,
 	}
 }
 

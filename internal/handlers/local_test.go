@@ -239,9 +239,9 @@ func TestLocalList_WalkErr(t *testing.T) {
 
 func TestExecPromoteMoves_EmptyPaths(t *testing.T) {
 	b := local.NewBrowser(nil)
-	moved, errs := execPromoteMoves(b, nil, "Test", nil, "/target")
-	if moved != 0 || len(errs) != 0 {
-		t.Errorf("expected 0 moves, got moved=%d errs=%d", moved, len(errs))
+	moved, errs, results := execPromoteMoves(b, nil, "Test", nil, nil, "/target")
+	if moved != 0 || len(errs) != 0 || len(results) != 0 {
+		t.Errorf("expected 0 moves, got moved=%d errs=%d results=%d", moved, len(errs), len(results))
 	}
 }
 

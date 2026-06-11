@@ -663,15 +663,29 @@ type RenameMetadata struct {
 }
 
 func (c *Client) ExtractRenameMetadata(ctx context.Context, rawName string) (*RenameMetadata, string, error) {
+	return c.ExtractRenameMetadataWithContext(ctx, rawName, "")
+}
+
+// ExtractRenameMetadataWithContext is ExtractRenameMetadata plus an optional
+// taxonomy hint. The USER message stays the bare rawName (so title extraction
+// is unaffected and the benchmark/parser behaviour is identical); the hint is
+// appended to the SYSTEM prompt as an extra instruction telling the model which
+// destination category folders already exist and to prefer reusing one. An
+// empty hint is the exact legacy call.
+func (c *Client) ExtractRenameMetadataWithContext(ctx context.Context, rawName, taxonomyHint string) (*RenameMetadata, string, error) {
 	if c == nil {
 		return nil, "", errors.New("ai client not initialized")
+	}
+	system := renameSystem
+	if taxonomyHint != "" {
+		system = renameSystem + "\n\n" + taxonomyHint
 	}
 	var lastErr error
 	for _, s := range c.slotList() {
 		if !c.breaker.available(s.Provider, s.ID) {
 			continue
 		}
-		content, _, _, err := c.chat(ctx, s, renameSystem, rawName, true)
+		content, _, _, err := c.chat(ctx, s, system, rawName, true)
 		if err != nil {
 			lastErr = err
 			c.noteChainFailure(s, err)

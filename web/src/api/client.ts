@@ -1269,10 +1269,16 @@ export const localUpload = async (
   return data
 }
 
+// PromoteItemResult is the per-item outcome of a batch promote/reclassify, keyed
+// by the ORIGINAL (un-scoped) source path the UI sent — so the reclassify table
+// can mark each row succeeded/failed.
+export type PromoteItemResult = { path: string; ok: boolean; error?: string }
+
 export type PromoteResult = {
   moved: number
   failed: number
   errors: { path: string; error: string }[]
+  results?: PromoteItemResult[]
 }
 
 export const localPromote = async (
@@ -1282,9 +1288,13 @@ export const localPromote = async (
   targetBase?: string,
   renameIA?: boolean,
   paths?: string[],
+  // overrides maps a source path → user-edited target RELATIVE to the base. The
+  // backend re-sanitizes each (path traversal, unsafe chars, category reuse)
+  // before honouring it; an invalid override silently falls back to the IA path.
+  overrides?: Record<string, string>,
 ): Promise<PromoteResult> => {
   const { data } = await api.post<PromoteResult>(withViewAs('/local/promote'), {
-    mount, path, paths, targetSubdir, targetBase, renameIA,
+    mount, path, paths, targetSubdir, targetBase, renameIA, overrides,
   })
   return data
 }
@@ -1300,6 +1310,9 @@ export type PromotePreviewEntry = {
   season?: number
   episode?: number
   episodeName?: string
+  // reusedFolder is set when the IA landed the item in an EXISTING destination
+  // category folder (e.g. "Movies") instead of creating a near-duplicate.
+  reusedFolder?: string
   error?: string
 }
 

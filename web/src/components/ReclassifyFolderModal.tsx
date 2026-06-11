@@ -1,13 +1,20 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
-  FolderSync, Loader2, ArrowRight, Sparkles, FolderOpen,
-  Home, ChevronRight, HardDrive, Plus, AlertCircle, CheckCircle2,
+  FolderSync, Loader2, Sparkles, FolderOpen,
+  Home, ChevronRight, HardDrive, AlertCircle, CheckCircle2,
 } from 'lucide-react'
 import {
   LocalEntry, localWalk, localPromote, localPromotePreview,
-  fetchPromoteDestinations, downloadPromoteBrowse, PromoteDestination, PromotePreviewEntry,
+  fetchPromoteDestinations, downloadPromoteBrowse, PromoteDestination,
+  PromoteItemResult,
 } from '../api/client'
 import { Sheet } from './Sheet'
+import ReclassifyTable from './reclassify/ReclassifyTable'
+import {
+  buildEditableRows, buildOverrides, selectedPaths, rowTargetPath,
+  type ReclassifyRow,
+} from './reclassify/rows'
 
 type Props = {
   readonly mount: string
@@ -16,30 +23,25 @@ type Props = {
   readonly onDone: () => void
 }
 
-function fileCountLabel(entry: LocalEntry | null, files: LocalEntry[]): React.ReactNode {
-  if (!entry?.isDir) {
-    return <><span className="text-text-primary font-semibold">1</span> arquivo selecionado</>
-  }
-  const s = files.length === 1 ? '' : 's'
-  return <><span className="text-text-primary font-semibold">{files.length}</span> arquivo{s} de mídia encontrado{s}</>
-}
-
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
 
 type DoneResult = {
   readonly moved: number
-  readonly failed: readonly { path: string; error: string }[]
+  readonly failedCount: number
   readonly destLabel?: string
 }
 
-function renderDirList(loading: boolean, dirs: string[], browsePath: string, setBrowsePath: (p: string) => void): JSX.Element {
+function renderDirList(
+  loading: boolean, dirs: string[], browsePath: string,
+  setBrowsePath: (p: string) => void, emptyLabel: string,
+): JSX.Element {
   if (loading) {
     return <div className="flex items-center justify-center py-6 text-text-muted">
       <Loader2 className="w-4 h-4 animate-spin" />
     </div>
   }
   if (dirs.length === 0) {
-    return <p className="text-xs text-text-muted text-center py-4">Sem subpastas. Crie uma abaixo ou organize na raiz.</p>
+    return <p className="text-xs text-text-muted text-center py-4">{emptyLabel}</p>
   }
   return <ul className="space-y-0.5">
     {dirs.map(d => (
@@ -58,6 +60,7 @@ function renderDirList(loading: boolean, dirs: string[], browsePath: string, set
 }
 
 export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }: Props) {
+  const { t } = useTranslation()
   const [phase, setPhase] = useState<Phase>('scanning')
   const [files, setFiles] = useState<LocalEntry[]>([])
   const [error, setError] = useState('')
@@ -68,19 +71,17 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
   const [browsePath, setBrowsePath] = useState('')
   const [dirs, setDirs] = useState<string[]>([])
   const [dirsLoading, setDirsLoading] = useState(false)
-  const [newFolder, setNewFolder] = useState('')
 
-  const [previews, setPreviews] = useState<PromotePreviewEntry[]>([])
+  // Batch table state: editable rows + the IA's ORIGINAL target per path (so we
+  // only send an override for rows the user actually changed), plus per-item
+  // results after an apply.
+  const [rows, setRows] = useState<ReclassifyRow[]>([])
+  const [originalByPath, setOriginalByPath] = useState<Record<string, string>>({})
   const [previewLoading, setPreviewLoading] = useState(false)
-
+  const [results, setResults] = useState<Map<string, PromoteItemResult>>(new Map())
   const [result, setResult] = useState<DoneResult | null>(null)
 
-  const finalTarget = (() => {
-    const trimmed = newFolder.trim()
-    if (!trimmed) return browsePath
-    if (browsePath) return `${browsePath}/${trimmed}`
-    return trimmed
-  })()
+  const finalTarget = browsePath
 
   // Reset on open
   useEffect(() => {
@@ -90,15 +91,15 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     setError('')
     setSelectedBase('')
     setBrowsePath('')
-    setNewFolder('')
-    setPreviews([])
+    setRows([])
+    setOriginalByPath({})
+    setResults(new Map())
     setResult(null)
   }, [entry])
 
   // Scan folder (or set single file directly)
   useEffect(() => {
     if (!entry || phase !== 'scanning') return
-    // Single file: skip scan, use entry directly
     if (!entry.isDir) {
       setFiles([entry])
       setPhase('configure')
@@ -112,10 +113,10 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         setPhase('configure')
       })
       .catch(e => {
-        if (!cancelled) setError(e?.response?.data?.error || e.message || 'Erro ao varrer pasta')
+        if (!cancelled) setError(e?.response?.data?.error || e.message || t('reclassify.err_scan'))
       })
     return () => { cancelled = true }
-  }, [entry, mount, phase])
+  }, [entry, mount, phase, t])
 
   // Load destinations
   useEffect(() => {
@@ -137,75 +138,87 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     if (!entry || files.length === 0) return
     setPreviewLoading(true)
     setError('')
+    setResults(new Map())
     setPhase('preview')
     try {
       const r = await localPromotePreview(
-        mount,
-        entry.path,
-        finalTarget,
-        selectedBase || undefined,
+        mount, entry.path, finalTarget, selectedBase || undefined,
         files.map(f => f.path),
       )
-      setPreviews(r.previews)
+      const built = buildEditableRows(r.previews)
+      setRows(built)
+      const orig: Record<string, string> = {}
+      built.forEach(row => { orig[row.path] = rowTargetPath(row) })
+      setOriginalByPath(orig)
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro gerando preview')
+      setError(e?.response?.data?.error || e.message || t('reclassify.err_preview'))
       setPhase('configure')
     } finally {
       setPreviewLoading(false)
     }
-  }, [entry, files, mount, finalTarget, selectedBase])
+  }, [entry, files, mount, finalTarget, selectedBase, t])
 
-  const handleConfirm = async () => {
-    if (!entry) return
+  const toggleRow = useCallback((path: string, selected: boolean) => {
+    setRows(rs => rs.map(r => r.path === path ? { ...r, selected } : r))
+  }, [])
+  const toggleAll = useCallback((selected: boolean) => {
+    setRows(rs => rs.map(r => r.error ? r : { ...r, selected }))
+  }, [])
+  const editRow = useCallback((path: string, field: 'category' | 'finalName', value: string) => {
+    setRows(rs => rs.map(r => r.path === path ? { ...r, [field]: value } : r))
+  }, [])
+
+  const currentDest = dests.find(d => d.path === selectedBase) ?? dests[0]
+  const destLabel = currentDest?.name || t('reclassify.library')
+
+  const selected = useMemo(() => selectedPaths(rows), [rows])
+
+  const handleApply = async () => {
+    if (!entry || selected.length === 0) return
     setPhase('executing')
     setError('')
     try {
+      const overrides = buildOverrides(rows, originalByPath)
       const r = await localPromote(
-        mount,
-        entry.path,
-        finalTarget,
-        selectedBase || undefined,
-        true, // renameIA always on for reclassify
-        files.map(f => f.path),
+        mount, entry.path, finalTarget, selectedBase || undefined,
+        true, selected, overrides,
       )
-      // Report the real counts from the backend — it moves every entry in the
-      // batch and tells us how many actually succeeded vs failed.
-      setResult({ moved: r.moved, failed: r.errors, destLabel })
-      setPhase('done')
+      const map = new Map<string, PromoteItemResult>()
+      ;(r.results ?? []).forEach(res => map.set(res.path, res))
+      setResults(map)
+      // If everything succeeded → show the done screen; otherwise stay on the
+      // table with per-row markers so the user can retry the failures.
+      if (r.failed === 0) {
+        setResult({ moved: r.moved, failedCount: r.failed, destLabel })
+        setPhase('done')
+      } else {
+        setPhase('preview')
+        setError(t('reclassify.partial', { moved: r.moved, failed: r.failed }))
+      }
       onDone()
     } catch (e: any) {
-      const msg = e?.response?.data?.error || e.message || 'Erro ao reclassificar'
-      const failedCount = typeof e?.response?.data?.failed === 'number' ? e.response.data.failed : undefined
-      if (failedCount === undefined) {
-        setError(msg)
-        setPhase('preview')
-      } else {
-        setResult({ moved: files.length - failedCount, failed: [] })
-        setPhase('done')
-        onDone()
-      }
+      setError(e?.response?.data?.error || e.message || t('reclassify.err_apply'))
+      setPhase('preview')
     }
   }
 
   if (!entry) return null
 
-  const currentDest = dests.find(d => d.path === selectedBase) ?? dests[0]
-  const destLabel = currentDest?.name || 'Biblioteca'
   const breadcrumb = browsePath.split('/').filter(Boolean)
 
   return (
     <Sheet
       open
       onClose={onClose}
-      size="xl"
-      title={entry?.isDir ? 'Reclassificar pasta via IA' : 'Classificar e mover via IA'}
+      size="3xl"
+      title={entry?.isDir ? t('reclassify.title_folder') : t('reclassify.title_file')}
       icon={<FolderSync className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
     >
       <>
         {/* Source info */}
         <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-default bg-surface/40">
           <p className="text-xs text-text-secondary truncate" title={entry.name}>
-            Pasta: <span className="text-text-primary font-mono">{entry.name}</span>
+            {t('reclassify.source')}: <span className="text-text-primary font-mono">{entry.name}</span>
           </p>
         </div>
 
@@ -213,16 +226,19 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         {phase === 'scanning' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-text-secondary">
             <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-            <p className="text-sm">Varrendo pasta de mídia…</p>
+            <p className="text-sm">{t('reclassify.scanning')}</p>
           </div>
         )}
 
         {/* Phase: configure / preview */}
         {(phase === 'configure' || phase === 'preview') && (
           <>
-            {/* File count + destination selector */}
+            {/* File count */}
             <div className="-mx-4 px-4 py-3 border-b border-default flex items-center gap-3 text-sm flex-wrap">
-              <span className="text-text-secondary">{fileCountLabel(entry, files)}</span>
+              <span className="text-text-secondary">
+                <span className="text-text-primary font-semibold">{files.length}</span>{' '}
+                {t('reclassify.files_found', { count: files.length })}
+              </span>
             </div>
 
             {/* Destination chips */}
@@ -245,94 +261,69 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
               </div>
             )}
 
-            {/* Breadcrumb */}
-            <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
-              <button
-                onClick={() => setBrowsePath('')}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
-              >
-                <Home className="w-3.5 h-3.5" /> {destLabel}
-              </button>
-              {breadcrumb.map((seg, i) => (
-                <span key={`${i}-${seg}`} className="flex items-center gap-1">
-                  <ChevronRight className="w-3 h-3 text-text-muted" />
+            {/* Breadcrumb (only in configure, where the user picks the base subdir) */}
+            {phase === 'configure' && (
+              <>
+                <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
                   <button
-                    onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
-                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                    onClick={() => setBrowsePath('')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
                   >
-                    {seg}
+                    <Home className="w-3.5 h-3.5" /> {destLabel}
                   </button>
-                </span>
-              ))}
-            </div>
-
-            {/* Dir browser */}
-            <div className="min-h-[120px] py-3">
-              {renderDirList(dirsLoading, dirs, browsePath, setBrowsePath)}
-            </div>
-
-            {/* Preview panel */}
-            {phase === 'preview' && (
-              <div className="pb-2 max-h-52 overflow-y-auto">
-                <div className="border border-cyan-500/30 dark:border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 space-y-2">
-                  <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" />
-                    Preview IA — {previews.length} arquivo{previews.length === 1 ? '' : 's'}
-                  </h3>
-                  {previewLoading ? (
-                    <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-                      <span>Analisando nomes com IA…</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-2 divide-y divide-default">
-                      {previews.map((p, i) => (
-                        <div key={`${p.originalName}-${i}`} className="pt-2 first:pt-0 text-xs space-y-1">
-                          <p className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>
-                            De: {p.originalName}
-                          </p>
-                          {p.error ? (
-                            <p className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">
-                              Erro: {p.error}
-                            </p>
-                          ) : (
-                            <div className="flex items-start gap-1.5 bg-emerald-500/10 dark:bg-emerald-950/10 border border-emerald-500/30 dark:border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-700 dark:text-emerald-300">
-                              <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
-                              <span className="font-mono text-[11px] break-all leading-tight">
-                                <span className="text-text-muted">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
-                                <span className="text-text-primary font-bold">{p.targetPath.split('/').pop()}</span>
-                                <span className="ml-1 px-1.5 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">
-                                  {p.kind === 'tv' ? 'Série' : 'Filme'}
-                                </span>
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {breadcrumb.map((seg, i) => (
+                    <span key={`${i}-${seg}`} className="flex items-center gap-1">
+                      <ChevronRight className="w-3 h-3 text-text-muted" />
+                      <button
+                        onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
+                        className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                      >
+                        {seg}
+                      </button>
+                    </span>
+                  ))}
                 </div>
+                <div className="min-h-[120px] py-3">
+                  {renderDirList(dirsLoading, dirs, browsePath, setBrowsePath, t('reclassify.no_subfolders'))}
+                </div>
+              </>
+            )}
+
+            {/* Preview table (the batch centerpiece) */}
+            {phase === 'preview' && (
+              <div className="py-2">
+                <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1 mb-2">
+                  <Sparkles className="w-3 h-3" />
+                  {t('reclassify.preview_title', { count: rows.length })}
+                </h3>
+                {previewLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-text-muted py-6 justify-center">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                    <span>{t('reclassify.analyzing')}</span>
+                  </div>
+                ) : (
+                  <div className="max-h-[40vh] overflow-y-auto">
+                    <ReclassifyTable
+                      rows={rows}
+                      destFolders={dirs}
+                      results={results}
+                      busy={false}
+                      onToggle={toggleRow}
+                      onToggleAll={toggleAll}
+                      onEdit={editRow}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
             {/* Footer */}
             <div className="-mx-4 -mb-4 mt-2 border-t border-default p-4 flex flex-col gap-3 bg-surface/40">
-              <label className="flex items-center gap-2 text-sm text-text-primary">
-                <Plus className="w-4 h-4 text-text-muted flex-shrink-0" />
-                <input
-                  type="text"
-                  value={newFolder}
-                  onChange={e => setNewFolder(e.target.value)}
-                  placeholder="Nova subpasta (opcional)"
-                  className="flex-1 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
-                />
-              </label>
-
               <div className="text-xs text-text-muted flex items-start gap-1.5">
                 <FolderOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                 <span>
-                  Destino: <span className="text-text-primary font-mono">{destLabel}/{finalTarget || ''}</span>
-                  {!finalTarget && <span className="text-text-muted"> (raiz)</span>}
+                  {t('reclassify.destination')}: <span className="text-text-primary font-mono">{destLabel}/{finalTarget || ''}</span>
+                  {!finalTarget && <span className="text-text-muted"> ({t('reclassify.root')})</span>}
                 </span>
               </div>
 
@@ -344,7 +335,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
 
               <div className="flex items-center gap-2 justify-end">
                 <button onClick={onClose} className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded">
-                  Cancelar
+                  {t('reclassify.cancel')}
                 </button>
                 {phase === 'configure' && (
                   <button
@@ -353,7 +344,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                     className="flex items-center gap-2 text-sm bg-purple-500/20 hover:bg-purple-500/30 disabled:opacity-50 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-4 py-1.5 rounded transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    Ver preview IA
+                    {t('reclassify.see_preview')}
                   </button>
                 )}
                 {phase === 'preview' && !previewLoading && (
@@ -362,15 +353,15 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                       onClick={() => setPhase('configure')}
                       className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded border border-strong"
                     >
-                      Voltar
+                      {t('reclassify.back')}
                     </button>
                     <button
-                      onClick={handleConfirm}
-                      disabled={previews.length === 0}
+                      onClick={handleApply}
+                      disabled={selected.length === 0}
                       className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
                     >
                       <FolderSync className="w-3.5 h-3.5" />
-                      Mover {previews.filter(p => !p.error).length} arquivo{previews.filter(p => !p.error).length === 1 ? '' : 's'}
+                      {t('reclassify.apply_selected', { count: selected.length })}
                     </button>
                   </>
                 )}
@@ -383,8 +374,8 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         {phase === 'executing' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-text-secondary">
             <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-            <p className="text-sm">Movendo e organizando arquivos…</p>
-            <p className="text-xs text-text-muted">{files.length} arquivo{files.length === 1 ? '' : 's'}</p>
+            <p className="text-sm">{t('reclassify.moving')}</p>
+            <p className="text-xs text-text-muted">{selected.length} {t('reclassify.files_found', { count: selected.length })}</p>
           </div>
         )}
 
@@ -392,21 +383,21 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         {phase === 'done' && result && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 px-6">
             <CheckCircle2 className="w-10 h-10 text-green-400" />
-            <p className="text-base font-semibold text-text-primary">Reclassificação concluída</p>
+            <p className="text-base font-semibold text-text-primary">{t('reclassify.done_title')}</p>
             <p className="text-sm text-text-secondary">
-              {result.moved} arquivo{result.moved === 1 ? '' : 's'} organizado{result.moved === 1 ? '' : 's'} com sucesso
-              {result.failed.length > 0 && ` · ${result.failed.length} com erro`}
+              {t('reclassify.done_count', { count: result.moved })}
+              {result.failedCount > 0 && ` · ${t('reclassify.done_failed', { count: result.failedCount })}`}
             </p>
             {result.destLabel && (
               <p className="text-xs text-text-muted font-mono">
-                Destino: <span className="text-cyan-400">{result.destLabel}</span>
+                {t('reclassify.destination')}: <span className="text-cyan-400">{result.destLabel}</span>
               </p>
             )}
             <button
               onClick={onClose}
               className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
             >
-              Fechar
+              {t('reclassify.close')}
             </button>
           </div>
         )}
