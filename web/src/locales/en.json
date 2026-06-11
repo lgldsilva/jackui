@@ -107,5 +107,9 @@
     "sessions_failed": "Failed to list sessions.",
     "copy": "Copy",
     "copied": "Copied!"
+  },
+  "trailer": {
+    "watch": "Trailer",
+    "none": "No trailer"
   }
 }

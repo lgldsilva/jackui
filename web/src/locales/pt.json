@@ -107,5 +107,9 @@
     "sessions_failed": "Falha ao listar sessões.",
     "copy": "Copiar",
     "copied": "Copiado!"
+  },
+  "trailer": {
+    "watch": "Trailer",
+    "none": "Sem trailer"
   }
 }
