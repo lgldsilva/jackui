@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
+import { buildFavoritePayload } from '../lib/favoritePayload'
 import QualityBadges from './QualityBadges'
 
 
@@ -87,20 +88,36 @@ function useTmdbMatch(title: string) {
 }
 
 async function handleToggleFavorite(
-  title: string,
-  infoHash: string | undefined,
-  magnetUri: string | undefined,
+  result: SearchResult,
   isFavorited: boolean,
-  setFavOpt: (fav: boolean | null) => void
+  setFavOpt: (fav: boolean | null) => void,
+  setFavResolving: (r: boolean) => void,
 ) {
   const wasFavorited = isFavorited
   setFavOpt(!wasFavorited)
   try {
     if (wasFavorited) {
-      await favoriteRemove(title)
-    } else {
-      await favoriteAdd(title, infoHash || '', magnetUri || '', 'manual')
+      await favoriteRemove(result.title)
+      return
     }
+    // Quick-favorite must link magnet/infoHash like the full open-card flow,
+    // or the favorite is inert on FavoritesPage (Play/Download need fav.magnet).
+    // History rows from private trackers often carry only the .torrent link, so
+    // this may hit the backend converter — hence the spinner on the heart.
+    setFavResolving(true)
+    let payload
+    try {
+      payload = await buildFavoritePayload(result, convertTorrentToMagnet)
+    } finally {
+      setFavResolving(false)
+    }
+    if (payload.source === 'link') {
+      // Backfill the conversion so Play/Magnet/.torrent on this card reuse it
+      // (same mutation resolveMagnetIfNeeded already does).
+      result.magnetUri = payload.magnet
+      result.infoHash = payload.infoHash
+    }
+    await favoriteAdd(result.title, payload.infoHash, payload.magnet, 'manual')
   } catch {
     setFavOpt(wasFavorited)
   }
@@ -151,6 +168,11 @@ function renderMagnetIcon(copied: boolean, resolvingMagnet: boolean): JSX.Elemen
   return <Clipboard className="w-3.5 h-3.5" />
 }
 
+function renderFavoriteIcon(favResolving: boolean, isFavorited: boolean): JSX.Element {
+  if (favResolving) return <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-400" />
+  return <Heart className={`w-3.5 h-3.5 ${isFavorited ? 'fill-current' : ''}`} />
+}
+
 function renderArtSection(tmdb: TmdbMatch | null): React.ReactNode {
   if (!tmdb?.posterUrl) return null
   return (
@@ -165,6 +187,7 @@ function renderCardTitle(
   cardClickable: boolean,
   titleAttr: string,
   toggleFavorite: (e: React.MouseEvent) => void,
+  favResolving: boolean,
 ): React.ReactNode {
   return (
     <div className="flex items-start justify-between gap-2">
@@ -183,8 +206,8 @@ function renderCardTitle(
           {/* p-2/-m-2 widens the touch target (~30px) for the finger without
               shifting the compact header layout — the negative margin cancels
               the padding so neighbours stay put. */}
-          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-2 -m-2 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
-            <Heart className={`w-3.5 h-3.5 ${isFavorited ? 'fill-current' : ''}`} />
+          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} disabled={favResolving} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-2 -m-2 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
+            {renderFavoriteIcon(favResolving, isFavorited)}
           </button>
           <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">{result.tracker}</span>
         </div>
@@ -301,6 +324,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   const [resolvingMagnet, setResolvingMagnet] = useState(false)
   const [resolvingTorrent, setResolvingTorrent] = useState(false)
   const [favOpt, setFavOpt] = useState<boolean | null>(null)
+  const [favResolving, setFavResolving] = useState(false)
 
   const { tmdb, cardRef } = useTmdbMatch(result.title)
 
@@ -308,7 +332,8 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
 
   const toggleFavorite = (e: React.MouseEvent) => {
     e.stopPropagation()
-    void handleToggleFavorite(result.title, result.infoHash, result.magnetUri, isFavorited, setFavOpt)
+    if (favResolving) return
+    void handleToggleFavorite(result, isFavorited, setFavOpt, setFavResolving)
   }
 
   const handleCopyMagnet = async () => {
@@ -370,7 +395,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       type="button"
       disabled={!cardClickable}
     >
-      {renderCardTitle(tmdb, result, isFavorited, cardClickable, titleAttr, toggleFavorite)}
+      {renderCardTitle(tmdb, result, isFavorited, cardClickable, titleAttr, toggleFavorite, favResolving)}
       <QualityBadges quality={result.quality} />
       {renderCategoryBadges(result)}
       {renderCardStats(result, onRefresh, refreshing, refreshedAt)}

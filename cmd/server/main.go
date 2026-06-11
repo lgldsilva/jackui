@@ -391,11 +391,14 @@ func initDownloadsStore(deps *appDeps) {
 	log.Printf("Downloads: %s", dlPath)
 
 	deps.streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
-		path, err := d.GetCompletedPath(h.HexString(), fileIdx)
+		// FileRelPath lets the store resolve files inside whole-torrent rows
+		// (file_path = destination DIRECTORY) without activating the torrent.
+		relPath := deps.streamSrv.FileRelPath(h, fileIdx)
+		path, err := d.GetCompletedPathRel(h.HexString(), fileIdx, relPath)
 		if err != nil || path == "" {
 			return "", false
 		}
-		if _, err := os.Stat(path); err != nil {
+		if st, err := os.Stat(path); err != nil || st.IsDir() {
 			return "", false
 		}
 		return path, true

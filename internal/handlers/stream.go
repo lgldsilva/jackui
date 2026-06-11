@@ -139,22 +139,26 @@ func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
 			return
 		}
-		if serveFromCompletedStore(c, store, h, fileIdx) {
+		if serveFromCompletedStore(c, store, s, h, fileIdx) {
 			return
 		}
 		serveFromStreamer(c, s, h, fileIdx)
 	}
 }
 
-func serveFromCompletedStore(c *gin.Context, store *downloads.Store, h metainfo.Hash, fileIdx int) bool {
+// serveFromCompletedStore serves a finished download straight from disk. Both
+// row shapes are honored: per-file rows point at the file itself; whole-torrent
+// rows point at the torrent's directory, so the requested file is located via
+// the cached metainfo rel path (no torrent activation, no swarm dependency).
+func serveFromCompletedStore(c *gin.Context, store *downloads.Store, s *streamer.Streamer, h metainfo.Hash, fileIdx int) bool {
 	if store == nil {
 		return false
 	}
-	path, err := store.GetCompletedPath(h.HexString(), fileIdx)
+	path, err := store.GetCompletedPathRel(h.HexString(), fileIdx, s.FileRelPath(h, fileIdx))
 	if err != nil || path == "" {
 		return false
 	}
-	if _, err := os.Stat(path); err != nil {
+	if st, err := os.Stat(path); err != nil || st.IsDir() {
 		return false
 	}
 	http.ServeFile(c.Writer, c.Request, path)
