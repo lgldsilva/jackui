@@ -520,14 +520,14 @@ func Test_hgC_PreviewItem_FileMissing(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
 	d := &localPreviewDeps{c: c, b: b, mount: "M"}
-	got := previewItem(d, "ghost.mp4")
+	got := previewItem(d, "ghost.mp4", "ghost.mp4")
 	if got["error"] == nil {
 		t.Errorf("expected error for missing file, got %v", got)
 	}
 }
 
 func Test_hgC_BuildLocalPreviews_Empty(t *testing.T) {
-	got := buildLocalPreviews(&localPreviewDeps{}, nil)
+	got := buildLocalPreviews(&localPreviewDeps{}, nil, nil)
 	if got == nil || len(got) != 0 {
 		t.Errorf("buildLocalPreviews(nil) = %v, want empty non-nil slice", got)
 	}

@@ -371,6 +371,31 @@ func movieLabel(title string, year int) string {
 	return title
 }
 
+// SanitizeFilename is the exported entry point for the filesystem-unsafe-char
+// scrub applied to every AI-generated name. The reclassify override path reuses
+// it so a user-edited segment is sanitized IDENTICALLY to the AI's (no raw
+// slashes/colons/control chars sneaking through a hand-typed name).
+func SanitizeFilename(s string) string { return sanitizeFilename(s) }
+
+// ReuseExistingFolder returns an existing destination folder whose normalized
+// name equals `folder`'s (case- and accent-insensitive), or "" when none match.
+// Lets a user-edited category like "movies" land in the library's existing
+// "Movies"/"Filmes" instead of creating a near-duplicate — the SAME reuse the
+// AI path gets via resolveCategoryFolder, but driven by the typed folder name
+// rather than the inferred kind.
+func ReuseExistingFolder(folder string, destFolders []string) string {
+	target := normalizeCategory(folder)
+	if target == "" {
+		return ""
+	}
+	for _, f := range destFolders {
+		if normalizeCategory(f) == target {
+			return f
+		}
+	}
+	return ""
+}
+
 func sanitizeFilename(s string) string {
 	r := strings.NewReplacer(
 		"/", "-",
