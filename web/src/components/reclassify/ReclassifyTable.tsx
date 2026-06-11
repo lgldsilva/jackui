@@ -71,7 +71,7 @@ export default function ReclassifyTable({
   )
 }
 
-function StatusIcon({ result, busy, selected }: { result?: PromoteItemResult; busy: boolean; selected: boolean }) {
+function StatusIcon({ result, busy, selected }: Readonly<{ result?: PromoteItemResult; busy: boolean; selected: boolean }>) {
   if (result?.ok) return <CheckCircle2 className="w-4 h-4 text-green-400" aria-label="ok" />
   if (result && !result.ok) return <XCircle className="w-4 h-4 text-red-400" aria-label={result.error || 'erro'} />
   if (busy && selected) return <Loader2 className="w-4 h-4 animate-spin text-cyan-400" aria-label="..." />
