@@ -21,10 +21,16 @@ export default function TrailerModal({ videoKey, title, onClose }: Readonly<Prop
     <div
       className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
       onClick={onClose}
+      onKeyDown={e => { if (e.key === 'Escape') onClose() }}
       role="dialog"
       aria-label={title}
     >
-      <div className="w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <div
+        className="w-full max-w-3xl"
+        role="presentation"
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => { if (e.key === 'Escape') onClose() }}
+      >
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm text-white/90 truncate pr-2" title={title}>{title}</p>
           <button
