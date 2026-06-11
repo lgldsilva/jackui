@@ -245,7 +245,7 @@ func TestServeFromCompletedStore_NilStore_Extra(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/stream/hash/0", nil)
 
-	got := serveFromCompletedStore(c, nil, metainfo.Hash{}, 0)
+	got := serveFromCompletedStore(c, nil, nil, metainfo.Hash{}, 0)
 	if got {
 		t.Error("expected false for nil store")
 	}
@@ -260,7 +260,7 @@ func TestServeFromCompletedStore_NoPath_Extra(t *testing.T) {
 
 	var h metainfo.Hash
 	h.FromHexString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	got := serveFromCompletedStore(c, store, h, 0)
+	got := serveFromCompletedStore(c, store, streamer.NewForTesting(), h, 0)
 	if got {
 		t.Error("expected false for non-existent path")
 	}

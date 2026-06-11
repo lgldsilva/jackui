@@ -185,11 +185,18 @@ func TestCheckCompletion_WholeIncompleteNoop(t *testing.T) {
 // anacrolix client so td.whole.Files() yields real *torrent.File values.
 func wholeSpecTorrent(t *testing.T, name string, paths [][]string) *torrent.Torrent {
 	t.Helper()
-	const piece = 1 << 14
 	files := make([]metainfo.FileInfo, 0, len(paths))
 	for _, p := range paths {
 		files = append(files, metainfo.FileInfo{Path: p, Length: 4})
 	}
+	return wholeSpecTorrentFI(t, name, files)
+}
+
+// wholeSpecTorrentFI is wholeSpecTorrent taking raw metainfo.FileInfo values,
+// for tests that need extended attrs (e.g. BEP 47 pad files).
+func wholeSpecTorrentFI(t *testing.T, name string, files []metainfo.FileInfo) *torrent.Torrent {
+	t.Helper()
+	const piece = 1 << 14
 	data := bytes.Repeat([]byte("z"), piece)
 	pieceHash := metainfo.HashBytes(data)
 	info := metainfo.Info{Name: name, PieceLength: piece, Files: files, Pieces: pieceHash[:]}
