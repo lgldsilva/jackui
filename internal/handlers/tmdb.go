@@ -69,6 +69,34 @@ func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
 	}
 }
 
+// TmdbVideos — GET /api/tmdb/videos?kind=movie|tv&id=123. YouTube trailers for
+// a title, best first. 200+list (possibly empty), 400 on bad params, 503 (no
+// key), or 502 on upstream error.
+func TmdbVideos(c *tmdb.Client) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		kind := ctx.Query("kind")
+		id, _ := strconv.Atoi(ctx.Query("id"))
+		if (kind != "movie" && kind != "tv") || id <= 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "kind (movie|tv) and id are required"})
+			return
+		}
+		if c == nil {
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			return
+		}
+		videos, err := c.Videos(ctx.Request.Context(), kind, id)
+		if err != nil {
+			if errors.Is(err, tmdb.ErrDisabled) {
+				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+				return
+			}
+			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, videos)
+	}
+}
+
 // TmdbGenres — GET /api/tmdb/genres. Merged movie+tv genre list for the Discover
 // filter dropdown. 200+list, 503 (no key), or 502 on upstream error.
 func TmdbGenres(c *tmdb.Client) gin.HandlerFunc {

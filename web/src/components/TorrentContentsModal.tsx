@@ -6,6 +6,7 @@ import { useConfirm } from './ConfirmDialog'
 import { formatRate } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
 import { Sheet } from './Sheet'
+import TrailerButton from './TrailerButton'
 import { useHoverThumb } from './FileThumbHover'
 
 type Props = {
@@ -231,6 +232,14 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               {info.name}
             </p>
           )}
+          {/* Trailer probe — useful BEFORE committing bandwidth to the torrent,
+              so it renders even while metadata is still loading. */}
+          <div className="mt-1.5">
+            <TrailerButton
+              title={result.title}
+              className="text-xs flex items-center gap-1 text-text-muted hover:text-red-400 transition-colors disabled:hover:text-text-muted"
+            />
+          </div>
           {info && (
             <div className="text-xs text-text-muted mt-1 flex items-center gap-2 flex-wrap">
               <span>
