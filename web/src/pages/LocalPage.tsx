@@ -181,10 +181,12 @@ function Breadcrumbs({
     <nav className="flex items-center gap-1 text-sm text-text-primary flex-wrap min-w-0">
       <button
         onClick={() => onNavigate('')}
-        className="flex items-center gap-1 hover:text-green-400 transition-colors flex-shrink-0 min-w-0"
+        className="flex items-center gap-1 hover:text-green-400 transition-colors min-w-0"
       >
         <Home className="w-4 h-4 flex-shrink-0" />
-        <span className="truncate max-w-[40vw] sm:max-w-none">{mountName}</span>
+        {/* No mobile o dropdown de mount já mostra o nome — exibir de novo aqui
+            duplicava o texto e estourava a linha por cima dos botões. */}
+        <span className="truncate hidden md:inline">{mountName}</span>
       </button>
       {collapsed && (
         <span className="flex items-center gap-1 flex-shrink-0">
@@ -857,7 +859,7 @@ export default function LocalPage() {
         <section className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {activeMount && (
             <div className="flex-shrink-0 flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1 max-md:basis-full">
                 {/* Dropdown de mount — só no mobile (a sidebar some em <md) */}
                 <button
                   onClick={() => setMountSheetOpen(true)}
