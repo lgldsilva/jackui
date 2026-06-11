@@ -61,6 +61,51 @@
   "table": {
     "sort_by": "Sort by {{column}}"
   },
+  "watchlist": {
+    "intro": "Each watchlist has its own schedule — fixed interval, daily or weekly — and is checked right away when created. New results above the seeders minimum are pushed to the configured ntfy.sh topic. To receive on your phone: install ntfy.sh and subscribe to the topic.",
+    "sched_label": "Schedule",
+    "kind_interval": "Interval",
+    "kind_daily": "Daily",
+    "kind_weekly": "Weekly",
+    "every_minutes": "Every (minutes)",
+    "time_label": "Time",
+    "weekday_label": "Weekday",
+    "weekdays": {
+      "0": "Sunday",
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday"
+    },
+    "summary_interval": "every {{minutes}} min",
+    "summary_daily": "daily at {{time}}",
+    "summary_weekly": "{{weekday}} at {{time}}",
+    "server_default": "server default",
+    "next_check": "next check {{time}}",
+    "hits_empty": "No detections yet. The first check runs right after creating; then it follows the schedule.",
+    "ai_placeholder": "Describe it freely (e.g. every Monday at 9am)",
+    "ai_button": "Interpret with AI",
+    "ai_applied": "Interpreted: {{summary}} — review and save",
+    "ai_unclear": "Couldn't read that as a schedule — try rephrasing (e.g. \"every 3 hours\")",
+    "ai_error": "Failed to interpret — try again",
+    "query_placeholder": "Search (e.g. Breaking Bad S07 1080p)",
+    "category_placeholder": "Optional category (e.g. 5030)",
+    "min_seeders": "Min. seeders",
+    "ntfy_placeholder": "ntfy.sh topic (blank = server default)",
+    "auto_download": "Auto-download new results",
+    "auto_download_help": "New torrents that pass the filters are queued for download automatically (max. 3 per check). The first check only records the current results — nothing is downloaded retroactively.",
+    "min_resolution": "Min. resolution",
+    "codec": "Codec",
+    "max_size_gb": "Max size (GB)",
+    "any": "Any",
+    "unlimited": "Unlimited",
+    "save": "Save",
+    "cancel": "Cancel",
+    "auto_badge": "Auto",
+    "auto_downloaded_hit": "Automatically added to the download queue"
+  },
   "settings": {
     "title": "Settings",
     "language": "Language",
@@ -109,6 +154,7 @@
     "copy": "Copy",
     "copied": "Copied!"
   },
+<<<<<<< HEAD
   "stats": {
     "title": "Statistics",
     "watch_time": "Watch time",
@@ -138,5 +184,18 @@
       "sat": "sat"
     },
     "disclaimer": "Watch time is approximate (accumulated position per title; rewatching doesn't add). Days/hours use each title's last play."
+=======
+  "downloads": {
+    "whole_torrent_queued": "Whole torrent queued — {{count}} files, {{size}}",
+    "whole_torrent_badge": "Whole torrent",
+    "whole_torrent_files": "{{count}} files",
+    "clear_failed": "Clear failed",
+    "clear_failed_title": "Clear failed downloads?",
+    "clear_failed_message": "Remove {{count}} failed download(s) from the list? Files on disk are NOT deleted.",
+    "clear_queued": "Clear queue",
+    "clear_queued_title": "Clear the queue?",
+    "clear_queued_message": "Remove {{count}} queued download(s)? Active downloads are not affected.",
+    "clear_confirm": "Remove"
+>>>>>>> origin/main
   }
 }

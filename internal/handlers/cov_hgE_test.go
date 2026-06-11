@@ -462,7 +462,7 @@ func TestHgEPlaylistsDelete_InvalidID(t *testing.T) {
 
 func hgESeedWatchlist(t *testing.T, s *watchlist.Store, userID int) int {
 	t.Helper()
-	w, err := s.Create(userID, "the office", "5000", 1, "topic")
+	w, err := s.Create(userID, watchlist.Params{Query: "the office", Category: "5000", MinSeeders: 1, NtfyTopic: "topic"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestHgEWatchlistCreate_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := hgEWatchlist(t)
 	router := gin.New()
-	router.POST("/api/watchlists", func(c *gin.Context) { setAuth(c, 1, false) }, WatchlistCreate(s))
+	router.POST("/api/watchlists", func(c *gin.Context) { setAuth(c, 1, false) }, WatchlistCreate(s, nil))
 
 	body, _ := json.Marshal(watchlistInput{Query: "succession", Category: "5000", MinSeeders: 2, NtfyTopic: "n"})
 	w := hgEDo(router, "POST", "/api/watchlists", body)

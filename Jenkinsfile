@@ -280,9 +280,38 @@ pipeline {
           }
         } else {
           echo "OK — $IMAGE:nvidia publicado e deployado no raspberrypi-srv."
+          notifyTelegram("✅ JackUI ${env.SEMVER ?: ''} deployado em produção\nbuild #${env.BUILD_NUMBER} · ${env.GIT_COMMIT?.take(7)}")
         }
       }
     }
-    failure { echo 'FALHOU — veja o estágio acima (gate / Trivy / build / deploy).' }
+    failure {
+      script {
+        if (!env.CHANGE_ID) {
+          notifyTelegram("❌ Build da main do JackUI FALHOU (build #${env.BUILD_NUMBER}) — deploy NÃO saiu.\n${env.BUILD_URL}")
+        } else {
+          echo 'FALHOU — veja o estágio acima (gate / Trivy / build / deploy).'
+        }
+      }
+    }
+  }
+}
+
+// Notificação de deploy via Telegram (modelo já usado pelos crons do servidor).
+// Credenciais: 'telegram-bot-token' (já existe) + 'telegram-chat-id' (secret
+// text com o chat/grupo destino). Sem alguma das duas → skip silencioso, o
+// build nunca falha por causa da notificação.
+def notifyTelegram(String msg) {
+  try {
+    withCredentials([string(credentialsId: 'telegram-bot-token', variable: 'TG_TOKEN'),
+                     string(credentialsId: 'telegram-chat-id', variable: 'TG_CHAT')]) {
+      sh '''
+        curl -sf -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+          --data-urlencode "chat_id=$TG_CHAT" \
+          --data-urlencode "text=''' + msg.replace("'", "") + '''" \
+          -o /dev/null -w '[telegram HTTP %{http_code}]\\n' || echo "aviso: notificação Telegram falhou (segue sem bloquear)"
+      '''
+    }
+  } catch (ignored) {
+    echo 'telegram: credenciais ausentes — notificação pulada.'
   }
 }

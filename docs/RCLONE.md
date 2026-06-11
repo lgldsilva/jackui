@@ -63,7 +63,7 @@ Notes:
 | Setting | Env | Default | Effect |
 |---|---|---|---|
 | Local read-ahead | `JACKUI_LOCAL_READAHEAD_MB` | 16 | Read-ahead buffer for local/rclone files (direct-play + HLS source). Bigger = smoother on slow mounts, more RAM per stream. |
-| HLS VOD mode | `JACKUI_HLS_VOD_MODE` | `off` | `off`/`hlsjs`/`all` — enables the seekbar (finite-VOD HLS) for transcoded playback. The local-file path also reuses the play-time ffprobe duration, skipping the 30s seekable probe that otherwise runs on every HLS session (a big chunk of "Gdrive play is slow to load"). |
+| HLS VOD mode | `JACKUI_HLS_VOD_MODE` | `all` | `off`/`hlsjs`/`all` — enables the seekbar (finite-VOD HLS) for transcoded playback. The local-file path also reuses the play-time ffprobe duration, skipping the 30s seekable probe that otherwise runs on every HLS session (a big chunk of "Gdrive play is slow to load"). |
 
 ## Why not call the provider's stored hash directly?
 

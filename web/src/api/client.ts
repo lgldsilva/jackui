@@ -3,7 +3,7 @@
 // (`import { api, withToken, ... } from '../api/client'`) sigam funcionando
 // enquanto o módulo é dividido por domínio. Ver [[feedback-no-god-files]].
 import { api, withToken, fetchMediaToken, MAGNET_PREFIX } from './http'
-import { downloadCreate } from './downloads'
+import { downloadCreate, WHOLE_TORRENT_FILE_INDEX, type DownloadEntry } from './downloads'
 export { api, withToken, fetchMediaToken, MAGNET_PREFIX }
 
 // Domínios extraídos (re-exportados pra manter os call-sites em '../api/client').
@@ -350,22 +350,20 @@ export const resolveTorrentInfo = async (magnet: string, infoHash?: string): Pro
   return streamAdd(magnet)
 }
 
-export type QueueAllResult = { queued: number; failed: number; total: number }
-
-// queueAllTorrentFiles enfileira o torrent COMPLETO na fila de downloads — uma
-// entrada por arquivo (o modelo do worker é por-arquivo, com fila/limites/
-// movimentação já existentes). downloadCreate é idempotente por
-// (infoHash, fileIndex), então repetir a ação não duplica nada.
+// queueAllTorrentFiles enfileira o torrent COMPLETO como UM item da fila
+// (fileIndex = WHOLE_TORRENT_FILE_INDEX). A versão anterior criava 1 download
+// POR arquivo via Promise.allSettled — num torrent de 5699 arquivos o navegador
+// estoura o limite de requests em voo (net::ERR_INSUFFICIENT_RESOURCES) e a
+// fila vira milhares de itens individuais. Agora é 1 request, 1 row, 1 slot no
+// scheduler; o worker faz t.DownloadAll() e agrega o progresso.
+// downloadCreate continua idempotente por (infoHash, fileIndex).
 export const queueAllTorrentFiles = async (
   info: TorrentInfo, magnet: string, name: string, tracker?: string, category?: string,
-): Promise<QueueAllResult> => {
-  const results = await Promise.allSettled(info.files.map(f => downloadCreate({
-    infoHash: info.infoHash, fileIndex: f.index, magnet, name,
-    filePath: f.path, fileSize: f.size, tracker, category,
-  })))
-  const failed = results.filter(r => r.status === 'rejected').length
-  return { queued: info.files.length - failed, failed, total: info.files.length }
-}
+): Promise<DownloadEntry> =>
+  downloadCreate({
+    infoHash: info.infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name,
+    filePath: '', fileSize: info.totalSize, tracker, category,
+  })
 
 export const streamAdd = async (magnet: string): Promise<TorrentInfo> => {
   // Local files: magnet carries the pseudo-hash. Synthesize TorrentInfo from

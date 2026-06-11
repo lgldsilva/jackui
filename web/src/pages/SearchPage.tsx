@@ -15,12 +15,16 @@ import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
 import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
+import { getTabResults, mergeCachedResults, syncTabsToCache } from '../lib/searchResultsCache'
+import type { SearchPhase } from '../lib/searchResultsCache'
+import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { buildSeriesLayout } from '../lib/seriesGroup'
 import { isIncognito } from '../lib/incognito'
 import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
 import { shouldPromptJackettSetup } from '../lib/jackettSetup'
+import { appendUnique, openSearchStream, type SearchStreamHandle } from '../lib/searchStream'
 import { useTranslation } from 'react-i18next'
 
 const TABS_KEY = 'searchTabs'
@@ -71,7 +75,6 @@ type PersistedTab = {
   codecGroup: string
 }
 
-type SearchPhase = 'idle' | 'cache' | 'live' | 'done' | 'error'
 type ResultSortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'age'
 
 type TabState = {
@@ -143,7 +146,9 @@ function hydrateTabs(): { tabs: TabState[]; activeId: string } {
   const tabs = persisted.map(p => {
     const t = { ...newTab(p.id), ...p, onlyPlayable: false }
     if (!migrated && t.minSeeders < 1) t.minSeeders = 1
-    return t
+    // localStorage never stores results — pull them back from the in-memory
+    // cache (same tab id + same query) so SPA navigation keeps the search.
+    return mergeCachedResults(t, getTabResults(t.id))
   })
   if (!migrated) save(FILTER_MIGRATION_KEY, true)
   const savedActive = load<string>(ACTIVE_KEY, '')
@@ -177,8 +182,16 @@ function persistTabs(tabs: TabState[], activeId: string) {
   save(ACTIVE_KEY, activeId)
 }
 
+// appendResult dedupes by infoHash (or tracker|title|size) — an SSE reconnect
+// replays the backend's cache phase, so re-received results must be absorbed
+// instead of duplicating cards. Returns `prev` untouched on a duplicate so
+// React skips the re-render.
 function appendResult(prev: TabState[], tabId: string, result: SearchResult): TabState[] {
-  return prev.map(t => t.id === tabId ? { ...t, results: [...t.results, result] } : t)
+  const tab = prev.find(t => t.id === tabId)
+  if (!tab) return prev
+  const next = appendUnique(tab.results, result)
+  if (next === tab.results) return prev
+  return prev.map(t => t.id === tabId ? { ...t, results: next as SearchResult[] } : t)
 }
 
 function setErrorMsg(prev: TabState[], tabId: string, message: string): TabState[] {
@@ -368,7 +381,7 @@ export default function SearchPage() {
     }
     setSetupTesting(false)
   }
-  const esMap = useRef<Map<string, EventSource>>(new Map())
+  const esMap = useRef<Map<string, SearchStreamHandle>>(new Map())
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Infinite scroll pagination (grows as user scrolls)
   const PAGE_SIZE = 60
@@ -411,6 +424,12 @@ export default function SearchPage() {
       })
     }
   }, [tabs, activeId])
+
+  // Mirror results into the in-memory cache (survives SPA navigation — the
+  // localStorage persistence above intentionally drops them). The sync also
+  // evicts entries of closed tabs and of tabs whose results were cleared.
+  // Runs in incognito too: it never touches localStorage.
+  useEffect(() => { syncTabsToCache(tabs) }, [tabs])
 
   // Reset visible count when active tab or its filters change
   useEffect(() => { setVisible(PAGE_SIZE) }, [activeId])
@@ -501,52 +520,26 @@ export default function SearchPage() {
       params.set('category', tab.selectedCategory)
     if (isIncognito()) params.set('incognito', '1')
 
-    // EventSource can't set Authorization header — inject Bearer as query token instead.
-    // The middleware's extractToken() reads ?token= as a fallback.
-    const es = new EventSource(withToken(`/api/search/stream?${params}`))
-    esMap.current.set(tabId, es)
-
-    // SSE payloads come from the network — a malformed/empty frame must not
-    // throw out of the listener (an uncaught exception there would leave the tab
-    // stuck "searching" forever). Parse defensively; the generic `error` event
-    // isn't even a MessageEvent (no .data), so guard that too.
-    const parseSSE = (raw: unknown): any => {
-      if (typeof raw !== 'string' || raw === '') return null
-      try { return JSON.parse(raw) } catch { return null }
-    }
-
-    es.addEventListener('result', (e) => {
-      const result = parseSSE(e.data) as SearchResult | null
-      if (!result) return
-      setTabs(prev => appendResult(prev, tabId, result))
-    })
-
-    es.addEventListener('progress', (e) => {
-      const data = parseSSE(e.data)
-      if (data?.phase === 'live') updateTab(tabId, { phase: 'live' })
-    })
-
-    es.addEventListener('done', (e) => {
-      const data = parseSSE(e.data)
-      updateTab(tabId, { summary: data, phase: 'done' })
-      es.close()
-      esMap.current.delete(tabId)
-    })
-
-    es.addEventListener('error', (e) => {
-      const data = parseSSE((e as MessageEvent).data)
-      if (data) {
-        setTabs(prev => setErrorMsg(prev, tabId, data.message || 'Erro na busca'))
-      }
-    })
-
-    es.onerror = () => {
-      if (esMap.current.has(tabId)) {
-        updateTab(tabId, { phase: 'error', error: 'Conexão perdida com o servidor' })
-        es.close()
+    // EventSource can't set Authorization header — inject Bearer as query token
+    // instead (the middleware's extractToken() reads ?token= as a fallback).
+    // openSearchStream owns the connection: a drop before `done` reconnects
+    // with backoff while the tab stays in 'live' (the backend's cache phase
+    // re-emits what already arrived; appendResult dedupes the replay). Only
+    // after the retry budget is exhausted does the tab go to 'error'.
+    const handle = openSearchStream(withToken(`/api/search/stream?${params}`), {
+      onResult: (result) => setTabs(prev => appendResult(prev, tabId, result as SearchResult)),
+      onLive: () => updateTab(tabId, { phase: 'live' }),
+      onServerError: (message) => setTabs(prev => setErrorMsg(prev, tabId, message)),
+      onDone: (summary) => {
         esMap.current.delete(tabId)
-      }
-    }
+        updateTab(tabId, { summary: summary as TabState['summary'], phase: 'done' })
+      },
+      onGiveUp: () => {
+        esMap.current.delete(tabId)
+        updateTab(tabId, { phase: 'error', error: 'Conexão perdida com o servidor' })
+      },
+    })
+    esMap.current.set(tabId, handle)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, updateTab])
 
@@ -605,6 +598,17 @@ export default function SearchPage() {
 
   const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0]
   const isSearching = activeTab.phase === 'cache' || activeTab.phase === 'live'
+
+  // Post-reload: the in-memory cache is gone, so a restored tab has a query
+  // but no results. Quietly refill from the backend cache of that EXACT query
+  // (GET /api/history/results — no live Jackett hit). Only tabs captured at
+  // mount are eligible; typing never triggers it. The guard re-checks the tab
+  // at apply time so an in-flight search is never overwritten.
+  const applyRehydrated = useCallback((tabId: string, query: string, results: SearchResult[]) => {
+    setTabs(prev => prev.map(t =>
+      canApplyRehydrated(t, tabId, query) ? { ...t, results, phase: 'done' } : t))
+  }, [])
+  useRehydratedResults(tabs, activeTab.id, applyRehydrated)
 
   // Mobile gesture: horizontal swipe over the content switches search tabs
   // (left = next, right = previous). Edge band is reserved (ignoreEdgePx) so a

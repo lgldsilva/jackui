@@ -235,6 +235,12 @@ func DownloadsCreate(store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash and magnet are required"})
 			return
 		}
+		// Valid negatives are the documented sentinels only (-1 auto-pick,
+		// -2 whole torrent); anything below is a malformed request.
+		if req.FileIndex < downloads.FileIndexWholeTorrent {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid fileIndex"})
+			return
+		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		d, err := store.Create(downloads.Download{
 			UserID:    userID,
@@ -525,7 +531,12 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			_, _ = s.EnsureActive(ctx, d.Magnet)
 			cancel()
 		}
-		if err := s.RecheckFile(h, d.FileIndex); err != nil {
+		// Whole-torrent rows re-hash every file; per-file rows only theirs.
+		recheck := func() error { return s.RecheckFile(h, d.FileIndex) }
+		if d.IsWholeTorrent() {
+			recheck = func() error { return s.RecheckAllFiles(h) }
+		}
+		if err := recheck(); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -53,11 +54,34 @@ type liveSearchState struct {
 	liveCount      int
 	indexersDone   int
 	indexersFailed int
+	// emissionEnded flips to true once StreamSearch has returned. By design it
+	// CANNOT race with handleHit (StreamSearch only returns after every onHit
+	// callback completed — wg.Wait), so any hit observed after it is a broken
+	// invariant: results that would be saved without ever being emitted.
+	emissionEnded bool
+}
+
+// markEmissionEnded records that the live-emission window is over. Any hit
+// arriving after this point is dropped (and logged) instead of silently
+// accumulating into liveResults — see handleHit.
+func (s *liveSearchState) markEmissionEnded() {
+	s.mu.Lock()
+	s.emissionEnded = true
+	s.mu.Unlock()
 }
 
 func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.emissionEnded {
+		// Should be unreachable (see emissionEnded). If this ever fires in prod
+		// there IS a late window where results would reach the history without
+		// being emitted to the client — drop them to preserve the invariant
+		// "everything saved was emitted", and leave a trace to confirm it.
+		log.Printf("search-sse: %d result(s) from %q arrived after emission ended — dropped (invariant guard)",
+			len(hit.Results), hit.IndexerName)
+		return
+	}
 	s.indexersDone++
 	if hit.Err != nil {
 		s.indexersFailed++
@@ -139,13 +163,94 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 	return seen, count
 }
 
+// emitConverged is the convergence pass that runs right before `done`, AFTER
+// the synchronous save: it re-emits any DB row for the EXACT query that was not
+// already emitted in this SSE session (cache phase or live phase). This pins
+// the invariant "the stream is a superset of the exact-query history" — any
+// tail that reached the DB outside this session (e.g. a concurrent search for
+// the same query) still reaches this client. Cost: one indexed exact-query
+// SELECT; only unseen rows are written. Rows without a dedup key are skipped
+// (we can't tell whether they were emitted — re-sending risks a duplicate).
+func (s *liveSearchState) emitConverged(store *history.Store, query string, userID int, includeAll bool) int {
+	if store == nil {
+		return 0
+	}
+	cached, err := store.Search(query, userID, includeAll)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, r := range cached {
+		key := dedupKey(r.Result)
+		if key == "" || s.cachedSeen[key] || s.liveSeen[key] {
+			continue
+		}
+		s.liveSeen[key] = true
+		writeSSE(s.c, "result", s.enricher.enrich(r.Result, true))
+		count++
+	}
+	return count
+}
+
+// persistEmitted saves the EXACT set of results emitted on this SSE session,
+// synchronously, BEFORE the `done` event is written. Invariant: "the search
+// shows everything it saved". The old async save (goroutine) could land rows
+// in the history after the client had already stopped listening — history
+// would then show more items than the search ever did. A synchronous save
+// delays `done` by a few ms at most, which is acceptable.
+func persistEmitted(c *gin.Context, store *history.Store, query string, results []jackett.Result, userID int) {
+	if store == nil || len(results) == 0 {
+		return
+	}
+	if err := store.Save(query, results, userID, middleware.IsIncognito(c)); err != nil {
+		log.Printf("search-sse: saving %d result(s) for %q failed: %v", len(results), query, err)
+	}
+}
+
+// startKeepAlive launches the SSE keep-alive pinger and returns a stop func
+// that blocks until the pinger goroutine has exited (so the ResponseWriter is
+// never touched concurrently with the final writes).
+//
+// Why a pinger: a slow indexer can leave a long gap with no bytes flowing,
+// and a reverse proxy (NPM) may cut the SSE stream on read-timeout before the
+// `done` event — the client then reports "Conexão perdida". A periodic comment
+// frame keeps the connection warm. Writes share state.mu with handleHit so the
+// ResponseWriter is never written concurrently.
+func startKeepAlive(c *gin.Context, state *liveSearchState) (stop func()) {
+	stopPing := make(chan struct{})
+	var pingWg sync.WaitGroup
+	pingWg.Add(1)
+	go func() {
+		defer pingWg.Done()
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopPing:
+				return
+			case <-c.Request.Context().Done():
+				return
+			case <-ticker.C:
+				state.mu.Lock()
+				_, _ = fmt.Fprint(c.Writer, ": ping\n\n")
+				c.Writer.Flush()
+				state.mu.Unlock()
+			}
+		}
+	}()
+	return func() {
+		close(stopPing)
+		pingWg.Wait()
+	}
+}
+
 // SearchSSE handles GET /api/search/stream — streams results via Server-Sent Events.
 //
 // Flow:
 //   1. Emit cached results from local DB (instant)
 //   2. Fan out one HTTP request per configured Jackett indexer (parallel goroutines)
 //   3. As each indexer responds, emit its results + progress event (live, ms-level)
-//   4. When all done, emit `done`
+//   4. Save the emitted set synchronously, run the convergence pass, emit `done`
 func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query, category, indexers := parseSearchParams(c)
@@ -170,41 +275,20 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 			liveSeen:   make(map[string]bool),
 		}
 
-		// Keep-alive: a slow indexer can leave a long gap with no bytes flowing,
-		// and a reverse proxy (NPM) may cut the SSE stream on read-timeout before
-		// the `done` event — the client then reports "Conexão perdida". A periodic
-		// comment frame keeps the connection warm. Writes share state.mu with
-		// handleHit so the ResponseWriter is never touched concurrently; the
-		// WaitGroup guarantees the pinger has stopped before the final writes.
-		stopPing := make(chan struct{})
-		var pingWg sync.WaitGroup
-		pingWg.Add(1)
-		go func() {
-			defer pingWg.Done()
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-stopPing:
-					return
-				case <-c.Request.Context().Done():
-					return
-				case <-ticker.C:
-					state.mu.Lock()
-					_, _ = fmt.Fprint(c.Writer, ": ping\n\n")
-					c.Writer.Flush()
-					state.mu.Unlock()
-				}
-			}
-		}()
-
+		stopKeepAlive := startKeepAlive(c, state)
 		err := client.StreamSearch(c.Request.Context(), query, category, indexers, 30*time.Second, state.handleHit)
-		close(stopPing)
-		pingWg.Wait()
+		stopKeepAlive()
+		state.markEmissionEnded()
 
-		if store != nil && len(state.liveResults) > 0 {
-			incognito := middleware.IsIncognito(c)
-			go func() { _ = store.Save(query, state.liveResults, userID, incognito) }()
+		// Save the exact emitted set synchronously, BEFORE `done` — see persistEmitted.
+		persistEmitted(c, store, query, state.liveResults, userID)
+
+		// Convergence pass — skipped for indexer-scoped searches for the same
+		// reason the cache phase is (see emitCachedResults: cached rows can't be
+		// filtered by indexer id, re-emitting them would leak other providers).
+		converged := 0
+		if len(indexers) == 0 {
+			converged = state.emitConverged(store, query, userID, includeAll)
 		}
 
 		if err != nil {
@@ -216,9 +300,10 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		}
 
 		writeSSE(c, "done", gin.H{
-			"total":          state.liveCount + cachedCount,
+			"total":          state.liveCount + cachedCount + converged,
 			"live":           state.liveCount,
 			"cached":         cachedCount,
+			"converged":      converged,
 			"indexersDone":   state.indexersDone,
 			"indexersFailed": state.indexersFailed,
 		})

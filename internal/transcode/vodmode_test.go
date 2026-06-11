@@ -67,12 +67,50 @@ func TestShouldVOD(t *testing.T) {
 		{"torrent Safari hlsjs → EVENT", 100, false, VODHLSJS, true, false},
 		{"torrent Chrome hlsjs → VOD", 100, false, VODHLSJS, false, true},
 		{"torrent Safari off → EVENT", 100, false, VODOff, true, false},
+		// mode=all (novo default): torrent EM PROGRESSO (forceVOD=false) com
+		// duração conhecida entra em VOD para Safari nativo E hls.js; duração
+		// desconhecida continua caindo em EVENT (último recurso correto).
 		{"torrent Safari all → VOD", 100, false, VODAll, true, true},
+		{"torrent Chrome all → VOD", 100, false, VODAll, false, true},
+		{"torrent Safari all dur=0 → EVENT", 0, false, VODAll, true, false},
 	}
 	for _, r := range rows {
 		if got := shouldVOD(r.dur, r.forceVOD, r.mode, r.nativeHLS); got != r.want {
 			t.Errorf("%s: shouldVOD(%v,%v,%v,native=%v)=%v want %v",
 				r.name, r.dur, r.forceVOD, r.mode, r.nativeHLS, got, r.want)
+		}
+	}
+}
+
+func TestVODReason(t *testing.T) {
+	type row struct {
+		name      string
+		dur       float64
+		forceVOD  bool
+		mode      VODMode
+		nativeHLS bool
+		want      string
+	}
+	rows := []row{
+		// Os três motivos visíveis no log de sessão EVENT:
+		{"probe falhou", 0, false, VODAll, true, "no-duration"},
+		{"probe falhou mesmo forçado", 0, true, VODAll, false, "no-duration"},
+		{"política desligada", 100, false, VODOff, false, "mode-off"},
+		{"hlsjs exclui Safari nativo", 100, false, VODHLSJS, true, "mode-hlsjs-native"},
+		// Combinações em que shouldVOD é true → reason vazio (não logado).
+		{"all Safari → VOD", 100, false, VODAll, true, ""},
+		{"hlsjs Chrome → VOD", 100, false, VODHLSJS, false, ""},
+		{"forçado → VOD", 100, true, VODOff, true, ""},
+	}
+	for _, r := range rows {
+		got := vodReason(r.dur, r.forceVOD, r.mode, r.nativeHLS)
+		if got != r.want {
+			t.Errorf("%s: vodReason(%v,%v,%v,native=%v)=%q want %q",
+				r.name, r.dur, r.forceVOD, r.mode, r.nativeHLS, got, r.want)
+		}
+		// Invariante: reason não-vazio ⇔ shouldVOD false (mesmas condições).
+		if sv := shouldVOD(r.dur, r.forceVOD, r.mode, r.nativeHLS); sv == (got != "") {
+			t.Errorf("%s: shouldVOD=%v contradiz vodReason=%q", r.name, sv, got)
 		}
 	}
 }

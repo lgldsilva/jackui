@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
@@ -20,7 +21,7 @@ import {
   TorrentInfo, streamActive, streamPause, streamResume, streamSetPriority,
   streamPauseAll, streamResumeAll, streamGetLimits, streamSetLimits, StreamPriority, streamDrop,
   LocalMount, localMounts, buildLocalHash, SearchResult,
-  streamAdd, streamAddTorrentFile
+  streamAdd, streamAddTorrentFile, WHOLE_TORRENT_FILE_INDEX
 } from '../api/client'
 import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
 import PromoteModal from '../components/PromoteModal'
@@ -64,6 +65,7 @@ export default function DownloadsPage() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
   const confirm = useConfirm()
+  const { t } = useTranslation()
 
   const [limitDownKB, setLimitDownKB] = useState<string>('')
   const [limitUpKB, setLimitUpKB] = useState<string>('')
@@ -298,6 +300,20 @@ export default function DownloadsPage() {
   const onPlay = (d: DownloadEntry) => {
     const fp = d.filePath
     if (!fp) return
+    // Item de torrent INTEIRO: file_path é a PASTA do torrent (não um arquivo)
+    // e fileIndex é o sentinel — abre o player sem índice pra ele resolver o
+    // arquivo principal e listar os demais.
+    if (d.fileIndex === WHOLE_TORRENT_FILE_INDEX) {
+      const synthetic: SearchResult = {
+        title: d.name || fp,
+        tracker: '', categoryId: 0, category: '', size: d.fileSize,
+        seeders: 0, leechers: 0, age: '',
+        magnetUri: d.magnet,
+        link: '', infoHash: d.infoHash, publishDate: '',
+      }
+      playSingle(synthetic)
+      return
+    }
     const m = mounts.find(mt => fp === mt.path || fp.startsWith(mt.path + '/'))
     if (m) {
       let rel = fp.slice(m.path.length).replaceAll(/^\/+/g, '')
@@ -543,6 +559,29 @@ export default function DownloadsPage() {
     }
     finally { setBulkBusy(false) }
   }
+  // Limpeza em massa por status — "limpar falhados" e "limpar fila". Caso de
+  // uso: o antigo "Baixar tudo" (1 row POR arquivo) podia entupir a fila com
+  // centenas de itens; isto remove o lixo em 1 clique sem caçar checkbox.
+  const doClearByStatus = async (targets: DownloadEntry[], title: string, message: string) => {
+    if (targets.length === 0) return
+    const ok = await confirm({ title, message, confirmLabel: t('downloads.clear_confirm'), destructive: true })
+    if (!ok) return
+    setBulkBusy(true)
+    try {
+      await downloadBatchDelete(targets.map(d => d.id)); await load(); await loadTorrents()
+    } finally { setBulkBusy(false) }
+  }
+  const doClearFailed = () => doClearByStatus(
+    downloadsByStatus.failed,
+    t('downloads.clear_failed_title'),
+    t('downloads.clear_failed_message', { count: downloadsByStatus.failed.length }),
+  )
+  const queuedDownloads = items.filter(d => d.status === 'queued')
+  const doClearQueued = () => doClearByStatus(
+    queuedDownloads,
+    t('downloads.clear_queued_title'),
+    t('downloads.clear_queued_message', { count: queuedDownloads.length }),
+  )
 
   // Stalled: downloading but no progress (downRate === 0 or null)
   const stalledCount = items.filter(
@@ -717,6 +756,26 @@ export default function DownloadsPage() {
                     className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <Trash2 className="w-3 h-3" /> Remover concluídos
+                  </button>
+                )}
+                {downloadsByStatus.failed.length > 0 && (
+                  <button
+                    onClick={doClearFailed}
+                    disabled={bulkBusy}
+                    title={t('downloads.clear_failed_title')}
+                    className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-3 h-3" /> {t('downloads.clear_failed')} ({downloadsByStatus.failed.length})
+                  </button>
+                )}
+                {queuedDownloads.length > 0 && (
+                  <button
+                    onClick={doClearQueued}
+                    disabled={bulkBusy}
+                    title={t('downloads.clear_queued_title')}
+                    className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-3 h-3" /> {t('downloads.clear_queued')} ({queuedDownloads.length})
                   </button>
                 )}
               </div>
@@ -1066,6 +1125,24 @@ export default function DownloadsPage() {
               className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
             >
               <Trash2 className="w-4 h-4" /> Remover concluídos ({completedDownloads.length})
+            </button>
+          )}
+          {downloadsByStatus.failed.length > 0 && (
+            <button
+              onClick={() => { setBulkSheetOpen(false); void doClearFailed() }}
+              disabled={bulkBusy}
+              className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" /> {t('downloads.clear_failed')} ({downloadsByStatus.failed.length})
+            </button>
+          )}
+          {queuedDownloads.length > 0 && (
+            <button
+              onClick={() => { setBulkSheetOpen(false); void doClearQueued() }}
+              disabled={bulkBusy}
+              className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
+            >
+              <Trash2 className="w-4 h-4" /> {t('downloads.clear_queued')} ({queuedDownloads.length})
             </button>
           )}
         </div>
@@ -1863,6 +1940,10 @@ function PriorityBadge({ priority }: { readonly priority?: DownloadPriority }) {
 
 function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority }: DownloadCardProps) {
   const { isGuest } = useAuth()
+  const { t } = useTranslation()
+  // Item de torrent INTEIRO (sentinel): UM card com progresso agregado.
+  const isWholeTorrent = d.fileIndex === WHOLE_TORRENT_FILE_INDEX
+  const wholeFileCount = live?.files?.length ?? 0
   // Em torrent multi-arquivo o `name` é o nome do torrent (igual pra todos os
   // arquivos), então o que distingue é o basename do filePath (ex: o episódio).
   const fileBase = d.filePath ? d.filePath.split('/').pop() || '' : ''
@@ -1905,6 +1986,13 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <KindBadge kind="server" />
             <DownloadStatusBadge status={d.status} />
+            {isWholeTorrent && (
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30" title={t('downloads.whole_torrent_badge')}>
+                <Folder className="w-3 h-3" />
+                {t('downloads.whole_torrent_badge')}
+                {wholeFileCount > 0 && <> · {t('downloads.whole_torrent_files', { count: wholeFileCount })}</>}
+              </span>
+            )}
             {d.status === 'queued' && (d.queuePosition ?? 0) > 0 && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-tertiary/50 text-text-secondary border border-strong/50 font-medium" title="Posição na fila">
                 {d.queuePosition}º na fila
