@@ -231,5 +231,9 @@
     "epub_empty": "EPUB sem capítulos legíveis.",
     "epub_chapter": "Capítulo {{n}}",
     "epub_chapter_select": "Escolher capítulo"
+  },
+  "player": {
+    "view_list": "Lista",
+    "view_tree": "Árvore de pastas"
   }
 }
