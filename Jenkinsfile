@@ -43,7 +43,10 @@ pipeline {
   environment {
     REGISTRY    = '10.228.143.12:3000'
     IMAGE       = "10.228.143.12:3000/lgldsilva/jackui"
-    TAG         = "${env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER}"
+    // TAG (git-sha8) é definido no stage 'Limpeza + Checkout', DEPOIS do
+    // checkout — com skipDefaultCheckout(true) o env.GIT_COMMIT ainda é null
+    // aqui no startup, e cair no BUILD_NUMBER geraria tag numérica que o regex
+    // de retenção (^[0-9a-f]{8,40}$) não casa → tags vazariam pra sempre.
     SONAR_HOST  = 'http://10.228.143.12:9100'
     DT_API      = 'http://10.228.143.12:8081'
     GITEA_API   = 'http://10.228.143.12:3000/api/v1'
@@ -60,6 +63,10 @@ pipeline {
       steps {
         sh 'rm -rf .scannerwork .sonar-scanner .cdx-src bom.json dt-payload.json coverage.out internal/streamer/streams 2>/dev/null || true'
         checkout scm
+        // Agora que o checkout populou GIT_COMMIT, fixa a TAG por-commit (git-sha8)
+        // que alimenta o build/push e o sweep de retenção. Fallback p/ BUILD_NUMBER
+        // só num cenário degenerado sem SCM.
+        script { env.TAG = env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER }
       }
     }
 
