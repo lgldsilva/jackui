@@ -205,5 +205,31 @@
     "clear_queued_title": "Limpar a fila?",
     "clear_queued_message": "Remover {{count}} download(s) aguardando na fila? O que já está baixando não é afetado.",
     "clear_confirm": "Remover"
+  },
+  "viewer": {
+    "load_failed": "Falha ao carregar",
+    "download": "Baixar",
+    "download_full": "Baixar arquivo completo",
+    "close": "Fechar",
+    "no_preview": "Tipo de arquivo sem preview disponível. Use o botão de download.",
+    "text_truncated": "Mostrando os primeiros {{kb}} KB. Use o botão de download pra arquivo completo.",
+    "zoom_in": "Aproximar",
+    "zoom_out": "Afastar",
+    "zoom_reset": "Ajustar à tela",
+    "prev": "Anterior",
+    "next": "Próximo",
+    "pdf_fallback": "PDF não abriu? ",
+    "comic_loading": "Lendo páginas do quadrinho... (de um torrent, pode aguardar o download das partes)",
+    "comic_page_loading": "Carregando página...",
+    "comic_page_alt": "Página {{page}}",
+    "comic_empty": "Nenhuma página de imagem encontrada nesse arquivo.",
+    "archive_loading": "Listando conteúdo do arquivo... (de um torrent, pode aguardar o download das partes)",
+    "archive_empty": "Arquivo vazio ou sem entradas legíveis.",
+    "archive_truncated": "Listagem truncada — o arquivo tem mais entradas do que o limite de exibição.",
+    "preview_inline": "Visualizar inline",
+    "epub_loading": "Abrindo o livro... (de um torrent, pode aguardar o download das partes)",
+    "epub_empty": "EPUB sem capítulos legíveis.",
+    "epub_chapter": "Capítulo {{n}}",
+    "epub_chapter_select": "Escolher capítulo"
   }
 }

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow, Download } from 'lucide-react'
+import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow, Download, Eye } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL, queueAllTorrentFiles } from '../api/client'
+import { previewRawURL } from '../api/preview'
+import { detectViewerKind } from './viewer/viewerKind'
+import FilePreviewModal from './FilePreviewModal'
 import { useConfirm } from './ConfirmDialog'
 import { formatRate } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
@@ -159,6 +162,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [sortBySize, setSortBySize] = usePersistedState('fileview.sortBySize', false)
   const [sizeDesc, setSizeDesc] = usePersistedState('fileview.sizeDesc', true)
   const [copied, setCopied] = useState(false)
+  // Universal viewer for non-playable files (NFO, comics, archives, EPUB...).
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null)
   const hoverThumb = useHoverThumb()
 
   useEffect(() => {
@@ -387,6 +392,13 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                   sortedFiles.map(f => {
                     const ep = parseEpisode(f.path)
                     const playable = isPlayableFile(f)
+                    // Non-playable but viewable (NFO/imagem/PDF/CBZ/zip/EPUB):
+                    // clicking opens the universal viewer instead of being a
+                    // dead, disabled row.
+                    const viewable = !playable && !!info?.infoHash && detectViewerKind(f.path) !== 'unknown'
+                    let rowTitle: string | undefined
+                    if (playable) rowTitle = 'Reproduzir esse arquivo'
+                    else if (viewable) rowTitle = 'Visualizar esse arquivo'
                     const filePct = f.size > 0 && (f.downloaded ?? 0) > 0
                       ? Math.min(100, ((f.downloaded ?? 0) / f.size) * 100)
                       : null
@@ -403,7 +415,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         onMouseMove={hoverThumb.move}
                         onMouseLeave={hoverThumb.hide}
                         className={`flex flex-col px-3 py-2 rounded-lg group transition-colors ${
-                          playable ? 'hover:bg-surface/70' : 'opacity-50 hover:opacity-75'
+                          playable || viewable ? 'hover:bg-surface/70' : 'opacity-50 hover:opacity-75'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -416,13 +428,17 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                               if (playable) {
                                 hoverThumb.hide()
                                 onPlayFile(result, f.index)
+                              } else if (viewable) {
+                                hoverThumb.hide()
+                                setPreviewIdx(f.index)
                               }
                             }}
-                            disabled={!playable}
-                            title={playable ? 'Reproduzir esse arquivo' : undefined}
-                            className={`flex items-center gap-2 flex-1 min-w-0 text-left ${playable ? 'cursor-pointer' : 'cursor-default'}`}
+                            disabled={!playable && !viewable}
+                            title={rowTitle}
+                            className={`flex items-center gap-2 flex-1 min-w-0 text-left ${playable || viewable ? 'cursor-pointer' : 'cursor-default'}`}
                           >
                             {fileTypeIcon(f)}
+                            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label="visualizável" />}
                             {ep && (
                               <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
                                 {ep}
@@ -486,6 +502,23 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           )}
         </>
       </Sheet>
+      {previewIdx !== null && info?.infoHash && (() => {
+        const file = info.files.find(f => f.index === previewIdx)
+        if (!file) return null
+        const imageFiles = info.files.filter(f => detectViewerKind(f.path) === 'image')
+        const imageStart = Math.max(0, imageFiles.findIndex(f => f.index === previewIdx))
+        return (
+          <FilePreviewModal
+            infoHash={info.infoHash}
+            fileIdx={previewIdx}
+            filePath={file.path}
+            fileSize={file.size}
+            imageItems={imageFiles.map(f => ({ label: f.path, url: previewRawURL(info.infoHash, f.index) }))}
+            imageStart={imageStart}
+            onClose={() => setPreviewIdx(null)}
+          />
+        )
+      })()}
       {hoverThumb.popover}
     </>
   )

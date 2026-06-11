@@ -161,6 +161,10 @@ func serveFromCompletedStore(c *gin.Context, store *downloads.Store, s *streamer
 	if st, err := os.Stat(path); err != nil || st.IsDir() {
 		return false
 	}
+	// Same stored-XSS guard as /api/local/file: torrent contents are hostile
+	// by default and this endpoint serves them same-origin (JWT in
+	// localStorage). HTML/SVG/JS are forced to download instead of rendering.
+	setLocalFileSecurityHeaders(c, path)
 	http.ServeFile(c.Writer, c.Request, path)
 	return true
 }
@@ -172,6 +176,7 @@ func serveFromStreamer(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, fi
 		return
 	}
 	defer func() { _ = reader.Close() }()
+	setLocalFileSecurityHeaders(c, file.DisplayPath())
 	http.ServeContent(c.Writer, c.Request, file.DisplayPath(), time.Time{}, reader)
 }
 

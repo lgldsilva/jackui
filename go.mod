@@ -10,6 +10,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-webauthn/webauthn v0.17.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/nwaples/rardecode/v2 v2.2.3
 	github.com/prometheus/client_golang v1.23.2
 	golang.org/x/crypto v0.52.0
 	golang.org/x/text v0.37.0
