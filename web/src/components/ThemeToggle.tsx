@@ -58,7 +58,7 @@ export default function ThemeToggle({ variant = 'sidebar' }: { readonly variant?
   // doesn't claim a fixed state.
   const isFixed = choice !== 'system'
   const activeCls = isFixed
-    ? 'text-green-300 bg-green-500/10 ring-1 ring-green-400/40 hover:bg-green-500/20'
+    ? 'text-green-700 dark:text-green-300 bg-green-500/10 ring-1 ring-green-400/40 hover:bg-green-500/20'
     : 'text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40'
 
   return (

@@ -18,10 +18,10 @@ type Props = {
 
 function fileCountLabel(entry: LocalEntry | null, files: LocalEntry[]): React.ReactNode {
   if (!entry?.isDir) {
-    return <><span className="text-white font-semibold">1</span> arquivo selecionado</>
+    return <><span className="text-text-primary font-semibold">1</span> arquivo selecionado</>
   }
   const s = files.length === 1 ? '' : 's'
-  return <><span className="text-white font-semibold">{files.length}</span> arquivo{s} de mídia encontrado{s}</>
+  return <><span className="text-text-primary font-semibold">{files.length}</span> arquivo{s} de mídia encontrado{s}</>
 }
 
 type Phase = 'scanning' | 'configure' | 'preview' | 'executing' | 'done'
@@ -235,7 +235,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                     onClick={() => { setSelectedBase(d.path); setBrowsePath('') }}
                     className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                       selectedBase === d.path || (!selectedBase && d.path === dests[0]?.path)
-                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                        ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
                         : 'bg-surface-tertiary text-text-secondary border border-strong hover:bg-surface-tertiary'
                     }`}
                   >
@@ -249,7 +249,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
               <button
                 onClick={() => setBrowsePath('')}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
               >
                 <Home className="w-3.5 h-3.5" /> {destLabel}
               </button>
@@ -258,7 +258,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                   <ChevronRight className="w-3 h-3 text-text-muted" />
                   <button
                     onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
-                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
                   >
                     {seg}
                   </button>
@@ -274,7 +274,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             {/* Preview panel */}
             {phase === 'preview' && (
               <div className="pb-2 max-h-52 overflow-y-auto">
-                <div className="border border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 space-y-2">
+                <div className="border border-cyan-500/30 dark:border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 space-y-2">
                   <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                     <Sparkles className="w-3 h-3" />
                     Preview IA — {previews.length} arquivo{previews.length === 1 ? '' : 's'}
@@ -292,16 +292,16 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                             De: {p.originalName}
                           </p>
                           {p.error ? (
-                            <p className="text-red-400 text-[11px] bg-red-950/30 px-2 py-1 rounded border border-red-900/30">
+                            <p className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">
                               Erro: {p.error}
                             </p>
                           ) : (
-                            <div className="flex items-start gap-1.5 bg-emerald-950/10 border border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-300">
+                            <div className="flex items-start gap-1.5 bg-emerald-500/10 dark:bg-emerald-950/10 border border-emerald-500/30 dark:border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-700 dark:text-emerald-300">
                               <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                               <span className="font-mono text-[11px] break-all leading-tight">
                                 <span className="text-text-muted">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
-                                <span className="text-white font-bold">{p.targetPath.split('/').pop()}</span>
-                                <span className="ml-1 px-1.5 text-[9px] font-bold rounded bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">
+                                <span className="text-text-primary font-bold">{p.targetPath.split('/').pop()}</span>
+                                <span className="ml-1 px-1.5 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">
                                   {p.kind === 'tv' ? 'Série' : 'Filme'}
                                 </span>
                               </span>
@@ -350,7 +350,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                   <button
                     onClick={loadPreview}
                     disabled={files.length === 0}
-                    className="flex items-center gap-2 text-sm bg-purple-500/20 hover:bg-purple-500/30 disabled:opacity-50 text-purple-300 border border-purple-500/30 px-4 py-1.5 rounded transition-colors"
+                    className="flex items-center gap-2 text-sm bg-purple-500/20 hover:bg-purple-500/30 disabled:opacity-50 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-4 py-1.5 rounded transition-colors"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     Ver preview IA
@@ -367,7 +367,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
                     <button
                       onClick={handleConfirm}
                       disabled={previews.length === 0}
-                      className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
+                      className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
                     >
                       <FolderSync className="w-3.5 h-3.5" />
                       Mover {previews.filter(p => !p.error).length} arquivo{previews.filter(p => !p.error).length === 1 ? '' : 's'}
@@ -404,7 +404,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
             )}
             <button
               onClick={onClose}
-              className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
+              className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
             >
               Fechar
             </button>

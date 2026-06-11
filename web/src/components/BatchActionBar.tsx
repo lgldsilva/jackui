@@ -37,16 +37,16 @@ export function BatchActionBar({
         <div className="flex-1" />
         {running && <Loader2 className="w-4 h-4 animate-spin text-text-secondary" />}
         {canPromote && (
-          <button onClick={onPromote} disabled={count === 0 || running} className={`${actionBtn} text-cyan-300 hover:bg-cyan-500/15`}>
+          <button onClick={onPromote} disabled={count === 0 || running} className={`${actionBtn} text-cyan-700 dark:text-cyan-300 hover:bg-cyan-500/15`}>
             <ArrowUpCircle className="w-4 h-4" /><span className="hidden min-[400px]:inline">Promover</span>
           </button>
         )}
         {canMove && (
-          <button onClick={onMove} disabled={count === 0 || running} className={`${actionBtn} text-amber-300 hover:bg-amber-500/15`}>
+          <button onClick={onMove} disabled={count === 0 || running} className={`${actionBtn} text-amber-700 dark:text-amber-300 hover:bg-amber-500/15`}>
             <FolderInput className="w-4 h-4" /><span className="hidden min-[400px]:inline">Mover</span>
           </button>
         )}
-        <button onClick={onDelete} disabled={count === 0 || running} className={`${actionBtn} text-red-300 hover:bg-red-500/15`}>
+        <button onClick={onDelete} disabled={count === 0 || running} className={`${actionBtn} text-red-700 dark:text-red-300 hover:bg-red-500/15`}>
           <Trash2 className="w-4 h-4" /><span className="hidden min-[400px]:inline">Apagar</span>
         </button>
       </div>

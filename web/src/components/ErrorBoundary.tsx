@@ -47,7 +47,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               </button>
             </div>
             <p className="text-sm text-text-primary mb-2">A interface encontrou um erro inesperado.</p>
-            <pre className="text-xs text-red-300/80 bg-surface rounded p-3 overflow-auto max-h-40">
+            <pre className="text-xs text-red-700/80 dark:text-red-300/80 bg-surface rounded p-3 overflow-auto max-h-40">
               {this.state.error.message}
             </pre>
             <button onClick={this.reset} className="btn-primary mt-4 w-full">

@@ -216,7 +216,7 @@ function BrowseResultsDetail({
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-xs text-text-muted">{loadingResults ? 'Carregando...' : (<><span className="text-text-primary font-medium">{filteredResults.length}</span>{filteredResults.length !== results.length && <span> de {results.length}</span>} {' '}resultado{filteredResults.length === 1 ? '' : 's'} em cache para <span className="text-green-400 font-medium">"{selected}"</span></>)}</p>
         {!loadingResults && (
-          <button onClick={onRefreshSearch} disabled={refreshingSearch} title="Buscar de novo no Jackett — atualiza seeders e traz resultados novos" className="flex items-center gap-1.5 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-300 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+          <button onClick={onRefreshSearch} disabled={refreshingSearch} title="Buscar de novo no Jackett — atualiza seeders e traz resultados novos" className="flex items-center gap-1.5 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-700 dark:text-green-300 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
             {refreshingSearch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             {refreshingSearch ? 'Atualizando...' : 'Atualizar busca'}
           </button>
@@ -703,7 +703,7 @@ export default function HistoryPage() {
               </button>
             </div>
             {entries.length > 0 && (
-              <button onClick={handleClear} className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors">
+              <button onClick={handleClear} className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 transition-colors">
                 <Trash2 className="w-3.5 h-3.5" />
                 Limpar cache
               </button>

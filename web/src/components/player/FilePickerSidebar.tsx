@@ -79,7 +79,7 @@ export function FilePickerSidebar({
       if (ext) return 'bg-surface-secondary/40 text-text-muted hover:bg-surface-tertiary/80 border border-transparent'
       return 'bg-surface-tertiary/50 text-text-primary hover:bg-surface-tertiary border border-transparent'
     }
-    if (canPreview) return 'bg-blue-500/5 text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
+    if (canPreview) return 'bg-blue-500/5 text-blue-700/80 dark:text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
     return 'bg-surface-secondary/50 text-text-muted hover:bg-surface-tertiary border border-transparent'
   }
   const cycleSizeSort = () => {
@@ -134,7 +134,7 @@ export function FilePickerSidebar({
               onClick={() => setFileTypeFilter(o.key)}
               className={`px-2 py-1 rounded text-[11px] border transition-colors ${
                 fileTypeFilter === o.key
-                  ? 'bg-green-500/20 text-green-300 border-green-500/40'
+                  ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
                   : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
               }`}
             >
@@ -147,7 +147,7 @@ export function FilePickerSidebar({
           title="Ordenar por tamanho"
           className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
             fileSortBySize
-              ? 'bg-green-500/20 text-green-300 border-green-500/40'
+              ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
               : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
           }`}
         >
@@ -195,7 +195,7 @@ export function FilePickerSidebar({
             >
               <span className="flex items-center gap-1.5 min-w-0">
                 {ep && (
-                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
+                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
                     {ep}
                   </span>
                 )}
@@ -205,7 +205,7 @@ export function FilePickerSidebar({
                   </span>
                 )}
                 {previewBadge && (
-                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Visualizar inline">
+                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Visualizar inline">
                     {previewBadge}
                   </span>
                 )}

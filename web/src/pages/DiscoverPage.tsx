@@ -55,7 +55,7 @@ function PosterCard({ m, onClick, badge, caption }: {
     >
       <div className="aspect-[2/3] bg-surface relative">
         <img src={m.posterUrl} alt={m.title} loading="lazy" className="w-full h-full object-cover" />
-        <span className="absolute top-1 left-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-text-primary">
+        <span className="absolute top-1 left-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-white">
           {m.kind === 'tv' ? <Tv className="w-3 h-3" /> : <Film className="w-3 h-3" />}
           {m.kind === 'tv' ? 'Série' : 'Filme'}
         </span>

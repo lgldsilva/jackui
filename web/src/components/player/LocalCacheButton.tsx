@@ -74,7 +74,7 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
   else if (ready) icon = <Check className="w-3.5 h-3.5" />
   else if (errored) icon = <AlertCircle className="w-3.5 h-3.5" />
 
-  let cls = 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30'
+  let cls = 'bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border-green-500/30'
   if (ready) cls = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
   else if (errored) cls = 'bg-red-500/15 hover:bg-red-500/25 text-red-400 border-red-500/30'
   else if (busy) cls = 'bg-surface-tertiary text-text-secondary border-strong'

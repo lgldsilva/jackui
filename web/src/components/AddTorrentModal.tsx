@@ -617,7 +617,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                               <button
                                 type="button"
                                 onClick={() => handleSelectAllFiles(item.id, item.files!.map(f => f.index))}
-                                className="text-cyan-400 hover:text-cyan-300 font-semibold"
+                                className="text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 font-semibold"
                               >
                                 Todos
                               </button>

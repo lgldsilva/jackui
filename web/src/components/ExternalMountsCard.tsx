@@ -25,9 +25,9 @@ function UserAccessPicker({ allUsers, selected, onToggle }: {
         <span className="text-[11px] text-text-muted">Com acesso:</span>
         {selected.length === 0 && <span className="text-[11px] text-amber-400/80">ninguém ainda — adicione abaixo</span>}
         {selected.map(u => (
-          <span key={u} className="inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40">
+          <span key={u} className="inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded-md bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/40">
             {u}
-            <button onClick={() => onToggle(u)} title={`Remover ${u}`} className="hover:text-white p-0.5"><X className="w-3 h-3" /></button>
+            <button onClick={() => onToggle(u)} title={`Remover ${u}`} className="hover:text-blue-900 dark:hover:text-white p-0.5"><X className="w-3 h-3" /></button>
           </span>
         ))}
       </div>
@@ -206,7 +206,7 @@ export default function ExternalMountsCard() {
         })}
       </div>
 
-      <button onClick={addMount} className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 self-start">
+      <button onClick={addMount} className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 self-start">
         <Plus className="w-4 h-4" /> Adicionar mount
       </button>
 
@@ -232,7 +232,7 @@ function VisButton({ active, onClick, icon, label }: Readonly<{ active: boolean;
     <button
       onClick={onClick}
       className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${active
-        ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40'
         : 'bg-surface-secondary text-text-secondary border-default hover:border-strong'}`}
     >
       {icon}{label}

@@ -116,7 +116,7 @@ export function MediaNavButtons({ mediaFileIndices, mediaCursor, currentEp, onPr
         onClick={onPrevMedia}
         disabled={!hasPrevMedia}
         title="Episódio anterior"
-        className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+        className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
       >
         <ChevronLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
         <span className="hidden xs:inline">Ep ant.</span>
@@ -125,13 +125,13 @@ export function MediaNavButtons({ mediaFileIndices, mediaCursor, currentEp, onPr
         onClick={onNextMedia}
         disabled={!hasNextMedia}
         title="Próximo episódio"
-        className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
+        className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
       >
         <span className="hidden xs:inline">Próx.</span>
         <ChevronRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
       </button>
       {currentEp && (
-        <span className="text-xs text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
+        <span className="text-xs text-blue-700 dark:text-blue-300 px-2 py-1 bg-blue-500/10 rounded border border-blue-500/20 font-mono flex-shrink-0">
           {currentEp}
         </span>
       )}
