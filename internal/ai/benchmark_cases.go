@@ -119,6 +119,72 @@ var DefaultBenchmarkCases = markDefault([]BenchmarkCase{
 	{Raw: "Us.2019.1080p.WEB-DL.DD5.1.H264-CMRG", Expect: "Us - 2019"},
 })
 
+// DefaultScheduleCases seed the SCHEDULE task — the natural-language → schedule
+// parse used by the watchlist. They exist because the chain used to be ranked on
+// rename ALONE, so a model that's terrible at schedules could sit at the top and
+// turn "Toda segunda-feira às 07h00" into a daily 07:00 (bug A). Expect uses the
+// compact label parsed by parseScheduleExpect: "weekly:<weekday>:<HH>:<MM>",
+// "daily:<HH>:<MM>", "interval:<minutes>" (weekday 0=Sun … 6=Sat). The weekday is
+// scored heavily, so a wrong day (or a daily-instead-of-weekly) genuinely hurts.
+//
+// GUARD: none of these raws may appear verbatim in scheduleSystem's few-shot set
+// (would let a model copy the answer) — enforced by TestScheduleCasesNotInPrompt.
+var DefaultScheduleCases = markDefaultTask([]BenchmarkCase{
+	// Weekly — the long hyphenated PT form + HHhMM clock (the exact bug shape), in
+	// phrasings DISTINCT from scheduleSystem's few-shot so the score is honest.
+	{Raw: "checar toda segunda-feira às 06h45", Expect: "weekly:1:6:45"},
+	{Raw: "rodar nas terças-feiras 19h", Expect: "weekly:2:19:0"},
+	{Raw: "às quartas-feiras de manhã", Expect: "weekly:3:8:0"},
+	{Raw: "atualizar quinta-feira às 23h30", Expect: "weekly:4:23:30"},
+	{Raw: "todo sábado às 10h", Expect: "weekly:6:10:0"},
+	{Raw: "aos domingos de tarde", Expect: "weekly:0:14:0"},
+	{Raw: "check it every Friday at 8pm", Expect: "weekly:5:20:0"},
+	// Daily — no weekday named (the contrast that must NOT become weekly).
+	{Raw: "uma vez por dia às 05h00", Expect: "daily:5:0"},
+	{Raw: "diariamente às 23:15", Expect: "daily:23:15"},
+	{Raw: "check once a day at 6pm", Expect: "daily:18:0"},
+	// Interval — period in minutes.
+	{Raw: "a cada 2 horas", Expect: "interval:120"},
+	{Raw: "três vezes por dia", Expect: "interval:480"},
+	{Raw: "every 30 minutes", Expect: "interval:30"},
+}, TaskSchedule)
+
+// DefaultIdentifyCases seed the IDENTIFY task — the title-ONLY extraction used by
+// categoryFromAI and the art fail-safe chain. Scored on the title alone (no
+// season/episode), so Expect is a bare title (the "- YYYY" tail is informational).
+// Distinct raws from the rename set so the two tasks measure different inputs.
+//
+// GUARD: not in identifySystem's prompt — enforced by TestIdentifyCasesNotInPrompt.
+var DefaultIdentifyCases = markDefaultTask([]BenchmarkCase{
+	{Raw: "Sicario.2015.1080p.BluRay.x264-SPARKS", Expect: "Sicario"},
+	{Raw: "Arrival.2016.2160p.UHD.BluRay.x265-TERMINAL", Expect: "Arrival"},
+	{Raw: "The.Witcher.S02E01.1080p.NF.WEB-DL.DDP5.1.x264-NTb", Expect: "The Witcher"},
+	{Raw: "Parasite.2019.KOREAN.1080p.BluRay.x264-REGRET", Expect: "Parasite"},
+	{Raw: "[SubsPlease] Chainsaw Man - 04 (1080p) [9A8B7C6D].mkv", Expect: "Chainsaw Man"},
+	{Raw: "Cidade.Baixa.2005.NACIONAL.1080p.WEB-DL", Expect: "Cidade Baixa"},
+}, TaskIdentify)
+
+// AllDefaultBenchmarkCases is the full multi-task seed: rename + schedule + identify.
+// The store seeds this on first use so the benchmark covers every AI task out of
+// the box. DefaultBenchmarkCases (rename only) is kept for the prompt-leak guards
+// and legacy-seed detection.
+func AllDefaultBenchmarkCases() []BenchmarkCase {
+	out := make([]BenchmarkCase, 0, len(DefaultBenchmarkCases)+len(DefaultScheduleCases)+len(DefaultIdentifyCases))
+	out = append(out, DefaultBenchmarkCases...)
+	out = append(out, DefaultScheduleCases...)
+	out = append(out, DefaultIdentifyCases...)
+	return out
+}
+
+// markDefaultTask stamps both the default origin and the given task on each case.
+func markDefaultTask(cases []BenchmarkCase, task string) []BenchmarkCase {
+	for i := range cases {
+		cases[i].Origin = OriginDefault
+		cases[i].Task = task
+	}
+	return cases
+}
+
 // markDefault stamps the built-in origin on every seeded case so the UI (and a
 // future "restore defaults") can tell shipped cases from user-added ones.
 func markDefault(cases []BenchmarkCase) []BenchmarkCase {
@@ -152,6 +218,27 @@ func isLegacySeed(cases []BenchmarkCase) bool {
 	for i, c := range cases {
 		if c.Raw != legacySeedCases[i].Raw || c.Expect != legacySeedCases[i].Expect {
 			return false
+		}
+	}
+	return true
+}
+
+// isRenameOnlySeed reports whether a stored set is exactly the untouched broad
+// rename-only default (the set shipped BEFORE schedule/identify tasks existed):
+// the same raws+expects as DefaultBenchmarkCases, in order, none carrying a task.
+// Such a set was never edited by the user, so upgrading it to the full multi-task
+// seed is safe. ANY difference (a user edit, or a set that already has tasks) is
+// left alone.
+func isRenameOnlySeed(cases []BenchmarkCase) bool {
+	if len(cases) != len(DefaultBenchmarkCases) {
+		return false
+	}
+	for i, c := range cases {
+		if c.Raw != DefaultBenchmarkCases[i].Raw || c.Expect != DefaultBenchmarkCases[i].Expect {
+			return false
+		}
+		if normalizeTask(c.Task) != TaskRename {
+			return false // already has a non-rename task → not the old rename-only seed
 		}
 	}
 	return true

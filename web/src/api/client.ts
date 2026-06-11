@@ -566,19 +566,28 @@ export const streamPrefetch = async (hash: string, fileIdx: number): Promise<voi
 }
 
 // ── AI title-identification benchmark (admin) ────────────────────────────────
+// Per-task accuracy breakdown (keyed by task id: "rename" | "identify" | "schedule").
+export type AITaskScore = {
+  accuracy: number // 0..1 over this task's cases
+  samples: number
+  scored: number
+}
 export type AISlotScore = {
   slotId: string
   provider: string
   model: string
-  accuracy: number      // 0..1
+  accuracy: number      // 0..1 — mean of the per-task accuracies
   avgLatencyMs: number
   composite: number
   samples: number
   costPer1M?: number     // blended USD per 1M tokens (0 = free); factored into the score
   failureReason?: string
   incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Rodar faltantes"
+  tasks?: Record<string, AITaskScore> // optional per-task breakdown (multi-task benchmark)
 }
-export type AIBenchmarkCase = { raw: string; expect: string }
+// task: which AI task the case measures — "rename" (default, omitted), "identify"
+// or "schedule". Optional for retrocompat: a case without it is the rename task.
+export type AIBenchmarkCase = { raw: string; expect: string; task?: string }
 export type AICostConfig = {
   maxCostPer1M: number // teto p/ incluir pagos no benchmark ($/1M); 0 = só grátis
   kwhPrice: number     // tarifa de energia (USD/kWh); 0 = local fica grátis
