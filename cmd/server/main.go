@@ -812,7 +812,10 @@ func metricsStaticTokenBypass(prom gin.HandlerFunc) gin.HandlerFunc {
 
 func setupRouter(deps *appDeps) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger())
+	// Custom formatter instead of gin.Logger(): media routes authenticate via
+	// ?token=<JWT> (<video> can't send headers), and the default access log was
+	// writing those JWTs verbatim into `docker logs`.
+	router.Use(gin.LoggerWithFormatter(middleware.RedactingLogFormatter))
 	router.Use(gin.Recovery())
 
 	corsConfig := cors.DefaultConfig()

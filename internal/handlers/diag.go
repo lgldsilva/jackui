@@ -4,17 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/middleware"
 )
-
-// diagTokenRe redacts media/JWT tokens out of client diagnostics before they
-// hit the server log. The player reports stream URLs (src/currentSrc) that
-// carry ?token=<JWT> — logging them verbatim would defeat the whole reason
-// ?token= is restricted to media paths (keeping credentials out of logs).
-var diagTokenRe = regexp.MustCompile(`(token=)[^&"'\s\]}]+`)
 
 // ClientLogPayload is the shape the browser sends.
 // `data` is free-form — typically a video-diagnostic snapshot.
@@ -48,8 +42,11 @@ func ClientLog() gin.HandlerFunc {
 		}
 		// Use the standard log package — appears in `docker logs jackui`
 		// alongside Gin's request log. Single-line so it's grep-friendly.
+		// The player reports stream URLs (src/currentSrc) that carry ?token=<JWT>
+		// — logging them verbatim would defeat the whole reason ?token= is
+		// restricted to media paths (keeping credentials out of logs).
 		line := fmt.Sprintf("[%s] user=%d level=%s msg=%q data=%v", tag, userID, p.Level, p.Msg, p.Data)
-		log.Print(diagTokenRe.ReplaceAllString(line, "${1}REDACTED"))
+		log.Print(middleware.RedactToken(line))
 		c.Status(http.StatusNoContent)
 	}
 }
