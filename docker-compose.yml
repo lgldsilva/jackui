@@ -68,6 +68,16 @@ services:
       # Jackett/Ollama. The piece cache (DataDir) stays on the LVM.
       - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
+      # Fuso do processo. O scheduler de banda (bandwidth_schedules) compara as
+      # janelas HH:MM com a hora LOCAL do container — sem TZ ele roda em UTC e
+      # uma janela "23:00-06:00" pensada em Brasília vale 3h adiantada. tzdata
+      # já está na imagem.
+      - TZ=${TZ:-America/Sao_Paulo}
+      # Logs estruturados: "json" ou texto (padrão).
+      - JACKUI_LOG_FORMAT=${JACKUI_LOG_FORMAT:-}
+      # Token estático pro scraper do Prometheus quando JACKUI_AUTH_ENABLED=1
+      # (JWTs expiram; scrape configs não fazem refresh). Vazio = só admin JWT.
+      - JACKUI_METRICS_TOKEN=${JACKUI_METRICS_TOKEN:-}
       - JACKUI_DOWNLOAD_DIR=/mnt/storage/jacktrack/download
       # Destination of the "Promote" button — moves a file from the app's private
       # area to the shared library visible to all media apps.
