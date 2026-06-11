@@ -7,6 +7,7 @@ import {
   Eye, EyeOff, BarChart3,
 } from 'lucide-react'
 import UserBadge from './UserBadge'
+import NotificationsBell from './NotificationsBell'
 import RateWidget from './RateWidget'
 import ThemeToggle from './ThemeToggle'
 import { useIncognito } from '../lib/incognito'
@@ -203,6 +204,7 @@ export default function NavHeader({ rightExtra }: Props) {
             Colapsado: empilha vertical (md:flex-col) p/ caber na rail de 64px. */}
         <div className={`hidden md:flex items-center gap-2 ${collapsed ? 'md:flex-col md:justify-center' : ''}`}>
           <ThemeToggle variant="sidebar" />
+          <NotificationsBell />
           {incognitoToggle('sidebar')}
           {incognito && !collapsed && (
             <span className="text-[10px] font-semibold tracking-wider text-amber-700/90 dark:text-amber-300/90 uppercase">
@@ -244,6 +246,7 @@ export default function NavHeader({ rightExtra }: Props) {
           </Link>
           <div className="flex items-center gap-1 flex-shrink-0">
             <ThemeToggle variant="mobile" />
+            <NotificationsBell />
             {incognitoToggle('mobile')}
             {rightExtra}
           </div>

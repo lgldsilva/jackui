@@ -154,6 +154,12 @@
     "copy": "Copiar",
     "copied": "Copiado!"
   },
+  "notifications": {
+    "title": "Notificações",
+    "empty": "Nenhuma notificação ainda. Os hits das watchlists aparecem aqui.",
+    "enable_push": "Ativar push neste navegador",
+    "push_on": "Push ativo"
+  },
   "trailer": {
     "watch": "Trailer",
     "none": "Sem trailer"
