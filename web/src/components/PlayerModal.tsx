@@ -403,12 +403,18 @@ export default function PlayerModal({
   // appears without the player hanging. Revokes the previous blob on change.
   // (Placed after mediaToken so its value is available when the effect runs.)
   useEffect(() => {
-    setLocalEmbeddedVttURL(prev => { if (prev) URL.revokeObjectURL(prev); return '' })
+    setLocalEmbeddedVttURL(prev => {
+      if (prev) URL.revokeObjectURL(prev)
+      return ''
+    })
     if (!info || !isLocalHash(info.infoHash) || embeddedSub === null) return
     let cancelled = false
     localSubtrackBlobURL(info.infoHash, selectedFile, embeddedSub, mediaToken, () => cancelled)
       .then(url => {
-        if (cancelled) { if (url) URL.revokeObjectURL(url); return }
+        if (cancelled) {
+          if (url) URL.revokeObjectURL(url)
+          return
+        }
         if (url) setLocalEmbeddedVttURL(url)
       })
     return () => { cancelled = true }
