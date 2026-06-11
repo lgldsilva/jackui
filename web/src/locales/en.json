@@ -88,7 +88,22 @@
     "ai_button": "Interpret with AI",
     "ai_applied": "Interpreted: {{summary}} — review and save",
     "ai_unclear": "Couldn't read that as a schedule — try rephrasing (e.g. \"every 3 hours\")",
-    "ai_error": "Failed to interpret — try again"
+    "ai_error": "Failed to interpret — try again",
+    "query_placeholder": "Search (e.g. Breaking Bad S07 1080p)",
+    "category_placeholder": "Optional category (e.g. 5030)",
+    "min_seeders": "Min. seeders",
+    "ntfy_placeholder": "ntfy.sh topic (blank = server default)",
+    "auto_download": "Auto-download new results",
+    "auto_download_help": "New torrents that pass the filters are queued for download automatically (max. 3 per check). The first check only records the current results — nothing is downloaded retroactively.",
+    "min_resolution": "Min. resolution",
+    "codec": "Codec",
+    "max_size_gb": "Max size (GB)",
+    "any": "Any",
+    "unlimited": "Unlimited",
+    "save": "Save",
+    "cancel": "Cancel",
+    "auto_badge": "Auto",
+    "auto_downloaded_hit": "Automatically added to the download queue"
   },
   "settings": {
     "title": "Settings",

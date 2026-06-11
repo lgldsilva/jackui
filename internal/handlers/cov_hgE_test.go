@@ -462,7 +462,7 @@ func TestHgEPlaylistsDelete_InvalidID(t *testing.T) {
 
 func hgESeedWatchlist(t *testing.T, s *watchlist.Store, userID int) int {
 	t.Helper()
-	w, err := s.Create(userID, "the office", "5000", 1, "topic", watchlist.Schedule{})
+	w, err := s.Create(userID, watchlist.Params{Query: "the office", Category: "5000", MinSeeders: 1, NtfyTopic: "topic"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,24 +15,38 @@ import (
 )
 
 type watchlistInput struct {
-	Query        string `json:"query"`
-	Category     string `json:"category"`
-	MinSeeders   int    `json:"minSeeders"`
-	NtfyTopic    string `json:"ntfyTopic"`
-	SchedKind    string `json:"schedKind"`    // interval | daily | weekly (empty → interval)
-	SchedMinutes int    `json:"schedMinutes"` // interval: every N minutes (<= 0 → server default)
-	SchedWeekday int    `json:"schedWeekday"` // weekly: 0=Sunday … 6=Saturday
-	SchedHour    int    `json:"schedHour"`    // daily/weekly
-	SchedMinute  int    `json:"schedMinute"`  // daily/weekly
+	Query         string `json:"query"`
+	Category      string `json:"category"`
+	MinSeeders    int    `json:"minSeeders"`
+	NtfyTopic     string `json:"ntfyTopic"`
+	SchedKind     string `json:"schedKind"`    // interval | daily | weekly (empty → interval)
+	SchedMinutes  int    `json:"schedMinutes"` // interval: every N minutes (<= 0 → server default)
+	SchedWeekday  int    `json:"schedWeekday"` // weekly: 0=Sunday … 6=Saturday
+	SchedHour     int    `json:"schedHour"`    // daily/weekly
+	SchedMinute   int    `json:"schedMinute"`  // daily/weekly
+	AutoDownload  bool   `json:"autoDownload"`
+	MinResolution string `json:"minResolution"`
+	MaxSizeBytes  int64  `json:"maxSizeBytes"`
+	Codec         string `json:"codec"`
 }
 
-func (in watchlistInput) schedule() watchlist.Schedule {
-	return watchlist.Schedule{
-		Kind:    in.SchedKind,
-		Minutes: in.SchedMinutes,
-		Weekday: in.SchedWeekday,
-		Hour:    in.SchedHour,
-		Minute:  in.SchedMinute,
+func (in watchlistInput) params() watchlist.Params {
+	return watchlist.Params{
+		Query:      in.Query,
+		Category:   in.Category,
+		MinSeeders: in.MinSeeders,
+		NtfyTopic:  in.NtfyTopic,
+		Schedule: watchlist.Schedule{
+			Kind:    in.SchedKind,
+			Minutes: in.SchedMinutes,
+			Weekday: in.SchedWeekday,
+			Hour:    in.SchedHour,
+			Minute:  in.SchedMinute,
+		},
+		AutoDownload:  in.AutoDownload,
+		MinResolution: in.MinResolution,
+		MaxSizeBytes:  in.MaxSizeBytes,
+		Codec:         in.Codec,
 	}
 }
 
@@ -65,7 +79,7 @@ func WatchlistCreate(s *watchlist.Store, k WatchlistKicker) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		w, err := s.Create(userID, in.Query, in.Category, in.MinSeeders, in.NtfyTopic, in.schedule())
+		w, err := s.Create(userID, in.params())
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -91,7 +105,7 @@ func WatchlistUpdate(s *watchlist.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := s.Update(userID, id, in.Query, in.Category, in.MinSeeders, in.NtfyTopic, in.schedule()); err != nil {
+		if err := s.Update(userID, id, in.params()); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}

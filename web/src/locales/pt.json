@@ -88,7 +88,22 @@
     "ai_button": "Interpretar com IA",
     "ai_applied": "Interpretado: {{summary}} — confira e salve",
     "ai_unclear": "Não entendi como agendamento — tente reformular (ex.: \"a cada 3 horas\")",
-    "ai_error": "Falha ao interpretar — tente de novo"
+    "ai_error": "Falha ao interpretar — tente de novo",
+    "query_placeholder": "Busca (ex: Breaking Bad S07 1080p)",
+    "category_placeholder": "Categoria opcional (ex: 5030)",
+    "min_seeders": "Mín. seeders",
+    "ntfy_placeholder": "Tópico ntfy.sh (em branco = usa o padrão do servidor)",
+    "auto_download": "Baixar automaticamente novos resultados",
+    "auto_download_help": "Novos torrents que passarem nos filtros entram direto na fila de downloads (máx. 3 por verificação). A primeira verificação só registra os resultados atuais — nada é baixado retroativamente.",
+    "min_resolution": "Resolução mínima",
+    "codec": "Codec",
+    "max_size_gb": "Tamanho máx. (GB)",
+    "any": "Qualquer",
+    "unlimited": "Sem limite",
+    "save": "Salvar",
+    "cancel": "Cancelar",
+    "auto_badge": "Auto",
+    "auto_downloaded_hit": "Adicionado à fila de downloads automaticamente"
   },
   "settings": {
     "title": "Configurações",
