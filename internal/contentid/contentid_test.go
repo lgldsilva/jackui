@@ -73,6 +73,57 @@ func TestFingerprintAt_NegativeSize(t *testing.T) {
 	}
 }
 
+func TestFingerprintReadSeeker_MatchesFingerprintAt(t *testing.T) {
+	// A torrent reader (ReadSeeker) and an on-disk file (ReaderAt) of identical
+	// content MUST yield the same fingerprint — the basis for cross-source dedup.
+	for _, n := range []int{10, SampleBytes, 2 * SampleBytes, 3 * SampleBytes, 5*SampleBytes + 17} {
+		data := make([]byte, n)
+		for i := range data {
+			data[i] = byte((i*13 + 2) % 251)
+		}
+		at, err1 := FingerprintAt(bytes.NewReader(data), int64(n))
+		rs, err2 := FingerprintReadSeeker(bytes.NewReader(data), int64(n))
+		if err1 != nil || err2 != nil {
+			t.Fatalf("n=%d: errs %v / %v", n, err1, err2)
+		}
+		if at != rs || at == "" {
+			t.Fatalf("n=%d: ReaderAt fp %q != ReadSeeker fp %q", n, at, rs)
+		}
+	}
+}
+
+func TestFingerprintReadSeeker_NegativeSize(t *testing.T) {
+	if _, err := FingerprintReadSeeker(bytes.NewReader([]byte("x")), -1); err == nil {
+		t.Fatal("negative size must error")
+	}
+}
+
+func TestFileMatchesPieces(t *testing.T) {
+	const pieceLen = 1024
+	data := torrentStream(3 * pieceLen)
+	pc := PieceCheck{PieceLen: pieceLen, FileStart: 0, FileLen: int64(len(data)), PieceHashes: sha1Pieces(data, pieceLen)}
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good")
+	if err := os.WriteFile(good, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !FileMatchesPieces(good, pc) {
+		t.Fatal("a byte-identical file must match")
+	}
+	bad := append([]byte(nil), data...)
+	bad[10] ^= 0xFF
+	badp := filepath.Join(dir, "bad")
+	if err := os.WriteFile(badp, bad, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if FileMatchesPieces(badp, pc) {
+		t.Fatal("a corrupt file must not match")
+	}
+	if FileMatchesPieces(filepath.Join(dir, "missing"), pc) {
+		t.Fatal("a missing file must not match")
+	}
+}
+
 func TestFingerprintAt_ShortReaderErrors(t *testing.T) {
 	// Declared size larger than the actual bytes → readAtFull short read → error.
 	if _, err := FingerprintAt(bytes.NewReader([]byte("tiny")), 1000); err == nil {

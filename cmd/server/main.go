@@ -1104,6 +1104,10 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/downloads/trackers", handlers.DownloadsTrackers(deps.downloadsStore))
 	api.GET("/downloads/categories", handlers.DownloadsCategories(deps.downloadsStore))
 	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
+	// Cross-torrent dedup (#23): check which of a torrent's files the user
+	// already has, and link the confirmed ones instead of re-downloading.
+	api.POST("/downloads/dedup-check", handlers.DedupCheck(deps.streamSrv, deps.downloadsStore, deps.localBrowser))
+	api.POST("/downloads/link", handlers.DedupLink(deps.downloadsStore, deps.localBrowser))
 	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore, downloadRemoverDep(deps)))
 	api.GET("/downloads/:id/details", handlers.DownloadsDetails(deps.downloadsStore, deps.streamSrv))
 	api.GET("/downloads/:id/sources", handlers.DownloadsSources(deps.downloadsStore))

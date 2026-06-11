@@ -1152,16 +1152,10 @@ func (w *Worker) linkMatch(d *Download, size int64, pc contentid.PieceCheck) boo
 }
 
 // certainFileMatch reports whether the file at path is byte-identical to the
-// torrent file described by pc, by re-hashing its interior pieces. Any error
-// (missing/unreadable file) is treated as "not a match".
+// torrent file described by pc (every interior piece re-hashed). Shared with the
+// dedup-check handler via contentid.FileMatchesPieces.
 func certainFileMatch(path string, pc contentid.PieceCheck) bool {
-	fl, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer fl.Close()
-	interior, matched, err := contentid.VerifyInteriorPieces(fl, pc)
-	return err == nil && contentid.CertainMatch(interior, matched)
+	return contentid.FileMatchesPieces(path, pc)
 }
 
 // resolveFileIndex resolves the target file index in a torrent. If index is out of bounds,

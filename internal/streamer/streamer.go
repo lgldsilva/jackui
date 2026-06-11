@@ -1022,6 +1022,36 @@ func (s *Streamer) FilePieceCheck(hash metainfo.Hash, fileIdx int) (contentid.Pi
 	return pc, true, nil
 }
 
+// FingerprintFile returns the contentid Fingerprint (size + head/tail) of file
+// fileIdx of this ACTIVE torrent, reading only the ends through the torrent
+// reader (a few pieces from the swarm). Used by cross-torrent dedup (#23) to
+// match a torrent file against a cloud/library file by content — the "probable"
+// path for remote candidates that can't be cheaply piece-verified.
+func (s *Streamer) FingerprintFile(hash metainfo.Hash, fileIdx int) (string, error) {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	if ok {
+		e.lastAccess = time.Now()
+	}
+	files := []*torrent.File{}
+	if ok {
+		files = e.t.Files()
+	}
+	s.mu.Unlock()
+	if !ok {
+		return "", errors.New(ErrTorrentNotActive)
+	}
+	if fileIdx < 0 || fileIdx >= len(files) {
+		return "", fmt.Errorf(errFileIndexOutOfRange, fileIdx)
+	}
+	f := files[fileIdx]
+	r := f.NewReader()
+	r.SetReadahead(contentid.SampleBytes)
+	r.SetResponsive()
+	defer r.Close()
+	return contentid.FingerprintReadSeeker(r, f.Length())
+}
+
 // VerifyTorrent reconciles on-disk pieces for EVERY file of a torrent — the
 // whole-torrent download path. Same rationale and per-(hash,file) dedupe as
 // VerifyFile, applied file by file (sequencial: custo proporcional ao que está
