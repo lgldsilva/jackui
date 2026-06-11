@@ -192,14 +192,14 @@ function renderCardTitle(
           {/* p-2/-m-2 widens the touch target (~30px) for the finger without
               shifting the compact header layout — the negative margin cancels
               the padding so neighbours stay put. */}
-          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-2 -m-2 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
+          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-2 -m-2 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
             <Heart className={`w-3.5 h-3.5 ${isFavorited ? 'fill-current' : ''}`} />
           </button>
           <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">{result.tracker}</span>
         </div>
         {result.cached && <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">cache</span>}
         {result.isDownloaded && (
-          <span className="text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full whitespace-nowrap flex items-center gap-1">
+          <span className="text-xs bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full whitespace-nowrap flex items-center gap-1">
             <HardDriveDownload className="w-3 h-3" />Baixado
           </span>
         )}
@@ -267,7 +267,7 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
   return (
     <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap">
       {canPlay && (
-          <button onClick={(e) => { e.stopPropagation(); onPlay?.(result) }} title="Reproduzir no browser via stream" className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+          <button onClick={(e) => { e.stopPropagation(); onPlay?.(result) }} title="Reproduzir no browser via stream" className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <Play className="w-3.5 h-3.5 fill-current" />Play
         </button>
       )}
@@ -277,7 +277,7 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
         </button>
       )}
       {hasSource && onAddToPlaylist && (
-        <button onClick={(e) => { e.stopPropagation(); onAddToPlaylist(result) }} title="Adicionar a uma playlist" className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { e.stopPropagation(); onAddToPlaylist(result) }} title="Adicionar a uma playlist" className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <ListPlus className="w-3.5 h-3.5" />
         </button>
       )}

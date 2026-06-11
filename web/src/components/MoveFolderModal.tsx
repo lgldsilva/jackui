@@ -123,7 +123,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             </p>
             <button
               onClick={onClose}
-              className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
+              className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
             >
               Fechar
             </button>
@@ -139,7 +139,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                   onClick={() => { setDstMount(m.name); setBrowsePath('') }}
                   className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
                     dstMount === m.name
-                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
                       : 'bg-surface-tertiary text-text-secondary border border-strong hover:bg-surface-tertiary'
                   }`}
                 >
@@ -152,7 +152,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
               <button
                 onClick={() => setBrowsePath('')}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded ${browsePath === '' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
               >
                 <Home className="w-3.5 h-3.5" /> {dstMount || '—'}
               </button>
@@ -161,7 +161,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                   <ChevronRight className="w-3 h-3 text-text-muted" />
                   <button
                     onClick={() => setBrowsePath(breadcrumb.slice(0, i + 1).join('/'))}
-                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-300' : 'hover:bg-surface-tertiary'}`}
+                    className={`px-2 py-0.5 rounded ${i === breadcrumb.length - 1 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
                   >
                     {seg}
                   </button>
@@ -224,7 +224,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                 <button
                   onClick={handleMove}
                   disabled={submitting || !dstMount || (isSameLoc && !cleanNew)}
-                  className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
+                  className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
                 >
                   {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderInput className="w-3.5 h-3.5" />}
                   Mover aqui

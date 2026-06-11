@@ -261,7 +261,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
         <button
           onClick={(ev) => { ev.stopPropagation(); onDownload() }}
           title="Baixar arquivo completo em background"
-          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-surface/85 text-cyan-300 hover:bg-surface text-[10px] transition-colors"
+          className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-surface/85 text-cyan-700 dark:text-cyan-300 hover:bg-surface text-[10px] transition-colors"
         >
           <DownloadIcon className="w-3.5 h-3.5" />
         </button>
@@ -351,7 +351,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
         </button>
         <button
           onClick={() => { setMenuOpen(false); onDownload() }}
-          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-cyan-300 hover:bg-surface-tertiary transition-colors"
+          className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-cyan-700 dark:text-cyan-300 hover:bg-surface-tertiary transition-colors"
         >
           <DownloadIcon className="w-4 h-4 flex-shrink-0" /> Baixar em background
         </button>

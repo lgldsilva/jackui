@@ -108,11 +108,11 @@ export default function TranscodeCapabilitiesCard() {
           </span>
         </div>
         <div className="flex gap-2 mt-1 flex-wrap">
-          {caps.hasNvidia && <span className="text-[10px] bg-green-500/20 text-green-300 border border-green-500/30 px-1.5 py-0.5 rounded">NVIDIA</span>}
-          {caps.hasVaapi && <span className="text-[10px] bg-red-500/20 text-red-300 border border-red-500/30 px-1.5 py-0.5 rounded">VAAPI</span>}
-          {caps.hasQsv && <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded">QSV</span>}
+          {caps.hasNvidia && <span className="text-[10px] bg-green-500/20 text-green-700 dark:text-green-300 border border-green-500/30 px-1.5 py-0.5 rounded">NVIDIA</span>}
+          {caps.hasVaapi && <span className="text-[10px] bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30 px-1.5 py-0.5 rounded">VAAPI</span>}
+          {caps.hasQsv && <span className="text-[10px] bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded">QSV</span>}
           {!caps.hasNvidia && !caps.hasVaapi && !caps.hasQsv && (
-            <span className="text-[10px] bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-1.5 py-0.5 rounded">CPU-only</span>
+            <span className="text-[10px] bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border border-yellow-500/30 px-1.5 py-0.5 rounded">CPU-only</span>
           )}
         </div>
       </div>

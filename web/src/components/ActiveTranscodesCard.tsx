@@ -6,9 +6,9 @@ import { useConfirm } from './ConfirmDialog'
 type CodecStyle = { readonly cls: string; readonly label: string }
 
 function codecStyle(codec: string): CodecStyle {
-  if (codec === 'nvidia') return { cls: 'bg-green-500/10 text-green-300 border-green-500/20', label: 'NVIDIA HW' }
-  if (codec === 'vaapi') return { cls: 'bg-red-500/10 text-red-300 border-red-500/20', label: 'VAAPI HW' }
-  return { cls: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20', label: 'CPU SW' }
+  if (codec === 'nvidia') return { cls: 'bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20', label: 'NVIDIA HW' }
+  if (codec === 'vaapi') return { cls: 'bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20', label: 'VAAPI HW' }
+  return { cls: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border-yellow-500/20', label: 'CPU SW' }
 }
 
 function sessionLabels(key: string) {
@@ -89,7 +89,7 @@ export default function ActiveTranscodesCard() {
           <h2 className="text-lg font-semibold text-text-primary">Transcode & Uso de GPU</h2>
         </div>
         {sessions.length > 0 && (
-          <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+          <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse">
             <Zap className="w-3 h-3 text-amber-400" />
             {sessions.length} {sessions.length === 1 ? 'sessão ativa' : 'sessões ativas'}
           </span>

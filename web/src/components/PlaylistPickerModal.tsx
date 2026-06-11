@@ -112,7 +112,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
                   disabled={busy}
                   className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                     added === p.id
-                      ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                      ? 'bg-green-500/20 text-green-700 dark:text-green-300 border border-green-500/30'
                       : 'bg-surface/50 hover:bg-surface text-text-primary border border-transparent'
                   }`}
                 >
@@ -129,7 +129,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
           {!creating && (
                 <button
                   onClick={() => setCreating(true)}
-              className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors mt-2"
+              className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors mt-2"
             >
               <Plus className="w-4 h-4" /> Nova playlist
             </button>

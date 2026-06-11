@@ -31,9 +31,9 @@ type Tab = 'overview' | 'files' | 'trackers' | 'sources' | 'actions'
 // sourceStatusBadge maps a source's lifecycle to a label + color for the list.
 function sourceStatusBadge(status: DownloadSource['status']): { label: string; cls: string } {
   switch (status) {
-    case 'active': return { label: 'ativa', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' }
-    case 'cooldown': return { label: 'aguardando', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' }
-    case 'failed': return { label: 'falhou', cls: 'bg-red-500/15 text-red-300 border-red-500/30' }
+    case 'active': return { label: 'ativa', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
+    case 'cooldown': return { label: 'aguardando', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' }
+    case 'failed': return { label: 'falhou', cls: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30' }
     default: return { label: 'candidata', cls: 'bg-gray-600/30 text-text-primary border-strong/50' }
   }
 }
@@ -117,7 +117,7 @@ function renderFilesTab(
         <li className="px-3 py-2 flex items-center gap-2.5 bg-green-500/5">
           {fileIcon(syntheticFile, true)}
           <div className="flex-1 min-w-0">
-            <p className="text-sm truncate text-green-300 font-medium" title={syntheticFile.path}>{syntheticFile.path}</p>
+            <p className="text-sm truncate text-green-700 dark:text-green-300 font-medium" title={syntheticFile.path}>{syntheticFile.path}</p>
             {filePath && <p className="text-[10px] text-text-muted font-mono truncate mt-0.5" title={filePath}>{filePath}</p>}
           </div>
           <div className="text-right flex-shrink-0">
@@ -139,7 +139,7 @@ function renderFilesTab(
         <button
           onClick={() => { for (const f of missing) onAdopt(f) }}
           disabled={adopting !== null}
-          className="self-start flex items-center gap-1.5 text-xs bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-lg transition-colors"
+          className="self-start flex items-center gap-1.5 text-xs bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-lg transition-colors"
           title="Baixa (e move pra downloads ao concluir) todos os arquivos que ainda estão só em streaming"
         >
           <Download className="w-3.5 h-3.5" /> Baixar os {missing.length} que faltam
@@ -159,7 +159,7 @@ function renderFilesTab(
             <li key={f.index} className={`px-3 py-2 flex items-center gap-2.5 ${isPrimary ? 'bg-green-500/5' : ''}`}>
               {fileIcon(f, isPrimary)}
               <div className="flex-1 min-w-0">
-                <p className={`text-sm truncate ${isPrimary ? 'text-green-300 font-medium' : 'text-text-primary'}`} title={f.path}>{f.path}</p>
+                <p className={`text-sm truncate ${isPrimary ? 'text-green-700 dark:text-green-300 font-medium' : 'text-text-primary'}`} title={f.path}>{f.path}</p>
                 {hasProgress && !done && (
                   <div className="mt-1 h-1 bg-surface-tertiary rounded overflow-hidden">
                     <div className="h-full bg-amber-500" style={{ width: `${Math.max(2, pct ?? 0)}%` }} />
@@ -173,7 +173,7 @@ function renderFilesTab(
                   onClick={() => onAdopt(f)}
                   disabled={adopting !== null}
                   title="Baixar este arquivo (move pra downloads ao concluir; reaproveita o que já está em cache)"
-                  className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-300 border border-cyan-500/30 px-2 py-1 rounded-md transition-colors"
+                  className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-2 py-1 rounded-md transition-colors"
                 >
                   {adopting === f.index ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                   Baixar
@@ -382,7 +382,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               onClick={() => setTab(id)}
               className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${
                 tab === id
-                  ? 'border-cyan-400 text-cyan-300'
+                  ? 'border-cyan-400 text-cyan-700 dark:text-cyan-300'
                   : 'border-transparent text-text-secondary hover:text-text-primary'
               }`}
             >
@@ -460,7 +460,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               <Field label="Magnet">
                 <button
                   onClick={copyMagnet}
-                  className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300"
+                  className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300"
                 >
                   {copiedMagnet ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   {copiedMagnet ? 'copiado' : 'copiar magnet'}
@@ -504,7 +504,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                               alert('Tracker copiado para a área de transferência!')
                             } catch {}
                           }}
-                          className="text-[10px] text-cyan-400 hover:text-cyan-300 px-2 py-0.5 border border-cyan-500/20 hover:border-cyan-500/40 rounded transition-colors flex-shrink-0"
+                          className="text-[10px] text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 px-2 py-0.5 border border-cyan-500/20 hover:border-cyan-500/40 rounded transition-colors flex-shrink-0"
                         >
                           copiar
                         </button>
@@ -588,10 +588,10 @@ function Field({ label, children }: { readonly label: string; readonly children:
 function StatusPill({ status }: { readonly status: string }) {
   const cls: Record<string, string> = {
     queued: 'bg-surface-tertiary text-text-primary',
-    downloading: 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30',
-    completed: 'bg-green-500/20 text-green-300 border border-green-500/30',
-    failed: 'bg-red-500/20 text-red-300 border border-red-500/30',
-    paused: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+    downloading: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30',
+    completed: 'bg-green-500/20 text-green-700 dark:text-green-300 border border-green-500/30',
+    failed: 'bg-red-500/20 text-red-700 dark:text-red-300 border border-red-500/30',
+    paused: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30',
   }
   return (
     <span className={`text-[11px] px-2 py-0.5 rounded-full ${cls[status] || cls.queued}`}>
@@ -611,9 +611,9 @@ type ActionRowProps = {
 }
 function ActionRow({ icon: Icon, title, desc, onClick, busy, disabled, variant }: ActionRowProps) {
   const colorMap = {
-    primary: 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border-cyan-500/30',
-    danger: 'bg-red-500/15 hover:bg-red-500/25 text-red-300 border-red-500/30',
-    success: 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/30',
+    primary: 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',
+    danger: 'bg-red-500/15 hover:bg-red-500/25 text-red-700 dark:text-red-300 border-red-500/30',
+    success: 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
     default: 'bg-surface-tertiary/40 hover:bg-surface-tertiary/60 text-text-primary border-strong',
   }
   return (

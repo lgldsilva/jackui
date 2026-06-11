@@ -26,7 +26,7 @@ function Err({ text }: { readonly text: string }) {
   return <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 flex items-center gap-2"><AlertCircle className="w-4 h-4 flex-shrink-0" />{text}</div>
 }
 function Ok({ text }: { readonly text: string }) {
-  return <div className="bg-green-500/10 border border-green-500/30 text-green-300 text-sm rounded-lg p-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 flex-shrink-0" />{text}</div>
+  return <div className="bg-green-500/10 border border-green-500/30 text-green-700 dark:text-green-300 text-sm rounded-lg p-3 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 flex-shrink-0" />{text}</div>
 }
 
 export function RegisterPage() {

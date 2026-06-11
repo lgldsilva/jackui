@@ -99,7 +99,7 @@ export default function WatchlistPage() {
     <div key={h.infoHash} className="flex items-center gap-2 text-xs p-1.5 hover:bg-surface/50 rounded">
       <button
         onClick={() => playHit(h)}
-        className="flex items-center justify-center w-11 h-11 sm:w-auto sm:h-auto sm:p-1 flex-shrink-0 rounded-lg text-green-400 hover:text-green-300 hover:bg-green-500/10 sm:hover:bg-transparent transition-colors"
+        className="flex items-center justify-center w-11 h-11 sm:w-auto sm:h-auto sm:p-1 flex-shrink-0 rounded-lg text-green-400 hover:text-green-500 dark:hover:text-green-300 hover:bg-green-500/10 sm:hover:bg-transparent transition-colors"
         title="Reproduzir"
       >
         <Play className="w-4 h-4" />

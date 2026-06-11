@@ -193,7 +193,7 @@ export default function PlaylistDetailPage() {
                   onClick={(e) => { e.stopPropagation(); startAt(idx) }}
                   title="Reproduzir a partir deste item"
                   aria-label="Reproduzir a partir deste item"
-                  className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-green-400 hover:text-green-300 flex-shrink-0"
+                  className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-green-400 hover:text-green-500 dark:hover:text-green-300 flex-shrink-0"
                 >
                   <Play className="w-4 h-4" />
                 </button>

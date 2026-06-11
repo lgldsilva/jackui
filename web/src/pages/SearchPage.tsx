@@ -738,7 +738,7 @@ export default function SearchPage() {
         title="Mostrar apenas resultados que podem ser reproduzidos no player (vídeo)"
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           activeTab.onlyPlayable
-            ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+            ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
             : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
         }`}
       >
@@ -773,7 +773,7 @@ export default function SearchPage() {
         title="Mostrar apenas HDR ou Dolby Vision"
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           activeTab.hdrOnly
-            ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+            ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30'
             : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
         }`}
       >
@@ -785,7 +785,7 @@ export default function SearchPage() {
         title="Agrupar episódios da mesma série por temporada"
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           groupSeries
-            ? 'bg-green-500/20 text-green-300 border-green-500/30'
+            ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30'
             : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
         }`}
       >
@@ -896,7 +896,7 @@ export default function SearchPage() {
             <div className="flex items-start gap-3">
               <WifiOff className="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <h3 className="text-amber-300 font-medium text-sm mb-1">Jackett não configurado</h3>
+                <h3 className="text-amber-700 dark:text-amber-300 font-medium text-sm mb-1">Jackett não configurado</h3>
                 <p className="text-text-secondary text-xs mb-4">
                   Informe a URL e a API key do seu servidor Jackett (local ou remoto)
                   para começar a buscar torrents.

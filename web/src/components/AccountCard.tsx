@@ -186,7 +186,7 @@ export default function AccountCard() {
         {/* One-time display of freshly generated backup codes */}
         {backupCodes && backupCodes.length > 0 && (
           <div className="flex flex-col gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-            <p className="text-xs text-amber-300 flex items-center gap-1.5">
+            <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
               <LifeBuoy className="w-3.5 h-3.5" /> Guarde estes códigos agora — cada um serve uma vez e não serão mostrados de novo.
             </p>
             <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-1 font-mono text-sm text-text-primary">
@@ -195,7 +195,7 @@ export default function AccountCard() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { navigator.clipboard?.writeText(backupCodes.join('\n')); setCopied(true) }}
-                className="text-xs text-text-primary hover:text-white inline-flex items-center gap-1">
+                className="text-xs text-text-secondary hover:text-text-primary inline-flex items-center gap-1">
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />} Copiar todos
               </button>
               <button
@@ -205,7 +205,7 @@ export default function AccountCard() {
                   const a = document.createElement('a'); a.href = url; a.download = 'jackui-backup-codes.txt'; a.click()
                   URL.revokeObjectURL(url)
                 }}
-                className="text-xs text-text-primary hover:text-white">Baixar .txt</button>
+                className="text-xs text-text-secondary hover:text-text-primary">Baixar .txt</button>
               <button onClick={() => setBackupCodes(null)} className="text-xs text-text-muted hover:text-text-primary ml-auto">já guardei</button>
             </div>
           </div>
