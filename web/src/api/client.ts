@@ -3,6 +3,7 @@
 // (`import { api, withToken, ... } from '../api/client'`) sigam funcionando
 // enquanto o módulo é dividido por domínio. Ver [[feedback-no-god-files]].
 import { api, withToken, fetchMediaToken, MAGNET_PREFIX } from './http'
+import { downloadCreate } from './downloads'
 export { api, withToken, fetchMediaToken, MAGNET_PREFIX }
 
 // Domínios extraídos (re-exportados pra manter os call-sites em '../api/client').
@@ -336,6 +337,33 @@ export const streamMetadata = async (hash: string): Promise<TorrentInfo | null> 
   } catch {
     return null
   }
+}
+
+// resolveTorrentInfo busca o metadata mais barato primeiro (snapshot em cache
+// por infoHash) e só cai pro streamAdd (ativa o torrent) quando frio.
+export const resolveTorrentInfo = async (magnet: string, infoHash?: string): Promise<TorrentInfo> => {
+  if (infoHash) {
+    const cached = await streamMetadata(infoHash)
+    if (cached?.files?.length) return cached
+  }
+  return streamAdd(magnet)
+}
+
+export type QueueAllResult = { queued: number; failed: number; total: number }
+
+// queueAllTorrentFiles enfileira o torrent COMPLETO na fila de downloads — uma
+// entrada por arquivo (o modelo do worker é por-arquivo, com fila/limites/
+// movimentação já existentes). downloadCreate é idempotente por
+// (infoHash, fileIndex), então repetir a ação não duplica nada.
+export const queueAllTorrentFiles = async (
+  info: TorrentInfo, magnet: string, name: string, tracker?: string, category?: string,
+): Promise<QueueAllResult> => {
+  const results = await Promise.allSettled(info.files.map(f => downloadCreate({
+    infoHash: info.infoHash, fileIndex: f.index, magnet, name,
+    filePath: f.path, fileSize: f.size, tracker, category,
+  })))
+  const failed = results.filter(r => r.status === 'rejected').length
+  return { queued: info.files.length - failed, failed, total: info.files.length }
 }
 
 export const streamAdd = async (magnet: string): Promise<TorrentInfo> => {

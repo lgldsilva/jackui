@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
-import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL } from '../api/client'
+import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow, Download } from 'lucide-react'
+import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL, queueAllTorrentFiles } from '../api/client'
+import { useConfirm } from './ConfirmDialog'
 import { formatRate } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
 import { Sheet } from './Sheet'
@@ -117,6 +118,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [sortBySize, setSortBySize] = usePersistedState('fileview.sortBySize', false)
   const [sizeDesc, setSizeDesc] = usePersistedState('fileview.sizeDesc', true)
   const [copied, setCopied] = useState(false)
+  const [dlAllBusy, setDlAllBusy] = useState(false)
+  const confirm = useConfirm()
   const hoverThumb = useHoverThumb()
 
   useEffect(() => {
@@ -191,9 +194,40 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
             </p>
           )}
           {info && (
-            <p className="text-xs text-text-muted mt-1">
-              {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
-            </p>
+            <div className="text-xs text-text-muted mt-1 flex items-center gap-2 flex-wrap">
+              <span>
+                {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
+              </span>
+              {/* Queue the WHOLE torrent (one download per file) without
+                  picking files one by one. */}
+              <button
+                onClick={async () => {
+                  if (!info) return
+                  const ok = await confirm({
+                    title: 'Baixar torrent completo',
+                    message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatSize(info.totalSize)})?`,
+                    confirmLabel: 'Baixar todos',
+                    destructive: false,
+                  })
+                  if (!ok) return
+                  setDlAllBusy(true)
+                  try {
+                    const res = await queueAllTorrentFiles(info, pickTorrentSource(result), result.title, result.tracker || undefined, result.category || undefined)
+                    if (res.failed > 0) alert(`${res.queued}/${res.total} enfileirados; ${res.failed} falharam.`)
+                  } catch (err: any) {
+                    alert(`Falha ao enfileirar: ${err?.response?.data?.error || err.message || err}`)
+                  } finally {
+                    setDlAllBusy(false)
+                  }
+                }}
+                disabled={dlAllBusy}
+                title="Baixar torrent completo (todos os arquivos)"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30 transition-colors disabled:opacity-50"
+              >
+                {dlAllBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                Baixar todos
+              </button>
+            </div>
           )}
 
           {/* Live activity row — only when the torrent is actively downloading */}
