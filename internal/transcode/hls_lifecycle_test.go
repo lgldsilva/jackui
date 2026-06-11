@@ -30,9 +30,7 @@ func stubCaps(t *testing.T) {
 	if err := os.WriteFile(ffmpeg, []byte("#!/bin/sh\nsleep 3\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cacheMu.Lock()
-	cached = &Capabilities{FFmpegPath: ffmpeg, Preferred: "libx264"}
-	cacheMu.Unlock()
+	SetCachedForTesting(&Capabilities{FFmpegPath: ffmpeg, Preferred: "libx264"})
 	t.Cleanup(ResetCachedForTesting)
 }
 

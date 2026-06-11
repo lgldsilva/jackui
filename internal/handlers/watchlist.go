@@ -1,19 +1,59 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/watchlist"
 )
 
 type watchlistInput struct {
-	Query      string `json:"query"`
-	Category   string `json:"category"`
-	MinSeeders int    `json:"minSeeders"`
-	NtfyTopic  string `json:"ntfyTopic"`
+	Query         string `json:"query"`
+	Category      string `json:"category"`
+	MinSeeders    int    `json:"minSeeders"`
+	NtfyTopic     string `json:"ntfyTopic"`
+	SchedKind     string `json:"schedKind"`    // interval | daily | weekly (empty → interval)
+	SchedMinutes  int    `json:"schedMinutes"` // interval: every N minutes (<= 0 → server default)
+	SchedWeekday  int    `json:"schedWeekday"` // weekly: 0=Sunday … 6=Saturday
+	SchedHour     int    `json:"schedHour"`    // daily/weekly
+	SchedMinute   int    `json:"schedMinute"`  // daily/weekly
+	AutoDownload  bool   `json:"autoDownload"`
+	MinResolution string `json:"minResolution"`
+	MaxSizeBytes  int64  `json:"maxSizeBytes"`
+	Codec         string `json:"codec"`
+}
+
+func (in watchlistInput) params() watchlist.Params {
+	return watchlist.Params{
+		Query:      in.Query,
+		Category:   in.Category,
+		MinSeeders: in.MinSeeders,
+		NtfyTopic:  in.NtfyTopic,
+		Schedule: watchlist.Schedule{
+			Kind:    in.SchedKind,
+			Minutes: in.SchedMinutes,
+			Weekday: in.SchedWeekday,
+			Hour:    in.SchedHour,
+			Minute:  in.SchedMinute,
+		},
+		AutoDownload:  in.AutoDownload,
+		MinResolution: in.MinResolution,
+		MaxSizeBytes:  in.MaxSizeBytes,
+		Codec:         in.Codec,
+	}
+}
+
+// WatchlistKicker triggers an immediate background check of one watchlist —
+// implemented by *watchlist.Worker (nil-safe by design).
+type WatchlistKicker interface {
+	Kick(id int)
 }
 
 // WatchlistList — GET /api/watchlists
@@ -29,8 +69,9 @@ func WatchlistList(s *watchlist.Store) gin.HandlerFunc {
 	}
 }
 
-// WatchlistCreate — POST /api/watchlists
-func WatchlistCreate(s *watchlist.Store) gin.HandlerFunc {
+// WatchlistCreate — POST /api/watchlists. On success the worker is kicked so
+// the first check runs right away instead of waiting for the schedule.
+func WatchlistCreate(s *watchlist.Store, k WatchlistKicker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		var in watchlistInput
@@ -38,10 +79,13 @@ func WatchlistCreate(s *watchlist.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		w, err := s.Create(userID, in.Query, in.Category, in.MinSeeders, in.NtfyTopic)
+		w, err := s.Create(userID, in.params())
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+		if k != nil {
+			k.Kick(w.ID)
 		}
 		c.JSON(http.StatusOK, w)
 	}
@@ -61,7 +105,7 @@ func WatchlistUpdate(s *watchlist.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := s.Update(userID, id, in.Query, in.Category, in.MinSeeders, in.NtfyTopic); err != nil {
+		if err := s.Update(userID, id, in.params()); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
@@ -83,6 +127,61 @@ func WatchlistDelete(s *watchlist.Store) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	}
+}
+
+// scheduleParseTimeout caps the AI round-trip for one free-text phrase — same
+// order as the title-identify budget (~25s walks 2-3 chain slots comfortably).
+const scheduleParseTimeout = 25 * time.Second
+
+// WatchlistScheduleParse — POST /api/watchlists/schedule/parse. Converts a
+// free-text phrase ("toda segunda às 9h") into a normalized Schedule via the AI
+// chain. Returns the same schedKind/schedMinutes/... JSON shape the watchlist
+// CRUD uses; the human-readable confirmation lives in the frontend summary.
+// client == nil means AI is disabled (ai.New returned nil) → 503.
+const maxScheduleTextLen = 500
+
+func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if client == nil {
+			// code distinguishes "AI not configured" (frontend hides the field)
+			// from a transient chain failure below (frontend keeps it).
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível", "code": "ai_disabled"})
+			return
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := c.BindJSON(&in); err != nil || strings.TrimSpace(in.Text) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "texto vazio"})
+			return
+		}
+		text := strings.TrimSpace(in.Text)
+		if len(text) > maxScheduleTextLen {
+			// Bounded prompt: an authenticated user must not relay megabytes to
+			// the AI provider (token cost / latency).
+			c.JSON(http.StatusBadRequest, gin.H{"error": "texto longo demais"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), scheduleParseTimeout)
+		defer cancel()
+		res, err := client.ParseSchedule(ctx, text)
+		if err != nil {
+			if errors.Is(err, ai.ErrInvalidSchedule) {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "não consegui interpretar o texto como agendamento"})
+				return
+			}
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível", "code": "ai_transient"})
+			return
+		}
+		sched := watchlist.Schedule{
+			Kind:    res.Kind,
+			Minutes: res.Minutes,
+			Weekday: res.Weekday,
+			Hour:    res.Hour,
+			Minute:  res.Minute,
+		}.Normalized()
+		c.JSON(http.StatusOK, sched)
 	}
 }
 
