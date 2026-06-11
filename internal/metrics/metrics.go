@@ -56,33 +56,37 @@ func StartWorker(ctx context.Context, s *streamer.Streamer, hls *transcode.HLSSe
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// 1. Torrents ativos e peers
-				active := s.ActiveList()
-				ActiveTorrents.Set(float64(len(active)))
-
-				var peers float64 = 0
-				for _, t := range active {
-					peers += float64(t.Peers)
-				}
-				TotalPeers.Set(peers)
-
-				// 2. Taxas globais de rede
-				stats := s.GlobalStats()
-				GlobalDownloadRate.Set(float64(stats.DownRate))
-				GlobalUploadRate.Set(float64(stats.UpRate))
-
-				// 3. Sessões de transcode
-				if hls != nil {
-					ActiveTranscodeSessions.Set(float64(len(hls.Sessions())))
-				} else {
-					ActiveTranscodeSessions.Set(0)
-				}
-
-				// 4. Cache bytes
-				if cStats, err := s.Stats(); err == nil {
-					CacheBytesUsed.Set(float64(cStats.TotalSize))
-				}
+				collect(s, hls)
 			}
 		}
 	}()
+}
+
+// collect faz uma rodada de amostragem e atualiza os gauges. Os rates de rede
+// saem do PRÓPRIO ActiveList: chamar GlobalStats() logo em seguida (como era)
+// re-amostrava com <250ms de janela desde o sample do buildInfo e devolvia
+// sempre (0,0) — os gauges de download/upload ficavam zerados pra sempre.
+func collect(s *streamer.Streamer, hls *transcode.HLSSessionManager) {
+	active := s.ActiveList()
+	ActiveTorrents.Set(float64(len(active)))
+
+	var peers, down, up float64
+	for _, t := range active {
+		peers += float64(t.Peers)
+		down += float64(t.DownRate)
+		up += float64(t.UpRate)
+	}
+	TotalPeers.Set(peers)
+	GlobalDownloadRate.Set(down)
+	GlobalUploadRate.Set(up)
+
+	if hls != nil {
+		ActiveTranscodeSessions.Set(float64(len(hls.Sessions())))
+	} else {
+		ActiveTranscodeSessions.Set(0)
+	}
+
+	if cStats, err := s.Stats(); err == nil {
+		CacheBytesUsed.Set(float64(cStats.TotalSize))
+	}
 }
