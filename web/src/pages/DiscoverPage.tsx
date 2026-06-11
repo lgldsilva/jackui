@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard } from 'lucide-react'
+import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import TrailerModal from '../components/TrailerModal'
 import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
+import { groupRecommendations, RecGroup } from '../lib/recsGroup'
+import { usePersistedState } from '../lib/storage'
 
 // DiscoverPage surfaces TMDB's weekly trending movies + shows so the user has a
 // starting point when they don't know what to search. Clicking a poster seeds a
@@ -97,6 +99,40 @@ function PosterCard({ m, onClick, badge, caption, onTrailer, trailerMuted }: {
   )
 }
 
+// RecTopic renders one collapsible recommendations topic ("Porque você viu X").
+// The header is a real <button> (keyboard + aria-expanded) that toggles the grid;
+// the collapsed state is owned by the parent so it can persist across visits. The
+// grid stays mounted when collapsed (height/opacity animation) so re-expanding is
+// instant and lazy posters don't re-fetch.
+function RecTopic({ group, collapsed, onToggle, renderCard }: {
+  readonly group: RecGroup
+  readonly collapsed: boolean
+  readonly onToggle: () => void
+  readonly renderCard: (r: TmdbRecommendation) => React.ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <button
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        title={collapsed ? `Expandir "${group.label}"` : `Recolher "${group.label}"`}
+        className="flex items-center gap-2 text-left text-sm font-medium text-text-secondary hover:text-text-primary transition-colors w-full"
+      >
+        <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+        <span className="line-clamp-1">{group.label}</span>
+        <span className="text-[11px] text-text-muted font-normal">({group.items.length})</span>
+      </button>
+      <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+        <div className="overflow-hidden">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
+            {group.items.map(renderCard)}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 // YEARS lists selectable years from the current one back to 1970 (computed once).
 const YEARS = (() => {
   const now = new Date().getFullYear()
@@ -115,7 +151,17 @@ export default function DiscoverPage() {
   const [recs, setRecs] = useState<TmdbRecommendation[]>([])
   const [trailer, setTrailer] = useState<{ videoKey: string; title: string } | null>(null)
   const [noTrailer, setNoTrailer] = useState<Set<string>>(new Set())
+  // Collapsed topic keys, persisted as an array (usePersistedState JSON-serializes,
+  // so a Set wouldn't survive). Derived into a Set for O(1) lookups in render.
+  const [collapsedKeys, setCollapsedKeys] = usePersistedState<string[]>('discover.collapsed', [])
   const navigate = useNavigate()
+
+  // Group recommendations by their "Porque você viu X" source into collapsible
+  // topics — client-side over the already-loaded list, so no extra requests.
+  const recGroups = useMemo(() => groupRecommendations(recs), [recs])
+  const collapsedSet = useMemo(() => new Set(collapsedKeys), [collapsedKeys])
+  const toggleGroup = (key: string) =>
+    setCollapsedKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
 
   // openTrailer probes the title's videos on demand (session-cached in the API
   // layer) and either plays the best one or marks the card as trailer-less.
@@ -163,24 +209,31 @@ export default function DiscoverPage() {
       <NavHeader />
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         {/* Personalized recommendations — rendered only when the watched library
-            yielded any (additive; absent for new users or with TMDB off). */}
-        {recs.length > 0 && (
-          <section className="flex flex-col gap-3">
+            yielded any (additive; absent for new users or with TMDB off). Grouped
+            into one collapsible topic per "Porque você viu X" source so the user
+            can skip between topics; the collapsed state persists across visits. */}
+        {recGroups.length > 0 && (
+          <section className="flex flex-col gap-4">
             <h2 className="text-xl font-semibold text-text-primary flex items-center gap-2">
               <Wand2 className="w-5 h-5 text-green-400" /> Recomendado pra você
             </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-              {recs.map(r => (
-                <PosterCard
-                  key={`rec-${r.kind}-${r.tmdbId}`}
-                  m={r}
-                  onClick={() => openSearch(r)}
-                  caption={r.becauseOf ? `Porque você viu ${r.becauseOf}` : undefined}
-                  onTrailer={() => openTrailer(r)}
-                  trailerMuted={noTrailer.has(`${r.kind}-${r.tmdbId}`)}
-                />
-              ))}
-            </div>
+            {recGroups.map(group => (
+              <RecTopic
+                key={group.key}
+                group={group}
+                collapsed={collapsedSet.has(group.key)}
+                onToggle={() => toggleGroup(group.key)}
+                renderCard={r => (
+                  <PosterCard
+                    key={`rec-${r.kind}-${r.tmdbId}`}
+                    m={r}
+                    onClick={() => openSearch(r)}
+                    onTrailer={() => openTrailer(r)}
+                    trailerMuted={noTrailer.has(`${r.kind}-${r.tmdbId}`)}
+                  />
+                )}
+              />
+            ))}
             <div className="h-px bg-strong/30" />
           </section>
         )}
