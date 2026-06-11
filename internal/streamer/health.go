@@ -90,22 +90,57 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 		return
 	}
 
-	probeEntry := s.activeEntry(hash)
+	// Snapshot the probe's own entry + its lastAccess UNDER the lock —
+	// trackingReader bumps lastAccess on every read, so a bare read raced.
+	s.mu.Lock()
+	probeEntry := s.active[hash]
 	var la0 time.Time
 	if probeEntry != nil {
 		la0 = probeEntry.lastAccess
 	}
+	s.mu.Unlock()
 
 	select {
 	case <-time.After(healthPeerWait):
 	case <-ctx.Done():
 	}
 
-	if e := s.activeEntry(hash); e != nil {
-		st := e.t.Stats()
-		_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
-		if e == probeEntry && e.lastAccess.Equal(la0) {
-			s.Drop(hash)
-		}
+	s.mu.Lock()
+	e := s.active[hash]
+	if e == nil {
+		s.mu.Unlock()
+		return
 	}
+	st := e.t.Stats()
+	s.mu.Unlock()
+	_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
+	s.dropProbeEntry(hash, probeEntry, la0)
+}
+
+// dropProbeEntry releases a torrent that was activated ONLY for a health
+// probe. It deliberately bypasses Drop()'s activeReadGuard: the probe itself
+// registered the torrent ~6s ago (always inside the 60s guard window), so
+// Drop() was unconditionally a no-op and every probe left its torrent loaded,
+// connected to the swarm, until the 30-min idle reaper — scrolling a favorites
+// list piled them up. Safety still holds: under the lock we require the SAME
+// entry with an UNTOUCHED lastAccess (any real read bumps it via
+// trackingReader), zero viewer leases, and no download protection.
+func (s *Streamer) dropProbeEntry(hash metainfo.Hash, probeEntry *entry, la0 time.Time) {
+	if probeEntry == nil {
+		return
+	}
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	if !ok || e != probeEntry || !e.lastAccess.Equal(la0) || e.viewers > 0 {
+		s.mu.Unlock()
+		return
+	}
+	if _, protected := s.downloads[e.t.Name()]; protected {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.active, hash)
+	s.mu.Unlock()
+	e.t.Drop()
+	s.purgeVerifiedFiles(hash)
 }
