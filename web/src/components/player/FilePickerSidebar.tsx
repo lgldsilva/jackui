@@ -1,8 +1,13 @@
-import { Play, FileVideo, ChevronRight, ArrowDownWideNarrow, ArrowUpWideNarrow, Eye } from 'lucide-react'
-import { TorrentInfo, streamThumbnailURL } from '../../api/client'
-import { detectViewerKind } from '../viewer/viewerKind'
+import { useEffect, useMemo, useState } from 'react'
+import { FileVideo, ChevronRight, ArrowDownWideNarrow, ArrowUpWideNarrow, List, FolderTree } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
-import { fileType, formatSize, filterAndSortFiles, FILE_EXTRA_RE, FILE_AUDIO_RE, type FileType } from './playerFormat'
+import { usePersistedState } from '../../lib/storage'
+import { buildFileTree, pathsToExpand, hasSubdirs } from '../../lib/fileTree'
+import { fileType, filterAndSortFiles, type FileType } from './playerFormat'
+import { FileRow } from './FileRow'
+import { FileTree } from './FileTree'
 
 type FilePickerSidebarProps = {
   readonly info: TorrentInfo
@@ -24,11 +29,13 @@ type FilePickerSidebarProps = {
   readonly setPreviewFileIdx: (v: number | null) => void
 }
 
+type FileView = 'list' | 'tree'
+
 // File picker — right sidebar on lg+, stacked panel below on mobile.
-// Series-aware: detects S/E in filenames and labels them. Filter matches both
-// the path AND the parsed S/E tag so "s04e03" finds the episode without typing
-// the show name. Extras (featurettes, bonus, behind-the-scenes) sort to the
-// bottom with an EXTRA badge.
+// Two views (persisted): a flat LIST (series-aware sort, extras last) and a
+// collapsible folder TREE (season packs / discographies / huge torrents). The
+// tree auto-expands to reveal the currently selected file when opened. Both
+// views share the same file-row visual (FileRow), filters and type counts.
 export function FilePickerSidebar({
   info,
   videoFiles,
@@ -48,8 +55,14 @@ export function FilePickerSidebar({
   setSidebarOpen,
   setPreviewFileIdx,
 }: FilePickerSidebarProps) {
+  const { t } = useTranslation()
+  // Default: remember the last choice; first time = Lista (don't surprise
+  // existing users). Tree is opt-in even when the torrent has subfolders.
+  const [view, setView] = usePersistedState<FileView>('player.fileView', 'list')
+  const treeable = hasSubdirs(info.files)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
   const filterLower = fileFilter.trim().toLowerCase()
-  const isExtra = (path: string) => FILE_EXTRA_RE.test(path)
   const typeCounts = { video: 0, audio: 0, other: 0 }
   for (const f of info.files) typeCounts[fileType(f)]++
   // Shared with useMediaQueue (PlayerModal) — the prev/next buttons follow
@@ -58,21 +71,40 @@ export function FilePickerSidebar({
     filter: fileFilter, typeFilter: fileTypeFilter,
     sortBySize: fileSortBySize, sizeDesc: fileSizeDesc,
   })
-  const fileBtnClass = (fIdx: number, isPlayable: boolean, canPreview: boolean, ext: boolean): string => {
-    if (selectedFile === fIdx) return 'bg-green-500/20 text-green-400 border border-green-500/30'
-    if (isPlayable) {
-      if (ext) return 'bg-surface-secondary/40 text-text-muted hover:bg-surface-tertiary/80 border border-transparent'
-      return 'bg-surface-tertiary/50 text-text-primary hover:bg-surface-tertiary border border-transparent'
-    }
-    if (canPreview) return 'bg-blue-500/5 text-blue-700/80 dark:text-blue-200/80 hover:bg-blue-500/15 border border-blue-500/20'
-    return 'bg-surface-secondary/50 text-text-muted hover:bg-surface-tertiary border border-transparent'
-  }
+
+  const selectedPath = useMemo(() => {
+    const f = info.files.find(x => x.index === selectedFile)
+    return f?.path ?? null
+  }, [info.files, selectedFile])
+
+  // When the tree is the active view, auto-expand the path to the selected file
+  // (or the first file when none is selected). Filter changes rebuild the tree,
+  // so re-derive the reveal set against the CURRENT filter too.
+  useEffect(() => {
+    if (view !== 'tree' || !treeable) return
+    const tree = buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter })
+    const reveal = pathsToExpand(tree, selectedPath)
+    setExpanded(prev => {
+      const next = new Set(prev)
+      for (const p of reveal) next.add(p)
+      return next
+    })
+  }, [view, treeable, info.files, fileFilter, fileTypeFilter, selectedPath])
+
   const cycleSizeSort = () => {
     // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
     if (!fileSortBySize) setFileSortBySize(true)
     else if (fileSizeDesc) setFileSizeDesc(false)
     else { setFileSortBySize(false); setFileSizeDesc(true) }
   }
+
+  const viewBtnClass = (active: boolean) =>
+    `flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
+      active
+        ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
+        : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
+    }`
+
   return (
     <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-default bg-surface-elevated/50 min-h-0 lg:overflow-hidden">
       {/* A barra inteira retrai a lista — clicar em qualquer parte funciona,
@@ -127,91 +159,93 @@ export function FilePickerSidebar({
             </button>
           ))}
         <div className="flex-1" />
-        <button
-          onClick={cycleSizeSort}
-          title="Ordenar por tamanho"
-          className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
-            fileSortBySize
-              ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
-              : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
-          }`}
-        >
-          {fileSortBySize && !fileSizeDesc
-            ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
-            : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${fileSortBySize ? '' : 'opacity-50'}`} />}
-          Tamanho
-        </button>
-      </div>
-      <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
-        {filteredFiles.length === 0 && (
-          <p className="text-xs text-text-muted text-center py-3">
-            {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
-          </p>
-        )}
-        {filteredFiles.slice(0, 100).map(f => {
-          const ep = parseEpisode(f.path)
-          const extra = isExtra(f.path)
-          // Compact name for sidebar: drop the long shared prefix
-          // (everything before the last "/") so paths fit in 320px.
-          const shortName = f.path.split('/').slice(-2).join('/')
-          const isPlayable = f.isVideo || FILE_AUDIO_RE.test(f.path)
-          const previewKind = isPlayable ? 'unknown' : detectViewerKind(f.path)
-          const canPreview = previewKind !== 'unknown'
-          const previewBadge = canPreview ? previewKind.toUpperCase() : null
-          // Hover frame-preview only for video files.
-          const thumbUrl = fileType(f) === 'video' && info.infoHash
-            ? streamThumbnailURL(info.infoHash, f.index, 10)
-            : null
-          return (
+        {/* List ⇄ Tree toggle — only worth showing when the torrent has folders.
+            Size sort is meaningless in the tree (order is hierarchical), so it
+            hides in tree mode. */}
+        {treeable && (
+          <div className="flex items-center gap-1">
             <button
-              key={f.index}
-              ref={selectedFile === f.index ? selectedFileRef : null}
-              onClick={() => {
-                hoverThumb.hide()
-                if (isPlayable) playFile(f.index)
-                else if (canPreview) setPreviewFileIdx(f.index)
-                // else: dead row, click does nothing (download via long-press / context menu still available)
-              }}
-              onMouseEnter={e => hoverThumb.show(thumbUrl, e, f.path)}
-              onMouseMove={hoverThumb.move}
-              onMouseLeave={hoverThumb.hide}
-              title={f.path}
-              className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left ${fileBtnClass(f.index, isPlayable, canPreview, extra)}`}
+              onClick={() => setView('list')}
+              title={t('player.view_list')}
+              aria-label={t('player.view_list')}
+              aria-pressed={view === 'list'}
+              className={viewBtnClass(view === 'list')}
             >
-              <span className="flex items-center gap-1.5 min-w-0">
-                {ep && (
-                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
-                    {ep}
-                  </span>
-                )}
-                {extra && (
-                  <span className="text-[10px] font-mono bg-surface-tertiary/60 text-text-secondary border border-strong/40 px-1.5 py-0.5 rounded flex-shrink-0">
-                    EXTRA
-                  </span>
-                )}
-                {previewBadge && (
-                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1" title="Visualizar inline">
-                    <Eye className="w-3 h-3" />
-                    {previewBadge}
-                  </span>
-                )}
-                {selectedFile === f.index && <Play className="w-3 h-3 flex-shrink-0" />}
-              </span>
-              <span className="flex items-center justify-between gap-2 min-w-0">
-                <span className="truncate">{shortName}</span>
-                <span className="text-text-muted flex-shrink-0 text-[10px] tabular-nums">{formatSize(f.size)}</span>
-              </span>
+              <List className="w-3.5 h-3.5" />
             </button>
-          )
-        })}
-        {filteredFiles.length > 100 && (
-          <p className="text-[11px] text-text-muted text-center py-3 px-2 leading-snug">
-            Mostrando 100 de {filteredFiles.length}. Use o filtro acima
-            (ex: <span className="font-mono text-text-secondary">s04e03</span> ou
-            parte do nome) pra achar o resto.
-          </p>
+            <button
+              onClick={() => setView('tree')}
+              title={t('player.view_tree')}
+              aria-label={t('player.view_tree')}
+              aria-pressed={view === 'tree'}
+              className={viewBtnClass(view === 'tree')}
+            >
+              <FolderTree className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {(view === 'list' || !treeable) && (
+          <button
+            onClick={cycleSizeSort}
+            title="Ordenar por tamanho"
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
+              fileSortBySize
+                ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
+                : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
+            }`}
+          >
+            {fileSortBySize && !fileSizeDesc
+              ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
+              : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${fileSortBySize ? '' : 'opacity-50'}`} />}
+            Tamanho
+          </button>
         )}
       </div>
+      {view === 'tree' && treeable ? (
+        <FileTree
+          info={info}
+          selectedFile={selectedFile}
+          selectedFileRef={selectedFileRef}
+          fileFilter={fileFilter}
+          fileTypeFilter={fileTypeFilter}
+          expanded={expanded}
+          setExpanded={setExpanded}
+          hoverThumb={hoverThumb}
+          parseEpisode={parseEpisode}
+          playFile={playFile}
+          setPreviewFileIdx={setPreviewFileIdx}
+        />
+      ) : (
+        <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
+          {filteredFiles.length === 0 && (
+            <p className="text-xs text-text-muted text-center py-3">
+              {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
+            </p>
+          )}
+          {filteredFiles.slice(0, 100).map(f => (
+            <FileRow
+              key={f.index}
+              ref={selectedFile === f.index ? selectedFileRef : undefined}
+              file={f}
+              infoHash={info.infoHash}
+              selected={selectedFile === f.index}
+              // Compact name for the flat list: last two path segments fit 320px.
+              displayName={f.path.split('/').slice(-2).join('/')}
+              hoverThumb={hoverThumb}
+              parseEpisode={parseEpisode}
+              playFile={playFile}
+              setPreviewFileIdx={setPreviewFileIdx}
+            />
+          ))}
+          {filteredFiles.length > 100 && (
+            <p className="text-[11px] text-text-muted text-center py-3 px-2 leading-snug">
+              Mostrando 100 de {filteredFiles.length}. Use o filtro acima
+              (ex: <span className="font-mono text-text-secondary">s04e03</span> ou
+              parte do nome) pra achar o resto.
+            </p>
+          )}
+        </div>
+      )}
     </aside>
   )
 }
