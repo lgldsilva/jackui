@@ -39,7 +39,14 @@ type HLSSessionManager struct {
 	baseDir string
 	mu      sync.Mutex
 	sess    map[string]*HLSSession
-	vodMode VODMode
+	// starting dedupes concurrent GetOrStart misses for the same key: the
+	// first caller builds the session (probe + ffmpeg launch happen OUTSIDE
+	// m.mu — they take up to 30s), later callers wait on the channel and then
+	// re-check the map. Without it, two simultaneous plays of the same content
+	// spawned two ffmpegs writing into the SAME segment dir, and the session
+	// that lost the map insert leaked its encoder forever.
+	starting map[string]chan struct{}
+	vodMode  VODMode
 	// durCache memoises the probed duration per content key (the raw key, shared
 	// across the -vod/-evt session variants) so a re-created session on a slow
 	// rclone/Drive mount enters VOD immediately instead of re-probing for 30s.
@@ -156,6 +163,16 @@ type HLSSession struct {
 	restartMu   sync.Mutex
 	mu          sync.Mutex
 	closed      bool
+	// dead marks a session stop()ed by the manager (idle reap / explicit
+	// close). A dead session must never relaunch ffmpeg: a segment handler
+	// holding a stale pointer could otherwise resurrect an encoder writing
+	// into the directory stop() just removed.
+	dead bool
+	// source is the seekable input handed over by GetOrStart. The session owns
+	// it from then on and closes it (when it is an io.Closer) in stop() — the
+	// torrent FileReader used to leak on every playlist request that found the
+	// session already running.
+	source io.ReadSeeker
 	// sourceSrv is an ephemeral HTTP loopback server that exposes the input
 	// source (an io.ReadSeeker over the torrent file) so ffmpeg can fetch it
 	// via Range requests. Without this, ffmpeg consumes stdin as a non-
@@ -176,12 +193,17 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 		return nil, err
 	}
 	m := &HLSSessionManager{
-		baseDir: root,
-		sess:    make(map[string]*HLSSession),
+		baseDir:  root,
+		sess:     make(map[string]*HLSSession),
+		starting: make(map[string]chan struct{}),
 	}
 	go m.gcLoop()
 	return m, nil
 }
+
+// errSessionStopped means the manager already reaped/closed this session —
+// callers holding a stale pointer must re-enter via GetOrStart.
+var errSessionStopped = errors.New("hls session stopped")
 
 // hlsIdleReapAfter is how long a session may go without a segment request
 // before it's reaped. Was 60s, but in VOD mode Safari pre-buffers aggressively
@@ -199,6 +221,7 @@ func (m *HLSSessionManager) gcLoop() {
 	defer tick.Stop()
 	for range tick.C {
 		now := time.Now()
+		var reaped []*HLSSession
 		m.mu.Lock()
 		for k, s := range m.sess {
 			s.mu.Lock()
@@ -211,11 +234,17 @@ func (m *HLSSessionManager) gcLoop() {
 			// segmento renova o LastAccess (ver WaitForSegment).
 			if idle > hlsIdleReapAfter {
 				log.Printf("hls: reaping idle session %s (idle=%s)", k, idle)
-				s.stop()
+				reaped = append(reaped, s)
 				delete(m.sess, k)
 			}
 		}
 		m.mu.Unlock()
+		// stop() outside m.mu: it blocks for up to 2s on the loopback-server
+		// shutdown and removes GBs of segments — holding the manager lock here
+		// froze every playlist/segment request meanwhile.
+		for _, s := range reaped {
+			s.stop()
+		}
 	}
 }
 
@@ -605,6 +634,12 @@ func (e *encodeSpec) args(startSeg int) []string {
 // session closed if no newer launch superseded it (generation check), so a
 // seek-restart doesn't look like the encoder dying for good.
 func (s *HLSSession) launch(startSeg int) error {
+	s.mu.Lock()
+	if s.dead {
+		s.mu.Unlock()
+		return errSessionStopped
+	}
+	s.mu.Unlock()
 	ffctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
 	log.Printf("hls: ffmpeg %s", strings.Join(s.spec.args(startSeg), " "))
@@ -614,6 +649,14 @@ func (s *HLSSession) launch(startSeg int) error {
 		return fmt.Errorf("ffmpeg start: %w", err)
 	}
 	s.mu.Lock()
+	// Re-check after Start: a reap may have landed in between. stop() already
+	// snapshotted the OLD Cmd, so this brand-new encoder is ours to kill.
+	if s.dead {
+		s.mu.Unlock()
+		cancel()
+		_ = cmd.Process.Kill()
+		return errSessionStopped
+	}
 	s.Cmd = cmd
 	s.Cancel = cancel
 	s.startSeg = startSeg
@@ -735,7 +778,13 @@ func (s *HLSSession) RestartAt(seg int) error {
 	cancel := s.Cancel
 	since := time.Since(s.lastRestart)
 	closed := s.closed
+	dead := s.dead
 	s.mu.Unlock()
+	if dead {
+		// Reaped/closed by the manager — the segment dir is gone. The client's
+		// next master request recreates a fresh session via GetOrStart.
+		return errSessionStopped
+	}
 	// Encoder VIVO já produzindo daqui: nada a fazer. Mas se está closed (morto),
 	// precisa ressuscitar mesmo que seg == cur — os segmentos podem não existir.
 	if seg == cur && !closed {
@@ -763,19 +812,63 @@ func (s *HLSSession) RestartAt(seg int) error {
 // GetOrStart returns an existing session keyed by opts.Key or starts a new one.
 // On new-session, ffmpeg begins encoding immediately; the caller should poll
 // for index.m3u8 to appear via WaitForMaster.
+//
+// Ownership: GetOrStart takes opts.Source. A new session keeps it (and closes
+// it on stop); when an existing session is returned or creation fails, the
+// source is closed here (io.Closer sources only). Callers must NOT close it.
 func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (*HLSSession, error) {
 	// effKey splits VOD-eligible from non-eligible clients (see EffectiveKey).
 	effKey := m.EffectiveKey(opts.Key, opts.NativeHLS)
-	m.mu.Lock()
-	if s, ok := m.sess[effKey]; ok {
-		s.mu.Lock()
-		s.LastAccess = time.Now()
-		s.mu.Unlock()
+	for {
+		m.mu.Lock()
+		if s, ok := m.sess[effKey]; ok {
+			s.mu.Lock()
+			s.LastAccess = time.Now()
+			s.mu.Unlock()
+			m.mu.Unlock()
+			// The session already owns ITS source; this caller's copy would leak.
+			closeIfCloser(opts.Source)
+			return s, nil
+		}
+		ch, inFlight := m.starting[effKey]
+		if !inFlight {
+			ch = make(chan struct{})
+			m.starting[effKey] = ch
+			m.mu.Unlock()
+			break // we are the builder
+		}
 		m.mu.Unlock()
-		return s, nil
+		// Another request is building this session (probe + launch can take
+		// ~30s). Wait and re-check instead of spawning a duplicate encoder
+		// into the same segment directory.
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			closeIfCloser(opts.Source)
+			return nil, ctx.Err()
+		}
 	}
-	m.mu.Unlock()
 
+	s, err := m.buildSession(ctx, effKey, opts)
+	m.mu.Lock()
+	if err == nil {
+		m.sess[effKey] = s
+	}
+	ch := m.starting[effKey]
+	delete(m.starting, effKey)
+	m.mu.Unlock()
+	close(ch) // wake waiters: on success they find the session; on failure one retries
+	if err != nil {
+		closeIfCloser(opts.Source)
+		return nil, err
+	}
+	return s, nil
+}
+
+// buildSession does the slow part of GetOrStart (loopback server, duration
+// probe, ffmpeg launch) outside the manager lock. The caller holds the
+// `starting` slot for effKey, so exactly one build runs per key.
+func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opts HLSStartOpts) (*HLSSession, error) {
 	caps := Cached()
 	if caps == nil {
 		return nil, errors.New("transcode caps not probed yet")
@@ -854,6 +947,7 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		LastAccess:  time.Now(),
 		DurationSec: durationSec,
 		sourceSrv:   srv,
+		source:      opts.Source,
 		spec: &encodeSpec{
 			dir:        dir,
 			inputURL:   inputURL,
@@ -869,10 +963,6 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-
-	m.mu.Lock()
-	m.sess[effKey] = s
-	m.mu.Unlock()
 
 	return s, nil
 }
@@ -963,24 +1053,39 @@ func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string,
 	}
 }
 
-// stop kills ffmpeg, shuts down the loopback source server, and removes the
-// segment dir. Idempotent.
+// stop kills ffmpeg, shuts down the loopback source server, closes the input
+// source, and removes the segment dir. Idempotent. Cmd/Cancel are snapshotted
+// UNDER s.mu (launch writes them under the same lock — reading them bare was a
+// data race), and `dead` is set first so a concurrent launch/RestartAt holding
+// a stale session pointer can't resurrect an encoder into the removed dir.
 func (s *HLSSession) stop() {
 	s.mu.Lock()
 	already := s.closed
+	s.dead = true
+	cancel, cmd, srv, src := s.Cancel, s.Cmd, s.sourceSrv, s.source
 	s.mu.Unlock()
-	if s.Cancel != nil {
-		s.Cancel()
-	}
-	if !already && s.Cmd != nil && s.Cmd.Process != nil {
-		_ = s.Cmd.Process.Kill()
-	}
-	if s.sourceSrv != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = s.sourceSrv.Shutdown(shutdownCtx)
+	if cancel != nil {
 		cancel()
 	}
+	if !already && cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	if srv != nil {
+		shutdownCtx, cancelSrv := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = srv.Shutdown(shutdownCtx)
+		cancelSrv()
+	}
+	closeIfCloser(src)
 	_ = os.RemoveAll(s.Dir)
+}
+
+// closeIfCloser closes a source that supports it (torrent FileReader,
+// *os.File). Sources owned elsewhere (e.g. localstream.Session, returned to
+// its registry) simply don't implement io.Closer and pass through.
+func closeIfCloser(src io.ReadSeeker) {
+	if c, ok := src.(io.Closer); ok && c != nil {
+		_ = c.Close()
+	}
 }
 
 // Peek returns an existing session without starting one. Used by the
