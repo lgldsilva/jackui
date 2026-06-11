@@ -1151,7 +1151,10 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 	}
 	api.GET("/library", handlers.LibraryList(deps.libraryStore, deps.streamSrv))
 	// Personalized recommendations derived from the watched library (additive).
-	api.GET("/recommendations", handlers.Recommendations(deps.libraryStore, deps.tmdbClient))
+	// streamSrv lets the generator drop hidden-folder titles from the seed.
+	api.GET("/recommendations", handlers.Recommendations(deps.libraryStore, deps.streamSrv, deps.tmdbClient))
+	// Persist a per-user dismissal so an ignored recommendation never returns.
+	api.POST("/recommendations/dismiss", handlers.DismissRecommendation(deps.libraryStore))
 	// Personal usage statistics (live aggregation; nil stores contribute zeroes).
 	api.GET("/stats", handlers.Stats(deps.libraryStore, deps.downloadsStore, deps.historyStore, deps.watchlistStore))
 	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore))
