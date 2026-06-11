@@ -117,6 +117,7 @@ export function FileTree({
               type="button"
               role="treeitem"
               aria-expanded={row.expanded}
+              aria-selected={false}
               data-row-idx={i}
               tabIndex={i === focusIdx ? 0 : -1}
               style={indent}
@@ -152,6 +153,7 @@ export function FileTree({
             setPreviewFileIdx={setPreviewFileIdx}
             treeItemProps={{
               role: 'treeitem',
+              'aria-selected': selected,
               'data-row-idx': i,
               tabIndex: i === focusIdx ? 0 : -1,
               onKeyDown: e => onKeyDown(e, i),

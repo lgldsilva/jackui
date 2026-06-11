@@ -42,9 +42,12 @@ function fileBtnClass(selected: boolean, isPlayable: boolean, canPreview: boolea
 // memo so flattening a thousands-of-files tree doesn't re-render every row on
 // each expand/collapse or focus change — only the rows whose props actually
 // change repaint. Parent passes stable callbacks (useCallback) so this holds.
-export const FileRow = memo(forwardRef<HTMLButtonElement, FileRowProps>(function FileRow(
-  { file: f, infoHash, selected, hoverThumb, parseEpisode, playFile, setPreviewFileIdx, displayName, indentStyle, treeItemProps },
-  ref,
+// Props annotated directly on the function param (not via forwardRef's generic)
+// so the analyzer sees every field is consumed — the generic form hid the usage
+// and tripped S6767 (prop defined but never used).
+function FileRowImpl(
+  { file: f, infoHash, selected, hoverThumb, parseEpisode, playFile, setPreviewFileIdx, displayName, indentStyle, treeItemProps }: FileRowProps,
+  ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
   const ep = parseEpisode(f.path)
   const extra = FILE_EXTRA_RE.test(f.path)
@@ -99,5 +102,7 @@ export const FileRow = memo(forwardRef<HTMLButtonElement, FileRowProps>(function
       </span>
     </button>
   )
-}))
+}
+
+export const FileRow = memo(forwardRef(FileRowImpl))
 FileRow.displayName = 'FileRow'
