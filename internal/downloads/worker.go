@@ -680,6 +680,11 @@ func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error)
 	files := td.whole.Files()
 	relPaths := make([]string, 0, len(files))
 	for _, f := range files {
+		// BEP 47 pad files (attr "p") are piece-alignment filler, not content;
+		// path-based ".pad/" entries are skipped inside moveCompletedTree.
+		if strings.Contains(f.FileInfo().Attr, "p") {
+			continue
+		}
 		relPaths = append(relPaths, f.Path())
 	}
 	username := ""
@@ -705,6 +710,9 @@ func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error)
 // was moved by a previous (interrupted) attempt and is skipped.
 func moveCompletedTree(dataDir, destDir, torrentName string, relPaths []string) error {
 	for _, rel := range relPaths {
+		if isPadPath(torrentName, rel) {
+			continue
+		}
 		dst, err := wholeTorrentDest(destDir, torrentName, rel)
 		if err != nil {
 			return err
@@ -734,7 +742,22 @@ func wholeTorrentDest(destDir, torrentName, rel string) (string, error) {
 		return "", fmt.Errorf("unsafe path %q in torrent", rel)
 	}
 	rel = strings.TrimPrefix(rel, torrentName+"/")
+	// Re-validate AFTER the strip: "Name/../x" is lexically local as a whole
+	// (it cleans to "x") but escapes destDir once the leading "Name/" is gone.
+	if !filepath.IsLocal(filepath.FromSlash(rel)) {
+		return "", fmt.Errorf("unsafe path %q in torrent", rel)
+	}
 	return filepath.Join(destDir, filepath.FromSlash(rel)), nil
+}
+
+// isPadPath reports whether a torrent-relative path is a BEP 47 padding entry
+// by the ".pad/" naming convention (with or without the torrent's root folder
+// prefix). Pad files exist only to piece-align the real content and may never
+// be materialized on disk — trying to move one would fail every completion
+// retry, wedging the download in `downloading` forever.
+func isPadPath(torrentName, rel string) bool {
+	rel = strings.TrimPrefix(rel, torrentName+"/")
+	return strings.HasPrefix(rel, ".pad/")
 }
 
 // aiRenameCompleted re-organizes a completed download into a Plex-style path
