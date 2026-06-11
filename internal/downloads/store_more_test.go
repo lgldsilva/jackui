@@ -167,9 +167,11 @@ func TestSetStatusForUserEdgeCases(t *testing.T) {
 
 func TestDeleteNotFound(t *testing.T) {
 	s := newTestStore(t)
-	err := s.Delete(1, 999)
-	if err == nil {
-		t.Error("expected error for non-existent download")
+	// Delete is now IDEMPOTENT: a non-existent row is not an error (the row is
+	// gone either way). This is what turns a double-click / stale-poll delete
+	// from a swallowed 500 into a clean no-op.
+	if err := s.Delete(1, 999); err != nil {
+		t.Errorf("Delete of non-existent download must be idempotent, got: %v", err)
 	}
 }
 
