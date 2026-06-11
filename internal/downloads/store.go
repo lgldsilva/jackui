@@ -107,6 +107,12 @@ type Download struct {
 	// Source rotation (Phase 2): the magnet currently active when it differs from
 	// the original (an alternative source). Empty = downloading the original.
 	ActiveMagnet string `json:"activeMagnet,omitempty"`
+	// Linked is true when this completed row points at a file that ALREADY existed
+	// elsewhere (another download, the shared library, a cloud mount) and was
+	// adopted instead of re-downloaded (cross-torrent dedup, #23). file_path is an
+	// EXTERNAL path the app does not own: removing the row must never delete the
+	// bytes (see RefCountPath + the delete guards in the handlers).
+	Linked bool `json:"linked,omitempty"`
 }
 
 // IsWholeTorrent reports whether this row downloads the entire torrent as one
@@ -183,6 +189,10 @@ func (s *Store) migrate() error {
 		// Phase 2 (source rotation): the magnet currently being downloaded when it
 		// differs from the original `magnet` (an alternative source). Empty = original.
 		"active_magnet TEXT NOT NULL DEFAULT ''",
+		// Cross-torrent dedup (#23): 1 when file_path points at a pre-existing
+		// EXTERNAL file adopted instead of re-downloaded — the row must not delete
+		// those bytes on removal.
+		"linked INTEGER NOT NULL DEFAULT 0",
 	}
 	for _, def := range addColumns {
 		if e := s.addColumnIfMissing("downloads", def); e != nil {
@@ -407,7 +417,7 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 	tracker, category, status, bytes_downloaded,
 	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at,
 	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, ''),
-	COALESCE(active_magnet, '') FROM downloads `
+	COALESCE(active_magnet, ''), COALESCE(linked, 0) FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com
@@ -466,6 +476,72 @@ func (s *Store) FindByPathPrefix(absPath string) ([]Download, error) {
 		}
 	}
 	return out, nil
+}
+
+// CreateLinked records a completed download that points at a PRE-EXISTING file
+// adopted from elsewhere (cross-torrent dedup, #23) instead of fetched from the
+// swarm. externalPath is an absolute path the app does NOT own (the shared
+// library, a cloud mount, another download's file); the row is marked linked=1
+// so removal never deletes those bytes. Idempotent on (user, info_hash,
+// file_index): an existing row is converted to the linked/completed state.
+func (s *Store) CreateLinked(d Download, externalPath string, fileSize int64) (*Download, error) {
+	if d.InfoHash == "" || externalPath == "" {
+		return nil, errors.New("infoHash e externalPath são obrigatórios")
+	}
+	if d.FileIndex < 0 {
+		return nil, fmt.Errorf("linked download requer file_index concreto (>=0), recebido %d", d.FileIndex)
+	}
+	if existing, _ := s.GetByKey(d.UserID, d.InfoHash, d.FileIndex); existing != nil {
+		_, err := s.db.Exec(`
+			UPDATE downloads SET status=?, file_path=?, file_size=?, bytes_downloaded=?,
+				linked=1, error='', completed_at=CURRENT_TIMESTAMP
+			WHERE id=?`, StatusCompleted, externalPath, fileSize, fileSize, existing.ID)
+		if err != nil {
+			return nil, err
+		}
+		return s.Get(d.UserID, existing.ID)
+	}
+	res, err := s.db.Exec(`
+		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet,
+			tracker, category, status, priority, bytes_downloaded, linked, completed_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)`,
+		d.UserID, d.InfoHash, d.FileIndex, externalPath, fileSize, d.Name, d.Magnet,
+		d.Tracker, d.Category, StatusCompleted, PriorityNormal, fileSize)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.Get(d.UserID, int(id))
+}
+
+// RefCountPath counts how many download rows point at exactly absPath. Delete
+// guard: a file referenced by more than one row (e.g. a linked dedup adoption
+// alongside the original) must not have its bytes removed while another row
+// still needs it.
+func (s *Store) RefCountPath(absPath string) (int, error) {
+	if s == nil || absPath == "" {
+		return 0, nil
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM downloads WHERE file_path=?`, absPath).Scan(&n)
+	return n, err
+}
+
+// CompletedBySize returns the user's completed single-file downloads whose
+// file_size equals size — the free size pre-filter for cross-torrent dedup
+// candidates before any content verification. Scoped to the owner so one user's
+// new torrent never links to another user's private file.
+func (s *Store) CompletedBySize(userID int, size int64) ([]Download, error) {
+	if s == nil || size <= 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(dlSelect+"WHERE user_id=? AND status=? AND file_path != '' AND file_index >= 0 AND file_size=?",
+		userID, StatusCompleted, size)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
 }
 
 // List returns all downloads for the user, newest first.
@@ -987,15 +1063,17 @@ func scanRows(rows *sql.Rows) (*Download, error) {
 func scanGeneric(r rowScanner) (*Download, error) {
 	d := &Download{}
 	var startedAt, completedAt, createdAt, queuedSince string
+	var linkedInt int
 	err := r.Scan(
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &createdAt,
-		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet,
+		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet, &linkedInt,
 	)
 	if err != nil {
 		return nil, err
 	}
+	d.Linked = linkedInt != 0
 	if t := dbutil.ParseTime(startedAt); !t.IsZero() {
 		d.StartedAt = &t
 	}
