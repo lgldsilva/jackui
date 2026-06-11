@@ -16,7 +16,7 @@ func TestServeFromCompletedStoreNilStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	ok := serveFromCompletedStore(c, nil, metainfo.Hash{}, 0)
+	ok := serveFromCompletedStore(c, nil, nil, metainfo.Hash{}, 0)
 	if ok {
 		t.Error("expected false with nil store")
 	}

@@ -920,7 +920,7 @@ func Test_hgB_ServeFromCompletedStore_MissingFile(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	h, _ := parseHash(hgBHexHash)
-	if served := serveFromCompletedStore(c, store, h, 0); served {
+	if served := serveFromCompletedStore(c, store, streamer.NewForTesting(), h, 0); served {
 		t.Fatal("expected false when completed path is gone")
 	}
 }
