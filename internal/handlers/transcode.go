@@ -56,7 +56,7 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 		Container:    c.DefaultQuery("container", "mp4"),
 	}
 
-	if tryServeFromCompleted(c, store, h.HexString(), fileIdx, opts) {
+	if tryServeFromCompleted(c, store, h.HexString(), fileIdx, opts, s.FileRelPath(h, fileIdx)) {
 		return
 	}
 
@@ -72,15 +72,19 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 	}
 }
 
-func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex string, fileIdx int, opts transcode.Options) bool {
+// tryServeFromCompleted transcodes a finished download straight from disk.
+// relPath (the file's torrent-relative path from the cached metainfo) lets the
+// store resolve files inside whole-torrent rows, whose file_path is the
+// torrent's destination directory.
+func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex string, fileIdx int, opts transcode.Options, relPath string) bool {
 	if store == nil {
 		return false
 	}
-	path, err := store.GetCompletedPath(hashHex, fileIdx)
+	path, err := store.GetCompletedPathRel(hashHex, fileIdx, relPath)
 	if err != nil || path == "" {
 		return false
 	}
-	if _, err := os.Stat(path); err != nil {
+	if st, err := os.Stat(path); err != nil || st.IsDir() {
 		return false
 	}
 	f, err := os.Open(path)

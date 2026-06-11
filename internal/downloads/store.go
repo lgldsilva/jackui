@@ -11,6 +11,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -35,6 +37,25 @@ const (
 	PriorityHigh   = "high"
 	PriorityNormal = "normal"
 	PriorityLow    = "low"
+)
+
+// FileIndex sentinels. Non-negative values address one concrete file inside
+// the torrent; negatives select a resolution strategy:
+//
+//   - FileIndexAuto (-1): "pick the best file" — created by the Transmission
+//     RPC shim (Sonarr/Radarr don't know our indices); the worker resolves it
+//     to a real index after metadata and persists it via SetFileIndex.
+//   - FileIndexWholeTorrent (-2): download the ENTIRE torrent as ONE queue
+//     item (t.DownloadAll, aggregate progress, completion moves every file).
+//
+// A sentinel (instead of a new whole_torrent column) keeps the
+// UNIQUE(user_id, info_hash, file_index) constraint doing the dedupe work for
+// free — exactly one whole-torrent row per (user, torrent) — and every store
+// query that already keys on file_index (GetByKey, GetCompletedPath, Create's
+// idempotent re-queue) works unchanged.
+const (
+	FileIndexAuto         = -1
+	FileIndexWholeTorrent = -2
 )
 
 const errInvalidStatus = "invalid status: %s"
@@ -86,6 +107,12 @@ type Download struct {
 	// Source rotation (Phase 2): the magnet currently active when it differs from
 	// the original (an alternative source). Empty = downloading the original.
 	ActiveMagnet string `json:"activeMagnet,omitempty"`
+}
+
+// IsWholeTorrent reports whether this row downloads the entire torrent as one
+// item (FileIndexWholeTorrent sentinel) rather than a single file.
+func (d Download) IsWholeTorrent() bool {
+	return d.FileIndex == FileIndexWholeTorrent
 }
 
 // EffectiveMagnet returns the magnet the worker should download: the active
@@ -228,6 +255,9 @@ func (s *Store) Create(d Download) (*Download, error) {
 	if d.InfoHash == "" || d.Magnet == "" {
 		return nil, errors.New("infoHash e magnet são obrigatórios")
 	}
+	if d.FileIndex < FileIndexWholeTorrent {
+		return nil, fmt.Errorf("invalid fileIndex %d (min %d)", d.FileIndex, FileIndexWholeTorrent)
+	}
 	priority := d.Priority
 	if !validPriority(priority) {
 		priority = PriorityNormal
@@ -272,6 +302,23 @@ func (s *Store) UserStats(userID int) (total, completed int, bytes int64, err er
 	return total, completed, bytes, err
 }
 
+// EnqueueMagnet creates a queued download from a bare magnet, before any
+// torrent metadata is known. FileIndex -1 means "pick the best file" — the
+// worker resolves it after GotInfo (same contract as the Transmission RPC
+// shim). Used by automation (watchlist auto-download); idempotent via Create.
+func (s *Store) EnqueueMagnet(userID int, infoHash, name, magnet, tracker string) error {
+	_, err := s.Create(Download{
+		UserID:   userID,
+		InfoHash: strings.ToLower(infoHash),
+		// FileIndex -1: best-file sentinel (see resolveFileIndex in worker.go)
+		FileIndex: -1,
+		Name:      name,
+		Magnet:    magnet,
+		Tracker:   tracker,
+	})
+	return err
+}
+
 // Get returns one download owned by userID.
 func (s *Store) Get(userID, id int) (*Download, error) {
 	row := s.db.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
@@ -291,8 +338,8 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error)
 	}
 	var filePath string
 	err := s.db.QueryRow(`
-		SELECT file_path FROM downloads 
-		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != '' 
+		SELECT file_path FROM downloads
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
 		LIMIT 1`, infoHash, fileIndex).Scan(&filePath)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -301,6 +348,59 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error)
 		return "", err
 	}
 	return filePath, nil
+}
+
+// GetCompletedPathRel resolves the on-disk path of ONE file from a completed
+// download. Per-file rows behave exactly like GetCompletedPath. When the
+// torrent was downloaded as a single whole-torrent item, only the
+// FileIndexWholeTorrent row exists and its file_path is the torrent's
+// destination DIRECTORY (moveCompletedTree preserved the in-torrent structure
+// under it), so the file is located by joining that directory with relPath —
+// the torrent-relative path the caller reads from the cached metainfo; the
+// store alone can't map a file index to a path without activating the torrent.
+//
+// relPath is untrusted (it ultimately comes from torrent metadata): traversal
+// is rejected and the resolved path must be an existing regular file under the
+// destination directory. Empty relPath skips the whole-torrent fallback.
+func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath string) (string, error) {
+	path, err := s.GetCompletedPath(infoHash, fileIndex)
+	if err != nil || path != "" {
+		return path, err
+	}
+	if s == nil || relPath == "" || fileIndex < 0 {
+		return "", nil
+	}
+	var destDir, name string
+	err = s.db.QueryRow(`
+		SELECT file_path, name FROM downloads
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
+		LIMIT 1`, infoHash, FileIndexWholeTorrent).Scan(&destDir, &name)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return resolveWholeTorrentFile(destDir, name, relPath), nil
+}
+
+// resolveWholeTorrentFile maps a torrent-relative path into the moved tree
+// under destDir, mirroring wholeTorrentDest (the move that produced the tree).
+// Traversal attempts, paths escaping destDir and entries missing from disk all
+// resolve to "" — the caller falls back to the streamer.
+func resolveWholeTorrentFile(destDir, torrentName, relPath string) string {
+	dst, err := wholeTorrentDest(destDir, torrentName, relPath)
+	if err != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(destDir, dst)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	if st, err := os.Stat(dst); err != nil || st.IsDir() {
+		return ""
+	}
+	return dst
 }
 
 const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,

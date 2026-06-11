@@ -979,6 +979,47 @@ func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
 	return nil
 }
 
+// VerifyTorrent reconciles on-disk pieces for EVERY file of a torrent — the
+// whole-torrent download path. Same rationale and per-(hash,file) dedupe as
+// VerifyFile, applied file by file (sequencial: custo proporcional ao que está
+// no disco; pieces ausentes falham o hash rápido via sparse reads).
+func (s *Streamer) VerifyTorrent(hash metainfo.Hash) error {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	s.mu.Unlock()
+	if !ok {
+		return errors.New(ErrTorrentNotActive)
+	}
+	for i, f := range e.t.Files() {
+		s.verifyFilePieces(hash, i, f)
+	}
+	return nil
+}
+
+// RecheckAllFiles força o "Force Recheck" em TODOS os arquivos de um torrent
+// (download de torrent inteiro). Mesmo contrato do RecheckFile; os arquivos são
+// re-hashados sequencialmente numa única goroutine — um torrent de milhares de
+// arquivos não pode disparar milhares de hash loops concorrentes.
+func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	s.mu.Unlock()
+	if !ok {
+		return errors.New(ErrTorrentNotActive)
+	}
+	files := e.t.Files()
+	go func() {
+		for i, f := range files {
+			key := fmt.Sprintf("%s-%d", hash.HexString(), i)
+			s.verifiedMu.Lock()
+			delete(s.verifiedFiles, key)
+			s.verifiedMu.Unlock()
+			s.asyncRecheckFile(key, f)
+		}
+	}()
+	return nil
+}
+
 // RecheckFile força uma re-verificação completa dos pieces de um arquivo,
 // IGNORANDO o dedup do verifiedFiles e re-hashando até pieces marcados como
 // "complete" no momento. Caso de uso: ação manual do user via UI ("recheck")
