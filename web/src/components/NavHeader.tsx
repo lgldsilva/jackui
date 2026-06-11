@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
   Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
-  Eye, EyeOff,
+  Eye, EyeOff, BarChart3,
 } from 'lucide-react'
 import UserBadge from './UserBadge'
 import RateWidget from './RateWidget'
@@ -30,6 +30,7 @@ const LINKS = [
   { to: '/downloads', icon: Download, labelKey: 'nav.downloads', hover: 'hover:!text-green-400' },
   { to: '/watchlist', icon: Bell, labelKey: 'nav.watchlist', hover: 'hover:!text-amber-400' },
   { to: '/favorites', icon: Heart, labelKey: 'nav.favorites', hover: 'hover:!text-pink-400' },
+  { to: '/stats', icon: BarChart3, labelKey: 'nav.stats', hover: 'hover:!text-emerald-400' },
   { to: '/history', icon: History, labelKey: 'nav.history', hover: 'hover:!text-text-primary' },
   { to: '/settings', icon: Settings, labelKey: 'nav.settings', hover: 'hover:!text-text-primary' },
 ]
