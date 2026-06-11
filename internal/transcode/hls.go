@@ -1008,7 +1008,8 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	// Encoding flags live in encodeSpec.args so seek-restart can rebuild them.
 	// vod=true switches on forced 4s keyframes + the handler's synthesised finite
 	// playlist; vod=false keeps the proven EVENT/live path. See shouldVOD.
-	vod := shouldVOD(durationSec, opts.ForceVOD, m.vodMode, opts.NativeHLS)
+	mode := m.vodMode
+	vod := shouldVOD(durationSec, opts.ForceVOD, mode, opts.NativeHLS)
 	s := &HLSSession{
 		Key:         effKey,
 		Dir:         dir,
@@ -1028,7 +1029,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 
 	reason := ""
 	if !vod {
-		reason = " reason=" + vodReason(durationSec, opts.ForceVOD, m.vodMode, opts.NativeHLS)
+		reason = " reason=" + vodReason(durationSec, opts.ForceVOD, mode, opts.NativeHLS)
 	}
 	log.Printf("hls: starting session %s (vod=%v%s)", effKey, s.spec.vod, reason)
 	if err := s.launch(0); err != nil {
@@ -1037,8 +1038,9 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		return nil, err
 	}
 
-	if durationSec <= 0 {
+	if durationSec <= 0 && mode != VODOff {
 		// Born EVENT only because the probe failed — re-probe in background so
+		// a later session can be VOD. Pointless when VOD is disabled entirely.
 		// the duration cache is warm for the next session (started AFTER launch:
 		// a failed build tears the loopback server down). Detached from the
 		// request ctx on purpose; stop() cancels it via retryCancel.
