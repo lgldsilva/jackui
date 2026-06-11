@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Loader2, Play, Save, Cpu, RefreshCw } from 'lucide-react'
 import {
   aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, saveAICases, saveAICostConfig,
-  AIStatus, AISlotScore, AIBenchmarkCase, AICostConfig,
+  AIStatus, AIBenchmarkCase, AICostConfig,
 } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
+import BenchResultsTable from './aibenchmark/BenchResultsTable'
+import { needsRerun } from './aibenchmark/benchSort'
 
 // AIBenchmarkCard lets an admin measure each model in the rename/identification
 // chain (accuracy + latency → composite score), re-rank the chain by that
@@ -33,127 +35,6 @@ function textToCases(text: string): AIBenchmarkCase[] {
       return raw ? { raw, expect } : null
     })
     .filter((c): c is AIBenchmarkCase => c !== null)
-}
-
-// formatCost renders $/1M; small local-energy costs (cents) keep 3 decimals so
-// they don't round to "$0.00".
-function formatCost(c?: number): string {
-  if (!c || c <= 0) return 'grátis'
-  const decimals = c < 0.1 ? 3 : 2
-  return `$${c.toFixed(decimals)}/1M`
-}
-
-function scoreCells(s: AISlotScore) {
-  return {
-    acc: `${Math.round(s.accuracy * 100)}%`,
-    lat: s.avgLatencyMs > 0 ? `${s.avgLatencyMs} ms` : '—',
-    comp: s.composite > 0 ? s.composite.toFixed(3) : '—',
-    cost: formatCost(s.costPer1M),
-  }
-}
-
-// A result is worth re-running ("Rodar faltantes") when it was left incomplete OR
-// failed with a rate limit — the latter also covers results saved before the
-// incomplete flag existed, so the button shows for pre-existing rate-limited rows.
-function needsRerun(s: AISlotScore): boolean {
-  return !!s.incomplete || /rate limit/i.test(s.failureReason || '')
-}
-
-function scoreRow(
-  s: AISlotScore,
-  onRunSingle: (provider: string, model: string) => void,
-  busy: boolean,
-  runningSlotId: string | null
-) {
-  const { acc, lat, comp, cost } = scoreCells(s)
-  const isThisRunning = runningSlotId === s.slotId
-  return (
-    <tr key={s.slotId} className="border-t border-default/60">
-      <td className="py-1.5 pr-3 text-text-primary">
-        <div className="flex items-center gap-2">
-          <span>{s.model}</span>
-          <button
-            onClick={() => onRunSingle(s.provider, s.model)}
-            disabled={busy}
-            title={`Rodar benchmark para ${s.model}`}
-            className="p-1 text-text-muted hover:text-green-500 hover:bg-surface disabled:opacity-30 rounded-md transition-colors"
-          >
-            {isThisRunning ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-green-500" />
-            ) : (
-              <Play className="w-3.5 h-3.5" />
-            )}
-          </button>
-          <span className="text-text-muted text-xs font-normal">({s.provider})</span>
-        </div>
-      </td>
-      <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
-      <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
-      <td className="py-1.5 pr-3 text-right tabular-nums text-text-secondary">{cost}</td>
-      <td className="py-1.5 pr-3 text-right tabular-nums font-medium text-green-400">{comp}</td>
-      <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>
-        {needsRerun(s) && <span className="text-amber-400">faltante</span>}
-        {needsRerun(s) && s.failureReason ? ' · ' : ''}
-        {s.failureReason || ''}
-      </td>
-    </tr>
-  )
-}
-
-function scoreCard(
-  s: AISlotScore,
-  onRunSingle: (provider: string, model: string) => void,
-  busy: boolean,
-  runningSlotId: string | null
-) {
-  const { acc, lat, comp, cost } = scoreCells(s)
-  const isThisRunning = runningSlotId === s.slotId
-  return (
-    <div key={s.slotId} className="rounded-lg border border-default/60 bg-surface/40 p-3 flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div>
-          <div className="text-text-primary text-sm truncate">{s.model}</div>
-          <div className="text-text-muted text-xs">{s.provider}</div>
-        </div>
-        <button
-          onClick={() => onRunSingle(s.provider, s.model)}
-          disabled={busy}
-          title={`Rodar benchmark para ${s.model}`}
-          className="p-1 text-text-muted hover:text-green-500 hover:bg-surface disabled:opacity-30 rounded-md transition-colors"
-        >
-          {isThisRunning ? (
-            <Loader2 className="w-4 h-4 animate-spin text-green-500" />
-          ) : (
-            <Play className="w-4 h-4" />
-          )}
-        </button>
-      </div>
-      <div className="grid grid-cols-4 gap-2 text-xs">
-        <div>
-          <div className="text-text-muted">Acurácia</div>
-          <div className="tabular-nums text-text-primary">{acc}</div>
-        </div>
-        <div>
-          <div className="text-text-muted">Latência</div>
-          <div className="tabular-nums text-text-primary">{lat}</div>
-        </div>
-        <div>
-          <div className="text-text-muted">Custo</div>
-          <div className="tabular-nums text-text-secondary">{cost}</div>
-        </div>
-        <div>
-          <div className="text-text-muted">Score</div>
-          <div className="tabular-nums font-medium text-green-400">{comp}</div>
-        </div>
-      </div>
-      {needsRerun(s) && (
-        <div className="text-amber-400 text-xs">faltante — rode os faltantes</div>
-      )}
-      {s.failureReason && (
-        <div className="text-text-muted text-xs break-words">Falha: {s.failureReason}</div>
-      )}
-    </div>
-  )
 }
 
 export default function AIBenchmarkCard() {
@@ -351,28 +232,12 @@ export default function AIBenchmarkCard() {
       </div>
 
       {status.results.length > 0 && (
-        <>
-          {/* Desktop: table */}
-          <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-text-secondary text-xs text-left">
-                  <th className="py-1 pr-3 font-medium">Modelo</th>
-                  <th className="py-1 pr-3 font-medium text-right">Acurácia</th>
-                  <th className="py-1 pr-3 font-medium text-right">Latência</th>
-                  <th className="py-1 pr-3 font-medium text-right">Custo</th>
-                  <th className="py-1 pr-3 font-medium text-right">Score</th>
-                  <th className="py-1 font-medium">Falha</th>
-                </tr>
-              </thead>
-              <tbody>{status.results.map(s => scoreRow(s, runSingle, busy, runningSlotId))}</tbody>
-            </table>
-          </div>
-          {/* Mobile: stacked cards */}
-          <div className="flex flex-col gap-2 sm:hidden">
-            {status.results.map(s => scoreCard(s, runSingle, busy, runningSlotId))}
-          </div>
-        </>
+        <BenchResultsTable
+          results={status.results}
+          onRunSingle={runSingle}
+          busy={busy}
+          runningSlotId={runningSlotId}
+        />
       )}
 
       <div className="flex flex-col gap-1.5">

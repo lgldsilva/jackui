@@ -57,6 +57,9 @@
       "others": "Outros"
     }
   },
+  "table": {
+    "sort_by": "Ordenar por {{column}}"
+  },
   "settings": {
     "title": "Configurações",
     "language": "Idioma",
