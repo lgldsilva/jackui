@@ -1,0 +1,258 @@
+package watchlist
+
+import (
+	"context"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/lgldsilva/jackui/internal/jackett"
+)
+
+// countingSearcher is a goroutine-safe Searcher that records the queries it saw.
+type countingSearcher struct {
+	mu      sync.Mutex
+	queries []string
+	results []jackett.Result
+}
+
+func (c *countingSearcher) Search(query, category string, indexers []string) ([]jackett.Result, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queries = append(c.queries, query)
+	return c.results, nil
+}
+
+func (c *countingSearcher) seen() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.queries...)
+}
+
+// safeNotifier is a goroutine-safe notification recorder.
+type safeNotifier struct {
+	mu     sync.Mutex
+	titles []string
+}
+
+func (n *safeNotifier) Notify(ctx context.Context, topic, title, body, magnet string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.titles = append(n.titles, title)
+	return nil
+}
+
+func (n *safeNotifier) count() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.titles)
+}
+
+func TestCreatePersistsScheduleAndArmsNextCheck(t *testing.T) {
+	s := newTestStore(t)
+	w, err := s.Create(1, "q", "", 1, "", Schedule{Kind: SchedDaily, Hour: 12, Minute: 30})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if w.Kind != SchedDaily || w.Hour != 12 || w.Minute != 30 {
+		t.Fatalf("schedule not persisted: %+v", w.Schedule)
+	}
+	now := time.Now()
+	if w.NextCheckAt.IsZero() || !w.NextCheckAt.After(now.Add(-2*time.Second)) || w.NextCheckAt.After(now.Add(24*time.Hour)) {
+		t.Fatalf("NextCheckAt out of range: %v", w.NextCheckAt)
+	}
+}
+
+func TestUpdateReschedules(t *testing.T) {
+	s := newTestStore(t)
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{Kind: SchedInterval, Minutes: 5})
+	if err := s.Update(1, w.ID, "q", "", 1, "", Schedule{Kind: SchedWeekly, Weekday: 6, Hour: 8, Minute: 0}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got, _ := s.Get(1, w.ID)
+	if got.Kind != SchedWeekly || got.Weekday != 6 || got.Hour != 8 {
+		t.Fatalf("schedule not updated: %+v", got.Schedule)
+	}
+	// weekly is at least tomorrow-ish or later today, but definitely further out
+	// than the old 5-minute interval
+	if !got.NextCheckAt.After(time.Now().Add(5 * time.Minute)) {
+		t.Fatalf("NextCheckAt not recomputed: %v", got.NextCheckAt)
+	}
+}
+
+func TestListDue(t *testing.T) {
+	s := newTestStore(t)
+	due, _ := s.Create(1, "due", "", 1, "", Schedule{})
+	notDue, _ := s.Create(1, "not-due", "", 1, "", Schedule{})
+	if err := s.MarkChecked(due.ID, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatalf("MarkChecked: %v", err)
+	}
+	if err := s.MarkChecked(notDue.ID, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("MarkChecked: %v", err)
+	}
+	lists, err := s.ListDue(time.Now())
+	if err != nil {
+		t.Fatalf("ListDue: %v", err)
+	}
+	if len(lists) != 1 || lists[0].ID != due.ID {
+		t.Fatalf("ListDue = %+v, want only id=%d", lists, due.ID)
+	}
+}
+
+func TestListDue_NullNextCheckIsDue(t *testing.T) {
+	s := newTestStore(t)
+	w, _ := s.Create(1, "legacy", "", 1, "", Schedule{})
+	if _, err := s.db.Exec(`UPDATE watchlists SET next_check_at=NULL WHERE id=?`, w.ID); err != nil {
+		t.Fatalf("forcing NULL: %v", err)
+	}
+	lists, err := s.ListDue(time.Now())
+	if err != nil {
+		t.Fatalf("ListDue: %v", err)
+	}
+	if len(lists) != 1 {
+		t.Fatalf("expected NULL next_check_at to be due, got %+v", lists)
+	}
+}
+
+func TestMigrationFromPreSchedulerSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := New(path)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Rebuild the pre-scheduler shape: drop and recreate without sched_* cols.
+	if _, err := old.db.Exec(`
+		DROP TABLE watchlists;
+		CREATE TABLE watchlists (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id      INTEGER NOT NULL,
+			query        TEXT    NOT NULL,
+			category     TEXT    NOT NULL DEFAULT '',
+			min_seeders  INTEGER NOT NULL DEFAULT 1,
+			ntfy_topic   TEXT    NOT NULL DEFAULT '',
+			last_checked DATETIME,
+			created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO watchlists(user_id, query) VALUES (1, 'legacy');
+	`); err != nil {
+		t.Fatalf("rebuilding old schema: %v", err)
+	}
+	old.Close()
+
+	s, err := New(path) // re-open → migrate must add the sched columns
+	if err != nil {
+		t.Fatalf("re-open: %v", err)
+	}
+	t.Cleanup(s.Close)
+	got, err := s.Get(1, 1)
+	if err != nil {
+		t.Fatalf("Get after migration: %v", err)
+	}
+	if got.Kind != SchedInterval || got.Minutes != 0 {
+		t.Fatalf("legacy row schedule = %+v, want interval/server-default", got.Schedule)
+	}
+	if !got.NextCheckAt.IsZero() {
+		t.Fatalf("legacy NextCheckAt should be zero (NULL), got %v", got.NextCheckAt)
+	}
+	due, err := s.ListDue(time.Now())
+	if err != nil || len(due) != 1 {
+		t.Fatalf("legacy row must be due immediately: %v %+v", err, due)
+	}
+}
+
+func TestWorker_RunDueOnlyProcessesDueItems(t *testing.T) {
+	s := newTestStore(t)
+	due, _ := s.Create(1, "due-query", "", 1, "", Schedule{Kind: SchedInterval, Minutes: 5})
+	notDue, _ := s.Create(1, "future-query", "", 1, "", Schedule{Kind: SchedDaily, Hour: 23, Minute: 59})
+	_ = s.MarkChecked(due.ID, time.Now().Add(-time.Minute))
+	_ = s.MarkChecked(notDue.ID, time.Now().Add(time.Hour))
+
+	searcher := &countingSearcher{results: []jackett.Result{{InfoHash: "abc", Title: "Hit", MagnetURI: "m:1", Seeders: 9}}}
+	notifier := &safeNotifier{}
+	w := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
+	w.runDue()
+
+	if got := searcher.seen(); len(got) != 1 || got[0] != "due-query" {
+		t.Fatalf("searched %v, want only due-query", got)
+	}
+	// the due item must be re-armed into the future
+	after, _ := s.Get(1, due.ID)
+	if !after.NextCheckAt.After(time.Now()) {
+		t.Fatalf("due item not re-armed: %v", after.NextCheckAt)
+	}
+}
+
+func TestWorker_KickChecksOneItemImmediately(t *testing.T) {
+	s := newTestStore(t)
+	// schedule far in the future — only the kick can trigger the check
+	w, _ := s.Create(1, "kicked", "", 1, "", Schedule{Kind: SchedDaily, Hour: 23, Minute: 59})
+	_ = s.MarkChecked(w.ID, time.Now().Add(time.Hour))
+
+	searcher := &countingSearcher{results: []jackett.Result{{InfoHash: "abc", Title: "Hit", MagnetURI: "m:1", Seeders: 9}}}
+	notifier := &safeNotifier{}
+	wk := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
+	wk.startDelay = time.Millisecond
+	wk.tick = time.Hour // make sure the scheduled pass never fires during the test
+	wk.Start()
+	defer wk.Stop()
+
+	wk.Kick(w.ID)
+	deadline := time.Now().Add(5 * time.Second)
+	for notifier.count() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if notifier.count() != 1 {
+		t.Fatalf("expected 1 notification after kick, got %d", notifier.count())
+	}
+}
+
+func TestWorker_KickIsNilSafeAndTolerant(t *testing.T) {
+	var nilWorker *Worker
+	nilWorker.Kick(1) // must not panic
+
+	s := newTestStore(t)
+	w := NewWorker(s, &countingSearcher{}, &safeNotifier{}, "topic", time.Minute)
+	w.checkOne(999) // unknown id — logged, no panic
+	for i := 0; i < 100; i++ {
+		w.Kick(i) // overflow the buffer — must never block
+	}
+}
+
+func TestNewWorker_SeedsStoreDefaultEvery(t *testing.T) {
+	s := newTestStore(t)
+	NewWorker(s, &countingSearcher{}, &safeNotifier{}, "", 42*time.Minute)
+	if s.DefaultEvery != 42*time.Minute {
+		t.Fatalf("DefaultEvery = %v, want 42m", s.DefaultEvery)
+	}
+	// "server default" items must inherit it
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	want := time.Now().Add(42 * time.Minute)
+	if w.NextCheckAt.Before(want.Add(-2*time.Second)) || w.NextCheckAt.After(want.Add(2*time.Second)) {
+		t.Fatalf("NextCheckAt = %v, want ≈ %v", w.NextCheckAt, want)
+	}
+}
+
+func TestMarkCheckedRoundTripsNextCheckAt(t *testing.T) {
+	s := newTestStore(t)
+	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	next := time.Now().Add(30 * time.Minute)
+	if err := s.MarkChecked(w.ID, next); err != nil {
+		t.Fatalf("MarkChecked: %v", err)
+	}
+	got, err := s.Get(1, w.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	// stored truncated to the second — allow 2s of slack
+	if d := got.NextCheckAt.Sub(next); d < -2*time.Second || d > 2*time.Second {
+		t.Fatalf("NextCheckAt = %v, want ≈ %v", got.NextCheckAt, next)
+	}
+}
+
+func TestWorker_RunDueListError(t *testing.T) {
+	s := newTestStore(t)
+	w := NewWorker(s, &countingSearcher{}, &safeNotifier{}, "topic", time.Minute)
+	s.Close()
+	w.runDue() // must not panic when the store is closed
+}
