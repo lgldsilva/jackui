@@ -37,6 +37,25 @@ const (
 	PriorityLow    = "low"
 )
 
+// FileIndex sentinels. Non-negative values address one concrete file inside
+// the torrent; negatives select a resolution strategy:
+//
+//   - FileIndexAuto (-1): "pick the best file" — created by the Transmission
+//     RPC shim (Sonarr/Radarr don't know our indices); the worker resolves it
+//     to a real index after metadata and persists it via SetFileIndex.
+//   - FileIndexWholeTorrent (-2): download the ENTIRE torrent as ONE queue
+//     item (t.DownloadAll, aggregate progress, completion moves every file).
+//
+// A sentinel (instead of a new whole_torrent column) keeps the
+// UNIQUE(user_id, info_hash, file_index) constraint doing the dedupe work for
+// free — exactly one whole-torrent row per (user, torrent) — and every store
+// query that already keys on file_index (GetByKey, GetCompletedPath, Create's
+// idempotent re-queue) works unchanged.
+const (
+	FileIndexAuto         = -1
+	FileIndexWholeTorrent = -2
+)
+
 const errInvalidStatus = "invalid status: %s"
 const errInvalidPriority = "invalid priority: %s"
 
@@ -86,6 +105,12 @@ type Download struct {
 	// Source rotation (Phase 2): the magnet currently active when it differs from
 	// the original (an alternative source). Empty = downloading the original.
 	ActiveMagnet string `json:"activeMagnet,omitempty"`
+}
+
+// IsWholeTorrent reports whether this row downloads the entire torrent as one
+// item (FileIndexWholeTorrent sentinel) rather than a single file.
+func (d Download) IsWholeTorrent() bool {
+	return d.FileIndex == FileIndexWholeTorrent
 }
 
 // EffectiveMagnet returns the magnet the worker should download: the active
@@ -227,6 +252,9 @@ func (s *Store) hasColumn(table, col string) bool {
 func (s *Store) Create(d Download) (*Download, error) {
 	if d.InfoHash == "" || d.Magnet == "" {
 		return nil, errors.New("infoHash e magnet são obrigatórios")
+	}
+	if d.FileIndex < FileIndexWholeTorrent {
+		return nil, fmt.Errorf("invalid fileIndex %d (min %d)", d.FileIndex, FileIndexWholeTorrent)
 	}
 	priority := d.Priority
 	if !validPriority(priority) {

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow, Download } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL, queueAllTorrentFiles } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
@@ -107,12 +108,14 @@ function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; rea
   )
 }
 
-// DownloadAllButton queues the WHOLE torrent (one download per file) without
-// picking files one by one. Own component: keeps the async confirm/queue flow
-// out of the main modal function (Sonar S3776 cognitive-complexity gate).
+// DownloadAllButton queues the WHOLE torrent as ONE download item (whole-torrent
+// sentinel — the worker aggregates the progress of every file). Own component:
+// keeps the async confirm/queue flow out of the main modal function (Sonar
+// S3776 cognitive-complexity gate).
 function DownloadAllButton({ info, result }: { readonly info: TorrentInfo; readonly result: SearchResult }) {
   const [busy, setBusy] = useState(false)
   const confirm = useConfirm()
+  const { t } = useTranslation()
   const run = async () => {
     const ok = await confirm({
       title: 'Baixar torrent completo',
@@ -123,8 +126,8 @@ function DownloadAllButton({ info, result }: { readonly info: TorrentInfo; reado
     if (!ok) return
     setBusy(true)
     try {
-      const res = await queueAllTorrentFiles(info, pickTorrentSource(result), result.title, result.tracker || undefined, result.category || undefined)
-      if (res.failed > 0) alert(`${res.queued}/${res.total} enfileirados; ${res.failed} falharam.`)
+      await queueAllTorrentFiles(info, pickTorrentSource(result), result.title, result.tracker || undefined, result.category || undefined)
+      alert(t('downloads.whole_torrent_queued', { count: info.files.length, size: formatSize(info.totalSize) }))
     } catch (err: any) {
       alert(`Falha ao enfileirar: ${err?.response?.data?.error || err.message || err}`)
     } finally {

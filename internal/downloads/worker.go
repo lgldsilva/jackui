@@ -121,17 +121,44 @@ type Worker struct {
 	tmdbClient *tmdb.Client
 }
 
+// wholeTarget is the slice of *torrent.Torrent the worker needs for
+// whole-torrent rows: marking everything wanted (DownloadAll) and aggregate
+// progress. An interface (instead of using td.torrent directly) so init,
+// progress and completion can be unit-tested with a fake — a real
+// *torrent.Torrent can't be constructed without a live client.
+type wholeTarget interface {
+	BytesCompleted() int64
+	Length() int64
+	Files() []*torrent.File
+	DownloadAll()
+}
+
 type trackedDL struct {
-	id                int
-	userID            int
-	infoHash          string
-	hash              metainfo.Hash
-	torrent           *torrent.Torrent
+	id       int
+	userID   int
+	infoHash string
+	hash     metainfo.Hash
+	torrent  *torrent.Torrent
+	// Exactly one of file/whole is set: file for single-file rows, whole for
+	// FileIndexWholeTorrent rows (aggregate progress over the entire torrent).
 	file              *torrent.File
+	whole             wholeTarget
 	name              string
 	startedAt         time.Time
 	lastProgressBytes int64     // bytes at the last forward sample (stall detection)
 	lastProgressAt    time.Time // when bytes last advanced
+}
+
+// progress returns the completed/total byte counts for the row's target
+// (single file or whole torrent). ok=false when there's no target yet.
+func (td *trackedDL) progress() (completed, total int64, ok bool) {
+	if td.whole != nil {
+		return td.whole.BytesCompleted(), td.whole.Length(), true
+	}
+	if td.file != nil {
+		return td.file.BytesCompleted(), td.file.Length(), true
+	}
+	return 0, 0, false
 }
 
 // NewWorker constructs a worker from a config struct. Interval defaults to 2
@@ -478,13 +505,13 @@ func (w *Worker) startInit(d Download) {
 }
 
 func (w *Worker) sampleProgress(d Download, td *trackedDL) {
-	if td.file == nil {
+	completed, _, ok := td.progress()
+	if !ok {
 		return
 	}
-	completed := td.file.BytesCompleted()
 	if completed < d.BytesDownloaded {
 		log.Printf("downloads: ignoring transient regression #%d %q completed %d → %d (keeping DB) — peers=%d",
-			d.ID, td.name, d.BytesDownloaded, completed, len(td.torrent.PeerConns()))
+			d.ID, td.name, d.BytesDownloaded, completed, peerCount(td.torrent))
 	} else if completed != d.BytesDownloaded {
 		if err := w.store.UpdateProgress(d.UserID, d.ID, completed); err != nil {
 			log.Printf("downloads: failed to update progress for download %d: %v", d.ID, err)
@@ -502,14 +529,17 @@ func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 }
 
 func (w *Worker) checkCompletion(d Download, td *trackedDL) {
-	if td.file == nil {
+	completed, total, ok := td.progress()
+	if !ok || total <= 0 || completed < total {
 		return
 	}
-	completed := td.file.BytesCompleted()
-	if completed < td.file.Length() || td.file.Length() <= 0 {
-		return
+	var dst string
+	var err error
+	if td.whole != nil {
+		dst, err = w.moveCompletedTorrent(d, td)
+	} else {
+		dst, err = w.moveCompletedFile(d, td.file.Path(), td.name)
 	}
-	dst, err := w.moveCompletedFile(d, td.file.Path(), td.name)
 	if err != nil {
 		// Don't flip to completed — the file never reached the destination. Retry
 		// next tick (e.g. the anacrolix storage is still renaming the .part).
@@ -526,11 +556,22 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	log.Printf("downloads: completed #%d %q", d.ID, td.name)
 	// AI auto-rename (Plex-style) when an AI client is configured. Off the tick
 	// loop — the download is already usable; this just re-organizes it.
-	if w.aiClient != nil && dst != "" {
+	// Whole-torrent rows skip it: the rename chain targets ONE media file, not
+	// a tree of N files.
+	if w.aiClient != nil && dst != "" && td.whole == nil {
 		go w.aiRenameCompleted(d, dst)
 	}
-	body := fmt.Sprintf("%s · %.2f MB", td.name, float64(td.file.Length())/1048576)
+	body := fmt.Sprintf("%s · %.2f MB", td.name, float64(total)/1048576)
 	go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
+}
+
+// peerCount is nil-safe len(t.PeerConns()) for diagnostic logs (tests build
+// trackedDLs without a live torrent).
+func peerCount(t *torrent.Torrent) int {
+	if t == nil {
+		return 0
+	}
+	return len(t.PeerConns())
 }
 
 // partSuffix is what the anacrolix file storage appends to a file until all its
@@ -623,6 +664,77 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) (str
 	w.streamer.UnregisterDownload(torrentName)
 	log.Printf("downloads: moved #%d %q → %s", d.ID, torrentName, dst)
 	return dst, nil
+}
+
+// moveCompletedTorrent relocates EVERY file of a finished whole-torrent
+// download from the streaming cache into downloadDir/<user>/<torrent>/,
+// preserving the directory structure inside the torrent. Returns the torrent's
+// destination directory (persisted as the row's file_path). Same contract as
+// moveCompletedFile: an error means nothing was flipped to completed and the
+// next tick retries — moveCompletedTree is idempotent, so a retry (or the
+// boot-time orphan re-queue) skips files that already reached the destination.
+func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error) {
+	if w.downloadDir == "" {
+		return "", nil
+	}
+	files := td.whole.Files()
+	relPaths := make([]string, 0, len(files))
+	for _, f := range files {
+		relPaths = append(relPaths, f.Path())
+	}
+	username := ""
+	if w.resolveUsername != nil {
+		username = w.resolveUsername(d.UserID)
+	}
+	destDir := completedDestDir(w.downloadDir, username, td.name)
+	if err := moveCompletedTree(w.dataDir, destDir, td.name, relPaths); err != nil {
+		return "", err
+	}
+	if err := w.store.SetFilePath(d.UserID, d.ID, destDir); err != nil {
+		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+	}
+	w.streamer.UnregisterDownload(td.name)
+	log.Printf("downloads: moved whole torrent #%d %q (%d files) → %s", d.ID, td.name, len(relPaths), destDir)
+	return destDir, nil
+}
+
+// moveCompletedTree moves every torrent-relative path from dataDir into
+// destDir, keeping the structure inside the torrent. The leading
+// "<torrentName>/" segment is stripped (destDir already carries the per-torrent
+// folder). Idempotent: a file whose source is gone but whose destination exists
+// was moved by a previous (interrupted) attempt and is skipped.
+func moveCompletedTree(dataDir, destDir, torrentName string, relPaths []string) error {
+	for _, rel := range relPaths {
+		dst, err := wholeTorrentDest(destDir, torrentName, rel)
+		if err != nil {
+			return err
+		}
+		src := resolveCompletedSrc(dataDir, rel)
+		if src == "" {
+			if fileExists(dst) {
+				continue // already moved on a previous attempt
+			}
+			return fmt.Errorf("completed file not found in %s for %q", dataDir, rel)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("mkdir for %q: %w", rel, err)
+		}
+		if err := moveFile(src, dst); err != nil {
+			return fmt.Errorf("move %s → %s: %w", src, dst, err)
+		}
+	}
+	return nil
+}
+
+// wholeTorrentDest resolves the destination path for one torrent-relative file,
+// rejecting metadata-supplied paths that would escape destDir (".." traversal —
+// torrent metadata is untrusted input).
+func wholeTorrentDest(destDir, torrentName, rel string) (string, error) {
+	if !filepath.IsLocal(filepath.FromSlash(rel)) {
+		return "", fmt.Errorf("unsafe path %q in torrent", rel)
+	}
+	rel = strings.TrimPrefix(rel, torrentName+"/")
+	return filepath.Join(destDir, filepath.FromSlash(rel)), nil
 }
 
 // aiRenameCompleted re-organizes a completed download into a Plex-style path
@@ -753,25 +865,10 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 		return
 	}
 
-	files := t.Files()
-	fileIdx, okResolved := w.resolveFileIndex(&d, files)
-	if !okResolved {
+	f, whole, ok := w.initTarget(&d, hash, t)
+	if !ok {
 		return
 	}
-	f := files[fileIdx]
-	// Hash-check pieces no disco ANTES de marcar como wanted. Sem isso,
-	// se o shutdown anterior foi ungraceful (SIGKILL pelo Docker antes do
-	// graceful-shutdown ficar pronto), o bolt DB do anacrolix está stale —
-	// pieces existem no disco mas anacrolix os marca como incompletos. f.Download
-	// abaixo iria pedir esses bytes do swarm. VerifyFile faz o hash de cada
-	// piece e marca como Complete os que casam, eliminando re-download. Idempotente
-	// (sync.Map dedupe entre streaming e download). Custo: ~1 hash por piece.
-	if err := w.streamer.VerifyFile(hash, fileIdx); err != nil {
-		log.Printf("downloads: failed to verify file pieces for download %d: %v", d.ID, err)
-	}
-	// File.Download() sets piece priority to Normal across the file's piece
-	// range — anacrolix then schedules a full download to completion.
-	f.Download()
 
 	name := t.Name()
 	w.streamer.RegisterDownload(name)
@@ -781,26 +878,32 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// container OOM no meio do copy), o file_path ficava inválido pra qualquer
 	// consumer (Local browser, Promote, etc.). Absoluto: se move sucede,
 	// SetFilePath sobrescreve com o destino; se falha, ainda dá pra achar o
-	// arquivo na cache pelo path.
-	filePath := filepath.Join(w.dataDir, f.Path())
-	fileSize := f.Length()
+	// arquivo na cache pelo path. Whole-torrent: a raiz do torrent na cache e o
+	// tamanho agregado.
+	filePath := filepath.Join(w.dataDir, name)
+	fileSize := t.Length()
+	if f != nil {
+		filePath = filepath.Join(w.dataDir, f.Path())
+		fileSize = f.Length()
+	}
 	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
 		log.Printf("downloads: failed to update metadata for download %d: %v", d.ID, err)
 	}
 
 	now := time.Now()
 	td := &trackedDL{
-		id:                d.ID,
-		userID:            d.UserID,
-		infoHash:          d.InfoHash,
-		hash:              hash,
-		torrent:           t,
-		file:              f,
-		name:              name,
-		startedAt:         now,
-		lastProgressBytes: f.BytesCompleted(),
-		lastProgressAt:    now,
+		id:             d.ID,
+		userID:         d.UserID,
+		infoHash:       d.InfoHash,
+		hash:           hash,
+		torrent:        t,
+		file:           f,
+		whole:          whole,
+		name:           name,
+		startedAt:      now,
+		lastProgressAt: now,
 	}
+	td.lastProgressBytes, _, _ = td.progress()
 	w.mu.Lock()
 	// If the download was cancelled mid-init, `pending` no longer holds our
 	// entry (the tick loop deleted it and called cancel). Don't promote it —
@@ -818,12 +921,49 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// init terminar e o primeiro tick rodar UpdateProgress) — interpreta como
 	// "recomeçou". VerifyFile acima já reconciliou o estado de pieces, então
 	// BytesCompleted aqui reflete a realidade do disco.
-	if initialBytes := f.BytesCompleted(); initialBytes > 0 {
+	initialBytes, totalBytes, _ := td.progress()
+	if initialBytes > 0 {
 		if err := w.store.UpdateProgress(d.UserID, d.ID, initialBytes); err != nil {
 			log.Printf("downloads: failed to update initial progress for download %d: %v", d.ID, err)
 		}
 	}
-	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, f.Length(), f.BytesCompleted())
+	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, totalBytes, initialBytes)
+}
+
+// initTarget marks the row's download target as wanted in anacrolix and
+// returns it: a single *torrent.File for per-file rows, or the torrent itself
+// (as a wholeTarget) for FileIndexWholeTorrent rows. ok=false means the row was
+// already flipped to failed (no files in torrent).
+//
+// Both paths hash-check pieces no disco ANTES de marcar como wanted. Sem isso,
+// se o shutdown anterior foi ungraceful (SIGKILL pelo Docker antes do
+// graceful-shutdown ficar pronto), o bolt DB do anacrolix está stale — pieces
+// existem no disco mas anacrolix os marca como incompletos e pediria esses
+// bytes do swarm de novo. VerifyFile/VerifyTorrent hasheiam cada piece e marcam
+// como Complete os que casam (idempotente, dedupe por processo).
+func (w *Worker) initTarget(d *Download, hash metainfo.Hash, t wholeTarget) (*torrent.File, wholeTarget, bool) {
+	if d.IsWholeTorrent() {
+		if err := w.streamer.VerifyTorrent(hash); err != nil {
+			log.Printf("downloads: failed to verify torrent pieces for download %d: %v", d.ID, err)
+		}
+		// DownloadAll sets piece priority to Normal across the whole torrent —
+		// anacrolix schedules every file to completion. ONE queue row, ONE slot.
+		t.DownloadAll()
+		return nil, t, true
+	}
+	files := t.Files()
+	fileIdx, okResolved := w.resolveFileIndex(d, files)
+	if !okResolved {
+		return nil, nil, false
+	}
+	f := files[fileIdx]
+	if err := w.streamer.VerifyFile(hash, fileIdx); err != nil {
+		log.Printf("downloads: failed to verify file pieces for download %d: %v", d.ID, err)
+	}
+	// File.Download() sets piece priority to Normal across the file's piece
+	// range — anacrolix then schedules a full download to completion.
+	f.Download()
+	return f, nil, true
 }
 
 // resolveFileIndex resolves the target file index in a torrent. If index is out of bounds,
