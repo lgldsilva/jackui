@@ -42,15 +42,13 @@ function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
 
 // PosterCard renders one TMDB title as a clickable poster. Shared by the
 // trending grid and the recommendations grid so both look identical. `badge`
-// goes bottom-left (trending direction); `caption` replaces the year line (the
-// "porque você assistiu X" attribution on recommendations). The root is a div
-// with a full-bleed button overlay (not a <button> wrapper) so the trailer
-// mini-button can be a sibling — nested buttons are invalid HTML.
-function PosterCard({ m, onClick, badge, caption, onTrailer, trailerMuted }: {
+// goes bottom-left (trending direction). The root is a div with a full-bleed
+// button overlay (not a <button> wrapper) so the trailer mini-button can be a
+// sibling — nested buttons are invalid HTML.
+function PosterCard({ m, onClick, badge, onTrailer, trailerMuted }: {
   readonly m: TmdbMatch
   readonly onClick: () => void
   readonly badge?: React.ReactNode
-  readonly caption?: string
   readonly onTrailer?: () => void
   readonly trailerMuted?: boolean // already probed: this title has no trailer
 }) {
@@ -91,30 +89,42 @@ function PosterCard({ m, onClick, badge, caption, onTrailer, trailerMuted }: {
       </div>
       <div className="p-2">
         <p className="text-xs text-text-primary line-clamp-2" title={m.title}>{m.title}</p>
-        {caption
-          ? <p className="text-[10px] text-green-400/90 line-clamp-1" title={caption}>{caption}</p>
-          : (m.year > 0 && <p className="text-[10px] text-text-muted">{m.year}</p>)}
+        {m.year > 0 && <p className="text-[10px] text-text-muted">{m.year}</p>}
       </div>
     </div>
   )
 }
 
 // RecTopic renders one collapsible recommendations topic ("Porque você viu X").
-// The header is a real <button> (keyboard + aria-expanded) that toggles the grid;
-// the collapsed state is owned by the parent so it can persist across visits. The
-// grid stays mounted when collapsed (height/opacity animation) so re-expanding is
-// instant and lazy posters don't re-fetch.
+// The header is a real <button> (keyboard + aria-expanded + aria-controls) that
+// toggles the grid; the collapsed state is owned by the parent so it can persist
+// across visits. The grid stays MOUNTED when collapsed (height animation via
+// grid-rows) so re-expanding is instant and lazy posters don't re-fetch — but a
+// mounted-yet-invisible grid still contains the posters' overlay/trailer
+// <button>s. Without removing them from the a11y tree, a keyboard user tabbing
+// past a collapsed topic would land on buttons that are clipped off-screen
+// (focus disappears) — WCAG 2.4.3/2.4.7. So when collapsed we mark the region
+// `inert` (drops descendants from tab order AND from the accessibility tree) and
+// add aria-hidden as a redundant signal for AT that doesn't yet honour `inert`.
 function RecTopic({ group, collapsed, onToggle, renderCard }: {
   readonly group: RecGroup
   readonly collapsed: boolean
   readonly onToggle: () => void
   readonly renderCard: (r: TmdbRecommendation) => React.ReactNode
 }) {
+  // group.key (e.g. "because:the matrix") may carry spaces/colons — not valid in
+  // an HTML id token, which would break the aria-controls reference. Slugify it.
+  const regionId = `rectopic-${group.key.replace(/[^a-z0-9]+/gi, '-')}`
+  // `inert` must be ABSENT (not inert="false") when expanded — React 18 has no
+  // typed boolean `inert`, and the DOM treats any present value as truthy. Spread
+  // the attribute only while collapsed; the cast lets TS accept the unknown prop.
+  const inertWhenCollapsed = (collapsed ? { inert: '' } : {}) as { inert?: '' }
   return (
     <section className="flex flex-col gap-2">
       <button
         onClick={onToggle}
         aria-expanded={!collapsed}
+        aria-controls={regionId}
         title={collapsed ? `Expandir "${group.label}"` : `Recolher "${group.label}"`}
         className="flex items-center gap-2 text-left text-sm font-medium text-text-secondary hover:text-text-primary transition-colors w-full"
       >
@@ -122,7 +132,12 @@ function RecTopic({ group, collapsed, onToggle, renderCard }: {
         <span className="line-clamp-1">{group.label}</span>
         <span className="text-[11px] text-text-muted font-normal">({group.items.length})</span>
       </button>
-      <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+      <div
+        id={regionId}
+        aria-hidden={collapsed}
+        {...inertWhenCollapsed}
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${collapsed ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
+      >
         <div className="overflow-hidden">
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {group.items.map(renderCard)}
