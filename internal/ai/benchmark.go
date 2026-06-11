@@ -14,6 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/lgldsilva/jackui/internal/config"
 )
@@ -29,10 +32,15 @@ import (
 //   - Movie:           "Inception - 2010"        (Título - Ano)
 //   - TV episode:      "Breaking Bad - S03E07"   (Série - Temporada/Episódio)
 //   - TV (no season):  "Frieren - E01"           (Série - Episódio)
+//   - Season pack:     "The Wire - S04"          (Série - Temporada, sem episódio)
 //   - Plain title:     "Inception"               (sem estrutura → só o título conta)
 type BenchmarkCase struct {
 	Raw    string `json:"raw"`
 	Expect string `json:"expect"`
+	// Origin is "default" for the built-in set (see OriginDefault) and empty for
+	// user-added cases. Informational — scoring ignores it, and the UI's textarea
+	// editor doesn't round-trip it, so any user-saved set simply becomes custom.
+	Origin string `json:"origin,omitempty"`
 }
 
 // SlotScore is one model's aggregate result over the whole case set.
@@ -55,21 +63,6 @@ type SlotScore struct {
 	Incomplete bool `json:"incomplete,omitempty"`
 }
 
-// DefaultBenchmarkCases seeds a fresh store. Picked to exercise the hard parts:
-// dotted names, scene tags, season/episode packs, non-English, and bracketed
-// release-group noise. Expects use the canonical label (see BenchmarkCase) so
-// the benchmark measures the full rename structure — título/ano for movies,
-// série + temporada/episódio for TV — not just the title.
-var DefaultBenchmarkCases = []BenchmarkCase{
-	{Raw: "Inception.2010.1080p.BluRay.x264-SPARKS", Expect: "Inception - 2010"},
-	{Raw: "The.Matrix.1999.2160p.UHD.BluRay.x265-TERMINAL", Expect: "The Matrix - 1999"},
-	{Raw: "Breaking.Bad.S03E07.720p.HDTV.x264-CTU", Expect: "Breaking Bad - S03E07"},
-	{Raw: "Game.of.Thrones.S01E09.Baelor.1080p.BluRay.x264-DEMAND", Expect: "Game of Thrones - S01E09"},
-	{Raw: "Dune.Part.Two.2024.1080p.WEB-DL.DDP5.1.Atmos.H.264-FLUX", Expect: "Dune Part Two - 2024"},
-	{Raw: "[Erai-raws] Frieren - 01 [1080p][Multiple Subtitle]", Expect: "Frieren - E01"},
-	{Raw: "O.Auto.da.Compadecida.2000.DUBLADO.1080p", Expect: "O Auto da Compadecida - 2000"},
-}
-
 // compositeScore ranks a model by VALUE: quality ÷ (√latency × cost factor). The
 // sqrt softens the latency penalty so a slightly slower but more accurate model
 // can still win; a 0.3s floor stops a sub-300ms call from inflating the score.
@@ -86,7 +79,10 @@ func compositeScore(accuracy float64, avgLatencyMs int64, costPer1M float64) flo
 	return accuracy / math.Sqrt(seconds) / (1 + cost)
 }
 
-var alnumRe = regexp.MustCompile(`[^a-z0-9]+`)
+// tokenRe collapses every run of non-letter/non-digit characters into a single
+// space. Unicode-aware (\p{L}/\p{N}) so non-Latin titles still tokenize instead
+// of being erased (the old [^a-z0-9] regex zeroed any CJK/Cyrillic title).
+var tokenRe = regexp.MustCompile(`[^\p{L}\p{N}]+`)
 
 // titleAccuracy scores how well `got` matches `expect`: 1.0 for an exact match
 // (after normalization), otherwise the Jaccard overlap of word tokens so a
@@ -116,17 +112,39 @@ func titleAccuracy(got, expect string) float64 {
 	return float64(inter) / float64(union)
 }
 
+// normalizeTitle canonicalizes a title for comparison. The criterion is:
+// case-insensitive, accent-insensitive ("Amélie" == "Amelie" — models often
+// drop diacritics the release name never carried), punctuation/separator
+// runs collapsed to one space, trimmed. Word ORDER is deliberately ignored
+// downstream (token-set Jaccard in titleAccuracy), but the exact-match path
+// here keeps full credit order-sensitive.
 func normalizeTitle(s string) string {
-	return strings.Trim(alnumRe.ReplaceAllString(strings.ToLower(s), " "), " ")
+	return strings.Trim(tokenRe.ReplaceAllString(strings.ToLower(foldAccents(s)), " "), " ")
+}
+
+// foldAccents strips combining marks after NFD decomposition ("Amélie" →
+// "Amelie", "São" → "Sao"). Non-Latin scripts pass through untouched.
+func foldAccents(s string) string {
+	decomposed := norm.NFD.String(s)
+	var b strings.Builder
+	b.Grow(len(decomposed))
+	for _, r := range decomposed {
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // Canonical-label parsers. The structure of an expected label lives inside the
 // Expect string (see BenchmarkCase); these pull it back out for scoring. Order
 // matters: try the most specific (S..E..) first.
 var (
-	expectTVRe   = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+S(\d{1,2})E(\d{1,3})\s*$`)
-	expectEpRe   = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+E(\d{1,3})\s*$`)
-	expectYearRe = regexp.MustCompile(`^(.*\S)\s+-\s+(\d{4})\s*$`)
+	expectTVRe     = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+S(\d{1,2})E(\d{1,3})\s*$`)
+	expectEpRe     = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+E(\d{1,3})\s*$`)
+	expectSeasonRe = regexp.MustCompile(`(?i)^(.*\S)\s+-\s+S(\d{1,2})\s*$`)
+	expectYearRe   = regexp.MustCompile(`^(.*\S)\s+-\s+(\d{4})\s*$`)
 )
 
 // expectFields is the structured form of an Expect label. Zero season/episode/
@@ -139,8 +157,11 @@ type expectFields struct {
 }
 
 // parseExpect splits a canonical Expect label into its structured fields. A bare
-// title (no " - S..E.." / " - E.." / " - YYYY" tail) yields just the title, so
-// title-only cases keep working exactly as before.
+// title (no " - S..E.." / " - E.." / " - S.." / " - YYYY" tail) yields just the
+// title, so title-only cases keep working exactly as before. The season-only
+// form ("The Wire - S04", a season pack) pins the season but NOT the episode —
+// a model that invents an episode number for a pack isn't penalized, only a
+// wrong/missing season is.
 func parseExpect(expect string) expectFields {
 	expect = strings.TrimSpace(expect)
 	if m := expectTVRe.FindStringSubmatch(expect); m != nil {
@@ -148,6 +169,9 @@ func parseExpect(expect string) expectFields {
 	}
 	if m := expectEpRe.FindStringSubmatch(expect); m != nil {
 		return expectFields{Title: strings.TrimSpace(m[1]), Episode: atoiSafe(m[2])}
+	}
+	if m := expectSeasonRe.FindStringSubmatch(expect); m != nil {
+		return expectFields{Title: strings.TrimSpace(m[1]), Season: atoiSafe(m[2])}
 	}
 	if m := expectYearRe.FindStringSubmatch(expect); m != nil {
 		return expectFields{Title: strings.TrimSpace(m[1]), Year: atoiSafe(m[2])}

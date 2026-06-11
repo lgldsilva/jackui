@@ -198,8 +198,14 @@ func (c *Client) ApplyChain(defs []config.AIChainSlot) {
 // Slots returns a copy of the resolved chain (for the benchmark + status UI).
 func (c *Client) Slots() []Slot { return c.slotList() }
 
-const identifySystem = `You extract the canonical movie or TV show title from a raw torrent/release name.
-Strip resolution, codec, release group, language and season/episode tags.
+const identifySystem = `You extract the canonical movie or TV series title from a raw torrent/release name.
+
+Rules:
+- Strip technical noise: resolution (720p/1080p/2160p/4K/UHD), source (BluRay/REMUX/WEB-DL/WEBRip/HDTV/AMZN/NF), codec (x264/x265/H.264/HEVC/AV1/10bit), audio (DDP5.1/DTS/Atmos/AAC), HDR/DV, edition tags (REPACK/PROPER/EXTENDED/COMPLETE/Director's Cut), language/dub tags (DUAL/MULTI/DUBLADO/LEGENDADO/NACIONAL/FRENCH/GERMAN), season/episode markers, bracketed ids/groups, file extensions, leading site tags ("www.Site.com - ") and the trailing release group.
+- Dots/underscores become spaces. Keep the title's own language, accents and punctuation — never translate.
+- KEEP numbers that are part of the title ("Blade Runner 2049", "Wonder Woman 1984", "1917"); "year" is the standalone RELEASE year next to the quality tags, 0 if unknown.
+- TV/anime: return only the series name, without SxxEyy or episode numbers. Anime: use the romanized title as written.
+
 Reply with ONLY a JSON object, no prose, no code fences:
 {"title": "<clean title>", "year": <release year or 0>, "kind": "movie" | "tv" | "unknown"}`
 
@@ -611,23 +617,41 @@ func parseTitleJSON(content string) (*TitleResult, error) {
 	return nil, fmt.Errorf("ai: no usable title in reply")
 }
 
-const renameSystem = `You analyze raw media filenames and extract metadata for organized file naming.
-Content can be a mainstream movie, TV show episode, or adult scene.
+// renameSystem is the production extraction prompt: it drives the AI rename
+// feature AND the title cleaning before TMDB, and is exactly what the benchmark
+// scores (metadataWithSlot). The few-shot examples must NEVER reuse a raw from
+// DefaultBenchmarkCases — a model could copy the answer straight from its own
+// prompt and inflate the benchmark (guarded by TestDefaultCasesNotInPrompts).
+const renameSystem = `You extract structured metadata from raw torrent/release filenames (movies, TV episodes, season packs, anime, documentaries, live events, music, adult scenes) for organized file naming.
 
-Extract the following fields as JSON:
-- "title": The best descriptive title preserving all meaningful info.
-  - Mainstream movie/show: use the canonical title (e.g. "Breaking Bad").
-  - Adult scene with pattern "studio.YY.MM.DD.model.name.scene.description.xxx":
-    produce "Studio - Model Name - Scene Description" — keep the model name and scene
-    description, never collapse to just the studio/brand name.
-  - Do NOT strip descriptive parts. If in doubt, keep more detail.
-- "year": Release year (integer, 0 if unknown). Date tokens like "26.03.29" mean 2026.
-- "kind": "movie" or "tv".
-- "season": Season number (integer, only for tv, else 0).
-- "episode": Episode number (integer, only for tv, else 0).
-- "episode_title": Episode title only if explicitly present in filename, otherwise "".
+Reply with ONLY one raw JSON object, no prose, no code fences:
+{"title": "", "year": 0, "kind": "movie" or "tv", "season": 0, "episode": 0, "episode_title": ""}
 
-Reply with ONLY the raw JSON object, no prose, no code fences.`
+Field rules:
+- "title": the clean canonical title.
+  - Strip ALL technical noise: resolution (720p/1080p/2160p/4K/UHD), source (BluRay/REMUX/WEB-DL/WEBRip/HDTV/AMZN/NF/HULU/HMAX/CR), codec (x264/x265/H.264/HEVC/AV1/XviD/10bit), audio (DDP5.1/DD+/DTS/Atmos/AAC/FLAC/320kbps), HDR/DV/HDR10+, edition tags (REPACK/PROPER/EXTENDED/UNRATED/REMASTERED/Director's Cut/Final Cut/Special Edition/COMPLETE/PPV), language/dub tags (DUAL/MULTI/DUBLADO/LEGENDADO/NACIONAL/FRENCH/GERMAN/SPANISH/KOREAN/JAPANESE), bracketed ids/checksums, file extensions, leading website tags ("www.Site.com - ", "[ Site.xx ]") and the trailing release group.
+  - Replace dots/underscores with spaces; restore natural capitalization; KEEP the title's own punctuation, accents and language exactly — never translate ("Divertida Mente 2" stays "Divertida Mente 2").
+  - KEEP numbers that belong to the title: "Blade Runner 2049", "Wonder Woman 1984", "1917", "2012", "UFC 300".
+  - TV/anime: the title is the SERIES name only — never include SxxEyy, episode numbers, "Season N" or "COMPLETE" in it.
+  - Anime: use the romanized title as written in the filename.
+  - Music: "Artist - Album" when both are present, else just the artist.
+  - Live events (UFC/F1/WWE): keep the event name, number and bout/session ("UFC 299 O'Malley vs Vera 2").
+  - Adult scene "studio.YY.MM.DD.performer.name.scene.description.XXX": produce "Studio - Performer Name - Scene Description" — keep the performer and scene description, never collapse to just the studio. If in doubt, keep more detail.
+- "year": the RELEASE year (integer, 0 if unknown). It is the standalone 4-digit year next to the quality tags, NOT a number that is part of the title. Adult date tokens like "24.03.15" mean 2024.
+- "kind": "tv" for series/anime episodes and season packs, else "movie".
+- "season"/"episode": integers, only for tv (else 0). "S03E07" or "3x07" → season 3, episode 7. A season pack ("S01", "Season 1", "S01.COMPLETE") → season set, episode 0. Anime with absolute numbering ("[Group] Title - 05") → episode 5, season 0 unless explicit.
+- "episode_title": only when explicitly present in the filename, else "".
+
+Examples:
+The.Dark.Knight.2008.1080p.BluRay.x264-REFiNED → {"title":"The Dark Knight","year":2008,"kind":"movie","season":0,"episode":0,"episode_title":""}
+Class.of.1999.1990.720p.BluRay.x264-SADPANDA → {"title":"Class of 1999","year":1990,"kind":"movie","season":0,"episode":0,"episode_title":""}
+The.Sopranos.S02E04.Commendatori.720p.HDTV.x264 → {"title":"The Sopranos","year":0,"kind":"tv","season":2,"episode":4,"episode_title":"Commendatori"}
+True.Detective.S01.COMPLETE.1080p.BluRay.x264-DEMAND → {"title":"True Detective","year":0,"kind":"tv","season":1,"episode":0,"episode_title":""}
+[SubsPlease] Yofukashi no Uta - 03 (1080p) [1A2B3C4D].mkv → {"title":"Yofukashi no Uta","year":0,"kind":"tv","season":0,"episode":3,"episode_title":""}
+Central.do.Brasil.1998.NACIONAL.1080p.BluRay.x264-TROPiX → {"title":"Central do Brasil","year":1998,"kind":"movie","season":0,"episode":0,"episode_title":""}
+www.TamilMV.re - Mission.Impossible.Fallout.2018.1080p.WEB-DL → {"title":"Mission Impossible Fallout","year":2018,"kind":"movie","season":0,"episode":0,"episode_title":""}
+Daft.Punk.Random.Access.Memories.2013.FLAC.24bit → {"title":"Daft Punk - Random Access Memories","year":2013,"kind":"movie","season":0,"episode":0,"episode_title":""}
+Vixen.23.05.20.Eva.Elfie.Sun.Kissed.XXX.1080p.MP4-WRB → {"title":"Vixen - Eva Elfie - Sun Kissed","year":2023,"kind":"movie","season":0,"episode":0,"episode_title":""}`
 
 type RenameMetadata struct {
 	Title        string `json:"title"`
