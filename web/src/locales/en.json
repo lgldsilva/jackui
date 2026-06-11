@@ -154,6 +154,10 @@
     "copy": "Copy",
     "copied": "Copied!"
   },
+  "trailer": {
+    "watch": "Trailer",
+    "none": "No trailer"
+  },
   "stats": {
     "title": "Statistics",
     "watch_time": "Watch time",

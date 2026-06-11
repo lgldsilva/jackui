@@ -1083,6 +1083,7 @@ func registerTMDBRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/tmdb/match", handlers.TmdbMatch(deps.tmdbClient))
 	api.GET("/tmdb/trending", handlers.TmdbTrending(deps.tmdbClient))
 	api.GET("/tmdb/genres", handlers.TmdbGenres(deps.tmdbClient))
+	api.GET("/tmdb/videos", handlers.TmdbVideos(deps.tmdbClient))
 }
 
 func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
