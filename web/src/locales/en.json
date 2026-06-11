@@ -158,5 +158,17 @@
     "empty": "No notifications yet. Watchlist hits show up here.",
     "enable_push": "Enable push in this browser",
     "push_on": "Push on"
+  },
+  "downloads": {
+    "whole_torrent_queued": "Whole torrent queued — {{count}} files, {{size}}",
+    "whole_torrent_badge": "Whole torrent",
+    "whole_torrent_files": "{{count}} files",
+    "clear_failed": "Clear failed",
+    "clear_failed_title": "Clear failed downloads?",
+    "clear_failed_message": "Remove {{count}} failed download(s) from the list? Files on disk are NOT deleted.",
+    "clear_queued": "Clear queue",
+    "clear_queued_title": "Clear the queue?",
+    "clear_queued_message": "Remove {{count}} queued download(s)? Active downloads are not affected.",
+    "clear_confirm": "Remove"
   }
 }
