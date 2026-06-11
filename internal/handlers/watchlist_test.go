@@ -244,7 +244,7 @@ func TestWatchlistUpdate_PersistsSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := s.Create(0, "q", "", 1, "", watchlist.Schedule{})
+	created, err := s.Create(0, watchlist.Params{Query: "q", MinSeeders: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

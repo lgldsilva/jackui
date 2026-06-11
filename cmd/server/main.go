@@ -574,6 +574,9 @@ func initWatchlistStore(deps *appDeps) {
 	}
 	notifier := &watchlist.NtfyPoster{BaseURL: deps.cfg.Notifications.NtfyBaseURL, Token: deps.cfg.Notifications.NtfyToken}
 	worker := watchlist.NewWorker(w, deps.jackettClient, notifier, deps.cfg.Notifications.NtfyDefaultTopic, interval)
+	if deps.downloadsStore != nil {
+		worker.SetEnqueuer(deps.downloadsStore)
+	}
 	worker.Start()
 	deps.watchlistWkr = worker
 	deps.addCleanup(worker.Stop)

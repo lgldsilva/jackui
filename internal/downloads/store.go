@@ -260,6 +260,23 @@ func (s *Store) Create(d Download) (*Download, error) {
 	return s.Get(d.UserID, int(id))
 }
 
+// EnqueueMagnet creates a queued download from a bare magnet, before any
+// torrent metadata is known. FileIndex -1 means "pick the best file" — the
+// worker resolves it after GotInfo (same contract as the Transmission RPC
+// shim). Used by automation (watchlist auto-download); idempotent via Create.
+func (s *Store) EnqueueMagnet(userID int, infoHash, name, magnet, tracker string) error {
+	_, err := s.Create(Download{
+		UserID:   userID,
+		InfoHash: strings.ToLower(infoHash),
+		// FileIndex -1: best-file sentinel (see resolveFileIndex in worker.go)
+		FileIndex: -1,
+		Name:      name,
+		Magnet:    magnet,
+		Tracker:   tracker,
+	})
+	return err
+}
+
 // Get returns one download owned by userID.
 func (s *Store) Get(userID, id int) (*Download, error) {
 	row := s.db.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
