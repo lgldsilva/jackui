@@ -13,6 +13,7 @@ export * from './tmdb'
 export * from './watchlists'
 export * from './library'
 export * from './playlists'
+export * from './push'
 
 export type Quality = {
   readonly resolution?: string
