@@ -20,6 +20,10 @@ export type Watchlist = {
   lastChecked: string
   createdAt: string
   hitCount?: number
+  autoDownload: boolean
+  minResolution: string
+  maxSizeBytes: number
+  codec: string
 }
 
 export type WatchlistInput = {
@@ -32,6 +36,10 @@ export type WatchlistInput = {
   schedWeekday?: number
   schedHour?: number
   schedMinute?: number
+  autoDownload?: boolean
+  minResolution?: string
+  maxSizeBytes?: number
+  codec?: string
 }
 
 export type WatchlistHit = {
@@ -41,6 +49,7 @@ export type WatchlistHit = {
   seeders: number
   size: number
   seenAt: string
+  autoDownloaded?: boolean
 }
 
 export const watchlistsList = async (): Promise<Watchlist[]> => {

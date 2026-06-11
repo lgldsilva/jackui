@@ -9,6 +9,12 @@ import (
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
+// params keeps the legacy positional test call sites readable after the
+// Create/Update signature moved to the Params struct.
+func params(query, category string, minSeeders int, ntfyTopic string) Params {
+	return Params{Query: query, Category: category, MinSeeders: minSeeders, NtfyTopic: ntfyTopic}
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "watchlist.db")
@@ -22,7 +28,7 @@ func newTestStore(t *testing.T) *Store {
 
 func TestCreateAndGet(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, "test query", "2000", 5, "mytopic", Schedule{})
+	w, err := s.Create(1, params("test query", "2000", 5, "mytopic"))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -43,7 +49,7 @@ func TestCreateAndGet(t *testing.T) {
 
 func TestCreate_EmptyQuery(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.Create(1, "", "", 0, "", Schedule{})
+	_, err := s.Create(1, params("", "", 0, ""))
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -51,7 +57,7 @@ func TestCreate_EmptyQuery(t *testing.T) {
 
 func TestCreate_NegativeMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, "query", "", -5, "", Schedule{})
+	w, err := s.Create(1, params("query", "", -5, ""))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -62,8 +68,8 @@ func TestCreate_NegativeMinSeeders(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "old", "2000", 1, "", Schedule{})
-	err := s.Update(1, w.ID, "new", "5000", 10, "newtopic", Schedule{})
+	w, _ := s.Create(1, params("old", "2000", 1, ""))
+	err := s.Update(1, w.ID, params("new", "5000", 10, "newtopic"))
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -75,8 +81,8 @@ func TestUpdate(t *testing.T) {
 
 func TestUpdate_EmptyQuery(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
-	err := s.Update(1, w.ID, "", "", 0, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
+	err := s.Update(1, w.ID, params("", "", 0, ""))
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -84,8 +90,8 @@ func TestUpdate_EmptyQuery(t *testing.T) {
 
 func TestUpdate_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
-	err := s.Update(2, w.ID, "new", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
+	err := s.Update(2, w.ID, params("new", "", 1, ""))
 	if err == nil || err.Error() != "watchlist n\u00e3o encontrada" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
 	}
@@ -93,7 +99,7 @@ func TestUpdate_WrongUser(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	if err := s.Delete(1, w.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -104,7 +110,7 @@ func TestDelete(t *testing.T) {
 
 func TestDelete_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	err := s.Delete(2, w.ID)
 	if err == nil || err.Error() != "watchlist n\u00e3o encontrada" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
@@ -113,9 +119,9 @@ func TestDelete_WrongUser(t *testing.T) {
 
 func TestList(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "q1", "", 1, "", Schedule{})
-	_, _ = s.Create(1, "q2", "", 1, "", Schedule{})
-	_, _ = s.Create(2, "q3", "", 1, "", Schedule{})
+	_, _ = s.Create(1, params("q1", "", 1, ""))
+	_, _ = s.Create(1, params("q2", "", 1, ""))
+	_, _ = s.Create(2, params("q3", "", 1, ""))
 	items, err := s.List(1)
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -127,8 +133,8 @@ func TestList(t *testing.T) {
 
 func TestListAll(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "q1", "", 1, "", Schedule{})
-	_, _ = s.Create(2, "q2", "", 1, "", Schedule{})
+	_, _ = s.Create(1, params("q1", "", 1, ""))
+	_, _ = s.Create(2, params("q2", "", 1, ""))
 	all, err := s.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
@@ -140,7 +146,7 @@ func TestListAll(t *testing.T) {
 
 func TestMarkSeen_NewHit(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	isNew, err := s.MarkSeen(w.ID, "hash1", "Test Movie", "magnet:abc", 10, 1000)
 	if err != nil {
 		t.Fatalf("MarkSeen: %v", err)
@@ -159,7 +165,7 @@ func TestMarkSeen_NewHit(t *testing.T) {
 
 func TestMarkChecked(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	if err := s.MarkChecked(w.ID, time.Now().Add(time.Minute)); err != nil {
 		t.Fatalf("MarkChecked: %v", err)
 	}
@@ -171,9 +177,9 @@ func TestMarkChecked(t *testing.T) {
 
 func TestHits(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
-	s.MarkSeen(w.ID, "h1", "T1", "m:1", 10, 100)
-	s.MarkSeen(w.ID, "h2", "T2", "m:2", 5, 200)
+	w, _ := s.Create(1, params("q", "", 1, ""))
+	_, _ = s.MarkSeen(w.ID, "h1", "T1", "m:1", 10, 100)
+	_, _ = s.MarkSeen(w.ID, "h2", "T2", "m:2", 5, 200)
 	hits, err := s.Hits(1, w.ID, 10)
 	if err != nil {
 		t.Fatalf("Hits: %v", err)
@@ -185,7 +191,7 @@ func TestHits(t *testing.T) {
 
 func TestHits_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	_, err := s.Hits(2, w.ID, 10)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
@@ -194,7 +200,7 @@ func TestHits_WrongUser(t *testing.T) {
 
 func TestHits_DefaultLimit(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	_, err := s.Hits(1, w.ID, 0)
 	if err != nil {
 		t.Fatalf("Hits with zero limit: %v", err)
@@ -203,7 +209,7 @@ func TestHits_DefaultLimit(t *testing.T) {
 
 func TestGet_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, "q", "", 1, "", Schedule{})
+	w, _ := s.Create(1, params("q", "", 1, ""))
 	_, err := s.Get(2, w.ID)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
@@ -234,7 +240,7 @@ func (n *recorderNotifier) Notify(ctx context.Context, topic, title, body, magne
 
 func TestWorker_RunOnce(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "test", "", 1, "mytopic", Schedule{})
+	_, _ = s.Create(1, params("test", "", 1, "mytopic"))
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie 1", MagnetURI: "magnet:abc", Seeders: 10, Size: 1000},
@@ -254,7 +260,7 @@ func TestWorker_RunOnce(t *testing.T) {
 
 func TestWorker_RunOnce_NoResults(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
+	_, _ = s.Create(1, params("test", "", 1, ""))
 	searcher := &fakeSearcher{results: []jackett.Result{}}
 	notifier := &recorderNotifier{}
 	w := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
@@ -274,7 +280,7 @@ func TestWorker_RunOnce_NoWatchlists(t *testing.T) {
 
 func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "test", "", 5, "", Schedule{})
+	_, _ = s.Create(1, params("test", "", 5, ""))
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie", MagnetURI: "magnet:abc", Seeders: 3, Size: 1000},
@@ -290,7 +296,7 @@ func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 
 func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
+	_, _ = s.Create(1, params("test", "", 1, ""))
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{Title: "No hash", MagnetURI: "magnet:xyz", Seeders: 10, Size: 1000},
@@ -306,7 +312,7 @@ func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 
 func TestWorker_RunOnce_ResolveTopic_Fallback(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
+	_, _ = s.Create(1, params("test", "", 1, ""))
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie", MagnetURI: "magnet:abc", Seeders: 10, Size: 1000},
@@ -370,7 +376,7 @@ func TestNewWorker_PositiveInterval(t *testing.T) {
 
 func TestWorker_StartAndStop(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, "test", "", 1, "", Schedule{})
+	_, _ = s.Create(1, params("test", "", 1, ""))
 	w := NewWorker(s, &fakeSearcher{}, &recorderNotifier{}, "topic", 100*time.Millisecond)
 	w.Start()
 	w.Stop()
