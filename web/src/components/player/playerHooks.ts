@@ -118,24 +118,32 @@ export type MediaQueue = {
   readonly nextIdx: number
 }
 
-// useMediaQueue builds the in-torrent track/episode queue for the file currently
-// playing: the playable files of the SAME kind (audio↔audio in an album,
-// video↔video in a series), in file order, with prev/next. 'other' files
-// (.nfo, .jpg) are excluded. Generalises the old `videoFileIndices` so audio
-// albums get track navigation too. Extracted from PlayerModal to ease the gate.
-export function useMediaQueue(info: TorrentInfo | null, selectedFile: number): MediaQueue {
-  return useMemo(() => {
-    const files = info?.files || []
-    const cur = selectedFile >= 0 ? files[selectedFile] : undefined
-    const curKind = cur ? fileKind(cur.path, cur.isVideo) : 'other'
-    const indices = curKind === 'other'
-      ? []
-      : files.filter(f => fileKind(f.path, f.isVideo) === curKind).map(f => f.index)
-    const cursor = indices.indexOf(selectedFile)
-    const prevIdx = cursor > 0 ? indices[cursor - 1] : -1
-    const nextIdx = cursor >= 0 && cursor < indices.length - 1 ? indices[cursor + 1] : -1
-    return { indices, cursor, prevIdx, nextIdx }
-  }, [info, selectedFile])
+// buildMediaQueue is the pure core of useMediaQueue: the playable files of the
+// SAME kind as the current one (audio↔audio in an album, video↔video in a
+// series) IN THE ORDER GIVEN, with prev/next around selectedFile. The caller
+// passes the files in DISPLAY order (filterAndSortFiles) so the next/prev
+// buttons walk the list exactly as the user sees it — torrents rarely store
+// episodes in file order, and the old file-order queue jumped around.
+export function buildMediaQueue(files: readonly TorrentInfo['files'][number][], selectedFile: number): MediaQueue {
+  const cur = files.find(f => f.index === selectedFile)
+  const curKind = cur ? fileKind(cur.path, cur.isVideo) : 'other'
+  const indices = curKind === 'other'
+    ? []
+    : files.filter(f => fileKind(f.path, f.isVideo) === curKind).map(f => f.index)
+  const cursor = indices.indexOf(selectedFile)
+  const prevIdx = cursor > 0 ? indices[cursor - 1] : -1
+  const nextIdx = cursor >= 0 && cursor < indices.length - 1 ? indices[cursor + 1] : -1
+  return { indices, cursor, prevIdx, nextIdx }
+}
+
+// useMediaQueue builds the in-torrent track/episode queue for the file
+// currently playing. `orderedFiles` (when given) is the sidebar's display
+// order — queue and list must agree; without it, falls back to file order.
+export function useMediaQueue(info: TorrentInfo | null, selectedFile: number, orderedFiles?: readonly TorrentInfo['files'][number][]): MediaQueue {
+  return useMemo(
+    () => buildMediaQueue(orderedFiles ?? info?.files ?? [], selectedFile),
+    [info, selectedFile, orderedFiles],
+  )
 }
 
 type MediaSessionOpts = {

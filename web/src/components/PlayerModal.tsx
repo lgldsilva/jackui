@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { X, Play, Loader2, AlertCircle, FileVideo, Download, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy } from 'lucide-react'
 import {
   SearchResult,
@@ -45,7 +45,7 @@ import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 import { AudioTransportBar } from './player/AudioTransportBar'
-import { formatSize, getSubtitleLabel, type FileType } from './player/playerFormat'
+import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
 import { computeMediaUrls, tryAutoplayMutedFallback } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
@@ -1132,10 +1132,21 @@ export default function PlayerModal({
     localStorage.setItem('jackui.playbackSpeed', String(playbackSpeed))
   }, [playbackSpeed, selectedFile, info?.infoHash])
 
+  // Display order of the file list — the SAME order the sidebar renders
+  // (episodes sorted, extras last, user's size-sort respected). The queue
+  // below follows it so next/prev never disagree with the visible list.
+  const displayFiles = useMemo(
+    () => filterAndSortFiles(info?.files ?? [], {
+      filter: fileFilter, typeFilter: fileTypeFilter,
+      sortBySize: fileSortBySize, sizeDesc: fileSizeDesc,
+    }),
+    [info, fileFilter, fileTypeFilter, fileSortBySize, fileSizeDesc],
+  )
+
   // Unified in-torrent queue (album tracks / series episodes) of the same kind
   // as the current file. Generalises the old video-only navigation so audio
   // albums get ⏮⏭ too. Hook keeps the logic out of this god-file (gate).
-  const mediaQueue = useMediaQueue(info, selectedFile)
+  const mediaQueue = useMediaQueue(info, selectedFile, displayFiles)
 
   // Continuous transport: stay within the current torrent's queue, then spill
   // over into the user's playlist (next/prev torrent) at the boundary — one
@@ -1202,13 +1213,9 @@ export default function PlayerModal({
     return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
-  // Parse S/E pattern from filename for nicer episode labels (defined before
-  // conditional return so the hook below is not behind a branch)
-  const parseEpisode = (path: string): string | null => {
-    const m = /[Ss](\d{1,2})[ ._-]?[Ee](\d{1,3})/.exec(path)
-    if (m) return `S${m[1].padStart(2, '0')}E${m[2].padStart(2, '0')}`
-    return null
-  }
+  // Parse S/E pattern from filename for nicer episode labels — shared with the
+  // sidebar's sort so labels and ordering agree.
+  const parseEpisode = parseEpisodeTag
 
   const playFile = (idx: number) => {
     if (idx < 0) return
