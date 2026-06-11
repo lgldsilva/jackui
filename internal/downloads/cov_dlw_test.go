@@ -330,12 +330,12 @@ func Test_dlw_CheckCompletion_NilFileNoop(t *testing.T) {
 	}
 }
 
-// ─── Delete error wrapping for a missing row ───────────────────────────────
+// ─── Delete is idempotent for a missing row ────────────────────────────────
 
-func Test_dlw_Delete_MissingRowReturnsError(t *testing.T) {
+func Test_dlw_Delete_MissingRowIsIdempotent(t *testing.T) {
 	s := dlwNewStore(t)
-	if err := s.Delete(1, 999999); err == nil {
-		t.Fatal("expected error deleting nonexistent download")
+	if err := s.Delete(1, 999999); err != nil {
+		t.Fatalf("Delete of a missing row must be idempotent, got: %v", err)
 	}
 }
 

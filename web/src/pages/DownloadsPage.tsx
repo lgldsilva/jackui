@@ -24,6 +24,7 @@ import {
   streamAdd, streamAddTorrentFile, WHOLE_TORRENT_FILE_INDEX
 } from '../api/client'
 import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
+import { newPendingDeletes, markDeleted, clearDeleted, reconcile } from '../lib/downloadsReconcile'
 import PromoteModal from '../components/PromoteModal'
 import { SelectAllButton } from '../components/SelectAllButton'
 import { usePlayer } from '../components/PlayerProvider'
@@ -38,6 +39,13 @@ import { useAuth } from '../auth/AuthContext'
 // ═══════════════════════════════════════════════════════════════════════════════
 
 type Tab = 'all' | 'downloading' | 'paused' | 'completed' | 'failed' | 'network'
+
+// errMessage extracts a human-readable message from an unknown thrown value
+// (axios error with a JSON {error} body, a plain Error, or anything else).
+function errMessage(err: unknown): string {
+  const ax = err as { response?: { data?: { error?: string } }; message?: string }
+  return ax?.response?.data?.error || ax?.message || String(err)
+}
 
 export default function DownloadsPage() {
   const [items, setItems] = useState<DownloadEntry[]>([])
@@ -55,6 +63,12 @@ export default function DownloadsPage() {
   const [loading, setLoading] = useState(true)
   const [busyID, setBusyID] = useState<number | null>(null)
   const mountedRef = useRef(true)
+  // Optimistic-delete tracker: IDs the user removed are hidden from poll
+  // results until the backend confirms they're gone, so a stale in-flight poll
+  // (started before the DELETE landed) can't resurrect a just-deleted row —
+  // the "clicked Remove, row came back" race. A ref (not state) so the polling
+  // closure always reads the latest set without re-subscribing.
+  const pendingDeletesRef = useRef(newPendingDeletes())
 
   const [activeTab, setActiveTab] = useState<Tab>('all')
 
@@ -210,7 +224,7 @@ export default function DownloadsPage() {
             order: sortDir,
           })
         : await downloadsList()
-      if (mountedRef.current) setItems(list)
+      if (mountedRef.current) setItems(reconcile(pendingDeletesRef.current, list))
     } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -230,7 +244,7 @@ export default function DownloadsPage() {
       const list = showAllUsers
         ? await downloadsListAll(params)
         : await downloadsListFiltered(params)
-      if (mountedRef.current) setItems(list)
+      if (mountedRef.current) setItems(reconcile(pendingDeletesRef.current, list))
     } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -366,6 +380,12 @@ export default function DownloadsPage() {
     if (!await confirm({ title: 'Remover download?', message: 'Parar e remover este download da fila? A sessão de streaming/transcode aberta pelo Play também é encerrada.', confirmLabel: 'Remover', destructive: true })) return
     const target = items.find(x => x.id === id)
     setBusyID(id)
+    // OPTIMISTIC: hide the row immediately and shield it from in-flight polls.
+    // The DELETE is authoritative + idempotent on the backend, so once it
+    // resolves the row is gone for good; until then a stale 2s poll must not
+    // re-show it.
+    markDeleted(pendingDeletesRef.current, [id])
+    setItems(prev => prev.filter(x => x.id !== id))
     try {
       await downloadPause(id).catch(() => {}) // pausa antes de remover
       // Play de um download cria uma sessão de stream/transcode no anacrolix pro
@@ -374,6 +394,12 @@ export default function DownloadsPage() {
       if (target?.infoHash) await streamDrop(target.infoHash).catch(() => {})
       await downloadDelete(id)
       await load(); await loadTorrents()
+    } catch (err) {
+      // The DELETE genuinely failed (network/500) — un-hide the row so the user
+      // sees reality instead of a silently-vanished item, and surface the error.
+      clearDeleted(pendingDeletesRef.current, [id])
+      await load().catch(() => {})
+      alert(`Erro ao remover download: ${errMessage(err)}`)
     } finally { setBusyID(null) }
   }
   // Abre o modal de promove (single ou batch). Single: passa só esse item;
@@ -407,14 +433,34 @@ export default function DownloadsPage() {
     if (ids.length === 0) return
     if (!await confirm({ title: 'Remover downloads?', message: `Parar e remover ${ids.length} download(s) da lista? Sessões de streaming/transcode abertas pelo Play também são encerradas.`, confirmLabel: 'Remover', destructive: true })) return
     setBulkBusy(true)
+    await runBatchDelete(ids, targets)
+    setBulkBusy(false)
+  }
+
+  // runBatchDelete is the shared optimistic-delete flow for batch + per-torrent
+  // removal: hide the rows, pause + drop stream sessions, fire the batch DELETE,
+  // then surface any IDs the backend reported as failed (instead of letting the
+  // poll silently re-show them).
+  const runBatchDelete = async (ids: number[], targets: DownloadEntry[]) => {
+    markDeleted(pendingDeletesRef.current, ids)
+    setItems(prev => prev.filter(x => !ids.includes(x.id)))
     try {
       await downloadBatchPause(ids).catch(() => {}) // pausa todos antes de remover
       // Encerra qualquer sessão de stream/transcode aberta pelo Play (ver onDelete).
       await Promise.all(targets.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
-      await downloadBatchDelete(ids)
+      const res = await downloadBatchDelete(ids)
+      const failed = res.failed ?? []
+      if (failed.length > 0) {
+        clearDeleted(pendingDeletesRef.current, failed) // let the survivors come back into view
+        alert(`Falha ao remover ${failed.length} download(s) (#${failed.join(', #')}).`)
+      }
       await load(); await loadTorrents()
       setSelected(new Set())
-    } finally { setBulkBusy(false) }
+    } catch (err) {
+      clearDeleted(pendingDeletesRef.current, ids)
+      await load().catch(() => {})
+      alert(`Erro ao remover downloads: ${errMessage(err)}`)
+    }
   }
 
   const handleToggleSelectAll = () => {
@@ -453,12 +499,8 @@ export default function DownloadsPage() {
     if (ids.length === 0) return
     if (!await confirm({ title: 'Remover torrent?', message: `Remover ${ids.length} arquivo(s) deste torrent da lista? Os arquivos no disco NÃO são apagados.`, confirmLabel: 'Remover', destructive: true })) return
     setBulkBusy(true)
-    try {
-      await downloadBatchPause(ids).catch(() => {})
-      await Promise.all(ds.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
-      await downloadBatchDelete(ids)
-      await load(); await loadTorrents()
-    } finally { setBulkBusy(false) }
+    await runBatchDelete(ids, ds)
+    setBulkBusy(false)
   }
   const onStopSeedMany = async (ds: DownloadEntry[]) => {
     if (ds.length === 0) return

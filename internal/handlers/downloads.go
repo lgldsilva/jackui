@@ -261,21 +261,48 @@ func DownloadsCreate(store *downloads.Store) gin.HandlerFunc {
 	}
 }
 
+// DownloadRemover is the slice of the downloads worker the delete handlers
+// need: synchronously tear down in-memory tracking + drop the torrent for a
+// deleted row, so the deletion is authoritative the instant the handler
+// returns (no 2s tick lag, no resurrection by an in-flight init). An interface
+// keeps the handlers testable without constructing a real worker. nil is a
+// valid value (the worker may not be running) — callers guard for it.
+type DownloadRemover interface {
+	Remove(id int, infoHash string)
+}
+
 // DownloadsDelete handles DELETE /api/downloads/:id — cancel + remove row.
-func DownloadsDelete(store *downloads.Store) gin.HandlerFunc {
+//
+// The delete is AUTHORITATIVE and admin-aware: an admin in the "all users" view
+// can remove any user's row (DeleteScoped with isAdmin). It's also idempotent —
+// deleting an already-gone row returns 204, not a 500 (the old behavior the
+// frontend swallowed, leaving the row to reappear on the next poll).
+func DownloadsDelete(store *downloads.Store, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
-		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := store.Delete(userID, id); err != nil {
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		row, err := store.DeleteScoped(userID, id, isAdmin)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		notifyRemoved(worker, row)
 		c.Status(http.StatusNoContent)
 	}
+}
+
+// notifyRemoved tells the worker to tear down a just-deleted row's in-memory
+// state and drop its torrent. No-op when the worker isn't wired or the row was
+// already gone (idempotent delete).
+func notifyRemoved(worker DownloadRemover, row *downloads.Download) {
+	if worker == nil || row == nil {
+		return
+	}
+	worker.Remove(row.ID, row.InfoHash)
 }
 
 // DownloadsPause handles PATCH /api/downloads/:id/pause — flips status to paused.
@@ -479,7 +506,13 @@ func DownloadsBatchResume(store *downloads.Store) gin.HandlerFunc {
 
 // DownloadsBatchDelete handles POST /api/downloads/batch/delete — delete
 // specific downloads by IDs. Body: { ids: [1, 2, 3] }
-func DownloadsBatchDelete(store *downloads.Store) gin.HandlerFunc {
+//
+// Admin-aware (DeleteScoped honors isAdmin so the "all users" view can remove
+// any row) and authoritative: each successful delete tears down the worker's
+// in-memory state + drops the torrent. `failed` surfaces IDs the store errored
+// on (vs. already-gone rows, which count as deleted) so the frontend can warn
+// instead of silently leaving them to reappear on the next poll.
+func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			IDs []int `json:"ids"`
@@ -488,14 +521,19 @@ func DownloadsBatchDelete(store *downloads.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		userID, _, _ := auth.UserIDFromCtx(c)
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		deleted := 0
+		failed := make([]int, 0)
 		for _, id := range req.IDs {
-			if err := store.Delete(userID, id); err == nil {
-				deleted++
+			row, err := store.DeleteScoped(userID, id, isAdmin)
+			if err != nil {
+				failed = append(failed, id)
+				continue
 			}
+			deleted++
+			notifyRemoved(worker, row)
 		}
-		c.JSON(http.StatusOK, gin.H{"deleted": deleted, "total": len(req.IDs)})
+		c.JSON(http.StatusOK, gin.H{"deleted": deleted, "total": len(req.IDs), "failed": failed})
 	}
 }
 
