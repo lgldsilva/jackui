@@ -237,6 +237,9 @@ func TestAdminOnly_NoClaims(t *testing.T) {
 	}
 }
 
+// guestTestHash is a syntactically valid 40-hex infohash for route matching.
+const guestTestHash = "0123456789abcdef0123456789abcdef01234567"
+
 func TestGuestRestrict_BlocksMutationForGuests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -250,8 +253,33 @@ func TestGuestRestrict_BlocksMutationForGuests(t *testing.T) {
 		{"PUT", "/api/library/1", true},
 		{"PATCH", "/api/library/1", true},
 		{"GET", "/api/library/1", false},
-		{"POST", "/api/stream/abc/0", false},
 		{"POST", "/api/local/file", true},
+
+		// Playback-only /api/stream mutations stay OPEN for guests.
+		{"POST", "/api/stream/add", false},
+		{"POST", "/api/stream/add-file", false},
+		{"POST", "/api/stream/" + guestTestHash + "/viewer", false},
+		{"DELETE", "/api/stream/" + guestTestHash + "/viewer", false},
+		{"POST", "/api/stream/prefetch/" + guestTestHash + "/0", false},
+		{"POST", "/api/stream/art/" + guestTestHash + "/resolve", false},
+		{"GET", "/api/stream/" + guestTestHash + "/0", false},
+
+		// Destructive/global /api/stream mutations must be BLOCKED for guests
+		// (a bare /api/stream/ prefix exception once allowed all of these).
+		{"DELETE", "/api/stream/cache", true},
+		{"DELETE", "/api/stream/" + guestTestHash, true},
+		{"DELETE", "/api/stream/favorite/some-name", true},
+		// A favourite literally named "viewer" must not slip through the lease rule.
+		{"DELETE", "/api/stream/favorite/viewer", true},
+		{"DELETE", "/api/stream/favorites/folders/3", true},
+		{"POST", "/api/stream/limits", true},
+		{"POST", "/api/stream/active/pause", true},
+		{"POST", "/api/stream/" + guestTestHash + "/pause", true},
+		{"POST", "/api/stream/" + guestTestHash + "/priority", true},
+		{"POST", "/api/stream/favorite", true},
+		{"POST", "/api/stream/favorites/folders", true},
+		{"POST", "/api/stream/import", true},
+		{"PUT", "/api/stream/anything", true},
 	}
 
 	for _, tc := range tests {
@@ -415,21 +443,29 @@ func TestParseAccess_InvalidSignature(t *testing.T) {
 	}
 }
 
+// The old bare /api/stream/ prefix exception let guests POST/DELETE anything
+// under it. Only the playback allowlist passes now; arbitrary stream paths 403.
 func TestGuestRestrict_MediaPathExceptions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	mediaPaths := []string{"/api/stream/abc"}
-	for _, path := range mediaPaths {
-		t.Run(path, func(t *testing.T) {
+	cases := []struct {
+		path string
+		want int
+	}{
+		{"/api/stream/add", http.StatusOK},
+		{"/api/stream/abc", http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			c.Request = httptest.NewRequest("POST", path, nil)
+			c.Request = httptest.NewRequest("POST", tc.path, nil)
 			c.Set(ctxClaimsKey, &Claims{UserID: 1, Username: "guest", Role: RoleGuest})
 
 			GuestRestrict()(c)
 
-			if w.Code != http.StatusOK {
-				t.Errorf("expected 200 for %s, got %d", path, w.Code)
+			if w.Code != tc.want {
+				t.Errorf("%s: expected %d, got %d", tc.path, tc.want, w.Code)
 			}
 		})
 	}
