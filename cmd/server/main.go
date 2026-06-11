@@ -112,6 +112,7 @@ type appDeps struct {
 	aiBench        *ai.BenchmarkStore
 	webSearch      *imagesearch.Chain
 	watchlistStore *watchlist.Store
+	watchlistWkr   *watchlist.Worker
 	subtitleClient *subtitles.Client
 	authStore      *auth.Store
 	tokenMgr       *auth.TokenManager
@@ -574,8 +575,9 @@ func initWatchlistStore(deps *appDeps) {
 	notifier := &watchlist.NtfyPoster{BaseURL: deps.cfg.Notifications.NtfyBaseURL, Token: deps.cfg.Notifications.NtfyToken}
 	worker := watchlist.NewWorker(w, deps.jackettClient, notifier, deps.cfg.Notifications.NtfyDefaultTopic, interval)
 	worker.Start()
+	deps.watchlistWkr = worker
 	deps.addCleanup(worker.Stop)
-	log.Printf("Watchlist worker: interval=%s default_topic=%q", interval, deps.cfg.Notifications.NtfyDefaultTopic)
+	log.Printf("Watchlist worker: per-item scheduling (default interval=%s) default_topic=%q", interval, deps.cfg.Notifications.NtfyDefaultTopic)
 }
 
 func initSubtitles(cfg *config.Config) *subtitles.Client {
@@ -1092,7 +1094,7 @@ func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/watchlists", handlers.WatchlistList(deps.watchlistStore))
-	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore))
+	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore, deps.watchlistWkr))
 	api.PUT("/watchlists/:id", handlers.WatchlistUpdate(deps.watchlistStore))
 	api.DELETE("/watchlists/:id", handlers.WatchlistDelete(deps.watchlistStore))
 	api.GET("/watchlists/:id/hits", handlers.WatchlistHits(deps.watchlistStore))

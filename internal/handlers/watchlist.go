@@ -10,10 +10,31 @@ import (
 )
 
 type watchlistInput struct {
-	Query      string `json:"query"`
-	Category   string `json:"category"`
-	MinSeeders int    `json:"minSeeders"`
-	NtfyTopic  string `json:"ntfyTopic"`
+	Query        string `json:"query"`
+	Category     string `json:"category"`
+	MinSeeders   int    `json:"minSeeders"`
+	NtfyTopic    string `json:"ntfyTopic"`
+	SchedKind    string `json:"schedKind"`    // interval | daily | weekly (empty → interval)
+	SchedMinutes int    `json:"schedMinutes"` // interval: every N minutes (<= 0 → server default)
+	SchedWeekday int    `json:"schedWeekday"` // weekly: 0=Sunday … 6=Saturday
+	SchedHour    int    `json:"schedHour"`    // daily/weekly
+	SchedMinute  int    `json:"schedMinute"`  // daily/weekly
+}
+
+func (in watchlistInput) schedule() watchlist.Schedule {
+	return watchlist.Schedule{
+		Kind:    in.SchedKind,
+		Minutes: in.SchedMinutes,
+		Weekday: in.SchedWeekday,
+		Hour:    in.SchedHour,
+		Minute:  in.SchedMinute,
+	}
+}
+
+// WatchlistKicker triggers an immediate background check of one watchlist —
+// implemented by *watchlist.Worker (nil-safe by design).
+type WatchlistKicker interface {
+	Kick(id int)
 }
 
 // WatchlistList — GET /api/watchlists
@@ -29,8 +50,9 @@ func WatchlistList(s *watchlist.Store) gin.HandlerFunc {
 	}
 }
 
-// WatchlistCreate — POST /api/watchlists
-func WatchlistCreate(s *watchlist.Store) gin.HandlerFunc {
+// WatchlistCreate — POST /api/watchlists. On success the worker is kicked so
+// the first check runs right away instead of waiting for the schedule.
+func WatchlistCreate(s *watchlist.Store, k WatchlistKicker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		var in watchlistInput
@@ -38,10 +60,13 @@ func WatchlistCreate(s *watchlist.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		w, err := s.Create(userID, in.Query, in.Category, in.MinSeeders, in.NtfyTopic)
+		w, err := s.Create(userID, in.Query, in.Category, in.MinSeeders, in.NtfyTopic, in.schedule())
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
+		}
+		if k != nil {
+			k.Kick(w.ID)
 		}
 		c.JSON(http.StatusOK, w)
 	}
@@ -61,7 +86,7 @@ func WatchlistUpdate(s *watchlist.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := s.Update(userID, id, in.Query, in.Category, in.MinSeeders, in.NtfyTopic); err != nil {
+		if err := s.Update(userID, id, in.Query, in.Category, in.MinSeeders, in.NtfyTopic, in.schedule()); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
