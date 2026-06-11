@@ -107,6 +107,43 @@ function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; rea
   )
 }
 
+// DownloadAllButton queues the WHOLE torrent (one download per file) without
+// picking files one by one. Own component: keeps the async confirm/queue flow
+// out of the main modal function (Sonar S3776 cognitive-complexity gate).
+function DownloadAllButton({ info, result }: { readonly info: TorrentInfo; readonly result: SearchResult }) {
+  const [busy, setBusy] = useState(false)
+  const confirm = useConfirm()
+  const run = async () => {
+    const ok = await confirm({
+      title: 'Baixar torrent completo',
+      message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatSize(info.totalSize)})?`,
+      confirmLabel: 'Baixar todos',
+      destructive: false,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const res = await queueAllTorrentFiles(info, pickTorrentSource(result), result.title, result.tracker || undefined, result.category || undefined)
+      if (res.failed > 0) alert(`${res.queued}/${res.total} enfileirados; ${res.failed} falharam.`)
+    } catch (err: any) {
+      alert(`Falha ao enfileirar: ${err?.response?.data?.error || err.message || err}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      onClick={run}
+      disabled={busy}
+      title="Baixar torrent completo (todos os arquivos)"
+      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30 transition-colors disabled:opacity-50"
+    >
+      {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+      Baixar todos
+    </button>
+  )
+}
+
 export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist }: Props) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -118,8 +155,6 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   const [sortBySize, setSortBySize] = usePersistedState('fileview.sortBySize', false)
   const [sizeDesc, setSizeDesc] = usePersistedState('fileview.sizeDesc', true)
   const [copied, setCopied] = useState(false)
-  const [dlAllBusy, setDlAllBusy] = useState(false)
-  const confirm = useConfirm()
   const hoverThumb = useHoverThumb()
 
   useEffect(() => {
@@ -198,35 +233,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               <span>
                 {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
               </span>
-              {/* Queue the WHOLE torrent (one download per file) without
-                  picking files one by one. */}
-              <button
-                onClick={async () => {
-                  if (!info) return
-                  const ok = await confirm({
-                    title: 'Baixar torrent completo',
-                    message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatSize(info.totalSize)})?`,
-                    confirmLabel: 'Baixar todos',
-                    destructive: false,
-                  })
-                  if (!ok) return
-                  setDlAllBusy(true)
-                  try {
-                    const res = await queueAllTorrentFiles(info, pickTorrentSource(result), result.title, result.tracker || undefined, result.category || undefined)
-                    if (res.failed > 0) alert(`${res.queued}/${res.total} enfileirados; ${res.failed} falharam.`)
-                  } catch (err: any) {
-                    alert(`Falha ao enfileirar: ${err?.response?.data?.error || err.message || err}`)
-                  } finally {
-                    setDlAllBusy(false)
-                  }
-                }}
-                disabled={dlAllBusy}
-                title="Baixar torrent completo (todos os arquivos)"
-                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30 transition-colors disabled:opacity-50"
-              >
-                {dlAllBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                Baixar todos
-              </button>
+              <DownloadAllButton info={info} result={result} />
             </div>
           )}
 
