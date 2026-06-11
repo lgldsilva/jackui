@@ -67,7 +67,7 @@ func TestRankRecs_DedupesAndScores(t *testing.T) {
 		{title: "Seed A", recs: []tmdb.Match{m(10, "Shared", 5), m(11, "OnlyA", 9)}},
 		{title: "Seed B", recs: []tmdb.Match{m(10, "Shared", 5)}},
 	}
-	out := rankRecs(seeds, map[int]bool{})
+	out := rankRecs(seeds, map[int]bool{}, nil)
 	if len(out) != 2 {
 		t.Fatalf("expected 2 unique recs, got %d", len(out))
 	}
@@ -82,15 +82,25 @@ func TestRankRecs_DedupesAndScores(t *testing.T) {
 
 func TestRankRecs_DropsWatched(t *testing.T) {
 	seeds := []seed{{title: "S", recs: []tmdb.Match{m(1, "Seen", 9), m(2, "Fresh", 1)}}}
-	out := rankRecs(seeds, map[int]bool{1: true})
+	out := rankRecs(seeds, map[int]bool{1: true}, nil)
 	if len(out) != 1 || out[0].TmdbID != 2 {
 		t.Fatalf("watched id=1 must be excluded; got %+v", out)
 	}
 }
 
+func TestRankRecs_DropsDismissed(t *testing.T) {
+	// id=1 is dismissed for this (kind, id) → excluded; id=2 (different) survives.
+	seeds := []seed{{title: "S", recs: []tmdb.Match{m(1, "Ignored", 9), m(2, "Fresh", 1)}}}
+	dismissed := map[string]bool{library.DismissKey("movie", 1): true}
+	out := rankRecs(seeds, map[int]bool{}, dismissed)
+	if len(out) != 1 || out[0].TmdbID != 2 {
+		t.Fatalf("dismissed movie:1 must be excluded; got %+v", out)
+	}
+}
+
 func TestRankRecs_TieBreaksByPopularity(t *testing.T) {
 	seeds := []seed{{title: "S", recs: []tmdb.Match{m(1, "Low", 2), m(2, "High", 8)}}}
-	out := rankRecs(seeds, map[int]bool{})
+	out := rankRecs(seeds, map[int]bool{}, nil)
 	if out[0].TmdbID != 2 {
 		t.Errorf("equal score → higher popularity first; got id=%d", out[0].TmdbID)
 	}
@@ -101,7 +111,7 @@ func TestRankRecs_CapsOutput(t *testing.T) {
 	for i := 1; i <= recMaxOut+10; i++ {
 		recs = append(recs, m(i, "R", float64(i)))
 	}
-	out := rankRecs([]seed{{title: "S", recs: recs}}, map[int]bool{})
+	out := rankRecs([]seed{{title: "S", recs: recs}}, map[int]bool{}, nil)
 	if len(out) != recMaxOut {
 		t.Errorf("expected cap at %d, got %d", recMaxOut, len(out))
 	}
@@ -113,7 +123,7 @@ func TestRecommendations_NilClientReturns503(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/recommendations", nil)
 
-	Recommendations(nil, nil)(c) // tc == nil → disabled
+	Recommendations(nil, nil, nil)(c) // tc == nil → disabled
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503; body: %s", w.Code, w.Body.String())
@@ -137,7 +147,7 @@ func TestRecommendations_EmptyLibraryReturns200(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/api/recommendations", nil)
 
 	// tc is non-nil but the empty library yields no seeds → no TMDB calls happen.
-	Recommendations(lib, &tmdb.Client{})(c)
+	Recommendations(lib, nil, &tmdb.Client{})(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())

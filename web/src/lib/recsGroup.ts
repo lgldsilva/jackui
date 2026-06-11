@@ -63,3 +63,25 @@ export function groupRecommendations(recs: readonly TmdbRecommendation[] | null 
 
   return groups
 }
+
+// recIdentity is the (kind, tmdbId) tuple that uniquely identifies a rec card —
+// the same identity the dismiss endpoint persists. Same tmdbId across kinds
+// (movie vs tv) is intentionally distinct.
+export function recIdentity(kind: string, tmdbId: number): string {
+  return `${kind}:${tmdbId}`
+}
+
+// removeRec drops the matching recommendation from the flat list. Because the
+// page re-derives the grouped topics from this list, a topic whose last item was
+// removed disappears automatically (groupRecommendations never emits an empty
+// group). Returns a NEW array (never mutates) so React state updates cleanly;
+// returns the same reference when nothing matched.
+export function removeRec(
+  recs: readonly TmdbRecommendation[],
+  kind: string,
+  tmdbId: number,
+): TmdbRecommendation[] {
+  const target = recIdentity(kind, tmdbId)
+  const out = recs.filter(r => recIdentity(r.kind, r.tmdbId) !== target)
+  return out.length === recs.length ? (recs as TmdbRecommendation[]) : out
+}

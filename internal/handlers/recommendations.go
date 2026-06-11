@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
@@ -63,13 +64,29 @@ func recCachePut(userID int, items []recItem, now time.Time) {
 	recCacheMu.Unlock()
 }
 
+// recCacheInvalidate drops the user's memoized result so the next GET rebuilds
+// it. Called after a dismiss so the ignored title disappears immediately rather
+// than lingering until the TTL elapses.
+func recCacheInvalidate(userID int) {
+	recCacheMu.Lock()
+	delete(recCache, userID)
+	recCacheMu.Unlock()
+}
+
 // Recommendations — GET /api/recommendations. Builds a personalized list from
 // the user's recently-watched library: resolves each watched title to a TMDB
 // id+kind (Match is cached 30d) and aggregates TMDB's per-title recommendations,
 // dropping anything already watched and ranking by how many watched titles point
 // to it. 200+list (possibly empty), 503 when TMDB has no key. Purely additive —
 // touches no existing flow.
-func Recommendations(lib *library.Store, tc *tmdb.Client) gin.HandlerFunc {
+//
+// Privacy: titles whose info_hash lives in a hidden favourite folder must NEVER
+// seed recommendations (otherwise the hidden content leaks as "Porque você viu
+// X"), so they're dropped from the watched library BEFORE seeding — regardless
+// of the reveal curtain (recs aren't a listing the curtain should reopen).
+// The user can also explicitly dismiss a recommendation; dismissed titles are
+// excluded from the result so a rebuild never resurfaces them.
+func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if tc == nil {
 			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
@@ -88,24 +105,95 @@ func Recommendations(lib *library.Store, tc *tmdb.Client) gin.HandlerFunc {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		// Drop hidden-folder titles before they can seed anything. Reveal-agnostic
+		// on purpose: a curtained title must not seed recs even with the curtain open.
+		entries = dropHiddenLibrary(entries, recHiddenHashSet(s, userID))
 
-		rctx := ctx.Request.Context()
-		seeds, watched, disabled := buildSeeds(rctx, entries, tc.Match)
+		dismissed, derr := dismissedSet(lib, userID)
+		if derr != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": derr.Error()})
+			return
+		}
+
+		out, disabled := assembleRecs(ctx.Request.Context(), tc, entries, dismissed)
 		if disabled {
 			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 			return
 		}
-
-		for i := range seeds {
-			if recs, rErr := tc.Recommendations(rctx, seeds[i].kind, seeds[i].id); rErr == nil {
-				seeds[i].recs = recs // best-effort per seed
-			}
-		}
-
-		out := rankRecs(seeds, watched)
 		recCachePut(userID, out, now)
 		ctx.JSON(http.StatusOK, out)
 	}
+}
+
+// assembleRecs resolves the watched entries into seeds, fans out one TMDB
+// recommendations call per seed (best-effort), and ranks the result — dropping
+// already-watched and dismissed titles. disabled=true ⇒ TMDB has no key.
+func assembleRecs(ctx context.Context, tc *tmdb.Client, entries []library.Entry, dismissed map[string]bool) (out []recItem, disabled bool) {
+	seeds, watched, disabled := buildSeeds(ctx, entries, tc.Match)
+	if disabled {
+		return nil, true
+	}
+	for i := range seeds {
+		if recs, rErr := tc.Recommendations(ctx, seeds[i].kind, seeds[i].id); rErr == nil {
+			seeds[i].recs = recs // best-effort per seed
+		}
+	}
+	return rankRecs(seeds, watched, dismissed), false
+}
+
+// DismissRecommendation — POST /api/recommendations/dismiss with body
+// {tmdbId, kind}. Persists a per-user dismissal so the title never reappears in
+// the user's recommendations, then invalidates the cached result. Guests are
+// blocked upstream by auth.GuestRestrict (POST on a non-whitelisted path → 403).
+func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		if lib == nil {
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			return
+		}
+		var req struct {
+			TmdbID int    `json:"tmdbId"`
+			Kind   string `json:"kind"`
+		}
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.TmdbID <= 0 || (req.Kind != "movie" && req.Kind != "tv") {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(ctx)
+		if err := lib.DismissRecommendation(userID, req.Kind, req.TmdbID); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		recCacheInvalidate(userID) // so the dismissed title drops on the next GET
+		ctx.JSON(http.StatusOK, gin.H{"message": "dismissed"})
+	}
+}
+
+// recHiddenHashSet returns the user's hidden-folder info_hashes, bypassing the
+// reveal curtain on purpose: recommendations must never be seeded from hidden
+// content regardless of X-JackUI-Reveal-Hidden. nil ⇒ "filter nothing".
+func recHiddenHashSet(s *streamer.Streamer, userID int) map[string]bool {
+	if s == nil || s.Favorites() == nil {
+		return nil
+	}
+	set, err := s.Favorites().HiddenHashSet(userID, false)
+	if err != nil {
+		return nil
+	}
+	return set
+}
+
+// dismissedSet loads the user's dismissed recommendations (kind:tmdbID set),
+// tolerating a nil store (returns an empty set, never errors).
+func dismissedSet(lib *library.Store, userID int) (map[string]bool, error) {
+	if lib == nil {
+		return map[string]bool{}, nil
+	}
+	return lib.DismissedRecommendations(userID)
 }
 
 // seed is a watched title plus the TMDB recommendations it yielded.
@@ -141,16 +229,16 @@ func buildSeeds(ctx context.Context, entries []library.Entry, matchFn func(conte
 }
 
 // rankRecs aggregates per-seed recommendations into a deduped, ranked list:
-// it drops anything in `watched`, counts how many seeds point to each title
-// (Score), attributes the first seed that surfaced it (BecauseOf), sorts by
-// Score then popularity, and caps at recMaxOut. Pure → unit-testable without a
-// live TMDB.
-func rankRecs(seeds []seed, watched map[int]bool) []recItem {
+// it drops anything in `watched` or `dismissed`, counts how many seeds point to
+// each title (Score), attributes the first seed that surfaced it (BecauseOf),
+// sorts by Score then popularity, and caps at recMaxOut. `dismissed` is keyed by
+// library.DismissKey(kind, tmdbID). Pure → unit-testable without a live TMDB.
+func rankRecs(seeds []seed, watched map[int]bool, dismissed map[string]bool) []recItem {
 	agg := map[int]*recItem{}
 	order := []int{} // preserve first-seen order for stable sort determinism
 	for _, s := range seeds {
 		for _, m := range s.recs {
-			if watched[m.TmdbID] {
+			if watched[m.TmdbID] || dismissed[library.DismissKey(m.Kind, m.TmdbID)] {
 				continue
 			}
 			if cur, ok := agg[m.TmdbID]; ok {
