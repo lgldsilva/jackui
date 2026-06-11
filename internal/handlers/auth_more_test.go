@@ -210,7 +210,7 @@ func TestIssueTokens(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	resp, err := issueTokens(store, tm, user, false)
+	resp, err := issueTokens(store, tm, user, false, "", "")
 	if err != nil {
 		t.Fatalf("issueTokens failed: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestIssueTokens_Remember(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	resp, err := issueTokens(store, tm, user, true)
+	resp, err := issueTokens(store, tm, user, true, "", "")
 	if err != nil {
 		t.Fatalf("issueTokens failed: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestRefresh_Valid(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
-	refresh, err := store.CreateRefreshToken(user.ID, time.Hour, false)
+	refresh, err := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestListSessions_WithBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	createTestUser(t, store, "testuser", "pass")
-	refresh, err := store.CreateRefreshToken(1, time.Hour, false)
+	refresh, err := store.CreateRefreshToken(1, time.Hour, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,7 +688,7 @@ func TestRefresh_InactiveAccount(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	store.SetStatus(user.ID, auth.StatusDisabled)
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
-	refresh, _ := store.CreateRefreshToken(user.ID, time.Hour, false)
+	refresh, _ := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -730,7 +730,7 @@ func TestLogout_WithRefresh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "testuser", "pass")
-	refresh, _ := store.CreateRefreshToken(user.ID, time.Hour, false)
+	refresh, _ := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

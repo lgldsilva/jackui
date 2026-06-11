@@ -62,7 +62,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 			return
 		}
 		lockout.Reset(req.Username)
-		resp, err := issueTokens(store, tm, user, req.Remember)
+		resp, err := issueTokens(store, tm, user, req.Remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
 			return
@@ -112,7 +112,7 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 	return false
 }
 
-func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool) (tokenResp, error) {
+func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, userAgent, ip string) (tokenResp, error) {
 	access, exp, err := tm.SignAccess(user)
 	if err != nil {
 		return tokenResp{}, err
@@ -121,7 +121,7 @@ func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, reme
 	if remember {
 		ttl = refreshTTLRemember
 	}
-	refresh, err := store.CreateRefreshToken(user.ID, ttl, remember)
+	refresh, err := store.CreateRefreshToken(user.ID, ttl, remember, userAgent, ip)
 	if err != nil {
 		return tokenResp{}, err
 	}
@@ -178,7 +178,7 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		if remember {
 			ttl = refreshTTLRemember
 		}
-		newRefresh, err := store.CreateRefreshToken(user.ID, ttl, remember)
+		newRefresh, err := store.CreateRefreshToken(user.ID, ttl, remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -409,7 +409,9 @@ func Me(store *auth.Store) gin.HandlerFunc {
 }
 
 // ChangePassword handles POST /api/auth/password — the logged-in user changes
-// their own password (must supply the current one).
+// their own password (must supply the current one). When the optional refresh
+// token rides along, every OTHER session is revoked (a password change usually
+// means "someone may know the old one"), keeping this device logged in.
 func ChangePassword(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
@@ -420,6 +422,7 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 		var req struct {
 			Current string `json:"current"`
 			New     string `json:"new"`
+			Refresh string `json:"refresh"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.New == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "senha atual e nova são obrigatórias"})
@@ -433,7 +436,11 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "senha alterada"})
+		revoked := 0
+		if req.Refresh != "" {
+			revoked, _ = store.RevokeOtherSessions(claims.UserID, req.Refresh)
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "senha alterada", "revoked": revoked})
 	}
 }
 

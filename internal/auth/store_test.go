@@ -195,7 +195,7 @@ func TestConsumeRefreshTokenOnce_OnlyOneWins(t *testing.T) {
 	s := newTestStore(t)
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
-	token, _ := s.CreateRefreshToken(u.ID, 1*time.Hour, false)
+	token, _ := s.CreateRefreshToken(u.ID, 1*time.Hour, false, "", "")
 
 	// First consume removes it and reports the win.
 	ok, err := s.ConsumeRefreshTokenOnce(token)
@@ -218,7 +218,7 @@ func TestRefreshTokenLifecycle(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	token, err := s.CreateRefreshToken(u.ID, 1*time.Hour, false)
+	token, err := s.CreateRefreshToken(u.ID, 1*time.Hour, false, "", "")
 	if err != nil {
 		t.Fatalf("CreateRefreshToken: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestRefreshRememberMeFlag(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	token, _ := s.CreateRefreshToken(u.ID, 30*24*time.Hour, true)
+	token, _ := s.CreateRefreshToken(u.ID, 30*24*time.Hour, true, "", "")
 	_, remember, _ := s.ValidateRefreshToken(token)
 	if !remember {
 		t.Error("remember flag not persisted")
@@ -264,7 +264,7 @@ func TestRefreshExpired(t *testing.T) {
 	u, _ := s.VerifyPassword("admin", "x")
 
 	// Negative TTL → immediately expired
-	token, _ := s.CreateRefreshToken(u.ID, -1*time.Hour, false)
+	token, _ := s.CreateRefreshToken(u.ID, -1*time.Hour, false, "", "")
 	if _, _, err := s.ValidateRefreshToken(token); err == nil {
 		t.Error("expected error for expired token")
 	}
@@ -275,8 +275,8 @@ func TestCleanupExpired(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	s.CreateRefreshToken(u.ID, -1*time.Hour, false)  // expired
-	s.CreateRefreshToken(u.ID, 1*time.Hour, false)   // valid
+	s.CreateRefreshToken(u.ID, -1*time.Hour, false, "", "")  // expired
+	s.CreateRefreshToken(u.ID, 1*time.Hour, false, "", "")   // valid
 
 	if err := s.CleanupExpired(); err != nil {
 		t.Fatalf("Cleanup: %v", err)
@@ -293,7 +293,7 @@ func TestDeleteUserCascadesRefreshTokens(t *testing.T) {
 	s := newTestStore(t)
 	s.Bootstrap("admin", "x")
 	id, _ := s.CreateUser("bob", "p", RoleUser)
-	s.CreateRefreshToken(id, 1*time.Hour, false)
+	s.CreateRefreshToken(id, 1*time.Hour, false, "", "")
 
 	if err := s.DeleteUser(id); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
