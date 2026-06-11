@@ -182,12 +182,12 @@ func TestFindDedupMatches_EmptyWhenNoActiveTorrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := &streamer.TorrentInfo{InfoHash: "00", Files: []streamer.FileInfo{{Index: 0, Path: "a.mkv", Size: 1234}}}
-	got := findDedupMatches(context.Background(), s, st, nil, [20]byte{}, info, "", 1)
+	got := dedupDeps{s: s, dls: st}.findMatches(context.Background(), [20]byte{}, info, "", 1)
 	if len(got) != 0 {
 		t.Fatalf("no active torrent → no matches, got %+v", got)
 	}
 	// No files at all → empty, no panic.
-	if got := findDedupMatches(context.Background(), s, st, nil, [20]byte{}, &streamer.TorrentInfo{}, "", 1); len(got) != 0 {
+	if got := (dedupDeps{s: s, dls: st}).findMatches(context.Background(), [20]byte{}, &streamer.TorrentInfo{}, "", 1); len(got) != 0 {
 		t.Fatalf("no files → empty, got %+v", got)
 	}
 }

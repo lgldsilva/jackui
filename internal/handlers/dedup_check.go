@@ -72,12 +72,20 @@ func DedupCheck(s *streamer.Streamer, dls *downloads.Store, b *local.Browser) gi
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		matches := findDedupMatches(ctx, s, dls, b, hash, info, userFromCtx(c), userID)
+		matches := dedupDeps{s: s, dls: dls, b: b}.findMatches(ctx, hash, info, userFromCtx(c), userID)
 		c.JSON(http.StatusOK, gin.H{"matches": matches, "totalFiles": len(info.Files)})
 	}
 }
 
-func findDedupMatches(ctx context.Context, s *streamer.Streamer, dls *downloads.Store, b *local.Browser, hash metainfo.Hash, info *streamer.TorrentInfo, username string, userID int) []dedupMatch {
+// dedupDeps groups the stores a dedup scan reads so findMatches stays within the
+// parameter budget (and reads as one cohesive collaborator set).
+type dedupDeps struct {
+	s   *streamer.Streamer
+	dls *downloads.Store
+	b   *local.Browser
+}
+
+func (d dedupDeps) findMatches(ctx context.Context, hash metainfo.Hash, info *streamer.TorrentInfo, username string, userID int) []dedupMatch {
 	sizes := map[int64]bool{}
 	for _, f := range info.Files {
 		if f.Size > 0 {
@@ -89,14 +97,14 @@ func findDedupMatches(ctx context.Context, s *streamer.Streamer, dls *downloads.
 		return matches
 	}
 	idx := map[int64][]catalogCand{}
-	addDownloadCandidates(idx, dls, userID, sizes)
-	addMountCandidates(ctx, idx, b, username, sizes)
+	addDownloadCandidates(idx, d.dls, userID, sizes)
+	addMountCandidates(ctx, idx, d.b, username, sizes)
 	for _, f := range info.Files {
 		if ctx.Err() != nil {
 			break
 		}
 		if cands := idx[f.Size]; len(cands) > 0 {
-			if m := verifyBestCandidate(s, hash, f, cands); m != nil {
+			if m := verifyBestCandidate(d.s, hash, f, cands); m != nil {
 				matches = append(matches, *m)
 			}
 		}
