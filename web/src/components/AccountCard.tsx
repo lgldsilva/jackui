@@ -1,17 +1,28 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Fingerprint, Trash2, LifeBuoy, RefreshCw } from 'lucide-react'
-import { changePassword, mfaEnroll, mfaVerify, mfaDisable, mfaBackupCodesRemaining, mfaRegenerateBackupCodes, isPasskeySupported, passkeyList, passkeyRegister, passkeyDelete, PasskeyInfo } from '../api/client'
-import { useAuth } from '../auth/AuthContext'
+import { useTranslation } from 'react-i18next'
+import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Fingerprint, Trash2, LifeBuoy, RefreshCw, Mail } from 'lucide-react'
+import { changePassword, changeEmail, mfaEnroll, mfaVerify, mfaDisable, mfaBackupCodesRemaining, mfaRegenerateBackupCodes, isPasskeySupported, passkeyList, passkeyRegister, passkeyDelete, PasskeyInfo } from '../api/client'
+import { useAuth, getRefreshToken } from '../auth/AuthContext'
 
 // AccountCard — self-service: shows who you are and lets you change your own
 // password (verifying the current one). Visible to every logged-in user.
 export default function AccountCard() {
+  const { t } = useTranslation()
   const { user, refresh } = useAuth()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Email change state
+  const [newEmail, setNewEmail] = useState('')
+  const [emailPw, setEmailPw] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // Optimistic: after a successful change the context user is stale until the
+  // next /auth/me, so mirror the new (unverified) address locally.
+  const [emailOverride, setEmailOverride] = useState<string | null>(null)
 
   // MFA enrollment state
   const [enroll, setEnroll] = useState<{ secret: string; uri: string } | null>(null)
@@ -65,6 +76,10 @@ export default function AccountCard() {
 
   if (!user) return null
 
+  const displayEmail = emailOverride ?? user.email
+  // After a change the backend resets verification, so the override is always unverified.
+  const emailUnverified = emailOverride !== null || user.emailVerified === false
+
   const startEnroll = async () => {
     setMfaMsg('')
     try { setEnroll(await mfaEnroll()) } catch (e: any) { setMfaMsg(e?.response?.data?.error || 'Falha ao iniciar') }
@@ -97,21 +112,57 @@ export default function AccountCard() {
     if (next !== confirm) { setMsg({ ok: false, text: 'A confirmação não bate.' }); return }
     setBusy(true)
     try {
-      await changePassword(current, next)
-      setMsg({ ok: true, text: 'Senha alterada.' })
+      // Sending our refresh token revokes every OTHER session server-side.
+      const revoked = await changePassword(current, next, getRefreshToken())
+      setMsg({ ok: true, text: revoked > 0 ? t('account.password_changed_revoked', { count: revoked }) : t('account.password_changed') })
       setCurrent(''); setNext(''); setConfirm('')
     } catch (e: any) {
       setMsg({ ok: false, text: e?.response?.data?.error || 'Falha ao alterar a senha.' })
     } finally { setBusy(false) }
   }
 
+  const submitEmail = async () => {
+    setEmailMsg(null)
+    setEmailBusy(true)
+    try {
+      await changeEmail(emailPw, newEmail)
+      setEmailOverride(newEmail.trim().toLowerCase())
+      setEmailMsg({ ok: true, text: t('account.email_updated') })
+      setNewEmail(''); setEmailPw('')
+    } catch (e: any) {
+      setEmailMsg({ ok: false, text: e?.response?.data?.error || t('account.email_update_failed') })
+    } finally { setEmailBusy(false) }
+  }
+
   return (
     <section className="card flex flex-col gap-3">
       <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><User className="w-5 h-5" /> Conta</h2>
-      <p className="text-sm text-text-secondary">
-        {user.username}{user.email ? ` · ${user.email}` : ''} · {user.role === 'admin' ? 'Admin' : 'Usuário'}
+      <p className="text-sm text-text-secondary flex items-center gap-1.5 flex-wrap">
+        <span>{user.username}{displayEmail ? ` · ${displayEmail}` : ''} · {user.role === 'admin' ? 'Admin' : 'Usuário'}</span>
+        {displayEmail && emailUnverified && (
+          <span className="text-[10px] bg-amber-500/15 text-amber-500 border border-amber-500/30 px-1.5 py-0.5 rounded">
+            {t('account.email_unverified')}
+          </span>
+        )}
       </p>
+
+      {/* Trocar e-mail */}
       <div className="flex flex-col gap-2 max-w-sm">
+        <label className="text-xs text-text-secondary flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> {t('account.change_email')}</label>
+        <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder={t('account.new_email_placeholder')} autoComplete="email"
+          className="bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500" />
+        <input type="password" value={emailPw} onChange={e => setEmailPw(e.target.value)} placeholder={t('account.confirm_password_placeholder')} autoComplete="current-password"
+          className="bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500" />
+        <div className="flex items-center gap-3">
+          <button onClick={submitEmail} disabled={emailBusy || !newEmail || !emailPw}
+            className="flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5">
+            {emailBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} {t('account.save')}
+          </button>
+          {emailMsg && <span className={`text-xs ${emailMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{emailMsg.text}</span>}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 max-w-sm pt-3 border-t border-default/60">
         <label className="text-xs text-text-secondary flex items-center gap-1.5"><KeyRound className="w-3.5 h-3.5" /> Trocar senha</label>
         <input type="password" value={current} onChange={e => setCurrent(e.target.value)} placeholder="Senha atual" autoComplete="current-password"
           className="bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500" />

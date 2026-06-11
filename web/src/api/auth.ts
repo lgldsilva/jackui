@@ -12,8 +12,14 @@ export type AdminUser = {
   createdAt: string
 }
 
-export const changePassword = async (current: string, next: string): Promise<void> => {
-  await api.post('/auth/password', { current, new: next })
+// refresh (optional) is the caller's own refresh token: when sent, the backend
+// revokes every OTHER session after the change (keeps this device logged in).
+export const changePassword = async (current: string, next: string, refresh?: string): Promise<number> => {
+  const { data } = await api.post<{ revoked: number }>('/auth/password', { current, new: next, refresh: refresh || '' })
+  return data.revoked ?? 0
+}
+export const changeEmail = async (password: string, email: string): Promise<void> => {
+  await api.post('/auth/email', { password, email })
 }
 export const mfaEnroll = async (): Promise<{ secret: string; uri: string }> => {
   const { data } = await api.post<{ secret: string; uri: string }>('/auth/mfa/enroll')
@@ -51,6 +57,21 @@ export const adminInvite = async (email?: string): Promise<string> => {
   const { data } = await api.post<{ link: string }>('/auth/users/invite', { email: email || '' })
   return data.link
 }
+// password empty → backend issues a 1h single-use reset link instead.
+export const adminResetPassword = async (id: number, password?: string): Promise<{ link?: string }> => {
+  const { data } = await api.post<{ link?: string }>(`/auth/users/${id}/reset-password`, { password: password || '' })
+  return data
+}
+export const adminListUserSessions = async (id: number): Promise<SessionInfo[]> => {
+  const { data } = await api.get<{ sessions: SessionInfo[] }>(`/auth/users/${id}/sessions`)
+  return data.sessions || []
+}
+export const adminRevokeUserSession = async (id: number, sid: string): Promise<void> => {
+  await api.delete(`/auth/users/${id}/sessions/${encodeURIComponent(sid)}`)
+}
+export const adminRevokeUserSessions = async (id: number): Promise<void> => {
+  await api.delete(`/auth/users/${id}/sessions`)
+}
 
 // ── Notification settings ──────────────────────────────────────────────────────
 export const setNtfyTopic = async (topic: string): Promise<void> => {
@@ -67,6 +88,8 @@ export type SessionInfo = {
   expiresAt: string
   remember: boolean
   current: boolean
+  userAgent: string
+  ip: string
 }
 export const listSessions = async (currentRefresh: string): Promise<SessionInfo[]> => {
   const { data } = await api.post<{ sessions: SessionInfo[] }>('/auth/sessions', { refresh: currentRefresh })
