@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -493,39 +494,86 @@ func applyTMDBEnv(cfg *Config) {
 	}
 }
 
+// applyExternalMountsEnv merges JACKUI_EXTERNAL_MOUNTS specs into the YAML
+// mounts. Dedupe keys are NORMALIZED (path: Clean+TrimSpace; name: lowercase
+// trimmed) so the env can never spawn a twin of an admin-saved mount — e.g.
+// env "Downloads:/downloads/" vs saved "/downloads" with allowed_users. A twin
+// would show up unrestricted to everyone and break the next PUT /api/mounts
+// with "nome de mount duplicado". The saved (possibly restricted) entry wins.
 func applyExternalMountsEnv(cfg *Config) {
 	v := os.Getenv("JACKUI_EXTERNAL_MOUNTS")
 	if v == "" {
 		return
 	}
-	seen := map[string]bool{}
-	for _, m := range cfg.External.Mounts {
-		seen[m.Path] = true
-	}
+	seenPath, seenName := mountDedupeKeys(cfg.External.Mounts)
 	for _, spec := range strings.Split(v, ",") {
-		spec = strings.TrimSpace(spec)
-		i := strings.Index(spec, ":")
-		if i <= 0 || i == len(spec)-1 {
+		m, ok := parseMountSpec(spec)
+		if !ok {
 			continue
 		}
-		name, rest := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
-		// Optional trailing ":usersubpath" flag turns the mount into per-user
-		// private subdirs (mount/{username}/...). Backward compatible: specs
-		// without the flag keep the shared-root behavior.
-		userSubpath := false
-		if j := strings.LastIndex(rest, ":"); j >= 0 {
-			if flag := strings.ToLower(strings.TrimSpace(rest[j+1:])); flag == "usersubpath" || flag == "subpath" {
-				userSubpath = true
-				rest = strings.TrimSpace(rest[:j])
-			}
-		}
-		path := rest
-		if name == "" || path == "" || seen[path] {
+		pathKey, nameKey := mountPathKey(m.Path), mountNameKey(m.Name)
+		if seenPath[pathKey] || seenName[nameKey] {
 			continue
 		}
-		cfg.External.Mounts = append(cfg.External.Mounts, ExternalMount{Name: name, Path: path, UserSubpath: userSubpath})
-		seen[path] = true
+		cfg.External.Mounts = append(cfg.External.Mounts, m)
+		seenPath[pathKey] = true
+		seenName[nameKey] = true
 	}
+}
+
+// mountPathKey normalizes a mount path for dedupe ("/downloads/" == "/downloads").
+func mountPathKey(p string) string {
+	return filepath.Clean(strings.TrimSpace(p))
+}
+
+// mountNameKey normalizes a mount name for case-insensitive dedupe.
+func mountNameKey(n string) string {
+	return strings.ToLower(strings.TrimSpace(n))
+}
+
+// mountDedupeKeys indexes existing mounts by normalized path AND name.
+func mountDedupeKeys(mounts []ExternalMount) (paths, names map[string]bool) {
+	paths, names = map[string]bool{}, map[string]bool{}
+	for _, m := range mounts {
+		paths[mountPathKey(m.Path)] = true
+		names[mountNameKey(m.Name)] = true
+	}
+	return paths, names
+}
+
+// parseMountSpec parses one "Name:/path[:usersubpath]" item from
+// JACKUI_EXTERNAL_MOUNTS. The optional trailing ":usersubpath" flag turns the
+// mount into per-user private subdirs (mount/{username}/...). Backward
+// compatible: specs without the flag keep the shared-root behavior.
+func parseMountSpec(spec string) (ExternalMount, bool) {
+	spec = strings.TrimSpace(spec)
+	i := strings.Index(spec, ":")
+	if i <= 0 || i == len(spec)-1 {
+		return ExternalMount{}, false
+	}
+	name, rest := strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+	userSubpath := false
+	if j := strings.LastIndex(rest, ":"); j >= 0 {
+		if flag := strings.ToLower(strings.TrimSpace(rest[j+1:])); flag == "usersubpath" || flag == "subpath" {
+			userSubpath = true
+			rest = strings.TrimSpace(rest[:j])
+		}
+	}
+	if name == "" || rest == "" {
+		return ExternalMount{}, false
+	}
+	return ExternalMount{Name: name, Path: rest, UserSubpath: userSubpath}, true
+}
+
+// CheckWritable reports whether path can be opened for writing — used at boot
+// to warn early that Settings/Mounts changes won't persist (typical cause: the
+// host file is owned by root while the container runs as uid 1000).
+func CheckWritable(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 func applySMTPEnv(cfg *Config) {

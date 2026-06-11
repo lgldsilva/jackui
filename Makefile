@@ -104,11 +104,19 @@ setup:
 # ─────────────────────────────────────────
 # Internal: sync config.yaml + docker-compose.yml — used by all deploys
 # ─────────────────────────────────────────
+# O config.yaml remoto é SEED-ONLY: só é enviado quando ainda não existe no
+# servidor. Sobrescrever a cada deploy apagava o que a UI salvou (allowed_users
+# dos mounts, settings, etc.). Ao semear, chown p/ uid 1000 (o uid do container)
+# para que PUT /api/mounts consiga persistir.
 _sync-config:
 	$(call step,Sincronizando config.yaml no servidor...)
 	@ssh $(DEPLOY_HOST) "sudo mkdir -p $(REMOTE_CONFIG_DIR)"
-	@scp config.yaml $(DEPLOY_HOST):/tmp/jackui-config.yaml
-	@ssh $(DEPLOY_HOST) "sudo mv /tmp/jackui-config.yaml $(REMOTE_CONFIG_DIR)/config.yaml"
+	@if ssh $(DEPLOY_HOST) "sudo test -f $(REMOTE_CONFIG_DIR)/config.yaml"; then \
+		printf "  config.yaml já existe no servidor — mantendo (Settings da UI persistem)\n"; \
+	else \
+		scp config.yaml $(DEPLOY_HOST):/tmp/jackui-config.yaml && \
+		ssh $(DEPLOY_HOST) "sudo mv /tmp/jackui-config.yaml $(REMOTE_CONFIG_DIR)/config.yaml && sudo chown 1000:1000 $(REMOTE_CONFIG_DIR)/config.yaml"; \
+	fi
 	$(call ok,config.yaml sincronizado)
 	# NOTA: O docker-compose.yml do servidor vive em
 	# $(DEPLOY_HOST):$(REMOTE_CONFIG_DIR)/docker-compose.yml

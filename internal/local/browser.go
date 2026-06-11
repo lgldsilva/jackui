@@ -70,10 +70,18 @@ func (b *Browser) Mounts() []Mount {
 	return b.MountsFor("")
 }
 
+// effectiveMounts is the slice EVERY read path must iterate: the raw snapshot
+// with duplicate names collapsed (restricted twin wins). Listing (MountsFor),
+// authorization (UserCanAccess) and path resolution (findMount) all go through
+// it, so a stray duplicate can never widen visibility OR file access.
+func (b *Browser) effectiveMounts() []config.ExternalMount {
+	return dedupePreferRestricted(b.snapshot())
+}
+
 // MountsFor returns mounts visible to the given username.
 // Empty username = only public mounts (AllowedUsers empty).
 func (b *Browser) MountsFor(username string) []Mount {
-	mounts := b.snapshot()
+	mounts := b.effectiveMounts()
 	out := make([]Mount, 0, len(mounts))
 	for _, m := range mounts {
 		visible := len(m.AllowedUsers) == 0
@@ -93,9 +101,33 @@ func (b *Browser) MountsFor(username string) []Mount {
 	return out
 }
 
+// dedupePreferRestricted collapses duplicate mount names (defense in depth —
+// config-level dedupe should prevent them, but a stray twin must never WIDEN
+// visibility): when two entries share a name, the restricted one (AllowedUsers
+// non-empty) wins over an unrestricted duplicate.
+func dedupePreferRestricted(mounts []config.ExternalMount) []config.ExternalMount {
+	byName := make(map[string]int, len(mounts))
+	out := make([]config.ExternalMount, 0, len(mounts))
+	for _, m := range mounts {
+		key := strings.ToLower(strings.TrimSpace(m.Name))
+		idx, dup := byName[key]
+		if !dup {
+			byName[key] = len(out)
+			out = append(out, m)
+			continue
+		}
+		if len(out[idx].AllowedUsers) == 0 && len(m.AllowedUsers) > 0 {
+			out[idx] = m
+		}
+	}
+	return out
+}
+
 // UserCanAccess checks if a username is allowed to access a given mount name.
+// It iterates effectiveMounts (NOT the raw snapshot) so an unrestricted
+// duplicate can never grant access that its restricted twin denies.
 func (b *Browser) UserCanAccess(username, mountName string) bool {
-	for _, m := range b.snapshot() {
+	for _, m := range b.effectiveMounts() {
 		if m.Name == mountName {
 			if len(m.AllowedUsers) == 0 {
 				return true
@@ -111,8 +143,10 @@ func (b *Browser) UserCanAccess(username, mountName string) bool {
 	return false
 }
 
+// findMount resolves a mount by exact name over effectiveMounts, so duplicate
+// names always resolve to the restricted twin (same view UserCanAccess uses).
 func (b *Browser) findMount(name string) (config.ExternalMount, bool) {
-	for _, m := range b.snapshot() {
+	for _, m := range b.effectiveMounts() {
 		if m.Name == name {
 			return m, true
 		}
