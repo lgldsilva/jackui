@@ -37,10 +37,25 @@ import (
 type BenchmarkCase struct {
 	Raw    string `json:"raw"`
 	Expect string `json:"expect"`
+	// Task selects which AI task this case measures: "rename" (default), "identify"
+	// or "schedule" (see TaskRename/…). Empty normalizes to "rename" so legacy cases
+	// (no Task column) and the UI's plain-title textarea keep scoring the rename task
+	// exactly as before — the multi-task framework is additive, not a break.
+	Task string `json:"task,omitempty"`
 	// Origin is "default" for the built-in set (see OriginDefault) and empty for
 	// user-added cases. Informational — scoring ignores it, and the UI's textarea
 	// editor doesn't round-trip it, so any user-saved set simply becomes custom.
 	Origin string `json:"origin,omitempty"`
+}
+
+// TaskScore is one model's accuracy on ONE task within a benchmark run. It's the
+// per-task breakdown behind the global Accuracy/Composite — the UI can show it as
+// extra columns, and the composite averages across tasks so the chain is ranked on
+// ALL its jobs, not just rename.
+type TaskScore struct {
+	Accuracy float64 `json:"accuracy"` // 0..1 mean over this task's cases
+	Samples  int     `json:"samples"`  // this task's cases that produced a usable reply
+	Scored   int     `json:"scored"`   // usable + bad-output (the accuracy denominator)
 }
 
 // SlotScore is one model's aggregate result over the whole case set.
@@ -48,13 +63,17 @@ type SlotScore struct {
 	SlotID        string  `json:"slotId"`
 	Provider      string  `json:"provider"`
 	Model         string  `json:"model"`
-	Accuracy      float64 `json:"accuracy"`     // 0..1 mean over cases
+	Accuracy      float64 `json:"accuracy"`     // 0..1 — mean of the per-task accuracies (so every task weighs equally)
 	AvgLatencyMs  int64   `json:"avgLatencyMs"` // MEDIAN wall-clock per call (resilient to model-load residual)
-	Composite     float64 `json:"composite"`    // accuracy / sqrt(latencySeconds)
+	Composite     float64 `json:"composite"`    // accuracy / sqrt(latencySeconds) / (1+cost)
 	Samples       int     `json:"samples"`      // cases that produced a usable reply
 	Free          bool    `json:"free"`         // true when CostPer1M == 0
 	CostPer1M     float64 `json:"costPer1M"`    // blended USD per 1M tokens (0 = free); drives the composite
 	FailureReason string  `json:"failureReason,omitempty"`
+	// Tasks is the per-task accuracy breakdown (keyed by task id: "rename",
+	// "identify", "schedule"). Optional in the JSON — older persisted rows and the
+	// single-task default leave it nil and the UI falls back to the global Accuracy.
+	Tasks map[string]TaskScore `json:"tasks,omitempty"`
 	// Incomplete is true when some cases were transiently SKIPPED (rate limit
 	// after retries, network) so the model wasn't measured on the full set. These
 	// are the ones the "Rodar faltantes" button re-runs later, outside the
@@ -239,7 +258,7 @@ func (c *Client) Run(ctx context.Context, cases []BenchmarkCase) []SlotScore {
 // AND with discovered local Ollama models.
 func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCase) []SlotScore {
 	if len(cases) == 0 {
-		cases = DefaultBenchmarkCases
+		cases = AllDefaultBenchmarkCases()
 	}
 	// Only LOCAL Ollama models (Slot.Local — see localModel) must be serialized:
 	// they share one GPU and Ollama serves a single model at a time, so concurrent
@@ -302,7 +321,7 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		_, _, _, _ = c.metadataWithSlot(warmCtx, s, "warmup")
 		warmCancel()
 	}
-	t := &slotTally{lats: make([]time.Duration, 0, len(cases))}
+	t := &slotTally{lats: make([]time.Duration, 0, len(cases)), tasks: map[string]*taskTally{}}
 	paymentFail := false
 	for _, tc := range cases {
 		if c.scoreSingleCase(ctx, s, tc, &score, t) {
@@ -323,10 +342,12 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		}
 	}
 	if score.Samples > 0 {
-		// Denominator is `scored`, not Samples: a case the model botched (bad output)
-		// counts as a 0, so a model that fails some inputs can't show a clean 100%
-		// next to a failure reason. Latency is the median over the USABLE replies.
-		score.Accuracy = t.accSum / float64(t.scored)
+		// Accuracy is the MEAN of the per-task accuracies (each task weighs equally,
+		// so a model great at rename but terrible at schedule can't top the ranking).
+		// A single-task run collapses to that one task's accuracy — identical to the
+		// old behavior. Each task's own denominator is its `scored` (bad output = 0).
+		// Latency is the median over the USABLE replies across all tasks.
+		score.Tasks, score.Accuracy = t.taskBreakdown()
 		score.AvgLatencyMs = medianDuration(t.lats).Milliseconds()
 		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.CostPer1M)
 	} else if paymentFail {
@@ -335,15 +356,68 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	return score
 }
 
-// slotTally accumulates a slot's per-case outcomes across the run: accuracy sum,
-// count of scored cases (usable + bad-output), total tokens + latency (for the
-// local-energy estimate), and the per-call latencies (for the median).
+// slotTally accumulates a slot's per-case outcomes across the run: count of scored
+// cases (usable + bad-output), total tokens + latency (for the local-energy
+// estimate), the per-call latencies (for the median), and a per-task sub-tally.
 type slotTally struct {
-	accSum       float64
 	scored       int
 	tokens       int
 	lats         []time.Duration
 	totalLatency time.Duration
+	tasks        map[string]*taskTally
+}
+
+// taskTally is the per-task accumulator inside a slotTally: accuracy sum and the
+// usable/scored counts for that one task.
+type taskTally struct {
+	accSum  float64
+	samples int
+	scored  int
+}
+
+// record folds one case's outcome into the right task's sub-tally, creating it on
+// first use. badOutput=true marks a 0-accuracy scored case (the model replied but
+// botched it) so the task's accuracy denominator still grows.
+func (t *slotTally) record(task string, accuracy float64, usable, badOutput bool) {
+	task = normalizeTask(task)
+	tt := t.tasks[task]
+	if tt == nil {
+		tt = &taskTally{}
+		t.tasks[task] = tt
+	}
+	if usable {
+		tt.samples++
+		tt.scored++
+		tt.accSum += accuracy
+	} else if badOutput {
+		tt.scored++ // counts as a 0-accuracy case
+	}
+}
+
+// taskBreakdown turns the per-task sub-tallies into the SlotScore.Tasks map and
+// the overall accuracy — the MEAN of the per-task accuracies (each task weighs
+// equally regardless of how many cases it has). A single task collapses to that
+// task's accuracy, matching the historical single-task number exactly.
+func (t *slotTally) taskBreakdown() (map[string]TaskScore, float64) {
+	if len(t.tasks) == 0 {
+		return nil, 0
+	}
+	out := make(map[string]TaskScore, len(t.tasks))
+	var sum float64
+	counted := 0
+	for name, tt := range t.tasks {
+		if tt.scored == 0 {
+			continue // task had only transient skips → not measured, don't dilute the mean
+		}
+		acc := tt.accSum / float64(tt.scored)
+		out[name] = TaskScore{Accuracy: acc, Samples: tt.samples, Scored: tt.scored}
+		sum += acc
+		counted++
+	}
+	if counted == 0 {
+		return out, 0
+	}
+	return out, sum / float64(counted)
 }
 
 // medianDuration returns the median of the samples (the mean of the two middle
@@ -372,23 +446,56 @@ const (
 	maxRateLimitWait    = 20 * time.Second
 )
 
-// metadataWithRetry runs one case, retrying transient rate limits with backoff so
-// the model is measured on the whole case set.
+// metadataWithRetry runs one rename case, retrying transient rate limits with
+// backoff so the model is measured on the whole case set. Kept as a thin wrapper
+// over taskCaseWithRetry for the existing rename-only callers/tests.
 func (c *Client) metadataWithRetry(ctx context.Context, s Slot, raw string) (*RenameMetadata, time.Duration, int, error) {
-	for attempt := 0; ; attempt++ {
-		res, latency, tokens, err := c.metadataWithSlot(ctx, s, raw)
-		if err == nil || !errors.Is(err, errRateLimited) || attempt >= maxRateLimitRetries {
-			return res, latency, tokens, err
-		}
-		wait := rateLimitBackoff(err, attempt)
+	res, latency, tokens, err := c.metadataWithSlot(ctx, s, raw)
+	if err == nil || !errors.Is(err, errRateLimited) {
+		return res, latency, tokens, err
+	}
+	// Reuse the generic backoff loop by retrying the rename call directly.
+	for attempt := 1; attempt <= maxRateLimitRetries; attempt++ {
+		wait := rateLimitBackoff(err, attempt-1)
 		if wait <= 0 || wait > maxRateLimitWait || ctx.Err() != nil {
-			return res, latency, tokens, err // per-day quota or no time left → give up, skip the case
+			return res, latency, tokens, err
 		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return res, latency, tokens, err
+		case <-timer.C:
+		}
+		res, latency, tokens, err = c.metadataWithSlot(ctx, s, raw)
+		if err == nil || !errors.Is(err, errRateLimited) {
+			return res, latency, tokens, err
+		}
+	}
+	return res, latency, tokens, err
+}
+
+// taskCaseWithRetry runs ONE case for the case's task (rename/identify/schedule)
+// through the right runner, retrying transient rate limits with the same backoff
+// budget so the model is measured on the whole set. Returns the accuracy the runner
+// computed, the call latency, tokens (for the local-energy estimate) and the error
+// class (nil=usable, errBadOutput=scored 0, anything else=transient skip).
+func (c *Client) taskCaseWithRetry(ctx context.Context, s Slot, tc BenchmarkCase) (accuracy float64, latency time.Duration, tokens int, err error) {
+	run := runnerFor(tc.Task)
+	for attempt := 0; ; attempt++ {
+		accuracy, latency, tokens, err = run(ctx, c, s, tc.Expect, tc.Raw)
+		if err == nil || !errors.Is(err, errRateLimited) || attempt >= maxRateLimitRetries {
+			return accuracy, latency, tokens, err
+		}
+		wait := rateLimitBackoff(err, attempt)
+		if wait <= 0 || wait > maxRateLimitWait || ctx.Err() != nil {
+			return accuracy, latency, tokens, err // per-day quota or no time left → give up, skip the case
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return accuracy, latency, tokens, err
 		case <-timer.C:
 		}
 	}
@@ -414,7 +521,7 @@ func rateLimitBackoff(err error, attempt int) time.Duration {
 //     llama-server) → transient/infra: skip silently, don't penalize accuracy. If
 //     every case is transient the slot ends with Samples==0 → 0% / — / —.
 func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, score *SlotScore, t *slotTally) bool {
-	res, latency, tk, err := c.metadataWithRetry(ctx, s, tc.Raw)
+	accuracy, latency, tk, err := c.taskCaseWithRetry(ctx, s, tc)
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
 			if score.FailureReason == "" {
@@ -426,7 +533,8 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 			score.FailureReason = err.Error()
 		}
 		if errors.Is(err, errBadOutput) {
-			t.scored++ // model replied but botched it → a 0-accuracy case
+			t.scored++                        // model replied but botched it → a 0-accuracy case
+			t.record(tc.Task, 0, false, true) // recorded as a 0 against this task
 		}
 		return false
 	}
@@ -435,7 +543,7 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 	t.tokens += tk
 	t.totalLatency += latency
 	t.lats = append(t.lats, latency)
-	t.accSum += caseAccuracy(res, tc.Expect)
+	t.record(tc.Task, accuracy, true, false)
 	return false
 }
 
@@ -826,7 +934,7 @@ func NeedsRerun(s SlotScore) bool {
 
 func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []BenchmarkCase) []SlotScore {
 	if len(cases) == 0 {
-		cases = DefaultBenchmarkCases
+		cases = AllDefaultBenchmarkCases()
 	}
 	var slots []Slot
 	for _, r := range prev {

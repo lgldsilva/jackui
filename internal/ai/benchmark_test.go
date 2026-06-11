@@ -1019,8 +1019,9 @@ func TestBenchmarkStoreRoundTrip(t *testing.T) {
 	}
 	defer st.Close()
 
-	// Cases seed defaults on first read.
-	if got := st.Cases(); len(got) != len(DefaultBenchmarkCases) {
+	// Cases seed the FULL multi-task defaults (rename + schedule + identify) on
+	// first read.
+	if got := st.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
 		t.Fatalf("expected default cases seeded, got %d", len(got))
 	}
 	// Editable: replace the set.
