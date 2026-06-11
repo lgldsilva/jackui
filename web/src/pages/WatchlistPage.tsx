@@ -86,7 +86,10 @@ function ScheduleEditor({ value, onChange }: Readonly<{ value: DraftWatchlist; o
       setAiApplied(true)
     } catch (err) {
       const status = axios.isAxiosError(err) ? err.response?.status : undefined
-      if (status === 503) {
+      const code = axios.isAxiosError(err) ? (err.response?.data as { code?: string } | undefined)?.code : undefined
+      if (status === 503 && code === 'ai_disabled') {
+        // IA não configurada no servidor — esconde o recurso pela sessão.
+        // Falha transitória da chain (ai_transient) mantém o campo visível.
         aiParseUnavailable = true
         setAiAvailable(false)
       } else if (status === 422) {

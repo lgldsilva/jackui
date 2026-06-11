@@ -125,10 +125,14 @@ const scheduleParseTimeout = 25 * time.Second
 // chain. Returns the same schedKind/schedMinutes/... JSON shape the watchlist
 // CRUD uses; the human-readable confirmation lives in the frontend summary.
 // client == nil means AI is disabled (ai.New returned nil) → 503.
+const maxScheduleTextLen = 500
+
 func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível"})
+			// code distinguishes "AI not configured" (frontend hides the field)
+			// from a transient chain failure below (frontend keeps it).
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível", "code": "ai_disabled"})
 			return
 		}
 		var in struct {
@@ -138,15 +142,22 @@ func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "texto vazio"})
 			return
 		}
+		text := strings.TrimSpace(in.Text)
+		if len(text) > maxScheduleTextLen {
+			// Bounded prompt: an authenticated user must not relay megabytes to
+			// the AI provider (token cost / latency).
+			c.JSON(http.StatusBadRequest, gin.H{"error": "texto longo demais"})
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), scheduleParseTimeout)
 		defer cancel()
-		res, err := client.ParseSchedule(ctx, strings.TrimSpace(in.Text))
+		res, err := client.ParseSchedule(ctx, text)
 		if err != nil {
 			if errors.Is(err, ai.ErrInvalidSchedule) {
 				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "não consegui interpretar o texto como agendamento"})
 				return
 			}
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível"})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível", "code": "ai_transient"})
 			return
 		}
 		sched := watchlist.Schedule{
