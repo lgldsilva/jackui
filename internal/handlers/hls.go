@@ -276,15 +276,8 @@ func getSession(mgr *transcode.HLSSessionManager, key string) (*transcode.HLSSes
 // complete sources. The in-progress streaming path returns complete=false (the
 // #61 Safari seek guard).
 func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
-	if hc.store != nil {
-		relPath := hc.s.FileRelPath(hc.h, hc.fileIdx)
-		if path, err := hc.store.GetCompletedPathRel(hc.h.HexString(), hc.fileIdx, relPath); err == nil && path != "" {
-			if stat, err := os.Stat(path); err == nil && !stat.IsDir() {
-				if f, err := os.Open(path); err == nil {
-					return f, stat.Size(), true
-				}
-			}
-		}
+	if f, size, ok := openCompletedFile(hc); ok {
+		return f, size, true
 	}
 	if _, err := hc.s.Get(hc.h); err != nil {
 		bareMagnet := MagnetPrefix + hc.h.HexString()
@@ -299,6 +292,29 @@ func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 		return nil, 0, false
 	}
 	return reader, file.Length(), false
+}
+
+// openCompletedFile resolves a finished download (per-file or whole-torrent
+// row) to its on-disk file, so completed items play from disk instead of
+// re-downloading from the swarm.
+func openCompletedFile(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
+	if hc.store == nil {
+		return nil, 0, false
+	}
+	relPath := hc.s.FileRelPath(hc.h, hc.fileIdx)
+	path, err := hc.store.GetCompletedPathRel(hc.h.HexString(), hc.fileIdx, relPath)
+	if err != nil || path == "" {
+		return nil, 0, false
+	}
+	stat, err := os.Stat(path)
+	if err != nil || stat.IsDir() {
+		return nil, 0, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, false
+	}
+	return f, stat.Size(), true
 }
 
 // waitForMasterPlaylist blocks until the first HLS segment is ready. On failure
