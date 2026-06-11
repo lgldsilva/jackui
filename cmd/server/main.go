@@ -1081,6 +1081,8 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/library", handlers.LibraryList(deps.libraryStore, deps.streamSrv))
 	// Personalized recommendations derived from the watched library (additive).
 	api.GET("/recommendations", handlers.Recommendations(deps.libraryStore, deps.tmdbClient))
+	// Personal usage statistics (live aggregation; nil stores contribute zeroes).
+	api.GET("/stats", handlers.Stats(deps.libraryStore, deps.downloadsStore, deps.historyStore, deps.watchlistStore))
 	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore))
 	api.PATCH(routeLibraryID, handlers.LibraryUpdateResume(deps.libraryStore))
 	api.DELETE(routeLibraryID, handlers.LibraryDelete(deps.libraryStore))

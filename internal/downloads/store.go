@@ -260,6 +260,18 @@ func (s *Store) Create(d Download) (*Download, error) {
 	return s.Get(d.UserID, int(id))
 }
 
+// UserStats aggregates the user's download history for the stats endpoint.
+func (s *Store) UserStats(userID int) (total, completed int, bytes int64, err error) {
+	row := s.db.QueryRow(`
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN status=? THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(bytes_downloaded), 0)
+		FROM downloads WHERE user_id=?
+	`, StatusCompleted, userID)
+	err = row.Scan(&total, &completed, &bytes)
+	return total, completed, bytes, err
+}
+
 // Get returns one download owned by userID.
 func (s *Store) Get(userID, id int) (*Download, error) {
 	row := s.db.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
