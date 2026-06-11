@@ -30,6 +30,14 @@ pipeline {
     disableConcurrentBuilds()
     timeout(time: 90, unit: 'MINUTES')  // SBOM/cdxgen (~20min) + Sonar são o gargalo
     buildDiscarder(logRotator(numToKeepStr: '20'))
+    // O checkout do PRÓXIMO build roda como jenkins (uid 1000) e limpa o workspace
+    // antes de clonar; se sobrar QUALQUER arquivo root (de um stage docker --user 0),
+    // o `git clean` falha com "Operation not permitted" e o clone aborta. Por isso
+    // desligamos o checkout automático e fazemos a limpeza+checkout NÓS, num stage
+    // inicial controlado (ver stage 'Limpeza + Checkout' abaixo). Causa raiz é
+    // atacada nos stages docker (chown de volta p/ uid 1000 + .scannerwork em /tmp);
+    // este skip é o cinto-e-suspensório p/ restos não-root.
+    skipDefaultCheckout(true)
   }
 
   environment {
@@ -43,6 +51,18 @@ pipeline {
   }
 
   stages {
+    // Com skipDefaultCheckout(true), fazemos o checkout aqui — DEPOIS de varrer
+    // restos de builds anteriores. O `rm` roda como jenkins (uid 1000), então só
+    // apaga o que NÃO for root; os stages docker abaixo garantem (via chown) que
+    // nada root sobre. Mesmo assim varremos aqui p/ cobrir artefatos não-root
+    // (.scannerwork agora vai p/ /tmp, mas mantemos na lista por segurança).
+    stage('Limpeza + Checkout') {
+      steps {
+        sh 'rm -rf .scannerwork .sonar-scanner .cdx-src bom.json dt-payload.json coverage.out internal/streamer/streams 2>/dev/null || true'
+        checkout scm
+      }
+    }
+
     stage('Backend test') {
       // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
       // exigem). GOCACHE/GOPATH em /tmp. Só ./internal/... — cmd/server importa o
@@ -59,6 +79,13 @@ pipeline {
         // root-owned dir either, so it persists and breaks every later build. Remove it
         // here, in the root container that created it, before the scan runs.
         sh 'rm -rf internal/streamer/streams 2>/dev/null || true'
+        // CAUSA RAIZ do "Operation not permitted" no checkout: este container roda
+        // como root e o coverage.out (e qualquer outro artefato) nasce dono=root no
+        // bind-mount do workspace. O checkout do PRÓXIMO build (uid 1000) não
+        // consegue limpá-lo → clone aborta. Devolvemos a posse ao jenkins (uid 1000)
+        // AINDA dentro do container root, que é o único que consegue fazer o chown.
+        // O Sonar (que roda --user 0) lê coverage.out sem problema mesmo assim.
+        sh 'chown -R 1000:1000 . 2>/dev/null || true'
       }
     }
 
@@ -70,6 +97,10 @@ pipeline {
           sh 'npx tsc --noEmit'
           sh 'npm run build'
         }
+        // node:alpine roda como root por padrão: web/node_modules e web/dist nascem
+        // dono=root no workspace e quebrariam o checkout do próximo build (uid 1000).
+        // Devolvemos a posse ao jenkins aqui, dentro do próprio container.
+        sh 'chown -R 1000:1000 . 2>/dev/null || true'
       }
     }
 
@@ -116,10 +147,16 @@ pipeline {
                   mv sonar-scanner-8.0.1.6346-linux-aarch64 .sonar-scanner
                   rm -f /tmp/sonar-scanner.zip
                 fi
+                # .scannerwork FORA do workspace: o scanner cria esse dir no CWD e,
+                # como rodamos --user 0, ele nasceria dono=root no workspace e
+                # quebraria o checkout do próximo build. Em /tmp ele some com o
+                # container e nunca toca o workspace.
+                ret=0
                 ./.sonar-scanner/bin/sonar-scanner \
                   -Dsonar.host.url=$SONAR_HOST \
                   -Dsonar.token=$SONAR_TOKEN \
                   -Dsonar.nodejs.executable=$NODE_BIN \
+                  -Dsonar.working.directory=/tmp/.scannerwork \
                   -Dsonar.projectKey=jackui \
                   -Dsonar.sources=. \
                   -Dsonar.exclusions="**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**,**/streamer/streams/**" \
@@ -127,7 +164,14 @@ pipeline {
                   -Dsonar.tests=. -Dsonar.test.inclusions="**/*_test.go,web/**/*.test.ts,web/**/*.test.tsx,web/**/*.spec.ts,web/**/*.spec.tsx" \
                   -Dsonar.coverage.exclusions="web/**,cmd/**,electron/**" \
                   -Dsonar.scm.disabled=true \
-                  -Dsonar.qualitygate.wait=true
+                  -Dsonar.qualitygate.wait=true || ret=$?
+                # Causa raiz: o .sonar-scanner (cache, mantido entre builds de
+                # propósito) e o coverage.out ficam dono=root no workspace montado.
+                # Devolvemos a posse ao jenkins (uid 1000) AQUI, dentro do container
+                # root — única forma de o checkout seguinte conseguir limpá-los.
+                # Feito mesmo se o gate falhar (não mascara o exit: propagamos $ret).
+                chown -R 1000:1000 /usr/src 2>/dev/null || true
+                exit $ret
               '
           '''
         }
@@ -142,9 +186,15 @@ pipeline {
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
             rm -rf .cdx-src && mkdir -p .cdx-src
             git archive --format=tar HEAD | tar -x -C .cdx-src
-            docker run --rm --user 0 --platform linux/arm64 \
+            # cdxgen roda --user 0 e monta .cdx-src em /src: o bom.json (e o tar
+            # extraído) nascem dono=root no workspace. O `rm -rf .cdx-src` lá embaixo
+            # roda no shell de fora (jenkins, uid 1000) e NÃO apaga arquivo root →
+            # .cdx-src/bom.json persistiria e quebraria o checkout do próximo build.
+            # Por isso o entrypoint sobrescrito faz o chown 1000 do /src antes de sair,
+            # garantindo que o `rm` de fora consiga limpar.
+            docker run --rm --user 0 --platform linux/arm64 --entrypoint sh \
               -v "$HOST_WS/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
-              --spec-version 1.6 -r -o /src/bom.json . || true
+              -c 'cdxgen --spec-version 1.6 -r -o /src/bom.json . ; chown -R 1000:1000 /src 2>/dev/null || true' || true
             if [ -s .cdx-src/bom.json ]; then
               JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
                 --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
