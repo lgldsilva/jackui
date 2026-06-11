@@ -253,6 +253,46 @@ export function flattenTree<T extends FileTreeFile>(root: DirNode<T>, expanded: 
   return out
 }
 
+// flattenTreeCapped is flattenTree with a ceiling on rendered FILE rows, so a
+// single auto-expanded folder holding thousands of files can't mount thousands
+// of live <button> nodes and freeze the player modal (the flat list caps the
+// same way — see FilePickerSidebar's .slice(0, 100)).
+//
+// Dir rows are never dropped (there are far fewer of them and they're the
+// navigation skeleton); only FILE rows past the cap are omitted. `hiddenFiles`
+// reports how many files were left out so the UI can show a "mostrando N de M"
+// hint that nudges the user to the filter box.
+export type CappedRows<T extends FileTreeFile = FileTreeFile> = {
+  readonly rows: FlatRow<T>[]
+  readonly hiddenFiles: number
+}
+
+export function flattenTreeCapped<T extends FileTreeFile>(
+  root: DirNode<T>,
+  expanded: Set<string>,
+  fileCap: number,
+): CappedRows<T> {
+  const rows: FlatRow<T>[] = []
+  let shownFiles = 0
+  let hiddenFiles = 0
+  const walk = (nodes: TreeNode<T>[], depth: number) => {
+    for (const n of nodes) {
+      if (n.type === 'dir') {
+        const isOpen = expanded.has(n.path)
+        rows.push({ kind: 'dir', node: n, depth, expanded: isOpen })
+        if (isOpen) walk(n.children, depth + 1)
+      } else if (shownFiles < fileCap) {
+        rows.push({ kind: 'file', node: n, depth })
+        shownFiles++
+      } else {
+        hiddenFiles++
+      }
+    }
+  }
+  walk(root.children, 0)
+  return { rows, hiddenFiles }
+}
+
 // Index of the parent row (nearest shallower row above), or -1 at the root.
 export function parentRowIndex(rows: readonly { depth: number }[], i: number): number {
   const depth = rows[i].depth

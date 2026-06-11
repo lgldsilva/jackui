@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildFileTree, pathsToExpand, countFilesUnder, allDirPaths, hasSubdirs,
-  flattenTree, parentRowIndex, keyNavAction,
+  flattenTree, flattenTreeCapped, parentRowIndex, keyNavAction,
   type TreeNode, type DirNode,
 } from './fileTree'
 import type { SortableFile } from '../components/player/playerFormat'
@@ -245,6 +245,60 @@ describe('flattenTree', () => {
     // Show(0) → Season 1(1) → E01(2) → Season 2(1) → E01(2)
     expect(rows.map(r => r.depth)).toEqual([0, 1, 2, 1, 2])
     expect(rows.filter(r => r.kind === 'file')).toHaveLength(2)
+  })
+})
+
+describe('flattenTreeCapped', () => {
+  // A single folder holding 5000 files — the headline "milhares de arquivos"
+  // case the tree must not freeze on.
+  const huge = buildFileTree(
+    Array.from({ length: 5000 }, (_, i) => mk(i, `Pack/file${String(i).padStart(4, '0')}.mkv`)),
+  )
+
+  it('caps FILE rows at the limit and reports the remainder', () => {
+    const { rows, hiddenFiles } = flattenTreeCapped(huge, new Set(['Pack']), 100)
+    const fileRows = rows.filter(r => r.kind === 'file')
+    // 1 dir row ("Pack") + 100 file rows = 101 rendered rows, never 5001.
+    expect(fileRows).toHaveLength(100)
+    expect(rows).toHaveLength(101)
+    expect(hiddenFiles).toBe(4900)
+  })
+
+  it('never drops DIR rows even when files overflow', () => {
+    const files = [
+      mk(0, 'A/a1.mkv'),
+      mk(1, 'A/a2.mkv'),
+      mk(2, 'B/b1.mkv'),
+    ]
+    const root = buildFileTree(files)
+    // cap=1: both dirs survive, only the first file under the first open dir shows.
+    const { rows, hiddenFiles } = flattenTreeCapped(root, new Set(['A', 'B']), 1)
+    expect(rows.filter(r => r.kind === 'dir')).toHaveLength(2)
+    expect(rows.filter(r => r.kind === 'file')).toHaveLength(1)
+    expect(hiddenFiles).toBe(2)
+  })
+
+  it('hiddenFiles is 0 when under the cap (matches uncapped flattenTree rows)', () => {
+    const files = [
+      mk(0, 'Show/Season 1/S01E01.mkv'),
+      mk(1, 'Show/Season 2/S02E01.mkv'),
+    ]
+    const root = buildFileTree(files)
+    const expanded = new Set(['Show', 'Show/Season 1', 'Show/Season 2'])
+    const { rows, hiddenFiles } = flattenTreeCapped(root, expanded, 100)
+    expect(hiddenFiles).toBe(0)
+    expect(rows).toEqual(flattenTree(root, expanded))
+  })
+
+  it('collapsed folders hide their files from the cap count', () => {
+    const root = buildFileTree(
+      Array.from({ length: 500 }, (_, i) => mk(i, `Pack/file${i}.mkv`)),
+    )
+    // Nothing expanded → only the "Pack" dir row, no files counted as hidden.
+    const { rows, hiddenFiles } = flattenTreeCapped(root, new Set(), 100)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].kind).toBe('dir')
+    expect(hiddenFiles).toBe(0)
   })
 })
 

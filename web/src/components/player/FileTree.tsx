@@ -3,7 +3,7 @@ import { ChevronRight, Folder, FolderOpen } from 'lucide-react'
 import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
 import { FileRow } from './FileRow'
-import { buildFileTree, countFilesUnder, flattenTree, keyNavAction } from '../../lib/fileTree'
+import { buildFileTree, countFilesUnder, flattenTreeCapped, keyNavAction } from '../../lib/fileTree'
 import type { FileType } from './playerFormat'
 
 type FileTreeProps = {
@@ -21,6 +21,13 @@ type FileTreeProps = {
 }
 
 const INDENT_PX = 14
+
+// Ceiling on rendered FILE rows. Mirrors the flat list's .slice(0, 100): a
+// season pack / discography can auto-expand a folder with thousands of files,
+// and mounting them all as live <button> nodes inside the player modal freezes
+// the UI. Dir rows are never capped (navigation skeleton); overflow files are
+// hidden behind a "mostrando 100 de N" hint that points at the filter box.
+const FILE_ROW_CAP = 100
 
 // Keys we intercept (preventDefault) so the page doesn't scroll under us.
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter', ' '])
@@ -50,7 +57,10 @@ export function FileTree({
     () => buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter }),
     [info.files, fileFilter, fileTypeFilter],
   )
-  const rows = useMemo(() => flattenTree(root, expanded), [root, expanded])
+  const { rows, hiddenFiles } = useMemo(
+    () => flattenTreeCapped(root, expanded, FILE_ROW_CAP),
+    [root, expanded],
+  )
   const [focusIdx, setFocusIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -150,6 +160,13 @@ export function FileTree({
           />
         )
       })}
+      {hiddenFiles > 0 && (
+        <p className="text-[11px] text-text-muted text-center py-3 px-2 leading-snug flex-shrink-0">
+          Mostrando {FILE_ROW_CAP} de {FILE_ROW_CAP + hiddenFiles} arquivos. Use o filtro acima
+          (ex: <span className="font-mono text-text-secondary">s04e03</span> ou
+          parte do nome) pra achar o resto.
+        </p>
+      )}
     </div>
   )
 }
