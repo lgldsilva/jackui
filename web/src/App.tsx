@@ -13,6 +13,7 @@ import DiscoverPage from './pages/DiscoverPage'
 import WatchlistPage from './pages/WatchlistPage'
 import LocalPage from './pages/LocalPage'
 import DownloadsPage from './pages/DownloadsPage'
+import StatsPage from './pages/StatsPage'
 import LoginPage from './pages/LoginPage'
 import { RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from './pages/AuthFlows'
 import { AuthProvider, useAuth } from './auth/AuthContext'
@@ -94,6 +95,7 @@ function AppRoutes() {
       <Route path="/library" element={<ProtectedRoute><LibraryPage /></ProtectedRoute>} />
       <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
       <Route path="/watchlist" element={<ProtectedRoute><WatchlistPage /></ProtectedRoute>} />
+      <Route path="/stats" element={<ProtectedRoute><StatsPage /></ProtectedRoute>} />
       <Route path="/local" element={<ProtectedRoute><LocalPage /></ProtectedRoute>} />
       <Route path="/downloads" element={<ProtectedRoute><DownloadsPage /></ProtectedRoute>} />
     </Routes>

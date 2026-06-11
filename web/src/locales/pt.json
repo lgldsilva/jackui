@@ -23,7 +23,8 @@
     "downloads_tab": "Downloads",
     "stream_tab": "Stream",
     "account_tab": "Conta",
-    "ia_tab": "IA"
+    "ia_tab": "IA",
+    "stats": "Estatísticas"
   },
   "search": {
     "placeholder": "Buscar torrents... (pressione / para focar)",
@@ -156,6 +157,36 @@
   "trailer": {
     "watch": "Trailer",
     "none": "Sem trailer"
+  },
+  "stats": {
+    "title": "Estatísticas",
+    "watch_time": "Tempo assistido",
+    "titles": "Títulos na biblioteca",
+    "titles_hint": "{{completed}} concluídos · {{inProgress}} em andamento",
+    "downloaded": "Baixado",
+    "downloads_hint": "{{completed}} de {{total}} downloads concluídos",
+    "searches": "Buscas feitas",
+    "watchlists": "Watchlists",
+    "watchlists_hint": "{{hits}} detecções",
+    "added_by_month": "Adições à biblioteca (6 meses)",
+    "plays_by_weekday": "Reproduções por dia da semana",
+    "plays_by_hour": "Reproduções por hora do dia",
+    "by_kind": "Por tipo",
+    "kind": {
+      "video": "Vídeo",
+      "audio": "Áudio",
+      "other": "Outros"
+    },
+    "weekday": {
+      "sun": "dom",
+      "mon": "seg",
+      "tue": "ter",
+      "wed": "qua",
+      "thu": "qui",
+      "fri": "sex",
+      "sat": "sáb"
+    },
+    "disclaimer": "Tempo assistido é aproximado (posição acumulada por título; reassistir não soma). Dias/horas usam o último play de cada título."
   },
   "downloads": {
     "whole_torrent_queued": "Torrent inteiro enfileirado — {{count}} arquivos, {{size}}",
