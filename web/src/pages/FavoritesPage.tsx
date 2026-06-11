@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
+  resolveTorrentInfo, queueAllTorrentFiles,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden, favoriteSetFolder,
   streamImport, SearchResult,
 } from '../api/client'
@@ -16,7 +17,7 @@ import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { useRevealHidden } from '../lib/reveal'
-import { formatDate } from '../lib/format'
+import { formatDate, formatBytes } from '../lib/format'
 
 type FolderNode = {
   folder: FavoriteFolder
@@ -226,6 +227,8 @@ export default function FavoritesPage() {
   const [revealHidden] = useRevealHidden()
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
+  // Nome do favorito cujo "Baixar tudo" está resolvendo metadata/enfileirando.
+  const [dlAllBusy, setDlAllBusy] = useState<string | null>(null)
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
   // pra trocar de pasta no celular).
   const [folderSheetOpen, setFolderSheetOpen] = useState(false)
@@ -401,6 +404,32 @@ export default function FavoritesPage() {
       return
     }
     playSingle(favToResult(f))
+  }
+
+  // "Baixar tudo": resolve o metadata (cache → streamAdd), confirma com a
+  // contagem/tamanho reais e enfileira um download por arquivo do torrent.
+  const downloadAllFavorite = async (fav: StreamFavorite) => {
+    if (!favHasValidMagnet(fav)) {
+      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar o download.')
+      return
+    }
+    setDlAllBusy(fav.name)
+    try {
+      const info = await resolveTorrentInfo(fav.magnet, fav.infoHash)
+      const ok = await confirm({
+        title: 'Baixar torrent completo',
+        message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatBytes(info.totalSize)}) de "${fav.name}"?`,
+        confirmLabel: 'Baixar tudo',
+        destructive: false,
+      })
+      if (!ok) return
+      const res = await queueAllTorrentFiles(info, fav.magnet, fav.name)
+      if (res.failed > 0) alert(`${res.queued}/${res.total} enfileirados; ${res.failed} falharam.`)
+    } catch (err: any) {
+      alert(`Falha ao preparar o download: ${err?.response?.data?.error || err.message || err}`)
+    } finally {
+      setDlAllBusy(null)
+    }
   }
 
   const openContents = (f: StreamFavorite) => {
@@ -718,6 +747,21 @@ export default function FavoritesPage() {
                     >
                       <Play className="w-3.5 h-3.5" />
                       Play
+                    </button>
+                    {/* Download the WHOLE torrent — every file goes to the
+                        background queue (per-file model), no need to open the
+                        contents and pick one by one. */}
+                    <button
+                      onClick={e => { e.stopPropagation(); downloadAllFavorite(fav) }}
+                      disabled={!fav.magnet || dlAllBusy === fav.name}
+                      title="Baixar torrent completo (todos os arquivos)"
+                      className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
+                        fav.magnet
+                          ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30'
+                          : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
+                      }`}
+                    >
+                      {dlAllBusy === fav.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                     </button>
                     {/* Details/contents — view files + torrent details without
                         committing to play (consistent with search/history). */}
