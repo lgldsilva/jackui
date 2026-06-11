@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
-import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, convertMagnetToTorrentUrl } from '../api/client'
+import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import QualityBadges from './QualityBadges'
 
 
@@ -110,23 +110,14 @@ async function startTorrentDownload(
   result: SearchResult,
   setResolvingTorrent: (r: boolean) => void
 ) {
-  if (result.link) {
-    globalThis.location.href = `/api/proxy/torrent?url=${encodeURIComponent(result.link)}`
-    return
-  }
-
-  if (result.magnetUri) {
-    setResolvingTorrent(true)
-    try {
-      const downloadUrl = convertMagnetToTorrentUrl(result.magnetUri)
-      globalThis.location.href = downloadUrl
-    } catch (err: any) {
-      alert(`Erro ao converter magnet para torrent: ${err.message || err}`)
-    } finally {
-      setTimeout(() => {
-        setResolvingTorrent(false)
-      }, 4000)
-    }
+  if (!result.link && !result.magnetUri) return
+  setResolvingTorrent(true)
+  try {
+    await downloadTorrentForResult(result)
+  } catch (err: any) {
+    alert(`Erro ao baixar .torrent: ${err?.response?.data?.error || err.message || err}`)
+  } finally {
+    setResolvingTorrent(false)
   }
 }
 

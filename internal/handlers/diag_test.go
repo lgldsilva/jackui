@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"bytes"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -94,5 +96,31 @@ func TestClientLog_OversizedBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 (oversized body rejected)", w.Code)
+	}
+}
+
+// Stream URLs reported by the player carry ?token=<JWT>; the handler must
+// redact them before they reach the server log (docker logs).
+func TestClientLog_RedactsTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(prev)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"level":"info","tag":"player","msg":"loadstart","data":{"src":"/api/stream/abc/0?token=eyJSECRET.PAYLOAD.SIG","currentSrc":"http://x/hls/index.m3u8?token=OTHERSECRET&x=1"}}`
+	c.Request = httptest.NewRequest("POST", "/api/diag/log", bytes.NewReader([]byte(body)))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	ClientLog()(c)
+
+	out := buf.String()
+	if strings.Contains(out, "SECRET") {
+		t.Errorf("token leaked into the log: %s", out)
+	}
+	if !strings.Contains(out, "token=REDACTED") {
+		t.Errorf("expected token=REDACTED in log, got: %s", out)
 	}
 }
