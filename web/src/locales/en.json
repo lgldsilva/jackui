@@ -23,7 +23,8 @@
     "downloads_tab": "Downloads",
     "stream_tab": "Streaming",
     "account_tab": "Account",
-    "ia_tab": "AI"
+    "ia_tab": "AI",
+    "stats": "Statistics"
   },
   "search": {
     "placeholder": "Search torrents... (press / to focus)",
@@ -152,6 +153,36 @@
     "sessions_failed": "Failed to list sessions.",
     "copy": "Copy",
     "copied": "Copied!"
+  },
+  "stats": {
+    "title": "Statistics",
+    "watch_time": "Watch time",
+    "titles": "Library titles",
+    "titles_hint": "{{completed}} finished · {{inProgress}} in progress",
+    "downloaded": "Downloaded",
+    "downloads_hint": "{{completed}} of {{total}} downloads finished",
+    "searches": "Searches made",
+    "watchlists": "Watchlists",
+    "watchlists_hint": "{{hits}} hits",
+    "added_by_month": "Library additions (6 months)",
+    "plays_by_weekday": "Plays by weekday",
+    "plays_by_hour": "Plays by hour of day",
+    "by_kind": "By type",
+    "kind": {
+      "video": "Video",
+      "audio": "Audio",
+      "other": "Other"
+    },
+    "weekday": {
+      "sun": "sun",
+      "mon": "mon",
+      "tue": "tue",
+      "wed": "wed",
+      "thu": "thu",
+      "fri": "fri",
+      "sat": "sat"
+    },
+    "disclaimer": "Watch time is approximate (accumulated position per title; rewatching doesn't add). Days/hours use each title's last play."
   },
   "downloads": {
     "whole_torrent_queued": "Whole torrent queued — {{count}} files, {{size}}",
