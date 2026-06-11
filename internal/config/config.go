@@ -180,9 +180,10 @@ type StreamConfig struct {
 	PeersHighWater     int `yaml:"peers_high_water"`
 	PieceHashers       int `yaml:"piece_hashers"`
 	// HLSVODMode controla o caminho de VOD finito (seekbar) no HLS transcodado:
-	// "off" (padrão, só EVENT/live), "hlsjs" (VOD apenas para clientes não-Safari),
-	// "all" (VOD para todos, inclusive HLS nativo do Safari). Permite ligar o VOD
-	// gradualmente sem recompilar; rollback instantâneo voltando para "off".
+	// "all" (padrão: VOD para todos, inclusive HLS nativo do Safari), "hlsjs"
+	// (VOD apenas para clientes não-Safari — rollback se o Safari regredir),
+	// "off" (só EVENT/live). Permite ajustar sem recompilar; rollback
+	// instantâneo voltando para "hlsjs" ou "off".
 	// Env: JACKUI_HLS_VOD_MODE. Aplicado ao vivo (vale na próxima sessão HLS).
 	HLSVODMode string `yaml:"hls_vod_mode"`
 }
@@ -275,11 +276,14 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Stream.HLSVODMode = v
 	}
 	if cfg.Stream.HLSVODMode == "" {
-		// Default ON for hls.js clients (Chrome/Firefox/etc.): gives the seekbar
-		// on transcoded playback (incl. local MKV/HEVC that would otherwise be a
-		// headless EVENT/live stream with no seek). Safari stays on EVENT until
-		// the #61 stall is validated there. Set "off" to disable, "all" for Safari.
-		cfg.Stream.HLSVODMode = "hlsjs"
+		// Default VOD for ALL clients, Safari/iOS native HLS included. The #61
+		// Safari stall root cause (the MPEG-TS muxer's ~1.4s initial_offset)
+		// was fixed at the muxer (-muxdelay/-muxpreload 0; guarded by
+		// TestEncodeSpecZeroesPTSBothModes), and the native path shares the
+		// same session/playlist infra the stable hls.js path already uses.
+		// "hlsjs" is the rollback if Safari regresses; "off" disables VOD.
+		// Unknown-duration sources still fall back to EVENT (see shouldVOD).
+		cfg.Stream.HLSVODMode = "all"
 	}
 	if cfg.External.MaxUploadMB <= 0 {
 		cfg.External.MaxUploadMB = 65536 // 64 GiB
