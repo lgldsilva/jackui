@@ -69,6 +69,10 @@ type KindFilter = 'all' | 'video' | 'audio' | 'other'
 const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts'])
 const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus'])
 
+// Sufixo de plural PT em uma só linha — evita ternários aninhados dentro de
+// template strings de notificação (Sonar S3358).
+const plural = (n: number) => (n === 1 ? '' : 's')
+
 function extOf(name: string): string {
   const i = name.lastIndexOf('.')
   return i === -1 ? '' : name.slice(i).toLowerCase()
@@ -669,7 +673,7 @@ export default function LocalPage() {
     setNotice('')
     try {
       const { cleaned } = await localCleanEmptyDirs(activeMount, path)
-      setNotice(cleaned > 0 ? `${cleaned} pasta${cleaned === 1 ? '' : 's'} vazia${cleaned === 1 ? '' : 's'} removida${cleaned === 1 ? '' : 's'}.` : 'Nenhuma pasta vazia encontrada.')
+      setNotice(cleaned > 0 ? `${cleaned} pasta${plural(cleaned)} vazia${plural(cleaned)} removida${plural(cleaned)}.` : 'Nenhuma pasta vazia encontrada.')
       refresh()
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao limpar pastas vazias')
@@ -686,7 +690,7 @@ export default function LocalPage() {
     try {
       const { queued } = await localCacheFolder(activeMount, path)
       setNotice(queued > 0
-        ? `${queued} arquivo${queued === 1 ? '' : 's'} enfileirado${queued === 1 ? '' : 's'} para o cache local.`
+        ? `${queued} arquivo${plural(queued)} enfileirado${plural(queued)} para o cache local.`
         : 'Nenhum arquivo de mídia para cachear nesta pasta.')
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao cachear pasta')
@@ -1129,7 +1133,7 @@ export default function LocalPage() {
               path={path}
               onClose={() => setShowDuplicates(false)}
               onDeleted={(n) => {
-                const s = n === 1 ? '' : 's' // evita ternário aninhado (Sonar S3358)
+                const s = plural(n)
                 setNotice(n > 0 ? `${n} duplicado${s} removido${s}.` : 'Nenhum arquivo removido.')
                 refresh()
               }}
