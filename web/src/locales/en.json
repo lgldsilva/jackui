@@ -267,6 +267,10 @@
       "loading": "Fetching lyrics…",
       "none": "No lyrics available"
     },
+    "subtitles": {
+      "filter": "Filter subtitles…",
+      "noMatch": "No subtitle matches the filter"
+    },
     "external": {
       "open_in": "Open in",
       "choose": "Choose an external player",
