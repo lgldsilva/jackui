@@ -514,8 +514,8 @@ func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) flo
 	defer cancel()
 	cmd := exec.CommandContext(cctx, ffprobePathFrom(ffmpegPath),
 		ffHideBanner, ffLogLevel, "error",
-		"-seekable", "1", "-multiple_requests", "1",
-		"-probesize", "10M", "-analyzeduration", "3M",
+		ffSeekable, "1", ffMultipleReq, "1",
+		ffProbesize, "10M", ffAnalyzeDuration, "3M",
 		"-of", "json", "-show_format",
 		"-i", inputURL,
 	)
@@ -609,8 +609,8 @@ func (e *encodeSpec) args(startSeg int) []string {
 	}
 	args := []string{
 		ffHideBanner, ffLogLevel, "warning",
-		"-seekable", "1", "-multiple_requests", "1",
-		"-probesize", "10M", "-analyzeduration", "3M",
+		ffSeekable, "1", ffMultipleReq, "1",
+		ffProbesize, "10M", ffAnalyzeDuration, "3M",
 	}
 	// HW decode matching the encoder backend so frames feed the scale_* filter
 	// (≤1080p + 8-bit NV12) below — required for 10-bit HDR sources, which the
@@ -670,7 +670,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// left a [0,1.4] hole so Safari/iOS stalled at currentTime 0 buffering only
 		// the first segment, AND it broke seek-restart's output_ts_offset math
 		// (the cascade). Zeroing up front fixes both, for every backend.
-		args = append(args, "-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", "asetpts=PTS-STARTPTS")
+		args = append(args, "-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", ffAfAsetptsZero)
 		if startSeg > 0 {
 			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
 		}
@@ -679,7 +679,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// fontes HEVC/MKV com PTS≠0 deixam um buraco [0,offset] e o Safari trava
 		// no currentTime 0). setpts antes do scale; asetpts no áudio.
 		args = append(args, "-g", "60", "-bf", "0",
-			"-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", "asetpts=PTS-STARTPTS")
+			"-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", ffAfAsetptsZero)
 	}
 	args = append(args,
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
@@ -700,7 +700,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 		"-hls_segment_filename", filepath.Join(e.dir, "seg_%05d.ts"),
 		"-start_number", strconv.Itoa(startSeg),
 		"-y",
-		filepath.Join(e.dir, "index.m3u8"),
+		filepath.Join(e.dir, hlsPlaylistFile),
 	)
 	return args
 }
@@ -715,8 +715,8 @@ func (e *encodeSpec) args(startSeg int) []string {
 func (e *encodeSpec) audioArgs(startSeg int) []string {
 	args := []string{
 		ffHideBanner, ffLogLevel, "warning",
-		"-seekable", "1", "-multiple_requests", "1",
-		"-probesize", "10M", "-analyzeduration", "3M",
+		ffSeekable, "1", ffMultipleReq, "1",
+		ffProbesize, "10M", ffAnalyzeDuration, "3M",
 	}
 	if e.vod && startSeg > 0 {
 		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
@@ -726,7 +726,7 @@ func (e *encodeSpec) audioArgs(startSeg int) []string {
 		"-vn", "-map", "0:a:0",
 		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
-		"-af", "asetpts=PTS-STARTPTS",
+		"-af", ffAfAsetptsZero,
 	)
 	if e.vod && startSeg > 0 {
 		args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
@@ -741,7 +741,7 @@ func (e *encodeSpec) audioArgs(startSeg int) []string {
 		"-hls_segment_filename", filepath.Join(e.dir, "seg_%05d.ts"),
 		"-start_number", strconv.Itoa(startSeg),
 		"-y",
-		filepath.Join(e.dir, "index.m3u8"),
+		filepath.Join(e.dir, hlsPlaylistFile),
 	)
 	return args
 }
@@ -1111,7 +1111,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 // completely encoded, so the wait is bounded by `-hls_time 4` plus encoder
 // startup. We bail if the session ends without writing one.
 func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
-	path := filepath.Join(s.Dir, "index.m3u8")
+	path := filepath.Join(s.Dir, hlsPlaylistFile)
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
