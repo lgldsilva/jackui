@@ -2,6 +2,7 @@ package ai
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
@@ -34,12 +35,14 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 			failure_reason TEXT NOT NULL DEFAULT '',
 			incomplete     INTEGER NOT NULL DEFAULT 0,
 			cost_per_1m    REAL NOT NULL DEFAULT 0,
+			tasks          TEXT NOT NULL DEFAULT '',
 			updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE TABLE IF NOT EXISTS benchmark_case (
 			id     INTEGER PRIMARY KEY AUTOINCREMENT,
 			raw    TEXT NOT NULL,
 			expect TEXT NOT NULL,
+			task   TEXT NOT NULL DEFAULT '',
 			origin TEXT NOT NULL DEFAULT ''
 		);
 		CREATE TABLE IF NOT EXISTS benchmark_setting (
@@ -55,6 +58,13 @@ func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
 	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN incomplete INTEGER NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN cost_per_1m REAL NOT NULL DEFAULT 0`)
 	_, _ = db.Exec(`ALTER TABLE benchmark_case ADD COLUMN origin TEXT NOT NULL DEFAULT ''`)
+	// Multi-task benchmark: a per-case task column ('' = rename, retrocompat). A
+	// "duplicate column" error on an already-migrated DB is expected and ignored.
+	_, _ = db.Exec(`ALTER TABLE benchmark_case ADD COLUMN task TEXT NOT NULL DEFAULT ''`)
+	// Per-task accuracy breakdown, stored as a JSON blob so the UI can show it after
+	// a restart. Empty/legacy rows hold '' → decoded to a nil map (UI falls back to
+	// the global accuracy), so this is fully retrocompatible.
+	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN tasks TEXT NOT NULL DEFAULT ''`)
 	return &BenchmarkStore{db: db}, nil
 }
 
@@ -77,10 +87,16 @@ func (s *BenchmarkStore) SaveResults(scores []SlotScore) error {
 		return err
 	}
 	for i, sc := range scores {
+		tasksJSON := ""
+		if len(sc.Tasks) > 0 {
+			if b, err := json.Marshal(sc.Tasks); err == nil {
+				tasksJSON = string(b)
+			}
+		}
 		if _, err := tx.Exec(`
-			INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete, cost_per_1m)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason, sc.Incomplete, sc.CostPer1M); err != nil {
+			INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete, cost_per_1m, tasks)
+			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason, sc.Incomplete, sc.CostPer1M, tasksJSON); err != nil {
 			return err
 		}
 	}
@@ -92,7 +108,7 @@ func (s *BenchmarkStore) Results() []SlotScore {
 	if s == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT slot_id, provider, model, accuracy, avg_latency_ms, composite, samples, failure_reason, incomplete, cost_per_1m FROM benchmark_result ORDER BY chain_order`)
+	rows, err := s.db.Query(`SELECT slot_id, provider, model, accuracy, avg_latency_ms, composite, samples, failure_reason, incomplete, cost_per_1m, tasks FROM benchmark_result ORDER BY chain_order`)
 	if err != nil {
 		return nil
 	}
@@ -100,7 +116,11 @@ func (s *BenchmarkStore) Results() []SlotScore {
 	var out []SlotScore
 	for rows.Next() {
 		var sc SlotScore
-		if err := rows.Scan(&sc.SlotID, &sc.Provider, &sc.Model, &sc.Accuracy, &sc.AvgLatencyMs, &sc.Composite, &sc.Samples, &sc.FailureReason, &sc.Incomplete, &sc.CostPer1M); err == nil {
+		var tasksJSON string
+		if err := rows.Scan(&sc.SlotID, &sc.Provider, &sc.Model, &sc.Accuracy, &sc.AvgLatencyMs, &sc.Composite, &sc.Samples, &sc.FailureReason, &sc.Incomplete, &sc.CostPer1M, &tasksJSON); err == nil {
+			if tasksJSON != "" {
+				_ = json.Unmarshal([]byte(tasksJSON), &sc.Tasks) // best-effort; legacy rows have ''
+			}
 			out = append(out, sc)
 		}
 	}
@@ -129,31 +149,36 @@ func (s *BenchmarkStore) Order() []string {
 }
 
 // Cases returns the user-editable case set, seeding the defaults on first use.
+// The seed is the FULL multi-task set (rename + schedule + identify), so a fresh
+// install benchmarks every AI task out of the box.
 func (s *BenchmarkStore) Cases() []BenchmarkCase {
 	if s == nil {
-		return DefaultBenchmarkCases
+		return AllDefaultBenchmarkCases()
 	}
-	rows, err := s.db.Query(`SELECT raw, expect, origin FROM benchmark_case ORDER BY id`)
+	rows, err := s.db.Query(`SELECT raw, expect, task, origin FROM benchmark_case ORDER BY id`)
 	if err != nil {
-		return DefaultBenchmarkCases
+		return AllDefaultBenchmarkCases()
 	}
 	defer rows.Close()
 	var out []BenchmarkCase
 	for rows.Next() {
 		var bc BenchmarkCase
-		if rows.Scan(&bc.Raw, &bc.Expect, &bc.Origin) == nil {
+		if rows.Scan(&bc.Raw, &bc.Expect, &bc.Task, &bc.Origin) == nil {
 			out = append(out, bc)
 		}
 	}
 	if len(out) == 0 {
-		_ = s.SetCases(DefaultBenchmarkCases)
-		return DefaultBenchmarkCases
+		def := AllDefaultBenchmarkCases()
+		_ = s.SetCases(def)
+		return def
 	}
-	// Upgrade path: a store still holding the original 7-case seed untouched gets
-	// the new, much broader default set. Any user-edited set is left alone.
-	if isLegacySeed(out) {
-		_ = s.SetCases(DefaultBenchmarkCases)
-		return DefaultBenchmarkCases
+	// Upgrade path: a store still holding the original 7-case seed untouched, OR the
+	// rename-only broad set with no schedule/identify task yet, gets the new full
+	// multi-task default set. Any user-edited set is left alone.
+	if isLegacySeed(out) || isRenameOnlySeed(out) {
+		def := AllDefaultBenchmarkCases()
+		_ = s.SetCases(def)
+		return def
 	}
 	return out
 }
@@ -172,7 +197,7 @@ func (s *BenchmarkStore) SetCases(cases []BenchmarkCase) error {
 		if bc.Raw == "" {
 			continue
 		}
-		if _, err := tx.Exec(`INSERT INTO benchmark_case(raw, expect, origin) VALUES(?, ?, ?)`, bc.Raw, bc.Expect, bc.Origin); err != nil {
+		if _, err := tx.Exec(`INSERT INTO benchmark_case(raw, expect, task, origin) VALUES(?, ?, ?, ?)`, bc.Raw, bc.Expect, bc.Task, bc.Origin); err != nil {
 			return err
 		}
 	}

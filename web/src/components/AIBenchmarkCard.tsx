@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { Loader2, Play, Save, Cpu, RefreshCw } from 'lucide-react'
 import {
   aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, saveAICases, saveAICostConfig,
-  AIStatus, AIBenchmarkCase, AICostConfig,
+  AIStatus, AICostConfig,
 } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
 import BenchResultsTable from './aibenchmark/BenchResultsTable'
 import { needsRerun } from './aibenchmark/benchSort'
+import { casesToText, textToCases } from './aibenchmark/cases'
 
 // AIBenchmarkCard lets an admin measure each model in the rename/identification
 // chain (accuracy + latency → composite score), re-rank the chain by that
@@ -18,24 +19,8 @@ import { needsRerun } from './aibenchmark/benchSort'
 // série + temporada/episódio for TV), so the expected label carries that
 // structure inline — coherent with what "Renomear e Organizar via IA" produces.
 
-// The cases editor uses a plain textarea (one "raw => expected" per line) — far
-// less fiddly on mobile than a grid of paired inputs, and trivially round-trips.
-// The expected label encodes the structure: "Filme - Ano", "Série - S03E07",
-// "Série - E01", or just a bare title (then only the title is scored).
-function casesToText(cases: AIBenchmarkCase[]): string {
-  return cases.map(c => `${c.raw} => ${c.expect}`).join('\n')
-}
-function textToCases(text: string): AIBenchmarkCase[] {
-  return text.split('\n')
-    .map(line => {
-      const i = line.indexOf('=>')
-      if (i < 0) return null
-      const raw = line.slice(0, i).trim()
-      const expect = line.slice(i + 2).trim()
-      return raw ? { raw, expect } : null
-    })
-    .filter((c): c is AIBenchmarkCase => c !== null)
-}
+// The cases editor (textarea round-trip) lives in ./aibenchmark/cases for
+// unit-testing the multi-task "[task]" prefix parsing without rendering the card.
 
 export default function AIBenchmarkCard() {
   const confirm = useConfirm()
@@ -246,6 +231,11 @@ export default function AIBenchmarkCard() {
           O rótulo separa a estrutura: <code className="text-text-secondary">Filme - Ano</code>,{' '}
           <code className="text-text-secondary">Série - S03E07</code>,{' '}
           <code className="text-text-secondary">Série - E01</code>, ou só o título.
+          Prefixe a tarefa com <code className="text-text-secondary">[schedule]</code> ou{' '}
+          <code className="text-text-secondary">[identify]</code> (sem prefixo = renomear);
+          agenda usa <code className="text-text-secondary">weekly:1:7:0</code> /{' '}
+          <code className="text-text-secondary">daily:21:30</code> /{' '}
+          <code className="text-text-secondary">interval:180</code>.
         </label>
         <textarea
           id="ai-testcases"

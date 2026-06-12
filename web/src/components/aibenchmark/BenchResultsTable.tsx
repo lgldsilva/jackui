@@ -14,6 +14,28 @@ function scoreCells(s: AISlotScore) {
   }
 }
 
+// Short labels for the per-task accuracy breakdown chips. Unknown tasks fall back
+// to their raw id so a future task shows up without a frontend change.
+const TASK_LABELS: Record<string, string> = { rename: 'renomear', identify: 'título', schedule: 'agenda' }
+
+// taskBreakdown renders one accuracy chip per measured task (e.g. "renomear 92% ·
+// agenda 60%"). Only shown when the multi-task benchmark populated `tasks`; legacy
+// results (no breakdown) render nothing, so the table degrades gracefully.
+function taskBreakdown(s: AISlotScore) {
+  if (!s.tasks) return null
+  const entries = Object.entries(s.tasks)
+  if (entries.length <= 1) return null // single task → the global accuracy already says it
+  return (
+    <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-text-muted mt-0.5">
+      {entries.map(([task, ts]) => (
+        <span key={task} title={`${ts.samples} casos`}>
+          {TASK_LABELS[task] || task} <span className="tabular-nums text-text-secondary">{Math.round(ts.accuracy * 100)}%</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 type RowProps = {
   onRunSingle: (provider: string, model: string) => void
   busy: boolean
@@ -42,6 +64,7 @@ function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps
           </button>
           <span className="text-text-muted text-xs font-normal">({s.provider})</span>
         </div>
+        {taskBreakdown(s)}
       </td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
@@ -65,6 +88,7 @@ function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProp
         <div>
           <div className="text-text-primary text-sm truncate">{s.model}</div>
           <div className="text-text-muted text-xs">{s.provider}</div>
+          {taskBreakdown(s)}
         </div>
         <button
           onClick={() => onRunSingle(s.provider, s.model)}
