@@ -209,7 +209,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const key = `${item.infoHash || item.magnet}:${item.fileIndex}`
     if (prefetchedHashes.current.has(key)) return
     prefetchedHashes.current.add(key)
-    streamAdd(item.magnet).catch(() => {
+    streamAdd(item.magnet, detectKind(item.title)).catch(() => {
       // Soft fail — main playback is unaffected. Remove the key so a retry
       // could happen on a future loop, but in practice we won't reach that
       // unless the user manually replays the playlist.

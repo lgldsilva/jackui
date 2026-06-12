@@ -235,6 +235,17 @@
   "player": {
     "view_list": "Lista",
     "view_tree": "Árvore de pastas",
+    "eq": {
+      "title": "Equalizador",
+      "reset": "Resetar",
+      "bandLabel": "Ganho da banda {{freq}}",
+      "valueText": "{{db}} dB"
+    },
+    "lyrics": {
+      "title": "Letras",
+      "loading": "Buscando letras…",
+      "none": "Sem letras disponíveis"
+    },
     "external": {
       "open_in": "Abrir em",
       "choose": "Escolher um tocador externo",

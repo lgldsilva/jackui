@@ -21,8 +21,8 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloads"
@@ -35,6 +35,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
+	"github.com/lgldsilva/jackui/internal/lyrics"
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
@@ -47,6 +48,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/transmissionrpc"
 	"github.com/lgldsilva/jackui/internal/watchlist"
 	"github.com/lgldsilva/jackui/ui"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -106,6 +108,8 @@ type appDeps struct {
 	streamCfg      streamer.Config
 	stateDir       string
 	libraryStore   *library.Store
+	audioMetaStore *audiometa.Store
+	lyricsClient   *lyrics.Client
 	playlistsStore *playlists.Store
 	downloadsStore *downloads.Store
 	downloadsWkr   *downloads.Worker
@@ -170,6 +174,8 @@ func main() {
 	}
 	initStreamer(deps)
 	initLibraryStore(deps)
+	initAudioMetaStore(deps)
+	deps.lyricsClient = lyrics.New() // public LrcLib proxy; no config/DB needed
 	initPlaylistsStore(deps)
 	initDownloadsStore(deps)
 	initTMDBClient(deps)
@@ -360,6 +366,22 @@ func initLibraryStore(deps *appDeps) {
 			log.Printf("Library: refreshed %d stale primary_file_index entries from metadata cache", n)
 		}
 	}
+}
+
+// initAudioMetaStore opens the DEDICATED .audio-metadata.db (kept off the
+// library/history handles so a lazy tag read on a slow mount never serialises
+// behind a Continue-Watching page load). Optional: a failure just disables the
+// tag/cover cache (handlers fall back to live parsing), it never blocks boot.
+func initAudioMetaStore(deps *appDeps) {
+	amPath := deps.stateDir + "/.audio-metadata.db"
+	am, err := audiometa.New(amPath)
+	if err != nil {
+		log.Printf("Warning: audio metadata store init failed: %v", err)
+		return
+	}
+	deps.audioMetaStore = am
+	deps.addCleanup(func() { am.Close() })
+	log.Printf("Audio metadata: %s", amPath)
 }
 
 func initPlaylistsStore(deps *appDeps) {
@@ -1075,6 +1097,9 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
 	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser))
+	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
+	api.GET("/local/audio/cover", handlers.LocalAudioCover(deps.localBrowser, deps.audioMetaStore))
+	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
 	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
 	api.GET("/local/sidecar", handlers.LocalSidecarRead(deps.localBrowser))

@@ -301,6 +301,12 @@ type HLSStartOpts struct {
 	// premise. Torrents leave this false so the global vodMode still guards the
 	// #61 Safari seek instability on (incomplete) torrent sources.
 	ForceVOD bool
+	// AudioOnly transcodes a pure-audio source (FLAC/OGG/Opus/ALAC/WMA/…) to an
+	// AAC HLS stream with NO video map (`-vn`). The local-file path sets it for
+	// codecs the target browser can't direct-play (Safari refuses FLAC/OGG/Opus),
+	// since the video pipeline's unconditional `-map 0:v:0` would fail on a file
+	// with no video stream.
+	AudioOnly bool
 }
 
 // readSeekerContent adapts a single-cursor io.ReadSeeker (e.g. anacrolix
@@ -542,8 +548,8 @@ type durationProbeFn func(ctx context.Context, ffmpegPath, inputURL string) floa
 // retryDuration BY VALUE — the goroutine must not read these vars directly or
 // it races a test cleanup restoring them.
 var (
-	durationRetryAttempts = 2
-	durationRetryBackoff  = 15 * time.Second
+	durationRetryAttempts                 = 2
+	durationRetryBackoff                  = 15 * time.Second
 	probeDurationFn       durationProbeFn = probeDurationSeekable
 )
 
@@ -588,6 +594,7 @@ type encodeSpec struct {
 	encoder    string
 	ffmpegPath string
 	vod        bool // duration known → finite VOD: forced keyframes + seekable restart
+	audioOnly  bool // pure-audio source → `-vn`, no video map, AAC HLS
 }
 
 // args builds the ffmpeg argv to encode starting at segment `startSeg`. For
@@ -597,6 +604,9 @@ type encodeSpec struct {
 // what makes Safari accept the spliced stream (a PTS discontinuity, or an
 // explicit EXT-X-DISCONTINUITY, makes it abort with SRC_NOT_SUPPORTED).
 func (e *encodeSpec) args(startSeg int) []string {
+	if e.audioOnly {
+		return e.audioArgs(startSeg)
+	}
 	args := []string{
 		ffHideBanner, ffLogLevel, "warning",
 		"-seekable", "1", "-multiple_requests", "1",
@@ -686,6 +696,47 @@ func (e *encodeSpec) args(startSeg int) []string {
 		"-hls_flags", "temp_file+independent_segments",
 		// ffmpeg's own playlist stays EVENT/incremental; in VOD mode the
 		// handler IGNORES it and synthesises a finite playlist from DurationSec.
+		"-hls_playlist_type", "event",
+		"-hls_segment_filename", filepath.Join(e.dir, "seg_%05d.ts"),
+		"-start_number", strconv.Itoa(startSeg),
+		"-y",
+		filepath.Join(e.dir, "index.m3u8"),
+	)
+	return args
+}
+
+// audioArgs builds the ffmpeg argv for a pure-audio session: no video map
+// (`-vn`), AAC HLS out. It mirrors the VOD seek-restart math of args (input
+// `-ss` + `-output_ts_offset` so spliced segments keep a global PTS), and keeps
+// `-muxdelay 0 -muxpreload 0` — the SAME Safari t=0 stall root cause applies to
+// audio TS (the MPEG-TS muxer's ~1.4s initial offset leaves a [0,1.4] hole that
+// Safari/iOS hang on). No forced keyframes/scale: audio segments split cleanly
+// at any point.
+func (e *encodeSpec) audioArgs(startSeg int) []string {
+	args := []string{
+		ffHideBanner, ffLogLevel, "warning",
+		"-seekable", "1", "-multiple_requests", "1",
+		"-probesize", "10M", "-analyzeduration", "3M",
+	}
+	if e.vod && startSeg > 0 {
+		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
+	}
+	args = append(args,
+		"-i", e.inputURL,
+		"-vn", "-map", "0:a:0",
+		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",
+		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
+		"-af", "asetpts=PTS-STARTPTS",
+	)
+	if e.vod && startSeg > 0 {
+		args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
+	}
+	args = append(args,
+		"-muxdelay", "0", "-muxpreload", "0",
+		"-f", "hls",
+		"-hls_time", strconv.Itoa(hlsSegDur),
+		"-hls_list_size", "0",
+		"-hls_flags", "temp_file+independent_segments",
 		"-hls_playlist_type", "event",
 		"-hls_segment_filename", filepath.Join(e.dir, "seg_%05d.ts"),
 		"-start_number", strconv.Itoa(startSeg),
@@ -1024,6 +1075,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 			encoder:    encoder,
 			ffmpegPath: caps.FFmpegPath,
 			vod:        vod,
+			audioOnly:  opts.AudioOnly,
 		},
 	}
 

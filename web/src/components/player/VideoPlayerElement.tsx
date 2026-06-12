@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Volume2 } from 'lucide-react'
-import { TorrentInfo, streamArtworkURL } from '../../api/client'
+import { TorrentInfo, streamArtworkURL, isLocalHash, parseLocalHash, localAudioCoverURL } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
@@ -40,6 +40,17 @@ type VideoPlayerElementProps = {
 // `audioMode && info &&` conditional → keeps its cognitive complexity under the
 // gate. (The <track> elements stay inline in the <video> so the captions-track
 // accessibility rule S4084 sees a literal child.)
+// audioCoverURL picks the art source: a local file serves its EMBEDDED cover
+// (the dedicated route, headerless via ?token=); a torrent uses the per-file
+// extracted artwork. Both 204 when there's no picture (the <img> onError hides).
+function audioCoverURL(info: TorrentInfo, selectedFile: number, mediaToken: string): string {
+  if (isLocalHash(info.infoHash)) {
+    const loc = parseLocalHash(info.infoHash)
+    if (loc) return localAudioCoverURL(loc.mount, loc.path, mediaToken || undefined)
+  }
+  return streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)
+}
+
 function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
   readonly audioMode: boolean
   readonly info: TorrentInfo | null
@@ -51,7 +62,7 @@ function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
     <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
       <Volume2 className="absolute w-12 h-12 text-text-muted" />
       <img
-        src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
+        src={audioCoverURL(info, selectedFile, mediaToken)}
         alt=""
         className="relative max-h-full max-w-full object-contain"
         onError={(e) => { e.currentTarget.style.display = 'none' }}

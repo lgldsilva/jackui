@@ -264,6 +264,113 @@ func localPlayVideoResp(c *gin.Context, abs, mount, path, token string) LocalPla
 	}
 }
 
+// universalAudioCodecs play inline in EVERY target browser (incl. Safari/iOS),
+// so they always direct-play regardless of the client's reported capabilities.
+var universalAudioCodecs = map[string]bool{"aac": true, "mp3": true}
+
+// normalizeAudioCodec maps an ffprobe codec_name to the capability token the
+// frontend reports via canPlayType (see web/src/lib/audioCaps.ts). Returns ""
+// for codecs no browser plays inline (ape/wma/dts/ac3/eac3/truehd/…) → those
+// always transcode.
+func normalizeAudioCodec(codec string) string {
+	switch strings.ToLower(codec) {
+	case "aac":
+		return "aac"
+	case "mp3":
+		return "mp3"
+	case "flac":
+		return "flac"
+	case "opus":
+		return "opus"
+	case "vorbis":
+		return "vorbis"
+	case "alac":
+		return "alac"
+	}
+	if strings.HasPrefix(strings.ToLower(codec), "pcm") {
+		return "wav"
+	}
+	return ""
+}
+
+// parseAudioCaps reads the `acaps` query (comma-separated capability tokens the
+// client can direct-play, computed from canPlayType) into a set.
+func parseAudioCaps(q string) map[string]bool {
+	caps := map[string]bool{}
+	for _, t := range strings.Split(q, ",") {
+		if t = strings.TrimSpace(strings.ToLower(t)); t != "" {
+			caps[t] = true
+		}
+	}
+	return caps
+}
+
+// audioDirectPlayable decides whether a probed audio codec can play inline in
+// the requesting browser: universal codecs always; everything else only when
+// the client advertised support via acaps. Unknown/unsupported codecs (token
+// "") always transcode.
+func audioDirectPlayable(probedCodec string, caps map[string]bool) bool {
+	tok := normalizeAudioCodec(probedCodec)
+	if tok == "" {
+		return false
+	}
+	return universalAudioCodecs[tok] || caps[tok]
+}
+
+// audioExtUniversallySafe reports extensions whose codec is universally inline-
+// playable, used as the safe fallback when ffprobe fails (so we never force HLS
+// on a plain MP3 just because the probe timed out on a slow mount).
+func audioExtUniversallySafe(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp3", ".m4a", ".aac":
+		return true
+	}
+	return false
+}
+
+// localPlayAudioResp decides direct-play vs audio-only HLS for a local audio
+// file. Safari/WebKit refuse FLAC/OGG/Opus/WAV inline, so anything the client
+// can't direct-play (per acaps) is transcoded to AAC HLS via the SAME
+// HLSSessionManager as video (with AudioOnly set → `-vn`). The previous code
+// force-direct-played ALL audio, which silently failed on Safari for those
+// codecs — this is the fix.
+func localPlayAudioResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
+	caps := parseAudioCaps(c.Query("acaps"))
+	probe, perr := probeLocalFile(c.Request.Context(), abs)
+	// No probe OR an unknown codec (ffprobe emitted partial output): direct-play
+	// the universally-safe containers (mp3/m4a/aac), transcode the rest
+	// (flac/ogg/opus/wav stall silently on Safari) rather than guess wrong.
+	if perr != nil || probe.AudioCodec == "" {
+		if audioExtUniversallySafe(path) {
+			return LocalPlayResp{
+				Kind:   "direct",
+				URL:    appendTokenToURL(token, buildLocalFileURL(mount, path)),
+				Reason: "probe_unknown_safe_ext",
+			}
+		}
+		return LocalPlayResp{
+			Kind:   "hls",
+			URL:    appendTokenToURL(token, buildLocalHLSURL(mount, path)),
+			Reason: "probe_unknown",
+		}
+	}
+	if audioDirectPlayable(probe.AudioCodec, caps) {
+		return LocalPlayResp{
+			Kind:      "direct",
+			URL:       appendTokenToURL(token, buildLocalFileURL(mount, path)),
+			ACodec:    probe.AudioCodec,
+			Container: probe.Container,
+		}
+	}
+	return LocalPlayResp{
+		Kind:      "hls",
+		URL:       appendTokenToURL(token, buildLocalHLSURL(mount, path)),
+		Reason:    "acodec=" + probe.AudioCodec,
+		ACodec:    probe.AudioCodec,
+		Container: probe.Container,
+	}
+}
+
 // LocalPlay handles GET /api/local/play?mount=NAME&path=REL — probes the file
 // and returns either { kind: "direct", url } or { kind: "hls", url }. The
 // frontend just consumes `url` and trusts the kind for any wrapper logic
@@ -281,10 +388,7 @@ func LocalPlay(b *local.Browser) gin.HandlerFunc {
 		token := localPlayToken(c)
 
 		if isAudioByExt(path) {
-			c.JSON(http.StatusOK, LocalPlayResp{
-				Kind: "direct",
-				URL:  appendTokenToURL(token, buildLocalFileURL(mount, path)),
-			})
+			c.JSON(http.StatusOK, localPlayAudioResp(c, abs, mount, path, token))
 			return
 		}
 
@@ -336,6 +440,7 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		sess, err := startLocalHLSSession(c, mgr, reg, localHLSSource{
 			mount: mount, path: scoped, abs: abs, stat: stat,
 			nativeHLS: nativeHLSParam(c), knownDur: knownDur,
+			audioOnly: isAudioByExt(path),
 		})
 		if err != nil {
 			return
@@ -392,6 +497,7 @@ type localHLSSource struct {
 	stat             os.FileInfo
 	nativeHLS        bool
 	knownDur         float64
+	audioOnly        bool // pure-audio file → `-vn` AAC HLS (no video map)
 }
 
 func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, src localHLSSource) (*transcode.HLSSession, error) {
@@ -416,7 +522,8 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 		// Local files are complete & seekable → always VOD when the duration is
 		// known (incl. Safari/iOS native HLS), regardless of the global vodMode.
 		// EVENT/live is the last resort for unknown-duration streams only.
-		ForceVOD: true,
+		ForceVOD:  true,
+		AudioOnly: src.audioOnly,
 	})
 	if err != nil {
 		closeSource(reg, meterKey, source, f)
