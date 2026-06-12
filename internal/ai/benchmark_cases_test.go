@@ -163,27 +163,32 @@ func TestStoreCasesOriginRoundtrip(t *testing.T) {
 	}
 	defer st.Close()
 
-	// First read seeds the defaults, origin stamped.
+	// First read seeds the FULL multi-task defaults, origin stamped.
 	cases := st.Cases()
-	if len(cases) != len(DefaultBenchmarkCases) {
-		t.Fatalf("seed: got %d cases, want %d", len(cases), len(DefaultBenchmarkCases))
+	if len(cases) != len(AllDefaultBenchmarkCases()) {
+		t.Fatalf("seed: got %d cases, want %d", len(cases), len(AllDefaultBenchmarkCases()))
 	}
 	if cases[0].Origin != OriginDefault {
 		t.Fatalf("seeded case origin = %q, want %q", cases[0].Origin, OriginDefault)
 	}
 
 	// A custom set — origin-less, exactly what the UI's textarea PUT sends —
-	// replaces the seed and round-trips, preserving any origin that WAS sent.
+	// replaces the seed and round-trips, preserving any origin AND task that WAS
+	// sent (the task column is the multi-task addition; legacy/UI sets leave it "").
 	custom := []BenchmarkCase{
 		{Raw: "My.Movie.2024.1080p.WEB-DL", Expect: "My Movie - 2024"},
 		{Raw: "Kept.Case.2010.1080p", Expect: "Kept Case - 2010", Origin: OriginDefault},
+		{Raw: "toda quinta às 20h", Expect: "weekly:4:20:0", Task: TaskSchedule},
 	}
 	if err := st.SetCases(custom); err != nil {
 		t.Fatalf("SetCases: %v", err)
 	}
 	got := st.Cases()
-	if len(got) != 2 || got[0].Origin != "" || got[1].Origin != OriginDefault {
+	if len(got) != 3 || got[0].Origin != "" || got[1].Origin != OriginDefault {
 		t.Fatalf("roundtrip mismatch: %+v", got)
+	}
+	if got[0].Task != "" || got[2].Task != TaskSchedule {
+		t.Fatalf("task did not round-trip: %+v", got)
 	}
 }
 
@@ -198,8 +203,17 @@ func TestStoreLegacySeedUpgrade(t *testing.T) {
 	if err := st.SetCases(legacySeedCases); err != nil {
 		t.Fatalf("SetCases legacy: %v", err)
 	}
-	if got := st.Cases(); len(got) != len(DefaultBenchmarkCases) {
-		t.Fatalf("legacy seed should upgrade to the new defaults: got %d, want %d", len(got), len(DefaultBenchmarkCases))
+	if got := st.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
+		t.Fatalf("legacy seed should upgrade to the full multi-task defaults: got %d, want %d", len(got), len(AllDefaultBenchmarkCases()))
+	}
+
+	// A store seeded by the broad-but-rename-only build (no schedule/identify task)
+	// also upgrades to the full multi-task set.
+	if err := st.SetCases(DefaultBenchmarkCases); err != nil {
+		t.Fatalf("SetCases rename-only: %v", err)
+	}
+	if got := st.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
+		t.Fatalf("rename-only seed should upgrade to full multi-task: got %d, want %d", len(got), len(AllDefaultBenchmarkCases()))
 	}
 
 	// But an EDITED legacy set is the user's — it must be preserved.
