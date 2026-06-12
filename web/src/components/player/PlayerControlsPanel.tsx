@@ -1,6 +1,7 @@
-import { X, Loader2, ExternalLink, Users, Activity, Subtitles, Check, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Upload, Laptop, Download } from 'lucide-react'
+import { X, Loader2, Users, Activity, Subtitles, Check, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Upload, Laptop, Download } from 'lucide-react'
 import { TorrentInfo, Subtitle, StreamProbe, SidecarSubtitle, isLocalHash } from '../../api/client'
 import { LocalCacheButton } from './LocalCacheButton'
+import { ExternalPlayerMenu } from './ExternalPlayerMenu'
 import { formatRate } from '../../lib/format'
 import { formatSize, subtitleButtonTitle, subtitleBtnClass, serverDownloadIcon, SPEED_OPTIONS } from './playerFormat'
 import { MediaNavButtons } from './PlayerOverlays'
@@ -42,6 +43,9 @@ type PlayerControlsPanelProps = {
   readonly vlcURL: string
   readonly iinaURL?: string
   readonly infuseURL?: string
+  // Absolute direct-play HTTP stream URL (?token=, no transcode) — the payload
+  // copied by the "Copy URL" entry in the external-player menu.
+  readonly directURL: string
   readonly streamURL: string
   readonly serverDownloadLoading: boolean
   readonly serverDownloadSuccess: boolean
@@ -111,6 +115,7 @@ export function PlayerControlsPanel({
   vlcURL,
   iinaURL,
   infuseURL,
+  directURL,
   streamURL,
   serverDownloadLoading,
   serverDownloadSuccess,
@@ -340,34 +345,11 @@ export function PlayerControlsPanel({
             <Maximize2 className="w-3.5 h-3.5" />
             Fullscreen
           </button>
-          <a
-            href={vlcURL}
-            className="flex items-center gap-1.5 text-xs bg-orange-500/20 hover:bg-orange-500/30 text-orange-700 dark:text-orange-300 border border-orange-500/30 px-3 py-1.5 rounded-lg transition-colors"
-            title="Abrir o stream no app VLC local — funciona com qualquer codec"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            VLC
-          </a>
-          {iinaURL && (
-            <a
-              href={iinaURL}
-              className="flex items-center gap-1.5 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg transition-colors"
-              title="Abrir o stream no app IINA local (macOS)"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              IINA
-            </a>
-          )}
-          {infuseURL && (
-            <a
-              href={infuseURL}
-              className="flex items-center gap-1.5 text-xs bg-pink-500/20 hover:bg-pink-500/30 text-pink-700 dark:text-pink-300 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
-              title="Abrir o stream no app Infuse local (iOS/macOS/Apple TV)"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              Infuse
-            </a>
-          )}
+          {/* External players consolidated into a single "Open in ▾" split
+              button (VLC/IINA/Infuse + Copy URL). It remembers the last choice
+              so the primary click reopens it; the caret switches. Each entry
+              builds the SAME scheme/playlist URL as the old per-app buttons. */}
+          <ExternalPlayerMenu urls={{ vlcURL, iinaURL: iinaURL ?? '', infuseURL: infuseURL ?? '', directURL }} />
           {isLocalHash(info.infoHash) ? (
             // Local/rclone file: there's no torrent to "baixar no servidor".
             // Instead, cache the whole file to local disk (instant + seekable).
