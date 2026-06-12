@@ -231,5 +231,9 @@
     "epub_empty": "EPUB with no readable chapters.",
     "epub_chapter": "Chapter {{n}}",
     "epub_chapter_select": "Choose chapter"
+  },
+  "player": {
+    "view_list": "List view",
+    "view_tree": "Folder tree"
   }
 }
