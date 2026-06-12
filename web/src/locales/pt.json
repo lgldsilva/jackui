@@ -240,6 +240,7 @@
     "view_list": "Lista",
     "view_tree": "Árvore de pastas",
     "audioTools": "Equalizador & Letras",
+    "eqUnavailable": "Equalizador e visualizador indisponíveis no Safari/iOS (o navegador desvia o áudio do processador, o que mutaria a reprodução). As letras funcionam normalmente.",
     "playAll": "Tocar tudo",
     "tracks": {
       "title": "Faixas da playlist",
