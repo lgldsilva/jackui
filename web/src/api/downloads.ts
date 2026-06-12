@@ -191,8 +191,13 @@ export const downloadBatchResume = async (ids: number[]): Promise<{ affected: nu
   return data
 }
 
-export const downloadBatchDelete = async (ids: number[]): Promise<{ deleted: number; total: number }> => {
-  const { data } = await api.post<{ deleted: number; total: number }>('/downloads/batch/delete', { ids })
+export const downloadBatchDelete = async (
+  ids: number[],
+): Promise<{ deleted: number; total: number; failed?: number[] }> => {
+  const { data } = await api.post<{ deleted: number; total: number; failed?: number[] }>(
+    '/downloads/batch/delete',
+    { ids },
+  )
   return data
 }
 

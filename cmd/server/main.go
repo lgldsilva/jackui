@@ -108,6 +108,7 @@ type appDeps struct {
 	libraryStore   *library.Store
 	playlistsStore *playlists.Store
 	downloadsStore *downloads.Store
+	downloadsWkr   *downloads.Worker
 	tmdbClient     *tmdb.Client
 	aiClient       *ai.Client
 	aiBench        *ai.BenchmarkStore
@@ -443,6 +444,7 @@ func initDownloadsStore(deps *appDeps) {
 		AIClient:        deps.aiClient,
 		TMDBClient:      deps.tmdbClient,
 	})
+	deps.downloadsWkr = worker
 	worker.Start()
 	deps.addCleanup(worker.Stop)
 	log.Printf("Downloads worker started (tick=2s, ntfy=%q)", deps.cfg.Notifications.NtfyDefaultTopic)
@@ -1082,6 +1084,17 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	}
 }
 
+// downloadRemoverDep returns the worker as the handlers' downloadRemover, or a
+// true-nil interface when no worker is running. Returning the typed pointer
+// directly would wrap a nil *Worker in a non-nil interface (the classic Go
+// typed-nil trap), defeating the handler's nil guard.
+func downloadRemoverDep(deps *appDeps) handlers.DownloadRemover {
+	if deps.downloadsWkr == nil {
+		return nil
+	}
+	return deps.downloadsWkr
+}
+
 func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	if deps.downloadsStore == nil {
 		return
@@ -1091,7 +1104,7 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/downloads/trackers", handlers.DownloadsTrackers(deps.downloadsStore))
 	api.GET("/downloads/categories", handlers.DownloadsCategories(deps.downloadsStore))
 	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
-	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore))
+	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore, downloadRemoverDep(deps)))
 	api.GET("/downloads/:id/details", handlers.DownloadsDetails(deps.downloadsStore, deps.streamSrv))
 	api.GET("/downloads/:id/sources", handlers.DownloadsSources(deps.downloadsStore))
 	api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(deps.downloadsStore, deps.streamSrv))
@@ -1103,7 +1116,7 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.PATCH("/downloads/resume-all", handlers.DownloadsResumeAll(deps.downloadsStore))
 	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))
 	api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(deps.downloadsStore))
-	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore))
+	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore, downloadRemoverDep(deps)))
 	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(deps.downloadsStore, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))

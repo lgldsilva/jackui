@@ -93,7 +93,7 @@ func TestDownloadsDelete_InvalidID(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.DELETE("/api/downloads/:id", DownloadsDelete(store))
+	router.DELETE("/api/downloads/:id", DownloadsDelete(store, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/downloads/notanumber", nil)
 	w := httptest.NewRecorder()
@@ -109,15 +109,17 @@ func TestDownloadsDelete_NotFound(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.DELETE("/api/downloads/:id", DownloadsDelete(store))
+	router.DELETE("/api/downloads/:id", DownloadsDelete(store, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/downloads/999", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Delete for non-existent returns 500 (store.Delete fails)
-	if w.Code != http.StatusNoContent && w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 204 or 500; body: %s", w.Code, w.Body.String())
+	// Deleting a non-existent row is now IDEMPOTENT: 204, not 500. The old 500
+	// was the silently-swallowed failure that left the row to reappear on the
+	// next poll ("clicked Remove, nothing happened").
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -277,7 +279,7 @@ func TestDownloadsBatchDelete_EmptyIDs(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.POST("/api/downloads/batch/delete", DownloadsBatchDelete(store))
+	router.POST("/api/downloads/batch/delete", DownloadsBatchDelete(store, nil))
 
 	body := map[string][]int{"ids": {}}
 	b, _ := json.Marshal(body)
