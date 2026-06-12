@@ -56,7 +56,8 @@ export function reconcile<T extends HasID>(pd: PendingDeletes, incoming: T[]): T
     out.push(item)
   }
   // Prune confirmed-gone IDs: pending but NOT in the latest backend list.
-  for (const id of [...pd.ids]) {
+  // Deletar do Set durante o for…of é seguro em JS — sem need de copiar (S7747).
+  for (const id of pd.ids) {
     if (!present.has(id)) pd.ids.delete(id)
   }
   return out
