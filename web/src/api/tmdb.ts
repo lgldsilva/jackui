@@ -87,6 +87,14 @@ export const tmdbRecommendations = async (): Promise<TmdbRecommendation[]> => {
   }
 }
 
+// tmdbDismissRecommendation persists a per-user "never show me this again" for a
+// recommended title. The server excludes it from every future rebuild, so the
+// dismissal is durable (unlike a client-only hide that a reload would undo).
+// Best-effort: the UI removes the card optimistically and tolerates a failure.
+export const tmdbDismissRecommendation = async (kind: 'movie' | 'tv', tmdbId: number): Promise<void> => {
+  await api.post('/recommendations/dismiss', { kind, tmdbId }, { validateStatus: () => true })
+}
+
 // tmdbGenres returns the merged movie+tv genre list for the Discover filter.
 export const tmdbGenres = async (): Promise<TmdbGenre[]> => {
   try {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { TmdbRecommendation } from '../api/client'
-import { groupRecommendations, OTHER_GROUP_KEY, OTHER_GROUP_LABEL } from './recsGroup'
+import { groupRecommendations, removeRec, recIdentity, OTHER_GROUP_KEY, OTHER_GROUP_LABEL } from './recsGroup'
 
 function mk(tmdbId: number, becauseOf?: string, kind: 'movie' | 'tv' = 'movie'): TmdbRecommendation {
   return {
@@ -85,5 +85,41 @@ describe('groupRecommendations', () => {
     ])
     expect(groups).toHaveLength(1)
     expect(ids(groups, 'because:matrix')).toEqual([1, 2])
+  })
+})
+
+describe('removeRec', () => {
+  it('drops the matching (kind, tmdbId) and returns a new array', () => {
+    const recs = [mk(1, 'Matrix'), mk(2, 'Matrix'), mk(3, 'Inception')]
+    const out = removeRec(recs, 'movie', 2)
+    expect(out.map(r => r.tmdbId)).toEqual([1, 3])
+    expect(out).not.toBe(recs) // new reference for clean React state update
+  })
+
+  it('only matches when BOTH kind and tmdbId agree (same id, other kind survives)', () => {
+    const recs = [mk(7, 'A', 'movie'), mk(7, 'A', 'tv')]
+    const out = removeRec(recs, 'movie', 7)
+    expect(out).toHaveLength(1)
+    expect(out[0].kind).toBe('tv')
+  })
+
+  it('returns the SAME reference when nothing matched (no needless re-render)', () => {
+    const recs = [mk(1, 'Matrix')]
+    expect(removeRec(recs, 'movie', 999)).toBe(recs)
+    expect(removeRec(recs, 'tv', 1)).toBe(recs)
+  })
+
+  it('emptying a topic makes it disappear from the regrouped list', () => {
+    // Inception has a single rec; dismissing it leaves only the Matrix topic.
+    const recs = [mk(1, 'Matrix'), mk(2, 'Inception')]
+    const after = removeRec(recs, 'movie', 2)
+    const groups = groupRecommendations(after)
+    expect(keys(groups)).toEqual(['because:matrix'])
+  })
+
+  it('recIdentity distinguishes kinds and matches the dismiss key shape', () => {
+    expect(recIdentity('movie', 5)).toBe('movie:5')
+    expect(recIdentity('tv', 5)).toBe('tv:5')
+    expect(recIdentity('movie', 5)).not.toBe(recIdentity('tv', 5))
   })
 })
