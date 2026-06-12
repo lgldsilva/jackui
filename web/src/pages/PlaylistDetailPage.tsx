@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
 import {
   playlistsGet, playlistsUpdate, playlistsRemoveItem, playlistsReorderItem,
@@ -20,6 +21,7 @@ export default function PlaylistDetailPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const { playPlaylist } = usePlayer()
+  const { t } = useTranslation()
 
   const startAt = (idx: number) => {
     if (!playlist || items.length === 0) return
@@ -125,9 +127,16 @@ export default function PlaylistDetailPage() {
                   )}
                 </div>
               </div>
-              <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-1.5 flex-shrink-0">
-                <Pencil className="w-4 h-4" /> Editar
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {items.length > 0 && (
+                  <button onClick={() => startAt(0)} className="btn-primary flex items-center gap-1.5" title={t('player.playAll')}>
+                    <Play className="w-4 h-4" /> {t('player.playAll')}
+                  </button>
+                )}
+                <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-1.5">
+                  <Pencil className="w-4 h-4" /> Editar
+                </button>
+              </div>
             </div>
           )}
         </div>
