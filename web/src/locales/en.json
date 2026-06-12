@@ -239,7 +239,17 @@
       "title": "Equalizer",
       "reset": "Reset",
       "bandLabel": "{{freq}} band gain",
-      "valueText": "{{db}} dB"
+      "valueText": "{{db}} dB",
+      "presets": "Presets",
+      "preset": {
+        "flat": "Flat",
+        "rock": "Rock",
+        "pop": "Pop",
+        "jazz": "Jazz",
+        "bass": "Bass",
+        "treble": "Treble",
+        "vocal": "Vocal"
+      }
     },
     "lyrics": {
       "title": "Lyrics",
