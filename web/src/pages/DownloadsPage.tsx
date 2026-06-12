@@ -63,6 +63,13 @@ export default function DownloadsPage() {
   const [loading, setLoading] = useState(true)
   const [busyID, setBusyID] = useState<number | null>(null)
   const mountedRef = useRef(true)
+  // Monotonic load token: the 2s poll + filter/sort changes can have several
+  // load()s in flight at once and their responses can land OUT OF ORDER. Only
+  // the newest load may apply its result — otherwise an older poll (which still
+  // carries a just-deleted row) lands after a newer one and `reconcile` prunes
+  // the pending-delete, making the row reappear (the single-user "Remove didn't
+  // take"). Each load captures its token and bails if a newer load started.
+  const loadSeqRef = useRef(0)
   // Optimistic-delete tracker: IDs the user removed are hidden from poll
   // results until the backend confirms they're gone, so a stale in-flight poll
   // (started before the DELETE landed) can't resurrect a just-deleted row —
@@ -216,6 +223,7 @@ export default function DownloadsPage() {
   // ─── Data loading ─────────────────────────────────────────────────────────
 
   const load = async () => {
+    const seq = ++loadSeqRef.current
     try {
       const list = showAllUsers
         ? await downloadsListAll({
@@ -224,13 +232,15 @@ export default function DownloadsPage() {
             order: sortDir,
           })
         : await downloadsList()
-      if (mountedRef.current) setItems(reconcile(pendingDeletesRef.current, list))
+      // Drop stale/out-of-order responses: only the latest load reconciles.
+      if (mountedRef.current && seq === loadSeqRef.current) setItems(reconcile(pendingDeletesRef.current, list))
     } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
     }
   }
 
   const loadFiltered = async () => {
+    const seq = ++loadSeqRef.current
     try {
       const params: DownloadFilterParams = {
         status: filterStatus || undefined,
@@ -244,7 +254,7 @@ export default function DownloadsPage() {
       const list = showAllUsers
         ? await downloadsListAll(params)
         : await downloadsListFiltered(params)
-      if (mountedRef.current) setItems(reconcile(pendingDeletesRef.current, list))
+      if (mountedRef.current && seq === loadSeqRef.current) setItems(reconcile(pendingDeletesRef.current, list))
     } catch { /* silent */ } finally {
       if (mountedRef.current) setLoading(false)
     }
