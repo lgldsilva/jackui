@@ -10,6 +10,7 @@
 package audiometa
 
 import (
+	"io"
 	"os"
 	"strings"
 
@@ -42,8 +43,16 @@ func ReadTags(absPath string) (Tags, error) {
 		return Tags{}, err
 	}
 	defer func() { _ = f.Close() }()
+	return ReadTagsFrom(f)
+}
 
-	m, err := tag.ReadFrom(f) // io.ReadSeeker — seeks for ID3v1 tail + art offsets
+// ReadTagsFrom parses tags from any io.ReadSeeker — the same code path serves
+// local files (*os.File) AND files INSIDE a torrent (the streamer's seekable
+// file reader), so torrent music gets the artist/album the filename usually
+// lacks ("01 - Track.flac"). Seeking is required (see the package doc): the
+// reader must support it.
+func ReadTagsFrom(rs io.ReadSeeker) (Tags, error) {
+	m, err := tag.ReadFrom(rs) // seeks for ID3v1 tail + embedded-art offsets
 	if err != nil {
 		return Tags{}, err
 	}
