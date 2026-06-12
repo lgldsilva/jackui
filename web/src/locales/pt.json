@@ -267,6 +267,10 @@
       "loading": "Buscando letras…",
       "none": "Sem letras disponíveis"
     },
+    "subtitles": {
+      "filter": "Filtrar legendas…",
+      "noMatch": "Nenhuma legenda bate com o filtro"
+    },
     "external": {
       "open_in": "Abrir em",
       "choose": "Escolher um tocador externo",
