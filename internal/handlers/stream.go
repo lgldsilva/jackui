@@ -142,6 +142,20 @@ func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 		if serveFromCompletedStore(c, store, s, h, fileIdx) {
 			return
 		}
+		// A finished WHOLE-TORRENT download whose rel path the store couldn't map
+		// (missing metadata cache / .torrent) needs the torrent active to resolve
+		// the file. Gated on an existing completed whole-torrent row so unknown or
+		// in-progress hashes don't trigger a spurious Add: activate, then retry the
+		// on-disk path before streaming, so a completed pack plays locally instead
+		// of re-downloading from the swarm (#26).
+		if whole, _ := store.GetCompletedPath(h.HexString(), downloads.FileIndexWholeTorrent); fileIdx >= 0 && whole != "" {
+			if _, err := s.Get(h); err != nil {
+				_, _ = s.Add(c.Request.Context(), MagnetPrefix+h.HexString())
+			}
+			if serveFromCompletedStore(c, store, s, h, fileIdx) {
+				return
+			}
+		}
 		serveFromStreamer(c, s, h, fileIdx)
 	}
 }
