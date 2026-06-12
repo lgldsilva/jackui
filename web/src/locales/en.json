@@ -235,6 +235,7 @@
   "player": {
     "view_list": "List view",
     "view_tree": "Folder tree",
+    "audioTools": "Equalizer & Lyrics",
     "eq": {
       "title": "Equalizer",
       "reset": "Reset",
