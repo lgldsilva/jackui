@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -18,9 +20,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
@@ -35,6 +39,10 @@ type LocalPlayResp struct {
 	VCodec    string `json:"vcodec,omitempty"`
 	ACodec    string `json:"acodec,omitempty"`
 	Container string `json:"container,omitempty"`
+	// LibraryID is the Continue-Watching row for this local file (0 when not
+	// tracked). The frontend uses it to save/resume playback position, just like
+	// torrents — so local audio/video gets resume + shows in Continue Watching.
+	LibraryID int `json:"libraryId,omitempty"`
 }
 
 // browserSafeContainers / browserSafeVideoCodecs / browserSafeAudioCodecs:
@@ -375,7 +383,7 @@ func localPlayAudioResp(c *gin.Context, abs, mount, path, token string) LocalPla
 // and returns either { kind: "direct", url } or { kind: "hls", url }. The
 // frontend just consumes `url` and trusts the kind for any wrapper logic
 // (subtitles via WebVTT, etc.).
-func LocalPlay(b *local.Browser) gin.HandlerFunc {
+func LocalPlay(b *local.Browser, lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -387,13 +395,67 @@ func LocalPlay(b *local.Browser) gin.HandlerFunc {
 
 		token := localPlayToken(c)
 
-		if isAudioByExt(path) {
-			c.JSON(http.StatusOK, localPlayAudioResp(c, abs, mount, path, token))
-			return
+		isAudio := isAudioByExt(path)
+		var resp LocalPlayResp
+		if isAudio {
+			resp = localPlayAudioResp(c, abs, mount, path, token)
+		} else {
+			resp = localPlayVideoResp(c, abs, mount, path, token)
 		}
-
-		c.JSON(http.StatusOK, localPlayVideoResp(c, abs, mount, path, token))
+		// Track in the library so local media shows in Continue Watching and gets
+		// resume — same as torrents (StreamAdd). Best-effort; never blocks playback.
+		resp.LibraryID = upsertLocalLibrary(c, lib, mount, path, isAudio)
+		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// localInfoHash derives the SAME `local-<base64url(json)>` pseudo info-hash the
+// frontend builds (buildLocalHash) so the library row keys on the value the
+// deep-link (?play=local-…) and the player already use. CRITICAL: disable Go's
+// default HTML escaping (it would turn & < > into \u00XX, which JS's
+// JSON.stringify does NOT) and strip Encoder's trailing newline — otherwise the
+// hash diverges for paths with those chars (e.g. "Simon & Garfunkel").
+func localInfoHash(mount, path string) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(struct {
+		Mount string `json:"mount"`
+		Path  string `json:"path"`
+	}{mount, path})
+	raw := bytes.TrimRight(buf.Bytes(), "\n")
+	return "local-" + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// upsertLocalLibrary records the local file in the user's library and returns
+// the row id (0 when tracking is unavailable). Mirrors StreamAdd: still upserts
+// in incognito but flags the row so it stays out of normal listings.
+func upsertLocalLibrary(c *gin.Context, lib *library.Store, mount, path string, isAudio bool) int {
+	if lib == nil {
+		return 0
+	}
+	userID, _, _ := auth.UserIDFromCtx(c)
+	hash := localInfoHash(mount, path)
+	name := path
+	if i := strings.LastIndexAny(path, "/\\"); i >= 0 {
+		name = path[i+1:]
+	}
+	kind := "video"
+	if isAudio {
+		kind = "audio"
+	}
+	e, err := lib.Upsert(library.UpsertInput{
+		UserID:    userID,
+		InfoHash:  hash,
+		Magnet:    "magnet:?xt=urn:btih:" + hash,
+		Name:      name,
+		Kind:      kind,
+		Incognito: middleware.IsIncognito(c),
+	})
+	if err != nil {
+		return 0
+	}
+	return e.ID
 }
 
 func buildLocalFileURL(mount, path string) string {

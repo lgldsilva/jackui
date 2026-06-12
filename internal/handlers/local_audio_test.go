@@ -241,7 +241,7 @@ func TestLyricsGetMissingTitle(t *testing.T) {
 func TestLocalPlayAudioUnknownSafeExtDirect(t *testing.T) {
 	b, _ := audioMount(t, true) // song.mp3 (ID3 tag, no real frames)
 	w, c := ctxFor("GET", "/api/local/play?mount=M&path=song.mp3")
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 	var resp LocalPlayResp
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -260,7 +260,7 @@ func TestLocalPlayAudioUnknownUnsafeExtTranscodes(t *testing.T) {
 	}
 	b := local.NewBrowser([]config.ExternalMount{{Name: "M", Path: dir}})
 	w, c := ctxFor("GET", "/api/local/play?mount=M&path=song.flac")
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 	var resp LocalPlayResp
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
