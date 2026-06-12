@@ -315,6 +315,38 @@ func (f *FavoritesStore) HiddenLocalPaths(userID int) ([]HiddenLocalPath, error)
 	return out, rows.Err()
 }
 
+// HiddenLocalPathOwned is a hidden local (mount, path) together with the user
+// that hid it. Used by the admin "all users" download view, which must resolve
+// each path under the OWNER's scope (UserSubpath mounts) — not the requester's.
+type HiddenLocalPathOwned struct {
+	UserID int
+	Mount  string
+	Path   string
+}
+
+// HiddenLocalPathsAll returns every hidden local (mount, path) across all users,
+// tagged with the owning user_id. Admin-only callers use it so an item one user
+// hid stays hidden in the cross-user listing too.
+func (f *FavoritesStore) HiddenLocalPathsAll() ([]HiddenLocalPathOwned, error) {
+	if f == nil {
+		return nil, nil
+	}
+	rows, err := f.db.Query(`SELECT user_id, mount, path FROM hidden_local_paths`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []HiddenLocalPathOwned
+	for rows.Next() {
+		var hp HiddenLocalPathOwned
+		if err := rows.Scan(&hp.UserID, &hp.Mount, &hp.Path); err != nil {
+			return nil, err
+		}
+		out = append(out, hp)
+	}
+	return out, rows.Err()
+}
+
 // SetLocalPathHidden hides (hidden=true) or unhides a local (mount, path) for a
 // user. Idempotent: hiding an already-hidden path is a no-op.
 func (f *FavoritesStore) SetLocalPathHidden(userID int, mount, path string, hidden bool) error {

@@ -28,7 +28,7 @@ func TestDownloadsList_Empty(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.GET("/api/downloads", DownloadsList(store, nil, ""))
+	router.GET("/api/downloads", DownloadsList(store, nil, nil, nil, ""))
 
 	req := httptest.NewRequest("GET", "/api/downloads", nil)
 	w := httptest.NewRecorder()
@@ -160,7 +160,7 @@ func TestDownloadsListFiltered_Empty(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.GET("/api/downloads/filtered", DownloadsListFiltered(store, nil))
+	router.GET("/api/downloads/filtered", DownloadsListFiltered(store, nil, nil, nil))
 
 	req := httptest.NewRequest("GET", "/api/downloads/filtered?status=downloading", nil)
 	w := httptest.NewRecorder()
@@ -348,7 +348,7 @@ func TestDownloadsListAll_Empty(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.GET("/api/downloads/all", DownloadsListAll(store, nil, nil))
+	router.GET("/api/downloads/all", DownloadsListAll(store, nil, nil, nil))
 
 	req := httptest.NewRequest("GET", "/api/downloads/all", nil)
 	w := httptest.NewRecorder()
