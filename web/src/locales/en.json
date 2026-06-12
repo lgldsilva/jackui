@@ -235,6 +235,17 @@
   "player": {
     "view_list": "List view",
     "view_tree": "Folder tree",
+    "eq": {
+      "title": "Equalizer",
+      "reset": "Reset",
+      "bandLabel": "{{freq}} band gain",
+      "valueText": "{{db}} dB"
+    },
+    "lyrics": {
+      "title": "Lyrics",
+      "loading": "Fetching lyrics…",
+      "none": "No lyrics available"
+    },
     "external": {
       "open_in": "Open in",
       "choose": "Choose an external player",
