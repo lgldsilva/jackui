@@ -940,19 +940,23 @@ func Test_hgA_DownloadsBatchDelete_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.POST("/api/downloads/batch/delete", DownloadsBatchDelete(store))
+	router.POST("/api/downloads/batch/delete", DownloadsBatchDelete(store, nil))
 	body, _ := json.Marshal(map[string][]int{"ids": {d.ID, 99999}})
 	w := hgADo(router, "POST", "/api/downloads/batch/delete", body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d want 200", w.Code)
 	}
 	var resp struct {
-		Deleted int `json:"deleted"`
-		Total   int `json:"total"`
+		Deleted int   `json:"deleted"`
+		Total   int   `json:"total"`
+		Failed  []int `json:"failed"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp.Deleted != 1 || resp.Total != 2 {
-		t.Errorf("deleted=%d total=%d want 1/2", resp.Deleted, resp.Total)
+	// Idempotent delete: the missing id (99999) is not an error — it's already
+	// gone, so it counts toward `deleted` and `failed` stays empty. `failed`
+	// only carries IDs the store actually errored on.
+	if resp.Deleted != 2 || resp.Total != 2 || len(resp.Failed) != 0 {
+		t.Errorf("deleted=%d total=%d failed=%v want 2/2/[]", resp.Deleted, resp.Total, resp.Failed)
 	}
 }
 

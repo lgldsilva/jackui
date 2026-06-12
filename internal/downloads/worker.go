@@ -95,6 +95,18 @@ type Worker struct {
 	tracked map[int]*trackedDL         // fully initialized, being sampled — by download.ID
 	pending map[int]context.CancelFunc // init goroutine in flight — cancel on removal/stop
 	retries map[int]int                // transient init failures per download.ID
+	// removed is a tombstone set of download IDs deleted via Remove(). An init
+	// goroutine that was already resolving metadata when the delete landed must
+	// NOT promote the row back into `tracked` (or re-register streamer
+	// protection) — it checks this set before promoting. Entries are cleared
+	// when the goroutine that observed the tombstone exits, so an ID reused by a
+	// later Create starts clean.
+	removed map[int]struct{}
+
+	// drop drops a torrent from anacrolix. A field (defaulting to
+	// streamer.Drop) instead of a direct call so the cancel/remove teardown is
+	// unit-testable without a live torrent client.
+	drop func(metainfo.Hash)
 
 	stop   chan struct{}
 	doneWG sync.WaitGroup
@@ -180,6 +192,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		tracked:         make(map[int]*trackedDL),
 		pending:         make(map[int]context.CancelFunc),
 		retries:         make(map[int]int),
+		removed:         make(map[int]struct{}),
 		stop:            make(chan struct{}),
 		ntfyBaseURL:     cfg.NtfyBaseURL,
 		ntfyTopic:       cfg.NtfyTopic,
@@ -190,6 +203,9 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		jackett:         cfg.Jackett,
 		aiClient:        cfg.AIClient,
 		tmdbClient:      cfg.TMDBClient,
+	}
+	if cfg.Streamer != nil {
+		w.drop = cfg.Streamer.Drop
 	}
 	// Pre-register eviction protection + self-heal completed orphans (extracted
 	// to keep NewWorker's cognitive complexity low).
@@ -245,6 +261,65 @@ func (w *Worker) Stop() {
 	}
 	w.mu.Unlock()
 	w.doneWG.Wait()
+}
+
+// Remove tears down all in-memory state for a deleted download SYNCHRONOUSLY,
+// so the deletion is authoritative the instant the DELETE handler returns —
+// instead of waiting up to one tick (2s) for tick() to notice the row vanished
+// from ListActive. It:
+//
+//   - cancels any in-flight init goroutine (pending) so it stops resolving
+//     metadata immediately;
+//   - drops the tracked entry and its retry counter;
+//   - records a tombstone so a late initDownload (one that finished EnsureActive
+//     /GotInfo just as the delete landed) does NOT re-promote the row or
+//     re-register streamer protection — closing the resurrection window;
+//   - drops the torrent from anacrolix (outside the lock) so it stops leeching,
+//     mirroring the tick-driven cancel/pause path.
+//
+// infoHash is the row's hash (the handler already has it from the deleted row),
+// used to drop the torrent even when nothing was tracked yet (delete of a
+// queued/initializing row). A safe no-op when the worker never tracked the ID.
+func (w *Worker) Remove(id int, infoHash string) {
+	var hash metainfo.Hash
+	haveHash := false
+
+	w.mu.Lock()
+	w.removed[id] = struct{}{}
+	if cancel := w.pending[id]; cancel != nil {
+		cancel()
+		delete(w.pending, id)
+	}
+	if td := w.tracked[id]; td != nil {
+		w.unregisterLocked(td) // drops streamer protection unless a sibling shares the name
+		if td.hash != (metainfo.Hash{}) {
+			hash, haveHash = td.hash, true
+		}
+		delete(w.tracked, id)
+	}
+	delete(w.retries, id)
+	w.mu.Unlock()
+
+	// Fall back to the row's persisted infoHash when nothing was tracked (a
+	// queued row deleted before init ever ran has no trackedDL but may still
+	// have an active torrent in the streamer).
+	if !haveHash && infoHash != "" {
+		if err := hash.FromHexString(infoHash); err == nil {
+			haveHash = true
+		}
+	}
+	if haveHash {
+		// Drop runs OUTSIDE w.mu (streamer lock + I/O) and is a safe no-op if a
+		// player still holds a viewer lease on the same torrent.
+		w.dropTorrent(hash)
+	}
+}
+
+// dropTorrent drops a torrent via the injected seam (nil-safe).
+func (w *Worker) dropTorrent(h metainfo.Hash) {
+	if w.drop != nil {
+		w.drop(h)
+	}
 }
 
 func (w *Worker) run() {
@@ -325,7 +400,7 @@ func (w *Worker) tick() {
 	// runs OUTSIDE w.mu (it takes the streamer lock + does I/O) and is a safe
 	// no-op if a player still holds a viewer lease on the same torrent.
 	for _, h := range toDrop {
-		w.streamer.Drop(h)
+		w.dropTorrent(h)
 	}
 
 	for _, d := range active {
@@ -861,6 +936,12 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	defer func() {
 		w.mu.Lock()
 		delete(w.pending, d.ID)
+		// Clear any deletion tombstone now that THIS init has fully exited: the
+		// resurrection window is closed (we either bailed or promoted under the
+		// lock above), so an ID reused by a later Create starts clean. Done here
+		// (always-run defer) so the tombstone never leaks when init bails before
+		// the promotion guard (e.g. EnsureActive failed).
+		delete(w.removed, d.ID)
 		w.mu.Unlock()
 	}()
 
@@ -927,18 +1008,9 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 		lastProgressAt: now,
 	}
 	td.lastProgressBytes, _, _ = td.progress()
-	w.mu.Lock()
-	// If the download was cancelled mid-init, `pending` no longer holds our
-	// entry (the tick loop deleted it and called cancel). Don't promote it —
-	// undo the eviction protection we just registered.
-	if _, stillPending := w.pending[d.ID]; !stillPending {
-		w.mu.Unlock()
-		w.streamer.UnregisterDownload(name)
+	if !w.promoteOrAbort(d, td, name) {
 		return
 	}
-	w.tracked[d.ID] = td
-	delete(w.retries, d.ID)
-	w.mu.Unlock()
 	// Snapshot inicial dos bytes já completos. Sem isso, o usuário que clica
 	// Download enquanto está streamando vê 0% nos primeiros 2-4s (entre o
 	// init terminar e o primeiro tick rodar UpdateProgress) — interpreta como
@@ -951,6 +1023,34 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 		}
 	}
 	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, totalBytes, initialBytes)
+}
+
+// promoteOrAbort moves a freshly-initialized download into `tracked` UNLESS it
+// was cancelled or deleted while init was resolving metadata. Returns false
+// (without promoting) in two cases:
+//
+//   - `pending` no longer holds our entry: the tick loop or Remove() deleted it
+//     and called cancel (paused/cancelled/preempted/deleted).
+//   - `removed` holds a tombstone: Remove() deleted the row while we were
+//     resolving metadata. Re-promoting here would RESURRECT a row the user just
+//     deleted — the intermittent "Remove didn't remove" window this fix closes.
+//
+// On abort it undoes the eviction protection initDownload speculatively
+// registered. The tombstone itself is cleared by initDownload's deferred
+// cleanup once this goroutine exits.
+func (w *Worker) promoteOrAbort(d Download, td *trackedDL, name string) bool {
+	w.mu.Lock()
+	_, stillPending := w.pending[d.ID]
+	_, tombstoned := w.removed[d.ID]
+	if !stillPending || tombstoned {
+		w.mu.Unlock()
+		w.streamer.UnregisterDownload(name)
+		return false
+	}
+	w.tracked[d.ID] = td
+	delete(w.retries, d.ID)
+	w.mu.Unlock()
+	return true
 }
 
 // initTarget marks the row's download target as wanted in anacrolix and

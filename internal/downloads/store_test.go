@@ -152,15 +152,25 @@ func TestListActiveOnlyDownloading(t *testing.T) {
 func TestDeleteOwnership(t *testing.T) {
 	s := newTestStore(t)
 	d, _ := s.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "x"})
-	// Wrong user — should fail
-	if err := s.Delete(99, d.ID); err == nil {
-		t.Fatal("expected Delete to fail with wrong user")
+	// Wrong user, non-admin: the delete is scoped to user_id=99, so it matches
+	// 0 rows. It's idempotent (no error — "as far as user 99 is concerned, no
+	// such row exists"), but CRUCIALLY the owner's row must SURVIVE.
+	if err := s.Delete(99, d.ID); err != nil {
+		t.Fatalf("Delete(wrong user) must be a no-op, not an error: %v", err)
 	}
+	if _, err := s.Get(1, d.ID); err != nil {
+		t.Fatal("a non-owner's scoped delete must NOT remove the owner's row")
+	}
+	// Owner deletes successfully.
 	if err := s.Delete(1, d.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if _, err := s.Get(1, d.ID); err == nil {
 		t.Fatal("expected Get after Delete to fail")
+	}
+	// Idempotent: a repeat delete of the now-gone row is a no-op, not an error.
+	if err := s.Delete(1, d.ID); err != nil {
+		t.Fatalf("repeat Delete must be idempotent: %v", err)
 	}
 }
 
