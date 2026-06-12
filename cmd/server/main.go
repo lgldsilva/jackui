@@ -1032,6 +1032,22 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	registerLocalRoutes(api, deps)
 	registerDownloadsRoutes(api, deps)
 	registerHLSRoutes(api, adminAPI, deps)
+	registerPreviewRoutes(api, deps)
+}
+
+// registerPreviewRoutes wires the universal viewer endpoints (archives,
+// comics, EPUB) — sources: torrent file (?hash=&idx=) or local mount
+// (?mount=&path=). All GET, all under /api/preview/ (whitelisted in
+// auth.isMediaPath for the ?token= fallback used by <img>/<iframe>).
+func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
+	d := handlers.PreviewDeps{Streamer: deps.streamSrv, Downloads: deps.downloadsStore, Local: deps.localBrowser}
+	api.GET("/preview/archive", handlers.PreviewArchiveList(d))
+	api.GET("/preview/archive/entry", handlers.PreviewArchiveEntry(d))
+	api.GET("/preview/comic", handlers.PreviewComicManifest(d))
+	api.GET("/preview/comic/page", handlers.PreviewComicPage(d))
+	api.GET("/preview/epub", handlers.PreviewEpubManifest(d))
+	api.GET("/preview/epub/chapter", handlers.PreviewEpubChapter(d))
+	api.GET("/preview/epub/res", handlers.PreviewEpubResource(d))
 }
 
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {

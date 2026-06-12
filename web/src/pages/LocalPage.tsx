@@ -62,6 +62,9 @@ import {
   localListHidden,
 } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
+import FilePreviewModal from '../components/FilePreviewModal'
+import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
+import { previewRawURL } from '../api/preview'
 
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
@@ -327,7 +330,10 @@ function EntryActions({ entry: e, isAdmin, canAct, hidden, onPromote, onReclassi
 // podem ser chamados dentro de um .map). Long-press entra no modo seleção.
 function EntryRow(props: EntryRowProps) {
   const { entry: e, mount, selectMode, selected, canManipulate, isAdmin } = props
-  const clickable = e.isDir || e.isPlayable
+  // Viewable = não-reproduzível mas com viewer universal (NFO/imagem/PDF/
+  // quadrinhos/zip/EPUB). A linha deixa de ser "morta": clique abre o preview.
+  const viewable = !e.isDir && !e.isPlayable && isViewable(e.name)
+  const clickable = e.isDir || e.isPlayable || viewable
   const canAct = canManipulate || isAdmin
   const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct })
   const pressHandlers = selectMode || !canAct ? {} : lp
@@ -339,7 +345,8 @@ function EntryRow(props: EntryRowProps) {
         onContextMenu={(ev) => {
           // Botão direito abre numa nova aba (tela toda): pasta → o browser
           // daquela pasta; arquivo → o player via deep-link ?play=local-hash.
-          if (!clickable) return
+          // Viewables ficam de fora: o deep-link ?play= só faz sentido pra mídia.
+          if (!e.isDir && !e.isPlayable) return
           ev.preventDefault()
           const origin = globalThis.location.origin
           const url = e.isDir
@@ -364,6 +371,7 @@ function EntryRow(props: EntryRowProps) {
         <span className="flex-1 min-w-0 flex flex-col gap-0.5">
           <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere] flex items-center gap-1.5">
             {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="oculto" />}
+            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label="visualizável" />}
             {e.name}
           </span>
           {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
@@ -422,6 +430,8 @@ export default function LocalPage() {
   const [promoteEntries, setPromoteEntries] = useState<LocalEntry[]>([])
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
+  // Viewer universal pra arquivos não-reproduzíveis (NFO/imagem/PDF/CBZ/zip/EPUB)
+  const [previewEntry, setPreviewEntry] = useState<LocalEntry | null>(null)
   const confirm = useConfirm()
 
   // Hidden curtain (global easter egg): hidden entries drop from the list unless
@@ -742,7 +752,13 @@ export default function LocalPage() {
       updateNavigation(activeMount, e.path)
       return
     }
-    if (!e.isPlayable || !activeMount) return
+    if (!activeMount) return
+    // Não-reproduzível mas visualizável (NFO/imagem/PDF/CBZ/zip/EPUB) → abre o
+    // viewer universal em vez de ser um clique morto.
+    if (!e.isPlayable) {
+      if (isViewable(e.name)) setPreviewEntry(e)
+      return
+    }
     // Routes the file through the main PlayerProvider/PlayerModal via a
     // synthetic SearchResult com pseudo-hash `local-...` (mount+path codificados).
     // Resultado: o player completo abre — legendas embedded, sidecar .srt/.vtt,
@@ -1093,6 +1109,24 @@ export default function LocalPage() {
               ))}
             </ul>
           )}
+
+          {/* Viewer universal — arquivo local não-reproduzível clicado */}
+          {previewEntry && activeMount && (() => {
+            // Irmãs imagens da pasta viram navegação ←/→ no viewer.
+            const imageSiblings = visible.filter(x => !x.isDir && detectViewerKind(x.name) === 'image')
+            const imageStart = Math.max(0, imageSiblings.findIndex(x => x.path === previewEntry.path))
+            return (
+              <FilePreviewModal
+                infoHash={buildLocalHash(activeMount, previewEntry.path)}
+                fileIdx={0}
+                filePath={previewEntry.path}
+                fileSize={previewEntry.size}
+                imageItems={imageSiblings.map(x => ({ label: x.path, url: previewRawURL(buildLocalHash(activeMount, x.path), 0) }))}
+                imageStart={imageStart}
+                onClose={() => setPreviewEntry(null)}
+              />
+            )
+          })()}
 
           {/* Modal de Promoção — individual (1) ou lote (N) num único fluxo */}
           <LocalPromoteModal

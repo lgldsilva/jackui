@@ -15,6 +15,11 @@ func TestIsMediaPath(t *testing.T) {
 		"/api/local/thumb",
 		"/api/search/stream",
 		"/api/search/stream?q=x&token=y",
+		// Universal viewer: comic pages / EPUB chapters / archive images load
+		// via <img>/<iframe>, headerless by nature.
+		"/api/preview/archive",
+		"/api/preview/comic/page",
+		"/api/preview/epub/chapter",
 	}
 	for _, p := range media {
 		if !isMediaPath(p) {
