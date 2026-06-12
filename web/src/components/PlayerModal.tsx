@@ -371,6 +371,10 @@ export default function PlayerModal({
   // renders as a right column instead of a stacked panel below the video.
   // Persisted to localStorage so the user's choice survives between modals.
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    // Music mode is album-browsing first — open the track list by default so a
+    // multi-track album (e.g. "2 de 73") shows its songs without hunting for the
+    // collapsed strip. Video keeps the per-user stored preference.
+    if (audioMode) return true
     const stored = localStorage.getItem('jackui.playerSidebar')
     return stored === null ? true : stored === '1'
   })
