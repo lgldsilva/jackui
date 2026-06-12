@@ -1,4 +1,4 @@
-import { forwardRef } from 'react'
+import { forwardRef, memo } from 'react'
 import { Play, Eye } from 'lucide-react'
 import { TorrentInfo, streamThumbnailURL } from '../../api/client'
 import { detectViewerKind } from '../viewer/viewerKind'
@@ -39,7 +39,10 @@ function fileBtnClass(selected: boolean, isPlayable: boolean, canPreview: boolea
   return 'bg-surface-secondary/50 text-text-muted hover:bg-surface-tertiary border border-transparent'
 }
 
-export const FileRow = forwardRef<HTMLButtonElement, FileRowProps>(function FileRow(
+// memo so flattening a thousands-of-files tree doesn't re-render every row on
+// each expand/collapse or focus change — only the rows whose props actually
+// change repaint. Parent passes stable callbacks (useCallback) so this holds.
+export const FileRow = memo(forwardRef<HTMLButtonElement, FileRowProps>(function FileRow(
   { file: f, infoHash, selected, hoverThumb, parseEpisode, playFile, setPreviewFileIdx, displayName, indentStyle, treeItemProps },
   ref,
 ) {
@@ -96,4 +99,5 @@ export const FileRow = forwardRef<HTMLButtonElement, FileRowProps>(function File
       </span>
     </button>
   )
-})
+}))
+FileRow.displayName = 'FileRow'
