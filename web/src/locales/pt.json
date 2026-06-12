@@ -235,6 +235,7 @@
   "player": {
     "view_list": "Lista",
     "view_tree": "Árvore de pastas",
+    "audioTools": "Equalizador & Letras",
     "eq": {
       "title": "Equalizador",
       "reset": "Resetar",
