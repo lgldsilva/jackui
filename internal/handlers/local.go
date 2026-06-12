@@ -662,7 +662,7 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
-		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base, dls: dls, s: s}
+		deps := &promoteDstDeps{ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient, base: base, mount: req.Mount, dls: dls, s: s}
 		moved, errs := execPromoteMoves(b, deps, req.Mount, paths, targetDir)
 		if moved == 0 {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"moved": 0, "failed": len(errs), "errors": errs})
@@ -713,7 +713,7 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 		return gin.H{"path": scopedRel, "error": "arquivo de origem não existe"}
 	}
 	baseName := filepath.Base(src)
-	dst, dir := computePromoteDst(deps, baseName, targetDir)
+	dst, dir := computePromoteDst(deps, baseName, currentDirOf(scopedRel), targetDir)
 	if src == dst {
 		return nil
 	}
@@ -730,9 +730,10 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 	return nil
 }
 
-func computePromoteDst(d *promoteDstDeps, baseName, targetDir string) (string, string) {
+func computePromoteDst(d *promoteDstDeps, baseName, currentPath, targetDir string) (string, string) {
 	if d.aiClient != nil {
-		preview, err := renamer.GeneratePreview(d.ctx, d.aiClient, d.tmdbClient, baseName)
+		lc := localContextFor(d.base, d.mount, currentPath)
+		preview, err := renamer.GeneratePreviewWithContext(d.ctx, d.aiClient, d.tmdbClient, baseName, lc)
 		if err == nil && preview != nil {
 			targetRel := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 			dst := filepath.Join(d.base, targetRel)
@@ -741,6 +742,45 @@ func computePromoteDst(d *promoteDstDeps, baseName, targetDir string) (string, s
 	}
 	return filepath.Join(targetDir, baseName), targetDir
 }
+
+// currentDirOf returns the directory portion of a relative path for the AI
+// location hint ("" when the item is at the mount root). Defensive against the
+// filepath.Dir "." sentinel.
+func currentDirOf(rel string) string {
+	dir := filepath.Dir(filepath.Clean(rel))
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return dir
+}
+
+// localContextFor builds the renamer.LocalContext from the destination base and
+// the source location: a shallow ReadDir of the destination (top-level folders
+// only) so the renamer can reuse an existing category, plus the current path
+// for the AI's location hint. Cheap: a single ReadDir, results truncated. A
+// missing/unreadable base degrades to nil (legacy hardcoded labels).
+func localContextFor(base, mount, currentPath string) *renamer.LocalContext {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		if currentPath == "" {
+			return nil
+		}
+		return &renamer.LocalContext{CurrentPath: currentPath, MountName: mount}
+	}
+	folders := listDirs(entries)
+	if len(folders) > maxPromoteContextFolders {
+		folders = folders[:maxPromoteContextFolders]
+	}
+	return &renamer.LocalContext{
+		CurrentPath: currentPath,
+		MountName:   mount,
+		DestFolders: folders,
+	}
+}
+
+// maxPromoteContextFolders caps the top-level folder listing handed to the
+// renamer/AI so a huge library never blows up the prompt or the work.
+const maxPromoteContextFolders = 40
 
 func LocalPromotePreview(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -772,6 +812,7 @@ type promoteDstDeps struct {
 	aiClient   *ai.Client
 	tmdbClient *tmdb.Client
 	base       string
+	mount      string             // source mount name, for the AI location hint
 	dls        *downloads.Store   // to re-link a moved file's torrent (may be nil)
 	s          *streamer.Streamer // to drop the active torrent so it re-verifies
 }
@@ -851,7 +892,8 @@ func previewItem(d *localPreviewDeps, p string) gin.H {
 	}
 
 	baseName := filepath.Base(src)
-	preview, err := renamer.GeneratePreview(d.c.Request.Context(), d.aiClient, d.tmdbClient, baseName)
+	lc := localContextFor(d.base, d.mount, currentDirOf(p))
+	preview, err := renamer.GeneratePreviewWithContext(d.c.Request.Context(), d.aiClient, d.tmdbClient, baseName, lc)
 	if err != nil {
 		return gin.H{"path": p, "error": err.Error()}
 	}
@@ -867,6 +909,7 @@ func previewItem(d *localPreviewDeps, p string) gin.H {
 		"season":       preview.Season,
 		"episode":      preview.Episode,
 		"episodeName":  preview.EpisodeName,
+		"reusedFolder": preview.ReusedFolder,
 	}
 }
 
