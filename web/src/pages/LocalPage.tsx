@@ -51,6 +51,7 @@ import {
   buildLocalHash,
   localThumbURL,
   localList,
+  localWalk,
   localMounts,
   localDelete,
   localCleanEmptyDirs,
@@ -62,6 +63,7 @@ import {
   localListHidden,
 } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
+import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
 import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
 import { previewRawURL } from '../api/preview'
@@ -548,12 +550,50 @@ export default function LocalPage() {
     refresh()
   }
 
+  // Expand selected directories into their media files via localWalk, capped to a
+  // few concurrent walks so a large multi-folder selection doesn't fan out into
+  // dozens of simultaneous server calls.
+  const expandDirsToMediaFiles = async (dirs: LocalEntry[]): Promise<LocalEntry[]> => {
+    const out: LocalEntry[] = []
+    const concurrency = 3
+    let i = 0
+    const worker = async () => {
+      while (i < dirs.length) {
+        const dir = dirs[i++]
+        const r = await localWalk(activeMount, dir.path, true) // media_only
+        out.push(...r.entries.filter((e) => !e.isDir))
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, dirs.length) }, worker))
+    return out
+  }
+
   // Promover em lote = um único modal para TODOS os arquivos selecionados
-  // (destino + renomeação IA escolhidos uma vez, uma chamada só).
-  const runBatchPromote = () => {
-    const files = selectedEntries.filter((e) => !e.isDir)
-    if (files.length === 0) return
-    setPromoteEntries(files)
+  // (destino + renomeação IA escolhidos uma vez, uma chamada só). Pastas
+  // selecionadas são varridas (localWalk, media_only) em seus arquivos de mídia
+  // ANTES de abrir o modal; seleção mista junta os arquivos soltos + os de
+  // dentro das pastas, deduplicados por path.
+  const runBatchPromote = async () => {
+    const looseFiles = selectedEntries.filter((e) => !e.isDir)
+    const dirs = selectedEntries.filter((e) => e.isDir)
+    if (looseFiles.length === 0 && dirs.length === 0) return
+
+    setBatchRunning(true)
+    setError('')
+    try {
+      const expanded = dirs.length > 0 ? await expandDirsToMediaFiles(dirs) : []
+      const files = mergePromoteFiles(looseFiles, expanded)
+      if (files.length === 0) {
+        setError('Nenhum arquivo de mídia encontrado nas pastas selecionadas.')
+        return
+      }
+      setPromoteEntries(files)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao varrer as pastas selecionadas'
+      setError(msg)
+    } finally {
+      setBatchRunning(false)
+    }
   }
 
   useEffect(() => {
