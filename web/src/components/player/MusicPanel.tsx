@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { TorrentInfo, isLocalHash, parseLocalHash, localAudioMeta } from '../../api/client'
+import { TorrentInfo, isLocalHash, parseLocalHash, localAudioMeta, streamAudioMeta, type AudioMeta } from '../../api/client'
 import { usePersistedState } from '../../lib/storage'
 import { useWebAudioGraph } from './useWebAudioGraph'
 import { Equalizer } from './Equalizer'
@@ -16,7 +16,7 @@ type MusicPanelProps = {
   readonly duration: number
 }
 
-type Track = { title: string; artist: string; album: string }
+type Track = { title: string; artist: string; album: string; year: number }
 
 function currentFileName(info: TorrentInfo | null, idx: number): string {
   return info?.files?.[idx]?.path ?? info?.name ?? ''
@@ -27,28 +27,36 @@ function currentFileName(info: TorrentInfo | null, idx: number): string {
 function parseArtistTitle(name: string): Track {
   const base = name.replace(/.*[\\/]/, '').replace(/\.[^.]+$/, '').trim()
   const dash = base.indexOf(' - ')
-  if (dash > 0) return { artist: base.slice(0, dash).trim(), title: base.slice(dash + 3).trim(), album: '' }
-  return { artist: '', title: base, album: '' }
+  if (dash > 0) return { artist: base.slice(0, dash).trim(), title: base.slice(dash + 3).trim(), album: '', year: 0 }
+  return { artist: '', title: base, album: '', year: 0 }
 }
 
-// useTrack resolves the now-playing identity for lyrics. Local files get clean
-// tags from the server (dhowden/tag); torrents fall back to parsing the
-// filename. Re-runs when the file changes.
+// useTrack resolves the now-playing identity (for lyrics AND the metadata line).
+// Tags come from the server — local files via dhowden/tag on disk, torrent files
+// read through the streamer — and fall back to parsing the filename. Re-runs
+// when the file changes.
 function useTrack(info: TorrentInfo | null, selectedFile: number): Track {
   const name = currentFileName(info, selectedFile)
   const hash = info?.infoHash ?? ''
   const [track, setTrack] = useState<Track>(() => parseArtistTitle(name))
   useEffect(() => {
-    setTrack(parseArtistTitle(name))
-    if (!hash || !isLocalHash(hash)) return
-    const loc = parseLocalHash(hash)
-    if (!loc) return
+    const fromName = parseArtistTitle(name)
+    setTrack(fromName)
+    if (!hash) return
     let cancelled = false
-    localAudioMeta(loc.mount, loc.path)
-      .then((m) => { if (!cancelled && m.title) setTrack({ title: m.title, artist: m.artist, album: m.album }) })
-      .catch(() => {})
+    const apply = (m: AudioMeta) => {
+      // Keep the filename-derived title when the tag has none; tags win otherwise.
+      if (!cancelled && (m.title || m.artist || m.album)) {
+        setTrack({ title: m.title || fromName.title, artist: m.artist, album: m.album, year: m.year })
+      }
+    }
+    const loc = isLocalHash(hash) ? parseLocalHash(hash) : null
+    const req = loc
+      ? localAudioMeta(loc.mount, loc.path)
+      : (selectedFile >= 0 ? streamAudioMeta(hash, selectedFile) : null)
+    req?.then(apply).catch(() => {})
     return () => { cancelled = true }
-  }, [hash, name])
+  }, [hash, name, selectedFile])
   return track
 }
 
@@ -65,8 +73,15 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
   const graph = useWebAudioGraph(videoRef, true)
   const track = useTrack(info, selectedFile)
   const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
+  const metaLine = [track.artist, track.album, track.year ? String(track.year) : '']
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(' · ')
   return (
     <div className="mt-3">
+      {metaLine && (
+        <p className="mb-2 truncate text-xs text-text-muted" title={metaLine}>{metaLine}</p>
+      )}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

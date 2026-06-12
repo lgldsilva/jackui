@@ -1444,6 +1444,14 @@ export const localAudioMeta = async (mount: string, path: string): Promise<Audio
   return data
 }
 
+// streamAudioMeta fetches tags read from a file INSIDE a torrent (artist/album/
+// year the filename usually omits). Best-effort: empty tags on the server side
+// when the file can't be parsed, so the caller falls back to the filename.
+export const streamAudioMeta = async (hash: string, fileIdx: number): Promise<AudioMeta> => {
+  const { data } = await api.get<AudioMeta>(`/stream/audio/meta/${hash}/${fileIdx}`)
+  return data
+}
+
 // localAudioCoverURL builds the <img> URL for a local audio file's embedded
 // album art (204 when none). Carries ?token= because <img> can't set headers.
 export const localAudioCoverURL = (mount: string, path: string, tokenOverride?: string): string => {

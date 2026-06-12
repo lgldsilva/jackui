@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/imagesearch"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/lyrics"
 )
@@ -175,7 +176,7 @@ func TestLocalAudioMetaNotFound(t *testing.T) {
 func TestLocalAudioCoverHandler(t *testing.T) {
 	b, st := audioMount(t, true)
 	w, c := ctxFor("GET", "/api/local/audio/cover?mount=M&path=song.mp3")
-	LocalAudioCover(b, st)(c)
+	LocalAudioCover(b, st, nil)(c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
 	}
@@ -190,9 +191,21 @@ func TestLocalAudioCoverHandler(t *testing.T) {
 func TestLocalAudioCoverNone(t *testing.T) {
 	b, st := audioMount(t, false) // fixture without APIC
 	_, c := ctxFor("GET", "/api/local/audio/cover?mount=M&path=song.mp3")
-	LocalAudioCover(b, st)(c)
+	LocalAudioCover(b, st, nil)(c) // nil chain → no web fallback → 204
 	if c.Writer.Status() != http.StatusNoContent {
 		t.Errorf("no embedded cover must be 204, got %d", c.Writer.Status())
+	}
+}
+
+// With a web-search chain wired, a file lacking an embedded cover falls back to
+// the searched image instead of 204.
+func TestLocalAudioCoverWebFallback(t *testing.T) {
+	b, st := audioMount(t, false) // fixture without APIC
+	w, c := ctxFor("GET", "/api/local/audio/cover?mount=M&path=song.mp3")
+	chain := imagesearch.NewChain(stubSource{data: []byte("WEBIMG"), ct: "image/png"})
+	LocalAudioCover(b, st, chain)(c)
+	if w.Code != http.StatusOK || w.Body.String() != "WEBIMG" {
+		t.Fatalf("web fallback: code=%d body=%q, want 200/WEBIMG", w.Code, w.Body.String())
 	}
 }
 
