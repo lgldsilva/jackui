@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -103,7 +104,7 @@ func markPromoted(list []downloads.Download, downloadDir string) {
 }
 
 // DownloadsList handles GET /api/downloads — current user's queue.
-func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, downloadDir string) gin.HandlerFunc {
+func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, browser *local.Browser, authStore *auth.Store, downloadDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		list, err := store.List(userID)
@@ -111,7 +112,7 @@ func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, download
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		list = dropHiddenDownloads(list, hiddenHashSet(c, streamer, userID, false))
+		list = dropHiddenDownloads(list, buildHiddenDownloadFilter(c, streamer, browser, authStore, userID, false))
 		enrichETAList(list, streamer)
 		markPromoted(list, downloadDir)
 		downloads.AssignQueuePositions(list)
@@ -122,7 +123,7 @@ func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, download
 // DownloadsListFiltered handles GET /api/downloads/filtered — returns
 // downloads filtered by query params: status, tracker, category, search,
 // sort, order. Also returns available trackers/categories for filter UI.
-func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) gin.HandlerFunc {
+func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer, browser *local.Browser, authStore *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		status := c.Query("status")
@@ -145,7 +146,7 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		list = dropHiddenDownloads(list, hiddenHashSet(c, streamer, userID, false))
+		list = dropHiddenDownloads(list, buildHiddenDownloadFilter(c, streamer, browser, authStore, userID, false))
 		enrichETAList(list, streamer)
 		downloads.AssignQueuePositions(list)
 		c.JSON(http.StatusOK, list)
@@ -155,7 +156,7 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer) 
 // DownloadsListAll handles GET /api/downloads/all — admin-only: returns
 // downloads from ALL users, enriched with usernames. Supports the same
 // filtering params as DownloadsListFiltered, plus userId filter.
-func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer *streamer.Streamer) gin.HandlerFunc {
+func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer *streamer.Streamer, browser *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := c.Query("status")
 		tracker := c.Query("tracker")
@@ -179,7 +180,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 			return
 		}
 
-		list = dropHiddenDownloads(list, hiddenHashSet(c, streamer, 0, true))
+		list = dropHiddenDownloads(list, buildHiddenDownloadFilter(c, streamer, browser, authStore, 0, true))
 		uc := userCache{}
 		for i := range list {
 			list[i].Username = uc.get(authStore, list[i].UserID)

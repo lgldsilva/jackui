@@ -968,7 +968,7 @@ func Test_hgA_DownloadsList_WithRow(t *testing.T) {
 	hgACompletedDownload(t, store, srcDir, "lib.mkv")
 
 	router := gin.New()
-	router.GET("/api/downloads", DownloadsList(store, nil, "/some/download/dir"))
+	router.GET("/api/downloads", DownloadsList(store, nil, nil, nil, "/some/download/dir"))
 	w := hgADo(router, "GET", "/api/downloads", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d want 200", w.Code)
