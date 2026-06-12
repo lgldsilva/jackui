@@ -1329,8 +1329,12 @@ export default function PlayerModal({
       <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         {/* Main column: video + transport + status + panels. On lg+ the
             file picker moves to a sidebar on the right — frees this
-            column to grow without forcing the page into outer scroll. */}
-        <div className="flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
+            column to grow without forcing the page into outer scroll.
+            Audio mode centers its content vertically (lg:justify-center) so the
+            cover + transport fill the modal height instead of hugging the top
+            with a big empty gap below (the track sidebar makes the modal tall).
+            It still scrolls when EQ/lyrics expand past the height. */}
+        <div className={`flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
         {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
             status bar, file picker, and panels below all fit inside the modal's
             90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
