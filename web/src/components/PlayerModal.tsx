@@ -52,12 +52,16 @@ import { computeMediaUrls, tryAutoplayMutedFallback } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
+import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { MusicPanel } from './player/MusicPanel'
 
 type PlaylistMeta = {
   readonly name: string
-  readonly items: readonly { title: string }[]
+  // Each item is a torrent (a pack with many files) or a single local file.
+  // The aggregated track sidebar needs the source (infoHash/magnet) to resolve
+  // every item's file list, not just the playing one.
+  readonly items: readonly { title: string; infoHash: string; magnet: string; fileIndex: number }[]
   readonly currentIndex: number
 }
 
@@ -69,6 +73,7 @@ type PlayerModalProps = {
   readonly playlist?: PlaylistMeta | null
   readonly onPlaylistAdvance?: () => void
   readonly onPlaylistPrevious?: () => void
+  readonly onPlaylistJump?: (itemIndex: number, fileIndex?: number) => void
   readonly repeat?: 'none' | 'one' | 'all'
   readonly shuffle?: boolean
   readonly onCycleRepeat?: () => void
@@ -240,6 +245,7 @@ export default function PlayerModal({
   playlist = null,
   onPlaylistAdvance,
   onPlaylistPrevious,
+  onPlaylistJump,
   repeat = 'none',
   shuffle = false,
   onCycleRepeat,
@@ -1316,6 +1322,9 @@ export default function PlayerModal({
   // cognitive complexity. Closes over all the local state — behavior identical.
   const renderActiveStream = () => {
     if (!info || selectedFile < 0) return null
+    // A playlist with >1 item shows the aggregated track list (all items'
+    // files); a single item (or no playlist) shows the per-torrent picker.
+    const aggregateMode = !!playlist && playlist.items.length > 1
     return (
       <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         {/* Main column: video + transport + status + panels. On lg+ the
@@ -1494,7 +1503,21 @@ export default function PlayerModal({
         )}
         </div>{/* end main column */}
 
-        {!minimized && info.files.length > 1 && sidebarOpen && (
+        {/* Playlist mode: the sidebar AGGREGATES every item's files (a playlist
+            is a collection of torrents/local files), not just the current
+            torrent's. Single playback keeps the rich FilePickerSidebar. */}
+        {!minimized && sidebarOpen && aggregateMode && (
+          <PlaylistTracksSidebar
+            items={playlist.items}
+            currentItemIndex={playlist.currentIndex}
+            currentInfo={info}
+            selectedFile={selectedFile}
+            playFile={playFile}
+            onJump={(ii, fi) => onPlaylistJump?.(ii, fi)}
+            onClose={() => setSidebarOpen(false)}
+          />
+        )}
+        {!minimized && info.files.length > 1 && sidebarOpen && !aggregateMode && (
           <FilePickerSidebar
             info={info}
             videoFiles={videoFiles}
@@ -1521,7 +1544,7 @@ export default function PlayerModal({
             • mobile: horizontal bar below the video. Without this, iOS
               users who tap "Esconder lista" had no way to bring it back —
               the list literally vanished. (See issue #50.) */}
-        {info.files.length > 1 && !sidebarOpen && (
+        {(aggregateMode || info.files.length > 1) && !sidebarOpen && (
           <>
             {/* Mobile (and tablet up to lg): full-width bar */}
             <button
@@ -1530,7 +1553,7 @@ export default function PlayerModal({
               className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary text-xs flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4 rotate-90" />
-              Mostrar lista de arquivos ({info.files.length})
+              Mostrar lista de arquivos ({aggregateMode ? playlist.items.length : info.files.length})
             </button>
             {/* lg+: vertical strip on the right edge */}
             <button
@@ -1540,7 +1563,7 @@ export default function PlayerModal({
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
-                Arquivos ({info.files.length})
+                Arquivos ({aggregateMode ? playlist.items.length : info.files.length})
               </span>
             </button>
           </>

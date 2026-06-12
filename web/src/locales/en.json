@@ -236,6 +236,16 @@
     "view_list": "List view",
     "view_tree": "Folder tree",
     "audioTools": "Equalizer & Lyrics",
+    "playAll": "Play all",
+    "tracks": {
+      "title": "Playlist tracks",
+      "count": "{{count}} tracks",
+      "loading": "Loading…",
+      "error": "Failed to load",
+      "playing": "playing",
+      "empty": "No playable files",
+      "hide": "Hide track list"
+    },
     "eq": {
       "title": "Equalizer",
       "reset": "Reset",

@@ -236,6 +236,16 @@
     "view_list": "Lista",
     "view_tree": "Árvore de pastas",
     "audioTools": "Equalizador & Letras",
+    "playAll": "Tocar tudo",
+    "tracks": {
+      "title": "Faixas da playlist",
+      "count": "{{count}} faixas",
+      "loading": "Carregando…",
+      "error": "Falha ao carregar",
+      "playing": "tocando",
+      "empty": "Sem arquivos tocáveis",
+      "hide": "Esconder lista de faixas"
+    },
     "eq": {
       "title": "Equalizador",
       "reset": "Resetar",
