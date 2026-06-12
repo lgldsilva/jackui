@@ -8,15 +8,17 @@ import (
 
 // FileRelPath resolves the torrent-relative path of file fileIdx — the same
 // shape anacrolix File.Path() returns ("<name>/<sub>/<file>" on multi-file
-// torrents, "<name>" on single-file ones) — WITHOUT activating the torrent.
-// Sources, in order: the persisted metadata cache (filled on every Add), then
-// the cached .torrent on disk. Returns "" when neither knows the torrent.
+// torrents, "<name>" on single-file ones). Sources, in order: the persisted
+// metadata cache (filled on every Add), the cached .torrent on disk, and finally
+// an already-active torrent. The first two need no activation; the third only
+// reads a torrent the caller already activated. Returns "" when none knows it.
 //
 // Why it exists: a whole-torrent download persists ONE completed row whose
 // file_path is a directory; mapping a *file index* into that tree needs the
-// in-torrent path, and resolving it from the live torrent would mean re-adding
-// it to the swarm — the exact thing serving finished downloads from disk
-// avoids (a dead swarm would block playback despite the bytes being local).
+// in-torrent path, and resolving it purely from a dead swarm would block
+// playback despite the bytes being local. The active-torrent fallback covers a
+// finished pack whose cache/metainfo wasn't persisted: once it's reactivated for
+// playback, the path resolves and it plays from disk instead of re-downloading.
 func (s *Streamer) FileRelPath(h metainfo.Hash, fileIdx int) string {
 	if s == nil || fileIdx < 0 {
 		return ""
@@ -28,7 +30,28 @@ func (s *Streamer) FileRelPath(h metainfo.Hash, fileIdx int) string {
 			}
 		}
 	}
-	return s.fileRelPathFromMetainfo(h, fileIdx)
+	if rel := s.fileRelPathFromMetainfo(h, fileIdx); rel != "" {
+		return rel
+	}
+	return s.fileRelPathFromActive(h, fileIdx)
+}
+
+// fileRelPathFromActive reads File.Path() straight off an ALREADY-ACTIVE torrent.
+// It does NOT activate anything — it only helps once the caller has the torrent
+// loaded (e.g. after Add during playback). Returns "" when the torrent isn't
+// active or the index is out of range.
+func (s *Streamer) fileRelPathFromActive(h metainfo.Hash, fileIdx int) string {
+	s.mu.Lock()
+	e, ok := s.active[h]
+	s.mu.Unlock()
+	if !ok {
+		return ""
+	}
+	files := e.t.Files()
+	if fileIdx < 0 || fileIdx >= len(files) {
+		return ""
+	}
+	return files[fileIdx].Path()
 }
 
 // fileRelPathFromMetainfo rebuilds File.Path() from a persisted .torrent:

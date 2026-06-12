@@ -279,11 +279,23 @@ func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 	if f, size, ok := openCompletedFile(hc); ok {
 		return f, size, true
 	}
+	activated := false
 	if _, err := hc.s.Get(hc.h); err != nil {
 		bareMagnet := MagnetPrefix + hc.h.HexString()
 		if _, addErr := hc.s.Add(hc.c.Request.Context(), bareMagnet); addErr != nil {
 			hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return nil, 0, false
+		}
+		activated = true
+	}
+	// Activating the torrent makes its file list resolvable, so a finished
+	// whole-torrent download whose rel path the store couldn't map before (missing
+	// metadata cache / .torrent) now resolves — retry the on-disk path before
+	// streaming from the swarm, so a completed pack plays locally instead of
+	// re-downloading (#26).
+	if activated {
+		if f, size, ok := openCompletedFile(hc); ok {
+			return f, size, true
 		}
 	}
 	reader, file, err := hc.s.FileReader(hc.h, hc.fileIdx)
