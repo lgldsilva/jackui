@@ -113,16 +113,20 @@ export function computeMediaUrls(input: MediaUrlInput) {
 
   let iinaURL = ''
   let infuseURL = ''
+  // absoluteDirectURL: direct-play HTTP stream (with ?token=, no transcode) used
+  // as the payload of the scheme links AND exposed below as directURL for the
+  // "Copiar URL" item — any external app can ingest it.
+  let absoluteDirectURL = ''
   if (info && selectedFile >= 0) {
     const directPath = streamFileURL(info.infoHash, selectedFile, mediaToken)
-    const absoluteDirectURL = `${globalThis.location?.origin ?? ''}${directPath}`
+    absoluteDirectURL = `${globalThis.location?.origin ?? ''}${directPath}`
     iinaURL = `iina://weblink?url=${encodeURIComponent(absoluteDirectURL)}`
     infuseURL = `infuse://x-callback-url/play?url=${encodeURIComponent(absoluteDirectURL)}`
   }
 
   const encoderLabel = pickEncoderLabel(caps)
 
-  return { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, encoderLabel, isTranscoded }
+  return { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, directURL: absoluteDirectURL, encoderLabel, isTranscoded }
 }
 
 // recoverHlsFatal trata erro FATAL do hls.js fora do componente (mantém a

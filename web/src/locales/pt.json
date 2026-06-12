@@ -234,6 +234,19 @@
   },
   "player": {
     "view_list": "Lista",
-    "view_tree": "Árvore de pastas"
+    "view_tree": "Árvore de pastas",
+    "external": {
+      "open_in": "Abrir em",
+      "choose": "Escolher um tocador externo",
+      "default": "padrão",
+      "vlc": "VLC",
+      "vlc_hint": "Abrir o stream no app VLC local — funciona com qualquer codec",
+      "iina": "IINA",
+      "iina_hint": "Abrir o stream no app IINA local (macOS)",
+      "infuse": "Infuse",
+      "infuse_hint": "Abrir o stream no app Infuse local (iOS/macOS/Apple TV)",
+      "copy_url": "Copiar URL",
+      "copy_url_hint": "Copiar a URL direta do stream para colar em qualquer outro tocador"
+    }
   }
 }
