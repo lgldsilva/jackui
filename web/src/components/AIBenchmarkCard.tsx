@@ -141,13 +141,15 @@ export default function AIBenchmarkCard() {
     <section className="card flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
-        <div className="flex items-center gap-2">
+        {/* w-full + flex-wrap no mobile: o grupo de ações (select + botões)
+            quebra dentro do card em vez de vazar pra fora da borda. */}
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
           {status.providers && status.providers.length > 0 && (
             <select
               value={selectedProvider}
               onChange={e => setSelectedProvider(e.target.value)}
               disabled={busy}
-              className="bg-surface border border-default rounded-lg px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-green-600"
+              className="bg-surface border border-default rounded-lg px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-green-600 min-w-0"
             >
               <option value="">Todos os provedores</option>
               {status.providers.map(p => (
