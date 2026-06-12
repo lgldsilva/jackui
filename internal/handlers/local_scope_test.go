@@ -48,7 +48,7 @@ func newLocalRouter(b *local.Browser, claims *auth.Claims) *gin.Engine {
 	r := gin.New()
 	r.Use(withClaims(claims))
 	r.GET("/api/local/file", LocalFile(b, nil, nil))
-	r.GET("/api/local/play", LocalPlay(b))
+	r.GET("/api/local/play", LocalPlay(b, nil))
 	return r
 }
 
