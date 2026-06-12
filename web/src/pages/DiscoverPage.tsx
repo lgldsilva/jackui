@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import TrailerModal from '../components/TrailerModal'
-import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
-import { groupRecommendations, RecGroup } from '../lib/recsGroup'
+import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendation, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
+import { groupRecommendations, removeRec, RecGroup } from '../lib/recsGroup'
 import { usePersistedState } from '../lib/storage'
 
 // DiscoverPage surfaces TMDB's weekly trending movies + shows so the user has a
@@ -45,12 +45,13 @@ function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
 // goes bottom-left (trending direction). The root is a div with a full-bleed
 // button overlay (not a <button> wrapper) so the trailer mini-button can be a
 // sibling — nested buttons are invalid HTML.
-function PosterCard({ m, onClick, badge, onTrailer, trailerMuted }: {
+function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
   readonly m: TmdbMatch
   readonly onClick: () => void
   readonly badge?: React.ReactNode
   readonly onTrailer?: () => void
   readonly trailerMuted?: boolean // already probed: this title has no trailer
+  readonly onDismiss?: () => void // present only on recommendation cards
 }) {
   return (
     <div className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-surface-secondary border border-default hover:border-green-500/50 transition-colors">
@@ -66,8 +67,21 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted }: {
           {m.kind === 'tv' ? <Tv className="w-3 h-3" /> : <Film className="w-3 h-3" />}
           {m.kind === 'tv' ? 'Série' : 'Filme'}
         </span>
+        {/* On recommendation cards a hover-only "ignore" (X) sits top-right; the
+            rating drops one row so the two never overlap. Trending cards keep the
+            rating at top-right (no dismiss). */}
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            title="Não recomendar isto"
+            aria-label={`Não recomendar "${m.title}"`}
+            className="absolute top-1 right-1 z-[2] flex items-center justify-center w-7 h-7 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400 transition-opacity"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
         {m.voteAverage > 0 && (
-          <span className="absolute top-1 right-1 flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-yellow-300">
+          <span className={`absolute right-1 flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-yellow-300 ${onDismiss ? 'top-9' : 'top-1'}`}>
             <Star className="w-3 h-3 fill-current" />{m.voteAverage.toFixed(1)}
           </span>
         )}
@@ -178,6 +192,14 @@ export default function DiscoverPage() {
   const toggleGroup = (key: string) =>
     setCollapsedKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
 
+  // dismissRec removes a recommendation optimistically (the topic vanishes once
+  // its last item goes — recGroups is re-derived from `recs`) and persists the
+  // "never again" on the server so a rebuild won't bring it back.
+  const dismissRec = (r: TmdbRecommendation) => {
+    setRecs(prev => removeRec(prev, r.kind, r.tmdbId))
+    void tmdbDismissRecommendation(r.kind, r.tmdbId)
+  }
+
   // openTrailer probes the title's videos on demand (session-cached in the API
   // layer) and either plays the best one or marks the card as trailer-less.
   const openTrailer = async (m: TmdbMatch) => {
@@ -245,6 +267,7 @@ export default function DiscoverPage() {
                     onClick={() => openSearch(r)}
                     onTrailer={() => openTrailer(r)}
                     trailerMuted={noTrailer.has(`${r.kind}-${r.tmdbId}`)}
+                    onDismiss={() => dismissRec(r)}
                   />
                 )}
               />

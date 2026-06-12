@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,7 +102,68 @@ func (s *Store) migrate() error {
 		!strings.Contains(aerr.Error(), "duplicate column") {
 		return aerr
 	}
+	// Dismissed recommendations — titles the user explicitly ignored on Discover.
+	// Keyed by (user_id, kind, tmdb_id) so the generator can exclude them forever
+	// (otherwise the per-user rebuild would resurface the same dismissed title).
+	if _, derr := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS rec_dismissed (
+			user_id     INTEGER NOT NULL,
+			kind        TEXT    NOT NULL,
+			tmdb_id     INTEGER NOT NULL,
+			dismissed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, kind, tmdb_id)
+		);
+	`); derr != nil {
+		return derr
+	}
 	return nil
+}
+
+// DismissRecommendation records that the user wants to never see this recommended
+// title again. Idempotent: re-dismissing the same (kind, tmdb_id) is a no-op
+// (PRIMARY KEY conflict is ignored). Scoped per user. kind is "movie" | "tv".
+func (s *Store) DismissRecommendation(userID int, kind string, tmdbID int) error {
+	if s == nil {
+		return nil
+	}
+	if kind == "" || tmdbID <= 0 {
+		return errors.New("kind and tmdbId are required")
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO rec_dismissed(user_id, kind, tmdb_id)
+		VALUES(?, ?, ?)
+		ON CONFLICT(user_id, kind, tmdb_id) DO NOTHING
+	`, userID, kind, tmdbID)
+	return err
+}
+
+// DismissedRecommendations returns the user's dismissed recommendations as a set
+// keyed by "kind:tmdbID" (e.g. "movie:603"). Used by the generator to exclude
+// them from both the seed and the result list. Empty map when none / nil store.
+func (s *Store) DismissedRecommendations(userID int) (map[string]bool, error) {
+	set := map[string]bool{}
+	if s == nil {
+		return set, nil
+	}
+	rows, err := s.db.Query(`SELECT kind, tmdb_id FROM rec_dismissed WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var kind string
+		var id int
+		if rows.Scan(&kind, &id) == nil && kind != "" && id > 0 {
+			set[DismissKey(kind, id)] = true
+		}
+	}
+	return set, rows.Err()
+}
+
+// DismissKey builds the canonical set key for a dismissed recommendation so the
+// store and the generator agree on the identity (kind + tmdbID).
+func DismissKey(kind string, tmdbID int) string {
+	return kind + ":" + strconv.Itoa(tmdbID)
 }
 
 // Upsert inserts a fresh row OR updates an existing (user, info_hash) tuple,
