@@ -79,7 +79,7 @@ export function useWebAudioGraph(
   useEffect(() => {
     if (!enabled || analyserRef.current) return
     const el = videoRef.current
-    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    const AC = globalThis.AudioContext || (globalThis as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
     if (!el || !AC) return
     const ctx = ctxRef.current ?? new AC()
     ctxRef.current = ctx
