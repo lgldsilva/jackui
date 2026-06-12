@@ -41,6 +41,8 @@ import { useSwipe } from '../lib/useSwipe'
 import { useIncognito } from '../lib/incognito'
 import { useAuth } from '../auth/AuthContext'
 import FilePreviewModal from './FilePreviewModal'
+import { detectViewerKind } from './viewer/viewerKind'
+import { previewRawURL } from '../api/preview'
 import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
@@ -1625,15 +1627,23 @@ export default function PlayerModal({
           subtitles, PDFs shipped inside the torrent). Rendered outside the
           main modal box so its z-index can sit ABOVE the player without
           fighting flex layout. */}
-      {previewFileIdx !== null && info?.files[previewFileIdx] && (
-        <FilePreviewModal
-          infoHash={info.infoHash}
-          fileIdx={previewFileIdx}
-          filePath={info.files[previewFileIdx].path}
-          fileSize={info.files[previewFileIdx].size}
-          onClose={() => setPreviewFileIdx(null)}
-        />
-      )}
+      {previewFileIdx !== null && info?.files[previewFileIdx] && (() => {
+        // Sibling images of the same torrent become prev/next navigation in
+        // the image viewer (cover scans, artwork folders).
+        const imageFiles = info.files.filter(f => detectViewerKind(f.path) === 'image')
+        const imageStart = Math.max(0, imageFiles.findIndex(f => f.index === previewFileIdx))
+        return (
+          <FilePreviewModal
+            infoHash={info.infoHash}
+            fileIdx={previewFileIdx}
+            filePath={info.files[previewFileIdx].path}
+            fileSize={info.files[previewFileIdx].size}
+            imageItems={imageFiles.map(f => ({ label: f.path, url: previewRawURL(info.infoHash, f.index) }))}
+            imageStart={imageStart}
+            onClose={() => setPreviewFileIdx(null)}
+          />
+        )
+      })()}
       {hoverThumb.popover}
     </div>
   )

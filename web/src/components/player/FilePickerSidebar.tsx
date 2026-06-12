@@ -1,6 +1,6 @@
-import { Play, FileVideo, ChevronRight, ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
+import { Play, FileVideo, ChevronRight, ArrowDownWideNarrow, ArrowUpWideNarrow, Eye } from 'lucide-react'
 import { TorrentInfo, streamThumbnailURL } from '../../api/client'
-import { detectPreviewKind } from '../FilePreviewModal'
+import { detectViewerKind } from '../viewer/viewerKind'
 import { useHoverThumb } from '../FileThumbHover'
 import { fileType, formatSize, filterAndSortFiles, FILE_EXTRA_RE, FILE_AUDIO_RE, type FileType } from './playerFormat'
 
@@ -155,7 +155,7 @@ export function FilePickerSidebar({
           // (everything before the last "/") so paths fit in 320px.
           const shortName = f.path.split('/').slice(-2).join('/')
           const isPlayable = f.isVideo || FILE_AUDIO_RE.test(f.path)
-          const previewKind = isPlayable ? 'unknown' : detectPreviewKind(f.path)
+          const previewKind = isPlayable ? 'unknown' : detectViewerKind(f.path)
           const canPreview = previewKind !== 'unknown'
           const previewBadge = canPreview ? previewKind.toUpperCase() : null
           // Hover frame-preview only for video files.
@@ -190,7 +190,8 @@ export function FilePickerSidebar({
                   </span>
                 )}
                 {previewBadge && (
-                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0" title="Visualizar inline">
+                  <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1" title="Visualizar inline">
+                    <Eye className="w-3 h-3" />
                     {previewBadge}
                   </span>
                 )}
