@@ -583,21 +583,21 @@ func TestExtractLocalPromoteReq_UnknownMount(t *testing.T) {
 }
 
 func TestBuildLocalPreviews_Empty(t *testing.T) {
-	previews := buildLocalPreviews(nil, nil)
+	previews := buildLocalPreviews(nil, nil, nil)
 	if len(previews) != 0 {
 		t.Errorf("expected empty previews, got %d", len(previews))
 	}
 }
 
 func TestBuildLocalPreviews_EmptyPaths(t *testing.T) {
-	previews := buildLocalPreviews(nil, []string{})
+	previews := buildLocalPreviews(nil, []string{}, nil)
 	if len(previews) != 0 {
 		t.Errorf("expected empty previews, got %d", len(previews))
 	}
 }
 
 func TestPreviewItem_RootPath(t *testing.T) {
-	result := previewItem(nil, ".")
+	result := previewItem(nil, ".", ".")
 	if result["error"] != "cannot promote mount root" {
 		t.Errorf("expected root error, got %v", result["error"])
 	}
@@ -612,7 +612,7 @@ func TestPreviewItem_NonExistent(t *testing.T) {
 		b:     b,
 		mount: "Test",
 	}
-	result := previewItem(d, "nonexistent.mp4")
+	result := previewItem(d, "nonexistent.mp4", "nonexistent.mp4")
 	if result["error"] != "arquivo não existe" {
 		t.Errorf("expected 'arquivo não existe', got %v", result["error"])
 	}
