@@ -579,6 +579,73 @@ func TestExtractRenameMetadata(t *testing.T) {
 	})
 }
 
+func TestExtractRenameMetadataWithContext_TaxonomyOnSystemOnly(t *testing.T) {
+	type msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	var system, user string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []msg `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		for _, m := range req.Messages {
+			if m.Role == "system" {
+				system = m.Content
+			}
+			if m.Role == "user" {
+				user = m.Content
+			}
+		}
+		jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK)(w, r)
+	}))
+	defer srv.Close()
+
+	c := clientForURL(t, srv.URL)
+	hint := "existing top-level folders: Movies, Series"
+	if _, _, err := c.ExtractRenameMetadataWithContext(context.Background(), "Inception.2010", hint); err != nil {
+		t.Fatalf("ExtractRenameMetadataWithContext: %v", err)
+	}
+	if !strings.Contains(system, hint) {
+		t.Errorf("system message must carry the hint, got: %q", system)
+	}
+	if !strings.Contains(system, "extract structured metadata") {
+		t.Errorf("system message lost the base renameSystem prompt: %q", system)
+	}
+	if user != "Inception.2010" {
+		t.Errorf("user message must stay the bare raw name, got: %q", user)
+	}
+}
+
+func TestExtractRenameMetadataWithContext_EmptyHintEqualsLegacy(t *testing.T) {
+	var system string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		for _, m := range req.Messages {
+			if m.Role == "system" {
+				system = m.Content
+			}
+		}
+		jsonChat(`{"title":"Inception","year":2010,"kind":"movie"}`, http.StatusOK)(w, r)
+	}))
+	defer srv.Close()
+
+	c := clientForURL(t, srv.URL)
+	if _, _, err := c.ExtractRenameMetadataWithContext(context.Background(), "Inception.2010", ""); err != nil {
+		t.Fatalf("ExtractRenameMetadataWithContext: %v", err)
+	}
+	if system != renameSystem {
+		t.Errorf("empty hint must use the unchanged renameSystem prompt")
+	}
+}
+
 func TestParseRenameJSON(t *testing.T) {
 	testParseRenameJSONFullMovie(t)
 	testParseRenameJSONTVEpisode(t)
