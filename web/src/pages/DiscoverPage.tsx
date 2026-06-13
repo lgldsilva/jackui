@@ -7,6 +7,8 @@ import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendatio
 import { groupRecommendations, removeRec, RecGroup } from '../lib/recsGroup'
 import { usePersistedState } from '../lib/storage'
 import { newTabProps, searchHref } from '../lib/cardNav'
+import { useMediaMode } from '../lib/mediaMode'
+import { MusicDiscoverView } from '../components/MusicDiscoverView'
 
 // searchQuery builds the seed string a poster click uses (and the href a new tab
 // opens). Torrent releases are named by the ORIGINAL title, not the pt-BR one —
@@ -192,6 +194,7 @@ export default function DiscoverPage() {
   // Collapsed topic keys, persisted as an array (usePersistedState JSON-serializes,
   // so a Set wouldn't survive). Derived into a Set for O(1) lookups in render.
   const [collapsedKeys, setCollapsedKeys] = usePersistedState<string[]>('discover.collapsed', [])
+  const [mediaMode] = useMediaMode()
   const navigate = useNavigate()
 
   // Group recommendations by their "Porque você viu X" source into collapsible
@@ -245,6 +248,10 @@ export default function DiscoverPage() {
   const shown = (items || []).filter(
     m => (filter === 'all' || m.kind === filter) && (!q || m.title.toLowerCase().includes(q)),
   )
+
+  // Modo Música: troca o Discover de filmes (TMDB) pela grade de álbuns em alta
+  // (Apple RSS). Early-return DEPOIS de todos os hooks acima (ordem estável).
+  if (mediaMode === 'audio') return <MusicDiscoverView />
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">

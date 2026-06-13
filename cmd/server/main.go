@@ -39,6 +39,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/musictrending"
 	"github.com/lgldsilva/jackui/internal/playlists"
 	"github.com/lgldsilva/jackui/internal/push"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -110,6 +111,7 @@ type appDeps struct {
 	libraryStore   *library.Store
 	audioMetaStore *audiometa.Store
 	lyricsClient   *lyrics.Client
+	musicTrending  *musictrending.Client
 	playlistsStore *playlists.Store
 	downloadsStore *downloads.Store
 	downloadsWkr   *downloads.Worker
@@ -175,7 +177,8 @@ func main() {
 	initStreamer(deps)
 	initLibraryStore(deps)
 	initAudioMetaStore(deps)
-	deps.lyricsClient = lyrics.New() // public LrcLib proxy; no config/DB needed
+	deps.lyricsClient = lyrics.New()         // public LrcLib proxy; no config/DB needed
+	deps.musicTrending = musictrending.New() // keyless Apple RSS proxy; in-memory cache
 	initPlaylistsStore(deps)
 	initDownloadsStore(deps)
 	initTMDBClient(deps)
@@ -1101,6 +1104,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
 	api.GET("/local/audio/cover", handlers.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
 	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
+	api.GET("/music/trending", handlers.MusicTrending(deps.musicTrending))
 	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
 	api.GET("/local/sidecar", handlers.LocalSidecarRead(deps.localBrowser))
