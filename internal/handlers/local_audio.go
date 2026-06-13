@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/audiometa"
+	"github.com/lgldsilva/jackui/internal/imagesearch"
 	"github.com/lgldsilva/jackui/internal/local"
 )
 
@@ -92,30 +94,63 @@ func LocalAudioMeta(b *local.Browser, store *audiometa.Store) gin.HandlerFunc {
 //
 // Served to <img>, which can't send an Authorization header → the route is in
 // the isMediaPath whitelist (auth/middleware.go) and accepts ?token=.
-func LocalAudioCover(b *local.Browser, store *audiometa.Store) gin.HandlerFunc {
+func LocalAudioCover(b *local.Browser, store *audiometa.Store, webSearch *imagesearch.Chain) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		abs, stat, ok := resolveLocalAudio(b, c)
 		if !ok {
 			return
 		}
 		modUnix := stat.ModTime().Unix()
-		// Fast 204: a cached row that says "no embedded cover" skips the re-parse.
-		if t, hit := store.Get(abs, modUnix); hit && !t.HasCover {
-			c.Status(http.StatusNoContent)
-			return
-		}
 		etag := audioETag(abs, modUnix)
 		if match := c.GetHeader("If-None-Match"); match != "" && strings.Contains(match, etag) {
 			c.Status(http.StatusNotModified)
 			return
 		}
-		cover, has, err := audiometa.ReadCover(abs)
-		if err != nil || !has {
-			c.Status(http.StatusNoContent)
-			return
+		// Embedded cover first. A cached row saying "no embedded cover" skips the
+		// re-parse and jumps straight to the web fallback.
+		if t, hit := store.Get(abs, modUnix); !(hit && !t.HasCover) {
+			if cover, has, err := audiometa.ReadCover(abs); err == nil && has {
+				c.Header(CacheControl, CachePublicYear)
+				c.Header("ETag", etag)
+				c.Data(http.StatusOK, cover.MIMEType, cover.Data)
+				return
+			}
 		}
-		c.Header(CacheControl, CachePublicYear)
-		c.Header("ETag", etag)
-		c.Data(http.StatusOK, cover.MIMEType, cover.Data)
+		// No embedded picture → search the web with the SAME chain the cards use
+		// (DuckDuckGo→Bing, keyless), querying by the file's tags. Browser caches
+		// the result via the long max-age + ETag, so the search fires once.
+		serveWebCover(c, abs, etag, webSearch)
 	}
+}
+
+// serveWebCover looks up album art on the web for a file with no embedded
+// picture and serves the bytes; 204 when search is unavailable or finds nothing.
+func serveWebCover(c *gin.Context, abs, etag string, webSearch *imagesearch.Chain) {
+	if webSearch == nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	tags, _ := audiometa.ReadTags(abs) // best-effort; empty on parse failure
+	data, ct, _, err := webSearch.Find(c.Request.Context(), audioCoverQuery(tags, abs))
+	if err != nil || len(data) == 0 {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	c.Header(CacheControl, CachePublicYear)
+	c.Header("ETag", etag)
+	c.Data(http.StatusOK, ct, data)
+}
+
+// audioCoverQuery builds the image-search query from tags, preferring
+// "artist album" (the canonical album-art lookup), then "artist title", and
+// finally the bare filename — so even untagged files get a reasonable guess.
+func audioCoverQuery(t audiometa.Tags, abs string) string {
+	if t.Artist != "" && t.Album != "" {
+		return t.Artist + " " + t.Album + " album cover"
+	}
+	if t.Artist != "" && t.Title != "" {
+		return t.Artist + " " + t.Title + " cover"
+	}
+	base := filepath.Base(abs)
+	return strings.TrimSuffix(base, filepath.Ext(base)) + " album cover"
 }
