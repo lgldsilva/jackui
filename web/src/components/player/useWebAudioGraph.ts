@@ -52,11 +52,14 @@ function buildGraph(ctx: AudioContext, source: MediaElementAudioSourceNode, gain
   return { filters, analyser }
 }
 
+const clampDb = (db: number): number => Math.max(EQ_MIN_DB, Math.min(EQ_MAX_DB, db))
+
 export type WebAudioGraph = {
   ready: boolean
   analyser: AnalyserNode | null
   bandGains: number[]
   setBandGain: (index: number, db: number) => void
+  setBands: (gains: number[]) => void
   resetBands: () => void
 }
 
@@ -110,7 +113,11 @@ export function useWebAudioGraph(
     setBandGains((prev) => { const next = [...prev]; next[index] = db; return next })
   }, [setBandGains])
 
+  const setBands = useCallback((gains: number[]) => {
+    setBandGains(EQ_FREQUENCIES.map((_, i) => clampDb(gains[i] ?? 0)))
+  }, [setBandGains])
+
   const resetBands = useCallback(() => setBandGains(flatBands()), [setBandGains])
 
-  return { ready, analyser: analyserRef.current, bandGains, setBandGain, resetBands }
+  return { ready, analyser: analyserRef.current, bandGains, setBandGain, setBands, resetBands }
 }
