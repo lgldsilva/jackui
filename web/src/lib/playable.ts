@@ -23,19 +23,20 @@ const NEVER_PLAY_TAGS = /\b(ebook|audiobook[. ]?pdf|programs?|software|game[. ]?
  * Heuristic kind detection: best guess at whether this torrent is audio
  * (music album, audiobook, podcast) or video (movie, series, TV).
  *
- * Used by PlayerProvider to choose between AudioBar (persistent bottom bar
- * for music UX) and PlayerModal (full-screen video). When uncertain returns
- * 'video' — the safer default since PlayerModal's <video> element can play
- * audio files too, while AudioBar can't render video.
+ * Used by PlayerProvider to choose between the audio UI (cover + EQ) and the
+ * full-screen video player. `fallback` is the user's Cinema/Música preference
+ * (NavHeader): it ONLY decides the uncertain case — a title with a clear video
+ * or audio signal always follows the content. Defaults to 'video' (the prior
+ * behaviour) so callers that don't pass it are unaffected.
  */
-export function detectKind(title: string, categoryId = 0): 'audio' | 'video' {
+export function detectKind(title: string, categoryId = 0, fallback: 'audio' | 'video' = 'video'): 'audio' | 'video' {
   if (AUDIO_EXT_RE.test(title)) return 'audio'
   if (VIDEO_EXT_RE.test(title)) return 'video'
   if (AUDIO_CATEGORIES.has(categoryId)) return 'audio'
   if (VIDEO_CATEGORIES.has(categoryId)) return 'video'
   if (AUDIO_HINT_RE.test(title)) return 'audio'
   if (VIDEO_HINT_RE.test(title)) return 'video'
-  return 'video'
+  return fallback
 }
 
 /**

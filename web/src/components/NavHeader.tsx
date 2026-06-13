@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
   Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
-  Eye, EyeOff, BarChart3,
+  Eye, EyeOff, BarChart3, Film, Music2,
 } from 'lucide-react'
 import UserBadge from './UserBadge'
 import NotificationsBell from './NotificationsBell'
 import RateWidget from './RateWidget'
 import ThemeToggle from './ThemeToggle'
 import { useIncognito } from '../lib/incognito'
+import { usePersistedState } from '../lib/storage'
 import { useRevealHidden, isRevealHidden } from '../lib/reveal'
 import { useSwipe } from '../lib/useSwipe'
 
@@ -52,6 +53,12 @@ export default function NavHeader({ rightExtra }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [incognito, setIncognito] = useIncognito()
+  // Media-mode preference (Cinema/Música): only a TIE-BREAKER. When the kind of
+  // a title is ambiguous (no clear video/audio signal), the player opens it in
+  // this mode. Obvious videos/albums still follow their content. Read by
+  // PlayerProvider via storage.load on the next playback. Default 'video' = the
+  // prior behaviour (no regression).
+  const [mediaMode, setMediaMode] = usePersistedState<'video' | 'audio'>('mediaModePref', 'video')
   const [revealed, setRevealed] = useRevealHidden()
   const location = useLocation()
 
@@ -135,6 +142,27 @@ export default function NavHeader({ rightExtra }: Props) {
     )
   }
 
+  const mediaModeToggle = (variant: 'sidebar' | 'mobile') => {
+    const base = 'flex items-center justify-center rounded-lg transition-colors'
+    const isMusic = mediaMode === 'audio'
+    const cls = isMusic
+      ? 'text-purple-700 dark:text-purple-300 bg-purple-500/10 ring-1 ring-purple-400/40 hover:bg-purple-500/20'
+      : 'text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40'
+    const size = variant === 'mobile' ? 'w-10 h-10' : 'w-9 h-9'
+    return (
+      <button
+        type="button"
+        onClick={() => setMediaMode(isMusic ? 'video' : 'audio')}
+        className={`${base} ${size} ${cls}`}
+        title={isMusic ? t('nav.media_mode_music_title') : t('nav.media_mode_cinema_title')}
+        aria-pressed={isMusic}
+        aria-label={isMusic ? t('nav.media_mode_music') : t('nav.media_mode_cinema')}
+      >
+        {isMusic ? <Music2 className="w-5 h-5" /> : <Film className="w-5 h-5" />}
+      </button>
+    )
+  }
+
   const panel = (
     <aside
       className={`fixed top-0 left-0 z-40 h-full bg-surface-secondary border-r border-default
@@ -205,6 +233,7 @@ export default function NavHeader({ rightExtra }: Props) {
         <div className={`hidden md:flex items-center gap-2 ${collapsed ? 'md:flex-col md:justify-center' : ''}`}>
           <ThemeToggle variant="sidebar" />
           <NotificationsBell />
+          {mediaModeToggle('sidebar')}
           {incognitoToggle('sidebar')}
           {incognito && !collapsed && (
             <span className="text-[10px] font-semibold tracking-wider text-amber-700/90 dark:text-amber-300/90 uppercase">
@@ -247,6 +276,7 @@ export default function NavHeader({ rightExtra }: Props) {
           <div className="flex items-center gap-1 flex-shrink-0">
             <ThemeToggle variant="mobile" />
             <NotificationsBell />
+            {mediaModeToggle('mobile')}
             {incognitoToggle('mobile')}
             {rightExtra}
           </div>
