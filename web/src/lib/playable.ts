@@ -86,7 +86,12 @@ export function isPlayable(result: SearchResult): boolean {
  * library entry name. Centralising the placeholder construction keeps the
  * PlayerProvider effect concise and ensures everyone uses the same defaults.
  */
-export function syntheticResult(hash: string, title: string, magnet: string): SearchResult {
+export function syntheticResult(
+  hash: string,
+  title: string,
+  magnet: string,
+  mediaKind?: 'audio' | 'video' | 'other',
+): SearchResult {
   return {
     title: title || hash,
     tracker: '',
@@ -100,6 +105,10 @@ export function syntheticResult(hash: string, title: string, magnet: string): Se
     link: '',
     infoHash: hash,
     publishDate: '',
+    // Authoritative kind when known (e.g. from the library entry on a deep-link
+    // refresh) — lets currentKind pick audio UI without relying on the title
+    // heuristic, which failed for audio playlists opened via ?play= on reload.
+    mediaKind,
   }
 }
 // build marker 1779766535
