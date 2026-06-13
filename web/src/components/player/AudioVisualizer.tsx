@@ -34,12 +34,12 @@ export function AudioVisualizer({ analyser }: { readonly analyser: AnalyserNode 
   }, [analyser])
 
   if (!analyser) return null
-  // Decorative spectrum — role="presentation" removes it from the a11y tree
-  // without aria-hidden (which Sonar S6825 forbids on potentially-focusable els).
+  // Decorative spectrum. A bare <canvas> (no aria-hidden, no role) avoids both
+  // Sonar S6825 (aria-hidden on a focusable element) and S6843 (non-interactive
+  // role on an interactive element) — it has no accessible content anyway.
   return (
     <canvas
       ref={canvasRef}
-      role="presentation"
       width={560}
       height={72}
       className="h-16 w-full rounded-lg bg-black/30"

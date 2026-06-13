@@ -59,7 +59,7 @@ function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
 }) {
   if (!audioMode || !info) return null
   return (
-    <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
       <Volume2 className="absolute w-12 h-12 text-text-muted" />
       <img
         src={audioCoverURL(info, selectedFile, mediaToken)}
@@ -145,12 +145,11 @@ export function VideoPlayerElement({
     <div
       className={`bg-black relative w-full mx-auto flex items-center justify-center ${
         audioMode
-          // Áudio: a capa não precisa de tela cheia. Encolhe a faixa (mantendo a
-          // largura total p/ a barra de controles nativa respirar) e o espaço
-          // sobra vai pra lista de faixas abaixo — estilo "tela de álbum".
-          // min-h garante espaço pros controles nativos (play/seek) não cortarem
-          // em telas pequenas; ainda bem menor que o 16:9 original → lista respira.
-          ? 'h-[20dvh] min-h-[152px] sm:h-[38dvh] sm:min-h-0'
+          // Áudio: a capa é só um cabeçalho compacto — sem controles nativos
+          // (controls={!audioMode}=false) e, em álbuns sem capa embutida, o
+          // espaço grande era puro desperdício. Faixa baixa (~160px) devolve a
+          // altura pro EQ/visualizer/letras e pra lista de faixas.
+          ? 'h-28 sm:h-40'
           : 'max-h-[70dvh] sm:max-h-[58dvh]'
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
