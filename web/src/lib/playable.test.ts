@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { detectKind } from './playable'
+import { detectKind, isAudioResult } from './playable'
+import type { SearchResult } from '../api/client'
+
+const mkResult = (over: Partial<SearchResult>): SearchResult => ({
+  title: '', tracker: '', categoryId: 0, category: '', size: 0,
+  seeders: 0, leechers: 0, age: '', magnetUri: '', link: '',
+  infoHash: '', publishDate: '', ...over,
+})
 
 describe('detectKind fallback (Cinema/Música preference)', () => {
   it('clear signals ignore the fallback', () => {
@@ -17,5 +24,18 @@ describe('detectKind fallback (Cinema/Música preference)', () => {
 
   it('defaults to video when no fallback is passed (legacy behaviour)', () => {
     expect(detectKind('Some Live Session 2024')).toBe('video')
+  })
+})
+
+describe('isAudioResult (music-mode search filter)', () => {
+  it('prefers the backend-resolved mediaKind over the title', () => {
+    expect(isAudioResult(mkResult({ mediaKind: 'audio', title: 'Movie.2024.1080p.mkv' }))).toBe(true)
+    expect(isAudioResult(mkResult({ mediaKind: 'video', title: 'artist - album.flac' }))).toBe(false)
+  })
+
+  it('falls back to the heuristic when mediaKind is other/absent', () => {
+    expect(isAudioResult(mkResult({ title: 'Pink Floyd - The Wall [FLAC]' }))).toBe(true)
+    expect(isAudioResult(mkResult({ categoryId: 3010, title: 'whatever' }))).toBe(true)
+    expect(isAudioResult(mkResult({ mediaKind: 'other', title: 'Movie.2024.1080p.x264' }))).toBe(false)
   })
 })
