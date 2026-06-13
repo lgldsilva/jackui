@@ -18,13 +18,13 @@ import (
 )
 
 const (
-	backendNvidia   = "nvidia"
-	backendAMDVAAPI = "amd-vaapi"
-	backendAMDAMF   = "amd-amf"
-	backendIntelQSV = "intel-qsv"
-	backendAppleVT  = "apple-vt"
-	backendCPU      = "cpu"
-	hwDeviceVAAPI   = "vaapi=va:/dev/dri/renderD128"
+	backendNvidia      = "nvidia"
+	backendAMDVAAPI    = "amd-vaapi"
+	backendAMDAMF      = "amd-amf"
+	backendIntelQSV    = "intel-qsv"
+	backendAppleVT     = "apple-vt"
+	backendCPU         = "cpu"
+	hwDeviceVAAPI      = "vaapi=va:/dev/dri/renderD128"
 	ffBinary           = "ffmpeg"
 	ffHideBanner       = "-hide_banner"
 	ffLogLevel         = "-loglevel"
@@ -33,16 +33,25 @@ const (
 	ffPreset           = "-preset"
 	pipe0              = "pipe:0"
 	pipe1              = "pipe:1"
+	// ffmpeg flags/values shared by the HLS encode specs (video + audio-only) and
+	// the duration probe — kept as constants so the variants don't duplicate the
+	// literals (SonarQube go:S1192).
+	ffSeekable        = "-seekable"
+	ffMultipleReq     = "-multiple_requests"
+	ffProbesize       = "-probesize"
+	ffAnalyzeDuration = "-analyzeduration"
+	ffAfAsetptsZero   = "asetpts=PTS-STARTPTS"
+	hlsPlaylistFile   = "index.m3u8"
 )
 
 // Encoder identifies one transcoding backend.
 type Encoder struct {
-	ID          string  `json:"id"`           // stable identifier (e.g. "h264_nvenc")
-	Codec       string  `json:"codec"`        // "h264" | "hevc"
-	Backend     string  `json:"backend"`      // "nvidia" | "amd-vaapi" | "intel-qsv" | "cpu"
-	Available   bool    `json:"available"`    // listed by ffmpeg as compiled in
-	Functional  bool    `json:"functional"`   // smoke-test encode succeeded
-	BenchFPS    float64 `json:"benchFps,omitempty"`     // frames/sec on 480p test clip
+	ID          string  `json:"id"`                 // stable identifier (e.g. "h264_nvenc")
+	Codec       string  `json:"codec"`              // "h264" | "hevc"
+	Backend     string  `json:"backend"`            // "nvidia" | "amd-vaapi" | "intel-qsv" | "cpu"
+	Available   bool    `json:"available"`          // listed by ffmpeg as compiled in
+	Functional  bool    `json:"functional"`         // smoke-test encode succeeded
+	BenchFPS    float64 `json:"benchFps,omitempty"` // frames/sec on 480p test clip
 	Description string  `json:"description"`
 	Error       string  `json:"error,omitempty"`
 }
@@ -101,9 +110,9 @@ var encoderCandidates = []struct {
 }
 
 var decoderCandidates = []struct {
-	id         string
-	codec      string
-	backend    string
+	id      string
+	codec   string
+	backend string
 }{
 	{"h264_cuvid", "h264", backendNvidia},
 	{"hevc_cuvid", "hevc", backendNvidia},
@@ -114,8 +123,8 @@ var decoderCandidates = []struct {
 }
 
 var (
-	cacheMu    sync.RWMutex
-	cached     *Capabilities
+	cacheMu sync.RWMutex
+	cached  *Capabilities
 )
 
 // Probe runs the full detection + smoke-test sequence and caches the result.
