@@ -240,7 +240,6 @@
     "view_list": "List view",
     "view_tree": "Folder tree",
     "audioTools": "Equalizer & Lyrics",
-    "eqUnavailable": "Equalizer & visualizer aren't available on Safari/iOS (the browser routes audio away from the processor, which would mute playback). Lyrics still work.",
     "playAll": "Play all",
     "tracks": {
       "title": "Playlist tracks",
