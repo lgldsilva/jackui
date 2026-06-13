@@ -24,12 +24,12 @@ export function MusicSearchFilterToggle({ active, stacked, showAll, onToggle }: 
       title={t('search.music_only_hint')}
       aria-pressed={!showAll}
       className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-        !showAll
-          ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
-          : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
+        showAll
+          ? 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
+          : 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
       }`}
     >
-      <Music2 className={`w-3.5 h-3.5 ${!showAll ? 'fill-current' : ''}`} />
+      <Music2 className={`w-3.5 h-3.5 ${showAll ? '' : 'fill-current'}`} />
       {showAll ? t('search.music_show_all') : t('search.music_only')}
     </button>
   )
