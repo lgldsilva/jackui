@@ -63,6 +63,7 @@ import {
   localListHidden,
 } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
+import { newTabProps, playHref } from '../lib/cardNav'
 import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
 import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
@@ -344,21 +345,29 @@ function EntryRow(props: EntryRowProps) {
   const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct })
   const pressHandlers = selectMode || !canAct ? {} : lp
 
+  // Deep-link para nova aba (tela toda): pasta → o browser daquela pasta;
+  // arquivo reproduzível → o player via ?play=local-hash. Viewables e o modo
+  // seleção ficam de fora (não há rota equivalente) → clique normal só.
+  let newTabHref = ''
+  if (!selectMode) {
+    if (e.isDir) newTabHref = `/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
+    else if (e.isPlayable) newTabHref = playHref(buildLocalHash(mount, e.path))
+  }
+  const onActivate = () => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))
+  // Com href: newTabProps trata middle-click + ctrl/cmd/shift-click (e o clique
+  // normal roda onActivate). Sem href (viewable/seleção): clique normal só.
+  const clickProps = newTabHref ? newTabProps(newTabHref, onActivate) : { onClick: onActivate }
+
   return (
     <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-surface-tertiary/20'}`}>
       <button
-        onClick={() => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))}
+        {...clickProps}
         onContextMenu={(ev) => {
-          // Botão direito abre numa nova aba (tela toda): pasta → o browser
-          // daquela pasta; arquivo → o player via deep-link ?play=local-hash.
-          // Viewables ficam de fora: o deep-link ?play= só faz sentido pra mídia.
-          if (!e.isDir && !e.isPlayable) return
+          // Botão direito também abre numa nova aba (newTabProps não cobre o
+          // right-click). Viewables/seleção ficam de fora (sem rota).
+          if (!newTabHref) return
           ev.preventDefault()
-          const origin = globalThis.location.origin
-          const url = e.isDir
-            ? `${origin}/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
-            : `${origin}/?play=${buildLocalHash(mount, e.path)}`
-          globalThis.open(url, '_blank', 'noopener')
+          globalThis.open(newTabHref, '_blank', 'noopener')
         }}
         disabled={!selectMode && !clickable}
         {...pressHandlers}

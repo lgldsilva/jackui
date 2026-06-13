@@ -16,6 +16,7 @@ import { useFilteredResults } from '../lib/useFilteredResults'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { formatDate } from '../lib/format'
 import { uid } from '../lib/uid'
+import { newTabProps, searchHref } from '../lib/cardNav'
 
 type SortDef = { key: ResultSortKey; label: string }
 
@@ -104,7 +105,7 @@ function BrowseEntryList({
           <p className="text-text-muted text-sm text-center py-8">Nenhuma busca encontrada</p>
         ) : filteredEntries.map((entry) => (
           <SwipeRow key={entry.query} onDelete={() => onDeleteEntryByQuery(entry.query)} deleteLabel="Apagar">
-          <button onClick={() => onSelect(entry.query)} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-default/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-surface-tertiary/50'}`}>
+          <button {...newTabProps(searchHref(entry.query), () => onSelect(entry.query))} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-default/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-surface-tertiary/50'}`}>
             <div className="flex-1 min-w-0">
               <p className={`truncate font-medium ${selected === entry.query ? 'text-green-400' : 'text-text-primary'}`} title={entry.query}>{entry.query}</p>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -575,7 +576,7 @@ export default function HistoryPage() {
               <div key={`${result.infoHash || result.link}-${i}`} className="flex flex-col gap-1">
                 <ResultCard result={result} onDownload={setDownloadTarget} onPlay={(r) => playSingle(r)} onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }} onExploreContents={setContentsTarget} onRefresh={handleRefreshResult} refreshing={result.id !== undefined && refreshingIDs.has(result.id)} refreshedAt={result.id === undefined ? null : refreshedLabels.get(result.id) ?? null} />
                 {result.query && (
-                  <button onClick={() => { setMode('browse'); handleSelect(result.query!) }} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={`Ver todos os resultados da busca "${result.query}"`}>
+                  <button {...newTabProps(searchHref(result.query), () => { setMode('browse'); handleSelect(result.query!) })} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={`Ver todos os resultados da busca "${result.query}"`}>
                     <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">de: {result.query}</span>
                   </button>
                 )}

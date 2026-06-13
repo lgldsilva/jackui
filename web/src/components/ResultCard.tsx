@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
+import { newTabProps, playHref } from '../lib/cardNav'
 import QualityBadges from './QualityBadges'
 
 
@@ -278,10 +279,18 @@ type RenderCardActionsProps = {
 
 function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
   const { canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
+  // Play is the primary "play" surface (the card itself opens contents). When we
+  // have a real info hash, middle/ctrl-click opens the player deep-link in a new
+  // tab; a plain click runs the existing onPlay. No hash (link-only private
+  // trackers, resolved on demand) → keep the legacy click-only behaviour.
+  const playNav = result.infoHash ? newTabProps(playHref(result.infoHash), () => onPlay?.(result)) : null
   return (
     <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap">
       {canPlay && (
-          <button onClick={(e) => { e.stopPropagation(); onPlay?.(result) }} title="Reproduzir no browser via stream" className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+          <button
+            onClick={(e) => { e.stopPropagation(); if (playNav) playNav.onClick(e); else onPlay?.(result) }}
+            onAuxClick={(e) => { e.stopPropagation(); playNav?.onAuxClick(e) }}
+            title="Reproduzir no browser via stream" className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <Play className="w-3.5 h-3.5 fill-current" />Play
         </button>
       )}
