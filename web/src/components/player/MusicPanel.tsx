@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { TorrentInfo, isLocalHash, parseLocalHash, localAudioMeta, streamAudioMeta, type AudioMeta } from '../../api/client'
 import { usePersistedState } from '../../lib/storage'
 import { useWebAudioGraph } from './useWebAudioGraph'
+import { canPlayNativeHls } from './playerFormat'
 import { Equalizer } from './Equalizer'
 import { AudioVisualizer } from './AudioVisualizer'
 import { LyricsPanel } from './LyricsPanel'
@@ -66,11 +67,17 @@ function useTrack(info: TorrentInfo | null, selectedFile: number): Track {
 // file — this is just the layout + track-identity wiring.
 export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration }: MusicPanelProps) {
   const { t } = useTranslation()
-  // The graph is built unconditionally (audio mode) so the saved EQ curve applies
-  // even while the tools are collapsed. Collapsed BY DEFAULT so the track list
-  // below isn't pushed off-screen on phones — the #1 mobile complaint. Persisted,
-  // so once a user opens the tools they stay open.
-  const graph = useWebAudioGraph(videoRef, true)
+  // CRITICAL (iOS/Safari silence): the EQ/visualizer tap the <video> via
+  // createMediaElementSource, which makes the Web Audio graph the ONLY output
+  // path. On WebKit the AudioContext stays suspended (it only resumes inside a
+  // user gesture, but our resume fires on the async 'play' event) and
+  // media-element sources frequently don't route at all → TOTAL SILENCE for
+  // audio mode, while video (no graph) plays fine. So on WebKit we DON'T tap
+  // Web Audio: native playback keeps its sound; EQ/visualizer are a
+  // Chrome/Firefox feature (lyrics still work everywhere).
+  const webAudioOK = !canPlayNativeHls()
+  // Built only off WebKit so the saved EQ curve applies even while collapsed.
+  const graph = useWebAudioGraph(videoRef, webAudioOK)
   const track = useTrack(info, selectedFile)
   const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
   const metaLine = [track.artist, track.album, track.year ? String(track.year) : '']
@@ -93,10 +100,14 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
       </button>
       {open && (
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <div className="flex flex-col gap-3">
-            <AudioVisualizer analyser={graph.analyser} />
-            <Equalizer graph={graph} />
-          </div>
+          {webAudioOK ? (
+            <div className="flex flex-col gap-3">
+              <AudioVisualizer analyser={graph.analyser} />
+              <Equalizer graph={graph} />
+            </div>
+          ) : (
+            <p className="rounded-lg bg-surface-2 p-3 text-xs text-text-muted">{t('player.eqUnavailable')}</p>
+          )}
           <LyricsPanel
             title={track.title}
             artist={track.artist}
