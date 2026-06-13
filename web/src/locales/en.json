@@ -30,6 +30,11 @@
     "ia_tab": "AI",
     "stats": "Statistics"
   },
+  "discover": {
+    "music_trending": "Trending albums",
+    "music_empty": "Couldn't load trending albums right now.",
+    "search_album": "Search \"{{name}}\""
+  },
   "search": {
     "placeholder": "Search torrents... (press / to focus)",
     "no_indexers": "Jackett not configured",
