@@ -29,11 +29,15 @@ export function LyricsPanel({ title, artist, album, durationSec, currentTime }: 
     if (!title) { setLyrics(null); setLoading(false); return }
     let cancelled = false
     setLoading(true)
+    // Hard ceiling: the backend LrcLib proxy can take up to ~16s when the server
+    // can't reach lrclib.net. Stop showing "Fetching…" after 10s regardless — the
+    // result still applies if it arrives later. Guards against an infinite spinner.
+    const timer = setTimeout(() => { if (!cancelled) setLoading(false) }, 10000)
     lyricsGet(title, artist, album, durationRef.current)
       .then((l) => { if (!cancelled) setLyrics(l) })
       .catch(() => { if (!cancelled) setLyrics(null) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+      .finally(() => { if (!cancelled) { clearTimeout(timer); setLoading(false) } })
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [title, artist, album])
 
   const lines = useMemo(() => parseLrc(lyrics?.synced ?? ''), [lyrics?.synced])

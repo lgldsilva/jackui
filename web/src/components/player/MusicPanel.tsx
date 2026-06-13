@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { TorrentInfo, isLocalHash, parseLocalHash, localAudioMeta } from '../../api/client'
+import { usePersistedState } from '../../lib/storage'
 import { useWebAudioGraph } from './useWebAudioGraph'
 import { Equalizer } from './Equalizer'
 import { AudioVisualizer } from './AudioVisualizer'
@@ -54,21 +57,40 @@ function useTrack(info: TorrentInfo | null, selectedFile: number): Track {
 // the Web Audio graph never taps a video element. Each piece lives in its own
 // file — this is just the layout + track-identity wiring.
 export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration }: MusicPanelProps) {
+  const { t } = useTranslation()
+  // The graph is built unconditionally (audio mode) so the saved EQ curve applies
+  // even while the tools are collapsed. Collapsed BY DEFAULT so the track list
+  // below isn't pushed off-screen on phones — the #1 mobile complaint. Persisted,
+  // so once a user opens the tools they stay open.
   const graph = useWebAudioGraph(videoRef, true)
   const track = useTrack(info, selectedFile)
+  const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
   return (
-    <div className="mt-3 grid gap-3 lg:grid-cols-2">
-      <div className="flex flex-col gap-3">
-        <AudioVisualizer analyser={graph.analyser} />
-        <Equalizer graph={graph} />
-      </div>
-      <LyricsPanel
-        title={track.title}
-        artist={track.artist}
-        album={track.album}
-        durationSec={duration}
-        currentTime={currentTime}
-      />
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm font-medium text-text hover:bg-surface-3"
+      >
+        <ChevronRight className={`h-4 w-4 transition-transform ${open ? 'rotate-90' : ''}`} />
+        {t('player.audioTools')}
+      </button>
+      {open && (
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className="flex flex-col gap-3">
+            <AudioVisualizer analyser={graph.analyser} />
+            <Equalizer graph={graph} />
+          </div>
+          <LyricsPanel
+            title={track.title}
+            artist={track.artist}
+            album={track.album}
+            durationSec={duration}
+            currentTime={currentTime}
+          />
+        </div>
+      )}
     </div>
   )
 }
