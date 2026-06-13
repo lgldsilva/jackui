@@ -17,6 +17,17 @@ const flatBands = (): number[] => new Array(EQ_BANDS).fill(0)
 // a StrictMode double-effect (or any re-run) reuses the node instead of crashing.
 const sourceNodes = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>()
 
+// One AudioContext for the whole app. iOS caps the number of contexts and only
+// unlocks them inside a user gesture, so we create ONE, unlock it on the first
+// interaction, and reuse it across every audio session.
+let sharedCtx: AudioContext | null = null
+function sharedAudioContext(): AudioContext | null {
+  const AC = globalThis.AudioContext || (globalThis as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AC) return null
+  sharedCtx ??= new AC()
+  return sharedCtx
+}
+
 function getOrCreateSource(ctx: AudioContext, el: HTMLMediaElement): MediaElementAudioSourceNode {
   const existing = sourceNodes.get(el)
   if (existing) return existing
@@ -64,45 +75,62 @@ export type WebAudioGraph = {
 }
 
 // useWebAudioGraph builds the EQ/analyser graph on the player's <video> element,
-// but ONLY when enabled (audio mode). The video path never enables it, so the
-// native video element is never tapped (the EQ can't introduce A/V lag). The
-// PlayerProvider remounts the modal by kind, so the audio element is always a
-// fresh element that has never played video — the createMediaElementSource
-// one-shot constraint is safe.
+// but ONLY when enabled (audio mode) AND the AudioContext is actually running.
+//
+// iOS/Safari silence fix: createMediaElementSource makes the graph the ONLY
+// output path, and a SUSPENDED context outputs nothing. iOS only unlocks a
+// context inside a user gesture, so we (a) resume on real gestures
+// (pointerdown/touchend/keydown), not just the async 'play' event, and (b) defer
+// createMediaElementSource until the context is 'running'. Until then the element
+// plays NATIVELY (no source node) → sound is never lost; the EQ/visualizer simply
+// activate the moment the context unlocks (the user's first interaction).
 export function useWebAudioGraph(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   enabled: boolean,
 ): WebAudioGraph {
   const [bandGains, setBandGains] = usePersistedState<number[]>('audio:eq', flatBands())
-  const ctxRef = useRef<AudioContext | null>(null)
   const filtersRef = useRef<BiquadFilterNode[]>([])
   const analyserRef = useRef<AnalyserNode | null>(null)
   const [ready, setReady] = useState(false)
+  const gainsRef = useRef(bandGains)
+  gainsRef.current = bandGains
 
   useEffect(() => {
     if (!enabled || analyserRef.current) return
     const el = videoRef.current
-    const AC = globalThis.AudioContext || (globalThis as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!el || !AC) return
-    const ctx = ctxRef.current ?? new AC()
-    ctxRef.current = ctx
-    let graph: Graph
-    try {
-      graph = buildGraph(ctx, getOrCreateSource(ctx, el), bandGains)
-    } catch {
-      return // element already bound to another graph — bail rather than crash
-    }
-    filtersRef.current = graph.filters
-    analyserRef.current = graph.analyser
-    setReady(true)
+    const ctx = sharedAudioContext()
+    if (!el || !ctx) return
 
-    // AudioContext is born suspended under the autoplay policy; resume on the
-    // first play (a user gesture started it) so sound actually flows.
-    const resume = () => { if (ctx.state === 'suspended') ctx.resume().catch(() => {}) }
+    // Build only when the context is running (see the hook doc). Returns true
+    // once built so the gesture listeners can stop.
+    const build = (): boolean => {
+      if (analyserRef.current) return true
+      if (ctx.state !== 'running') return false
+      try {
+        const g = buildGraph(ctx, getOrCreateSource(ctx, el), gainsRef.current)
+        filtersRef.current = g.filters
+        analyserRef.current = g.analyser
+        setReady(true)
+      } catch {
+        return false // element already bound to another graph — leave native audio
+      }
+      return true
+    }
+    if (build()) return
+
+    // Not running yet: resume on a real user gesture (the only thing iOS honours)
+    // and rebuild once the state flips to 'running'.
+    const resume = () => { ctx.resume().catch(() => {}); build() }
+    const gestures: Array<keyof DocumentEventMap> = ['pointerdown', 'touchend', 'keydown']
+    gestures.forEach(ev => document.addEventListener(ev, resume, { passive: true }))
     el.addEventListener('play', resume)
-    resume()
-    return () => el.removeEventListener('play', resume)
-  }, [enabled, videoRef, bandGains])
+    ctx.addEventListener('statechange', build)
+    return () => {
+      gestures.forEach(ev => document.removeEventListener(ev, resume))
+      el.removeEventListener('play', resume)
+      ctx.removeEventListener('statechange', build)
+    }
+  }, [enabled, videoRef])
 
   // Apply gain edits live (cheap AudioParam writes) without rebuilding the graph.
   useEffect(() => {
