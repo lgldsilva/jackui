@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Volume2 } from 'lucide-react'
-import { TorrentInfo, streamArtworkURL, isLocalHash, parseLocalHash, localAudioCoverURL } from '../../api/client'
+import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
@@ -57,16 +57,36 @@ function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
   readonly selectedFile: number
   readonly mediaToken: string
 }) {
+  // Fallback when the file has NO embedded picture: for torrents, kick the
+  // server-side art chain (embedded → TMDB → WEB SEARCH, music-aware via the AI
+  // MusicQuery) and show whatever it resolves — so an album with no cover tag
+  // still gets art off the web instead of an empty box. Local files resolve the
+  // web fallback server-side, so here they just hide on miss.
+  const [fallbackSrc, setFallbackSrc] = useState('')
+  const [hidden, setHidden] = useState(false)
+  useEffect(() => { setFallbackSrc(''); setHidden(false) }, [info?.infoHash, selectedFile])
   if (!audioMode || !info) return null
+
+  const handleError = async () => {
+    if (fallbackSrc || isLocalHash(info.infoHash)) { setHidden(true); return }
+    const src = await resolveArt(info.infoHash, -1, info.name).catch(() => null)
+    if (src) setFallbackSrc(streamArtURL(info.infoHash))
+    else setHidden(true)
+  }
+
+  const url = fallbackSrc || audioCoverURL(info, selectedFile, mediaToken)
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
       <Volume2 className="absolute w-12 h-12 text-text-muted" />
-      <img
-        src={audioCoverURL(info, selectedFile, mediaToken)}
-        alt=""
-        className="relative max-h-full max-w-full object-contain"
-        onError={(e) => { e.currentTarget.style.display = 'none' }}
-      />
+      {!hidden && (
+        <img
+          key={url}
+          src={url}
+          alt=""
+          className="relative max-h-full max-w-full object-contain rounded shadow-2xl"
+          onError={handleError}
+        />
+      )}
     </div>
   )
 }
@@ -145,11 +165,11 @@ export function VideoPlayerElement({
     <div
       className={`bg-black relative w-full mx-auto flex items-center justify-center ${
         audioMode
-          // Áudio: a capa é só um cabeçalho compacto — sem controles nativos
-          // (controls={!audioMode}=false) e, em álbuns sem capa embutida, o
-          // espaço grande era puro desperdício. Faixa baixa (~160px) devolve a
-          // altura pro EQ/visualizer/letras e pra lista de faixas.
-          ? 'h-28 sm:h-40'
+          // Áudio: a capa é o foco visual. Cresce com a tela (no desktop a janela
+          // é larga e sobrava espaço preto), mas continua contida (object-contain)
+          // — álbuns sem capa caem no fallback de busca web, então o espaço não
+          // fica vazio. No mobile fica compacta pra lista de faixas respirar.
+          ? 'h-44 sm:h-56 lg:h-72 xl:h-80'
           : 'max-h-[70dvh] sm:max-h-[58dvh]'
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
