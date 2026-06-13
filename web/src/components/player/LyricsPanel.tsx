@@ -19,17 +19,22 @@ export function LyricsPanel({ title, artist, album, durationSec, currentTime }: 
   const [lyrics, setLyrics] = useState<Lyrics | null>(null)
   const [loading, setLoading] = useState(false)
   const activeRef = useRef<HTMLParagraphElement>(null)
+  // durationSec is only an optional exact-match hint AND it fluctuates as the
+  // stream loads. Keep it OUT of the fetch deps (read via ref) — otherwise the
+  // effect re-fired on every duration tick and the panel stuck on "Fetching…".
+  const durationRef = useRef(durationSec)
+  durationRef.current = durationSec
 
   useEffect(() => {
-    if (!title) { setLyrics(null); return }
+    if (!title) { setLyrics(null); setLoading(false); return }
     let cancelled = false
     setLoading(true)
-    lyricsGet(title, artist, album, durationSec)
+    lyricsGet(title, artist, album, durationRef.current)
       .then((l) => { if (!cancelled) setLyrics(l) })
       .catch(() => { if (!cancelled) setLyrics(null) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [title, artist, album, durationSec])
+  }, [title, artist, album])
 
   const lines = useMemo(() => parseLrc(lyrics?.synced ?? ''), [lyrics?.synced])
   const active = activeLineIndex(lines, currentTime)

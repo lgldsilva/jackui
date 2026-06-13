@@ -1,8 +1,34 @@
 import { useTranslation } from 'react-i18next'
 import { EQ_FREQUENCIES, EQ_MIN_DB, EQ_MAX_DB, type WebAudioGraph } from './useWebAudioGraph'
+import { EQ_PRESETS, activePresetKey } from './eqPresets'
 
 function formatFreq(hz: number): string {
   return hz >= 1000 ? `${hz / 1000}k` : `${hz}`
+}
+
+// PresetRow: one-tap standard EQ curves (Flat/Rock/Pop/Jazz/Bass/Treble/Vocal).
+// The matching preset is highlighted; editing any band makes it "custom" (none).
+function PresetRow({ graph, t }: { readonly graph: WebAudioGraph; readonly t: (k: string) => string }) {
+  const active = activePresetKey(graph.bandGains)
+  return (
+    <div className="mb-2 flex flex-wrap gap-1" aria-label={t('player.eq.presets')}>
+      {EQ_PRESETS.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          onClick={() => graph.setBands(p.gains)}
+          aria-pressed={active === p.key}
+          className={`rounded px-2 py-0.5 text-[11px] transition-colors ${
+            active === p.key
+              ? 'bg-primary text-white'
+              : 'bg-surface-3 text-text-muted hover:text-text'
+          }`}
+        >
+          {t(`player.eq.preset.${p.key}`)}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 // Equalizer renders the 10 vertical band sliders for the Web Audio graph. Each
@@ -23,6 +49,7 @@ export function Equalizer({ graph }: { readonly graph: WebAudioGraph }) {
           {t('player.eq.reset')}
         </button>
       </div>
+      <PresetRow graph={graph} t={t} />
       <div className="flex items-end justify-between gap-1">
         {EQ_FREQUENCIES.map((hz, i) => {
           const db = graph.bandGains[i] ?? 0

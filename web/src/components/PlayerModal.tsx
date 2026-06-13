@@ -1585,7 +1585,10 @@ export default function PlayerModal({
           handleClassifyCategory,
           classifyingCat,
         })}
-        {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
+        {/* Top playlist bar is hidden in audio mode: the AudioTransportBar below
+            already carries prev/next/shuffle/repeat + position, so showing both
+            duplicated the controls above AND below the play button. */}
+        {playlist && !audioMode && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent
