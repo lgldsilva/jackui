@@ -342,7 +342,10 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       const entry = list.find(e => e.infoHash === hash)
       const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
       const name = entry?.name || hash
-      playSingle(syntheticResult(hash, name, magnet), fIdx, initialSeek)
+      // Carry the library entry's kind so a refresh of an audio deep-link opens
+      // the audio UI (the title heuristic alone misjudged albums → opened video).
+      const mk = entry?.kind === 'audio' || entry?.kind === 'video' ? entry.kind : undefined
+      playSingle(syntheticResult(hash, name, magnet, mk), fIdx, initialSeek)
     }).catch(() => {
       playSingle(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
     })
