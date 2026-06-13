@@ -39,9 +39,9 @@ export function setMediaMode(next: MediaMode): void {
 export function useMediaMode(): [MediaMode, (next: MediaMode) => void] {
   const [m, setM] = useState<MediaMode>(mode)
   useEffect(() => {
-    const handler = (e: Event) => setM((e as CustomEvent<MediaMode>).detail)
-    globalThis.addEventListener(EVT, handler as EventListener)
-    return () => globalThis.removeEventListener(EVT, handler as EventListener)
+    const handler: EventListener = (e) => setM((e as CustomEvent<MediaMode>).detail)
+    globalThis.addEventListener(EVT, handler)
+    return () => globalThis.removeEventListener(EVT, handler)
   }, [])
   return [m, setMediaMode]
 }
