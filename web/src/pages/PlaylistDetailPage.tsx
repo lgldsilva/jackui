@@ -26,7 +26,9 @@ export default function PlaylistDetailPage() {
 
   const startAt = (idx: number) => {
     if (!playlist || items.length === 0) return
-    playPlaylist(playlist.name, items, idx)
+    // expand=true: tocar a playlist abre o player MAXIMIZADO (não o dock), igual
+    // ao play de arquivos locais — o usuário clicou pra ver a experiência cheia.
+    playPlaylist(playlist.name, items, idx, true)
   }
 
   const load = async () => {
@@ -118,7 +120,7 @@ export default function PlaylistDetailPage() {
               </div>
             </>
           ) : (
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="flex items-start gap-2 min-w-0">
                 <ListMusic className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0">
