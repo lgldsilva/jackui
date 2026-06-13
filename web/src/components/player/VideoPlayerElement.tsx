@@ -4,7 +4,7 @@ import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, p
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
-import { shouldUseHlsJs } from './playerFormat'
+import { canPlayNativeHls, audioElementKey } from './playerFormat'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
 
@@ -91,6 +91,15 @@ function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
   )
 }
 
+// shouldAttachHlsJs: usar hls.js (MSE) pra este src? Só pra HLS (.m3u8) em browser
+// que NÃO toca HLS nativo (Chrome/Firefox/Edge) e que suporta MSE. Safari/iOS
+// tocam o .m3u8 nativo; fontes diretas vão direto no <video src>. Extraído pra
+// fora do componente pra manter a complexidade cognitiva do VideoPlayerElement
+// bem abaixo do gate (a cadeia && pesava no corpo do componente).
+function shouldAttachHlsJs(streamURL: string): boolean {
+  return !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
+}
+
 export function VideoPlayerElement({
   videoRef,
   streamURL,
@@ -122,11 +131,7 @@ export function VideoPlayerElement({
   // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
   // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
   // <video> pra nunca setar os dois ao mesmo tempo.
-  // No iOS em modo ÁUDIO forçamos hls.js (MSE) em vez do HLS nativo, pra o áudio
-  // passar pelo Web Audio (EQ/visualizer). Vídeo no iOS segue nativo. Desktop
-  // sempre hls.js. Sem MSE → cai no nativo (som sem EQ, sem regressão). A condição
-  // TEM que casar com o src= do <video> (nunca os dois ao mesmo tempo).
-  const useHlsJs = shouldUseHlsJs({ isHls: !!streamURL && streamURL.includes('.m3u8'), audioMode, hlsSupported: Hls.isSupported() })
+  const useHlsJs = shouldAttachHlsJs(streamURL)
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
@@ -202,6 +207,10 @@ export function VideoPlayerElement({
       <AirPlayButton airplay={airplay} videoError={videoError} />
       {videoError ? null : (
         <video
+          // Fresh element when an audio track crosses the direct-play↔HLS line on
+          // WebKit, so a graph-tapped element never inherits an HLS src (→ mute).
+          // See audioElementKey.
+          key={audioElementKey(audioMode, isTranscoded)}
           ref={videoRef}
           src={useHlsJs ? undefined : (streamURL || undefined)}
           controls={!audioMode}
