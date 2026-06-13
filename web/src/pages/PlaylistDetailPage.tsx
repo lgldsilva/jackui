@@ -232,20 +232,20 @@ export default function PlaylistDetailPage() {
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
-      <NavHeader
-        rightExtra={
-          <button
-            onClick={() => nav('/playlists')}
-            className="header-link"
-            title="Voltar para playlists"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden md:inline">Voltar</span>
-          </button>
-        }
-      />
+      <NavHeader />
 
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+        {/* Voltar no topo do conteúdo. Antes ia no rightExtra do NavHeader, que
+            no desktop (sidebar) cai lá no rodapé do menu — posição ruim/perdida.
+            Aqui fica no fluxo natural da página, acima do cabeçalho da playlist. */}
+        <button
+          onClick={() => nav('/playlists')}
+          className="self-start flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+          title="Voltar para playlists"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Voltar para playlists
+        </button>
         {mainContent}
       </main>
 
