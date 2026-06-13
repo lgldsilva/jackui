@@ -61,13 +61,23 @@ export function usePlaylistTracks(
 
   // (2) Seed the current group from the metadata the player already loaded —
   // avoids a redundant fetch and shows the playing album's tracks instantly.
+  //
+  // CRITICAL: key this on the STRUCTURAL identity of the file list (hash + file
+  // count), NOT on the `currentInfo` object. The player replaces `currentInfo`
+  // on every poll tick (progress/rate fields change ~1×/s), so depending on the
+  // object re-seeded the group every second → rewrote groups state → the whole
+  // track list re-rendered and visibly "reloaded". Read the live value via ref.
+  const currentInfoRef = useRef<TorrentInfo | null>(currentInfo)
+  currentInfoRef.current = currentInfo
+  const currentSig = `${currentInfo?.infoHash ?? ''}:${currentInfo?.files?.length ?? 0}`
   useEffect(() => {
-    if (!enabled || !currentInfo?.files?.length) return
+    const ci = currentInfoRef.current
+    if (!enabled || !ci?.files?.length) return
     if (currentItemIndex < 0 || currentItemIndex >= items.length) return
     inFlight.current.delete(currentItemIndex)
-    setGroup(currentItemIndex, { status: 'ready', tracks: extractTracks(currentInfo) })
+    setGroup(currentItemIndex, { status: 'ready', tracks: extractTracks(ci) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, currentInfo, currentItemIndex])
+  }, [enabled, currentItemIndex, currentSig])
 
   // resolveOne: cache/local peek first; only activate the torrent (streamAdd)
   // when the peek came back empty and it's a real (non-local) torrent.
