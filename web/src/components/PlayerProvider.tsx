@@ -33,6 +33,12 @@ type PlayerAPI = {
   readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
   readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
+  /**
+   * Jump straight to a specific item (and optionally a file within it) of the
+   * ACTIVE playlist — powers the aggregated track list, where the user clicks
+   * any file of any item. No-op when there's no active playlist.
+   */
+  readonly playPlaylistAt: (itemIndex: number, fileIndex?: number) => void
   /** Close the player. Clears playlist state too. */
   readonly close: () => void
   /** Move to the previous item respecting shuffle/repeat. */
@@ -133,6 +139,24 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const first = playlistItemToResult(items[order[position]])
     setCurrent(first)
   }, [shuffle])
+
+  // Jump to an arbitrary item (and file) of the active playlist. Used by the
+  // aggregated track list: clicking a file in a NOT-currently-playing item
+  // switches the playlist cursor to it and starts that file. Within shuffle
+  // we move the cursor to wherever that item sits in `order` so subsequent
+  // next/prev keep following the shuffled sequence.
+  const playPlaylistAt = useCallback((itemIndex: number, fileIndex?: number) => {
+    const pl = playlistRef.current
+    if (!pl) return
+    if (itemIndex < 0 || itemIndex >= pl.items.length) return
+    const pos = pl.order.indexOf(itemIndex)
+    if (pos < 0) return
+    const updated = { ...pl, position: pos }
+    setPlaylist(updated)
+    playlistRef.current = updated
+    const base = playlistItemToResult(pl.items[itemIndex])
+    setCurrent({ result: base.result, fileIdx: fileIndex ?? base.fileIdx })
+  }, [])
 
   const close = useCallback(() => {
     // The torrent is dropped by PlayerModal's viewer-lease effect when it
@@ -254,6 +278,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const api = useMemo<PlayerAPI>(() => ({
     playSingle,
     playPlaylist,
+    playPlaylistAt,
     close,
     next,
     previous,
@@ -264,7 +289,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     playlist: playlistView,
     repeat,
     shuffle,
-  }), [playSingle, playPlaylist, close, next, previous, cycleRepeat, toggleShuffle, prefetchNext, prefetchNextNext, playlistView, repeat, shuffle])
+  }), [playSingle, playPlaylist, playPlaylistAt, close, next, previous, cycleRepeat, toggleShuffle, prefetchNext, prefetchNextNext, playlistView, repeat, shuffle])
 
   // ─── URL deep-linking ────────────────────────────────────────────────────
   //
@@ -421,6 +446,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           playlist={playlistView}
           onPlaylistAdvance={next}
           onPlaylistPrevious={previous}
+          onPlaylistJump={playPlaylistAt}
           repeat={repeat}
           shuffle={shuffle}
           onCycleRepeat={cycleRepeat}
