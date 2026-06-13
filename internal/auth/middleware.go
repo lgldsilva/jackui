@@ -190,6 +190,7 @@ func extractToken(c *gin.Context) string {
 //   - /api/subtitles/download/* external (OpenSubtitles) VTT loaded via <track>
 //   - /api/local/file          local-filesystem file served to <video>
 //   - /api/local/thumb         local-file frame preview loaded via <img>
+//   - /api/local/audio/cover   embedded album art loaded via <img>
 //   - /api/local/hls/*         local-file HLS playlist + segments served to <video>
 //   - /api/local/sidecar       local-file sidecar (.srt/.vtt) read by <track>
 //   - /api/local/subtrack      local-file embedded subtitle extracted to VTT for <track>
@@ -204,6 +205,7 @@ func isMediaPath(path string) bool {
 		strings.HasPrefix(path, "/api/subtitles/download/") ||
 		strings.HasPrefix(path, "/api/local/file") ||
 		strings.HasPrefix(path, "/api/local/thumb") ||
+		strings.HasPrefix(path, "/api/local/audio/cover") ||
 		strings.HasPrefix(path, "/api/local/hls/") ||
 		strings.HasPrefix(path, "/api/local/sidecar") ||
 		strings.HasPrefix(path, "/api/local/subtrack") ||

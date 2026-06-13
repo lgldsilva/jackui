@@ -4,6 +4,7 @@
 // enquanto o módulo é dividido por domínio. Ver [[feedback-no-god-files]].
 import { api, withToken, fetchMediaToken, MAGNET_PREFIX } from './http'
 import { downloadCreate, WHOLE_TORRENT_FILE_INDEX, type DownloadEntry } from './downloads'
+import { audioCapsParam } from '../lib/audioCaps'
 export { api, withToken, fetchMediaToken, MAGNET_PREFIX }
 
 // Domínios extraídos (re-exportados pra manter os call-sites em '../api/client').
@@ -366,12 +367,14 @@ export const queueAllTorrentFiles = async (
     filePath: '', fileSize: info.totalSize, tracker, category,
   })
 
-export const streamAdd = async (magnet: string): Promise<TorrentInfo> => {
+export const streamAdd = async (magnet: string, kind?: 'audio' | 'video'): Promise<TorrentInfo> => {
   // Local files: magnet carries the pseudo-hash. Synthesize TorrentInfo from
   // /api/local/play + /api/local/probe without touching the torrent client.
   const localHash = extractHashFromMagnet(magnet)
   if (localHash && isLocalHash(localHash)) return synthesizeLocalInfo(localHash)
-  const { data } = await api.post<TorrentInfo>('/stream/add', { magnet })
+  // kind (from the player's detectKind) lets the server classify the library row
+  // as audio/video for Continue Watching + stats. Omitted → server leaves it.
+  const { data } = await api.post<TorrentInfo>('/stream/add', kind ? { magnet, kind } : { magnet })
   return data
 }
 
@@ -1406,11 +1409,61 @@ export type LocalPlaySource = {
 // ready to use — it already carries `?token=` so it works in <video src>
 // without the JS axios interceptor (which can't set headers on the element).
 export const localPlay = async (mount: string, path: string): Promise<LocalPlaySource> => {
-  const params = appendViewAs(new URLSearchParams({ mount, path }))
+  const sp = new URLSearchParams({ mount, path })
+  // Tell the server which non-universal audio codecs this browser can play
+  // inline, so it transcodes (audio-only HLS) the ones it can't — Safari can't
+  // do FLAC/OGG/Opus. Harmless on video files (the server ignores it there).
+  const caps = audioCapsParam()
+  if (caps) sp.set('acaps', caps)
+  const params = appendViewAs(sp)
   const { data } = await api.get<LocalPlaySource>(`/local/play?${params}`)
   // The backend builds data.url (direct file or HLS playlist) without the
   // ?user= override; re-append it so the <video> request re-scopes correctly.
   return { ...data, url: withViewAs(data.url) }
+}
+
+// AudioMeta is the tag metadata for a local audio file (server reads ID3/Vorbis/
+// MP4 tags via dhowden/tag and caches them). Empty fields → fall back to filename.
+export type AudioMeta = {
+  title: string
+  artist: string
+  album: string
+  albumArtist: string
+  genre: string
+  year: number
+  trackNumber: number
+  discNumber: number
+  hasCover: boolean
+}
+
+// localAudioMeta fetches cached tags for a local audio file. Best-effort: a
+// parse failure returns empty fields (200), never throws server-side.
+export const localAudioMeta = async (mount: string, path: string): Promise<AudioMeta> => {
+  const params = appendViewAs(new URLSearchParams({ mount, path }))
+  const { data } = await api.get<AudioMeta>(`/local/audio/meta?${params}`)
+  return data
+}
+
+// localAudioCoverURL builds the <img> URL for a local audio file's embedded
+// album art (204 when none). Carries ?token= because <img> can't set headers.
+export const localAudioCoverURL = (mount: string, path: string, tokenOverride?: string): string => {
+  const params = new URLSearchParams({ mount, path })
+  return withViewAs(withToken(`/api/local/audio/cover?${params}`, tokenOverride))
+}
+
+// Lyrics mirrors the backend LrcLib proxy result. source="" means none found.
+export type Lyrics = { synced: string; plain: string; source: string }
+
+// lyricsGet resolves lyrics for a track via the backend LrcLib proxy. Best-effort.
+export const lyricsGet = async (
+  title: string, artist: string, album: string, durationSec: number,
+): Promise<Lyrics> => {
+  const sp = new URLSearchParams({ title })
+  if (artist) sp.set('artist', artist)
+  if (album) sp.set('album', album)
+  if (durationSec > 0) sp.set('duration', String(Math.round(durationSec)))
+  const { data } = await api.get<Lyrics>(`/lyrics?${sp}`)
+  return data
 }
 
 // LocalCacheStatus is the "cache mark" for a local file: whether it's been

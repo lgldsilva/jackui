@@ -53,6 +53,7 @@ import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite,
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
+import { MusicPanel } from './player/MusicPanel'
 
 type PlaylistMeta = {
   readonly name: string
@@ -657,7 +658,7 @@ export default function PlayerModal({
       })
     }
 
-    streamAdd(pickTorrentSource(result))
+    streamAdd(pickTorrentSource(result), audioMode ? 'audio' : 'video')
       .then(t => {
         if (cancelled) return
         setInfo(t)
@@ -1399,6 +1400,20 @@ export default function PlayerModal({
             repeat={repeat}
             onToggleShuffle={onToggleShuffle}
             onCycleRepeat={onCycleRepeat}
+          />
+        )}
+
+        {/* Music experience: spectrum visualizer + 10-band EQ + synced lyrics.
+            Audio-mode only — the Web Audio graph it builds taps the <video>
+            element, which in audio mode never plays video (PlayerProvider
+            remounts by kind), so it can't introduce A/V lag on films. */}
+        {!minimized && audioMode && (
+          <MusicPanel
+            videoRef={videoRef}
+            info={info}
+            selectedFile={selectedFile}
+            currentTime={currentTime}
+            duration={duration}
           />
         )}
 
