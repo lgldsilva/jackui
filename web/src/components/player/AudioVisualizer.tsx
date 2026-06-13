@@ -34,10 +34,12 @@ export function AudioVisualizer({ analyser }: { readonly analyser: AnalyserNode 
   }, [analyser])
 
   if (!analyser) return null
+  // Decorative spectrum — role="presentation" removes it from the a11y tree
+  // without aria-hidden (which Sonar S6825 forbids on potentially-focusable els).
   return (
     <canvas
       ref={canvasRef}
-      aria-hidden="true"
+      role="presentation"
       width={560}
       height={72}
       className="h-16 w-full rounded-lg bg-black/30"
