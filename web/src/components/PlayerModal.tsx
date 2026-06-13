@@ -82,6 +82,9 @@ type PlayerModalProps = {
   readonly onPrefetchNextNextPlaylist?: () => void
   readonly startMinimized?: boolean
   readonly audioMode?: boolean
+  /** Reports the playhead (seconds) on every timeupdate. Lets the provider
+   *  preserve position when it re-keys the modal on a Cinema/Música switch. */
+  readonly onProgress?: (sec: number) => void
 }
 
 function renderPlayerHeader(props: {
@@ -254,6 +257,7 @@ export default function PlayerModal({
   onPrefetchNextNextPlaylist,
   startMinimized = false,
   audioMode = false,
+  onProgress,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1124,6 +1128,7 @@ export default function PlayerModal({
     lastTickRef.current = now
     setCurrentTime(now)
     setDuration(v.duration || 0)
+    onProgress?.(now)
     updateBufferedRanges(v, now, setBufferedRanges, setBufferedEnd)
     tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
     trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)

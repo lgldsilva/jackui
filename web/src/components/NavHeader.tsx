@@ -11,7 +11,7 @@ import NotificationsBell from './NotificationsBell'
 import RateWidget from './RateWidget'
 import ThemeToggle from './ThemeToggle'
 import { useIncognito } from '../lib/incognito'
-import { usePersistedState } from '../lib/storage'
+import { useMediaMode } from '../lib/mediaMode'
 import { useRevealHidden, isRevealHidden } from '../lib/reveal'
 import { useSwipe } from '../lib/useSwipe'
 
@@ -53,12 +53,10 @@ export default function NavHeader({ rightExtra }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [incognito, setIncognito] = useIncognito()
-  // Media-mode preference (Cinema/Música): only a TIE-BREAKER. When the kind of
-  // a title is ambiguous (no clear video/audio signal), the player opens it in
-  // this mode. Obvious videos/albums still follow their content. Read by
-  // PlayerProvider via storage.load on the next playback. Default 'video' = the
-  // prior behaviour (no regression).
-  const [mediaMode, setMediaMode] = usePersistedState<'video' | 'audio'>('mediaModePref', 'video')
+  // Media-mode preference (Cinema/Música). Tie-breaker for ambiguous titles AND
+  // — via the shared store — an immediate switch of whatever is playing right
+  // now (PlayerProvider listens and re-keys the active player). Default 'video'.
+  const [mediaMode, setMediaMode] = useMediaMode()
   const [revealed, setRevealed] = useRevealHidden()
   const location = useLocation()
 
