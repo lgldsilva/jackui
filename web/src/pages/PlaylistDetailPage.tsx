@@ -8,6 +8,7 @@ import {
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
+import { newTabProps, playHref } from '../lib/cardNav'
 
 export default function PlaylistDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -158,7 +159,7 @@ export default function PlaylistDetailPage() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleReorderDrop(idx)}
                 onDragEnd={() => setDragIdx(null)}
-                onClick={() => startAt(idx)}
+                {...newTabProps(it.infoHash ? playHref(it.infoHash, it.fileIndex) : `/playlists/${playlistID}`, () => startAt(idx))}
                 className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-surface-secondary/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
                 {/* ↑/↓ — reorder por toque no mobile (a alça de drag é ruim no
