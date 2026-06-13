@@ -1310,7 +1310,7 @@ export default function PlayerModal({
   // (keeps the component body's cognitive complexity down) — behavior unchanged.
   const shellProps = (): React.HTMLAttributes<HTMLDivElement> => {
     if (minimized) {
-      return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' } }
+      return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom, 0px))' } }
     }
     return {
       className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4',

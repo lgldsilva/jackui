@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Trash2, FolderInput, ArrowUpCircle, X, Loader2 } from 'lucide-react'
 import { SelectAllButton } from './SelectAllButton'
 
@@ -22,6 +23,14 @@ export type BatchActionBarProps = {
 export function BatchActionBar({
   count, onCancel, onSelectAll, allSelected = false, canMove, canPromote, onDelete, onMove, onPromote, running = false,
 }: BatchActionBarProps) {
+  // Reserva espaço no rodapé enquanto a barra está montada (CSS var no :root), pra
+  // o dock flutuante do player (bottom-right, z-50) subir acima dela em vez de
+  // cobrir os botões da direita. Limpa ao desmontar (sair do modo de seleção).
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--bottom-bar-h', '4.5rem')
+    return () => { root.style.setProperty('--bottom-bar-h', '0px') }
+  }, [])
   const actionBtn = 'flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-lg text-sm font-medium transition-colors disabled:opacity-40'
   return (
     <div className="fixed bottom-0 inset-x-0 z-40 bg-surface-secondary border-t border-default px-3 pt-2 safe-bottom shadow-2xl">
