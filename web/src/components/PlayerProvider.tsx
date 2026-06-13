@@ -2,6 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
+import { load } from '../lib/storage'
+
+// mediaModeFallback reads the Cinema/Música preference (NavHeader) used as the
+// tie-breaker for ambiguous titles. Read fresh (not reactive) so each new
+// playback picks up the latest choice without remounting the active player.
+const mediaModeFallback = (): 'audio' | 'video' => load<'audio' | 'video'>('mediaModePref', 'video')
 import PlayerModal from './PlayerModal'
 
 /**
@@ -233,7 +239,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const key = `${item.infoHash || item.magnet}:${item.fileIndex}`
     if (prefetchedHashes.current.has(key)) return
     prefetchedHashes.current.add(key)
-    streamAdd(item.magnet, detectKind(item.title)).catch(() => {
+    streamAdd(item.magnet, detectKind(item.title, 0, mediaModeFallback())).catch(() => {
       // Soft fail — main playback is unaffected. Remove the key so a retry
       // could happen on a future loop, but in practice we won't reach that
       // unless the user manually replays the playlist.
@@ -414,18 +420,18 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // For SINGLE-ITEM playback we use the item's own kind detection.
   const currentKind = (() => {
     if (!current) return null
+    const fallback = mediaModeFallback()
     if (playlist && playlist.items.length > 0) {
       // Aggregate over playlist — any video → video mode.
-      const anyVideo = playlist.items.some(it => detectKind(it.title) === 'video')
+      const anyVideo = playlist.items.some(it => detectKind(it.title, 0, fallback) === 'video')
       return anyVideo ? 'video' : 'audio'
     }
     // Prefer backend-resolved mediaKind quando presente; cai na heurística
     // local pra syntheticResult/deep-links que constroem SearchResult sem
-    // o campo. 'other' do backend coalesce em 'video' (default seguro: o
-    // PlayerModal toca áudio também, AudioBar não toca vídeo).
+    // o campo. 'other' do backend coalesce no fallback (Cinema/Música).
     if (current.result.mediaKind === 'audio') return 'audio'
     if (current.result.mediaKind === 'video') return 'video'
-    return detectKind(current.result.title, current.result.categoryId)
+    return detectKind(current.result.title, current.result.categoryId, fallback)
   })()
 
   return (
