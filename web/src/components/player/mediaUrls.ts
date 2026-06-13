@@ -13,7 +13,7 @@ import {
 import Hls from 'hls.js'
 import type { ErrorData } from 'hls.js'
 import { hlsFatalAction, startGapNudgeTarget } from './playerHooks'
-import { canPlayNativeHls } from './playerFormat'
+import { canPlayNativeHls, shouldUseHlsJs } from './playerFormat'
 
 export type MediaUrlInput = {
   info: TorrentInfo | null
@@ -35,6 +35,9 @@ export type MediaUrlInput = {
   caps: TranscodeCapabilities | null
   authEnabled: boolean
   probe: StreamProbe | null
+  // audioMode forces hls.js on WebKit (so the audio reaches the Web Audio graph);
+  // it also flips the native_hls flag on the HLS URL to match the real transport.
+  audioMode: boolean
 }
 
 // buildStreamURL: vazia se não der pra tocar; direct-play (streamFileURL) quando
@@ -44,10 +47,10 @@ export type MediaUrlInput = {
 // seek e tinha o ffmpeg morto a cada byte-range (Chrome E iOS Edge). (HLS usa a
 // faixa de áudio default → AAC; seleção de faixa não-default e burn de legenda
 // image-based não passam por aqui — tradeoff do HLS-everywhere.)
-function buildStreamURL(info: TorrentInfo | null, selectedFile: number, serverReady: boolean, tokenMissing: boolean, isTranscoded: boolean, mediaToken: string): string {
+function buildStreamURL(info: TorrentInfo | null, selectedFile: number, serverReady: boolean, tokenMissing: boolean, isTranscoded: boolean, mediaToken: string, audioMode: boolean): string {
   if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
   if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
-  return appendNativeHLS(streamHLSMasterURL(info.infoHash, selectedFile, mediaToken))
+  return appendNativeHLS(streamHLSMasterURL(info.infoHash, selectedFile, mediaToken), audioMode)
 }
 
 // appendNativeHLS marks the HLS master URL when the client plays HLS natively
@@ -55,8 +58,14 @@ function buildStreamURL(info: TorrentInfo | null, selectedFile: number, serverRe
 // to key the session (see HLSSessionManager.EffectiveKey); segment URLs in the
 // playlist already carry the flag, so only the master needs it here. Omitted
 // for hls.js clients (treated as not-native server-side).
-function appendNativeHLS(url: string): string {
-  if (!url || !canPlayNativeHls()) return url
+function appendNativeHLS(url: string, audioMode: boolean): string {
+  if (!url) return url
+  // Marca native_hls SÓ quando o cliente vai tocar NATIVO de fato: WebKit E sem
+  // forçar hls.js. Caso contrário (desktop, ou iOS-áudio que agora vai por hls.js)
+  // o servidor tem que tratar como NÃO-nativo, pra master e segmentos concordarem
+  // na policy de sessão/VOD (EffectiveKey) — senão divergem sob VODHLSJS.
+  const native = canPlayNativeHls() && !shouldUseHlsJs({ isHls: true, audioMode, hlsSupported: Hls.isSupported() })
+  if (!native) return url
   const sep = url.includes('?') ? '&' : '?'
   return `${url}${sep}native_hls=1`
 }
@@ -84,7 +93,7 @@ function pickEncoderLabel(caps: TranscodeCapabilities | null): string {
 }
 
 export function computeMediaUrls(input: MediaUrlInput) {
-  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, caps, authEnabled, probe } = input
+  const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, caps, authEnabled, probe, audioMode } = input
   // O media token só é OBRIGATÓRIO com auth ligado (<video>/<track> não mandam
   // header → carregam ?token=). Com auth off as rotas de mídia são públicas e
   // /auth/media-token responde 404 — gatear no token aqui deixaria a streamURL
@@ -102,7 +111,7 @@ export function computeMediaUrls(input: MediaUrlInput) {
   const needsTranscode = probe?.needsTranscode ?? nameSuggestsTranscode
   const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || needsTranscode
 
-  const streamURL = buildStreamURL(info, selectedFile, serverReady, tokenMissing, isTranscoded, mediaToken)
+  const streamURL = buildStreamURL(info, selectedFile, serverReady, tokenMissing, isTranscoded, mediaToken, audioMode)
   const subtitleVttURL = buildSubtitleVttURL(input, tokenMissing)
 
   let vlcURL = ''
