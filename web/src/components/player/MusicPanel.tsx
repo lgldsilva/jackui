@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { TorrentInfo, isLocalHash, parseLocalHash, localAudioMeta, streamAudioMeta, type AudioMeta } from '../../api/client'
 import { usePersistedState } from '../../lib/storage'
 import { useWebAudioGraph } from './useWebAudioGraph'
+import { webAudioBlocked } from './playerFormat'
 import { Equalizer } from './Equalizer'
 import { AudioVisualizer } from './AudioVisualizer'
 import { LyricsPanel } from './LyricsPanel'
@@ -14,6 +15,9 @@ type MusicPanelProps = {
   readonly selectedFile: number
   readonly currentTime: number
   readonly duration: number
+  // isTranscoded === the track plays over HLS (not a direct file). On WebKit that
+  // is the one case the Web Audio graph can't tap (see webAudioBlocked).
+  readonly isTranscoded: boolean
 }
 
 type Track = { title: string; artist: string; album: string; year: number }
@@ -64,13 +68,16 @@ function useTrack(info: TorrentInfo | null, selectedFile: number): Track {
 // equalizer + synced lyrics. Mounted ONLY in audio mode (the parent guards), so
 // the Web Audio graph never taps a video element. Each piece lives in its own
 // file — this is just the layout + track-identity wiring.
-export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration }: MusicPanelProps) {
+export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration, isTranscoded }: MusicPanelProps) {
   const { t } = useTranslation()
-  // Web Audio graph for EQ + visualizer. Enabled on every browser: the hook
-  // itself keeps iOS/Safari safe — it only taps the element once the
+  // Web Audio graph for EQ + visualizer. Mounts on every browser for direct-play
+  // audio (incl. iOS); the hook keeps it safe — it only taps the element once the
   // AudioContext is running (unlocked by a user gesture), so audio is never
-  // silenced and the EQ/visualizer light up on the first interaction.
-  const graph = useWebAudioGraph(videoRef, true)
+  // silenced and the EQ/visualizer light up on the first interaction. The one
+  // case it can't tap is a transcoded HLS track on WebKit (Safari/iOS) → there it
+  // stays off and we show a note instead.
+  const blocked = webAudioBlocked(isTranscoded)
+  const graph = useWebAudioGraph(videoRef, true, isTranscoded)
   const track = useTrack(info, selectedFile)
   const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
   const metaLine = [track.artist, track.album, track.year ? String(track.year) : '']
@@ -94,8 +101,14 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
       {open && (
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
           <div className="flex flex-col gap-3">
-            <AudioVisualizer analyser={graph.analyser} />
-            <Equalizer graph={graph} />
+            {blocked ? (
+              <p className="rounded-lg bg-surface-2 p-3 text-xs text-text-muted">{t('player.eqUnavailable')}</p>
+            ) : (
+              <>
+                <AudioVisualizer analyser={graph.analyser} />
+                <Equalizer graph={graph} />
+              </>
+            )}
           </div>
           <LyricsPanel
             title={track.title}

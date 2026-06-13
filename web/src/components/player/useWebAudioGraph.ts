@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePersistedState } from '../../lib/storage'
+import { webAudioBlocked } from './playerFormat'
 
 // 10-band graphic EQ, one octave apart. lowshelf on the first band and highshelf
 // on the last is the conventional shape (peaking at the extremes sounds worse);
@@ -65,6 +66,14 @@ function buildGraph(ctx: AudioContext, source: MediaElementAudioSourceNode, gain
 
 const clampDb = (db: number): number => Math.max(EQ_MIN_DB, Math.min(EQ_MAX_DB, db))
 
+// disconnectGraph detaches a graph's nodes from the AudioContext when its element
+// is gone (remounted). The source node dies with the element; these were left
+// wired to destination (silent, but they'd accumulate across track switches).
+function disconnectGraph(filters: BiquadFilterNode[], analyser: AnalyserNode | null): void {
+  analyser?.disconnect()
+  filters.forEach((f) => f.disconnect())
+}
+
 export type WebAudioGraph = {
   ready: boolean
   analyser: AnalyserNode | null
@@ -75,7 +84,8 @@ export type WebAudioGraph = {
 }
 
 // useWebAudioGraph builds the EQ/analyser graph on the player's <video> element,
-// but ONLY when enabled (audio mode) AND the AudioContext is actually running.
+// but ONLY when enabled (audio mode), the source is NOT a transcoded HLS track on
+// WebKit (see webAudioBlocked), AND the AudioContext is actually running.
 //
 // iOS/Safari silence fix: createMediaElementSource makes the graph the ONLY
 // output path, and a SUSPENDED context outputs nothing. iOS only unlocks a
@@ -84,22 +94,43 @@ export type WebAudioGraph = {
 // createMediaElementSource until the context is 'running'. Until then the element
 // plays NATIVELY (no source node) → sound is never lost; the EQ/visualizer simply
 // activate the moment the context unlocks (the user's first interaction).
+//
+// `isHls` gates the one combination WebKit cannot tap (HLS → zero data, mute
+// element). When the track's transport class flips on WebKit the parent remounts
+// the <video> (a fresh element with no bound source — see VideoPlayerElement's
+// key), so we detect the element swap here and drop the stale graph before
+// (re)building on the new one — otherwise the analyserRef guard would keep a dead
+// analyser and never rebuild.
 export function useWebAudioGraph(
   videoRef: React.RefObject<HTMLVideoElement | null>,
   enabled: boolean,
+  isHls: boolean,
 ): WebAudioGraph {
   const [bandGains, setBandGains] = usePersistedState<number[]>('audio:eq', flatBands())
   const filtersRef = useRef<BiquadFilterNode[]>([])
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const builtElRef = useRef<HTMLMediaElement | null>(null)
   const [ready, setReady] = useState(false)
   const gainsRef = useRef(bandGains)
   gainsRef.current = bandGains
 
   useEffect(() => {
-    if (!enabled || analyserRef.current) return
     const el = videoRef.current
+    // The previous element was remounted (track changed transport class on
+    // WebKit): its graph died with it, so reset the refs to rebuild on the new one.
+    if (builtElRef.current && builtElRef.current !== el) {
+      disconnectGraph(filtersRef.current, analyserRef.current)
+      builtElRef.current = null
+      filtersRef.current = []
+      analyserRef.current = null
+      setReady(false)
+    }
+    // Block ONLY a transcoded HLS track on WebKit (Safari/iOS): there
+    // createMediaElementSource yields zero audio data and mutes the element
+    // irreversibly. Direct-play files work on iOS; non-WebKit routes HLS via MSE.
+    if (!enabled || analyserRef.current || !el || webAudioBlocked(isHls)) return
     const ctx = sharedAudioContext()
-    if (!el || !ctx) return
+    if (!ctx) return
 
     // Build only when the context is running (see the hook doc). Returns true
     // once built so the gesture listeners can stop.
@@ -110,6 +141,7 @@ export function useWebAudioGraph(
         const g = buildGraph(ctx, getOrCreateSource(ctx, el), gainsRef.current)
         filtersRef.current = g.filters
         analyserRef.current = g.analyser
+        builtElRef.current = el
         setReady(true)
       } catch {
         return false // element already bound to another graph — leave native audio
@@ -136,7 +168,7 @@ export function useWebAudioGraph(
       el.removeEventListener('play', resume)
       ctx.removeEventListener('statechange', build)
     }
-  }, [enabled, videoRef])
+  }, [enabled, isHls, videoRef])
 
   // Apply gain edits live (cheap AudioParam writes) without rebuilding the graph.
   useEffect(() => {
