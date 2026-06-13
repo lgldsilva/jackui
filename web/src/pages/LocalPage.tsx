@@ -838,7 +838,9 @@ export default function LocalPage() {
       })
       const start = Math.max(0, siblings.findIndex((x) => x.path === e.path))
       const folderName = path ? path.split('/').pop() || path : activeMount
-      playPlaylist(folderName, items, start)
+      // expand=true: arquivos locais abrem o player MAXIMIZADO (não o dock de
+      // áudio minimizado) — o usuário clicou pra ver/ouvir a experiência cheia.
+      playPlaylist(folderName, items, start, true)
       return
     }
     const hash = buildLocalHash(activeMount, e.path)
@@ -856,7 +858,7 @@ export default function LocalPage() {
       infoHash: hash,
       publishDate: '',
     }
-    playSingle(synthetic, 0)
+    playSingle(synthetic, 0, undefined, true)
   }
 
   return (

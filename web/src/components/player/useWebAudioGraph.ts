@@ -118,9 +118,15 @@ export function useWebAudioGraph(
     }
     if (build()) return
 
-    // Not running yet: resume on a real user gesture (the only thing iOS honours)
-    // and rebuild once the state flips to 'running'.
-    const resume = () => { ctx.resume().catch(() => {}); build() }
+    // Try to unlock right away: on DESKTOP the page already had a gesture (the
+    // click that opened/maximised the player), so resume() resolves even outside
+    // a gesture handler and we build the moment the state flips to 'running'.
+    // iOS/Safari ignores resume() outside a gesture — so we ALSO listen for real
+    // gestures (the only thing it honours) and rebuild on statechange. Without
+    // this immediate resume the EQ/visualizer stayed inert until the user's NEXT
+    // click, which read as "unavailable".
+    ctx.resume().then(build).catch(() => {})
+    const resume = () => { ctx.resume().then(build).catch(() => {}) }
     const gestures: Array<keyof DocumentEventMap> = ['pointerdown', 'touchend', 'keydown']
     gestures.forEach(ev => document.addEventListener(ev, resume, { passive: true }))
     el.addEventListener('play', resume)

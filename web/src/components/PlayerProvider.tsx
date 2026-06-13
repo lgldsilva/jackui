@@ -2,12 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
-import { load } from '../lib/storage'
-
-// mediaModeFallback reads the Cinema/Música preference (NavHeader) used as the
-// tie-breaker for ambiguous titles. Read fresh (not reactive) so each new
-// playback picks up the latest choice without remounting the active player.
-const mediaModeFallback = (): 'audio' | 'video' => load<'audio' | 'video'>('mediaModePref', 'video')
+import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import PlayerModal from './PlayerModal'
 
 /**
@@ -35,10 +30,11 @@ export type PlaylistContext = {
 type RepeatMode = 'none' | 'one' | 'all'
 
 type PlayerAPI = {
-  /** Plays a single item with no auto-advance logic. */
-  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
+  /** Plays a single item with no auto-advance logic. `expand` opens the player
+   *  maximised even for audio (default: audio opens as the minimized dock). */
+  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
-  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
+  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number, expand?: boolean) => void
   /**
    * Jump straight to a specific item (and optionally a file within it) of the
    * ACTIVE playlist — powers the aggregated track list, where the user clicks
@@ -122,6 +118,16 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const [playlist, setPlaylist] = useState<PlaylistState | null>(null)
   const [repeat, setRepeat] = useState<RepeatMode>('none')
   const [shuffle, setShuffle] = useState(false)
+  // Cinema/Música preference, reactive (shared store). Tie-breaker for ambiguous
+  // titles AND — via `forcedKind` — switches the ACTIVE player the instant the
+  // user toggles it.
+  const [mediaMode] = useMediaMode()
+  const [forcedKind, setForcedKind] = useState<'audio' | 'video' | null>(null)
+  // Open the player maximised (not the minimized audio dock) when a caller asks
+  // — e.g. the local-files page wants the full music experience straight away.
+  const [startExpanded, setStartExpanded] = useState(false)
+  const lastTimeRef = useRef(0)        // latest playhead (sec), fed by PlayerModal onProgress
+  const prevModeRef = useRef(mediaMode) // detects an actual toggle vs. a re-render
   // Ref mirror so callbacks invoked from <PlayerModal onPlaylistAdvance> see the latest state
   // even when React hasn't committed yet (avoids stale-closure bug in auto-advance chains).
   const playlistRef = useRef<PlaylistState | null>(null)
@@ -129,13 +135,15 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   playlistRef.current = playlist
   repeatRef.current = repeat
 
-  const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number) => {
+  const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand = false) => {
+    setStartExpanded(expand)
     setPlaylist(null)
     setCurrent({ result, fileIdx: initialFileIndex, initialSeek })
   }, [])
 
-  const playPlaylist = useCallback((name: string, items: PlaylistItem[], startIndex = 0) => {
+  const playPlaylist = useCallback((name: string, items: PlaylistItem[], startIndex = 0, expand = false) => {
     if (items.length === 0) return
+    setStartExpanded(expand)
     const safeStart = Math.max(0, Math.min(items.length - 1, startIndex))
     const order = shuffle
       ? shuffledOrder(items.length, safeStart)
@@ -239,7 +247,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const key = `${item.infoHash || item.magnet}:${item.fileIndex}`
     if (prefetchedHashes.current.has(key)) return
     prefetchedHashes.current.add(key)
-    streamAdd(item.magnet, detectKind(item.title, 0, mediaModeFallback())).catch(() => {
+    streamAdd(item.magnet, detectKind(item.title, 0, getMediaMode())).catch(() => {
       // Soft fail — main playback is unaffected. Remove the key so a retry
       // could happen on a future loop, but in practice we won't reach that
       // unless the user manually replays the playlist.
@@ -276,6 +284,33 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       return nextShuffle
     })
   }, [])
+
+  // Apply the Cinema/Música toggle to whatever is playing RIGHT NOW: when the
+  // preference flips while a player is active, switch its mode immediately and
+  // resume from the current playhead (the modal re-keys by kind, so we feed the
+  // last reported time as initialSeek instead of restarting from zero). When
+  // `current` changes for any other reason the guard short-circuits.
+  useEffect(() => {
+    if (prevModeRef.current === mediaMode) return
+    prevModeRef.current = mediaMode
+    if (!current) return
+    setForcedKind(mediaMode)
+    // lastTimeRef is re-seeded with the item's start position on every item
+    // change (below), so it's always a valid playhead — even before the first
+    // onProgress tick. No `> 0` guard: that would drop a legit resume position
+    // (e.g. 0 vs. a Continue-Watching seek) when toggling in the first moments.
+    setCurrent(c => (c ? { ...c, initialSeek: lastTimeRef.current } : c))
+  }, [mediaMode, current])
+
+  // A new item (or file) clears the explicit override so the detection /
+  // tie-breaker decides the mode again for the next thing that plays. We also
+  // re-seed lastTimeRef from the item's start position, so a Cinema/Música
+  // toggle in the first moments (before the first onProgress tick) resumes from
+  // the real start (e.g. a Continue-Watching resume) instead of snapping to 0.
+  useEffect(() => {
+    setForcedKind(null)
+    lastTimeRef.current = current?.initialSeek ?? 0
+  }, [current?.result.infoHash, current?.fileIdx])
 
   const playlistView: PlaylistContext | null = playlist
     ? { name: playlist.name, items: playlist.items, currentIndex: playlist.order[playlist.position] }
@@ -420,10 +455,11 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // For SINGLE-ITEM playback we use the item's own kind detection.
   const currentKind = (() => {
     if (!current) return null
-    const fallback = mediaModeFallback()
+    // Explicit Cinema/Música toggle on the active item wins over everything.
+    if (forcedKind) return forcedKind
     if (playlist && playlist.items.length > 0) {
       // Aggregate over playlist — any video → video mode.
-      const anyVideo = playlist.items.some(it => detectKind(it.title, 0, fallback) === 'video')
+      const anyVideo = playlist.items.some(it => detectKind(it.title, 0, mediaMode) === 'video')
       return anyVideo ? 'video' : 'audio'
     }
     // Prefer backend-resolved mediaKind quando presente; cai na heurística
@@ -431,7 +467,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     // o campo. 'other' do backend coalesce no fallback (Cinema/Música).
     if (current.result.mediaKind === 'audio') return 'audio'
     if (current.result.mediaKind === 'video') return 'video'
-    return detectKind(current.result.title, current.result.categoryId, fallback)
+    return detectKind(current.result.title, current.result.categoryId, mediaMode)
   })()
 
   return (
@@ -459,8 +495,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           onToggleShuffle={toggleShuffle}
           onPrefetchNextPlaylist={prefetchNext}
           onPrefetchNextNextPlaylist={prefetchNextNext}
-          startMinimized={currentKind === 'audio'}
+          startMinimized={currentKind === 'audio' && !startExpanded}
           audioMode={currentKind === 'audio'}
+          onProgress={(s) => { lastTimeRef.current = s }}
         />
       )}
     </Ctx.Provider>
