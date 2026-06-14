@@ -136,9 +136,12 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     elBRef.current?.pause()
   }, [enabled])
 
-  // Pré-carrega a próxima faixa no elemento ocioso.
+  // Pré-carrega a próxima faixa no elemento ocioso. NÃO recarrega durante um fade
+  // em curso (fadingRef) — o ocioso está audivelmente subindo de ganho; trocar o
+  // src dele no meio cortaria o crossfade. Pós-swap o currentSrc muda e o efeito
+  // re-roda com o novo ocioso.
   useEffect(() => {
-    if (!enabled || !nextSrc || mode === 'off') return
+    if (!enabled || !nextSrc || mode === 'off' || fadingRef.current) return
     const { idle } = els()
     if (idle && idle.src !== nextSrc) { idle.src = nextSrc; idle.load() }
   }, [enabled, nextSrc, mode, els])
