@@ -48,7 +48,7 @@ import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 import { AudioTransportBar } from './player/AudioTransportBar'
 import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
-import { computeMediaUrls, tryAutoplayMutedFallback } from './player/mediaUrls'
+import { computeMediaUrls, tryAutoplayMutedFallback, computeIsTranscoded } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
@@ -59,7 +59,6 @@ import { useAudioEngine } from './player/useAudioEngine'
 import { useTransitionConfig } from './player/transition'
 import { engineEligible, resolveEngineNext } from './player/audioEngineLogic'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
-import { computeIsTranscoded } from './player/mediaUrls'
 
 type PlaylistMeta = {
   readonly name: string
@@ -1471,8 +1470,10 @@ export default function PlayerModal({
             Renderizados em modo áudio; inertes até a transição ser ligada. */}
         {audioMode && (
           <>
-            <audio ref={engine.elARef} hidden preload="auto" />
-            <audio ref={engine.elBRef} hidden preload="auto" />
+            {/* <track> de legenda vazio: os <audio> do motor não têm legenda, mas a
+                regra de a11y (S4084) exige o elemento — igual ao <video>. */}
+            <audio ref={engine.elARef} hidden preload="auto"><track kind="captions" /></audio>
+            <audio ref={engine.elBRef} hidden preload="auto"><track kind="captions" /></audio>
           </>
         )}
 

@@ -50,7 +50,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
   const graphRef = useRef<DualGraph | null>(null)
   const activeIsA = useRef(true)
   const fadingRef = useRef(false)
-  const fadeTimerRef = useRef<number | null>(null)
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ready, setReady] = useState(false)
   const activeElRef = useRef<HTMLAudioElement | null>(null)
   const gainsRef = useRef(bandGains)
@@ -177,7 +177,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
       gActive.gain.linearRampToValueAtTime(0, now + sec)
       gIdle.gain.setValueAtTime(gIdle.gain.value, now)
       gIdle.gain.linearRampToValueAtTime(1, now + sec)
-      fadeTimerRef.current = window.setTimeout(swap, sec * 1000)
+      fadeTimerRef.current = globalThis.setTimeout(swap, sec * 1000)
     }
 
     const onEnded = () => {
