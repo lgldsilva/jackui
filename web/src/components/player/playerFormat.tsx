@@ -33,19 +33,27 @@ export function canPlayNativeHls(): boolean {
   return _nativeHlsSupport
 }
 
-// shouldUseHlsJs decides whether to play an HLS (.m3u8) stream via hls.js (MSE)
-// instead of the browser's native HLS. Desktop (Chrome/FF/Edge) has no native
-// HLS → ALWAYS hls.js. WebKit (Safari/iOS) plays HLS natively, EXCEPT in audio
-// mode where we force hls.js (when MSE is available) so the decoded audio flows
-// through the Web Audio graph → EQ/visualizer work on iOS too. Video on WebKit
-// stays native. With no MSE (older iPhones) it falls back to native HLS — sound
-// without EQ, no regression. `hlsSupported` is Hls.isSupported(), passed in to
-// keep this module free of the hls.js import.
-export function shouldUseHlsJs(opts: { isHls: boolean; audioMode: boolean; hlsSupported: boolean; nativeHls?: boolean }): boolean {
-  if (!opts.isHls || !opts.hlsSupported) return false
-  const native = opts.nativeHls ?? canPlayNativeHls() // override only for tests
-  if (!native) return true             // desktop: hls.js is the only HLS path
-  return opts.audioMode                // WebKit: force hls.js only in audio mode
+// webAudioBlocked: can the Web Audio graph (EQ + spectrum visualizer) tap THIS
+// stream? It only blocks the HLS-on-WebKit combination. Safari/iOS (WebKit) give
+// NO raw audio to createMediaElementSource for HLS/m3u8 — the AnalyserNode reads
+// zeros and the media element goes irreversibly MUTE (WebKit bug #231656). Direct
+// files (MP3/M4A/AAC/FLAC) work on iOS, and Chrome/Firefox route HLS through MSE,
+// so those are fine. So the graph mounts everywhere EXCEPT a transcoded (HLS)
+// track on WebKit — there the element must play natively (sound, no EQ/visualizer).
+export function webAudioBlocked(isHls: boolean): boolean {
+  return isHls && canPlayNativeHls()
+}
+
+// audioElementKey forces React to mount a FRESH <video> when an audio track
+// switches between direct-play and HLS on WebKit. Once createMediaElementSource
+// taps an element (EQ/visualizer on a direct track) the binding is permanent, and
+// the SAME element later loading HLS goes mute on Safari/iOS (WebKit can't tap HLS
+// audio). A distinct key per transport class hands HLS tracks an untapped element
+// → native sound. Constant ('media') everywhere else, so Chrome/Firefox and video
+// mode keep the single reused element. (Helper keeps VideoPlayerElement under the
+// cognitive-complexity gate.)
+export function audioElementKey(audioMode: boolean, isHls: boolean): string {
+  return audioMode && isHls && canPlayNativeHls() ? 'audio-hls' : 'media'
 }
 
 // fileType buckets a file for the sidebar type filter: video (backend flag or
