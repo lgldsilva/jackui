@@ -23,6 +23,10 @@ type AudioTransportBarProps = {
   readonly onCycleRepeat?: () => void
   /** Compact = mini-player dock (single row); otherwise the full "music mode" bar. */
   readonly compact?: boolean
+  /** Estado play/pause vindo de fora (motor gapless): o usePausedState local não
+   *  enxerga o <audio> do motor a tempo (ref preenchido após o efeito). Quando
+   *  definido, manda no ícone. */
+  readonly pausedOverride?: boolean
 }
 
 // usePausedState mirrors the <video>'s play/pause into React so the custom
@@ -69,8 +73,10 @@ export function AudioTransportBar({
   onToggleShuffle,
   onCycleRepeat,
   compact = false,
+  pausedOverride,
 }: AudioTransportBarProps) {
-  const paused = usePausedState(videoRef, selectedFile)
+  const ownPaused = usePausedState(videoRef, selectedFile)
+  const paused = pausedOverride ?? ownPaused
   const togglePlay = () => {
     const v = videoRef.current
     if (!v) return
