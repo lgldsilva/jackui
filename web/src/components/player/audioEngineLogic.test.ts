@@ -47,17 +47,20 @@ describe('peekNextIndex', () => {
 
 describe('engineEligible', () => {
   it('liga só com áudio direct-play e transição ligada', () => {
-    expect(engineEligible({ mode: 'gapless', isAudio: true, isTranscoded: false })).toBe(true)
-    expect(engineEligible({ mode: 'crossfade', isAudio: true, isTranscoded: false })).toBe(true)
+    expect(engineEligible({ mode: 'gapless', isAudio: true, isTranscoded: false, repeat: 'none' })).toBe(true)
+    expect(engineEligible({ mode: 'crossfade', isAudio: true, isTranscoded: false, repeat: 'all' })).toBe(true)
   })
   it("desliga com transição 'off'", () => {
-    expect(engineEligible({ mode: 'off', isAudio: true, isTranscoded: false })).toBe(false)
+    expect(engineEligible({ mode: 'off', isAudio: true, isTranscoded: false, repeat: 'none' })).toBe(false)
   })
   it('desliga em vídeo', () => {
-    expect(engineEligible({ mode: 'crossfade', isAudio: false, isTranscoded: false })).toBe(false)
+    expect(engineEligible({ mode: 'crossfade', isAudio: false, isTranscoded: false, repeat: 'none' })).toBe(false)
   })
   it('desliga em áudio transcodado (HLS)', () => {
-    expect(engineEligible({ mode: 'gapless', isAudio: true, isTranscoded: true })).toBe(false)
+    expect(engineEligible({ mode: 'gapless', isAudio: true, isTranscoded: true, repeat: 'none' })).toBe(false)
+  })
+  it("desliga em repeat 'one' (replay-loop fica no caminho normal)", () => {
+    expect(engineEligible({ mode: 'crossfade', isAudio: true, isTranscoded: false, repeat: 'one' })).toBe(false)
   })
 })
 

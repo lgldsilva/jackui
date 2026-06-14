@@ -29,7 +29,9 @@ export function peekNextIndex(length: number, currentIndex: number, repeat: Repe
 }
 
 // engineEligible: o motor deve assumir a faixa ATUAL? Só áudio direct-play com
-// transição ligada — HLS/vídeo/'off' seguem o caminho normal do <video>.
-export function engineEligible(opts: { mode: TransitionMode; isAudio: boolean; isTranscoded: boolean }): boolean {
-  return opts.mode !== 'off' && opts.isAudio && !opts.isTranscoded
+// transição ligada — HLS/vídeo/'off' seguem o caminho normal do <video>. Em
+// repeat 'one' também caímos no caminho normal (o <video> faz o replay-loop da
+// MESMA faixa; o ping-pong do motor é pra faixas DIFERENTES).
+export function engineEligible(opts: { mode: TransitionMode; isAudio: boolean; isTranscoded: boolean; repeat: RepeatMode }): boolean {
+  return opts.mode !== 'off' && opts.isAudio && !opts.isTranscoded && opts.repeat !== 'one'
 }

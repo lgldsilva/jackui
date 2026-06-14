@@ -50,6 +50,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
   const graphRef = useRef<DualGraph | null>(null)
   const activeIsA = useRef(true)
   const fadingRef = useRef(false)
+  const fadeTimerRef = useRef<number | null>(null)
   const [ready, setReady] = useState(false)
   const activeElRef = useRef<HTMLAudioElement | null>(null)
   const gainsRef = useRef(bandGains)
@@ -66,8 +67,14 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
 
   const setGains = useCallback((g: DualGraph | null, activeGain: number) => {
     if (!g) return
-    g.gainA.gain.value = activeIsA.current ? activeGain : 1 - activeGain
-    g.gainB.gain.value = activeIsA.current ? 1 - activeGain : activeGain
+    // cancelScheduledValues: descarta rampas de crossfade pendentes antes de fixar
+    // o ganho — senão o setValue é sobrescrito pela automação ainda agendada (ex.:
+    // salto manual de faixa no meio do fade).
+    const now = sharedAudioContext()?.currentTime ?? 0
+    const a = activeIsA.current ? activeGain : 1 - activeGain
+    const b = activeIsA.current ? 1 - activeGain : activeGain
+    g.gainA.gain.cancelScheduledValues(now); g.gainA.gain.value = a
+    g.gainB.gain.cancelScheduledValues(now); g.gainB.gain.value = b
   }, [])
 
   // Constrói o grafo dual quando o contexto está running (mesmo gate de gesto do EQ).
@@ -111,9 +118,23 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     activeElRef.current = active
     if (active.src !== currentSrc) { active.src = currentSrc; active.load() }
     setGains(graphRef.current, 1)
+    // Cancela qualquer crossfade pendente (ex.: salto manual de faixa no meio da
+    // rampa) — sem isso o setTimeout antigo dispararia um swap/advance espúrio.
+    if (fadeTimerRef.current !== null) { clearTimeout(fadeTimerRef.current); fadeTimerRef.current = null }
     fadingRef.current = false
     active.play().catch(() => {})
   }, [enabled, currentSrc, els, setGains])
+
+  // Motor desligou (transição→off, probe-flip de HLS, troca p/ vídeo): para os
+  // DOIS <audio> e cancela fade pendente, senão eles seguem tocando enquanto o
+  // <video> volta a ter som → áudio dobrado.
+  useEffect(() => {
+    if (enabled) return
+    if (fadeTimerRef.current !== null) { clearTimeout(fadeTimerRef.current); fadeTimerRef.current = null }
+    fadingRef.current = false
+    elARef.current?.pause()
+    elBRef.current?.pause()
+  }, [enabled])
 
   // Pré-carrega a próxima faixa no elemento ocioso.
   useEffect(() => {
@@ -130,6 +151,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     if (!active || !idle || !ctx) return
 
     const swap = () => {
+      fadeTimerRef.current = null
       activeIsA.current = !activeIsA.current
       activeElRef.current = activeIsA.current ? elARef.current : elBRef.current
       optsRef.current.onAdvance()
@@ -152,7 +174,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
       gActive.gain.linearRampToValueAtTime(0, now + sec)
       gIdle.gain.setValueAtTime(gIdle.gain.value, now)
       gIdle.gain.linearRampToValueAtTime(1, now + sec)
-      window.setTimeout(swap, sec * 1000)
+      fadeTimerRef.current = window.setTimeout(swap, sec * 1000)
     }
 
     const onEnded = () => {
@@ -169,6 +191,9 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     return () => {
       active.removeEventListener('timeupdate', onTime)
       active.removeEventListener('ended', onEnded)
+      // Cancela um fade pendente ao re-rodar o efeito / desmontar — evita o swap
+      // disparar em refs órfãs (avanço fantasma).
+      if (fadeTimerRef.current !== null) { clearTimeout(fadeTimerRef.current); fadeTimerRef.current = null }
     }
   }, [enabled, currentSrc, els])
 
