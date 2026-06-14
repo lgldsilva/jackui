@@ -40,7 +40,7 @@ export type TrackRef = { itemIndex: number; infoHash: string; fileIndex: number;
 export function firstDirectAudioTrack(groups: readonly PlaylistGroup[], nextItemIndex: number): TrackRef | null {
   if (nextItemIndex < 0) return null
   const g = groups.find((x) => x.itemIndex === nextItemIndex)
-  if (!g || g.status !== 'ready') return null
+  if (g?.status !== 'ready') return null
   const tr = g.tracks.find((t) => t.kind === 'audio' && looksDirectAudio(t.path))
   return tr ? { itemIndex: nextItemIndex, infoHash: g.infoHash, fileIndex: tr.fileIndex, path: tr.path } : null
 }
