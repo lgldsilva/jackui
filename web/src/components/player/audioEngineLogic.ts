@@ -73,8 +73,8 @@ export function resolveEngineNext(input: {
   if (albumNextPos >= 0) {
     const fileIndex = input.mediaIndices[albumNextPos]
     const path = input.curFiles.find((f) => f.index === fileIndex)?.path ?? ''
-    // Próxima do álbum não-direct (ex.: opus dentro do álbum) → hard-cut (null);
-    // o motor não tem como transicionar pra HLS.
+    // Próxima do álbum não-direct (ex.: um .mkv/HLS no meio do álbum) → hard-cut
+    // (null); o motor não tem como transicionar pra HLS.
     return looksDirectAudio(path) ? { itemIndex: -1, infoHash: input.curInfoHash, fileIndex, path } : null
   }
   return firstDirectAudioTrack(input.groups, input.nextItemIndex)

@@ -1199,10 +1199,12 @@ export default function PlayerModal({
   const inPlaylist = !!playlist && playlist.items.length > 1
   const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
   const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat })
-  // Agregado da playlist (todas as faixas de todos os itens) — também consumido
-  // pelo PlaylistTracksSidebar (passado por prop). Em modo música o motor usa pra
-  // pré-carregar a 1ª faixa do PRÓXIMO item (cross-item) na virada do álbum.
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist)
+  // Agregado da playlist (todas as faixas de todos os itens) — consumido pelo
+  // PlaylistTracksSidebar (por prop) e pelo motor (cross-item: 1ª faixa do próximo
+  // item). Resolver itens ATIVA torrents no servidor → só ligamos quando a sidebar
+  // está aberta (precisa exibir) OU o motor está ligado (precisa pré-carregar o
+  // próximo); com 'off' e sidebar fechada não ativa nada em background.
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
   // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
   // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
   // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
