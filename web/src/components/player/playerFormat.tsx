@@ -33,6 +33,21 @@ export function canPlayNativeHls(): boolean {
   return _nativeHlsSupport
 }
 
+// shouldUseHlsJs decides whether to play an HLS (.m3u8) stream via hls.js (MSE)
+// instead of the browser's native HLS. Desktop (Chrome/FF/Edge) has no native
+// HLS → ALWAYS hls.js. WebKit (Safari/iOS) plays HLS natively, EXCEPT in audio
+// mode where we force hls.js (when MSE is available) so the decoded audio flows
+// through the Web Audio graph → EQ/visualizer work on iOS too. Video on WebKit
+// stays native. With no MSE (older iPhones) it falls back to native HLS — sound
+// without EQ, no regression. `hlsSupported` is Hls.isSupported(), passed in to
+// keep this module free of the hls.js import.
+export function shouldUseHlsJs(opts: { isHls: boolean; audioMode: boolean; hlsSupported: boolean; nativeHls?: boolean }): boolean {
+  if (!opts.isHls || !opts.hlsSupported) return false
+  const native = opts.nativeHls ?? canPlayNativeHls() // override only for tests
+  if (!native) return true             // desktop: hls.js is the only HLS path
+  return opts.audioMode                // WebKit: force hls.js only in audio mode
+}
+
 // fileType buckets a file for the sidebar type filter: video (backend flag or
 // extension) → audio (extension) → everything else.
 export function fileType(f: { isVideo?: boolean; path: string }): Exclude<FileType, 'all'> {
