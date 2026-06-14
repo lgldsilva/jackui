@@ -57,7 +57,7 @@ import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { MusicPanel } from './player/MusicPanel'
 import { useAudioEngine } from './player/useAudioEngine'
 import { useTransitionConfig, looksDirectAudio } from './player/transition'
-import { engineEligible } from './player/audioEngineLogic'
+import { engineEligible, peekNextIndex } from './player/audioEngineLogic'
 import { computeIsTranscoded } from './player/mediaUrls'
 
 type PlaylistMeta = {
@@ -1191,10 +1191,15 @@ export default function PlayerModal({
   // torrent parece direct-play (looksDirectAudio); senão null → hard-cut.
   const transition = useTransitionConfig()
   const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
-  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded })
+  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat })
+  // Próxima faixa do MESMO torrent na ordem exibida, respeitando repeat ('all'
+  // circula no fim; 'none' para; 'one' nem liga o motor). É a MESMA faixa que o
+  // onAdvance comita — fonte única, sem o motor tocar X e o player pular pra Y.
+  const engineNextPos = peekNextIndex(mediaQueue.indices.length, mediaQueue.cursor, repeat)
+  const engineNextFileIdx = engineNextPos >= 0 ? mediaQueue.indices[engineNextPos] : -1
   const engineCurrentSrc = engineOn && info && selectedFile >= 0 ? streamFileURL(info.infoHash, selectedFile, mediaToken) : ''
-  const engineNextSrc = engineOn && info && mediaQueue.nextIdx >= 0 && looksDirectAudio(info.files[mediaQueue.nextIdx]?.path ?? '')
-    ? streamFileURL(info.infoHash, mediaQueue.nextIdx, mediaToken)
+  const engineNextSrc = engineOn && info && engineNextFileIdx >= 0 && looksDirectAudio(info.files[engineNextFileIdx]?.path ?? '')
+    ? streamFileURL(info.infoHash, engineNextFileIdx, mediaToken)
     : null
   const engine = useAudioEngine({
     enabled: engineOn,
@@ -1202,7 +1207,7 @@ export default function PlayerModal({
     nextSrc: engineNextSrc,
     mode: transition.mode,
     crossfadeSec: transition.crossfadeSec,
-    onAdvance: handleNext,
+    onAdvance: () => playFile(engineNextFileIdx),
   })
   // Elemento de mídia ATIVO: o <audio> do motor quando ele assume, senão o
   // <video>. Os consumidores de ÁUDIO (transport/MediaSession/teclado) recebem
