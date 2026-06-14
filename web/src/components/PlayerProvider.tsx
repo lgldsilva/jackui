@@ -113,6 +113,43 @@ function shuffledOrder(n: number, startIndex: number): number[] {
   return [startIndex, ...rest]
 }
 
+// parsePositiveInt/Float read a URL query value as a positive number, returning
+// undefined for missing/zero/NaN. Extracted so the URL→state effect doesn't carry
+// the ternary+&& parsing inline (keeps its cognitive complexity under the gate).
+export function parsePositiveInt(s: string | null): number | undefined {
+  if (!s) return undefined
+  const n = Number.parseInt(s, 10)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+export function parsePositiveFloat(s: string | null): number | undefined {
+  if (!s) return undefined
+  const n = Number.parseFloat(s)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+// resolveDeepLinkPlay looks up the library entry for a 40-hex info_hash (for a
+// nicer title/magnet + persisted kind) and plays it, falling back to a synthetic
+// magnet on miss. Extracted from the URL→state effect so that effect's cognitive
+// complexity stays under the gate (the lookup callback + fallbacks add up).
+function resolveDeepLinkPlay(
+  hash: string,
+  fIdx: number | undefined,
+  initialSeek: number | undefined,
+  play: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void,
+): void {
+  libraryList({ limit: 200 }).then(list => {
+    const entry = list.find(e => e.infoHash === hash)
+    const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
+    const name = entry?.name || hash
+    // Carry the library entry's kind so a refresh of an audio deep-link opens the
+    // audio UI (the title heuristic alone misjudged albums → opened video).
+    const mk = entry?.kind === 'audio' || entry?.kind === 'video' ? entry.kind : undefined
+    play(syntheticResult(hash, name, magnet, mk), fIdx, initialSeek)
+  }).catch(() => {
+    play(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
+  })
+}
+
 export default function PlayerProvider({ children }: { readonly children: ReactNode }) {
   const [current, setCurrent] = useState<{ result: SearchResult; fileIdx?: number; initialSeek?: number } | null>(null)
   const [playlist, setPlaylist] = useState<PlaylistState | null>(null)
@@ -375,10 +412,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       lastSyncedHashRef.current = null
       return
     }
-    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : Number.NaN
-    const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
-    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : Number.NaN
-    const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
+    const fIdx = parsePositiveInt(fileUrlParam)
+    const initialSeek = parsePositiveFloat(timeUrlParam)
 
     // Local pseudo-hash (`local-<base64url>`): a deep link to a file on a mount,
     // used by "open in new tab" from the local browser. No library lookup —
@@ -387,7 +422,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       lastSyncedHashRef.current = hash
       const loc = parseLocalHash(hash)
       const name = loc ? (loc.path.split('/').pop() || loc.path) : hash
-      playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
+      // expand=true: deep-link de arquivo LOCAL (nova aba) abre maximizado, igual
+      // ao play direto da LocalPage. (Torrent via deep-link segue o card → minimizado.)
+      playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek, true)
       return
     }
 
@@ -398,23 +435,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       return
     }
     lastSyncedHashRef.current = hash
-
-    // Best effort: lookup the library entry to get a proper title + magnet
-    // (some trackers' magnets carry display_name + trackers, which is nice to
-    // have over a bare xt-only magnet). If the user has never played this hash
-    // before, fall back to the synthetic magnet — anacrolix will resolve trackers
-    // via DHT.
-    libraryList({ limit: 200 }).then(list => {
-      const entry = list.find(e => e.infoHash === hash)
-      const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
-      const name = entry?.name || hash
-      // Carry the library entry's kind so a refresh of an audio deep-link opens
-      // the audio UI (the title heuristic alone misjudged albums → opened video).
-      const mk = entry?.kind === 'audio' || entry?.kind === 'video' ? entry.kind : undefined
-      playSingle(syntheticResult(hash, name, magnet, mk), fIdx, initialSeek)
-    }).catch(() => {
-      playSingle(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
-    })
+    resolveDeepLinkPlay(hash, fIdx, initialSeek, playSingle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playUrlParam, fileUrlParam])
 
