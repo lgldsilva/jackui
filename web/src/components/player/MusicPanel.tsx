@@ -18,10 +18,14 @@ type MusicPanelProps = {
   // isTranscoded === the track plays over HLS (not a direct file). On WebKit that
   // is the one case the Web Audio graph can't tap (see webAudioBlocked).
   readonly isTranscoded: boolean
-  // engineGraph: when the gapless/crossfade engine is the audio source, the EQ +
-  // visualizer read ITS shared graph (the engine taps its own <audio> elements).
-  // null → fall back to tapping the modal's <video> (the single-element path).
+  // engineGraph: when the gapless/crossfade engine's graph is READY, the EQ +
+  // visualizer read ITS shared graph (the engine taps its own <audio>). null
+  // before ready or when the engine is off.
   readonly engineGraph?: WebAudioGraph | null
+  // engineOwns: the engine owns the audio (its <audio> plays; the modal's <video>
+  // is muted/srcless). When true we must NOT mount the single-element graph on the
+  // <video> (it'd tap a srcless element) and never show the "EQ unavailable" note.
+  readonly engineOwns?: boolean
 }
 
 type Track = { title: string; artist: string; album: string; year: number }
@@ -72,7 +76,7 @@ function useTrack(info: TorrentInfo | null, selectedFile: number): Track {
 // equalizer + synced lyrics. Mounted ONLY in audio mode (the parent guards), so
 // the Web Audio graph never taps a video element. Each piece lives in its own
 // file — this is just the layout + track-identity wiring.
-export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration, isTranscoded, engineGraph }: MusicPanelProps) {
+export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration, isTranscoded, engineGraph, engineOwns }: MusicPanelProps) {
   const { t } = useTranslation()
   // Web Audio graph for EQ + visualizer. Mounts on every browser for direct-play
   // audio (incl. iOS); the hook keeps it safe — it only taps the element once the
@@ -83,9 +87,11 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
   // When the gapless engine is the audio source it provides its OWN dual graph;
   // we read that and DON'T mount the single-element graph on the <video> (which
   // is muted/srcless then). The engine only runs on direct-play → never blocked.
-  const ownGraph = useWebAudioGraph(videoRef, !engineGraph, isTranscoded)
+  // Não tapeia o <video> quando o motor é dono (o <video> está mudo/sem-src) —
+  // usa o grafo do motor (quando ready). Nota "EQ indisponível" só fora do motor.
+  const ownGraph = useWebAudioGraph(videoRef, !engineOwns, isTranscoded)
   const graph = engineGraph ?? ownGraph
-  const blocked = !engineGraph && webAudioBlocked(isTranscoded)
+  const blocked = !engineOwns && webAudioBlocked(isTranscoded)
   const track = useTrack(info, selectedFile)
   const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
   const metaLine = [track.artist, track.album, track.year ? String(track.year) : '']
