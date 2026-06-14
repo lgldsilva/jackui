@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { TorrentInfo, isLocalHash, parseLocalHash, localAudioMeta, streamAudioMeta, type AudioMeta } from '../../api/client'
 import { usePersistedState } from '../../lib/storage'
-import { useWebAudioGraph } from './useWebAudioGraph'
+import { useWebAudioGraph, type WebAudioGraph } from './useWebAudioGraph'
 import { webAudioBlocked } from './playerFormat'
 import { Equalizer } from './Equalizer'
 import { AudioVisualizer } from './AudioVisualizer'
@@ -18,6 +18,10 @@ type MusicPanelProps = {
   // isTranscoded === the track plays over HLS (not a direct file). On WebKit that
   // is the one case the Web Audio graph can't tap (see webAudioBlocked).
   readonly isTranscoded: boolean
+  // engineGraph: when the gapless/crossfade engine is the audio source, the EQ +
+  // visualizer read ITS shared graph (the engine taps its own <audio> elements).
+  // null → fall back to tapping the modal's <video> (the single-element path).
+  readonly engineGraph?: WebAudioGraph | null
 }
 
 type Track = { title: string; artist: string; album: string; year: number }
@@ -68,7 +72,7 @@ function useTrack(info: TorrentInfo | null, selectedFile: number): Track {
 // equalizer + synced lyrics. Mounted ONLY in audio mode (the parent guards), so
 // the Web Audio graph never taps a video element. Each piece lives in its own
 // file — this is just the layout + track-identity wiring.
-export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration, isTranscoded }: MusicPanelProps) {
+export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration, isTranscoded, engineGraph }: MusicPanelProps) {
   const { t } = useTranslation()
   // Web Audio graph for EQ + visualizer. Mounts on every browser for direct-play
   // audio (incl. iOS); the hook keeps it safe — it only taps the element once the
@@ -76,8 +80,12 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
   // silenced and the EQ/visualizer light up on the first interaction. The one
   // case it can't tap is a transcoded HLS track on WebKit (Safari/iOS) → there it
   // stays off and we show a note instead.
-  const blocked = webAudioBlocked(isTranscoded)
-  const graph = useWebAudioGraph(videoRef, true, isTranscoded)
+  // When the gapless engine is the audio source it provides its OWN dual graph;
+  // we read that and DON'T mount the single-element graph on the <video> (which
+  // is muted/srcless then). The engine only runs on direct-play → never blocked.
+  const ownGraph = useWebAudioGraph(videoRef, !engineGraph, isTranscoded)
+  const graph = engineGraph ?? ownGraph
+  const blocked = !engineGraph && webAudioBlocked(isTranscoded)
   const track = useTrack(info, selectedFile)
   const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
   const metaLine = [track.artist, track.album, track.year ? String(track.year) : '']

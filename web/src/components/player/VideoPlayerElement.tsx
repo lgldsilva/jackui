@@ -11,6 +11,9 @@ import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } f
 type VideoPlayerElementProps = {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>
   readonly streamURL: string
+  // engineActive: o motor gapless assumiu o áudio (toca em <audio> próprios). O
+  // <video> então fica SEM src e mudo (a capa continua), pra não dobrar o áudio.
+  readonly engineActive?: boolean
   readonly audioMode: boolean
   readonly subtitleVttURL: string
   readonly videoError: boolean
@@ -103,6 +106,7 @@ function shouldAttachHlsJs(streamURL: string): boolean {
 export function VideoPlayerElement({
   videoRef,
   streamURL,
+  engineActive = false,
   audioMode,
   subtitleVttURL,
   videoError,
@@ -131,7 +135,9 @@ export function VideoPlayerElement({
   // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
   // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
   // <video> pra nunca setar os dois ao mesmo tempo.
-  const useHlsJs = shouldAttachHlsJs(streamURL)
+  // Com o motor gapless ativo o <video> não carrega nada (o áudio sai dos <audio>
+  // do motor) → nunca anexa hls.js nem seta src.
+  const useHlsJs = !engineActive && shouldAttachHlsJs(streamURL)
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
@@ -212,7 +218,8 @@ export function VideoPlayerElement({
           // See audioElementKey.
           key={audioElementKey(audioMode, isTranscoded)}
           ref={videoRef}
-          src={useHlsJs ? undefined : (streamURL || undefined)}
+          src={engineActive || useHlsJs ? undefined : (streamURL || undefined)}
+          muted={engineActive}
           controls={!audioMode}
           autoPlay
           playsInline
