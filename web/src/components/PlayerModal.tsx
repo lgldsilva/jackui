@@ -55,6 +55,10 @@ import { FilePickerSidebar } from './player/FilePickerSidebar'
 import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { MusicPanel } from './player/MusicPanel'
+import { useAudioEngine } from './player/useAudioEngine'
+import { useTransitionConfig, looksDirectAudio } from './player/transition'
+import { engineEligible } from './player/audioEngineLogic'
+import { computeIsTranscoded } from './player/mediaUrls'
 
 type PlaylistMeta = {
   readonly name: string
@@ -961,12 +965,10 @@ export default function PlayerModal({
     }
   }
 
-  // Desktop keyboard shortcuts (part of #63). Touch gestures are intentionally
-  // NOT added — the native <video controls> owns touch on iOS and custom
-  // overlays fought its gestures. Skipped while minimized, while typing in an
-  // input/select, and when the <video> itself has focus (let the browser's
-  // native handler act, so we don't double-seek).
-  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen: handleRequestFullscreen })
+  // Desktop keyboard shortcuts (part of #63): wired AFTER the audio engine block
+  // below, so it controls the active element (the engine's <audio> when active).
+  // Touch gestures are intentionally NOT added — the native <video controls> owns
+  // touch on iOS. Skipped while minimized / typing / when the <video> has focus.
 
   // iPhone landscape → native iOS fullscreen. The custom modal layout isn't
   // built to reflow for a short, wide phone viewport (it got cramped/garbled),
@@ -1181,10 +1183,66 @@ export default function PlayerModal({
   const hasNext = mediaQueue.nextIdx >= 0 || !!onPlaylistAdvance
   const hasPrev = mediaQueue.prevIdx >= 0 || !!onPlaylistPrevious
 
+  // ─── Motor gapless/crossfade (Frente 5) ───────────────────────────────────
+  // Assume SÓ áudio direct-play com transição≠off; senão fica inerte e o <video>
+  // toca como hoje (com transition='off' tudo abaixo reduz ao caminho atual).
+  // engineEligible usa a MESMA verdade de isTranscoded do computeMediaUrls (via
+  // helper) ANTES do early-return. nextSrc só é setado se a próxima faixa do MESMO
+  // torrent parece direct-play (looksDirectAudio); senão null → hard-cut.
+  const transition = useTransitionConfig()
+  const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
+  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded })
+  const engineCurrentSrc = engineOn && info && selectedFile >= 0 ? streamFileURL(info.infoHash, selectedFile, mediaToken) : ''
+  const engineNextSrc = engineOn && info && mediaQueue.nextIdx >= 0 && looksDirectAudio(info.files[mediaQueue.nextIdx]?.path ?? '')
+    ? streamFileURL(info.infoHash, mediaQueue.nextIdx, mediaToken)
+    : null
+  const engine = useAudioEngine({
+    enabled: engineOn,
+    currentSrc: engineCurrentSrc,
+    nextSrc: engineNextSrc,
+    mode: transition.mode,
+    crossfadeSec: transition.crossfadeSec,
+    onAdvance: handleNext,
+  })
+  // Elemento de mídia ATIVO: o <audio> do motor quando ele assume, senão o
+  // <video>. Os consumidores de ÁUDIO (transport/MediaSession/teclado) recebem
+  // este ref — só usam membros de HTMLMediaElement. Motor inativo → é o videoRef
+  // → comportamento atual inalterado.
+  const activeMediaRef = engine.active ? engine.activeElRef : videoRef
+
+  // Espelha currentTime/duration/onProgress do elemento ATIVO do motor no estado
+  // do player (seekbar + resume do toggle Cinema/Música). Re-anexa a cada faixa
+  // (selectedFile muda no avanço/swap) pra seguir o ping-pong. O <video> mudo do
+  // modo-motor não dispara timeupdate, então não há conflito de fontes.
+  useEffect(() => {
+    if (!engine.active) return
+    const el = engine.activeElRef.current
+    if (!el) return
+    const sync = () => {
+      setCurrentTime(el.currentTime)
+      setDuration(el.duration || 0)
+      onProgress?.(el.currentTime)
+    }
+    sync()
+    el.addEventListener('timeupdate', sync)
+    el.addEventListener('loadedmetadata', sync)
+    el.addEventListener('durationchange', sync)
+    return () => {
+      el.removeEventListener('timeupdate', sync)
+      el.removeEventListener('loadedmetadata', sync)
+      el.removeEventListener('durationchange', sync)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine.active, selectedFile])
+
+  // Atalhos de teclado controlam o elemento ATIVO (o <audio> do motor quando ele
+  // assume). Movido p/ depois do motor pra usar o activeMediaRef.
+  useKeyboardShortcuts({ videoRef: activeMediaRef, minimized, requestFullscreen: handleRequestFullscreen })
+
   // Media Session API — exposes "what's playing" + media keys / lock-screen
   // controls to the OS. Without this, iOS shows "JackUI" with no metadata and
   // AirPods/bluetooth controls don't fire next/previous on the playlist.
-  useMediaSession({ videoRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
+  useMediaSession({ videoRef: activeMediaRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
 
   // Load initial favorite state when torrent info arrives. Match by infoHash
   // first (precise — same content always returns same hash) and fall back to
@@ -1348,6 +1406,7 @@ export default function PlayerModal({
         <VideoPlayerElement
           videoRef={videoRef}
           streamURL={streamURL}
+          engineActive={engine.active}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
           videoError={videoError}
@@ -1381,12 +1440,22 @@ export default function PlayerModal({
           }}
         />
 
+        {/* Motor gapless/crossfade: 2 <audio> ocultos em ping-pong (A/B). Ficam
+            no DOM (mais seguro p/ o tap do Web Audio no iOS que new Audio()).
+            Renderizados em modo áudio; inertes até a transição ser ligada. */}
+        {audioMode && (
+          <>
+            <audio ref={engine.elARef} hidden preload="auto" />
+            <audio ref={engine.elBRef} hidden preload="auto" />
+          </>
+        )}
+
         {/* Minimized audio: the mini-player dock — play/pause + ⏮⏭ + slim seek
             below the cover. In audio mode the <video> has no native controls,
             so this custom bar drives playback (Spotify-style mini-player). */}
         {minimized && audioMode && (
           <AudioTransportBar
-            videoRef={videoRef}
+            videoRef={activeMediaRef}
             info={info}
             selectedFile={selectedFile}
             mediaToken={mediaToken}
@@ -1406,7 +1475,7 @@ export default function PlayerModal({
             controls the <video> no longer renders in audio mode. */}
         {!minimized && audioMode && (
           <AudioTransportBar
-            videoRef={videoRef}
+            videoRef={activeMediaRef}
             info={info}
             selectedFile={selectedFile}
             mediaToken={mediaToken}
@@ -1437,6 +1506,7 @@ export default function PlayerModal({
             currentTime={currentTime}
             duration={duration}
             isTranscoded={isTranscoded}
+            engineGraph={engine.active ? engine.graph : null}
           />
         )}
 

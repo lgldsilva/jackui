@@ -11,7 +11,7 @@ export const EQ_BANDS = EQ_FREQUENCIES.length
 export const EQ_MIN_DB = -12
 export const EQ_MAX_DB = 12
 const EQ_Q = 1.41
-const flatBands = (): number[] => new Array(EQ_BANDS).fill(0)
+export const flatBands = (): number[] => new Array(EQ_BANDS).fill(0)
 
 // createMediaElementSource throws InvalidStateError if called twice on the same
 // element, and the resulting node can never be detached. Cache it per element so
@@ -22,14 +22,14 @@ const sourceNodes = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>()
 // unlocks them inside a user gesture, so we create ONE, unlock it on the first
 // interaction, and reuse it across every audio session.
 let sharedCtx: AudioContext | null = null
-function sharedAudioContext(): AudioContext | null {
+export function sharedAudioContext(): AudioContext | null {
   const AC = globalThis.AudioContext || (globalThis as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
   if (!AC) return null
   sharedCtx ??= new AC()
   return sharedCtx
 }
 
-function getOrCreateSource(ctx: AudioContext, el: HTMLMediaElement): MediaElementAudioSourceNode {
+export function getOrCreateSource(ctx: AudioContext, el: HTMLMediaElement): MediaElementAudioSourceNode {
   const existing = sourceNodes.get(el)
   if (existing) return existing
   const node = ctx.createMediaElementSource(el)
@@ -64,7 +64,7 @@ function buildGraph(ctx: AudioContext, source: MediaElementAudioSourceNode, gain
   return { filters, analyser }
 }
 
-const clampDb = (db: number): number => Math.max(EQ_MIN_DB, Math.min(EQ_MAX_DB, db))
+export const clampDb = (db: number): number => Math.max(EQ_MIN_DB, Math.min(EQ_MAX_DB, db))
 
 // disconnectGraph detaches a graph's nodes from the AudioContext when its element
 // is gone (remounted). The source node dies with the element; these were left
@@ -72,6 +72,40 @@ const clampDb = (db: number): number => Math.max(EQ_MIN_DB, Math.min(EQ_MAX_DB, 
 function disconnectGraph(filters: BiquadFilterNode[], analyser: AnalyserNode | null): void {
   analyser?.disconnect()
   filters.forEach((f) => f.disconnect())
+}
+
+export type DualGraph = { filters: BiquadFilterNode[]; analyser: AnalyserNode; gainA: GainNode; gainB: GainNode }
+
+// buildDualGraph wires TWO element sources (A=current, B=next) through their own
+// GainNode into a SHARED 10-band EQ → analyser → destination. The per-source
+// gains drive the crossfade (sample-accurate ramps on the AudioContext clock);
+// the shared EQ + analyser keep the equalizer/visualizer working across the fade.
+// B starts silent. Used by the gapless/crossfade engine (useAudioEngine). The
+// single-source buildGraph above (the EQ path of useWebAudioGraph) is left
+// untouched. This path is for DIRECT-PLAY audio only — never HLS on WebKit, where
+// createMediaElementSource yields zero data (the engine's caller guards that).
+export function buildDualGraph(
+  ctx: AudioContext,
+  sourceA: MediaElementAudioSourceNode,
+  sourceB: MediaElementAudioSourceNode,
+  gains: number[],
+): DualGraph {
+  const filters = EQ_FREQUENCIES.map((freq, i) => makeFilter(ctx, freq, i, gains[i] ?? 0))
+  const analyser = ctx.createAnalyser()
+  analyser.fftSize = 2048
+  const gainA = ctx.createGain()
+  const gainB = ctx.createGain()
+  gainA.gain.value = 1
+  gainB.gain.value = 0
+  sourceA.connect(gainA)
+  sourceB.connect(gainB)
+  gainA.connect(filters[0])
+  gainB.connect(filters[0])
+  let prev: AudioNode = filters[0]
+  for (let i = 1; i < filters.length; i++) { prev.connect(filters[i]); prev = filters[i] }
+  prev.connect(analyser)
+  analyser.connect(ctx.destination)
+  return { filters, analyser, gainA, gainB }
 }
 
 export type WebAudioGraph = {
