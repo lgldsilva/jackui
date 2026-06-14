@@ -30,6 +30,11 @@
     "ia_tab": "IA",
     "stats": "Estatísticas"
   },
+  "discover": {
+    "music_trending": "Álbuns em alta",
+    "music_empty": "Não foi possível carregar os álbuns em alta agora.",
+    "search_album": "Buscar \"{{name}}\""
+  },
   "search": {
     "placeholder": "Buscar torrents... (pressione / para focar)",
     "no_indexers": "Jackett não configurado",
