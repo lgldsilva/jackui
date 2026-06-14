@@ -249,6 +249,14 @@
     "view_tree": "Árvore de pastas",
     "audioTools": "Equalizador & Letras",
     "eqUnavailable": "Esta faixa está sendo convertida (HLS), e o Safari/iOS não libera o áudio do HLS para o equalizador/visualizador. Toca com som garantido; faixas em MP3/AAC/FLAC mostram o equalizador e o visualizador.",
+    "transition": {
+      "title": "Transição entre faixas",
+      "off": "Desligada (corte normal)",
+      "gapless": "Gapless (sem intervalo)",
+      "crossfade": "Crossfade (fade entre faixas)",
+      "seconds": "Duração do crossfade: {{sec}}s",
+      "hint": "Vale só para faixas de áudio que tocam direto (locais/diretas). HLS transcodado e vídeo seguem com corte normal."
+    },
     "playAll": "Tocar tudo",
     "tracks": {
       "title": "Faixas da playlist",
