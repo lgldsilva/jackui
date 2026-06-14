@@ -29,6 +29,10 @@ export type AudioEngine = {
   elARef: React.RefObject<HTMLAudioElement>
   elBRef: React.RefObject<HTMLAudioElement>
   graph: WebAudioGraph | null
+  // Estado play/pause do elemento ATIVO (React state, re-sincroniza no swap) — o
+  // transport usa isto pro ícone, já que ler activeElRef.current num efeito não é
+  // reativo (ref preenchido depois, sem re-render).
+  paused: boolean
 }
 
 type EngineOpts = {
@@ -52,6 +56,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
   const fadingRef = useRef(false)
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [ready, setReady] = useState(false)
+  const [paused, setPaused] = useState(true)
   const activeElRef = useRef<HTMLAudioElement | null>(null)
   const gainsRef = useRef(bandGains)
   gainsRef.current = bandGains
@@ -152,6 +157,24 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     if (idle && idle.src !== nextSrc) { idle.src = nextSrc; idle.load() }
   }, [enabled, nextSrc, mode, els])
 
+  // Espelha play/pause do elemento ATIVO no estado React (pro ícone do transport).
+  // Re-anexa quando a faixa muda (swap troca o elemento ativo). Lê els() — os
+  // <audio> já estão montados (refs do pai) quando este efeito roda.
+  useEffect(() => {
+    if (!enabled) return
+    const { active } = els()
+    if (!active) return
+    setPaused(active.paused)
+    const onPlay = () => setPaused(false)
+    const onPause = () => setPaused(true)
+    active.addEventListener('play', onPlay)
+    active.addEventListener('pause', onPause)
+    return () => {
+      active.removeEventListener('play', onPlay)
+      active.removeEventListener('pause', onPause)
+    }
+  }, [enabled, currentSrc, els])
+
   // Agenda gapless/crossfade no elemento ativo.
   useEffect(() => {
     if (!enabled) return
@@ -218,5 +241,5 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     ? { ready, analyser: graphRef.current.analyser, bandGains, setBandGain, setBands, resetBands }
     : null
 
-  return { active: enabled && ready, activeElRef, elARef, elBRef, graph }
+  return { active: enabled && ready, activeElRef, elARef, elBRef, graph, paused }
 }
