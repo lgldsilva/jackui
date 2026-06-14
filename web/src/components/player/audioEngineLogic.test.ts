@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { crossfadeDue, peekNextIndex, engineEligible } from './audioEngineLogic'
+import { crossfadeDue, peekNextIndex, engineEligible, firstDirectAudioTrack, resolveEngineNext } from './audioEngineLogic'
 import { clampCrossfadeSec, looksDirectAudio, CROSSFADE_MIN, CROSSFADE_MAX } from './transition'
+import type { PlaylistGroup } from './playlistTracks'
+
+const grp = (itemIndex: number, infoHash: string, status: PlaylistGroup['status'], tracks: PlaylistGroup['tracks']): PlaylistGroup =>
+  ({ itemIndex, title: `item${itemIndex}`, infoHash, isLocal: false, status, tracks })
+const trk = (fileIndex: number, path: string, kind: 'audio' | 'video' = 'audio') =>
+  ({ fileIndex, name: path.split('/').pop() ?? path, path, size: 1, kind })
 
 describe('crossfadeDue', () => {
   it('é falso fora da janela (resta mais que crossfadeSec)', () => {
@@ -61,6 +67,54 @@ describe('engineEligible', () => {
   })
   it("desliga em repeat 'one' (replay-loop fica no caminho normal)", () => {
     expect(engineEligible({ mode: 'crossfade', isAudio: true, isTranscoded: false, repeat: 'one' })).toBe(false)
+  })
+})
+
+describe('firstDirectAudioTrack', () => {
+  const groups = [
+    grp(0, 'aaa', 'ready', [trk(0, 'A/01.flac'), trk(1, 'A/02.flac')]),
+    grp(1, 'bbb', 'pending', []),
+    grp(2, 'ccc', 'ready', [trk(5, 'C/intro.mkv', 'video'), trk(7, 'C/song.mp3')]),
+  ]
+  it('pega a 1ª faixa de áudio direct-play do item', () => {
+    expect(firstDirectAudioTrack(groups, 0)).toEqual({ itemIndex: 0, infoHash: 'aaa', fileIndex: 0, path: 'A/01.flac' })
+  })
+  it('pula faixa de vídeo → pega o 1º áudio (mp3)', () => {
+    expect(firstDirectAudioTrack(groups, 2)).toEqual({ itemIndex: 2, infoHash: 'ccc', fileIndex: 7, path: 'C/song.mp3' })
+  })
+  it('item não resolvido (pending) → null', () => {
+    expect(firstDirectAudioTrack(groups, 1)).toBeNull()
+  })
+  it('índice inexistente / -1 → null', () => {
+    expect(firstDirectAudioTrack(groups, -1)).toBeNull()
+    expect(firstDirectAudioTrack(groups, 9)).toBeNull()
+  })
+})
+
+describe('resolveEngineNext', () => {
+  const curFiles = [{ index: 0, path: 'Alb/01.flac' }, { index: 1, path: 'Alb/02.flac' }, { index: 2, path: 'Alb/03.mkv' }]
+  const groups = [grp(0, 'cur', 'ready', []), grp(1, 'nxt', 'ready', [trk(0, 'N/01.mp3')])]
+  const base = { curInfoHash: 'cur', curFiles, groups, nextItemIndex: -1 }
+
+  it('próxima do álbum (mesmo torrent) quando há próxima direct', () => {
+    const r = resolveEngineNext({ ...base, inPlaylist: false, mediaIndices: [0, 1, 2], mediaCursor: 0, repeat: 'none' })
+    expect(r).toEqual({ itemIndex: -1, infoHash: 'cur', fileIndex: 1, path: 'Alb/02.flac' })
+  })
+  it('próxima do álbum não-direct (vídeo/HLS) → null (hard-cut)', () => {
+    const r = resolveEngineNext({ ...base, inPlaylist: false, mediaIndices: [0, 1, 2], mediaCursor: 1, repeat: 'none' })
+    expect(r).toBeNull()
+  })
+  it('álbum solto repeat=all circula pro início', () => {
+    const r = resolveEngineNext({ ...base, inPlaylist: false, mediaIndices: [0, 1], mediaCursor: 1, repeat: 'all' })
+    expect(r?.fileIndex).toBe(0)
+  })
+  it('numa playlist, fim do álbum NÃO circula — vai pro próximo item (cross)', () => {
+    const r = resolveEngineNext({ inPlaylist: true, mediaIndices: [0, 1], mediaCursor: 1, repeat: 'all', curInfoHash: 'cur', curFiles, groups, nextItemIndex: 1 })
+    expect(r).toEqual({ itemIndex: 1, infoHash: 'nxt', fileIndex: 0, path: 'N/01.mp3' })
+  })
+  it('fim do álbum sem próximo item (nextItemIndex -1) → null', () => {
+    const r = resolveEngineNext({ ...base, inPlaylist: true, mediaIndices: [0, 1], mediaCursor: 1, repeat: 'none' })
+    expect(r).toBeNull()
   })
 })
 

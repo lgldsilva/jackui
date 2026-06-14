@@ -56,8 +56,9 @@ import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { MusicPanel } from './player/MusicPanel'
 import { useAudioEngine } from './player/useAudioEngine'
-import { useTransitionConfig, looksDirectAudio } from './player/transition'
-import { engineEligible, peekNextIndex } from './player/audioEngineLogic'
+import { useTransitionConfig } from './player/transition'
+import { engineEligible, resolveEngineNext } from './player/audioEngineLogic'
+import { usePlaylistTracks } from './player/usePlaylistTracks'
 import { computeIsTranscoded } from './player/mediaUrls'
 
 type PlaylistMeta = {
@@ -89,6 +90,10 @@ type PlayerModalProps = {
   /** Reports the playhead (seconds) on every timeupdate. Lets the provider
    *  preserve position when it re-keys the modal on a Cinema/Música switch. */
   readonly onProgress?: (sec: number) => void
+  // Índice (na lista original de items) do próximo item da playlist na ordem de
+  // reprodução — o motor gapless usa pra pré-carregar a 1ª faixa do próximo item
+  // (cross-item). -1 = sem próximo / sem playlist.
+  readonly nextPlaylistItemIndex?: number
 }
 
 function renderPlayerHeader(props: {
@@ -262,6 +267,7 @@ export default function PlayerModal({
   startMinimized = false,
   audioMode = false,
   onProgress,
+  nextPlaylistItemIndex = -1,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -1190,24 +1196,37 @@ export default function PlayerModal({
   // helper) ANTES do early-return. nextSrc só é setado se a próxima faixa do MESMO
   // torrent parece direct-play (looksDirectAudio); senão null → hard-cut.
   const transition = useTransitionConfig()
+  const inPlaylist = !!playlist && playlist.items.length > 1
   const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
   const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat })
-  // Próxima faixa do MESMO torrent na ordem exibida, respeitando repeat ('all'
-  // circula no fim; 'none' para; 'one' nem liga o motor). É a MESMA faixa que o
-  // onAdvance comita — fonte única, sem o motor tocar X e o player pular pra Y.
-  const engineNextPos = peekNextIndex(mediaQueue.indices.length, mediaQueue.cursor, repeat)
-  const engineNextFileIdx = engineNextPos >= 0 ? mediaQueue.indices[engineNextPos] : -1
-  const engineCurrentSrc = engineOn && info && selectedFile >= 0 ? streamFileURL(info.infoHash, selectedFile, mediaToken) : ''
-  const engineNextSrc = engineOn && info && engineNextFileIdx >= 0 && looksDirectAudio(info.files[engineNextFileIdx]?.path ?? '')
-    ? streamFileURL(info.infoHash, engineNextFileIdx, mediaToken)
+  // Agregado da playlist (todas as faixas de todos os itens) — também consumido
+  // pelo PlaylistTracksSidebar (passado por prop). Em modo música o motor usa pra
+  // pré-carregar a 1ª faixa do PRÓXIMO item (cross-item) na virada do álbum.
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist)
+  // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
+  // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
+  // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
+  const engineNextRef = engineOn
+    ? resolveEngineNext({
+        inPlaylist, mediaIndices: mediaQueue.indices, mediaCursor: mediaQueue.cursor, repeat,
+        curInfoHash: info?.infoHash ?? '', curFiles: info?.files ?? [],
+        groups: aggregate.groups, nextItemIndex: nextPlaylistItemIndex,
+      })
     : null
+  const engineCurrentSrc = engineOn && info && selectedFile >= 0 ? streamFileURL(info.infoHash, selectedFile, mediaToken) : ''
+  const engineNextSrc = engineNextRef ? streamFileURL(engineNextRef.infoHash, engineNextRef.fileIndex, mediaToken) : null
+  const advanceEngine = () => {
+    if (!engineNextRef) return
+    if (engineNextRef.itemIndex < 0) playFile(engineNextRef.fileIndex)
+    else onPlaylistJump?.(engineNextRef.itemIndex, engineNextRef.fileIndex)
+  }
   const engine = useAudioEngine({
     enabled: engineOn,
     currentSrc: engineCurrentSrc,
     nextSrc: engineNextSrc,
     mode: transition.mode,
     crossfadeSec: transition.crossfadeSec,
-    onAdvance: () => playFile(engineNextFileIdx),
+    onAdvance: advanceEngine,
   })
   // Elemento de mídia ATIVO: o <audio> do motor quando ele assume, senão o
   // <video>. Os consumidores de ÁUDIO (transport/MediaSession/teclado) recebem
@@ -1593,9 +1612,9 @@ export default function PlayerModal({
             torrent's. Single playback keeps the rich FilePickerSidebar. */}
         {!minimized && sidebarOpen && aggregateMode && (
           <PlaylistTracksSidebar
-            items={playlist.items}
+            groups={aggregate.groups}
+            ensureLoaded={aggregate.ensureLoaded}
             currentItemIndex={playlist.currentIndex}
-            currentInfo={info}
             selectedFile={selectedFile}
             playFile={playFile}
             onJump={(ii, fi) => onPlaylistJump?.(ii, fi)}
