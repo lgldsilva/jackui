@@ -94,7 +94,13 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     }
     if (build()) return
     ctx.resume().then(build).catch(() => {})
-    const resume = () => { ctx.resume().then(build).catch(() => {}) }
+    // No gesto que destrava o ctx, também (re)tenta tocar o elemento ativo: no
+    // iOS o play() do effect (fora de gesto) pode ser bloqueado e o <video> está
+    // mudo no modo-motor — sem isto a faixa não começaria até outro gesto.
+    const resume = () => {
+      ctx.resume().then(build).catch(() => {})
+      ;(activeIsA.current ? elARef.current : elBRef.current)?.play().catch(() => {})
+    }
     const gestures: Array<keyof DocumentEventMap> = ['pointerdown', 'touchend', 'keydown']
     gestures.forEach(ev => document.addEventListener(ev, resume, { passive: true }))
     ctx.addEventListener('statechange', build)

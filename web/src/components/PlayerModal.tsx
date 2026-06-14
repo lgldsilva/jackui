@@ -1229,18 +1229,21 @@ export default function PlayerModal({
     crossfadeSec: transition.crossfadeSec,
     onAdvance: advanceEngine,
   })
-  // Elemento de mídia ATIVO: o <audio> do motor quando ele assume, senão o
-  // <video>. Os consumidores de ÁUDIO (transport/MediaSession/teclado) recebem
-  // este ref — só usam membros de HTMLMediaElement. Motor inativo → é o videoRef
-  // → comportamento atual inalterado.
-  const activeMediaRef = engine.active ? engine.activeElRef : videoRef
+  // Elemento de mídia ATIVO: o <audio> do motor quando ele está LIGADO (engineOn),
+  // senão o <video>. CRÍTICO usar engineOn (não engine.active): o motor toca o
+  // <audio> assim que liga (mesmo antes do grafo/EQ montar = ready); se aqui
+  // usasse engine.active (=enabled&&ready), na janela enabled&&!ready o <audio>
+  // tocaria nativo E o <video> não-mudo também → áudio dobrado, e o pause iria no
+  // <video> deixando o <audio> de fundo. Os consumidores de ÁUDIO só usam membros
+  // de HTMLMediaElement. Motor desligado → é o videoRef → comportamento atual.
+  const activeMediaRef = engineOn ? engine.activeElRef : videoRef
 
   // Espelha currentTime/duration/onProgress do elemento ATIVO do motor no estado
   // do player (seekbar + resume do toggle Cinema/Música). Re-anexa a cada faixa
   // (selectedFile muda no avanço/swap) pra seguir o ping-pong. O <video> mudo do
   // modo-motor não dispara timeupdate, então não há conflito de fontes.
   useEffect(() => {
-    if (!engine.active) return
+    if (!engineOn) return
     const el = engine.activeElRef.current
     if (!el) return
     const sync = () => {
@@ -1258,7 +1261,7 @@ export default function PlayerModal({
       el.removeEventListener('durationchange', sync)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engine.active, selectedFile])
+  }, [engineOn, engine.active, selectedFile])
 
   // Atalhos de teclado controlam o elemento ATIVO (o <audio> do motor quando ele
   // assume). Movido p/ depois do motor pra usar o activeMediaRef.
@@ -1431,7 +1434,7 @@ export default function PlayerModal({
         <VideoPlayerElement
           videoRef={videoRef}
           streamURL={streamURL}
-          engineActive={engine.active}
+          engineActive={engineOn}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
           videoError={videoError}
@@ -1534,6 +1537,7 @@ export default function PlayerModal({
             duration={duration}
             isTranscoded={isTranscoded}
             engineGraph={engine.active ? engine.graph : null}
+            engineOwns={engineOn}
           />
         )}
 
