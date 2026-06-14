@@ -247,13 +247,13 @@ func setLocalFileSecurityHeaders(c *gin.Context, path string) {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".vtt", ".srt":
-		c.Header("Content-Type", "text/vtt; charset=utf-8")
+		c.Header(ContentType, "text/vtt; charset=utf-8")
 	case ".html", ".htm", ".xhtml", ".svg", ".xml", ".js", ".mjs":
-		c.Header("Content-Type", "application/octet-stream")
+		c.Header(ContentType, "application/octet-stream")
 		c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(path)+"\"")
 	default:
 		if ct := localMediaContentType[ext]; ct != "" {
-			c.Header("Content-Type", ct)
+			c.Header(ContentType, ct)
 		}
 	}
 }
