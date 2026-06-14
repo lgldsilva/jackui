@@ -505,7 +505,7 @@ func TestLocalPlay_NoMount(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/play", nil)
 
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -519,7 +519,7 @@ func TestLocalPlay_NoPath(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/play?mount=Test", nil)
 
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -534,7 +534,7 @@ func TestLocalPlay_UnknownMount(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/local/play", LocalPlay(b))
+	router.GET("/api/local/play", LocalPlay(b, nil))
 
 	req := httptest.NewRequest("GET", "/api/local/play?mount=DoesNotExist&path=test.mp4", nil)
 	w := httptest.NewRecorder()
@@ -555,7 +555,7 @@ func TestLocalPlay_FileNotFound(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/play?mount=Test&path=nonexistent.mp4", nil)
 
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
@@ -573,7 +573,7 @@ func TestLocalPlay_Dir(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/play?mount=Test&path=subdir", nil)
 
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -591,7 +591,7 @@ func TestLocalPlay_AudioFile(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/play?mount=Test&path=song.mp3", nil)
 
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -619,7 +619,7 @@ func TestLocalPlay_VideoFile_FallbackToHLS(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/play?mount=Test&path=movie.mkv", nil)
 
-	LocalPlay(b)(c)
+	LocalPlay(b, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (probe fails, so HLS via safe ext?); body: %s", w.Code, w.Body.String())

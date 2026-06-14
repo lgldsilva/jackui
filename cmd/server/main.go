@@ -21,8 +21,8 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloads"
@@ -35,9 +35,11 @@ import (
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
+	"github.com/lgldsilva/jackui/internal/lyrics"
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/musictrending"
 	"github.com/lgldsilva/jackui/internal/playlists"
 	"github.com/lgldsilva/jackui/internal/push"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -47,6 +49,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/transmissionrpc"
 	"github.com/lgldsilva/jackui/internal/watchlist"
 	"github.com/lgldsilva/jackui/ui"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -106,6 +109,9 @@ type appDeps struct {
 	streamCfg      streamer.Config
 	stateDir       string
 	libraryStore   *library.Store
+	audioMetaStore *audiometa.Store
+	lyricsClient   *lyrics.Client
+	musicTrending  *musictrending.Client
 	playlistsStore *playlists.Store
 	downloadsStore *downloads.Store
 	downloadsWkr   *downloads.Worker
@@ -170,6 +176,9 @@ func main() {
 	}
 	initStreamer(deps)
 	initLibraryStore(deps)
+	initAudioMetaStore(deps)
+	deps.lyricsClient = lyrics.New()         // public LrcLib proxy; no config/DB needed
+	deps.musicTrending = musictrending.New() // keyless Apple RSS proxy; in-memory cache
 	initPlaylistsStore(deps)
 	initDownloadsStore(deps)
 	initTMDBClient(deps)
@@ -360,6 +369,22 @@ func initLibraryStore(deps *appDeps) {
 			log.Printf("Library: refreshed %d stale primary_file_index entries from metadata cache", n)
 		}
 	}
+}
+
+// initAudioMetaStore opens the DEDICATED .audio-metadata.db (kept off the
+// library/history handles so a lazy tag read on a slow mount never serialises
+// behind a Continue-Watching page load). Optional: a failure just disables the
+// tag/cover cache (handlers fall back to live parsing), it never blocks boot.
+func initAudioMetaStore(deps *appDeps) {
+	amPath := deps.stateDir + "/.audio-metadata.db"
+	am, err := audiometa.New(amPath)
+	if err != nil {
+		log.Printf("Warning: audio metadata store init failed: %v", err)
+		return
+	}
+	deps.audioMetaStore = am
+	deps.addCleanup(func() { am.Close() })
+	log.Printf("Audio metadata: %s", amPath)
 }
 
 func initPlaylistsStore(deps *appDeps) {
@@ -1016,6 +1041,7 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/add-file", handlers.StreamAddTorrentFile(deps.streamSrv))
 	api.GET("/stream/info/:hash", handlers.StreamInfo(deps.streamSrv))
 	api.GET("/stream/probe/:hash/:file", handlers.StreamProbe(deps.streamSrv))
+	api.GET("/stream/audio/meta/:hash/:file", handlers.StreamAudioMeta(deps.streamSrv))
 	api.GET("/stream/subtrack/:hash/:file/:track", handlers.StreamSubtitleExtract(deps.streamSrv))
 	api.GET("/stream/playlist/:hash/:file", handlers.StreamPlaylistM3U(deps.streamSrv))
 	api.POST("/stream/prefetch/:hash/:file", handlers.StreamPrefetch(deps.streamSrv))
@@ -1074,7 +1100,11 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
 	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
-	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser))
+	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser, deps.libraryStore))
+	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
+	api.GET("/local/audio/cover", handlers.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
+	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
+	api.GET("/music/trending", handlers.MusicTrending(deps.musicTrending))
 	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
 	api.GET("/local/sidecar", handlers.LocalSidecarRead(deps.localBrowser))

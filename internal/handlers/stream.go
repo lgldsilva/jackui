@@ -25,6 +25,22 @@ const errInvalidFileIndex = "invalid file index"
 
 type streamAddReq struct {
 	Magnet string `json:"magnet"`
+	// Kind is the player's classification ("audio" | "video"), sent by the
+	// frontend (detectKind). Persisted so Continue Watching / stats group audio
+	// correctly. Empty leaves the column untouched (the Upsert only overwrites
+	// kind when non-empty), so an older client doesn't wipe a known value.
+	Kind string `json:"kind,omitempty"`
+}
+
+// normalizeKind whitelists the player's kind hint to the values the library
+// column understands ("audio" | "video"); anything else becomes "" so a bogus
+// value can't poison the row (and "" leaves the existing column untouched).
+func normalizeKind(k string) string {
+	switch k {
+	case "audio", "video":
+		return k
+	}
+	return ""
 }
 
 // StreamAdd handles POST /api/stream/add — registers a magnet, waits for metadata.
@@ -48,14 +64,14 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		// Persist into the user's library (idempotent upsert).
-		// Kind is left empty here — set later by probe/play hints.
+		// Persist into the user's library (idempotent upsert). Kind comes from the
+		// player (detectKind); empty leaves the column untouched.
 		// In incognito mode: still upsert so the entry exists for resume tracking,
 		// but mark it with incognito=1 so it is excluded from normal listings and
 		// deleted when the user ends their incognito session.
 		if lib != nil {
 			userID, _, _ := auth.UserIDFromCtx(c)
-			_, _ = lib.Upsert(library.UpsertInput{UserID: userID, InfoHash: info.InfoHash, Magnet: req.Magnet, Name: info.Name, PrimaryFile: info.PrimaryFile, TotalSize: info.TotalSize, Incognito: middleware.IsIncognito(c)})
+			_, _ = lib.Upsert(library.UpsertInput{UserID: userID, InfoHash: info.InfoHash, Magnet: req.Magnet, Name: info.Name, PrimaryFile: info.PrimaryFile, TotalSize: info.TotalSize, Kind: normalizeKind(req.Kind), Incognito: middleware.IsIncognito(c)})
 		}
 		c.JSON(http.StatusOK, info)
 	}

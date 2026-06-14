@@ -1,10 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Volume2 } from 'lucide-react'
-import { TorrentInfo, streamArtworkURL } from '../../api/client'
+import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
-import { canPlayNativeHls } from './playerFormat'
+import { canPlayNativeHls, audioElementKey } from './playerFormat'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
 
@@ -40,24 +40,64 @@ type VideoPlayerElementProps = {
 // `audioMode && info &&` conditional → keeps its cognitive complexity under the
 // gate. (The <track> elements stay inline in the <video> so the captions-track
 // accessibility rule S4084 sees a literal child.)
+// audioCoverURL picks the art source: a local file serves its EMBEDDED cover
+// (the dedicated route, headerless via ?token=); a torrent uses the per-file
+// extracted artwork. Both 204 when there's no picture (the <img> onError hides).
+function audioCoverURL(info: TorrentInfo, selectedFile: number, mediaToken: string): string {
+  if (isLocalHash(info.infoHash)) {
+    const loc = parseLocalHash(info.infoHash)
+    if (loc) return localAudioCoverURL(loc.mount, loc.path, mediaToken || undefined)
+  }
+  return streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)
+}
+
 function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
   readonly audioMode: boolean
   readonly info: TorrentInfo | null
   readonly selectedFile: number
   readonly mediaToken: string
 }) {
+  // Fallback when the file has NO embedded picture: for torrents, kick the
+  // server-side art chain (embedded → TMDB → WEB SEARCH, music-aware via the AI
+  // MusicQuery) and show whatever it resolves — so an album with no cover tag
+  // still gets art off the web instead of an empty box. Local files resolve the
+  // web fallback server-side, so here they just hide on miss.
+  const [fallbackSrc, setFallbackSrc] = useState('')
+  const [hidden, setHidden] = useState(false)
+  useEffect(() => { setFallbackSrc(''); setHidden(false) }, [info?.infoHash, selectedFile])
   if (!audioMode || !info) return null
+
+  const handleError = async () => {
+    if (fallbackSrc || isLocalHash(info.infoHash)) { setHidden(true); return }
+    const src = await resolveArt(info.infoHash, -1, info.name).catch(() => null)
+    if (src) setFallbackSrc(streamArtURL(info.infoHash))
+    else setHidden(true)
+  }
+
+  const url = fallbackSrc || audioCoverURL(info, selectedFile, mediaToken)
   return (
-    <div className="absolute inset-x-0 top-0 bottom-12 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
+    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 pointer-events-none">
       <Volume2 className="absolute w-12 h-12 text-text-muted" />
-      <img
-        src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
-        alt=""
-        className="relative max-h-full max-w-full object-contain"
-        onError={(e) => { e.currentTarget.style.display = 'none' }}
-      />
+      {!hidden && (
+        <img
+          key={url}
+          src={url}
+          alt=""
+          className="relative max-h-full max-w-full object-contain rounded shadow-2xl"
+          onError={handleError}
+        />
+      )}
     </div>
   )
+}
+
+// shouldAttachHlsJs: usar hls.js (MSE) pra este src? Só pra HLS (.m3u8) em browser
+// que NÃO toca HLS nativo (Chrome/Firefox/Edge) e que suporta MSE. Safari/iOS
+// tocam o .m3u8 nativo; fontes diretas vão direto no <video src>. Extraído pra
+// fora do componente pra manter a complexidade cognitiva do VideoPlayerElement
+// bem abaixo do gate (a cadeia && pesava no corpo do componente).
+function shouldAttachHlsJs(streamURL: string): boolean {
+  return !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
 }
 
 export function VideoPlayerElement({
@@ -91,7 +131,7 @@ export function VideoPlayerElement({
   // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
   // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
   // <video> pra nunca setar os dois ao mesmo tempo.
-  const useHlsJs = !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
+  const useHlsJs = shouldAttachHlsJs(streamURL)
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
@@ -134,12 +174,11 @@ export function VideoPlayerElement({
     <div
       className={`bg-black relative w-full mx-auto flex items-center justify-center ${
         audioMode
-          // Áudio: a capa não precisa de tela cheia. Encolhe a faixa (mantendo a
-          // largura total p/ a barra de controles nativa respirar) e o espaço
-          // sobra vai pra lista de faixas abaixo — estilo "tela de álbum".
-          // min-h garante espaço pros controles nativos (play/seek) não cortarem
-          // em telas pequenas; ainda bem menor que o 16:9 original → lista respira.
-          ? 'h-[20dvh] min-h-[152px] sm:h-[38dvh] sm:min-h-0'
+          // Áudio: a capa é o foco visual. Cresce com a tela (no desktop a janela
+          // é larga e sobrava espaço preto), mas continua contida (object-contain)
+          // — álbuns sem capa caem no fallback de busca web, então o espaço não
+          // fica vazio. No mobile fica compacta pra lista de faixas respirar.
+          ? 'h-44 sm:h-56 lg:h-72 xl:h-80'
           : 'max-h-[70dvh] sm:max-h-[58dvh]'
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
@@ -168,6 +207,10 @@ export function VideoPlayerElement({
       <AirPlayButton airplay={airplay} videoError={videoError} />
       {videoError ? null : (
         <video
+          // Fresh element when an audio track crosses the direct-play↔HLS line on
+          // WebKit, so a graph-tapped element never inherits an HLS src (→ mute).
+          // See audioElementKey.
+          key={audioElementKey(audioMode, isTranscoded)}
           ref={videoRef}
           src={useHlsJs ? undefined : (streamURL || undefined)}
           controls={!audioMode}
