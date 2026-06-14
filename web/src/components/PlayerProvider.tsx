@@ -101,6 +101,22 @@ function playlistItemToResult(item: PlaylistItem): { result: SearchResult; fileI
   return { result, fileIdx: item.fileIndex > 0 ? item.fileIndex : undefined }
 }
 
+// peekNextPlaylistItem: índice (na lista ORIGINAL de items) do próximo item na
+// ordem de reprodução, respeitando shuffle (via `order`) e repeat. -1 = não há
+// próximo. Alimenta o motor gapless (cross-item): pré-carregar a 1ª faixa do
+// próximo item. (repeat 'one' devolve o item atual — mas o motor é bypassado
+// nesse modo, então é inócuo.)
+function peekNextPlaylistItem(playlist: PlaylistState | null, repeat: RepeatMode): number {
+  if (!playlist) return -1
+  if (repeat === 'one') return playlist.order[playlist.position]
+  let next = playlist.position + 1
+  if (next >= playlist.order.length) {
+    if (repeat !== 'all') return -1
+    next = 0
+  }
+  return playlist.order[next]
+}
+
 function shuffledOrder(n: number, startIndex: number): number[] {
   // Fisher-Yates on [0..n-1] excluding startIndex, then put startIndex at position 0.
   const rest = Array.from({ length: n }, (_, i) => i).filter(i => i !== startIndex)
@@ -518,6 +534,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           onPrefetchNextNextPlaylist={prefetchNextNext}
           startMinimized={currentKind === 'audio' && !startExpanded}
           audioMode={currentKind === 'audio'}
+          nextPlaylistItemIndex={peekNextPlaylistItem(playlist, repeat)}
           onProgress={(s) => { lastTimeRef.current = s }}
         />
       )}

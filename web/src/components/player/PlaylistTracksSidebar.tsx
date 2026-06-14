@@ -5,9 +5,7 @@ import { useTranslation } from 'react-i18next'
 // The translate fn's exact type (react-i18next's TFunction) — sharing it across
 // the helper sub-components keeps tsc happy without `any`.
 type TFn = ReturnType<typeof useTranslation>['t']
-import type { TorrentInfo } from '../../api/client'
-import { usePlaylistTracks } from './usePlaylistTracks'
-import { totalReadyTracks, type PlaylistGroup, type PlaylistItemLite, type PlaylistTrack } from './playlistTracks'
+import { totalReadyTracks, type PlaylistGroup, type PlaylistTrack } from './playlistTracks'
 
 // Ready groups with at most this many tracks auto-expand (a single local file,
 // a short EP). Big packs (a 90-track discography) stay collapsed with a count
@@ -19,9 +17,11 @@ const AUTO_EXPAND_MAX = 25
 const isReady = (g: PlaylistGroup): boolean => g.status === 'ready'
 
 type Props = {
-  readonly items: readonly PlaylistItemLite[]
+  // Agregado resolvido pelo PAI (usePlaylistTracks levantado pro PlayerModal, pra
+  // o motor gapless cross-item também enxergar). Antes a sidebar chamava o hook.
+  readonly groups: PlaylistGroup[]
+  readonly ensureLoaded: (itemIndex: number) => void
   readonly currentItemIndex: number
-  readonly currentInfo: TorrentInfo | null
   readonly selectedFile: number
   // Play a file of the CURRENTLY-loaded item (smooth, no reload).
   readonly playFile: (fileIndex: number) => void
@@ -33,13 +33,13 @@ type Props = {
 // PlaylistTracksSidebar — the AGGREGATED track list shown while a playlist
 // plays. Instead of only the current torrent's files, it lists every playable
 // file across ALL playlist items (torrent packs + single local files), grouped
-// by item, filled in progressively by usePlaylistTracks. Clicking any track
+// by item. The groups are resolved by usePlaylistTracks in the PARENT (so the
+// gapless engine sees the same aggregate) and passed in. Clicking any track
 // plays it directly.
 export function PlaylistTracksSidebar({
-  items, currentItemIndex, currentInfo, selectedFile, playFile, onJump, onClose,
+  groups, ensureLoaded, currentItemIndex, selectedFile, playFile, onJump, onClose,
 }: Props) {
   const { t } = useTranslation()
-  const { groups, ensureLoaded } = usePlaylistTracks(items, currentItemIndex, currentInfo, true)
   // Explicit user expand/collapse choices (itemIndex → open). Absent = use the
   // default rule in isOpen(). Keeps the auto-expand behaviour overridable
   // without fighting React effects.
