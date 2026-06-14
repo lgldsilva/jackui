@@ -4,7 +4,7 @@ import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, p
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
-import { canPlayNativeHls } from './playerFormat'
+import { shouldUseHlsJs } from './playerFormat'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
 
@@ -122,7 +122,11 @@ export function VideoPlayerElement({
   // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
   // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
   // <video> pra nunca setar os dois ao mesmo tempo.
-  const useHlsJs = !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
+  // No iOS em modo ÁUDIO forçamos hls.js (MSE) em vez do HLS nativo, pra o áudio
+  // passar pelo Web Audio (EQ/visualizer). Vídeo no iOS segue nativo. Desktop
+  // sempre hls.js. Sem MSE → cai no nativo (som sem EQ, sem regressão). A condição
+  // TEM que casar com o src= do <video> (nunca os dois ao mesmo tempo).
+  const useHlsJs = shouldUseHlsJs({ isHls: !!streamURL && streamURL.includes('.m3u8'), audioMode, hlsSupported: Hls.isSupported() })
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
