@@ -52,6 +52,18 @@ export function fileKind(path: string, isVideo?: boolean): 'audio' | 'video' | '
 }
 
 /**
+ * Is this result audio (music/audiobook)? Prefers the backend-resolved mediaKind
+ * (parser.DetectKind), falling back to the title/category heuristic. Used by the
+ * music-mode search filter — 'other'/unknown falls back to the heuristic, which
+ * defaults to video, so the "mostrar tudo" escape exists for ambiguous releases.
+ */
+export function isAudioResult(r: SearchResult): boolean {
+  if (r.mediaKind === 'audio') return true
+  if (r.mediaKind === 'video') return false
+  return detectKind(r.title, r.categoryId) === 'audio'
+}
+
+/**
  * Heuristic: can we stream this torrent (video or audio) in our player?
  * Uses positive signals (allowlist of extensions/categories/hints).
  * Falls back to "yes" for unknown — better to offer than to hide.

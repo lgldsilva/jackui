@@ -19,6 +19,8 @@ import { getTabResults, mergeCachedResults, syncTabsToCache } from '../lib/searc
 import type { SearchPhase } from '../lib/searchResultsCache'
 import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
 import { useFilteredResults } from '../lib/useFilteredResults'
+import { useMediaMode } from '../lib/mediaMode'
+import { MusicSearchFilterToggle } from '../components/MusicSearchFilterToggle'
 import { buildSeriesLayout } from '../lib/seriesGroup'
 import { isIncognito } from '../lib/incognito'
 import { useSwipe } from '../lib/useSwipe'
@@ -635,6 +637,12 @@ export default function SearchPage() {
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
   }, [activeTab.results])
 
+  // Modo Música (NavHeader): a busca filtra pra áudio. `showAll` é um escape
+  // EFÊMERO (não persiste em TabState) — some ao trocar de modo ou de aba.
+  const [mediaMode] = useMediaMode()
+  const [showAll, setShowAll] = useState(false)
+  useEffect(() => { setShowAll(false) }, [mediaMode, activeTab.id])
+
   // Filtered + sorted results (after dedup-grouping by infoHash)
   const { filteredResults, groupedCount } = useFilteredResults(activeTab.results, {
     minSeeders: activeTab.minSeeders,
@@ -643,6 +651,7 @@ export default function SearchPage() {
     trackerFilter: activeTab.trackerFilter,
     titleFilter: activeTab.titleFilter,
     onlyPlayable: activeTab.onlyPlayable,
+    audioOnly: mediaMode === 'audio' && !showAll,
     resolution: activeTab.resolution,
     hdrOnly: activeTab.hdrOnly,
     codecGroup: activeTab.codecGroup,
@@ -1040,6 +1049,7 @@ export default function SearchPage() {
             <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
               <Filter className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
               {filterFields(false)}
+              <MusicSearchFilterToggle active={mediaMode === 'audio'} stacked={false} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
             </div>
             <button
               onClick={() => setFilterSheetOpen(true)}
@@ -1156,7 +1166,7 @@ export default function SearchPage() {
         icon={<Filter className="w-4 h-4 text-text-secondary flex-shrink-0" />}
         size="md"
       >
-        <div className="flex flex-col gap-3">{filterFields(true)}</div>
+        <div className="flex flex-col gap-3">{filterFields(true)}<MusicSearchFilterToggle active={mediaMode === 'audio'} stacked showAll={showAll} onToggle={() => setShowAll(v => !v)} /></div>
       </Sheet>
 
       <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
