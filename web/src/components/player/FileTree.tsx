@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
-import { ChevronRight, Folder, FolderOpen } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-react'
 import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
 import { FileRow } from './FileRow'
 import { buildFileTree, countFilesUnder, flattenTreeCapped, keyNavAction } from '../../lib/fileTree'
+import { useIncrementalReveal } from './useIncrementalReveal'
 import type { FileType } from './playerFormat'
 
 type FileTreeProps = {
@@ -22,12 +23,10 @@ type FileTreeProps = {
 
 const INDENT_PX = 14
 
-// Ceiling on rendered FILE rows. Mirrors the flat list's .slice(0, 100): a
-// season pack / discography can auto-expand a folder with thousands of files,
-// and mounting them all as live <button> nodes inside the player modal freezes
-// the UI. Dir rows are never capped (navigation skeleton); overflow files are
-// hidden behind a "mostrando 100 de N" hint that points at the filter box.
-const FILE_ROW_CAP = 100
+// Renderizar todos os FILE rows de uma vez (season pack / discografia c/ milhares)
+// congela o modal — então revelamos em lotes via useIncrementalReveal (mais ao
+// rolar/clicar), em vez do antigo teto fixo que escondia o resto atrás do filtro.
+// Dir rows nunca são capadas (esqueleto de navegação).
 
 // Keys we intercept (preventDefault) so the page doesn't scroll under us.
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter', ' '])
@@ -57,9 +56,17 @@ export function FileTree({
     () => buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter }),
     [info.files, fileFilter, fileTypeFilter],
   )
-  const { rows, hiddenFiles } = useMemo(
-    () => flattenTreeCapped(root, expanded, FILE_ROW_CAP),
+  // Total de arquivos elegíveis (nas pastas abertas), sem cap — só pra CONTAR
+  // (não renderiza): montar o array é barato; o que pesa é montar os <button>.
+  const totalFiles = useMemo(
+    () => flattenTreeCapped(root, expanded, Number.MAX_SAFE_INTEGER).rows.filter((r) => r.kind === 'file').length,
     [root, expanded],
+  )
+  // Reseta o lote ao trocar torrent/filtro; abrir uma pasta NÃO reseta (só muda o total).
+  const reveal = useIncrementalReveal(totalFiles, `${info.infoHash}|${fileFilter}|${fileTypeFilter}`)
+  const { rows } = useMemo(
+    () => flattenTreeCapped(root, expanded, reveal.visible),
+    [root, expanded, reveal.visible],
   )
   const [focusIdx, setFocusIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -162,12 +169,17 @@ export function FileTree({
           />
         )
       })}
-      {hiddenFiles > 0 && (
-        <p className="text-[11px] text-text-muted text-center py-3 px-2 leading-snug flex-shrink-0">
-          Mostrando {FILE_ROW_CAP} de {FILE_ROW_CAP + hiddenFiles} arquivos. Use o filtro acima
-          (ex: <span className="font-mono text-text-secondary">s04e03</span> ou
-          parte do nome) pra achar o resto.
-        </p>
+      {reveal.hasMore && (
+        <div ref={reveal.sentinelRef} className="px-2 pt-1 pb-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={reveal.showMore}
+            className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-surface-2 py-2 text-xs text-text-secondary hover:text-text-primary"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+            Mostrar mais ({reveal.remaining} de {totalFiles})
+          </button>
+        </div>
       )}
     </div>
   )
