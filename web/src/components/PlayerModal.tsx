@@ -52,11 +52,16 @@ import { computeMediaUrls, tryAutoplayMutedFallback } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
+import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
+import { MusicPanel } from './player/MusicPanel'
 
 type PlaylistMeta = {
   readonly name: string
-  readonly items: readonly { title: string }[]
+  // Each item is a torrent (a pack with many files) or a single local file.
+  // The aggregated track sidebar needs the source (infoHash/magnet) to resolve
+  // every item's file list, not just the playing one.
+  readonly items: readonly { title: string; infoHash: string; magnet: string; fileIndex: number }[]
   readonly currentIndex: number
 }
 
@@ -68,6 +73,7 @@ type PlayerModalProps = {
   readonly playlist?: PlaylistMeta | null
   readonly onPlaylistAdvance?: () => void
   readonly onPlaylistPrevious?: () => void
+  readonly onPlaylistJump?: (itemIndex: number, fileIndex?: number) => void
   readonly repeat?: 'none' | 'one' | 'all'
   readonly shuffle?: boolean
   readonly onCycleRepeat?: () => void
@@ -76,6 +82,9 @@ type PlayerModalProps = {
   readonly onPrefetchNextNextPlaylist?: () => void
   readonly startMinimized?: boolean
   readonly audioMode?: boolean
+  /** Reports the playhead (seconds) on every timeupdate. Lets the provider
+   *  preserve position when it re-keys the modal on a Cinema/Música switch. */
+  readonly onProgress?: (sec: number) => void
 }
 
 function renderPlayerHeader(props: {
@@ -239,6 +248,7 @@ export default function PlayerModal({
   playlist = null,
   onPlaylistAdvance,
   onPlaylistPrevious,
+  onPlaylistJump,
   repeat = 'none',
   shuffle = false,
   onCycleRepeat,
@@ -247,6 +257,7 @@ export default function PlayerModal({
   onPrefetchNextNextPlaylist,
   startMinimized = false,
   audioMode = false,
+  onProgress,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -370,6 +381,10 @@ export default function PlayerModal({
   // renders as a right column instead of a stacked panel below the video.
   // Persisted to localStorage so the user's choice survives between modals.
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    // Music mode is album-browsing first — open the track list by default so a
+    // multi-track album (e.g. "2 de 73") shows its songs without hunting for the
+    // collapsed strip. Video keeps the per-user stored preference.
+    if (audioMode) return true
     const stored = localStorage.getItem('jackui.playerSidebar')
     return stored === null ? true : stored === '1'
   })
@@ -657,7 +672,7 @@ export default function PlayerModal({
       })
     }
 
-    streamAdd(pickTorrentSource(result))
+    streamAdd(pickTorrentSource(result), audioMode ? 'audio' : 'video')
       .then(t => {
         if (cancelled) return
         setInfo(t)
@@ -1113,6 +1128,7 @@ export default function PlayerModal({
     lastTickRef.current = now
     setCurrentTime(now)
     setDuration(v.duration || 0)
+    onProgress?.(now)
     updateBufferedRanges(v, now, setBufferedRanges, setBufferedEnd)
     tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
     trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
@@ -1294,7 +1310,7 @@ export default function PlayerModal({
   // (keeps the component body's cognitive complexity down) — behavior unchanged.
   const shellProps = (): React.HTMLAttributes<HTMLDivElement> => {
     if (minimized) {
-      return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' } }
+      return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom, 0px))' } }
     }
     return {
       className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4',
@@ -1311,12 +1327,19 @@ export default function PlayerModal({
   // cognitive complexity. Closes over all the local state — behavior identical.
   const renderActiveStream = () => {
     if (!info || selectedFile < 0) return null
+    // A playlist with >1 item shows the aggregated track list (all items'
+    // files); a single item (or no playlist) shows the per-torrent picker.
+    const aggregateMode = !!playlist && playlist.items.length > 1
     return (
       <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         {/* Main column: video + transport + status + panels. On lg+ the
             file picker moves to a sidebar on the right — frees this
-            column to grow without forcing the page into outer scroll. */}
-        <div className="flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
+            column to grow without forcing the page into outer scroll.
+            Audio mode centers its content vertically (lg:justify-center) so the
+            cover + transport fill the modal height instead of hugging the top
+            with a big empty gap below (the track sidebar makes the modal tall).
+            It still scrolls when EQ/lyrics expand past the height. */}
+        <div className={`flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
         {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
             status bar, file picker, and panels below all fit inside the modal's
             90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
@@ -1402,6 +1425,21 @@ export default function PlayerModal({
           />
         )}
 
+        {/* Music experience: spectrum visualizer + 10-band EQ + synced lyrics.
+            Audio-mode only — the Web Audio graph it builds taps the <video>
+            element, which in audio mode never plays video (PlayerProvider
+            remounts by kind), so it can't introduce A/V lag on films. */}
+        {!minimized && audioMode && (
+          <MusicPanel
+            videoRef={videoRef}
+            info={info}
+            selectedFile={selectedFile}
+            currentTime={currentTime}
+            duration={duration}
+            isTranscoded={isTranscoded}
+          />
+        )}
+
         {/* Everything below the video (transport, status, subtitle panel)
             is hidden in minimized mode — the native <video> controls cover
             play/pause/seek in the compact card. The <video> element itself
@@ -1475,7 +1513,21 @@ export default function PlayerModal({
         )}
         </div>{/* end main column */}
 
-        {!minimized && info.files.length > 1 && sidebarOpen && (
+        {/* Playlist mode: the sidebar AGGREGATES every item's files (a playlist
+            is a collection of torrents/local files), not just the current
+            torrent's. Single playback keeps the rich FilePickerSidebar. */}
+        {!minimized && sidebarOpen && aggregateMode && (
+          <PlaylistTracksSidebar
+            items={playlist.items}
+            currentItemIndex={playlist.currentIndex}
+            currentInfo={info}
+            selectedFile={selectedFile}
+            playFile={playFile}
+            onJump={(ii, fi) => onPlaylistJump?.(ii, fi)}
+            onClose={() => setSidebarOpen(false)}
+          />
+        )}
+        {!minimized && info.files.length > 1 && sidebarOpen && !aggregateMode && (
           <FilePickerSidebar
             info={info}
             videoFiles={videoFiles}
@@ -1502,7 +1554,7 @@ export default function PlayerModal({
             • mobile: horizontal bar below the video. Without this, iOS
               users who tap "Esconder lista" had no way to bring it back —
               the list literally vanished. (See issue #50.) */}
-        {info.files.length > 1 && !sidebarOpen && (
+        {(aggregateMode || info.files.length > 1) && !sidebarOpen && (
           <>
             {/* Mobile (and tablet up to lg): full-width bar */}
             <button
@@ -1511,7 +1563,7 @@ export default function PlayerModal({
               className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary text-xs flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4 rotate-90" />
-              Mostrar lista de arquivos ({info.files.length})
+              Mostrar lista de arquivos ({aggregateMode ? playlist.items.length : info.files.length})
             </button>
             {/* lg+: vertical strip on the right edge */}
             <button
@@ -1521,7 +1573,7 @@ export default function PlayerModal({
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
-                Arquivos ({info.files.length})
+                Arquivos ({aggregateMode ? playlist.items.length : info.files.length})
               </span>
             </button>
           </>
@@ -1566,7 +1618,10 @@ export default function PlayerModal({
           handleClassifyCategory,
           classifyingCat,
         })}
-        {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
+        {/* Top playlist bar is hidden in audio mode: the AudioTransportBar below
+            already carries prev/next/shuffle/repeat + position, so showing both
+            duplicated the controls above AND below the play button. */}
+        {playlist && !audioMode && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent

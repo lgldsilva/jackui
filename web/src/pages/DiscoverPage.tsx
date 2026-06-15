@@ -6,6 +6,17 @@ import TrailerModal from '../components/TrailerModal'
 import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendation, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
 import { groupRecommendations, removeRec, RecGroup } from '../lib/recsGroup'
 import { usePersistedState } from '../lib/storage'
+import { newTabProps, searchHref } from '../lib/cardNav'
+import { useMediaMode } from '../lib/mediaMode'
+import { MusicDiscoverView } from '../components/MusicDiscoverView'
+
+// searchQuery builds the seed string a poster click uses (and the href a new tab
+// opens). Torrent releases are named by the ORIGINAL title, not the pt-BR one —
+// prefer original_title, falling back to the localized title, with the year.
+function searchQuery(m: TmdbMatch): string {
+  const name = m.originalTitle?.trim() || m.title
+  return m.year ? `${name} ${m.year}` : name
+}
 
 // DiscoverPage surfaces TMDB's weekly trending movies + shows so the user has a
 // starting point when they don't know what to search. Clicking a poster seeds a
@@ -56,7 +67,7 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
   return (
     <div className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-surface-secondary border border-default hover:border-green-500/50 transition-colors">
       <button
-        onClick={onClick}
+        {...newTabProps(searchHref(searchQuery(m)), onClick)}
         title={`Buscar "${m.title}"`}
         aria-label={`Buscar "${m.title}"`}
         className="absolute inset-0 z-[1]"
@@ -183,6 +194,7 @@ export default function DiscoverPage() {
   // Collapsed topic keys, persisted as an array (usePersistedState JSON-serializes,
   // so a Set wouldn't survive). Derived into a Set for O(1) lookups in render.
   const [collapsedKeys, setCollapsedKeys] = usePersistedState<string[]>('discover.collapsed', [])
+  const [mediaMode] = useMediaMode()
   const navigate = useNavigate()
 
   // Group recommendations by their "Porque você viu X" source into collapsible
@@ -229,17 +241,17 @@ export default function DiscoverPage() {
   }, [year, genre])
 
   const openSearch = (m: TmdbMatch) => {
-    // Torrent releases are named by the ORIGINAL title, not the pt-BR one — seed
-    // the search with original_title, falling back to the localized title.
-    const name = m.originalTitle?.trim() || m.title
-    const q = m.year ? `${name} ${m.year}` : name
-    navigate(`/?q=${encodeURIComponent(q)}`)
+    navigate(searchHref(searchQuery(m)))
   }
 
   const q = query.trim().toLowerCase()
   const shown = (items || []).filter(
     m => (filter === 'all' || m.kind === filter) && (!q || m.title.toLowerCase().includes(q)),
   )
+
+  // Modo Música: troca o Discover de filmes (TMDB) pela grade de álbuns em alta
+  // (Apple RSS). Early-return DEPOIS de todos os hooks acima (ordem estável).
+  if (mediaMode === 'audio') return <MusicDiscoverView />
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">

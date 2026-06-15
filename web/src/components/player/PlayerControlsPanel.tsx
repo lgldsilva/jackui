@@ -7,6 +7,7 @@ import { formatSize, subtitleButtonTitle, subtitleBtnClass, serverDownloadIcon, 
 import { MediaNavButtons } from './PlayerOverlays'
 import { EmbeddedTracksPanel } from './EmbeddedTracksPanel'
 import { ChaptersPanel, ChapterNavButtons } from './ChaptersPanel'
+import { SubtitleResultsList } from './SubtitleResultsList'
 
 type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
@@ -450,34 +451,7 @@ export function PlayerControlsPanel({
               <p className="text-xs text-text-muted py-2">Nenhuma legenda encontrada</p>
             )}
             {subResults.length > 0 && (
-              <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
-                {subResults.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => pickSubtitle(s)}
-                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs text-left transition-colors ${
-                      subActive === s.id
-                        ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                        : 'bg-surface/50 hover:bg-surface text-text-primary border border-transparent'
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono uppercase text-[10px] bg-surface-tertiary px-1.5 py-0.5 rounded">
-                          {s.language}
-                        </span>
-                        <span className="truncate">{s.release || '(sem release name)'}</span>
-                        {s.trusted && <span className="text-green-400 text-[10px]">✓ trusted</span>}
-                        {s.hearingImpaired && <span className="text-yellow-400 text-[10px]">[HI]</span>}
-                      </div>
-                      <div className="text-[10px] text-text-muted mt-0.5">
-                        {s.uploaderName} • {s.downloads.toLocaleString()} downloads
-                      </div>
-                    </div>
-                    {subActive === s.id && <Check className="w-4 h-4 flex-shrink-0" />}
-                  </button>
-                ))}
-              </div>
+              <SubtitleResultsList subResults={subResults} subActive={subActive} pickSubtitle={pickSubtitle} />
             )}
             {subActive && (
               <button

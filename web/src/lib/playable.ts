@@ -23,19 +23,20 @@ const NEVER_PLAY_TAGS = /\b(ebook|audiobook[. ]?pdf|programs?|software|game[. ]?
  * Heuristic kind detection: best guess at whether this torrent is audio
  * (music album, audiobook, podcast) or video (movie, series, TV).
  *
- * Used by PlayerProvider to choose between AudioBar (persistent bottom bar
- * for music UX) and PlayerModal (full-screen video). When uncertain returns
- * 'video' — the safer default since PlayerModal's <video> element can play
- * audio files too, while AudioBar can't render video.
+ * Used by PlayerProvider to choose between the audio UI (cover + EQ) and the
+ * full-screen video player. `fallback` is the user's Cinema/Música preference
+ * (NavHeader): it ONLY decides the uncertain case — a title with a clear video
+ * or audio signal always follows the content. Defaults to 'video' (the prior
+ * behaviour) so callers that don't pass it are unaffected.
  */
-export function detectKind(title: string, categoryId = 0): 'audio' | 'video' {
+export function detectKind(title: string, categoryId = 0, fallback: 'audio' | 'video' = 'video'): 'audio' | 'video' {
   if (AUDIO_EXT_RE.test(title)) return 'audio'
   if (VIDEO_EXT_RE.test(title)) return 'video'
   if (AUDIO_CATEGORIES.has(categoryId)) return 'audio'
   if (VIDEO_CATEGORIES.has(categoryId)) return 'video'
   if (AUDIO_HINT_RE.test(title)) return 'audio'
   if (VIDEO_HINT_RE.test(title)) return 'video'
-  return 'video'
+  return fallback
 }
 
 /**
@@ -48,6 +49,18 @@ export function fileKind(path: string, isVideo?: boolean): 'audio' | 'video' | '
   if (isVideo || VIDEO_EXT_RE.test(path)) return 'video'
   if (AUDIO_EXT_RE.test(path)) return 'audio'
   return 'other'
+}
+
+/**
+ * Is this result audio (music/audiobook)? Prefers the backend-resolved mediaKind
+ * (parser.DetectKind), falling back to the title/category heuristic. Used by the
+ * music-mode search filter — 'other'/unknown falls back to the heuristic, which
+ * defaults to video, so the "mostrar tudo" escape exists for ambiguous releases.
+ */
+export function isAudioResult(r: SearchResult): boolean {
+  if (r.mediaKind === 'audio') return true
+  if (r.mediaKind === 'video') return false
+  return detectKind(r.title, r.categoryId) === 'audio'
 }
 
 /**
@@ -86,7 +99,12 @@ export function isPlayable(result: SearchResult): boolean {
  * library entry name. Centralising the placeholder construction keeps the
  * PlayerProvider effect concise and ensures everyone uses the same defaults.
  */
-export function syntheticResult(hash: string, title: string, magnet: string): SearchResult {
+export function syntheticResult(
+  hash: string,
+  title: string,
+  magnet: string,
+  mediaKind?: 'audio' | 'video' | 'other',
+): SearchResult {
   return {
     title: title || hash,
     tracker: '',
@@ -100,6 +118,10 @@ export function syntheticResult(hash: string, title: string, magnet: string): Se
     link: '',
     infoHash: hash,
     publishDate: '',
+    // Authoritative kind when known (e.g. from the library entry on a deep-link
+    // refresh) — lets currentKind pick audio UI without relying on the title
+    // heuristic, which failed for audio playlists opened via ?play= on reload.
+    mediaKind,
   }
 }
 // build marker 1779766535

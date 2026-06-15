@@ -13,6 +13,10 @@
     "incognito": "Incognito",
     "incognito_title_active": "Incognito mode ACTIVE — click to exit",
     "incognito_title_inactive": "Enable incognito mode (does not save history or library)",
+    "media_mode_cinema": "Cinema mode",
+    "media_mode_music": "Music mode",
+    "media_mode_cinema_title": "Cinema mode: ambiguous titles open as video — click for Music",
+    "media_mode_music_title": "Music mode: ambiguous titles open as audio (cover + EQ) — click for Cinema",
     "home": "Home",
     "expand_menu": "Expand menu",
     "collapse_menu": "Collapse menu",
@@ -25,6 +29,11 @@
     "account_tab": "Account",
     "ia_tab": "AI",
     "stats": "Statistics"
+  },
+  "discover": {
+    "music_trending": "Trending albums",
+    "music_empty": "Couldn't load trending albums right now.",
+    "search_album": "Search \"{{name}}\""
   },
   "search": {
     "placeholder": "Search torrents... (press / to focus)",
@@ -39,6 +48,9 @@
     "name": "Name",
     "date": "Date",
     "playable": "Playable",
+    "music_only": "Music only",
+    "music_show_all": "Show all",
+    "music_only_hint": "Music mode: search shows audio only. Click to show all results.",
     "resolution": "Resolution",
     "codec": "Codec",
     "hdr": "HDR",
@@ -235,6 +247,43 @@
   "player": {
     "view_list": "List view",
     "view_tree": "Folder tree",
+    "audioTools": "Equalizer & Lyrics",
+    "eqUnavailable": "This track is being transcoded (HLS), and Safari/iOS don't expose HLS audio to the equalizer/visualizer. It plays with guaranteed sound; MP3/AAC/FLAC tracks show the equalizer and visualizer.",
+    "playAll": "Play all",
+    "tracks": {
+      "title": "Playlist tracks",
+      "count": "{{count}} tracks",
+      "loading": "Loading…",
+      "error": "Failed to load",
+      "playing": "playing",
+      "empty": "No playable files",
+      "hide": "Hide track list"
+    },
+    "eq": {
+      "title": "Equalizer",
+      "reset": "Reset",
+      "bandLabel": "{{freq}} band gain",
+      "valueText": "{{db}} dB",
+      "presets": "Presets",
+      "preset": {
+        "flat": "Flat",
+        "rock": "Rock",
+        "pop": "Pop",
+        "jazz": "Jazz",
+        "bass": "Bass",
+        "treble": "Treble",
+        "vocal": "Vocal"
+      }
+    },
+    "lyrics": {
+      "title": "Lyrics",
+      "loading": "Fetching lyrics…",
+      "none": "No lyrics available"
+    },
+    "subtitles": {
+      "filter": "Filter subtitles…",
+      "noMatch": "No subtitle matches the filter"
+    },
     "external": {
       "open_in": "Open in",
       "choose": "Choose an external player",

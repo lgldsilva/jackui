@@ -18,7 +18,7 @@ export default function PullToRefreshIndicator({ pull, progress, refreshing }: P
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 flex justify-center pointer-events-none z-40 transition-transform"
+      className="fixed top-0 left-0 right-0 flex justify-center pointer-events-none z-40 transition-transform safe-top"
       style={{
         transform: `translateY(${Math.min(visible, 100) - 40}px)`,
         opacity: refreshing ? 1 : Math.min(1, progress * 1.5),
