@@ -17,10 +17,12 @@ import {
 import { formatBytes } from '../lib/format'
 import { autoFilterSummary } from '../lib/watchlist'
 import { usePlayer } from '../components/PlayerProvider'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 
 export default function WatchlistPage() {
   const [lists, setLists] = useState<Watchlist[]>([])
   const [loading, setLoading] = useState(true)
+  useScrollRestoration(!loading)
   const [creating, setCreating] = useState(false)
   const [editingID, setEditingID] = useState<number | null>(null)
   const [hitsFor, setHitsFor] = useState<number | null>(null)

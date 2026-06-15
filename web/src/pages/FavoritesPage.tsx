@@ -13,6 +13,7 @@ import Thumbnail from '../components/Thumbnail'
 import SeedBadge from '../components/SeedBadge'
 import FavoritesSortControl from '../components/FavoritesSortControl'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useAuth } from '../auth/AuthContext'
@@ -224,6 +225,7 @@ export default function FavoritesPage() {
   const [favs, setFavs] = useState<StreamFavorite[]>([])
   const [folders, setFolders] = useState<FavoriteFolder[]>([])
   const [loading, setLoading] = useState(true)
+  useScrollRestoration(!loading)
   const [error, setError] = useState('')
   // The hidden curtain is now GLOBAL: the easter egg lives on the header logo
   // (7 taps) and reveals hidden folders/favourites here as well as Continue

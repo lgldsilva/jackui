@@ -10,6 +10,7 @@ import DownloadModal from '../components/DownloadModal'
 import { usePlayer } from '../components/PlayerProvider'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
@@ -241,6 +242,9 @@ export default function SearchPage() {
   const initial = hydrateTabs()
   const [tabs, setTabs] = useState<TabState[]>(initial.tabs)
   const [activeId, setActiveId] = useState(initial.activeId)
+  // Restaura o scroll da aba ativa quando ela já tem resultados (best-effort: em
+  // re-busca os resultados chegam por SSE, então pode restaurar parcialmente).
+  useScrollRestoration((tabs.find(t => t.id === activeId)?.results.length ?? 0) > 0)
   const [indexers, setIndexers] = useState<Indexer[]>([])
   const [discoveredIndexers, setDiscoveredIndexers] = useState<Indexer[]>([])
 

@@ -13,6 +13,7 @@ import { useIsMobile } from '../lib/useMediaQuery'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { newTabProps, playHref } from '../lib/cardNav'
 
 type Filter = 'recent' | 'unfinished' | 'finished'
@@ -20,6 +21,7 @@ type Filter = 'recent' | 'unfinished' | 'finished'
 export default function LibraryPage() {
   const [entries, setEntries] = useState<LibraryEntry[]>([])
   const [loading, setLoading] = useState(true)
+  useScrollRestoration(!loading)
   const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
