@@ -26,17 +26,39 @@ type Props = {
   // Increment to force a swarm re-probe from a parent (e.g. "atualizar seeds"
   // by folder). Same effect as a user click; ignored while already probing.
   readonly refreshSignal?: number
+  // When true, automatically scrape (real tracker numbers) on first view if no
+  // snapshot is cached yet — used on search cards so the count isn't just the
+  // indexer's. Off elsewhere to keep scrolling cheap.
+  readonly autoProbe?: boolean
 }
 
-export default function SeedBadge({ infoHash, magnet, className = '', refreshSignal }: Props) {
+export default function SeedBadge({ infoHash, magnet, className = '', refreshSignal, autoProbe = false }: Props) {
   const ref = useRef<HTMLButtonElement>(null)
   const [health, setHealth] = useState<StreamHealth | null>(null)
   const [probing, setProbing] = useState(false)
   const fetchedRef = useRef(false)
   const probingRef = useRef(false)
 
-  // On view: PEEK only (persisted/live — never touches the swarm). The probe is
-  // strictly on click (verify()), so scrolling a list costs nothing on the swarm.
+  // Explicit swarm scrape. Triggered by a user click, a parent's refreshSignal,
+  // or autoProbe-on-view. probingRef guards overlap. Stable across renders so the
+  // effects below can depend on it.
+  const runProbe = useCallback(async () => {
+    if (!infoHash || probingRef.current) return
+    probingRef.current = true
+    setProbing(true)
+    const h = await streamHealth(infoHash, magnet, true)
+    setHealth(h)
+    if (h.refreshing) {
+      setTimeout(async () => { setHealth(await streamHealth(infoHash, magnet, false)); probingRef.current = false; setProbing(false) }, 9000)
+    } else {
+      probingRef.current = false
+      setProbing(false)
+    }
+  }, [infoHash, magnet])
+
+  // On view: PEEK (persisted/live — cheap). With autoProbe, if nothing is cached
+  // yet, kick a real scrape so search cards show the tracker's number, not the
+  // indexer's. Already-cached cards just show the cache (no scrape on scroll).
   useEffect(() => {
     if (!infoHash) return
     const el = ref.current
@@ -44,7 +66,9 @@ export default function SeedBadge({ infoHash, magnet, className = '', refreshSig
     let cancelled = false
     const peek = async () => {
       const h = await streamHealth(infoHash, magnet, false)
-      if (!cancelled) setHealth(h)
+      if (cancelled) return
+      setHealth(h)
+      if (autoProbe && !h.known) void runProbe()
     }
     if (typeof IntersectionObserver === 'undefined') {
       if (!fetchedRef.current) { fetchedRef.current = true; peek() }
@@ -60,24 +84,7 @@ export default function SeedBadge({ infoHash, magnet, className = '', refreshSig
     }, { rootMargin: '120px' })
     obs.observe(el)
     return () => { cancelled = true; obs.disconnect() }
-  }, [infoHash, magnet])
-
-  // Explicit swarm probe (adds the torrent briefly to count peers). Triggered by
-  // a user click or a parent's refreshSignal. probingRef guards against the two
-  // overlapping. Stable across renders so the refreshSignal effect can depend on it.
-  const runProbe = useCallback(async () => {
-    if (!infoHash || probingRef.current) return
-    probingRef.current = true
-    setProbing(true)
-    const h = await streamHealth(infoHash, magnet, true)
-    setHealth(h)
-    if (h.refreshing) {
-      setTimeout(async () => { setHealth(await streamHealth(infoHash, magnet, false)); probingRef.current = false; setProbing(false) }, 9000)
-    } else {
-      probingRef.current = false
-      setProbing(false)
-    }
-  }, [infoHash, magnet])
+  }, [infoHash, magnet, autoProbe, runProbe])
 
   // Batch refresh from a parent: re-probe when the signal changes (skips the
   // initial undefined/0 so it never probes on mount).
