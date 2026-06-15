@@ -3,7 +3,8 @@ import { Loader2, Play } from 'lucide-react'
 import type { AISlotScore } from '../../api/client'
 import SortableTh from '../SortableTh'
 import { useTableSort } from '../../lib/useTableSort'
-import { BENCH_DESC_FIRST, formatCost, needsRerun, sortScores, type BenchSortKey } from './benchSort'
+import { BENCH_DESC_FIRST, formatCost, sortScores, type BenchSortKey } from './benchSort'
+import BenchStatusCell from './BenchStatusCell'
 
 function scoreCells(s: AISlotScore) {
   return {
@@ -70,10 +71,8 @@ function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums text-text-secondary">{cost}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums font-medium text-green-400">{comp}</td>
-      <td className="py-1.5 text-text-muted text-xs truncate max-w-[10rem]" title={s.failureReason}>
-        {needsRerun(s) && <span className="text-amber-400">faltante</span>}
-        {needsRerun(s) && s.failureReason ? ' · ' : ''}
-        {s.failureReason || ''}
+      <td className="py-1.5 align-top max-w-[14rem]">
+        <BenchStatusCell s={s} />
       </td>
     </tr>
   )
@@ -121,12 +120,7 @@ function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProp
           <div className="tabular-nums font-medium text-green-400">{comp}</div>
         </div>
       </div>
-      {needsRerun(s) && (
-        <div className="text-amber-400 text-xs">faltante — rode os faltantes</div>
-      )}
-      {s.failureReason && (
-        <div className="text-text-muted text-xs break-words">Falha: {s.failureReason}</div>
-      )}
+      <BenchStatusCell s={s} />
     </div>
   )
 }
@@ -159,7 +153,7 @@ export default function BenchResultsTable({ results, onRunSingle, busy, runningS
               <SortableTh label="Latência" columnKey="latency" sort={sort} align="right" />
               <SortableTh label="Custo" columnKey="cost" sort={sort} align="right" />
               <SortableTh label="Score" columnKey="score" sort={sort} align="right" />
-              <SortableTh label="Falha" columnKey="failure" sort={sort} className="py-1" />
+              <SortableTh label="Status" columnKey="failure" sort={sort} className="py-1" />
             </tr>
           </thead>
           <tbody>{sorted.map(s => scoreRow(s, rowProps))}</tbody>

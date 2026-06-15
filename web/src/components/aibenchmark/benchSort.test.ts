@@ -64,11 +64,13 @@ describe('sortScores por coluna', () => {
       .toEqual(['gpt-paid', 'llama-free', 'cheap', 'limited', 'broken-local'])
   })
 
-  it('failure: vazia afunda nas DUAS direções', () => {
-    expect(models(sortScores(all, 'failure', 'asc')))
-      .toEqual(['broken-local', 'limited', 'gpt-paid', 'llama-free', 'cheap'])
-    expect(models(sortScores(all, 'failure', 'desc')))
-      .toEqual(['limited', 'broken-local', 'gpt-paid', 'llama-free', 'cheap'])
+  it('failure (coluna "Status"): ordena por severidade error→incomplete→ok', () => {
+    const ok = mk({ model: 'ok-model', lastOutcome: 'ok', composite: 0.9 })
+    const inc = mk({ model: 'inc-model', lastOutcome: 'incomplete', composite: 0.5 })
+    const err = mk({ model: 'err-model', lastOutcome: 'error', failureReason: 'boom', samples: 0, composite: 0 })
+    const rows = [ok, inc, err]
+    expect(models(sortScores(rows, 'failure', 'asc'))).toEqual(['err-model', 'inc-model', 'ok-model'])
+    expect(models(sortScores(rows, 'failure', 'desc'))).toEqual(['ok-model', 'inc-model', 'err-model'])
   })
 })
 

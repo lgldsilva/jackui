@@ -80,6 +80,43 @@ type SlotScore struct {
 	// rate-limit window. A model fully tested (even if some cases failed hard) is
 	// NOT incomplete.
 	Incomplete bool `json:"incomplete,omitempty"`
+	// History fields are OUTPUT-ONLY: they're populated by BenchmarkStore.Results
+	// from the durable benchmark_history table (NOT by a live RunSlots measurement,
+	// which has no past to look at). They answer "did this run succeed or error,
+	// did the error persist, and when did it last succeed" without re-running.
+	// Empty/zero on a fresh measurement and on legacy rows with no recorded history.
+	LastOutcome         string `json:"lastOutcome,omitempty"`         // "ok" | "incomplete" | "error" of the last actual run
+	LastError           string `json:"lastError,omitempty"`           // failure reason of the last failing run; "" once it succeeds again. Durable (survives the SaveResults re-baseline that wipes FailureReason)
+	LastSuccessAt       string `json:"lastSuccessAt,omitempty"`       // RFC3339 of the last "ok" run; "" = never succeeded
+	LastRunAt           string `json:"lastRunAt,omitempty"`           // RFC3339 of the last run (any outcome)
+	FirstFailureAt      string `json:"firstFailureAt,omitempty"`      // RFC3339 the current error streak began; "" = not failing
+	ConsecutiveFailures int    `json:"consecutiveFailures,omitempty"` // # of consecutive "error" runs (resets on a usable run)
+}
+
+// Run outcome labels. A run is OK when it produced a complete, usable measurement;
+// INCOMPLETE when transiently cut short (rate limit) — the "faltante" state; ERROR
+// when it yielded no usable reply at all (hard failure). These drive the durable
+// per-slot history so the UI can show success/error status, error persistence, and
+// the date of the last success.
+const (
+	OutcomeOK         = "ok"
+	OutcomeIncomplete = "incomplete"
+	OutcomeError      = "error"
+)
+
+// RunOutcome classifies a freshly-measured score into ok/incomplete/error. Order
+// matters: a partially-measured run is "incomplete" (the re-runnable faltante state)
+// even if it gathered some samples; only a run with zero usable replies and no
+// transient cut is a hard "error".
+func RunOutcome(s SlotScore) string {
+	switch {
+	case s.Incomplete:
+		return OutcomeIncomplete
+	case s.Samples > 0:
+		return OutcomeOK
+	default:
+		return OutcomeError
+	}
 }
 
 // compositeScore ranks a model by VALUE: quality ÷ (√latency × cost factor). The
@@ -932,7 +969,11 @@ func NeedsRerun(s SlotScore) bool {
 	return s.Incomplete || strings.Contains(strings.ToLower(s.FailureReason), "rate limit")
 }
 
-func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []BenchmarkCase) []SlotScore {
+// RerunIncomplete returns (merged, fresh): merged is prev with the re-run scores
+// folded in (sorted best-first); fresh is ONLY the slots actually re-measured this
+// call. The caller records history for `fresh` alone — recording the carried-over
+// slots would spuriously bump their failure streak for a run that never happened.
+func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []BenchmarkCase) (merged, fresh []SlotScore) {
 	if len(cases) == 0 {
 		cases = AllDefaultBenchmarkCases()
 	}
@@ -946,28 +987,28 @@ func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []
 	}
 	slots = c.AffordableSlots(slots)
 	if len(slots) == 0 {
-		return prev
+		return prev, nil
 	}
-	fresh := c.RunSlots(ctx, slots, cases)
+	fresh = c.RunSlots(ctx, slots, cases)
 
-	merged := make(map[string]SlotScore, len(prev))
+	byID := make(map[string]SlotScore, len(prev))
 	order := make([]string, 0, len(prev))
 	for _, s := range prev {
-		merged[s.SlotID] = s
+		byID[s.SlotID] = s
 		order = append(order, s.SlotID)
 	}
 	for _, s := range fresh {
-		if _, seen := merged[s.SlotID]; !seen {
+		if _, seen := byID[s.SlotID]; !seen {
 			order = append(order, s.SlotID)
 		}
-		merged[s.SlotID] = s // fresh score wins
+		byID[s.SlotID] = s // fresh score wins
 	}
-	out := make([]SlotScore, 0, len(merged))
+	out := make([]SlotScore, 0, len(byID))
 	for _, id := range order {
-		out = append(out, merged[id])
+		out = append(out, byID[id])
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Composite > out[j].Composite })
-	return out
+	return out, fresh
 }
 
 func (c *Client) AdoptBenchmark(scores []SlotScore) {
