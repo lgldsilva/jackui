@@ -5,6 +5,7 @@ import {
   buildDualGraph, type DualGraph, type WebAudioGraph,
 } from './useWebAudioGraph'
 import { crossfadeDue } from './audioEngineLogic'
+import { clientLog } from '../../lib/diag'
 import type { TransitionMode } from './transition'
 
 // useAudioEngine: gapless/crossfade entre faixas DIRECT-PLAY (álbum do mesmo
@@ -94,7 +95,8 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
       try {
         graphRef.current = buildDualGraph(ctx, getOrCreateSource(ctx, a), getOrCreateSource(ctx, b), gainsRef.current)
         setReady(true)
-      } catch { return false }
+        clientLog('info', 'audioengine', 'graph built (dual)')
+      } catch (e) { clientLog('warn', 'audioengine', 'graph build failed', { err: String(e) }); return false }
       return true
     }
     if (build()) return
@@ -128,6 +130,7 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
     if (!active) return
     activeElRef.current = active
     if (active.src !== currentSrc) { active.src = currentSrc; active.load() }
+    clientLog('info', 'audioengine', 'engine track', { mode, hasNext: !!nextSrc })
     setGains(graphRef.current, 1)
     // Cancela qualquer crossfade pendente (ex.: salto manual de faixa no meio da
     // rampa) — sem isso o setTimeout antigo dispararia um swap/advance espúrio.
@@ -189,12 +192,24 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
       optsRef.current.onAdvance()
     }
 
+    // DIAGNÓSTICO (temporário): loga 1× por faixa quando entra na janela de
+    // crossfade, com o estado que decide se dispara — pra achar por que não cruza.
+    let loggedDue = false
     const onTime = () => {
       const o = optsRef.current
       const g = graphRef.current
+      const due = crossfadeDue(active.currentTime, active.duration, o.crossfadeSec)
+      if (due && !loggedDue) {
+        loggedDue = true
+        clientLog('info', 'audioengine', 'crossfade window', {
+          mode: o.mode, hasNext: !!o.nextSrc, graphReady: !!g,
+          idleReady: idle.readyState, dur: active.duration, fading: fadingRef.current,
+        })
+      }
       if (fadingRef.current || o.mode !== 'crossfade' || !o.nextSrc || !g) return
       if (idle.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) return
-      if (!crossfadeDue(active.currentTime, active.duration, o.crossfadeSec)) return
+      if (!due) return
+      clientLog('info', 'audioengine', 'crossfade firing', { sec: o.crossfadeSec, dur: active.duration })
       // Janela de crossfade: rampa sample-accurate nos dois ganhos.
       fadingRef.current = true
       const now = ctx.currentTime
