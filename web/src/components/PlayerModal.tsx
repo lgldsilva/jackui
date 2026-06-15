@@ -1496,6 +1496,7 @@ export default function PlayerModal({
             onNext={handleNext}
             hasPrev={hasPrev}
             hasNext={hasNext}
+            pausedOverride={engineOn ? engine.paused : undefined}
             compact
           />
         )}
@@ -1519,6 +1520,7 @@ export default function PlayerModal({
             queueLabel={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
             shuffle={shuffle}
             repeat={repeat}
+            pausedOverride={engineOn ? engine.paused : undefined}
             onToggleShuffle={onToggleShuffle}
             onCycleRepeat={onCycleRepeat}
           />
