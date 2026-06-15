@@ -198,7 +198,10 @@ export function VideoPlayerElement({
           onRestart={onResumeRestart}
         />
       )}
-      {!videoError && currentTime === 0 && bufferedEnd === 0 && (
+      {/* No modo-motor o <video> está mudo/sem-src (bufferedEnd fica sempre 0) e o
+          motor é quem toca — então NÃO mostra o overlay de "carregando" (senão ele
+          piscaria a cada faixa, o "refresh" indevido). */}
+      {!videoError && !engineActive && currentTime === 0 && bufferedEnd === 0 && (
         <PlayerLoadingOverlay
           serverReady={serverReady}
           resumePosition={resumePosition}
