@@ -1098,7 +1098,7 @@ export default function PlayerModal({
         v.muted = true
         v.play()
           .then(() => clientLog('info', 'player', 'autoplay ok (mudo)', {}))
-          .catch((e2) => clientLog('error', 'player', 'autoplay falhou (nem mudo)', { err: String(e2) }))
+          .catch((error_) => clientLog('error', 'player', 'autoplay falhou (nem mudo)', { err: String(error_) }))
       })
   }
   const handleVideoCanPlay = () => {
