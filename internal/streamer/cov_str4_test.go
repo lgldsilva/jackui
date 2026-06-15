@@ -82,6 +82,47 @@ func Test_str4_MetadataCache_SetThenGet(t *testing.T) {
 	}
 }
 
+// GetSortMeta: nil receiver e lista vazia retornam mapa vazio (sem panic).
+func Test_str4_MetadataCache_GetSortMeta_Empty(t *testing.T) {
+	var nilCache *MetadataCache
+	if got := nilCache.GetSortMeta([]string{"x"}); len(got) != 0 {
+		t.Fatalf("nil cache: esperado mapa vazio, got %+v", got)
+	}
+	c := str4NewCache(t)
+	if got := c.GetSortMeta(nil); len(got) != 0 {
+		t.Fatalf("hashes vazios: esperado mapa vazio, got %+v", got)
+	}
+}
+
+// GetSortMeta: traz total_size + health_seeders só dos hashes presentes; hash
+// nunca probado mantém seeders=-1 (default) e ausentes ficam fora do mapa.
+func Test_str4_MetadataCache_GetSortMeta_Batch(t *testing.T) {
+	c := str4NewCache(t)
+	if err := c.Set(&TorrentInfo{InfoHash: "str4sortA", Name: "A", TotalSize: 100, PrimaryFile: -1}); err != nil {
+		t.Fatalf("Set A: %v", err)
+	}
+	if err := c.SetHealth("str4sortA", 7, 3); err != nil {
+		t.Fatalf("SetHealth A: %v", err)
+	}
+	// B: metadata only, never probed → seeders permanece -1 (default da coluna).
+	if err := c.Set(&TorrentInfo{InfoHash: "str4sortB", Name: "B", TotalSize: 50, PrimaryFile: -1}); err != nil {
+		t.Fatalf("Set B: %v", err)
+	}
+	got := c.GetSortMeta([]string{"str4sortA", "str4sortB", "str4sortMissing"})
+	if len(got) != 2 {
+		t.Fatalf("esperado 2 entradas, got %d (%+v)", len(got), got)
+	}
+	if got["str4sortA"].TotalSize != 100 || got["str4sortA"].Seeders != 7 {
+		t.Fatalf("A: %+v", got["str4sortA"])
+	}
+	if got["str4sortB"].TotalSize != 50 || got["str4sortB"].Seeders != -1 {
+		t.Fatalf("B (never probed): %+v", got["str4sortB"])
+	}
+	if _, ok := got["str4sortMissing"]; ok {
+		t.Fatalf("hash ausente não deveria estar no mapa")
+	}
+}
+
 // GetHealth: row existe (via SetArt) mas health_checked_at nunca foi gravado →
 // nil (ramo "row exists but health never probed").
 func Test_str4_MetadataCache_GetHealth_NeverProbed(t *testing.T) {

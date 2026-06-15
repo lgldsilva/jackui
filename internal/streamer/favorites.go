@@ -27,6 +27,10 @@ type Favorite struct {
 	FavoritedAt time.Time `json:"favoritedAt"`
 	Reason      string    `json:"reason"`   // "manual" | "auto-5min"
 	FolderID    *int      `json:"folderId"` // nil = root level; otherwise nested in a FavoriteFolder
+	// Sort hints filled by the handler from the metadata cache (a separate DB, so
+	// no JOIN here). Zero/nil = unknown (never resolved/probed) — sorts last.
+	TotalSize int64 `json:"totalSize,omitempty"` // bytes; 0 = unknown
+	Seeders   *int  `json:"seeders,omitempty"`   // nil = never probed
 }
 
 // FavoriteFolder represents an organizational folder in the user's favorites tree.
