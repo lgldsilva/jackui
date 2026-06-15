@@ -32,49 +32,82 @@ const (
 	scrapeMaxTrackers = 8
 )
 
-// scrapeSwarm asks the trackers for the swarm size and returns the MAX
-// complete/incomplete seen. The same swarm is announced to every tracker, so the
-// max approximates the true count (summing would double-count shared peers).
-// ok is false when no tracker answered (caller falls back to a live probe).
-func scrapeSwarm(ctx context.Context, hash metainfo.Hash, trackers []string) (seeders, leechers int, ok bool) {
+// TrackerScrape is one tracker's reported swarm size. Tracker is the masked
+// display name (host only — never the passkey-bearing URL). OK is false when the
+// tracker didn't answer or doesn't know the torrent.
+type TrackerScrape struct {
+	Tracker  string `json:"tracker"`
+	Seeders  int    `json:"seeders"`
+	Leechers int    `json:"leechers"`
+	OK       bool   `json:"ok"`
+}
+
+// scrapeSwarmPerTracker scrapes each tracker and returns one row per tracker
+// (preserving order), so the UI can show who reports what. Trackers are masked to
+// their host so a private passkey never reaches the client.
+func scrapeSwarmPerTracker(ctx context.Context, hash metainfo.Hash, trackers []string) []TrackerScrape {
 	uniq := dedupeScrapeTrackers(trackers)
 	if len(uniq) > scrapeMaxTrackers {
 		uniq = uniq[:scrapeMaxTrackers]
 	}
 	if len(uniq) == 0 {
-		return 0, 0, false
+		return nil
 	}
 	ih := infohash.T(hash)
 
-	type res struct {
-		seeders, leechers int
-		ok                bool
-	}
-	out := make(chan res, len(uniq))
+	rows := make([]TrackerScrape, len(uniq))
 	var wg sync.WaitGroup
-	for _, tr := range uniq {
+	for i, tr := range uniq {
 		wg.Add(1)
-		go func(trURL string) {
+		go func(idx int, trURL string) {
 			defer wg.Done()
-			s, l, found := scrapeOneTracker(ctx, trURL, ih)
-			out <- res{s, l, found}
-		}(tr)
+			s, l, ok := scrapeOneTracker(ctx, trURL, ih)
+			rows[idx] = TrackerScrape{Tracker: trackerDisplayName(trURL), Seeders: s, Leechers: l, OK: ok}
+		}(i, tr)
 	}
-	go func() { wg.Wait(); close(out) }()
+	wg.Wait()
+	return rows
+}
 
-	for r := range out {
-		if !r.ok {
+// TrackerStats scrapes every known tracker (magnet tr= + the cached .torrent's
+// announce list, which carries a private tracker's passkey) and returns the
+// per-tracker swarm sizes for the info panel. Tracker hosts are masked — the
+// passkey is used to scrape but never returned.
+func (s *Streamer) TrackerStats(ctx context.Context, hash metainfo.Hash, magnet string) []TrackerScrape {
+	trackers := trackersFromMagnet(magnet)
+	trackers = append(trackers, trackersFromMetainfo(s.loadCachedMetainfo(hash))...)
+	return scrapeSwarmPerTracker(ctx, hash, trackers)
+}
+
+// scrapeSwarm asks the trackers for the swarm size and returns the MAX
+// complete/incomplete seen. The same swarm is announced to every tracker, so the
+// max approximates the true count (summing would double-count shared peers).
+// ok is false when no tracker answered (caller falls back to a live probe).
+func scrapeSwarm(ctx context.Context, hash metainfo.Hash, trackers []string) (seeders, leechers int, ok bool) {
+	for _, r := range scrapeSwarmPerTracker(ctx, hash, trackers) {
+		if !r.OK {
 			continue
 		}
 		ok = true
-		if r.seeders > seeders {
-			seeders = r.seeders
+		if r.Seeders > seeders {
+			seeders = r.Seeders
 		}
-		if r.leechers > leechers {
-			leechers = r.leechers
+		if r.Leechers > leechers {
+			leechers = r.Leechers
 		}
 	}
 	return seeders, leechers, ok
+}
+
+// trackerDisplayName masks a tracker URL to "host" (or "host:port"), dropping the
+// path/query that may carry a private tracker's passkey. Falls back to a generic
+// label when the URL can't be parsed.
+func trackerDisplayName(trURL string) string {
+	u, err := url.Parse(trURL)
+	if err != nil || u.Host == "" {
+		return "tracker"
+	}
+	return u.Host
 }
 
 // scrapeHTTPClient is reused across HTTP scrapes; per-call timeout comes from the

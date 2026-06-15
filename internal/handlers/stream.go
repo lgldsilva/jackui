@@ -632,6 +632,27 @@ func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
+// StreamTrackers handles GET /api/stream/trackers/:hash?magnet=... — per-tracker
+// swarm sizes via BEP 48 scrape, for the torrent info panel. Returns each
+// tracker's host (passkeys are never exposed) with its reported seeders/leechers
+// and whether it answered. Synchronous (bounded) — the panel shows a spinner.
+func StreamTrackers(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		h, err := parseHash(c.Param("hash"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+		defer cancel()
+		stats := s.TrackerStats(ctx, h, c.Query("magnet"))
+		if stats == nil {
+			stats = []streamer.TrackerScrape{}
+		}
+		c.JSON(http.StatusOK, stats)
+	}
+}
+
 // StreamCacheStats handles GET /api/stream/cache — disk usage of the streaming cache.
 func StreamCacheStats(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
