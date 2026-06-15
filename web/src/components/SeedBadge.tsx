@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowUp, Loader2 } from 'lucide-react'
 import { streamHealth, StreamHealth } from '../api/client'
 
@@ -23,13 +23,17 @@ type Props = {
   readonly infoHash?: string
   readonly magnet?: string
   readonly className?: string
+  // Increment to force a swarm re-probe from a parent (e.g. "atualizar seeds"
+  // by folder). Same effect as a user click; ignored while already probing.
+  readonly refreshSignal?: number
 }
 
-export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
+export default function SeedBadge({ infoHash, magnet, className = '', refreshSignal }: Props) {
   const ref = useRef<HTMLButtonElement>(null)
   const [health, setHealth] = useState<StreamHealth | null>(null)
   const [probing, setProbing] = useState(false)
   const fetchedRef = useRef(false)
+  const probingRef = useRef(false)
 
   // On view: PEEK only (persisted/live — never touches the swarm). The probe is
   // strictly on click (verify()), so scrolling a list costs nothing on the swarm.
@@ -58,20 +62,34 @@ export default function SeedBadge({ infoHash, magnet, className = '' }: Props) {
     return () => { cancelled = true; obs.disconnect() }
   }, [infoHash, magnet])
 
-  if (!infoHash) return null
-
-  // Explicit, user-triggered swarm probe (adds the torrent briefly to count peers).
-  const verify = async (e?: React.MouseEvent) => {
-    e?.stopPropagation(); e?.preventDefault()
-    if (probing) return
+  // Explicit swarm probe (adds the torrent briefly to count peers). Triggered by
+  // a user click or a parent's refreshSignal. probingRef guards against the two
+  // overlapping. Stable across renders so the refreshSignal effect can depend on it.
+  const runProbe = useCallback(async () => {
+    if (!infoHash || probingRef.current) return
+    probingRef.current = true
     setProbing(true)
     const h = await streamHealth(infoHash, magnet, true)
     setHealth(h)
     if (h.refreshing) {
-      setTimeout(async () => { setHealth(await streamHealth(infoHash, magnet, false)); setProbing(false) }, 9000)
+      setTimeout(async () => { setHealth(await streamHealth(infoHash, magnet, false)); probingRef.current = false; setProbing(false) }, 9000)
     } else {
+      probingRef.current = false
       setProbing(false)
     }
+  }, [infoHash, magnet])
+
+  // Batch refresh from a parent: re-probe when the signal changes (skips the
+  // initial undefined/0 so it never probes on mount).
+  useEffect(() => {
+    if (refreshSignal) void runProbe()
+  }, [refreshSignal, runProbe])
+
+  if (!infoHash) return null
+
+  const verify = (e?: React.MouseEvent) => {
+    e?.stopPropagation(); e?.preventDefault()
+    void runProbe()
   }
 
   const known = !!health?.known
