@@ -5,6 +5,7 @@ import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, st
 import { previewRawURL } from '../api/preview'
 import { detectViewerKind } from './viewer/viewerKind'
 import FilePreviewModal from './FilePreviewModal'
+import TrackerStatsList from './TrackerStatsList'
 import { useConfirm } from './ConfirmDialog'
 import { formatRate } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
@@ -305,6 +306,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               </div>
             )}
           </div>
+
+          {/* Per-tracker real swarm size (BEP 48 scrape) — answers "qual tracker
+              tem os seeds". Loads once when the panel opens. */}
+          <TrackerStatsList infoHash={result.infoHash} magnet={result.magnetUri} />
         </div>
 
         {/* Body — o Sheet já provê o container rolável (flex-1 overflow-y-auto p-4) */}

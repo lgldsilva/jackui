@@ -631,6 +631,34 @@ func TestStreamFavorites_SortMetaEnrichment_Extra(t *testing.T) {
 	}
 }
 
+func TestStreamTrackers_Extra(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	router := gin.New()
+	router.GET("/api/stream/trackers/:hash", StreamTrackers(s))
+
+	// Invalid hash → 400.
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/api/stream/trackers/nothex", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad hash: status = %d, want 400", w.Code)
+	}
+
+	// Valid hash, no magnet / no cached .torrent → 200 with an empty array (never null).
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/api/stream/trackers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
+	}
+	var rows []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &rows); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rows == nil {
+		t.Error("expected [] (non-nil) for a torrent with no trackers")
+	}
+}
+
 func TestStreamPlaylistM3U_NotActive_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
