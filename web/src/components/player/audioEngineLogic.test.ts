@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { crossfadeDue, peekNextIndex, engineEligible, firstDirectAudioTrack, resolveEngineNext } from './audioEngineLogic'
+import { crossfadeDue, peekNextIndex, engineEligible, firstDirectAudioTrack, resolveEngineNext, equalPowerCurve } from './audioEngineLogic'
 import { clampCrossfadeSec, looksDirectAudio, CROSSFADE_MIN, CROSSFADE_MAX } from './transition'
 import type { PlaylistGroup } from './playlistTracks'
 
@@ -145,5 +145,35 @@ describe('looksDirectAudio', () => {
     expect(looksDirectAudio('clip.mp4')).toBe(false)
     expect(looksDirectAudio('cover.jpg')).toBe(false)
     expect(looksDirectAudio('noext')).toBe(false)
+  })
+})
+
+describe('equalPowerCurve', () => {
+  it('out vai de 1 → 0; in vai de 0 → 1', () => {
+    const out = equalPowerCurve(64, 'out')
+    const inn = equalPowerCurve(64, 'in')
+    expect(out[0]).toBeCloseTo(1, 6)
+    expect(out[out.length - 1]).toBeCloseTo(0, 6)
+    expect(inn[0]).toBeCloseTo(0, 6)
+    expect(inn[inn.length - 1]).toBeCloseTo(1, 6)
+  })
+
+  it('soma de potências (out² + in²) = 1 em todo ponto (equal-power, sem dip)', () => {
+    const n = 64
+    const out = equalPowerCurve(n, 'out')
+    const inn = equalPowerCurve(n, 'in')
+    for (let i = 0; i < n; i++) {
+      expect(out[i] ** 2 + inn[i] ** 2).toBeCloseTo(1, 6)
+    }
+  })
+
+  it('no ponto médio cada lado vale ~0,707 (vs 0,5 da rampa linear que causava o dip)', () => {
+    const out = equalPowerCurve(65, 'out') // 65 pontos → índice 32 é o centro exato
+    expect(out[32]).toBeCloseTo(Math.SQRT1_2, 4)
+  })
+
+  it('clampa steps mínimos a 2 (evita curva degenerada)', () => {
+    expect(equalPowerCurve(1, 'out').length).toBe(2)
+    expect(equalPowerCurve(0, 'in').length).toBe(2)
   })
 })

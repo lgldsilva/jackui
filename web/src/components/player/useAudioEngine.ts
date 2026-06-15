@@ -4,7 +4,7 @@ import {
   EQ_FREQUENCIES, flatBands, clampDb, sharedAudioContext, getOrCreateSource,
   buildDualGraph, type DualGraph, type WebAudioGraph,
 } from './useWebAudioGraph'
-import { crossfadeDue } from './audioEngineLogic'
+import { crossfadeDue, equalPowerCurve } from './audioEngineLogic'
 import { clientLog } from '../../lib/diag'
 import type { TransitionMode } from './transition'
 
@@ -46,6 +46,9 @@ type EngineOpts = {
 }
 
 const FADE_GUARD = 0.05 // evita rampa de duração zero
+// Pontos da curva equal-power (setValueCurveAtTime interpola linearmente entre
+// eles). 64 dá ~0,19s de resolução num crossfade de 12s — imperceptível ao ouvido.
+const CROSSFADE_CURVE_STEPS = 64
 
 export function useAudioEngine(opts: EngineOpts): AudioEngine {
   const { enabled, currentSrc, nextSrc, mode } = opts
@@ -227,10 +230,12 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
       const gActive = activeIsA.current ? g.gainA : g.gainB
       const gIdle = activeIsA.current ? g.gainB : g.gainA
       idle.play().catch(() => {})
-      gActive.gain.setValueAtTime(gActive.gain.value, now)
-      gActive.gain.linearRampToValueAtTime(0, now + sec)
-      gIdle.gain.setValueAtTime(gIdle.gain.value, now)
-      gIdle.gain.linearRampToValueAtTime(1, now + sec)
+      // Equal-power (cos/sin) em vez de rampa linear: a soma das potências fica
+      // constante no cruzamento → SEM queda de volume no meio. setValueCurveAtTime
+      // é sample-accurate; cancelScheduledValues (setGains) cancela a curva num
+      // salto manual de faixa, como antes.
+      gActive.gain.setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, 'out'), now, sec)
+      gIdle.gain.setValueCurveAtTime(equalPowerCurve(CROSSFADE_CURVE_STEPS, 'in'), now, sec)
       fadeTimerRef.current = globalThis.setTimeout(swap, sec * 1000)
     }
 
