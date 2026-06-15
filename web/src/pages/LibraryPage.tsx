@@ -13,6 +13,7 @@ import { useIsMobile } from '../lib/useMediaQuery'
 import { formatDuration } from '../lib/format'
 import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
+import { newTabProps, playHref } from '../lib/cardNav'
 
 type Filter = 'recent' | 'unfinished' | 'finished'
 
@@ -201,6 +202,12 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
   const resolvedRef = useRef(false)
   const showArt = !!entry.infoHash && !artFailed
 
+  // New-tab deep-link mirrors handlePlay's file pick (lastFileIndex → positive
+  // primaryFileIndex → let the server decide) plus the resume position, so a
+  // middle/ctrl-click reopens the same episode at the same spot.
+  const playFileIdx = entry.lastFileIndex >= 0 ? entry.lastFileIndex : entry.primaryFileIndex
+  const href = playHref(entry.infoHash, playFileIdx, entry.resumeSeconds)
+
   // When the persisted art is missing (the <img> 204s → onError), proactively
   // run the resolution chain once (TMDB → web search; no frame, torrent's idle)
   // using the entry's name as the query. If it persists something, refetch;
@@ -227,7 +234,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
     <button
       type="button"
       className="card flex flex-col gap-2 hover:bg-surface-secondary/80 transition-colors text-left p-3 relative group cursor-pointer"
-      onClick={onPlay}
+      {...newTabProps(href, onPlay)}
       {...longPress}
     >
       {/* Mobile context-menu trigger (⋮) — abre o Sheet de ações. Alvo >=44px.

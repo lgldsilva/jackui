@@ -33,6 +33,30 @@ export function canPlayNativeHls(): boolean {
   return _nativeHlsSupport
 }
 
+// webAudioBlocked: can the Web Audio graph (EQ + spectrum visualizer) tap THIS
+// element? Blocks ALL of WebKit (Safari/iOS). createMediaElementSource on WebKit
+// makes the graph the ONLY output path, and with a SUSPENDED AudioContext the
+// WebKit element STALLS (readyState 2, never plays) — for HLS it's mute, but even
+// for DIRECT files it freezes (Apple bug; #247 tried to allow direct-play on iOS
+// and it broke local audio). So on WebKit the element must play NATIVELY (sound
+// guaranteed); EQ/visualizer are Chrome/Firefox only. `isHls` kept for the call
+// sites but no longer needed (WebKit is blocked regardless of transport).
+export function webAudioBlocked(_isHls: boolean): boolean {
+  return canPlayNativeHls()
+}
+
+// audioElementKey forces React to mount a FRESH <video> when an audio track
+// switches between direct-play and HLS on WebKit. Once createMediaElementSource
+// taps an element (EQ/visualizer on a direct track) the binding is permanent, and
+// the SAME element later loading HLS goes mute on Safari/iOS (WebKit can't tap HLS
+// audio). A distinct key per transport class hands HLS tracks an untapped element
+// → native sound. Constant ('media') everywhere else, so Chrome/Firefox and video
+// mode keep the single reused element. (Helper keeps VideoPlayerElement under the
+// cognitive-complexity gate.)
+export function audioElementKey(audioMode: boolean, isHls: boolean): string {
+  return audioMode && isHls && canPlayNativeHls() ? 'audio-hls' : 'media'
+}
+
 // fileType buckets a file for the sidebar type filter: video (backend flag or
 // extension) → audio (extension) → everything else.
 export function fileType(f: { isVideo?: boolean; path: string }): Exclude<FileType, 'all'> {

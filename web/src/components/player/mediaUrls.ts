@@ -83,6 +83,30 @@ function pickEncoderLabel(caps: TranscodeCapabilities | null): string {
   return 'CPU'
 }
 
+// computeIsTranscoded: a faixa vai por HLS-transcode (true) ou direct-play
+// (false)? Decide pelo CODEC REAL (probe do backend, navegador-agnóstico:
+// MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum). Antes era por NOME, o
+// que mandava incompatível pro direct-play → errorCode 4 no Safari. O probe
+// (useTrackProbe) chega logo; enquanto não chega, cai numa heurística de nome só
+// pra reduzir a janela — o probe sobrescreve assim que disponível. Extraído pra o
+// PlayerModal poder gatear o motor gapless (só direct-play) ANTES do early-return,
+// usando a MESMA verdade que computeMediaUrls.
+export function computeIsTranscoded(input: {
+  info: TorrentInfo | null
+  selectedFile: number
+  transcodeAudio: number | null
+  forceH264: boolean
+  burnSubTrack: number | null
+  probe: StreamProbe | null
+}): boolean {
+  const selectedFilename = input.info?.files?.[input.selectedFile]?.path ?? ''
+  const nameSuggestsTranscode =
+    /(x265|h\.?265|hevc|av1|vp9|2160p?|4k|uhd)/i.test(selectedFilename) ||
+    /\.(mkv|avi|ts|m2ts|wmv|flv|mpg|mpeg|ogv)$/i.test(selectedFilename)
+  const needsTranscode = input.probe?.needsTranscode ?? nameSuggestsTranscode
+  return input.transcodeAudio !== null || input.forceH264 || input.burnSubTrack !== null || needsTranscode
+}
+
 export function computeMediaUrls(input: MediaUrlInput) {
   const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, caps, authEnabled, probe } = input
   // O media token só é OBRIGATÓRIO com auth ligado (<video>/<track> não mandam
@@ -90,17 +114,7 @@ export function computeMediaUrls(input: MediaUrlInput) {
   // /auth/media-token responde 404 — gatear no token aqui deixaria a streamURL
   // vazia pra sempre e o player giraria sem nunca carregar.
   const tokenMissing = authEnabled && !mediaToken
-  const selectedFilename = info?.files?.[selectedFile]?.path ?? ''
-  // Decide transcode pelo CODEC REAL (probe do backend, navegador-agnóstico:
-  // MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum). Antes era por NOME,
-  // o que mandava incompatível pro direct-play → errorCode 4 no Safari. O probe
-  // (useTrackProbe) chega logo; enquanto não chega, cai numa heurística de nome
-  // só pra reduzir a janela — o probe sobrescreve assim que disponível.
-  const nameSuggestsTranscode =
-    /(x265|h\.?265|hevc|av1|vp9|2160p?|4k|uhd)/i.test(selectedFilename) ||
-    /\.(mkv|avi|ts|m2ts|wmv|flv|mpg|mpeg|ogv)$/i.test(selectedFilename)
-  const needsTranscode = probe?.needsTranscode ?? nameSuggestsTranscode
-  const isTranscoded = transcodeAudio !== null || forceH264 || burnSubTrack !== null || needsTranscode
+  const isTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
 
   const streamURL = buildStreamURL(info, selectedFile, serverReady, tokenMissing, isTranscoded, mediaToken)
   const subtitleVttURL = buildSubtitleVttURL(input, tokenMissing)

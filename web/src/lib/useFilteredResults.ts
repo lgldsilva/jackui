@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { SearchResult } from '../api/client'
 import { groupByInfoHash } from './group'
-import { isPlayable } from './playable'
+import { isPlayable, isAudioResult } from './playable'
 
 // Subset de SearchResult que o filtro/ordenação realmente lê. Restringe o
 // genérico pra qualquer SearchResult-like (ex.: CachedSearchResult que estende
@@ -20,6 +20,7 @@ export type ResultFilters = {
   readonly trackerFilter?: string
   readonly titleFilter?: string
   readonly onlyPlayable?: boolean
+  readonly audioOnly?: boolean   // modo Música: mantém só resultados de áudio
   // Quality filters (onda 3). Empty/false = "qualquer".
   readonly resolution?: string // exact match against quality.resolution ('2160p'…)
   readonly hdrOnly?: boolean    // keep only HDR or Dolby Vision releases
@@ -55,6 +56,7 @@ export function useFilteredResults<T extends SearchResult>(
     trackerFilter = 'all',
     titleFilter = '',
     onlyPlayable = false,
+    audioOnly = false,
     resolution = '',
     hdrOnly = false,
     codecGroup = '',
@@ -80,6 +82,7 @@ export function useFilteredResults<T extends SearchResult>(
       if (res.size > maxBytes) return false
       if (titleLower && !res.title.toLowerCase().includes(titleLower)) return false
       if (onlyPlayable && !isPlayable(res)) return false
+      if (audioOnly && !isAudioResult(res)) return false
       if (resolution && res.quality?.resolution !== resolution) return false
       if (hdrOnly && !(res.quality?.hdr || res.quality?.dv)) return false
       if (codecGroup && codecGroupOf(res.quality?.codec) !== codecGroup) return false
@@ -100,5 +103,5 @@ export function useFilteredResults<T extends SearchResult>(
     })
 
     return { filteredResults: r, groupedCount: grouped.length }
-  }, [input, minSeeders, minLeechers, maxBytes, trackerFilter, titleFilter, onlyPlayable, resolution, hdrOnly, codecGroup, sortKey, sortAsc])
+  }, [input, minSeeders, minLeechers, maxBytes, trackerFilter, titleFilter, onlyPlayable, audioOnly, resolution, hdrOnly, codecGroup, sortKey, sortAsc])
 }

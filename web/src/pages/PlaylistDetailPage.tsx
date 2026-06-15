@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Loader2, Play, Trash2, ListMusic, Check, Pencil, GripVertical, ChevronUp, ChevronDown } from 'lucide-react'
 import {
   playlistsGet, playlistsUpdate, playlistsRemoveItem, playlistsReorderItem,
@@ -7,6 +8,7 @@ import {
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
+import { newTabProps, playHref } from '../lib/cardNav'
 
 export default function PlaylistDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -20,10 +22,13 @@ export default function PlaylistDetailPage() {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const { playPlaylist } = usePlayer()
+  const { t } = useTranslation()
 
   const startAt = (idx: number) => {
     if (!playlist || items.length === 0) return
-    playPlaylist(playlist.name, items, idx)
+    // expand=true: tocar a playlist abre o player MAXIMIZADO (não o dock), igual
+    // ao play de arquivos locais — o usuário clicou pra ver a experiência cheia.
+    playPlaylist(playlist.name, items, idx, true)
   }
 
   const load = async () => {
@@ -115,7 +120,7 @@ export default function PlaylistDetailPage() {
               </div>
             </>
           ) : (
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="flex items-start gap-2 min-w-0">
                 <ListMusic className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0">
@@ -125,9 +130,16 @@ export default function PlaylistDetailPage() {
                   )}
                 </div>
               </div>
-              <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-1.5 flex-shrink-0">
-                <Pencil className="w-4 h-4" /> Editar
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {items.length > 0 && (
+                  <button onClick={() => startAt(0)} className="btn-primary flex items-center gap-1.5" title={t('player.playAll')}>
+                    <Play className="w-4 h-4" /> {t('player.playAll')}
+                  </button>
+                )}
+                <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-1.5">
+                  <Pencil className="w-4 h-4" /> Editar
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -149,7 +161,7 @@ export default function PlaylistDetailPage() {
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleReorderDrop(idx)}
                 onDragEnd={() => setDragIdx(null)}
-                onClick={() => startAt(idx)}
+                {...newTabProps(it.infoHash ? playHref(it.infoHash, it.fileIndex) : `/playlists/${playlistID}`, () => startAt(idx))}
                 className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-surface-secondary/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
                 {/* ↑/↓ — reorder por toque no mobile (a alça de drag é ruim no
@@ -222,20 +234,20 @@ export default function PlaylistDetailPage() {
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
-      <NavHeader
-        rightExtra={
-          <button
-            onClick={() => nav('/playlists')}
-            className="header-link"
-            title="Voltar para playlists"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden md:inline">Voltar</span>
-          </button>
-        }
-      />
+      <NavHeader />
 
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+        {/* Voltar no topo do conteúdo. Antes ia no rightExtra do NavHeader, que
+            no desktop (sidebar) cai lá no rodapé do menu — posição ruim/perdida.
+            Aqui fica no fluxo natural da página, acima do cabeçalho da playlist. */}
+        <button
+          onClick={() => nav('/playlists')}
+          className="self-start flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+          title="Voltar para playlists"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Voltar para playlists
+        </button>
         {mainContent}
       </main>
 

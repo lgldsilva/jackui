@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
+import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import PlayerModal from './PlayerModal'
 
 /**
@@ -29,10 +30,17 @@ export type PlaylistContext = {
 type RepeatMode = 'none' | 'one' | 'all'
 
 type PlayerAPI = {
-  /** Plays a single item with no auto-advance logic. */
-  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number) => void
+  /** Plays a single item with no auto-advance logic. `expand` opens the player
+   *  maximised even for audio (default: audio opens as the minimized dock). */
+  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void
   /** Plays an entire playlist starting at `startIndex`. Replaces any current playback. */
-  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number) => void
+  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number, expand?: boolean) => void
+  /**
+   * Jump straight to a specific item (and optionally a file within it) of the
+   * ACTIVE playlist — powers the aggregated track list, where the user clicks
+   * any file of any item. No-op when there's no active playlist.
+   */
+  readonly playPlaylistAt: (itemIndex: number, fileIndex?: number) => void
   /** Close the player. Clears playlist state too. */
   readonly close: () => void
   /** Move to the previous item respecting shuffle/repeat. */
@@ -93,6 +101,22 @@ function playlistItemToResult(item: PlaylistItem): { result: SearchResult; fileI
   return { result, fileIdx: item.fileIndex > 0 ? item.fileIndex : undefined }
 }
 
+// peekNextPlaylistItem: índice (na lista ORIGINAL de items) do próximo item na
+// ordem de reprodução, respeitando shuffle (via `order`) e repeat. -1 = não há
+// próximo. Alimenta o motor gapless (cross-item): pré-carregar a 1ª faixa do
+// próximo item. (repeat 'one' devolve o item atual — mas o motor é bypassado
+// nesse modo, então é inócuo.)
+function peekNextPlaylistItem(playlist: PlaylistState | null, repeat: RepeatMode): number {
+  if (!playlist) return -1
+  if (repeat === 'one') return playlist.order[playlist.position]
+  let next = playlist.position + 1
+  if (next >= playlist.order.length) {
+    if (repeat !== 'all') return -1
+    next = 0
+  }
+  return playlist.order[next]
+}
+
 function shuffledOrder(n: number, startIndex: number): number[] {
   // Fisher-Yates on [0..n-1] excluding startIndex, then put startIndex at position 0.
   const rest = Array.from({ length: n }, (_, i) => i).filter(i => i !== startIndex)
@@ -105,11 +129,58 @@ function shuffledOrder(n: number, startIndex: number): number[] {
   return [startIndex, ...rest]
 }
 
+// parsePositiveInt/Float read a URL query value as a positive number, returning
+// undefined for missing/zero/NaN. Extracted so the URL→state effect doesn't carry
+// the ternary+&& parsing inline (keeps its cognitive complexity under the gate).
+export function parsePositiveInt(s: string | null): number | undefined {
+  if (!s) return undefined
+  const n = Number.parseInt(s, 10)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+export function parsePositiveFloat(s: string | null): number | undefined {
+  if (!s) return undefined
+  const n = Number.parseFloat(s)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+// resolveDeepLinkPlay looks up the library entry for a 40-hex info_hash (for a
+// nicer title/magnet + persisted kind) and plays it, falling back to a synthetic
+// magnet on miss. Extracted from the URL→state effect so that effect's cognitive
+// complexity stays under the gate (the lookup callback + fallbacks add up).
+function resolveDeepLinkPlay(
+  hash: string,
+  fIdx: number | undefined,
+  initialSeek: number | undefined,
+  play: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void,
+): void {
+  libraryList({ limit: 200 }).then(list => {
+    const entry = list.find(e => e.infoHash === hash)
+    const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
+    const name = entry?.name || hash
+    // Carry the library entry's kind so a refresh of an audio deep-link opens the
+    // audio UI (the title heuristic alone misjudged albums → opened video).
+    const mk = entry?.kind === 'audio' || entry?.kind === 'video' ? entry.kind : undefined
+    play(syntheticResult(hash, name, magnet, mk), fIdx, initialSeek)
+  }).catch(() => {
+    play(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
+  })
+}
+
 export default function PlayerProvider({ children }: { readonly children: ReactNode }) {
   const [current, setCurrent] = useState<{ result: SearchResult; fileIdx?: number; initialSeek?: number } | null>(null)
   const [playlist, setPlaylist] = useState<PlaylistState | null>(null)
   const [repeat, setRepeat] = useState<RepeatMode>('none')
   const [shuffle, setShuffle] = useState(false)
+  // Cinema/Música preference, reactive (shared store). Tie-breaker for ambiguous
+  // titles AND — via `forcedKind` — switches the ACTIVE player the instant the
+  // user toggles it.
+  const [mediaMode] = useMediaMode()
+  const [forcedKind, setForcedKind] = useState<'audio' | 'video' | null>(null)
+  // Open the player maximised (not the minimized audio dock) when a caller asks
+  // — e.g. the local-files page wants the full music experience straight away.
+  const [startExpanded, setStartExpanded] = useState(false)
+  const lastTimeRef = useRef(0)        // latest playhead (sec), fed by PlayerModal onProgress
+  const prevModeRef = useRef(mediaMode) // detects an actual toggle vs. a re-render
   // Ref mirror so callbacks invoked from <PlayerModal onPlaylistAdvance> see the latest state
   // even when React hasn't committed yet (avoids stale-closure bug in auto-advance chains).
   const playlistRef = useRef<PlaylistState | null>(null)
@@ -117,13 +188,15 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   playlistRef.current = playlist
   repeatRef.current = repeat
 
-  const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number) => {
+  const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand = false) => {
+    setStartExpanded(expand)
     setPlaylist(null)
     setCurrent({ result, fileIdx: initialFileIndex, initialSeek })
   }, [])
 
-  const playPlaylist = useCallback((name: string, items: PlaylistItem[], startIndex = 0) => {
+  const playPlaylist = useCallback((name: string, items: PlaylistItem[], startIndex = 0, expand = false) => {
     if (items.length === 0) return
+    setStartExpanded(expand)
     const safeStart = Math.max(0, Math.min(items.length - 1, startIndex))
     const order = shuffle
       ? shuffledOrder(items.length, safeStart)
@@ -133,6 +206,24 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const first = playlistItemToResult(items[order[position]])
     setCurrent(first)
   }, [shuffle])
+
+  // Jump to an arbitrary item (and file) of the active playlist. Used by the
+  // aggregated track list: clicking a file in a NOT-currently-playing item
+  // switches the playlist cursor to it and starts that file. Within shuffle
+  // we move the cursor to wherever that item sits in `order` so subsequent
+  // next/prev keep following the shuffled sequence.
+  const playPlaylistAt = useCallback((itemIndex: number, fileIndex?: number) => {
+    const pl = playlistRef.current
+    if (!pl) return
+    if (itemIndex < 0 || itemIndex >= pl.items.length) return
+    const pos = pl.order.indexOf(itemIndex)
+    if (pos < 0) return
+    const updated = { ...pl, position: pos }
+    setPlaylist(updated)
+    playlistRef.current = updated
+    const base = playlistItemToResult(pl.items[itemIndex])
+    setCurrent({ result: base.result, fileIdx: fileIndex ?? base.fileIdx })
+  }, [])
 
   const close = useCallback(() => {
     // The torrent is dropped by PlayerModal's viewer-lease effect when it
@@ -209,7 +300,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const key = `${item.infoHash || item.magnet}:${item.fileIndex}`
     if (prefetchedHashes.current.has(key)) return
     prefetchedHashes.current.add(key)
-    streamAdd(item.magnet).catch(() => {
+    streamAdd(item.magnet, detectKind(item.title, 0, getMediaMode())).catch(() => {
       // Soft fail — main playback is unaffected. Remove the key so a retry
       // could happen on a future loop, but in practice we won't reach that
       // unless the user manually replays the playlist.
@@ -247,6 +338,33 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     })
   }, [])
 
+  // Apply the Cinema/Música toggle to whatever is playing RIGHT NOW: when the
+  // preference flips while a player is active, switch its mode immediately and
+  // resume from the current playhead (the modal re-keys by kind, so we feed the
+  // last reported time as initialSeek instead of restarting from zero). When
+  // `current` changes for any other reason the guard short-circuits.
+  useEffect(() => {
+    if (prevModeRef.current === mediaMode) return
+    prevModeRef.current = mediaMode
+    if (!current) return
+    setForcedKind(mediaMode)
+    // lastTimeRef is re-seeded with the item's start position on every item
+    // change (below), so it's always a valid playhead — even before the first
+    // onProgress tick. No `> 0` guard: that would drop a legit resume position
+    // (e.g. 0 vs. a Continue-Watching seek) when toggling in the first moments.
+    setCurrent(c => (c ? { ...c, initialSeek: lastTimeRef.current } : c))
+  }, [mediaMode, current])
+
+  // A new item (or file) clears the explicit override so the detection /
+  // tie-breaker decides the mode again for the next thing that plays. We also
+  // re-seed lastTimeRef from the item's start position, so a Cinema/Música
+  // toggle in the first moments (before the first onProgress tick) resumes from
+  // the real start (e.g. a Continue-Watching resume) instead of snapping to 0.
+  useEffect(() => {
+    setForcedKind(null)
+    lastTimeRef.current = current?.initialSeek ?? 0
+  }, [current?.result.infoHash, current?.fileIdx])
+
   const playlistView: PlaylistContext | null = playlist
     ? { name: playlist.name, items: playlist.items, currentIndex: playlist.order[playlist.position] }
     : null
@@ -254,6 +372,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const api = useMemo<PlayerAPI>(() => ({
     playSingle,
     playPlaylist,
+    playPlaylistAt,
     close,
     next,
     previous,
@@ -264,7 +383,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     playlist: playlistView,
     repeat,
     shuffle,
-  }), [playSingle, playPlaylist, close, next, previous, cycleRepeat, toggleShuffle, prefetchNext, prefetchNextNext, playlistView, repeat, shuffle])
+  }), [playSingle, playPlaylist, playPlaylistAt, close, next, previous, cycleRepeat, toggleShuffle, prefetchNext, prefetchNextNext, playlistView, repeat, shuffle])
 
   // ─── URL deep-linking ────────────────────────────────────────────────────
   //
@@ -309,10 +428,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       lastSyncedHashRef.current = null
       return
     }
-    const fIdxParsed = fileUrlParam ? Number.parseInt(fileUrlParam, 10) : Number.NaN
-    const fIdx = Number.isFinite(fIdxParsed) && fIdxParsed > 0 ? fIdxParsed : undefined
-    const tParsed = timeUrlParam ? Number.parseFloat(timeUrlParam) : Number.NaN
-    const initialSeek = Number.isFinite(tParsed) && tParsed > 0 ? tParsed : undefined
+    const fIdx = parsePositiveInt(fileUrlParam)
+    const initialSeek = parsePositiveFloat(timeUrlParam)
 
     // Local pseudo-hash (`local-<base64url>`): a deep link to a file on a mount,
     // used by "open in new tab" from the local browser. No library lookup —
@@ -321,7 +438,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       lastSyncedHashRef.current = hash
       const loc = parseLocalHash(hash)
       const name = loc ? (loc.path.split('/').pop() || loc.path) : hash
-      playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
+      // expand=true: deep-link de arquivo LOCAL (nova aba) abre maximizado, igual
+      // ao play direto da LocalPage. (Torrent via deep-link segue o card → minimizado.)
+      playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek, true)
       return
     }
 
@@ -332,20 +451,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       return
     }
     lastSyncedHashRef.current = hash
-
-    // Best effort: lookup the library entry to get a proper title + magnet
-    // (some trackers' magnets carry display_name + trackers, which is nice to
-    // have over a bare xt-only magnet). If the user has never played this hash
-    // before, fall back to the synthetic magnet — anacrolix will resolve trackers
-    // via DHT.
-    libraryList({ limit: 200 }).then(list => {
-      const entry = list.find(e => e.infoHash === hash)
-      const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
-      const name = entry?.name || hash
-      playSingle(syntheticResult(hash, name, magnet), fIdx, initialSeek)
-    }).catch(() => {
-      playSingle(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
-    })
+    resolveDeepLinkPlay(hash, fIdx, initialSeek, playSingle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playUrlParam, fileUrlParam])
 
@@ -386,18 +492,19 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // For SINGLE-ITEM playback we use the item's own kind detection.
   const currentKind = (() => {
     if (!current) return null
+    // Explicit Cinema/Música toggle on the active item wins over everything.
+    if (forcedKind) return forcedKind
     if (playlist && playlist.items.length > 0) {
       // Aggregate over playlist — any video → video mode.
-      const anyVideo = playlist.items.some(it => detectKind(it.title) === 'video')
+      const anyVideo = playlist.items.some(it => detectKind(it.title, 0, mediaMode) === 'video')
       return anyVideo ? 'video' : 'audio'
     }
     // Prefer backend-resolved mediaKind quando presente; cai na heurística
     // local pra syntheticResult/deep-links que constroem SearchResult sem
-    // o campo. 'other' do backend coalesce em 'video' (default seguro: o
-    // PlayerModal toca áudio também, AudioBar não toca vídeo).
+    // o campo. 'other' do backend coalesce no fallback (Cinema/Música).
     if (current.result.mediaKind === 'audio') return 'audio'
     if (current.result.mediaKind === 'video') return 'video'
-    return detectKind(current.result.title, current.result.categoryId)
+    return detectKind(current.result.title, current.result.categoryId, mediaMode)
   })()
 
   return (
@@ -418,14 +525,17 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           playlist={playlistView}
           onPlaylistAdvance={next}
           onPlaylistPrevious={previous}
+          onPlaylistJump={playPlaylistAt}
           repeat={repeat}
           shuffle={shuffle}
           onCycleRepeat={cycleRepeat}
           onToggleShuffle={toggleShuffle}
           onPrefetchNextPlaylist={prefetchNext}
           onPrefetchNextNextPlaylist={prefetchNextNext}
-          startMinimized={currentKind === 'audio'}
+          startMinimized={currentKind === 'audio' && !startExpanded}
           audioMode={currentKind === 'audio'}
+          nextPlaylistItemIndex={peekNextPlaylistItem(playlist, repeat)}
+          onProgress={(s) => { lastTimeRef.current = s }}
         />
       )}
     </Ctx.Provider>

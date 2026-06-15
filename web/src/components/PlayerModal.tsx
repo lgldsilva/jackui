@@ -47,16 +47,25 @@ import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 import { AudioTransportBar } from './player/AudioTransportBar'
-import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
-import { computeMediaUrls, tryAutoplayMutedFallback } from './player/mediaUrls'
+import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, canPlayNativeHls, type FileType } from './player/playerFormat'
+import { computeMediaUrls, tryAutoplayMutedFallback, computeIsTranscoded } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
+import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
+import { MusicPanel } from './player/MusicPanel'
+import { useAudioEngine } from './player/useAudioEngine'
+import { useTransitionConfig } from './player/transition'
+import { engineEligible, resolveEngineNext } from './player/audioEngineLogic'
+import { usePlaylistTracks } from './player/usePlaylistTracks'
 
 type PlaylistMeta = {
   readonly name: string
-  readonly items: readonly { title: string }[]
+  // Each item is a torrent (a pack with many files) or a single local file.
+  // The aggregated track sidebar needs the source (infoHash/magnet) to resolve
+  // every item's file list, not just the playing one.
+  readonly items: readonly { title: string; infoHash: string; magnet: string; fileIndex: number }[]
   readonly currentIndex: number
 }
 
@@ -68,6 +77,7 @@ type PlayerModalProps = {
   readonly playlist?: PlaylistMeta | null
   readonly onPlaylistAdvance?: () => void
   readonly onPlaylistPrevious?: () => void
+  readonly onPlaylistJump?: (itemIndex: number, fileIndex?: number) => void
   readonly repeat?: 'none' | 'one' | 'all'
   readonly shuffle?: boolean
   readonly onCycleRepeat?: () => void
@@ -76,6 +86,13 @@ type PlayerModalProps = {
   readonly onPrefetchNextNextPlaylist?: () => void
   readonly startMinimized?: boolean
   readonly audioMode?: boolean
+  /** Reports the playhead (seconds) on every timeupdate. Lets the provider
+   *  preserve position when it re-keys the modal on a Cinema/Música switch. */
+  readonly onProgress?: (sec: number) => void
+  // Índice (na lista original de items) do próximo item da playlist na ordem de
+  // reprodução — o motor gapless usa pra pré-carregar a 1ª faixa do próximo item
+  // (cross-item). -1 = sem próximo / sem playlist.
+  readonly nextPlaylistItemIndex?: number
 }
 
 function renderPlayerHeader(props: {
@@ -239,6 +256,7 @@ export default function PlayerModal({
   playlist = null,
   onPlaylistAdvance,
   onPlaylistPrevious,
+  onPlaylistJump,
   repeat = 'none',
   shuffle = false,
   onCycleRepeat,
@@ -247,6 +265,8 @@ export default function PlayerModal({
   onPrefetchNextNextPlaylist,
   startMinimized = false,
   audioMode = false,
+  onProgress,
+  nextPlaylistItemIndex = -1,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -370,6 +390,10 @@ export default function PlayerModal({
   // renders as a right column instead of a stacked panel below the video.
   // Persisted to localStorage so the user's choice survives between modals.
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    // Music mode is album-browsing first — open the track list by default so a
+    // multi-track album (e.g. "2 de 73") shows its songs without hunting for the
+    // collapsed strip. Video keeps the per-user stored preference.
+    if (audioMode) return true
     const stored = localStorage.getItem('jackui.playerSidebar')
     return stored === null ? true : stored === '1'
   })
@@ -550,6 +574,13 @@ export default function PlayerModal({
   const watchedRef = useRef(0)            // accumulated playback time (seconds)
   const lastTickRef = useRef<number>(0)   // last currentTime sample (for delta)
   const AUTO_FAV_THRESHOLD = 5 * 60       // 5 minutes
+  // everReadyRef: vira true assim que o player já mostrou conteúdo (info +
+  // arquivo) ao menos uma vez nesta instância. Habilita o "warm hold" na troca
+  // de faixa de música (ver o efeito [result]) e suprime o overlay de start.
+  const everReadyRef = useRef(false)
+  // streamAddDoneRef: o streamAdd (autoritativo) já resolveu? Evita que o
+  // preview do cache de metadados sobrescreva o resultado autoritativo na corrida.
+  const streamAddDoneRef = useRef(false)
   // Playback state
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -602,10 +633,27 @@ export default function PlayerModal({
     // thumbnails clobber the new video. Flipped by the cleanup below.
     let cancelled = false
 
+    // warmHold: numa troca de faixa de MÚSICA com o player já populado, NÃO
+    // desmonta a UI (capa/seekbar/transport) nem corta o áudio atual — segura o
+    // `info`/`selectedFile`/`serverReady` antigos (streamURL deriva de `info`, então
+    // o <video> continua na faixa atual) até o streamMetadata/streamAdd da nova
+    // resolver; aí a troca é atômica. Sem isso a tela "piscava" (overlay
+    // "Conectando ao swarm") a cada faixa. Escopo só ÁUDIO (vídeo mantém o reset
+    // completo, sem regressão); cold start (1ª faixa) também reseta normal.
+    const warmHold = everReadyRef.current && audioMode
+    streamAddDoneRef.current = false
+
     setLoading(true)
     setError('')
-    setInfo(null)
-    setSelectedFile(-1)
+    if (!warmHold) {
+      setInfo(null)
+      setSelectedFile(-1)
+      setServerReady(false)
+      setCurrentTime(0)
+      setDuration(0)
+      setBufferedEnd(0)
+      setBufferedRanges([])
+    }
     setVideoError(false)
     setSubActive(null)
     setSubResults([])
@@ -621,7 +669,6 @@ export default function PlayerModal({
     setLibraryEntryID(null)
     setResumePosition(null)
     lastResumeSaveRef.current = 0
-    setServerReady(false)
     setTranscodeAudio(null)
     audioAutoRef.current = false
     setForceH264(false)
@@ -641,25 +688,25 @@ export default function PlayerModal({
     // fileSortBySize/fileSizeDesc persist (shared with TorrentContentsModal) —
     // intentionally NOT reset here, so the chosen order carries into the player.
     origCuesRef.current = []
-    setCurrentTime(0)
-    setDuration(0)
-    setBufferedEnd(0)
-    setBufferedRanges([])
 
     // Try the cached metadata first — if the server has seen this hash before,
     // the file list + name appear instantly. streamAdd still kicks off in
     // parallel to actually load the torrent client (required for playback).
     if (result.infoHash) {
       streamMetadata(result.infoHash).then(cached => {
-        if (cancelled || !cached || info) return
+        // streamAddDoneRef (não `info`): no warm hold o `info` antigo ainda está
+        // setado, então o preview do cache PRECISA poder sobrescrevê-lo; só não
+        // pode passar por cima do streamAdd autoritativo se este já resolveu.
+        if (cancelled || !cached || streamAddDoneRef.current) return
         setInfo(cached)
         setSelectedFile(chooseInitialFile(cached, initialFileIndex))
       })
     }
 
-    streamAdd(pickTorrentSource(result))
+    streamAdd(pickTorrentSource(result), audioMode ? 'audio' : 'video')
       .then(t => {
         if (cancelled) return
+        streamAddDoneRef.current = true
         setInfo(t)
         setSelectedFile(chooseInitialFile(t, initialFileIndex))
         // Streamer now has the torrent active — unblock <video src>.
@@ -677,6 +724,12 @@ export default function PlayerModal({
 
     return () => { cancelled = true }
   }, [result])
+
+  // Marca que o player já renderizou uma faixa nesta instância → habilita o warm
+  // hold (troca de faixa sem desmontar a UI) nas próximas trocas.
+  useEffect(() => {
+    if (info && selectedFile >= 0) everReadyRef.current = true
+  }, [info, selectedFile])
 
   // Diagnostic snapshot helper. Returns a plain object with the MediaError code,
   // network state, ready state, current src and user-agent details — everything
@@ -946,12 +999,10 @@ export default function PlayerModal({
     }
   }
 
-  // Desktop keyboard shortcuts (part of #63). Touch gestures are intentionally
-  // NOT added — the native <video controls> owns touch on iOS and custom
-  // overlays fought its gestures. Skipped while minimized, while typing in an
-  // input/select, and when the <video> itself has focus (let the browser's
-  // native handler act, so we don't double-seek).
-  useKeyboardShortcuts({ videoRef, minimized, requestFullscreen: handleRequestFullscreen })
+  // Desktop keyboard shortcuts (part of #63): wired AFTER the audio engine block
+  // below, so it controls the active element (the engine's <audio> when active).
+  // Touch gestures are intentionally NOT added — the native <video controls> owns
+  // touch on iOS. Skipped while minimized / typing / when the <video> has focus.
 
   // iPhone landscape → native iOS fullscreen. The custom modal layout isn't
   // built to reflow for a short, wide phone viewport (it got cramped/garbled),
@@ -1113,6 +1164,7 @@ export default function PlayerModal({
     lastTickRef.current = now
     setCurrentTime(now)
     setDuration(v.duration || 0)
+    onProgress?.(now)
     updateBufferedRanges(v, now, setBufferedRanges, setBufferedEnd)
     tryAutoFavorite(watchedRef.current, isFavorite, AUTO_FAV_THRESHOLD, info, setIsFavorite)
     trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
@@ -1165,10 +1217,92 @@ export default function PlayerModal({
   const hasNext = mediaQueue.nextIdx >= 0 || !!onPlaylistAdvance
   const hasPrev = mediaQueue.prevIdx >= 0 || !!onPlaylistPrevious
 
+  // ─── Motor gapless/crossfade (Frente 5) ───────────────────────────────────
+  // Assume SÓ áudio direct-play com transição≠off; senão fica inerte e o <video>
+  // toca como hoje (com transition='off' tudo abaixo reduz ao caminho atual).
+  // engineEligible usa a MESMA verdade de isTranscoded do computeMediaUrls (via
+  // helper) ANTES do early-return. nextSrc só é setado se a próxima faixa do MESMO
+  // torrent parece direct-play (looksDirectAudio); senão null → hard-cut.
+  const transition = useTransitionConfig()
+  const inPlaylist = !!playlist && playlist.items.length > 1
+  const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
+  // !canPlayNativeHls(): motor só em não-WebKit (Chrome/Firefox). No iOS/Safari o
+  // createMediaElementSource trava o elemento (ver webAudioBlocked) → fica o player
+  // nativo. Sem isto o motor mudaria o <video> e tapearia os <audio> no iOS → stall.
+  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat }) && !canPlayNativeHls()
+  // Agregado da playlist (todas as faixas de todos os itens) — consumido pelo
+  // PlaylistTracksSidebar (por prop) e pelo motor (cross-item: 1ª faixa do próximo
+  // item). Resolver itens ATIVA torrents no servidor → só ligamos quando a sidebar
+  // está aberta (precisa exibir) OU o motor está ligado (precisa pré-carregar o
+  // próximo); com 'off' e sidebar fechada não ativa nada em background.
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
+  // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
+  // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
+  // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
+  const engineNextRef = engineOn
+    ? resolveEngineNext({
+        inPlaylist, mediaIndices: mediaQueue.indices, mediaCursor: mediaQueue.cursor, repeat,
+        curInfoHash: info?.infoHash ?? '', curFiles: info?.files ?? [],
+        groups: aggregate.groups, nextItemIndex: nextPlaylistItemIndex,
+      })
+    : null
+  const engineCurrentSrc = engineOn && info && selectedFile >= 0 ? streamFileURL(info.infoHash, selectedFile, mediaToken) : ''
+  const engineNextSrc = engineNextRef ? streamFileURL(engineNextRef.infoHash, engineNextRef.fileIndex, mediaToken) : null
+  const advanceEngine = () => {
+    if (!engineNextRef) return
+    if (engineNextRef.itemIndex < 0) playFile(engineNextRef.fileIndex)
+    else onPlaylistJump?.(engineNextRef.itemIndex, engineNextRef.fileIndex)
+  }
+  const engine = useAudioEngine({
+    enabled: engineOn,
+    currentSrc: engineCurrentSrc,
+    nextSrc: engineNextSrc,
+    mode: transition.mode,
+    crossfadeSec: transition.crossfadeSec,
+    onAdvance: advanceEngine,
+  })
+  // Elemento de mídia ATIVO: o <audio> do motor quando ele está LIGADO (engineOn),
+  // senão o <video>. CRÍTICO usar engineOn (não engine.active): o motor toca o
+  // <audio> assim que liga (mesmo antes do grafo/EQ montar = ready); se aqui
+  // usasse engine.active (=enabled&&ready), na janela enabled&&!ready o <audio>
+  // tocaria nativo E o <video> não-mudo também → áudio dobrado, e o pause iria no
+  // <video> deixando o <audio> de fundo. Os consumidores de ÁUDIO só usam membros
+  // de HTMLMediaElement. Motor desligado → é o videoRef → comportamento atual.
+  const activeMediaRef = engineOn ? engine.activeElRef : videoRef
+
+  // Espelha currentTime/duration/onProgress do elemento ATIVO do motor no estado
+  // do player (seekbar + resume do toggle Cinema/Música). Re-anexa a cada faixa
+  // (selectedFile muda no avanço/swap) pra seguir o ping-pong. O <video> mudo do
+  // modo-motor não dispara timeupdate, então não há conflito de fontes.
+  useEffect(() => {
+    if (!engineOn) return
+    const el = engine.activeElRef.current
+    if (!el) return
+    const sync = () => {
+      setCurrentTime(el.currentTime)
+      setDuration(el.duration || 0)
+      onProgress?.(el.currentTime)
+    }
+    sync()
+    el.addEventListener('timeupdate', sync)
+    el.addEventListener('loadedmetadata', sync)
+    el.addEventListener('durationchange', sync)
+    return () => {
+      el.removeEventListener('timeupdate', sync)
+      el.removeEventListener('loadedmetadata', sync)
+      el.removeEventListener('durationchange', sync)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineOn, engine.active, selectedFile])
+
+  // Atalhos de teclado controlam o elemento ATIVO (o <audio> do motor quando ele
+  // assume). Movido p/ depois do motor pra usar o activeMediaRef.
+  useKeyboardShortcuts({ videoRef: activeMediaRef, minimized, requestFullscreen: handleRequestFullscreen })
+
   // Media Session API — exposes "what's playing" + media keys / lock-screen
   // controls to the OS. Without this, iOS shows "JackUI" with no metadata and
   // AirPods/bluetooth controls don't fire next/previous on the playlist.
-  useMediaSession({ videoRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
+  useMediaSession({ videoRef: activeMediaRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
 
   // Load initial favorite state when torrent info arrives. Match by infoHash
   // first (precise — same content always returns same hash) and fall back to
@@ -1294,7 +1428,7 @@ export default function PlayerModal({
   // (keeps the component body's cognitive complexity down) — behavior unchanged.
   const shellProps = (): React.HTMLAttributes<HTMLDivElement> => {
     if (minimized) {
-      return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' } }
+      return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom, 0px))' } }
     }
     return {
       className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4',
@@ -1311,12 +1445,19 @@ export default function PlayerModal({
   // cognitive complexity. Closes over all the local state — behavior identical.
   const renderActiveStream = () => {
     if (!info || selectedFile < 0) return null
+    // A playlist with >1 item shows the aggregated track list (all items'
+    // files); a single item (or no playlist) shows the per-torrent picker.
+    const aggregateMode = !!playlist && playlist.items.length > 1
     return (
       <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         {/* Main column: video + transport + status + panels. On lg+ the
             file picker moves to a sidebar on the right — frees this
-            column to grow without forcing the page into outer scroll. */}
-        <div className="flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden">
+            column to grow without forcing the page into outer scroll.
+            Audio mode centers its content vertically (lg:justify-center) so the
+            cover + transport fill the modal height instead of hugging the top
+            with a big empty gap below (the track sidebar makes the modal tall).
+            It still scrolls when EQ/lyrics expand past the height. */}
+        <div className={`flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
         {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
             status bar, file picker, and panels below all fit inside the modal's
             90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
@@ -1325,6 +1466,8 @@ export default function PlayerModal({
         <VideoPlayerElement
           videoRef={videoRef}
           streamURL={streamURL}
+          engineActive={engineOn}
+          suppressStartOverlay={everReadyRef.current && audioMode}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
           videoError={videoError}
@@ -1358,12 +1501,24 @@ export default function PlayerModal({
           }}
         />
 
+        {/* Motor gapless/crossfade: 2 <audio> ocultos em ping-pong (A/B). Ficam
+            no DOM (mais seguro p/ o tap do Web Audio no iOS que new Audio()).
+            Renderizados em modo áudio; inertes até a transição ser ligada. */}
+        {audioMode && (
+          <>
+            {/* <track> de legenda vazio: os <audio> do motor não têm legenda, mas a
+                regra de a11y (S4084) exige o elemento — igual ao <video>. */}
+            <audio ref={engine.elARef} hidden preload="auto"><track kind="captions" /></audio>
+            <audio ref={engine.elBRef} hidden preload="auto"><track kind="captions" /></audio>
+          </>
+        )}
+
         {/* Minimized audio: the mini-player dock — play/pause + ⏮⏭ + slim seek
             below the cover. In audio mode the <video> has no native controls,
             so this custom bar drives playback (Spotify-style mini-player). */}
         {minimized && audioMode && (
           <AudioTransportBar
-            videoRef={videoRef}
+            videoRef={activeMediaRef}
             info={info}
             selectedFile={selectedFile}
             mediaToken={mediaToken}
@@ -1374,6 +1529,7 @@ export default function PlayerModal({
             onNext={handleNext}
             hasPrev={hasPrev}
             hasNext={hasNext}
+            pausedOverride={engineOn ? engine.paused : undefined}
             compact
           />
         )}
@@ -1383,7 +1539,7 @@ export default function PlayerModal({
             controls the <video> no longer renders in audio mode. */}
         {!minimized && audioMode && (
           <AudioTransportBar
-            videoRef={videoRef}
+            videoRef={activeMediaRef}
             info={info}
             selectedFile={selectedFile}
             mediaToken={mediaToken}
@@ -1397,8 +1553,26 @@ export default function PlayerModal({
             queueLabel={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
             shuffle={shuffle}
             repeat={repeat}
+            pausedOverride={engineOn ? engine.paused : undefined}
             onToggleShuffle={onToggleShuffle}
             onCycleRepeat={onCycleRepeat}
+          />
+        )}
+
+        {/* Music experience: spectrum visualizer + 10-band EQ + synced lyrics.
+            Audio-mode only — the Web Audio graph it builds taps the <video>
+            element, which in audio mode never plays video (PlayerProvider
+            remounts by kind), so it can't introduce A/V lag on films. */}
+        {!minimized && audioMode && (
+          <MusicPanel
+            videoRef={videoRef}
+            info={info}
+            selectedFile={selectedFile}
+            currentTime={currentTime}
+            duration={duration}
+            isTranscoded={isTranscoded}
+            engineGraph={engine.active ? engine.graph : null}
+            engineOwns={engineOn}
           />
         )}
 
@@ -1475,7 +1649,21 @@ export default function PlayerModal({
         )}
         </div>{/* end main column */}
 
-        {!minimized && info.files.length > 1 && sidebarOpen && (
+        {/* Playlist mode: the sidebar AGGREGATES every item's files (a playlist
+            is a collection of torrents/local files), not just the current
+            torrent's. Single playback keeps the rich FilePickerSidebar. */}
+        {!minimized && sidebarOpen && aggregateMode && (
+          <PlaylistTracksSidebar
+            groups={aggregate.groups}
+            ensureLoaded={aggregate.ensureLoaded}
+            currentItemIndex={playlist.currentIndex}
+            selectedFile={selectedFile}
+            playFile={playFile}
+            onJump={(ii, fi) => onPlaylistJump?.(ii, fi)}
+            onClose={() => setSidebarOpen(false)}
+          />
+        )}
+        {!minimized && info.files.length > 1 && sidebarOpen && !aggregateMode && (
           <FilePickerSidebar
             info={info}
             videoFiles={videoFiles}
@@ -1502,7 +1690,7 @@ export default function PlayerModal({
             • mobile: horizontal bar below the video. Without this, iOS
               users who tap "Esconder lista" had no way to bring it back —
               the list literally vanished. (See issue #50.) */}
-        {info.files.length > 1 && !sidebarOpen && (
+        {(aggregateMode || info.files.length > 1) && !sidebarOpen && (
           <>
             {/* Mobile (and tablet up to lg): full-width bar */}
             <button
@@ -1511,7 +1699,7 @@ export default function PlayerModal({
               className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary text-xs flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4 rotate-90" />
-              Mostrar lista de arquivos ({info.files.length})
+              Mostrar lista de arquivos ({aggregateMode ? playlist.items.length : info.files.length})
             </button>
             {/* lg+: vertical strip on the right edge */}
             <button
@@ -1521,7 +1709,7 @@ export default function PlayerModal({
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
-                Arquivos ({info.files.length})
+                Arquivos ({aggregateMode ? playlist.items.length : info.files.length})
               </span>
             </button>
           </>
@@ -1566,7 +1754,10 @@ export default function PlayerModal({
           handleClassifyCategory,
           classifyingCat,
         })}
-        {playlist && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
+        {/* Top playlist bar is hidden in audio mode: the AudioTransportBar below
+            already carries prev/next/shuffle/repeat + position, so showing both
+            duplicated the controls above AND below the play button. */}
+        {playlist && !audioMode && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent

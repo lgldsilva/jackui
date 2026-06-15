@@ -18,6 +18,7 @@ import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { useRevealHidden } from '../lib/reveal'
+import { newTabProps, playHref } from '../lib/cardNav'
 import { formatDate, formatBytes } from '../lib/format'
 
 type FolderNode = {
@@ -680,8 +681,8 @@ export default function FavoritesPage() {
                   tabIndex={0}
                   draggable
                   onDragStart={e => handleFavDragStart(e, fav.name)}
-                  onClick={() => openContents(fav)}
-                  onKeyDown={e => { if (e.key === 'Enter') openContents(fav) }}
+                  {...newTabProps(playHref(fav.infoHash), () => playFavorite(fav))}
+                  onKeyDown={e => { if (e.key === 'Enter') playFavorite(fav) }}
                   className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative w-full text-left ${
                     selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
                   }`}
