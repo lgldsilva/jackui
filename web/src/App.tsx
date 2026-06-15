@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { load, save } from './lib/storage'
+import { isIncognito } from './lib/incognito'
 import SearchPage from './pages/SearchPage'
 import SettingsPage from './pages/SettingsPage'
 import HistoryPage from './pages/HistoryPage'
@@ -69,8 +70,9 @@ function RouteRestorer() {
 
   useEffect(() => {
     // Don't persist /login, nor a player deep-link (?play=) — restoring straight
-    // into a stale ?play= on next launch would auto-reopen an old video.
-    if (location.pathname === '/login') return
+    // into a stale ?play= on next launch would auto-reopen an old video. Incognito
+    // leaves no trace, so it doesn't record the last route either.
+    if (location.pathname === '/login' || isIncognito()) return
     const search = location.search.includes('play=') ? '' : location.search
     save('lastRoute', location.pathname + search)
   }, [location.pathname, location.search])
