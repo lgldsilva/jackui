@@ -34,14 +34,15 @@ export function canPlayNativeHls(): boolean {
 }
 
 // webAudioBlocked: can the Web Audio graph (EQ + spectrum visualizer) tap THIS
-// stream? It only blocks the HLS-on-WebKit combination. Safari/iOS (WebKit) give
-// NO raw audio to createMediaElementSource for HLS/m3u8 — the AnalyserNode reads
-// zeros and the media element goes irreversibly MUTE (WebKit bug #231656). Direct
-// files (MP3/M4A/AAC/FLAC) work on iOS, and Chrome/Firefox route HLS through MSE,
-// so those are fine. So the graph mounts everywhere EXCEPT a transcoded (HLS)
-// track on WebKit — there the element must play natively (sound, no EQ/visualizer).
-export function webAudioBlocked(isHls: boolean): boolean {
-  return isHls && canPlayNativeHls()
+// element? Blocks ALL of WebKit (Safari/iOS). createMediaElementSource on WebKit
+// makes the graph the ONLY output path, and with a SUSPENDED AudioContext the
+// WebKit element STALLS (readyState 2, never plays) — for HLS it's mute, but even
+// for DIRECT files it freezes (Apple bug; #247 tried to allow direct-play on iOS
+// and it broke local audio). So on WebKit the element must play NATIVELY (sound
+// guaranteed); EQ/visualizer are Chrome/Firefox only. `isHls` kept for the call
+// sites but no longer needed (WebKit is blocked regardless of transport).
+export function webAudioBlocked(_isHls: boolean): boolean {
+  return canPlayNativeHls()
 }
 
 // audioElementKey forces React to mount a FRESH <video> when an audio track

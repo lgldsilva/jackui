@@ -248,7 +248,7 @@
     "view_list": "List view",
     "view_tree": "Folder tree",
     "audioTools": "Equalizer & Lyrics",
-    "eqUnavailable": "This track is being transcoded (HLS), and Safari/iOS don't expose HLS audio to the equalizer/visualizer. It plays with guaranteed sound; MP3/AAC/FLAC tracks show the equalizer and visualizer.",
+    "eqUnavailable": "Equalizer and visualizer are available on desktop (Chrome/Firefox). On Safari/iOS audio plays directly, with guaranteed sound; lyrics keep working.",
     "transition": {
       "title": "Track transition",
       "off": "Off (normal cut)",
