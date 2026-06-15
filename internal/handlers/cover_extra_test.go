@@ -558,6 +558,79 @@ func TestStreamFavorites_WithFavs_Extra(t *testing.T) {
 	}
 }
 
+// StreamFavorites enriquece cada favorito com totalSize/seeders do metadata
+// cache (DB separado). Favorito com snapshot → campos preenchidos; sem snapshot
+// → ausentes do JSON (omitempty).
+func TestStreamFavorites_SortMetaEnrichment_Extra(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(fav.Close)
+	s.SetFavorites(fav)
+	mc, err := streamer.NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mc.Close() })
+	s.SetMetadataCache(mc)
+
+	const hashWithMeta = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const hashNoMeta = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := fav.Add("WithMeta", hashWithMeta, "magnet:?xt=a", "manual", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := fav.Add("NoMeta", hashNoMeta, "magnet:?xt=b", "manual", 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := mc.Set(&streamer.TorrentInfo{InfoHash: hashWithMeta, Name: "WithMeta", TotalSize: 4096, PrimaryFile: -1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mc.SetHealth(hashWithMeta, 12, 4); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.GET("/api/stream/favorites", StreamFavorites(s))
+	req := httptest.NewRequest("GET", "/api/stream/favorites", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
+	}
+
+	var list []map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	byHash := map[string]map[string]interface{}{}
+	for _, f := range list {
+		byHash[f["infoHash"].(string)] = f
+	}
+	withMeta := byHash[hashWithMeta]
+	if withMeta == nil {
+		t.Fatalf("favorito com meta ausente; body: %s", w.Body.String())
+	}
+	if withMeta["totalSize"].(float64) != 4096 {
+		t.Errorf("totalSize = %v, want 4096", withMeta["totalSize"])
+	}
+	if withMeta["seeders"].(float64) != 12 {
+		t.Errorf("seeders = %v, want 12", withMeta["seeders"])
+	}
+	noMeta := byHash[hashNoMeta]
+	if noMeta == nil {
+		t.Fatalf("favorito sem meta ausente")
+	}
+	if _, ok := noMeta["totalSize"]; ok {
+		t.Errorf("totalSize não deveria estar presente sem meta: %v", noMeta["totalSize"])
+	}
+	if _, ok := noMeta["seeders"]; ok {
+		t.Errorf("seeders não deveria estar presente sem probe: %v", noMeta["seeders"])
+	}
+}
+
 func TestStreamPlaylistM3U_NotActive_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()

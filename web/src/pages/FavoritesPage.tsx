@@ -11,6 +11,7 @@ import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import Thumbnail from '../components/Thumbnail'
 import SeedBadge from '../components/SeedBadge'
+import FavoritesSortControl from '../components/FavoritesSortControl'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -20,6 +21,7 @@ import { usePlayer } from '../components/PlayerProvider'
 import { useRevealHidden } from '../lib/reveal'
 import { newTabProps, playHref } from '../lib/cardNav'
 import { formatDate, formatBytes } from '../lib/format'
+import { SortKey, SortDir, sortFavorites } from '../lib/favSort'
 
 type FolderNode = {
   folder: FavoriteFolder
@@ -250,6 +252,20 @@ export default function FavoritesPage() {
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Sort order (date/name/seeds/size + direction). Default mirrors the legacy
+  // behaviour: most recently added first.
+  const [sortBy, setSortBy] = useState<SortKey>('date')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  // Silent re-fetch (no loading spinner) — keeps scroll/selection. Used after a
+  // bulk seed refresh so sorting by seeds picks up the freshly probed numbers.
+  const reloadFavsQuiet = async () => {
+    try {
+      const favsList = await favoritesList(revealHidden)
+      setFavs(favsList || [])
+    } catch { /* keep the current list on a transient failure */ }
+  }
+
   // "Atualizar seeds": bump this counter to make every SeedBadge in the current
   // view re-probe the swarm at once. The backend dedupes + caps to 3 concurrent
   // probes, so firing one per visible card is safe.
@@ -260,9 +276,12 @@ export default function FavoritesPage() {
     setSeedRefreshing(true)
     // Visual ack only — each badge owns its own probing spinner afterwards.
     setTimeout(() => setSeedRefreshing(false), 1500)
+    // Probes persist the snapshot to the metadata cache; re-pull a bit later so
+    // a "sort by seeds" reflects the new counts without a manual refresh.
+    setTimeout(() => { void reloadFavsQuiet() }, 11000)
   }
 
-  // Filter favorites by current view AND search query
+  // Filter favorites by current view AND search query, then sort.
   const filteredFavs = useMemo(() => {
     let list = favs
     if (viewMode !== ALL_VIEW) {
@@ -273,8 +292,8 @@ export default function FavoritesPage() {
       const q = searchQuery.toLowerCase()
       list = list.filter(f => f.name.toLowerCase().includes(q))
     }
-    return list
-  }, [favs, viewMode, searchQuery])
+    return sortFavorites(list, sortBy, sortDir)
+  }, [favs, viewMode, searchQuery, sortBy, sortDir])
 
   const load = async () => {
     setLoading(true)
@@ -675,6 +694,14 @@ export default function FavoritesPage() {
                 </button>
               )}
             </div>
+            {/* Sort: criterion + direction. setVisible reset keeps the infinite
+                scroll honest when the order (and thus the first page) changes. */}
+            <FavoritesSortControl
+              sortBy={sortBy}
+              sortDir={sortDir}
+              onSortBy={k => { setSortBy(k); setVisible(PAGE_SIZE) }}
+              onToggleDir={() => { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); setVisible(PAGE_SIZE) }}
+            />
             <button
               onClick={() => {
                 if (selected.size === filteredFavs.length) {
