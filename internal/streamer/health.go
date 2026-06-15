@@ -56,12 +56,20 @@ func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, act
 	return s.cache.GetHealth(hash.HexString()), false
 }
 
-// ProbeHealthAsync runs a background swarm probe for an INACTIVE torrent: add the
-// magnet, let peers connect briefly, snapshot seeders/peers, persist, then drop
-// it (unless a real playback attached meanwhile). Throttled + deduped. No-op when
-// the magnet is empty or a probe for this hash is already running.
+// CanProbeHealth reports whether a swarm probe is possible for this hash: we need
+// either a magnet (its tr= trackers) or a cached .torrent (its announce list,
+// which carries a private tracker's passkey). Private results from amigos-share
+// ship no magnet, so the cached .torrent is the only tracker source.
+func (s *Streamer) CanProbeHealth(hash metainfo.Hash, magnet string) bool {
+	return magnet != "" || s.loadCachedMetainfo(hash) != nil
+}
+
+// ProbeHealthAsync runs a background swarm probe for an INACTIVE torrent: scrape
+// the trackers (magnet tr= + cached .torrent announce list) for the real swarm
+// size, persist it, falling back to a brief swarm-connect count. Throttled +
+// deduped. No-op when there's no tracker source or a probe is already running.
 func (s *Streamer) ProbeHealthAsync(hash metainfo.Hash, magnet string) {
-	if magnet == "" {
+	if !s.CanProbeHealth(hash, magnet) {
 		return
 	}
 	if _, busy := healthInflight.LoadOrStore(hash, true); busy {
@@ -84,13 +92,23 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	}
 
 	// Preferred: tracker scrape (BEP 48) — the real swarm size the tracker
-	// publishes, without joining the swarm. Falls through to the live connect
-	// probe below only when no tracker answered (DHT-only magnets, dead trackers).
+	// publishes, without joining the swarm. Trackers come from the magnet's tr=
+	// AND the cached .torrent's announce list (the latter carries a private
+	// tracker's passkey, so amigos-share works even with no magnet). Falls through
+	// to the live connect probe only when no tracker answered.
+	trackers := trackersFromMagnet(magnet)
+	trackers = append(trackers, trackersFromMetainfo(s.loadCachedMetainfo(hash))...)
 	sctx, scancel := context.WithTimeout(context.Background(), scrapeBudget)
-	seeders, leechers, ok := scrapeSwarm(sctx, hash, trackersFromMagnet(magnet))
+	seeders, leechers, ok := scrapeSwarm(sctx, hash, trackers)
 	scancel()
 	if ok {
 		_ = s.cache.SetHealth(hash.HexString(), seeders, leechers)
+		return
+	}
+
+	// No magnet to join the swarm with (private result whose trackers didn't
+	// answer the scrape) — leave the previous snapshot rather than zeroing it.
+	if magnet == "" {
 		return
 	}
 

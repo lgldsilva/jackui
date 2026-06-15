@@ -4,6 +4,7 @@ import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, conver
 import { buildFavoritePayload } from '../lib/favoritePayload'
 import { newTabProps, playHref } from '../lib/cardNav'
 import QualityBadges from './QualityBadges'
+import SeedBadge from './SeedBadge'
 
 
 // Backwards-compat no-op shim. Antes da onda 3, SearchPage seedava o estado
@@ -246,7 +247,12 @@ function renderCardStats(
     <div className="grid grid-cols-2 gap-2 text-xs">
       <div className="flex items-center gap-1 text-text-secondary"><HardDrive className="w-3.5 h-3.5" /><span>{formatSize(result.size)}</span></div>
       <div className="flex items-center gap-1 text-text-secondary"><Clock className="w-3.5 h-3.5" /><span>{result.age}</span></div>
-      <div className="flex items-center gap-1 text-green-400"><Users className="w-3.5 h-3.5" /><span>{result.seeders} seed</span></div>
+      <div className="flex items-center gap-1 text-green-400">
+        <Users className="w-3.5 h-3.5" /><span>{result.seeders} seed</span>
+        {/* Real swarm size via tracker scrape — the Jackett count above is the
+            indexer's, which over/under-reports. Click to verify against the tracker. */}
+        {result.infoHash && <SeedBadge infoHash={result.infoHash} magnet={result.magnetUri} className="ml-1" />}
+      </div>
       <div className="flex items-center gap-1 text-red-400">
         <TrendingDown className="w-3.5 h-3.5" /><span>{result.leechers} leech</span>
         {onRefresh && result.id !== undefined && (

@@ -2,13 +2,17 @@ package streamer
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/tracker"
+	"github.com/anacrolix/torrent/tracker/udp"
 	"github.com/anacrolix/torrent/types/infohash"
 )
 
@@ -73,29 +77,98 @@ func scrapeSwarm(ctx context.Context, hash metainfo.Hash, trackers []string) (se
 	return seeders, leechers, ok
 }
 
-// scrapeOneTracker scrapes a single tracker URL. anacrolix's HTTP client rewrites
-// .../announce → .../scrape (BEP 48) and preserves the query/path passkey, so
-// private trackers (amigos-share) work as long as the announce URL carries it.
+// scrapeHTTPClient is reused across HTTP scrapes; per-call timeout comes from the
+// context. No redirect-following surprises — a scrape is a single GET.
+var scrapeHTTPClient = &http.Client{}
+
+// scrapeOneTracker scrapes a single tracker. HTTP(S) goes through our own client
+// (httpScrapeTracker) instead of anacrolix's — the latter log.Printf's the full
+// scrape URL, which leaks a private tracker's passkey into our logs. UDP uses
+// anacrolix (its scrape carries no passkey in the URL).
 func scrapeOneTracker(ctx context.Context, trURL string, ih infohash.T) (seeders, leechers int, ok bool) {
+	u, err := url.Parse(trURL)
+	if err != nil {
+		return 0, 0, false
+	}
+	cctx, cancel := context.WithTimeout(ctx, scrapePerTracker)
+	defer cancel()
+
+	switch u.Scheme {
+	case "http", "https":
+		return httpScrapeTracker(cctx, u, ih)
+	case "udp", "udp4", "udp6":
+		return udpScrapeTracker(cctx, trURL, ih)
+	default:
+		return 0, 0, false
+	}
+}
+
+// httpScrapeTracker performs a BEP 48 HTTP scrape ourselves: rewrite the trailing
+// announce segment to "scrape" (preserving any passkey in the path/query) and GET
+// it, decoding the bencoded {files: {<ih>: {complete,incomplete,downloaded}}}.
+func httpScrapeTracker(ctx context.Context, announce *url.URL, ih infohash.T) (seeders, leechers int, ok bool) {
+	su := announce.JoinPath("..", "scrape") // .../announce → .../scrape (BEP 48)
+	q := su.Query()
+	q.Add("info_hash", string(ih[:])) // raw 20 bytes, percent-encoded by Encode
+	su.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, su.String(), nil)
+	if err != nil {
+		return 0, 0, false
+	}
+	resp, err := scrapeHTTPClient.Do(req)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, 0, false
+	}
+	var decoded struct {
+		Files map[string]udp.ScrapeInfohashResult `bencode:"files"`
+	}
+	if err := bencode.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&decoded); err != nil {
+		return 0, 0, false
+	}
+	return nonEmptyScrape(decoded.Files[ih.AsString()])
+}
+
+// udpScrapeTracker scrapes a UDP tracker via anacrolix (handles the connect+scrape
+// handshake). UDP scrape URLs don't carry a passkey, so the log leak isn't a concern.
+func udpScrapeTracker(ctx context.Context, trURL string, ih infohash.T) (seeders, leechers int, ok bool) {
 	cl, err := tracker.NewClient(trURL, tracker.NewClientOpts{})
 	if err != nil {
 		return 0, 0, false
 	}
 	defer cl.Close()
-
-	cctx, cancel := context.WithTimeout(ctx, scrapePerTracker)
-	defer cancel()
-	resp, err := cl.Scrape(cctx, []infohash.T{ih})
+	resp, err := cl.Scrape(ctx, []infohash.T{ih})
 	if err != nil || len(resp) == 0 {
 		return 0, 0, false
 	}
-	r := resp[0]
-	// A tracker that doesn't know the torrent returns a zeroed row; treat the
-	// all-zero case as "no data" so it doesn't mask a positive count elsewhere.
+	return nonEmptyScrape(resp[0])
+}
+
+// nonEmptyScrape unwraps a scrape row, treating an all-zero row as "tracker
+// doesn't know this torrent" (ok=false) so it can't mask a positive count from
+// another tracker in the max().
+func nonEmptyScrape(r udp.ScrapeInfohashResult) (seeders, leechers int, ok bool) {
 	if r.Seeders == 0 && r.Leechers == 0 && r.Completed == 0 {
 		return 0, 0, false
 	}
 	return int(r.Seeders), int(r.Leechers), true
+}
+
+// trackersFromMetainfo flattens a .torrent's announce tiers — including the
+// passkey-bearing URLs of private trackers (amigos-share) that ship no magnet.
+func trackersFromMetainfo(mi *metainfo.MetaInfo) []string {
+	if mi == nil {
+		return nil
+	}
+	out := []string{}
+	for _, tier := range mi.UpvertedAnnounceList() {
+		out = append(out, tier...)
+	}
+	return out
 }
 
 // dedupeScrapeTrackers normalizes, dedupes and drops schemes we can't scrape

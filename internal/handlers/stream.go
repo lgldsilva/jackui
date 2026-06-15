@@ -615,8 +615,9 @@ func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 		magnet := c.Query("magnet")
 		stale := snapshot == nil || time.Since(snapshot.CheckedAt) > streamer.HealthFreshFor
 		// Only probe when explicitly requested AND it'd add value (not active,
-		// stale snapshot, have a magnet to add).
-		refreshing := c.Query("probe") == "1" && !active && stale && magnet != ""
+		// stale snapshot, and a tracker source exists — magnet tr= or a cached
+		// .torrent, the latter covering private results that ship no magnet).
+		refreshing := c.Query("probe") == "1" && !active && stale && s.CanProbeHealth(h, magnet)
 		if refreshing {
 			s.ProbeHealthAsync(h, magnet)
 		}
