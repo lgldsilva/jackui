@@ -3,7 +3,8 @@ import { Pause, Play, Repeat, Shuffle, SkipBack, SkipForward } from 'lucide-reac
 import { TorrentInfo, streamArtworkURL } from '../../api/client'
 
 type AudioTransportBarProps = {
-  readonly videoRef: RefObject<HTMLVideoElement>
+  // HTMLMediaElement: o <video> normal OU o <audio> ativo do motor gapless.
+  readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly info: TorrentInfo
   readonly selectedFile: number
   readonly mediaToken: string | null
@@ -27,7 +28,7 @@ type AudioTransportBarProps = {
 // usePausedState mirrors the <video>'s play/pause into React so the custom
 // transport button shows the right icon. Re-syncs when the source file changes
 // (the same <video> element is reused, only its src swaps).
-function usePausedState(videoRef: RefObject<HTMLVideoElement>, selectedFile: number): boolean {
+function usePausedState(videoRef: RefObject<HTMLMediaElement | null>, selectedFile: number): boolean {
   const [paused, setPaused] = useState(true)
   useEffect(() => {
     const v = videoRef.current

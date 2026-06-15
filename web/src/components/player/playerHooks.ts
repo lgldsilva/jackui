@@ -25,7 +25,9 @@ type SubChoiceLite = {
 // Behavior is unchanged — same effect bodies, same dependency arrays.
 
 type KeyboardShortcutsOpts = {
-  readonly videoRef: RefObject<HTMLVideoElement>
+  // HTMLMediaElement (não HTMLVideoElement) pra aceitar tanto o <video> quanto o
+  // <audio> do motor gapless — só mexe em play/pause/seek/volume (membros comuns).
+  readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly minimized: boolean
   readonly requestFullscreen: () => void
 }
@@ -147,7 +149,8 @@ export function useMediaQueue(info: TorrentInfo | null, selectedFile: number, or
 }
 
 type MediaSessionOpts = {
-  readonly videoRef: RefObject<HTMLVideoElement>
+  // HTMLMediaElement: aceita o <video> ou o <audio> ativo do motor gapless.
+  readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly info: TorrentInfo | null
   readonly selectedFile: number
   readonly playlistName?: string
