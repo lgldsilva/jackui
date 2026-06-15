@@ -113,6 +113,30 @@ func mergeBenchmarkScores(existing []ai.SlotScore, newScores []ai.SlotScore) []a
 	return merged
 }
 
+// persistBenchmarkRun records the run history for the freshly-measured scores,
+// then persists results — merging over the stored set for a single provider/model
+// run, or replacing wholesale for a full run — and returns the re-read results so
+// the response carries the joined history (LastSuccessAt etc.) for every row. With
+// no store it's a pass-through. Extracted from RunAIBenchmark to keep that handler
+// under the S3776 cognitive-complexity gate (the project already does this with
+// filterSlotsForBenchmark).
+func persistBenchmarkRun(store *ai.BenchmarkStore, scores []ai.SlotScore, provider, model string) ([]ai.SlotScore, error) {
+	if store == nil {
+		return scores, nil
+	}
+	if err := store.RecordRun(scores); err != nil {
+		return nil, err
+	}
+	merged := scores
+	if provider != "" || model != "" {
+		merged = mergeBenchmarkScores(store.Results(), scores)
+	}
+	if err := store.SaveResults(merged); err != nil {
+		return nil, err
+	}
+	return store.Results(), nil
+}
+
 // RunAIBenchmark — POST /api/ai/benchmark. Benchmarks the chain PLUS every model
 // installed on the local Ollama (auto-discovered) — each warmed up first — then
 // persists the scores and re-orders the live chain best-first.
@@ -139,20 +163,10 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc
 		slots := filterSlotsForBenchmark(ctx, client, provider, model)
 		scores := client.RunSlots(ctx, slots, cases)
 
-		var merged []ai.SlotScore
-		if store != nil {
-			if provider != "" || model != "" {
-				merged = mergeBenchmarkScores(store.Results(), scores)
-			} else {
-				merged = scores
-			}
-
-			if err := store.SaveResults(merged); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-		} else {
-			merged = scores
+		merged, err := persistBenchmarkRun(store, scores, provider, model)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 
 		client.AdoptBenchmark(merged)
@@ -179,11 +193,18 @@ func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore) gin.H
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 
-		merged := client.RerunIncomplete(ctx, store.Results(), store.Cases())
+		merged, fresh := client.RerunIncomplete(ctx, store.Results(), store.Cases())
+		// Record history only for the slots actually re-measured (fresh); carried-over
+		// rows keep their timeline untouched.
+		if err := store.RecordRun(fresh); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		if err := store.SaveResults(merged); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		merged = store.Results() // re-read with the joined history
 		client.AdoptBenchmark(merged)
 
 		c.JSON(http.StatusOK, gin.H{"results": merged})

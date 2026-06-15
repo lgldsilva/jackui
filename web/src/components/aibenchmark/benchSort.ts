@@ -3,6 +3,12 @@
 
 import type { AISlotScore } from '../../api/client'
 import { compareWithMissing, type SortDir } from '../../lib/useTableSort'
+import { runStatus } from './benchHistory'
+
+// Status severity for the "Status" column: error first (most actionable), then
+// incomplete, unknown, ok. Mirrors what BenchStatusCell shows, so sorting by the
+// column groups by the visible status instead of the raw failure text.
+const STATUS_RANK: Record<string, number> = { error: 0, incomplete: 1, unknown: 2, ok: 3 }
 
 export type BenchSortKey = 'model' | 'accuracy' | 'latency' | 'cost' | 'score' | 'failure'
 
@@ -37,7 +43,13 @@ const columnCompare: Record<BenchSortKey, (a: AISlotScore, b: AISlotScore, dir: 
   latency: (a, b, dir) => compareWithMissing(a.avgLatencyMs, b.avgLatencyMs, dir, v => v <= 0),
   cost: (a, b, dir) => compareWithMissing(a.costPer1M ?? 0, b.costPer1M ?? 0, dir),
   score: (a, b, dir) => compareWithMissing(a.composite, b.composite, dir, v => v <= 0),
-  failure: (a, b, dir) => compareWithMissing(a.failureReason || '', b.failureReason || '', dir, v => v === ''),
+  // "Status" column (key kept as 'failure' for backward-compatible persisted sort
+  // state): order by the derived status severity, failure text as tiebreak.
+  failure: (a, b, dir) => {
+    const c = (STATUS_RANK[runStatus(a)] ?? 2) - (STATUS_RANK[runStatus(b)] ?? 2)
+      || (a.failureReason || '').localeCompare(b.failureReason || '')
+    return dir === 'asc' ? c : -c
+  },
 }
 
 // sortScores returns a new array ordered by `key`/`dir`. Universal tie-break:
