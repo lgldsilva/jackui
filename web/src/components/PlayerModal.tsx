@@ -1495,7 +1495,14 @@ export default function PlayerModal({
           }}
           onResumeRestart={() => {
             const v = videoRef.current
-            if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+            // "Começar do início": só re-seeka se a faixa JÁ avançou. Se mal
+            // começou (currentTime ~0, caso comum — o prompt aparece logo no
+            // início), seekar pra 0 reiniciaria/re-bufferizaria à toa. Aqui só
+            // garante a reprodução (o clique é um gesto → no iOS o play() sai com som).
+            if (v) {
+              if (v.currentTime > 1.5) v.currentTime = 0
+              v.play().catch(() => {})
+            }
             setShowResumePrompt(false)
             setResumePosition(null)
           }}
