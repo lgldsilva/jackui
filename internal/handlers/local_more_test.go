@@ -198,6 +198,35 @@ func TestLocalFile_NotFound(t *testing.T) {
 	}
 }
 
+// O container não tem /etc/mime.types, então sem o Content-Type explícito o iOS
+// recebe tipo errado/sniffado (com nosniff confia) e não decodifica o áudio.
+func TestLocalFile_MediaContentType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mountDir := t.TempDir()
+	want := map[string]string{
+		"song.mp3": "audio/mpeg", "track.m4a": "audio/mp4", "rec.flac": "audio/flac",
+		"clip.mp4": "video/mp4",
+	}
+	for name := range want {
+		if err := os.WriteFile(filepath.Join(mountDir, name), []byte("fake-media-bytes"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Test", Path: mountDir}})
+	for file, wantCT := range want {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("GET", "/api/local/file?mount=Test&path="+file, nil)
+		LocalFile(b, nil, nil)(c)
+		if got := w.Header().Get("Content-Type"); got != wantCT {
+			t.Errorf("%s: Content-Type = %q, want %q (status %d)", file, got, wantCT, w.Code)
+		}
+		if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: missing nosniff header", file)
+		}
+	}
+}
+
 func TestLocalFile_IsDir(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mountDir := t.TempDir()
