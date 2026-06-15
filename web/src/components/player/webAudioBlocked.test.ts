@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { webAudioBlocked, audioElementKey } from './playerFormat'
 
-// webAudioBlocked must block exactly ONE combination: a transcoded HLS track on
-// WebKit (Safari/iOS), where createMediaElementSource yields zero audio data and
-// mutes the element. Everything else (direct-play anywhere, HLS on non-WebKit)
-// must stay UNBLOCKED so the EQ/visualizer mount. This replaces the old
-// shouldUseHlsJs test as the home of the HLS audio-routing decision.
+// webAudioBlocked blocks ALL of WebKit (Safari/iOS): createMediaElementSource
+// there makes the graph the only output and a suspended AudioContext stalls the
+// element (readyState 2) even for direct-play — so WebKit plays natively, no tap.
+// Non-WebKit (Chrome/Firefox) is never blocked → EQ/visualizer mount.
 describe('webAudioBlocked', () => {
   // canPlayNativeHls() returns false WITHOUT caching when window/document are
   // absent (the vitest 'node' env). This test runs before the WebKit stub's
@@ -37,12 +36,9 @@ describe('webAudioBlocked', () => {
       if (!hadDocument) delete g.document
     })
 
-    it('blocks a transcoded HLS track (createMediaElementSource is mute for HLS)', () => {
+    it('blocks ALL WebKit — HLS and direct-play alike (createMediaElementSource stalls)', () => {
       expect(webAudioBlocked(true)).toBe(true)
-    })
-
-    it('allows a direct-play track (MP3/M4A/AAC/FLAC work on iOS)', () => {
-      expect(webAudioBlocked(false)).toBe(false)
+      expect(webAudioBlocked(false)).toBe(true)
     })
 
     it('remounts only the audio HLS element (so it never inherits a tapped source)', () => {

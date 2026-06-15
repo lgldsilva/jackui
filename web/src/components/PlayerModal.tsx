@@ -47,7 +47,7 @@ import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 import { AudioTransportBar } from './player/AudioTransportBar'
-import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
+import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, canPlayNativeHls, type FileType } from './player/playerFormat'
 import { computeMediaUrls, tryAutoplayMutedFallback, computeIsTranscoded } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
@@ -1197,7 +1197,10 @@ export default function PlayerModal({
   const transition = useTransitionConfig()
   const inPlaylist = !!playlist && playlist.items.length > 1
   const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
-  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat })
+  // !canPlayNativeHls(): motor só em não-WebKit (Chrome/Firefox). No iOS/Safari o
+  // createMediaElementSource trava o elemento (ver webAudioBlocked) → fica o player
+  // nativo. Sem isto o motor mudaria o <video> e tapearia os <audio> no iOS → stall.
+  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat }) && !canPlayNativeHls()
   // Agregado da playlist (todas as faixas de todos os itens) — consumido pelo
   // PlaylistTracksSidebar (por prop) e pelo motor (cross-item: 1ª faixa do próximo
   // item). Resolver itens ATIVA torrents no servidor → só ligamos quando a sidebar

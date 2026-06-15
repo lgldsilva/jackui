@@ -108,10 +108,20 @@ export function useAudioEngine(opts: EngineOpts): AudioEngine {
       ctx.resume().then(build).catch(() => {})
       ;(activeIsA.current ? elARef.current : elBRef.current)?.play().catch(() => {})
     }
+    // Gatilho CONFIÁVEL (igual ao grafo single do #247): o evento 'play' dos
+    // <audio> — disparado dentro da reprodução iniciada por gesto, é o que de fato
+    // destrava o AudioContext no Chrome (o resume() no mount, fora de handler, é
+    // não-confiável e os gestos no document só vêm num PRÓXIMO clique). Sem isto o
+    // ctx ficava 'suspended' e o grafo dual nunca montava.
+    const onElPlay = () => { ctx.resume().then(build).catch(() => {}) }
+    a.addEventListener('play', onElPlay)
+    b.addEventListener('play', onElPlay)
     const gestures: Array<keyof DocumentEventMap> = ['pointerdown', 'touchend', 'keydown']
     gestures.forEach(ev => document.addEventListener(ev, resume, { passive: true }))
     ctx.addEventListener('statechange', build)
     return () => {
+      a.removeEventListener('play', onElPlay)
+      b.removeEventListener('play', onElPlay)
       gestures.forEach(ev => document.removeEventListener(ev, resume))
       ctx.removeEventListener('statechange', build)
     }
