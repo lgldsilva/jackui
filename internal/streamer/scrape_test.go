@@ -12,6 +12,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/tracker/udp"
+	"github.com/anacrolix/torrent/types/infohash"
 )
 
 func scrapeTestHash() metainfo.Hash {
@@ -116,6 +117,82 @@ func TestDedupeScrapeTrackers(t *testing.T) {
 	got := dedupeScrapeTrackers(in)
 	if len(got) != 2 || got[0] != "http://a/announce" || got[1] != "udp://b:80/announce" {
 		t.Fatalf("got %v, want [http://a/announce udp://b:80/announce]", got)
+	}
+}
+
+func TestTrackersFromMetainfo(t *testing.T) {
+	if trackersFromMetainfo(nil) != nil {
+		t.Fatal("nil metainfo should yield nil")
+	}
+	mi := &metainfo.MetaInfo{
+		Announce:     "http://primary/announce",
+		AnnounceList: metainfo.AnnounceList{{"http://t1/announce"}, {"udp://t2:80/announce"}},
+	}
+	got := trackersFromMetainfo(mi)
+	if len(got) != 2 || got[0] != "http://t1/announce" || got[1] != "udp://t2:80/announce" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestCanProbeHealth(t *testing.T) {
+	s := NewForTesting() // metainfoDir == "" → no cached .torrent
+	var h metainfo.Hash
+	if s.CanProbeHealth(h, "") {
+		t.Fatal("no magnet and no cached .torrent → should be false")
+	}
+	if !s.CanProbeHealth(h, "magnet:?xt=urn:btih:abc") {
+		t.Fatal("magnet present → should be true")
+	}
+}
+
+// With no magnet and no scrapeable trackers, probeHealth must NOT overwrite the
+// previous snapshot with zeros (private result whose trackers didn't answer).
+func TestProbeHealth_NoMagnetKeepsSnapshot(t *testing.T) {
+	s := NewForTesting()
+	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mc.Close() })
+	s.SetMetadataCache(mc)
+	hash := scrapeTestHash()
+	if err := mc.SetHealth(hash.HexString(), 99, 5); err != nil {
+		t.Fatal(err)
+	}
+	s.probeHealth(hash, "")
+	if h := mc.GetHealth(hash.HexString()); h == nil || h.Seeders != 99 {
+		t.Fatalf("snapshot should be preserved, got %+v", h)
+	}
+}
+
+// Exercises the UDP branch of scrapeOneTracker without a real tracker: a
+// cancelled context makes the scrape return promptly with ok=false.
+func TestUDPScrapeTracker_Unreachable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, ok := udpScrapeTracker(ctx, "udp://127.0.0.1:6969/announce", infohash.T(scrapeTestHash())); ok {
+		t.Fatal("expected ok=false for an unreachable/cancelled UDP scrape")
+	}
+}
+
+func TestScrapeOneTracker_BadAndUnsupported(t *testing.T) {
+	ih := infohash.T(scrapeTestHash())
+	if _, _, ok := scrapeOneTracker(context.Background(), "://nope", ih); ok {
+		t.Fatal("unparseable URL → false")
+	}
+	if _, _, ok := scrapeOneTracker(context.Background(), "ftp://x/announce", ih); ok {
+		t.Fatal("unsupported scheme → false")
+	}
+}
+
+func TestHTTPScrapeTracker_Non200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	u, _ := url.Parse(srv.URL + "/announce")
+	if _, _, ok := httpScrapeTracker(context.Background(), u, infohash.T(scrapeTestHash())); ok {
+		t.Fatal("HTTP 500 → false")
 	}
 }
 
