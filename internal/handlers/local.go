@@ -220,19 +220,41 @@ func statLocalFile(c *gin.Context, abs string) bool {
 	return true
 }
 
+// localMediaContentType maps media extensions to their correct MIME type. The
+// container image has NO /etc/mime.types, so http.ServeContent can't deduce the
+// type by extension and falls back to SNIFFING — and since we send
+// X-Content-Type-Options: nosniff, the client (iOS Safari especially) trusts the
+// header blindly. Sniffing gets .m4a wrong (detected as video/mp4), others empty,
+// so iOS refuses to decode the audio and stalls at readyState 2 ("não toca").
+// Setting the type explicitly here makes ServeContent keep it → direct-play works.
+var localMediaContentType = map[string]string{
+	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+	".flac": "audio/flac", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+	".opus": "audio/opus", ".wav": "audio/wav", ".alac": "audio/mp4",
+	".wma": "audio/x-ms-wma",
+	".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
+	".mov": "video/quicktime", ".ogv": "video/ogg",
+}
+
 // setLocalFileSecurityHeaders applies the stored-XSS guard for files served
 // same-origin (where the JWT lives in localStorage). MIME sniffing is always
 // disabled. Subtitles get the correct text/vtt so <track> renders them;
-// actively rendered formats (html/svg/xml/js) are forced to download instead
-// of executing in our origin. Media (video/audio) keeps ServeFile's type.
+// actively rendered formats (html/svg/xml/js) are forced to download instead of
+// executing in our origin. Media gets an explicit Content-Type (see
+// localMediaContentType) since the image lacks /etc/mime.types.
 func setLocalFileSecurityHeaders(c *gin.Context, path string) {
 	c.Header("X-Content-Type-Options", "nosniff")
-	switch strings.ToLower(filepath.Ext(path)) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
 	case ".vtt", ".srt":
 		c.Header("Content-Type", "text/vtt; charset=utf-8")
 	case ".html", ".htm", ".xhtml", ".svg", ".xml", ".js", ".mjs":
 		c.Header("Content-Type", "application/octet-stream")
 		c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(path)+"\"")
+	default:
+		if ct := localMediaContentType[ext]; ct != "" {
+			c.Header("Content-Type", ct)
+		}
 	}
 }
 
