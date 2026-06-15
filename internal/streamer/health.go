@@ -43,17 +43,33 @@ func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, act
 	if ok {
 		st := e.t.Stats()
 		s.mu.Unlock()
+		// ConnectedSeeders counts only the SEEDERS we're connected to right now —
+		// it can be 0 while playing (we're pulling from leechers) even though the
+		// tracker reports many seeders. Never let that live count regress the last
+		// tracker scrape (the real swarm size), so the badge stays consistent with
+		// the per-tracker panel.
+		seeders := s.seedersNotBelowScrape(hash, st.ConnectedSeeders)
 		h := &CachedHealth{
-			Seeders:   st.ConnectedSeeders,
+			Seeders:   seeders,
 			Peers:     st.TotalPeers,
-			Available: st.ConnectedSeeders > 0 || st.TotalPeers > 0,
+			Available: seeders > 0 || st.TotalPeers > 0,
 			CheckedAt: time.Now(),
 		}
-		_ = s.cache.SetHealth(hash.HexString(), h.Seeders, h.Peers)
+		_ = s.cache.SetHealth(hash.HexString(), seeders, h.Peers)
 		return h, true
 	}
 	s.mu.Unlock()
 	return s.cache.GetHealth(hash.HexString()), false
+}
+
+// seedersNotBelowScrape clamps a live ConnectedSeeders count up to the last
+// persisted tracker scrape, if larger — the scrape is the real swarm size, the
+// live count is just who we've connected to.
+func (s *Streamer) seedersNotBelowScrape(hash metainfo.Hash, live int) int {
+	if cached := s.cache.GetHealth(hash.HexString()); cached != nil && cached.Seeders > live {
+		return cached.Seeders
+	}
+	return live
 }
 
 // CanProbeHealth reports whether a swarm probe is possible for this hash: we need
@@ -84,10 +100,11 @@ func (s *Streamer) ProbeHealthAsync(hash metainfo.Hash, magnet string) {
 }
 
 func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
-	// Already streaming? Just snapshot live — never interfere with a play.
+	// Already streaming? Just snapshot live — never interfere with a play. Keep
+	// the seeders count from regressing the last tracker scrape (see HealthSnapshot).
 	if e := s.activeEntry(hash); e != nil {
 		st := e.t.Stats()
-		_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
+		_ = s.cache.SetHealth(hash.HexString(), s.seedersNotBelowScrape(hash, st.ConnectedSeeders), st.TotalPeers)
 		return
 	}
 
