@@ -5,6 +5,7 @@ import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
 import { canPlayNativeHls, audioElementKey } from './playerFormat'
+import { shouldShowStartOverlay } from './playerOverlay'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
 
@@ -14,6 +15,10 @@ type VideoPlayerElementProps = {
   // engineActive: o motor gapless assumiu o áudio (toca em <audio> próprios). O
   // <video> então fica SEM src e mudo (a capa continua), pra não dobrar o áudio.
   readonly engineActive?: boolean
+  // suppressStartOverlay: já houve uma faixa nesta instância (troca de faixa de
+  // música, não abertura fria). Suprime o spinner de "carregando" no início da
+  // nova faixa — a capa/seekbar continuam; sem isso o spinner piscava a cada troca.
+  readonly suppressStartOverlay?: boolean
   readonly audioMode: boolean
   readonly subtitleVttURL: string
   readonly videoError: boolean
@@ -107,6 +112,7 @@ export function VideoPlayerElement({
   videoRef,
   streamURL,
   engineActive = false,
+  suppressStartOverlay = false,
   audioMode,
   subtitleVttURL,
   videoError,
@@ -200,8 +206,8 @@ export function VideoPlayerElement({
       )}
       {/* No modo-motor o <video> está mudo/sem-src (bufferedEnd fica sempre 0) e o
           motor é quem toca — então NÃO mostra o overlay de "carregando" (senão ele
-          piscaria a cada faixa, o "refresh" indevido). */}
-      {!videoError && !engineActive && currentTime === 0 && bufferedEnd === 0 && (
+          piscaria a cada faixa, o "refresh" indevido). Ver shouldShowStartOverlay. */}
+      {shouldShowStartOverlay({ videoError, engineActive, suppressStartOverlay, currentTime, bufferedEnd }) && (
         <PlayerLoadingOverlay
           serverReady={serverReady}
           resumePosition={resumePosition}

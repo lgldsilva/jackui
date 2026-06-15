@@ -574,6 +574,13 @@ export default function PlayerModal({
   const watchedRef = useRef(0)            // accumulated playback time (seconds)
   const lastTickRef = useRef<number>(0)   // last currentTime sample (for delta)
   const AUTO_FAV_THRESHOLD = 5 * 60       // 5 minutes
+  // everReadyRef: vira true assim que o player já mostrou conteúdo (info +
+  // arquivo) ao menos uma vez nesta instância. Habilita o "warm hold" na troca
+  // de faixa de música (ver o efeito [result]) e suprime o overlay de start.
+  const everReadyRef = useRef(false)
+  // streamAddDoneRef: o streamAdd (autoritativo) já resolveu? Evita que o
+  // preview do cache de metadados sobrescreva o resultado autoritativo na corrida.
+  const streamAddDoneRef = useRef(false)
   // Playback state
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -626,10 +633,27 @@ export default function PlayerModal({
     // thumbnails clobber the new video. Flipped by the cleanup below.
     let cancelled = false
 
+    // warmHold: numa troca de faixa de MÚSICA com o player já populado, NÃO
+    // desmonta a UI (capa/seekbar/transport) nem corta o áudio atual — segura o
+    // `info`/`selectedFile`/`serverReady` antigos (streamURL deriva de `info`, então
+    // o <video> continua na faixa atual) até o streamMetadata/streamAdd da nova
+    // resolver; aí a troca é atômica. Sem isso a tela "piscava" (overlay
+    // "Conectando ao swarm") a cada faixa. Escopo só ÁUDIO (vídeo mantém o reset
+    // completo, sem regressão); cold start (1ª faixa) também reseta normal.
+    const warmHold = everReadyRef.current && audioMode
+    streamAddDoneRef.current = false
+
     setLoading(true)
     setError('')
-    setInfo(null)
-    setSelectedFile(-1)
+    if (!warmHold) {
+      setInfo(null)
+      setSelectedFile(-1)
+      setServerReady(false)
+      setCurrentTime(0)
+      setDuration(0)
+      setBufferedEnd(0)
+      setBufferedRanges([])
+    }
     setVideoError(false)
     setSubActive(null)
     setSubResults([])
@@ -645,7 +669,6 @@ export default function PlayerModal({
     setLibraryEntryID(null)
     setResumePosition(null)
     lastResumeSaveRef.current = 0
-    setServerReady(false)
     setTranscodeAudio(null)
     audioAutoRef.current = false
     setForceH264(false)
@@ -665,17 +688,16 @@ export default function PlayerModal({
     // fileSortBySize/fileSizeDesc persist (shared with TorrentContentsModal) —
     // intentionally NOT reset here, so the chosen order carries into the player.
     origCuesRef.current = []
-    setCurrentTime(0)
-    setDuration(0)
-    setBufferedEnd(0)
-    setBufferedRanges([])
 
     // Try the cached metadata first — if the server has seen this hash before,
     // the file list + name appear instantly. streamAdd still kicks off in
     // parallel to actually load the torrent client (required for playback).
     if (result.infoHash) {
       streamMetadata(result.infoHash).then(cached => {
-        if (cancelled || !cached || info) return
+        // streamAddDoneRef (não `info`): no warm hold o `info` antigo ainda está
+        // setado, então o preview do cache PRECISA poder sobrescrevê-lo; só não
+        // pode passar por cima do streamAdd autoritativo se este já resolveu.
+        if (cancelled || !cached || streamAddDoneRef.current) return
         setInfo(cached)
         setSelectedFile(chooseInitialFile(cached, initialFileIndex))
       })
@@ -684,6 +706,7 @@ export default function PlayerModal({
     streamAdd(pickTorrentSource(result), audioMode ? 'audio' : 'video')
       .then(t => {
         if (cancelled) return
+        streamAddDoneRef.current = true
         setInfo(t)
         setSelectedFile(chooseInitialFile(t, initialFileIndex))
         // Streamer now has the torrent active — unblock <video src>.
@@ -701,6 +724,12 @@ export default function PlayerModal({
 
     return () => { cancelled = true }
   }, [result])
+
+  // Marca que o player já renderizou uma faixa nesta instância → habilita o warm
+  // hold (troca de faixa sem desmontar a UI) nas próximas trocas.
+  useEffect(() => {
+    if (info && selectedFile >= 0) everReadyRef.current = true
+  }, [info, selectedFile])
 
   // Diagnostic snapshot helper. Returns a plain object with the MediaError code,
   // network state, ready state, current src and user-agent details — everything
@@ -1438,6 +1467,7 @@ export default function PlayerModal({
           videoRef={videoRef}
           streamURL={streamURL}
           engineActive={engineOn}
+          suppressStartOverlay={everReadyRef.current && audioMode}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
           videoError={videoError}
