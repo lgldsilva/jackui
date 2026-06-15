@@ -251,7 +251,7 @@ function renderCardStats(
         <Users className="w-3.5 h-3.5" /><span>{result.seeders} seed</span>
         {/* Real swarm size via tracker scrape — the Jackett count above is the
             indexer's, which over/under-reports. Click to verify against the tracker. */}
-        {result.infoHash && <SeedBadge infoHash={result.infoHash} magnet={result.magnetUri} className="ml-1" />}
+        {result.infoHash && <SeedBadge infoHash={result.infoHash} magnet={result.magnetUri} autoProbe className="ml-1" />}
       </div>
       <div className="flex items-center gap-1 text-red-400">
         <TrendingDown className="w-3.5 h-3.5" /><span>{result.leechers} leech</span>
