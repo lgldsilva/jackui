@@ -215,7 +215,10 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     } finally {
       setLoading(false)
     }
-  }, [download])
+    // Key on the id, not the object: the parent now derives `download` from the 2s
+    // poll, so its reference changes every tick — depending on `download` would
+    // re-fetch details/sources every 2s. The id is what actually identifies the row.
+  }, [download?.id])
 
   useEffect(() => {
     if (!download) {
@@ -225,7 +228,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       return
     }
     refresh()
-  }, [download, refresh])
+  }, [download?.id, refresh])
 
   // Lazily load the source catalog the first time the Fontes tab is opened.
   useEffect(() => {
@@ -235,7 +238,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       .then(setSources)
       .catch(() => setSources([]))
       .finally(() => setLoadingSources(false))
-  }, [tab, download])
+  }, [tab, download?.id])
 
   if (!download) return null
 
