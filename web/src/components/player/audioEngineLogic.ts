@@ -15,6 +15,22 @@ export function crossfadeDue(currentTime: number, duration: number, crossfadeSec
   return duration - currentTime <= crossfadeSec
 }
 
+// equalPowerCurve: curva de ganho EQUAL-POWER pro crossfade. A rampa LINEAR
+// (que usávamos) soma energia ~0,707 no ponto médio → queda de volume audível no
+// meio da transição. Equal-power usa cos/sin: 'out' = cos(t·π/2) (1→0), 'in' =
+// sin(t·π/2) (0→1); como cos²+sin²=1, a POTÊNCIA somada das duas faixas é
+// constante (=1) em todo o cruzamento → sem dip. Usada com setValueCurveAtTime
+// (sample-accurate no clock do AudioContext). `steps` pontos interpolados.
+export function equalPowerCurve(steps: number, dir: 'in' | 'out'): Float32Array {
+  const n = Math.max(2, Math.floor(steps))
+  const curve = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1) // 0..1
+    curve[i] = dir === 'out' ? Math.cos((t * Math.PI) / 2) : Math.sin((t * Math.PI) / 2)
+  }
+  return curve
+}
+
 // peekNextIndex: índice da próxima faixa na fila, JÁ em ordem de reprodução
 // (shuffle é resolvido a montante, ao montar a lista). Respeita repeat:
 //   'one' → mesma faixa (replay/loop)
