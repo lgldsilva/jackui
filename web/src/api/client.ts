@@ -587,6 +587,15 @@ export type AISlotScore = {
   failureReason?: string
   incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Rodar faltantes"
   tasks?: Record<string, AITaskScore> // optional per-task breakdown (multi-task benchmark)
+  // Durable run history (backend benchmark_history): whether the LAST run succeeded
+  // or errored, whether the error persisted, and when it last succeeded. All
+  // optional — empty/absent on legacy rows persisted before history existed.
+  lastOutcome?: string         // 'ok' | 'incomplete' | 'error'
+  lastError?: string           // failure reason of the last failing run (durable); '' once it succeeds again
+  lastSuccessAt?: string       // RFC3339 of the last 'ok' run; absent = never succeeded
+  lastRunAt?: string           // RFC3339 of the last run (any outcome)
+  firstFailureAt?: string      // RFC3339 the current error streak began
+  consecutiveFailures?: number // # of consecutive 'error' runs (0 = not in a streak)
 }
 // task: which AI task the case measures — "rename" (default, omitted), "identify"
 // or "schedule". Optional for retrocompat: a case without it is the rename task.

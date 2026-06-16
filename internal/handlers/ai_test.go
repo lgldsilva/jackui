@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -361,5 +362,27 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
+	}
+}
+
+// TestPersistBenchmarkRun covers the helper directly: pass-through with no store,
+// and the error path when the store's DB is unusable (closed) so RecordRun fails.
+func TestPersistBenchmarkRun(t *testing.T) {
+	scores := []ai.SlotScore{{SlotID: "p:m", Provider: "p", Model: "m", Samples: 1}}
+
+	// No store → pass-through, no error.
+	got, err := persistBenchmarkRun(nil, scores, "", "")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("nil store: got %v, err %v", got, err)
+	}
+
+	// Closed store → RecordRun's Begin fails → error bubbles up.
+	store, err := ai.NewBenchmarkStore(filepath.Join(t.TempDir(), "b.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Close()
+	if _, err := persistBenchmarkRun(store, scores, "", ""); err == nil {
+		t.Fatal("expected an error from a closed store")
 	}
 }
