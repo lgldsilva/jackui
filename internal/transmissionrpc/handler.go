@@ -56,6 +56,10 @@ const (
 	magnetPrefix = "magnet:?xt=urn:btih:"
 
 	valUnsupportedFilename = "unsupported filename — provide a magnet URI, infoHash, or torrent URL"
+
+	// headerTransmissionSessionID is the CSRF session-id header of the Transmission
+	// RPC handshake (used on the 409 emit + the GET/POST session lookups).
+	headerTransmissionSessionID = "X-Transmission-Session-Id"
 )
 
 // portCheckURLs is the list of external services used to verify if the
@@ -169,7 +173,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 // (the handshake the client wants). A GET carrying a valid session has no RPC
 // body to run, so we just acknowledge it.
 func (h *Handler) rpcSessionProbe(c *gin.Context) {
-	sessionID := c.GetHeader("X-Transmission-Session-Id")
+	sessionID := c.GetHeader(headerTransmissionSessionID)
 	if _, ok := h.resolveSessionUser(c, sessionID); ok {
 		c.JSON(http.StatusOK, rpcResponse{Result: "success"})
 	}
@@ -211,7 +215,7 @@ func newSessionID() string {
 }
 
 func (h *Handler) emit409(c *gin.Context, sid string) {
-	c.Header("X-Transmission-Session-Id", sid)
+	c.Header(headerTransmissionSessionID, sid)
 	c.Header("X-Transmission-Rpc-Version", "6.0.1")
 	c.JSON(http.StatusConflict, rpcResponse{Result: "success"})
 }
@@ -242,7 +246,7 @@ func (h *Handler) resolveSessionUser(c *gin.Context, sessionID string) (userID i
 }
 
 func (h *Handler) rpcHandler(c *gin.Context) {
-	sessionID := c.GetHeader("X-Transmission-Session-Id")
+	sessionID := c.GetHeader(headerTransmissionSessionID)
 
 	userID, ok := h.resolveSessionUser(c, sessionID)
 	if !ok {
