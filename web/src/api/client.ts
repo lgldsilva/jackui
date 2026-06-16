@@ -817,6 +817,8 @@ export type StreamFavorite = {
   favoritedAt: string
   reason: 'manual' | 'auto-5min'
   folderId: number | null  // nil = root level; otherwise nested in a FavoriteFolder
+  totalSize?: number       // bytes, from the metadata cache; absent/0 = unknown
+  seeders?: number         // last probed swarm seeders; absent = never probed
 }
 
 /** Favorite folder for organizing the user's favorites tree. */
