@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileVideo, ChevronRight, ArrowDownWideNarrow, ArrowUpWideNarrow, List, FolderTree } from 'lucide-react'
+import { FileVideo, ChevronRight, ChevronDown, ArrowDownWideNarrow, ArrowUpWideNarrow, List, FolderTree } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
@@ -8,6 +8,7 @@ import { buildFileTree, pathsToExpand, hasSubdirs } from '../../lib/fileTree'
 import { fileType, filterAndSortFiles, type FileType } from './playerFormat'
 import { FileRow } from './FileRow'
 import { FileTree } from './FileTree'
+import { useIncrementalReveal } from './useIncrementalReveal'
 
 type FilePickerSidebarProps = {
   readonly info: TorrentInfo
@@ -71,6 +72,12 @@ export function FilePickerSidebar({
     filter: fileFilter, typeFilter: fileTypeFilter,
     sortBySize: fileSortBySize, sizeDesc: fileSizeDesc,
   })
+  // Renderiza em lotes (revela mais ao rolar/clicar) — antes cortava em 100 e
+  // escondia o resto atrás do filtro. Reseta o lote quando torrent/filtro/ordem muda.
+  const reveal = useIncrementalReveal(
+    filteredFiles.length,
+    `${info.infoHash}|${fileFilter}|${fileTypeFilter}|${fileSortBySize}|${fileSizeDesc}`,
+  )
 
   const selectedPath = useMemo(() => {
     const f = info.files.find(x => x.index === selectedFile)
@@ -222,7 +229,7 @@ export function FilePickerSidebar({
               {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
             </p>
           )}
-          {filteredFiles.slice(0, 100).map(f => (
+          {filteredFiles.slice(0, reveal.visible).map(f => (
             <FileRow
               key={f.index}
               ref={selectedFile === f.index ? selectedFileRef : undefined}
@@ -237,12 +244,16 @@ export function FilePickerSidebar({
               setPreviewFileIdx={setPreviewFileIdx}
             />
           ))}
-          {filteredFiles.length > 100 && (
-            <p className="text-[11px] text-text-muted text-center py-3 px-2 leading-snug">
-              Mostrando 100 de {filteredFiles.length}. Use o filtro acima
-              (ex: <span className="font-mono text-text-secondary">s04e03</span> ou
-              parte do nome) pra achar o resto.
-            </p>
+          {reveal.hasMore && (
+            <div ref={reveal.sentinelRef} className="px-2 pt-1 pb-2">
+              <button
+                onClick={reveal.showMore}
+                className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-surface-2 py-2 text-xs text-text-secondary hover:text-text-primary"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+                Mostrar mais ({reveal.remaining} de {filteredFiles.length})
+              </button>
+            </div>
           )}
         </div>
       )}
