@@ -19,10 +19,16 @@ export type LibraryEntry = {
   addedAt: string
 }
 
-export const libraryList = async (opts: { limit?: number; all?: boolean } = {}): Promise<LibraryEntry[]> => {
+export const libraryList = async (opts: { limit?: number; all?: boolean; revealHidden?: boolean } = {}): Promise<LibraryEntry[]> => {
   const p = new URLSearchParams()
   if (opts.limit) p.set('limit', String(opts.limit))
   if (opts.all) p.set('all', '1')
+  // revealHidden forces inclusion of entries behind the hidden curtain for THIS
+  // request only (the backend's RevealHidden middleware also honors ?revealHidden=1,
+  // not just the global X-JackUI-Reveal-Hidden header). Used by the deep-link play
+  // gate to tell "hidden item" apart from "not in library" without flipping the
+  // global curtain.
+  if (opts.revealHidden) p.set('revealHidden', '1')
   const { data } = await api.get<LibraryEntry[]>(`/library?${p}`)
   return data
 }
