@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
@@ -164,7 +165,7 @@ func TestRecCache_PutSweepsExpired(t *testing.T) {
 	recCacheMu.Unlock()
 
 	// A later Put (past TTL) must sweep the stale entry while keeping the new one.
-	recCachePut(91002, []recItem{{Match: m(1, "X", 1)}}, base.Add(recTTL+time.Minute))
+	recCachePut(91002, false, []recItem{{Match: m(1, "X", 1)}}, base.Add(recTTL+time.Minute))
 
 	recCacheMu.Lock()
 	_, oldThere := recCache[91001]
@@ -180,12 +181,70 @@ func TestRecCache_PutSweepsExpired(t *testing.T) {
 
 func TestRecCache_HitAndExpiry(t *testing.T) {
 	base := time.Now()
-	recCachePut(4242, []recItem{{Match: m(1, "X", 1)}}, base)
+	recCachePut(4242, false, []recItem{{Match: m(1, "X", 1)}}, base)
 
-	if _, ok := recCacheGet(4242, base.Add(time.Minute)); !ok {
+	if _, ok := recCacheGet(4242, false, base.Add(time.Minute)); !ok {
 		t.Error("expected cache hit within TTL")
 	}
-	if _, ok := recCacheGet(4242, base.Add(recTTL+time.Minute)); ok {
+	if _, ok := recCacheGet(4242, false, base.Add(recTTL+time.Minute)); ok {
 		t.Error("expected cache miss after TTL")
+	}
+}
+
+func TestRecCacheGet_RevealMismatchIsMiss(t *testing.T) {
+	now := time.Now()
+	recCachePut(91010, true, []recItem{{Match: m(1, "X", 1)}}, now)
+	defer func() { recCacheMu.Lock(); delete(recCache, 91010); recCacheMu.Unlock() }()
+
+	if _, ok := recCacheGet(91010, true, now); !ok {
+		t.Error("same reveal state should hit")
+	}
+	if _, ok := recCacheGet(91010, false, now); ok {
+		t.Error("a different reveal state must miss — the seed set differs")
+	}
+}
+
+func TestSeedCandidates_FavoritesFirstSkipAudioCap(t *testing.T) {
+	favs := []library.Entry{{Name: "fav-movie", Kind: "video"}, {Name: "fav-song", Kind: "audio"}}
+	history := make([]library.Entry, 0, recMaxMatch+10)
+	for i := 0; i < recMaxMatch+10; i++ {
+		history = append(history, library.Entry{Name: "h", Kind: "video"})
+	}
+	got := seedCandidates(favs, history)
+	if len(got) != recMaxMatch {
+		t.Errorf("candidates capped at recMaxMatch (%d), got %d", recMaxMatch, len(got))
+	}
+	if len(got) == 0 || got[0].Name != "fav-movie" {
+		t.Error("favorites must come first")
+	}
+	for _, e := range got {
+		if e.Kind == "audio" {
+			t.Error("audio rows must be dropped")
+		}
+	}
+}
+
+func TestFavoriteSeedEntries_NilStreamerIsNil(t *testing.T) {
+	if got := favoriteSeedEntries(nil, 1, false); got != nil {
+		t.Errorf("nil streamer → nil seeds, got %v", got)
+	}
+}
+
+func TestFavoriteSeedEntries_ListsNamesPerUser(t *testing.T) {
+	s := streamer.NewForTesting()
+	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "favs.db"))
+	if err != nil {
+		t.Fatalf("NewFavorites: %v", err)
+	}
+	s.SetFavorites(fav)
+	if err := fav.Add("Breaking Bad (2008)", "hash1", "magnet:x", "manual", 7); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got := favoriteSeedEntries(s, 7, false)
+	if len(got) != 1 || got[0].Name != "Breaking Bad (2008)" {
+		t.Errorf("expected the favourite name as a seed entry, got %+v", got)
+	}
+	if other := favoriteSeedEntries(s, 999, false); len(other) != 0 {
+		t.Errorf("favourites are per-user; another user should get none, got %d", len(other))
 	}
 }

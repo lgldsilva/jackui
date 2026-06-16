@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 )
@@ -27,6 +28,14 @@ const (
 	recMaxSeeds = 8  // cap watched titles probed → caps TMDB calls per build
 	recMaxOut   = 30 // cap returned recommendations
 	recTTL      = time.Hour
+	// recLibWindow is how many recently-watched rows we pull as seed candidates.
+	// Widened from 20: a music binge (audio + music-videos that never match a
+	// movie/tv) used to fill the whole window, leaving nothing to seed from.
+	recLibWindow = 60
+	// recMaxMatch caps how many candidates we resolve via TMDB per build (favorites
+	// first, then recent history), bounding TMDB calls + latency even with the
+	// wider window. Matches are cached 30d, so this only bites a cold cache.
+	recMaxMatch = 30
 )
 
 // Per-user result cache: each build fans out up to recMaxSeeds TMDB calls, so we
@@ -37,21 +46,25 @@ var (
 )
 
 type recCacheEntry struct {
-	at    time.Time
-	items []recItem
+	at     time.Time
+	reveal bool // the curtain state this result was built under (see Recommendations)
+	items  []recItem
 }
 
-func recCacheGet(userID int, now time.Time) ([]recItem, bool) {
+// recCacheGet returns the memoized result only when it's fresh AND was built
+// under the same reveal-curtain state — flipping the easter egg changes the seed
+// set, so a mismatched entry is a miss (rebuilt with the new state).
+func recCacheGet(userID int, reveal bool, now time.Time) ([]recItem, bool) {
 	recCacheMu.Lock()
 	defer recCacheMu.Unlock()
 	e, ok := recCache[userID]
-	if !ok || now.Sub(e.at) > recTTL {
+	if !ok || now.Sub(e.at) > recTTL || e.reveal != reveal {
 		return nil, false
 	}
 	return e.items, true
 }
 
-func recCachePut(userID int, items []recItem, now time.Time) {
+func recCachePut(userID int, reveal bool, items []recItem, now time.Time) {
 	recCacheMu.Lock()
 	// Drop expired entries on write so the map can't grow unbounded across users
 	// (cheap: len is bounded by the user base, swept only on cache-miss writes).
@@ -60,7 +73,7 @@ func recCachePut(userID int, items []recItem, now time.Time) {
 			delete(recCache, uid)
 		}
 	}
-	recCache[userID] = recCacheEntry{at: now, items: items}
+	recCache[userID] = recCacheEntry{at: now, reveal: reveal, items: items}
 	recCacheMu.Unlock()
 }
 
@@ -80,12 +93,17 @@ func recCacheInvalidate(userID int) {
 // to it. 200+list (possibly empty), 503 when TMDB has no key. Purely additive —
 // touches no existing flow.
 //
-// Privacy: titles whose info_hash lives in a hidden favourite folder must NEVER
-// seed recommendations (otherwise the hidden content leaks as "Porque você viu
-// X"), so they're dropped from the watched library BEFORE seeding — regardless
-// of the reveal curtain (recs aren't a listing the curtain should reopen).
+// Seeds come from two sources, FAVORITES FIRST (explicit movie/tv picks, so recs
+// survive a watch history dominated by music) then recently-watched titles.
+// Audio rows are skipped — music never resolves to a movie/tv id, it only wastes
+// a TMDB lookup and crowds out real seeds.
+//
+// Hidden content & the reveal curtain: hidden-folder titles are reveal-AWARE.
+// With the easter egg closed they're dropped before seeding (no "Porque você viu
+// <hidden>" leak); with it open they DO seed, like every other hidden listing.
+// The result cache is keyed by that curtain state so flipping it rebuilds.
 // The user can also explicitly dismiss a recommendation; dismissed titles are
-// excluded from the result so a rebuild never resurfaces them.
+// excluded so a rebuild never resurfaces them.
 func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if tc == nil {
@@ -93,21 +111,25 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(ctx)
+		reveal := middleware.IsRevealHidden(ctx)
 
 		now := time.Now()
-		if cached, ok := recCacheGet(userID, now); ok {
+		if cached, ok := recCacheGet(userID, reveal, now); ok {
 			ctx.JSON(http.StatusOK, cached)
 			return
 		}
 
-		entries, err := lib.List(userID, false, 20)
+		entries, err := lib.List(userID, false, recLibWindow)
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		// Drop hidden-folder titles before they can seed anything. Reveal-agnostic
-		// on purpose: a curtained title must not seed recs even with the curtain open.
-		entries = dropHiddenLibrary(entries, recHiddenHashSet(s, userID))
+		// Reveal-aware: drop hidden-folder titles only while the curtain is closed.
+		if !reveal {
+			entries = dropHiddenLibrary(entries, recHiddenHashSet(s, userID))
+		}
+		// Favorites first, audio dropped, capped — see seedCandidates.
+		candidates := seedCandidates(favoriteSeedEntries(s, userID, reveal), entries)
 
 		dismissed, derr := dismissedSet(lib, userID)
 		if derr != nil {
@@ -115,14 +137,34 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 			return
 		}
 
-		out, disabled := assembleRecs(ctx.Request.Context(), tc, entries, dismissed)
+		out, disabled := assembleRecs(ctx.Request.Context(), tc, candidates, dismissed)
 		if disabled {
 			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
 			return
 		}
-		recCachePut(userID, out, now)
+		recCachePut(userID, reveal, out, now)
 		ctx.JSON(http.StatusOK, out)
 	}
+}
+
+// favoriteSeedEntries turns the user's favourites into seed candidates (Name is
+// enough — buildSeeds resolves it via TMDB). Reveal-aware: hidden-folder favs are
+// included only when the curtain is open. Best-effort: a nil store / error → no
+// favourite seeds (recs fall back to the watched library). Kind is left empty so
+// buildSeeds' audio skip doesn't apply — a music favourite simply fails to match.
+func favoriteSeedEntries(s *streamer.Streamer, userID int, reveal bool) []library.Entry {
+	if s == nil || s.Favorites() == nil {
+		return nil
+	}
+	favs, err := s.Favorites().List(userID, false, reveal)
+	if err != nil {
+		return nil
+	}
+	out := make([]library.Entry, 0, len(favs))
+	for _, f := range favs {
+		out = append(out, library.Entry{Name: f.Name})
+	}
+	return out
 }
 
 // assembleRecs resolves the watched entries into seeds, fans out one TMDB
@@ -203,7 +245,25 @@ type seed struct {
 	recs        []tmdb.Match
 }
 
-// buildSeeds resolves each watched entry to a TMDB id+kind (via matchFn, which is
+// seedCandidates orders favourites FIRST (their seed slots should win over a wall
+// of recently-watched music) then the watched history, drops audio rows (music
+// never resolves to a movie/tv id), and caps the list at recMaxMatch to bound the
+// TMDB lookups buildSeeds will do. Pure → unit-testable.
+func seedCandidates(favs, history []library.Entry) []library.Entry {
+	out := make([]library.Entry, 0, recMaxMatch)
+	for _, e := range append(favs, history...) {
+		if e.Kind == "audio" {
+			continue
+		}
+		out = append(out, e)
+		if len(out) >= recMaxMatch {
+			break
+		}
+	}
+	return out
+}
+
+// buildSeeds resolves each candidate to a TMDB id+kind (via matchFn, which is
 // cached 30d) into recommendation seeds (capped at recMaxSeeds) plus the set of
 // already-watched tmdbIDs. Unresolved titles are skipped. disabled=true means
 // TMDB reported no key, so the caller should 503.
