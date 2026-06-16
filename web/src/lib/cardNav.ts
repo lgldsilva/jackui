@@ -40,6 +40,9 @@ export function newTabProps(href: string, onActivate: () => void) {
         openInNewTab(href)
         return
       }
+      // Non-primary buttons (e.g. a stray middle-click that fires `click` too)
+      // are handled by onAuxClick — never run the in-app action for them.
+      if (e.button !== 0) return
       onActivate()
     },
     onAuxClick: (e: MouseEvent) => {

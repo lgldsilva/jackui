@@ -64,7 +64,7 @@ import {
   localListHidden,
 } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
-import { newTabProps, playHref } from '../lib/cardNav'
+import { newTabProps, openInNewTab, playHref } from '../lib/cardNav'
 import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
 import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
@@ -334,6 +334,31 @@ function EntryActions({ entry: e, isAdmin, canAct, hidden, onPromote, onReclassi
   )
 }
 
+// Deep-link "tela toda" de uma row: pasta → o browser daquela pasta; arquivo
+// reproduzível → o player via ?play=local-hash. Viewables não têm rota → ''.
+function localEntryHref(e: LocalEntry, mount: string): string {
+  if (e.isDir) return `/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
+  if (e.isPlayable) return playHref(buildLocalHash(mount, e.path))
+  return ''
+}
+
+// Handlers de clique/contexto da row. Com href: middle/ctrl/cmd-click e o
+// right-click puro abrem nova aba (clique normal roda onActivate); o
+// onContextMenu ignora ctrl/cmd pra não abrir DUAS abas no macOS (lá o Ctrl+Click
+// dispara contextmenu E click, e o ctrl já cai no newTabProps.onClick). Sem href
+// (viewable/seleção): clique normal só.
+function localRowNavProps(href: string, onActivate: () => void) {
+  if (!href) return { onClick: onActivate }
+  return {
+    ...newTabProps(href, onActivate),
+    onContextMenu: (ev: React.MouseEvent) => {
+      if (ev.ctrlKey || ev.metaKey) return
+      ev.preventDefault()
+      openInNewTab(href)
+    },
+  }
+}
+
 // Uma linha da lista. Extraída pra poder usar useLongPress por item (hooks não
 // podem ser chamados dentro de um .map). Long-press entra no modo seleção.
 function EntryRow(props: EntryRowProps) {
@@ -343,33 +368,22 @@ function EntryRow(props: EntryRowProps) {
   const viewable = !e.isDir && !e.isPlayable && isViewable(e.name)
   const clickable = e.isDir || e.isPlayable || viewable
   const canAct = canManipulate || isAdmin
-  const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct })
+  // contextMenu:false: right-click here opens a new tab (handled below), so the
+  // hook must NOT map onContextMenu to "enter select mode" — otherwise the
+  // {...pressHandlers} spread would shadow the new-tab handler. Touch long-press
+  // (onTouchStart) still enters select; desktop has the toolbar "Selecionar".
+  const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct, contextMenu: false })
   const pressHandlers = selectMode || !canAct ? {} : lp
 
-  // Deep-link para nova aba (tela toda): pasta → o browser daquela pasta;
-  // arquivo reproduzível → o player via ?play=local-hash. Viewables e o modo
-  // seleção ficam de fora (não há rota equivalente) → clique normal só.
-  let newTabHref = ''
-  if (!selectMode) {
-    if (e.isDir) newTabHref = `/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
-    else if (e.isPlayable) newTabHref = playHref(buildLocalHash(mount, e.path))
-  }
+  // Modo seleção não navega; senão deriva o deep-link + handlers (ver helpers).
+  const newTabHref = selectMode ? '' : localEntryHref(e, mount)
   const onActivate = () => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))
-  // Com href: newTabProps trata middle-click + ctrl/cmd/shift-click (e o clique
-  // normal roda onActivate). Sem href (viewable/seleção): clique normal só.
-  const clickProps = newTabHref ? newTabProps(newTabHref, onActivate) : { onClick: onActivate }
+  const navProps = localRowNavProps(newTabHref, onActivate)
 
   return (
     <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-surface-tertiary/20'}`}>
       <button
-        {...clickProps}
-        onContextMenu={(ev) => {
-          // Botão direito também abre numa nova aba (newTabProps não cobre o
-          // right-click). Viewables/seleção ficam de fora (sem rota).
-          if (!newTabHref) return
-          ev.preventDefault()
-          globalThis.open(newTabHref, '_blank', 'noopener')
-        }}
+        {...navProps}
         disabled={!selectMode && !clickable}
         {...pressHandlers}
         className={`flex-1 min-w-0 flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
