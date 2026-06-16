@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
@@ -11,6 +11,8 @@ import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
 import { usePersistedState } from '../lib/storage'
+import { useEnumQueryParam, useQueryParam, useQuerySetter } from '../lib/useQueryState'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { useRevealHidden } from '../lib/reveal'
 import {
   DownloadEntry, DownloadFilterParams, downloadsList, downloadsListFiltered, downloadDelete, downloadPause, downloadResume, downloadStopSeed,
@@ -39,6 +41,8 @@ import { useAuth } from '../auth/AuthContext'
 // ═══════════════════════════════════════════════════════════════════════════════
 
 type Tab = 'all' | 'downloading' | 'paused' | 'completed' | 'failed' | 'network'
+// Allowed tab values for the ?tab= URL param (validated by useEnumQueryParam).
+const DOWNLOAD_TABS: readonly Tab[] = ['all', 'downloading', 'paused', 'completed', 'failed', 'network']
 
 // errMessage extracts a human-readable message from an unknown thrown value
 // (axios error with a JSON {error} body, a plain Error, or anything else).
@@ -53,8 +57,14 @@ export default function DownloadsPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   // Items passados ao modal de promove (null = fechado). Single = [d], batch = [d1, d2, ...]
   const [promoteTargets, setPromoteTargets] = useState<DownloadEntry[] | null>(null)
-  // Download sendo inspecionado no modal de detalhes (null = fechado)
-  const [inspectTarget, setInspectTarget] = useState<DownloadEntry | null>(null)
+  // Download sendo inspecionado: o ID vive na URL (?inspect=) para sobreviver a
+  // reload/back; o alvo é resolvido a partir de `items` (push p/ Back fechar). Se o
+  // item ainda não carregou (poll) ou sumiu, fica null e o modal espera/fecha.
+  const [inspectId, setInspectId] = useQueryParam('inspect', '', { replace: false })
+  const inspectTarget = useMemo(
+    () => (inspectId ? items.find(d => String(d.id) === inspectId) ?? null : null),
+    [inspectId, items],
+  )
   // Mounts navegáveis — usados pra decidir se Play vai pelo player local
   // (arquivo em mount como /mnt/downloads) ou pelo torrent (em /data/streams).
   // Carregado uma vez; mounts não mudam durante uma sessão.
@@ -77,7 +87,7 @@ export default function DownloadsPage() {
   // closure always reads the latest set without re-subscribing.
   const pendingDeletesRef = useRef(newPendingDeletes())
 
-  const [activeTab, setActiveTab] = useState<Tab>('all')
+  const [activeTab, setActiveTab] = useEnumQueryParam<Tab>('tab', DOWNLOAD_TABS, 'all')
 
   const [torrents, setTorrents] = useState<TorrentInfo[]>([])
   const [torrentsLoaded, setTorrentsLoaded] = useState(false)
@@ -93,25 +103,33 @@ export default function DownloadsPage() {
   const [limitsSaving, setLimitsSaving] = useState(false)
   const [limitsMsg, setLimitsMsg] = useState<string>('')
 
-  // ─── Filter & Sort state ────────────────────────────────────────────────────
-  const [filterSearch, setFilterSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [filterTracker, setFilterTracker] = useState('')
-  const [filterCategory, setFilterCategory] = useState('')
-  const [sortCol, setSortCol] = useState('created_at')
-  const [sortDir, setSortDir] = useState('desc')
+  // ─── Filter & Sort state (na URL: sobrevive a navegação/reload/reabrir) ──────
+  // Todos via useQueryParam (mesma assinatura [v,set] do useState) → o efeito de
+  // reload abaixo não muda. Multi-set num único handler (botão "Limpar") usa o
+  // setQuery atômico, senão cada setter leria um location.search defasado.
+  const [filterSearch, setFilterSearch] = useQueryParam('q')
+  const [filterStatus, setFilterStatus] = useQueryParam('status')
+  const [filterTracker, setFilterTracker] = useQueryParam('tracker')
+  const [filterCategory, setFilterCategory] = useQueryParam('cat')
+  const [sortCol, setSortCol] = useQueryParam('sort', 'created_at')
+  const [sortDir, setSortDir] = useQueryParam('dir', 'desc')
+  const setQuery = useQuerySetter()
   const [availableTrackers, setAvailableTrackers] = useState<string[]>([])
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
-  const [showFilters, setShowFilters] = useState(false)
+  const [filtersParam, setFiltersParam] = useQueryParam('filters')
+  const showFilters = filtersParam === '1'
   const filterTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
   // Admin mode: toggle between own downloads and all users' downloads
   const { isAdmin, isGuest, user } = useAuth()
-  const [showAllUsers, setShowAllUsers] = useState(false)
+  const [usersParam, setUsersParam] = useQueryParam('users')
+  const showAllUsers = isAdmin && usersParam === 'all'
   const [availableUsers, setAvailableUsers] = useState<DownloadUserEntry[]>([])
-  const [filterUserId, setFilterUserId] = useState('')
+  const [filterUserId, setFilterUserId] = useQueryParam('uid')
   // Global hidden curtain: downloads tied to a hidden favourite folder drop out
   // unless it's open (re-fetch on flip; backend filters by the header).
   const [revealHidden] = useRevealHidden()
+  // Restaura a posição de scroll ao voltar/recarregar, assim que a lista carrega.
+  useScrollRestoration(!loading)
 
   // Add Torrent & Magnet Modals State
   const [showAddModal, setShowAddModal] = useState(false)
@@ -862,7 +880,7 @@ export default function DownloadsPage() {
               )}
             </div>
             <button
-              onClick={() => setShowFilters(!showFilters)}
+              onClick={() => setFiltersParam(showFilters ? '' : '1')}
               className={`flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border transition-colors ${
                 showFilters || filterStatus || filterTracker || filterCategory
                   ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-700 dark:text-cyan-300'
@@ -951,7 +969,7 @@ export default function DownloadsPage() {
                   <option value="category">Categoria</option>
                 </select>
                 <button
-                  onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+                  onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
                   title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
                   aria-label="Inverter ordem"
                   className="flex-shrink-0 bg-surface border border-default rounded-lg px-2 py-1.5 text-text-primary hover:text-cyan-600 dark:hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
@@ -959,7 +977,7 @@ export default function DownloadsPage() {
                   {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
                 </button>
                 <button
-                  onClick={() => { setFilterStatus(''); setFilterTracker(''); setFilterCategory(''); setFilterSearch(''); setFilterUserId(''); setSortCol('created_at'); setSortDir('desc') }}
+                  onClick={() => setQuery({ status: null, tracker: null, cat: null, q: null, uid: null, sort: null, dir: null })}
                   className="ml-auto text-xs text-text-muted hover:text-text-primary px-2 py-1 flex-shrink-0"
                 >
                   Limpar
@@ -1004,7 +1022,10 @@ export default function DownloadsPage() {
           <div className="flex items-center gap-2">
             {isAdmin && (
               <button
-                onClick={() => { setShowAllUsers(!showAllUsers); if (!showAllUsers) downloadUsers().then(setAvailableUsers).catch(() => {}) }}
+                onClick={() => {
+                  if (showAllUsers) { setQuery({ users: null, uid: null }) } // desligar: limpa users + uid órfão
+                  else { setUsersParam('all'); downloadUsers().then(setAvailableUsers).catch(() => {}) }
+                }}
                 className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl font-semibold transition-all duration-200 mb-2 md:mb-0 ${
                   showAllUsers
                     ? 'bg-violet-500 hover:bg-violet-600 text-white shadow-lg shadow-violet-500/10'
@@ -1050,7 +1071,7 @@ export default function DownloadsPage() {
                   onResume={onResume}
                   onDelete={onDelete}
                   onPlay={onPlay}
-                  onInspect={setInspectTarget}
+                  onInspect={(d: DownloadEntry) => setInspectId(String(d.id))}
                 />
               )}
               {/* Background downloads for this tab */}
@@ -1080,7 +1101,7 @@ export default function DownloadsPage() {
                 onStopSeedMany={onStopSeedMany}
                 onSetPriority={onSetPriority}
                 onPlay={onPlay}
-                onInspect={setInspectTarget}
+                onInspect={(d: DownloadEntry) => setInspectId(String(d.id))}
                 loading={loading}
               />
             </>
@@ -1114,7 +1135,7 @@ export default function DownloadsPage() {
       {/* Modal de inspeção detalhada de download (com recheck, files list e stop seed) */}
       <DownloadInspectModal
         download={inspectTarget}
-        onClose={() => setInspectTarget(null)}
+        onClose={() => setQuery({ inspect: null }, { replace: true })}
         siblings={inspectTarget ? items.filter(i => i.infoHash === inspectTarget.infoHash) : []}
         onAdopted={() => { void load() }}
         onMutated={(updated) => {
@@ -1122,7 +1143,7 @@ export default function DownloadsPage() {
         }}
         onDeleted={() => {
           setItems(prev => prev.filter(item => item.id !== inspectTarget?.id))
-          setInspectTarget(null)
+          setQuery({ inspect: null }, { replace: true })
         }}
         onPromote={onPromote}
         onPlay={onPlay}
