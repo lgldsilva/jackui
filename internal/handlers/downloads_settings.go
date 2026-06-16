@@ -16,6 +16,7 @@ type downloadsQueueBody struct {
 	AgingStepMin      int  `json:"agingStepMin"`
 	AgingCap          int  `json:"agingCap"`
 	RotationEnabled   bool `json:"rotationEnabled"`
+	AutoPromoteArr    bool `json:"autoPromoteArr"`
 }
 
 func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
@@ -28,6 +29,7 @@ func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
 		AgingStepMin:      q.AgingStepMin,
 		AgingCap:          q.AgingCap,
 		RotationEnabled:   q.RotationEnabled,
+		AutoPromoteArr:    q.AutoPromoteArr,
 	}
 }
 
@@ -77,6 +79,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string) gin.HandlerF
 		cfg.DownloadsQueue.AgingStepMin = b.AgingStepMin
 		cfg.DownloadsQueue.AgingCap = b.AgingCap
 		cfg.DownloadsQueue.RotationEnabled = b.RotationEnabled
+		cfg.DownloadsQueue.AutoPromoteArr = b.AutoPromoteArr
 
 		if err := cfg.Save(configPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})

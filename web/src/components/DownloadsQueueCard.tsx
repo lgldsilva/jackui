@@ -129,6 +129,22 @@ export default function DownloadsQueueCard() {
         Quando um download fica sem seed, busca outras fontes do mesmo conteúdo no Jackett e alterna entre elas (round-robin).
       </p>
 
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <label className="flex items-center gap-2 text-sm text-text-primary">
+          <input
+            type="checkbox"
+            checked={form.autoPromoteArr}
+            onChange={(e) => set('autoPromoteArr', e.target.checked)}
+            className="accent-cyan-500 w-4 h-4"
+          />
+          <span>Promover downloads dos *arr</span>
+          <LiveBadge />
+        </label>
+      </div>
+      <p className="text-[11px] text-text-muted -mt-3">
+        Downloads vindos do Sonarr/Radarr (via Transmission RPC) são gravados direto em <code>Downloads/&lt;categoria&gt;/</code> — a mesma árvore que o Transmission usa — para os *arr importarem como esperado. Requer o diretório compartilhado (JACKUI_SHARED_DIR) configurado.
+      </p>
+
       <div className="flex items-center justify-between gap-3 border-t border-default pt-4">
         <div className="text-xs">
           {error && <span className="text-red-400">{error}</span>}

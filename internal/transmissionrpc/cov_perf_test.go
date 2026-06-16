@@ -11,7 +11,7 @@ import (
 // session-set aplica alt-speed + queue + speed-limits (estado do handler observável).
 func TestMethodSessionSet(t *testing.T) {
 	s := streamer.NewForTesting()
-	h := NewHandler(nil, s, nil, "/data", "/data")
+	h := NewHandler(nil, s, nil, "/data", "/data", "", nil)
 	r := h.methodSessionSet(map[string]interface{}{
 		keyAltSpeedEn: true, keyAltSpeedDown: float64(100), keyAltSpeedUp: float64(50),
 		keyStartAdded: false,
@@ -34,7 +34,7 @@ func TestMethodSessionSet(t *testing.T) {
 }
 
 func TestResolveCategory(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	if got := h.resolveCategory("/data/Filmes", []string{"Series"}); got != "Series" {
 		t.Errorf("resolveCategory(labels) = %q, want Series", got)
 	}
@@ -46,7 +46,7 @@ func TestResolveCategory(t *testing.T) {
 
 func TestMethodGroupGetSet(t *testing.T) {
 	s := streamer.NewForTesting()
-	h := NewHandler(nil, s, nil, "/data", "/data")
+	h := NewHandler(nil, s, nil, "/data", "/data", "", nil)
 	if r := h.methodGroupGet(map[string]interface{}{}); r.Result != "success" {
 		t.Errorf("group-get: %q", r.Result)
 	}
@@ -77,7 +77,7 @@ func TestParseKbps(t *testing.T) {
 // applySessionSpeedLimits aplica os caps de banda no streamer (kbps → bytes/s).
 func TestApplySessionSpeedLimits(t *testing.T) {
 	s := streamer.NewForTesting()
-	h := NewHandler(nil, s, nil, "/data", "/data")
+	h := NewHandler(nil, s, nil, "/data", "/data", "", nil)
 	h.applySessionSpeedLimits(map[string]interface{}{
 		keySpeedLimitDown: float64(800), keySpeedLimitDownEn: true,
 		keySpeedLimitUp: float64(400), keySpeedLimitUpEn: true,
@@ -88,7 +88,7 @@ func TestApplySessionSpeedLimits(t *testing.T) {
 	}
 	// down setado mas DESABILITADO → zera (cobre os ramos de enabled=false)
 	s2 := streamer.NewForTesting()
-	NewHandler(nil, s2, nil, "/data", "/data").applySessionSpeedLimits(map[string]interface{}{
+	NewHandler(nil, s2, nil, "/data", "/data", "", nil).applySessionSpeedLimits(map[string]interface{}{
 		keySpeedLimitDown: float64(800), keySpeedLimitDownEn: false,
 		keySpeedLimitUpEn: false,
 	})
@@ -113,7 +113,7 @@ func TestQueuePos(t *testing.T) {
 // (sem panic) e os baseados em store (paused/labels) aplicam.
 func TestTorrentSet_AcceptsAllArgs(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -151,7 +151,7 @@ func TestTorrentSet_AcceptsAllArgs(t *testing.T) {
 func TestTorrentSet_StreamerWithoutClient(t *testing.T) {
 	st := newTestStore(t)
 	s := streamer.NewForTesting()
-	h := NewHandler(st, s, nil, "/data", "/data")
+	h := NewHandler(st, s, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("b", 40), downloads.StatusDownloading)
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":                []interface{}{float64(id)},
@@ -167,7 +167,7 @@ func TestTorrentSet_StreamerWithoutClient(t *testing.T) {
 func TestMethodTorrentVerifyAndReannounce(t *testing.T) {
 	st := newTestStore(t)
 	s := streamer.NewForTesting()
-	h := NewHandler(st, s, nil, "/data", "/data")
+	h := NewHandler(st, s, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("c", 40), downloads.StatusDownloading)
 	args := map[string]interface{}{"ids": []interface{}{float64(id)}}
 
@@ -200,7 +200,7 @@ func TestActiveTorrentObjects_Empty(t *testing.T) {
 		t.Errorf("activeTorrentObjects(streamer nil) = %d, want 0", len(m))
 	}
 	// NewForTesting (client nil) → mapa vazio
-	h := NewHandler(nil, streamer.NewForTesting(), nil, "/data", "/data")
+	h := NewHandler(nil, streamer.NewForTesting(), nil, "/data", "/data", "", nil)
 	if m := h.activeTorrentObjects(dls); len(m) != 0 {
 		t.Errorf("activeTorrentObjects(client nil) = %d, want 0", len(m))
 	}
@@ -208,7 +208,7 @@ func TestActiveTorrentObjects_Empty(t *testing.T) {
 
 // free-space confina o path: dentro do downloadDir ok; fora cai no fallback.
 func TestMethodFreeSpace_Confine(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	for _, p := range []string{"", "/data/sub", "/etc/passwd", "../../root"} {
 		if r := h.methodFreeSpace(map[string]interface{}{"path": p}); r.Result != "success" {
 			t.Errorf("free-space(%q) = %q, want success", p, r.Result)
@@ -217,7 +217,7 @@ func TestMethodFreeSpace_Confine(t *testing.T) {
 }
 
 func TestConfinePathEdges(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	if _, ok := h.confinePath(""); ok {
 		t.Error("confinePath(\"\") deveria ser false")
 	}
@@ -270,7 +270,7 @@ func TestComputeHelpers(t *testing.T) {
 
 // addTorrentFilename resolve magnet / infoHash cru / rejeita o resto (sem rede).
 func TestAddTorrentFilename(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	hash := strings.Repeat("a", 40)
 	if ih, _, err := h.addTorrentFilename("magnet:?xt=urn:btih:" + hash); err != nil || ih == "" {
 		t.Errorf("magnet: ih=%q err=%v", ih, err)
@@ -320,7 +320,7 @@ func TestMapJackUIStatusToTR(t *testing.T) {
 }
 
 func TestAddTorrentMetainfo_Errors(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data") // streamer nil → caminho metainfo.Load
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil) // streamer nil → caminho metainfo.Load
 	if _, _, _, err := h.addTorrentMetainfo("!!! não é base64 !!!"); err == nil {
 		t.Error("base64 inválido deveria falhar")
 	}
@@ -333,7 +333,7 @@ func TestAddTorrentMetainfo_Errors(t *testing.T) {
 func TestMethodTorrentStartStop(t *testing.T) {
 	st := newTestStore(t)
 	s := streamer.NewForTesting()
-	h := NewHandler(st, s, nil, "/data", "/data")
+	h := NewHandler(st, s, nil, "/data", "/data", "", nil)
 	dl := mkDownload(t, st, strings.Repeat("e", 40), downloads.StatusDownloading)
 	done := mkDownload(t, st, strings.Repeat("f", 40), downloads.StatusCompleted)
 	ids := map[string]interface{}{"ids": []interface{}{float64(dl), float64(done)}}
