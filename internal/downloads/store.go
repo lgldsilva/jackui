@@ -61,6 +61,11 @@ const (
 	FileIndexWholeTorrent = -2
 )
 
+// SourceArr marks a download created via the Transmission RPC shim (the *arr
+// apps). Used to scope the auto-promote-to-Downloads behavior to *arr downloads,
+// leaving JackUI UI downloads untouched.
+const SourceArr = "arr"
+
 const errInvalidStatus = "invalid status: %s"
 const errInvalidPriority = "invalid priority: %s"
 
@@ -110,6 +115,9 @@ type Download struct {
 	// Source rotation (Phase 2): the magnet currently active when it differs from
 	// the original (an alternative source). Empty = downloading the original.
 	ActiveMagnet string `json:"activeMagnet,omitempty"`
+	// Origin of the download: SourceArr when created via the Transmission RPC shim
+	// (Sonarr/Radarr/Prowlarr), empty for the JackUI UI. Drives auto-promote.
+	Source string `json:"source,omitempty"`
 }
 
 // IsWholeTorrent reports whether this row downloads the entire torrent as one
@@ -186,6 +194,8 @@ func (s *Store) migrate() error {
 		// Phase 2 (source rotation): the magnet currently being downloaded when it
 		// differs from the original `magnet` (an alternative source). Empty = original.
 		"active_magnet TEXT NOT NULL DEFAULT ''",
+		// Origin marker (e.g. SourceArr for the Transmission RPC); empty for UI.
+		"source TEXT NOT NULL DEFAULT ''",
 	}
 	for _, def := range addColumns {
 		if e := s.addColumnIfMissing("downloads", def); e != nil {
@@ -283,9 +293,9 @@ func (s *Store) Create(d Download) (*Download, error) {
 		return existing, nil
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status, priority, queued_since)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusQueued, priority)
+		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status, priority, source, queued_since)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusQueued, priority, d.Source)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +420,7 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 	tracker, category, status, bytes_downloaded,
 	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at,
 	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, ''),
-	COALESCE(active_magnet, '') FROM downloads `
+	COALESCE(active_magnet, ''), COALESCE(source, '') FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com
@@ -994,7 +1004,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &createdAt,
-		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet,
+		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet, &d.Source,
 	)
 	if err != nil {
 		return nil, err

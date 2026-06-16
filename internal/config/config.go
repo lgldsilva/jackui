@@ -96,6 +96,11 @@ type DownloadsQueueConfig struct {
 	AgingStepMin      int  `yaml:"aging_step_min"`      // queue aging: minutes waited per +1 bonus; default 60
 	AgingCap          int  `yaml:"aging_cap"`           // ceiling on the aging bonus; default 150
 	RotationEnabled   bool `yaml:"rotation_enabled"`    // Phase 2: auto source rotation via Jackett; default false
+	// AutoPromoteArr: when on, a completed download created via the Transmission
+	// RPC (Sonarr/Radarr) is written straight into SharedDir/<category>/ — the
+	// same "completed downloads" tree Transmission uses — so the *arr import it as
+	// expected. UI downloads are unaffected. Needs Stream.SharedDir set. Default off.
+	AutoPromoteArr bool `yaml:"auto_promote_arr"`
 }
 
 // ExternalConfig declares filesystem mounts the user wants browsable from
@@ -308,6 +313,9 @@ func applyDownloadsQueueEnv(cfg *Config) {
 	applyEnvInt(&cfg.DownloadsQueue.AgingCap, "JACKUI_DL_AGING_CAP")
 	if v := os.Getenv("JACKUI_DL_ROTATION"); v == "1" || strings.EqualFold(v, "true") {
 		cfg.DownloadsQueue.RotationEnabled = true
+	}
+	if v := os.Getenv("JACKUI_DL_AUTO_PROMOTE_ARR"); v == "1" || strings.EqualFold(v, "true") {
+		cfg.DownloadsQueue.AutoPromoteArr = true
 	}
 	if cfg.DownloadsQueue.MaxActive <= 0 {
 		cfg.DownloadsQueue.MaxActive = 3
