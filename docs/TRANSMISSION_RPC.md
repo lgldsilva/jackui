@@ -156,17 +156,23 @@ When auth is **disabled**:
 
 ## Internal worker integration
 
-`torrent-add` creates a row in `internal/downloads/` with `FileIndex = -1` (sentinel
-for "auto-pick the best file"). When the worker (`worker.go`) processes it:
+`torrent-add` creates a row in `internal/downloads/` with `FileIndex = -2`
+(`FileIndexWholeTorrent`) so an *arr client gets **Transmission semantics**: the
+ENTIRE release is downloaded, not just one file. This matters for season packs and
+any multi-file release — Sonarr/Radarr import every file, so fetching only the
+"best file" would import broken. When the worker (`worker.go`) processes it:
 
 1. Calls `streamer.EnsureActive()` to add it to the anacrolix swarm.
 2. Waits for metadata (GotInfo).
-3. Runs `pickBestFile()` to select the best file:
-   - Prefers video (`.mkv`, `.mp4`, `.avi`, `.mov`, …)
-   - Then audio (`.mp3`, `.flac`, …)
-   - Largest file as fallback.
-4. Persists the chosen FileIndex via `store.SetFileIndex()`.
-5. Starts the download.
+3. Calls `t.DownloadAll()` — marks every piece of every file as wanted.
+4. Tracks aggregate progress over the whole torrent.
+5. On completion, `moveCompletedTorrent()` moves the full directory tree to the
+   download dir (preserving the torrent's internal structure).
+
+> The JackUI **UI** download path is unchanged: a play/download started inside
+> JackUI still uses `FileIndexAuto` (-1) → `pickBestFile()` (single best media
+> file) for streaming, or an explicit `FileIndex` when the user picks one file.
+> Only the Transmission-RPC entry point downloads the whole torrent.
 
 ## Configuring Sonarr/Radarr
 

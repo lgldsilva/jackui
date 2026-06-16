@@ -958,8 +958,14 @@ func (h *Handler) finalizeTorrentAdd(userID int, infoHash, name, magnet string, 
 	if name == "" {
 		name = shortHash + "..."
 	}
+	// FileIndexWholeTorrent (NOT FileIndexAuto): an *arr client (Sonarr/Radarr)
+	// adding via RPC expects Transmission semantics — the ENTIRE release on disk
+	// so it can import every file. A season pack or multi-file release would
+	// import broken if we only fetched the single "best file" (pickBestFile).
+	// The JackUI UI keeps single-file/streaming behavior via its own create path
+	// (handlers/downloads.go), which passes an explicit FileIndex.
 	d, err := h.store.Create(downloads.Download{
-		UserID: userID, InfoHash: infoHash, FileIndex: downloads.FileIndexAuto,
+		UserID: userID, InfoHash: infoHash, FileIndex: downloads.FileIndexWholeTorrent,
 		Name: name, Magnet: magnet, Category: category,
 	})
 	if err != nil {
