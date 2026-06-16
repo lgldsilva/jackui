@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useQuerySetter } from '../lib/useQueryState'
 import {
   ChevronRight,
   ChevronDown,
@@ -425,7 +426,8 @@ function EntryRow(props: EntryRowProps) {
 }
 
 export default function LocalPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
+  const setQuery = useQuerySetter()
   const [mounts, setMounts] = useState<LocalMount[]>([])
   const activeMount = searchParams.get('mount') || ''
   const path = searchParams.get('path') || ''
@@ -472,14 +474,9 @@ export default function LocalPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const updateNavigation = (newMount: string, newPath: string, replace = false) => {
-    const params = new URLSearchParams(globalThis.location.search)
-    if (newMount) params.set('mount', newMount)
-    else params.delete('mount')
-    
-    if (newPath) params.set('path', newPath)
-    else params.delete('path')
-    
-    setSearchParams(params, { replace })
+    // Atomic two-key update (mount + path) via the shared helper, which merges over
+    // the live query so an active ?play= is preserved.
+    setQuery({ mount: newMount || null, path: newPath || null }, { replace })
   }
 
   const { isGuest, isAdmin } = useAuth()
@@ -609,12 +606,9 @@ export default function LocalPage() {
     localMounts()
       .then((ms) => {
         setMounts(ms)
-        const params = new URLSearchParams(globalThis.location.search)
-        const mountFromUrl = params.get('mount')
+        const mountFromUrl = new URLSearchParams(globalThis.location.search).get('mount')
         if (ms.length > 0 && !mountFromUrl) {
-          params.set('mount', ms[0].name)
-          params.set('path', '')
-          setSearchParams(params, { replace: true })
+          updateNavigation(ms[0].name, '', true)
         }
       })
       .catch((e: unknown) => {
