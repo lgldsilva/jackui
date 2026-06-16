@@ -108,6 +108,26 @@ function shouldAttachHlsJs(streamURL: string): boolean {
   return !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
 }
 
+// audioPreload: iOS/Safari (WebKit) não busca dados de áudio direct-play sem gesto
+// quando preload é o default mobile ('metadata') → o evento 'canplay' nunca dispara
+// e o autoplay (preso a onCanPlay) trava o elemento em readyState 2. 'auto' no caso
+// WebKit-áudio força o fetch. Vídeo e Chrome/Firefox mantêm o default. (Helper fora
+// do componente p/ manter a complexidade cognitiva do VideoPlayerElement no limite.)
+function audioPreload(audioMode: boolean): 'auto' | undefined {
+  return audioMode && canPlayNativeHls() ? 'auto' : undefined
+}
+
+// handleMetaLoaded: 'loadedmetadata' SEMPRE dispara (iOS incluso). Em WebKit-áudio
+// chamamos o MESMO handler de autoplay (kickAutoplay = onVideoCanPlay, idempotente
+// via autoplayTriedRef/seek/resume) pra contornar o 'canplay' que nunca chega no
+// iOS direct-play: o play() resultante faz o iOS buscar os dados e tocar (mudo se
+// faltar gesto → o usuário só tira o mute). Desktop/Chrome/vídeo seguem no canplay.
+function handleMetaLoaded(v: HTMLVideoElement, audioMode: boolean, onTimeUpdate: () => void, kickAutoplay: () => void) {
+  clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
+  onTimeUpdate()
+  if (audioMode && canPlayNativeHls()) kickAutoplay()
+}
+
 export function VideoPlayerElement({
   videoRef,
   streamURL,
@@ -231,6 +251,7 @@ export function VideoPlayerElement({
           muted={engineActive}
           controls={!audioMode}
           autoPlay
+          preload={audioPreload(audioMode)}
           playsInline
           {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
           className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
@@ -247,11 +268,7 @@ export function VideoPlayerElement({
             if (v) kickPastStartGap(v)
           }}
           onTimeUpdate={onTimeUpdate}
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget
-            clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
-            onTimeUpdate()
-          }}
+          onLoadedMetadata={(e) => handleMetaLoaded(e.currentTarget, audioMode, onTimeUpdate, onVideoCanPlay)}
           onProgress={() => {
             const v = videoRef.current
             if (v) kickPastStartGap(v)
