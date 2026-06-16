@@ -741,7 +741,36 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 		if list == nil {
 			list = []streamer.Favorite{}
 		}
+		enrichFavoritesSortMeta(s, list)
 		c.JSON(http.StatusOK, list)
+	}
+}
+
+// enrichFavoritesSortMeta fills each favourite's TotalSize/Seeders from the
+// metadata cache (a separate DB) in one batch query, so the UI can sort by size
+// or seeds. Unknown values stay zero/nil and sort last on the client.
+func enrichFavoritesSortMeta(s *streamer.Streamer, list []streamer.Favorite) {
+	cache := s.MetadataCache()
+	if cache == nil || len(list) == 0 {
+		return
+	}
+	hashes := make([]string, 0, len(list))
+	for _, f := range list {
+		if f.InfoHash != "" {
+			hashes = append(hashes, f.InfoHash)
+		}
+	}
+	meta := cache.GetSortMeta(hashes)
+	for i := range list {
+		m, ok := meta[list[i].InfoHash]
+		if !ok {
+			continue
+		}
+		list[i].TotalSize = m.TotalSize
+		if m.Seeders >= 0 {
+			seeders := m.Seeders
+			list[i].Seeders = &seeders
+		}
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
@@ -305,6 +306,45 @@ func (m *MetadataCache) SetHealth(infoHash string, seeders, peers int) error {
 			health_checked_at = CURRENT_TIMESTAMP
 	`, infoHash, seeders, peers)
 	return err
+}
+
+// SortMeta is the size+seeders pair used to sort the favorites list.
+// Seeders is -1 when the swarm was never probed (so it sorts last).
+type SortMeta struct {
+	TotalSize int64
+	Seeders   int
+}
+
+// GetSortMeta returns size+seeders for the given hashes in a single query, keyed
+// by info_hash. Hashes with no cached row are simply absent from the map. Used to
+// enrich the favorites list for sorting without a cross-DB JOIN.
+func (m *MetadataCache) GetSortMeta(hashes []string) map[string]SortMeta {
+	out := map[string]SortMeta{}
+	if m == nil || len(hashes) == 0 {
+		return out
+	}
+	placeholders := make([]string, len(hashes))
+	args := make([]any, len(hashes))
+	for i, h := range hashes {
+		placeholders[i] = "?"
+		args[i] = h
+	}
+	rows, err := m.db.Query(
+		`SELECT info_hash, total_size, health_seeders FROM metadata WHERE info_hash IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var hash string
+		var sm SortMeta
+		if err := rows.Scan(&hash, &sm.TotalSize, &sm.Seeders); err != nil {
+			continue
+		}
+		out[hash] = sm
+	}
+	return out
 }
 
 // DefaultMetadataCachePath returns the standard location inside the stream data dir.
