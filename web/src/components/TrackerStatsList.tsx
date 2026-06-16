@@ -35,10 +35,10 @@ export default function TrackerStatsList({ infoHash, magnet }: Props) {
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Consultando trackers…
         </div>
       )}
-      {!loading && rows && rows.length === 0 && (
+      {!loading && rows?.length === 0 && (
         <div className="text-xs text-text-muted">Nenhum tracker para consultar (magnet/.torrent sem announce).</div>
       )}
-      {!loading && rows && rows.length > 0 && (
+      {!loading && !!rows?.length && (
         <ul className="flex flex-col gap-1">
           {rows.map((t, i) => (
             <li key={`${t.tracker}-${i}`} className="flex items-center gap-2 text-xs">
