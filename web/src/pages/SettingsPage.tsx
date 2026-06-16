@@ -12,6 +12,8 @@ import {
   saveConfig,
   testJackettConnection,
 } from '../api/client'
+import { useEnumQueryParam } from '../lib/useQueryState'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import StreamCacheCard from '../components/StreamCacheCard'
 import StreamSettingsCard from '../components/StreamSettingsCard'
 import DownloadsQueueCard from '../components/DownloadsQueueCard'
@@ -68,6 +70,7 @@ function TabButton({ tab, active, onClick }: {
 
 // Tabs a non-admin can use: their own account + general (language/about only).
 const NON_ADMIN_TAB_IDS: TabId[] = ['conta', 'geral']
+const ALL_TAB_IDS: readonly TabId[] = TABS.map(tb => tb.id)
 
 export default function SettingsPage() {
   const { t } = useTranslation()
@@ -82,7 +85,10 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [editingClient, setEditingClient] = useState<DownloadClientFull | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState<TabId>(isAdmin ? 'geral' : 'conta')
+  // Aba ativa na URL (?tab=) → sobrevive a back/forward/reload/reabrir. A guarda
+  // abaixo ainda reverte uma aba inacessível quando o papel resolve.
+  const [activeTab, setActiveTab] = useEnumQueryParam<TabId>('tab', ALL_TAB_IDS, isAdmin ? 'geral' : 'conta')
+  useScrollRestoration(!loading)
 
   const visibleTabs = isAdmin ? TABS : NON_ADMIN_TAB_IDS.flatMap(id => TABS.filter(tb => tb.id === id))
 

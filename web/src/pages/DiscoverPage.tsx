@@ -6,6 +6,8 @@ import TrailerModal from '../components/TrailerModal'
 import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendation, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
 import { groupRecommendations, removeRec, RecGroup } from '../lib/recsGroup'
 import { usePersistedState } from '../lib/storage'
+import { useQueryParam, useEnumQueryParam } from '../lib/useQueryState'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { newTabProps, searchHref } from '../lib/cardNav'
 import { useMediaMode } from '../lib/mediaMode'
 import { MusicDiscoverView } from '../components/MusicDiscoverView'
@@ -24,6 +26,7 @@ function searchQuery(m: TmdbMatch): string {
 // and best-effort: with no TMDB key it shows a hint instead of erroring.
 
 type Filter = 'all' | 'movie' | 'tv'
+const FILTERS: readonly Filter[] = ['all', 'movie', 'tv']
 
 // DirectionBadge shows how a title moved in this week's ranking vs last week.
 function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
@@ -183,10 +186,17 @@ const YEARS = (() => {
 
 export default function DiscoverPage() {
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
-  const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
-  const [year, setYear] = useState(0)   // 0 = sem filtro de ano
-  const [genre, setGenre] = useState(0) // 0 = sem filtro de gênero
+  // Filtros do Discover na URL (sobrevivem a back/forward/reload/reabrir). year e
+  // genre são numéricos → glue string<->number ('' = sem filtro). filter/query
+  // são filtros client-side; year/genre disparam o fetch de trending.
+  const [filter, setFilter] = useEnumQueryParam<Filter>('type', FILTERS, 'all')
+  const [query, setQuery] = useQueryParam('q')
+  const [yearStr, setYearStr] = useQueryParam('year')
+  const year = Number(yearStr) || 0
+  const setYear = (n: number) => setYearStr(n ? String(n) : '')
+  const [genreStr, setGenreStr] = useQueryParam('genre')
+  const genre = Number(genreStr) || 0
+  const setGenre = (n: number) => setGenreStr(n ? String(n) : '')
   const [genres, setGenres] = useState<TmdbGenre[]>([])
   const [recs, setRecs] = useState<TmdbRecommendation[]>([])
   const [trailer, setTrailer] = useState<{ videoKey: string; title: string } | null>(null)
@@ -196,6 +206,8 @@ export default function DiscoverPage() {
   const [collapsedKeys, setCollapsedKeys] = usePersistedState<string[]>('discover.collapsed', [])
   const [mediaMode] = useMediaMode()
   const navigate = useNavigate()
+  // Scroll restaurado quando o trending carrega (chamado antes do early-return).
+  useScrollRestoration(items !== null)
 
   // Group recommendations by their "Porque você viu X" source into collapsible
   // topics — client-side over the already-loaded list, so no extra requests.
