@@ -13,6 +13,10 @@
     "incognito": "Incógnito",
     "incognito_title_active": "Modo incógnito ATIVO — clique para sair",
     "incognito_title_inactive": "Ativar modo incógnito (não grava histórico nem biblioteca)",
+    "media_mode_cinema": "Modo Cinema",
+    "media_mode_music": "Modo Música",
+    "media_mode_cinema_title": "Modo Cinema: títulos ambíguos abrem como vídeo — clique para Música",
+    "media_mode_music_title": "Modo Música: títulos ambíguos abrem como áudio (capa + EQ) — clique para Cinema",
     "home": "Início",
     "expand_menu": "Expandir menu",
     "collapse_menu": "Retrair menu",
@@ -25,6 +29,11 @@
     "account_tab": "Conta",
     "ia_tab": "IA",
     "stats": "Estatísticas"
+  },
+  "discover": {
+    "music_trending": "Álbuns em alta",
+    "music_empty": "Não foi possível carregar os álbuns em alta agora.",
+    "search_album": "Buscar \"{{name}}\""
   },
   "search": {
     "placeholder": "Buscar torrents... (pressione / para focar)",
@@ -39,6 +48,9 @@
     "name": "Nome",
     "date": "Data",
     "playable": "Playable",
+    "music_only": "Só música",
+    "music_show_all": "Mostrar tudo",
+    "music_only_hint": "Modo Música: a busca mostra só áudio. Clique para mostrar todos os resultados.",
     "resolution": "Resolução",
     "codec": "Codec",
     "hdr": "HDR",
@@ -235,6 +247,51 @@
   "player": {
     "view_list": "Lista",
     "view_tree": "Árvore de pastas",
+    "audioTools": "Equalizador & Letras",
+    "eqUnavailable": "Equalizador e visualizador ficam disponíveis no desktop (Chrome/Firefox). No Safari/iOS o áudio toca direto, com som garantido; as letras seguem funcionando.",
+    "transition": {
+      "title": "Transição entre faixas",
+      "off": "Desligada (corte normal)",
+      "gapless": "Gapless (sem intervalo)",
+      "crossfade": "Crossfade (fade entre faixas)",
+      "seconds": "Duração do crossfade: {{sec}}s",
+      "hint": "Vale só para faixas de áudio que tocam direto (locais/diretas). HLS transcodado e vídeo seguem com corte normal."
+    },
+    "playAll": "Tocar tudo",
+    "tracks": {
+      "title": "Faixas da playlist",
+      "count": "{{count}} faixas",
+      "loading": "Carregando…",
+      "error": "Falha ao carregar",
+      "playing": "tocando",
+      "empty": "Sem arquivos tocáveis",
+      "hide": "Esconder lista de faixas"
+    },
+    "eq": {
+      "title": "Equalizador",
+      "reset": "Resetar",
+      "bandLabel": "Ganho da banda {{freq}}",
+      "valueText": "{{db}} dB",
+      "presets": "Predefinições",
+      "preset": {
+        "flat": "Plano",
+        "rock": "Rock",
+        "pop": "Pop",
+        "jazz": "Jazz",
+        "bass": "Graves",
+        "treble": "Agudos",
+        "vocal": "Vocal"
+      }
+    },
+    "lyrics": {
+      "title": "Letras",
+      "loading": "Buscando letras…",
+      "none": "Sem letras disponíveis"
+    },
+    "subtitles": {
+      "filter": "Filtrar legendas…",
+      "noMatch": "Nenhuma legenda bate com o filtro"
+    },
     "external": {
       "open_in": "Abrir em",
       "choose": "Escolher um tocador externo",
