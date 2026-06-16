@@ -533,7 +533,7 @@ func TestRerunIncomplete(t *testing.T) {
 		{SlotID: "groq:done", Provider: "groq", Model: "done", Composite: 2.0, Accuracy: 1, Samples: 1},
 		{SlotID: "groq:m1", Provider: "groq", Model: "m1", Incomplete: true, Composite: 0.1, Samples: 0},
 	}
-	merged := c.RerunIncomplete(context.Background(), prev, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	merged, fresh := c.RerunIncomplete(context.Background(), prev, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
 	byID := map[string]SlotScore{}
 	for _, s := range merged {
 		byID[s.SlotID] = s
@@ -543,6 +543,11 @@ func TestRerunIncomplete(t *testing.T) {
 	}
 	if byID["groq:done"].Composite != 2.0 {
 		t.Fatalf("the complete model must be left untouched, got %+v", byID["groq:done"])
+	}
+	// fresh must hold ONLY the re-measured slot, never the carried-over complete one
+	// (recording history for a carried slot would bump its failure streak spuriously).
+	if len(fresh) != 1 || fresh[0].SlotID != "groq:m1" {
+		t.Fatalf("fresh should be exactly [groq:m1], got %+v", fresh)
 	}
 }
 
@@ -572,9 +577,12 @@ func TestRerunIncompleteAlsoRerunsRateLimited(t *testing.T) {
 	prev := []SlotScore{
 		{SlotID: "groq:m", Provider: "groq", Model: "m", FailureReason: "ai: rate limited: groq:m", Incomplete: false},
 	}
-	merged := c.RerunIncomplete(context.Background(), prev, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
+	merged, fresh := c.RerunIncomplete(context.Background(), prev, []BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}})
 	if merged[0].Accuracy != 1 || merged[0].FailureReason != "" {
 		t.Fatalf("rate-limited result should be re-run clean, got %+v", merged[0])
+	}
+	if len(fresh) != 1 || fresh[0].SlotID != "groq:m" {
+		t.Fatalf("fresh should be exactly [groq:m], got %+v", fresh)
 	}
 }
 
