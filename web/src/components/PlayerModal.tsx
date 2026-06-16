@@ -48,7 +48,7 @@ import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 import { AudioTransportBar } from './player/AudioTransportBar'
 import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, canPlayNativeHls, type FileType } from './player/playerFormat'
-import { computeMediaUrls, tryAutoplayMutedFallback, computeIsTranscoded } from './player/mediaUrls'
+import { computeMediaUrls, computeIsTranscoded } from './player/mediaUrls'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
@@ -1087,7 +1087,19 @@ export default function PlayerModal({
   const maybeAutoplayNative = (v: HTMLVideoElement) => {
     if (autoplayTriedRef.current) return
     autoplayTriedRef.current = true
-    tryAutoplayMutedFallback(v)
+    // DIAGNÓSTICO (temporário): registra qual caminho o autoplay tomou no device,
+    // pra cravar a intermitência do iOS — tocou com SOM, caiu no MUDO (sem gesto),
+    // ou falhou. Mesma lógica do tryAutoplayMutedFallback + logs.
+    clientLog('info', 'player', 'autoplay try', { readyState: v.readyState, file: selectedFile })
+    v.play()
+      .then(() => clientLog('info', 'player', 'autoplay ok (som)', {}))
+      .catch((e) => {
+        clientLog('warn', 'player', 'autoplay bloqueado, tentando mudo', { err: String(e) })
+        v.muted = true
+        v.play()
+          .then(() => clientLog('info', 'player', 'autoplay ok (mudo)', {}))
+          .catch((e2) => clientLog('error', 'player', 'autoplay falhou (nem mudo)', { err: String(e2) }))
+      })
   }
   const handleVideoCanPlay = () => {
     const v = videoRef.current
@@ -1106,6 +1118,9 @@ export default function PlayerModal({
       appliedAutoResumeRef.current = true
       // Ask instead of silently jumping: the user picks "continue" or "restart"
       // via the overlay (see resume prompt). Mark applied so it only asks once.
+      // DIAGNÓSTICO (temporário): este caminho NÃO auto-toca (espera o gesto no
+      // prompt) — se aparecer muito, é a causa do "não tocou" em faixas c/ posição.
+      clientLog('info', 'player', 'resume prompt mostrado (autoplay pulado)', { resumePosition })
       setShowResumePrompt(true)
       return
     }
