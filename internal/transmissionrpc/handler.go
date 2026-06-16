@@ -156,6 +156,23 @@ func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.St
 
 func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	router.POST("/transmission/rpc", h.rpcHandler)
+	// *arr clients (Sonarr/Radarr/Prowlarr) fetch the CSRF session-id with a GET
+	// to /transmission/rpc BEFORE POSTing — the real Transmission daemon answers
+	// any session-less request with 409 + X-Transmission-Session-Id. Without this
+	// the GET fell through to the SPA (200 HTML, no session header) and the client
+	// reported "Authentication failure". Mirror Transmission's handshake on GET.
+	router.GET("/transmission/rpc", h.rpcSessionProbe)
+}
+
+// rpcSessionProbe answers the *arr's session-id GET probe: resolveSessionUser
+// emits 409 + X-Transmission-Session-Id when there's no established session
+// (the handshake the client wants). A GET carrying a valid session has no RPC
+// body to run, so we just acknowledge it.
+func (h *Handler) rpcSessionProbe(c *gin.Context) {
+	sessionID := c.GetHeader("X-Transmission-Session-Id")
+	if _, ok := h.resolveSessionUser(c, sessionID); ok {
+		c.JSON(http.StatusOK, rpcResponse{Result: "success"})
+	}
 }
 
 // confinePath limpa um caminho vindo do cliente RPC e exige que ele esteja
