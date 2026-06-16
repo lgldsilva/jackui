@@ -9,6 +9,7 @@ import { usePlayer } from '../components/PlayerProvider'
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import { SwipeRow } from '../components/SwipeRow'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -246,6 +247,7 @@ function BrowseResultsDetail({
 export default function HistoryPage() {
   const navigate = useNavigate()
   const [entries, setEntries] = useState<HistoryEntry[]>([])
+  useScrollRestoration(entries.length > 0)
   const [selected, setSelected] = useState<string | null>(null)
   const [results, setResults] = useState<SearchResult[]>([])
   const [loadingResults, setLoadingResults] = useState(false)
