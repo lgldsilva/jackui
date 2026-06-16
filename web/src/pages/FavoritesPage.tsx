@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff } from 'lucide-react'
+import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff, RefreshCw } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
   resolveTorrentInfo, queueAllTorrentFiles,
@@ -249,6 +249,18 @@ export default function FavoritesPage() {
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
+
+  // "Atualizar seeds": bump this counter to make every SeedBadge in the current
+  // view re-probe the swarm at once. The backend dedupes + caps to 3 concurrent
+  // probes, so firing one per visible card is safe.
+  const [seedRefresh, setSeedRefresh] = useState(0)
+  const [seedRefreshing, setSeedRefreshing] = useState(false)
+  const refreshSeeds = () => {
+    setSeedRefresh(n => n + 1)
+    setSeedRefreshing(true)
+    // Visual ack only — each badge owns its own probing spinner afterwards.
+    setTimeout(() => setSeedRefreshing(false), 1500)
+  }
 
   // Filter favorites by current view AND search query
   const filteredFavs = useMemo(() => {
@@ -621,6 +633,17 @@ export default function FavoritesPage() {
               )}
             </div>
             <div className="flex items-center gap-3">
+              {filteredFavs.length > 0 && (
+                <button
+                  onClick={refreshSeeds}
+                  disabled={seedRefreshing}
+                  title="Reverificar seeds de todos os favoritos nesta visão"
+                  className="flex items-center gap-1.5 text-xs bg-surface-secondary hover:bg-surface-tertiary text-text-primary border border-default px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${seedRefreshing ? 'animate-spin' : ''}`} />
+                  Atualizar seeds
+                </button>
+              )}
               <button
                 onClick={() => { setShowImport(true); setImportMsg(null) }}
                 className="flex items-center gap-1.5 text-xs bg-pink-500/15 hover:bg-pink-500/25 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
@@ -721,7 +744,7 @@ export default function FavoritesPage() {
                       <Clock className="w-3 h-3" />
                       {formatDate(fav.favoritedAt)}
                     </span>
-                    <SeedBadge infoHash={fav.infoHash} magnet={fav.magnet} />
+                    <SeedBadge infoHash={fav.infoHash} magnet={fav.magnet} refreshSignal={seedRefresh} />
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                       fav.reason === 'auto-5min'
                         ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30'
