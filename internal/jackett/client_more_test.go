@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -132,6 +133,61 @@ func TestStreamSearch_EmptyIndexers(t *testing.T) {
 	}
 	if len(hits) != 0 {
 		t.Fatalf("expected 0 hits, got %d", len(hits))
+	}
+}
+
+// TestStreamSearch_BoundsConcurrency guards the fix for the "Jackett tem N
+// trackers mas o JackUI só mostra ~7" bug: StreamSearch must NOT fire every
+// indexer at once (that saturates Jackett and the slow ones time out and are
+// dropped). With many configured indexers, the number of in-flight per-indexer
+// requests must never exceed maxConcurrentIndexerSearches.
+func TestStreamSearch_BoundsConcurrency(t *testing.T) {
+	const numIndexers = 40
+	var inFlight, maxSeen int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("t") == "indexers" {
+			resp := listIndexersResponse{}
+			for i := 0; i < numIndexers; i++ {
+				resp.Indexers = append(resp.Indexers, struct {
+					ID         string `xml:"id,attr"`
+					Configured string `xml:"configured,attr"`
+					Title      string `xml:"title"`
+					Language   string `xml:"language"`
+					Type       string `xml:"type"`
+				}{ID: fmt.Sprintf("idx%d", i), Configured: "true", Title: fmt.Sprintf("Idx %d", i), Language: "en", Type: "public"})
+			}
+			w.Header().Set("Content-Type", "application/xml")
+			_ = xml.NewEncoder(w).Encode(resp)
+			return
+		}
+		cur := atomic.AddInt32(&inFlight, 1)
+		for {
+			old := atomic.LoadInt32(&maxSeen)
+			if cur <= old || atomic.CompareAndSwapInt32(&maxSeen, old, cur) {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond) // hold the slot so overlap is observable
+		atomic.AddInt32(&inFlight, -1)
+		_, _ = w.Write([]byte(`{"Results":[]}`))
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "key")
+	var done int32
+	err := client.StreamSearch(context.Background(), "q", "", nil, 5*time.Second, func(IndexerHit) {
+		atomic.AddInt32(&done, 1)
+	})
+	if err != nil {
+		t.Fatalf("StreamSearch: %v", err)
+	}
+	if got := atomic.LoadInt32(&done); got != numIndexers {
+		t.Fatalf("expected %d indexer hits, got %d", numIndexers, got)
+	}
+	if peak := atomic.LoadInt32(&maxSeen); peak == 0 {
+		t.Fatal("no per-indexer requests observed")
+	} else if peak > maxConcurrentIndexerSearches {
+		t.Fatalf("peak concurrency %d exceeded cap %d", peak, maxConcurrentIndexerSearches)
 	}
 }
 
