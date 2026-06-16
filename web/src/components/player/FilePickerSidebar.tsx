@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileVideo, ChevronRight, ChevronDown, ArrowDownWideNarrow, ArrowUpWideNarrow, List, FolderTree } from 'lucide-react'
+import { FileVideo, ChevronRight, ChevronDown, List, FolderTree } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
@@ -98,19 +98,16 @@ export function FilePickerSidebar({
     })
   }, [view, treeable, info.files, fileFilter, fileTypeFilter, selectedPath])
 
-  const cycleSizeSort = () => {
-    // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
-    if (!fileSortBySize) setFileSortBySize(true)
-    else if (fileSizeDesc) setFileSizeDesc(false)
-    else { setFileSortBySize(false); setFileSizeDesc(true) }
-  }
-
   const viewBtnClass = (active: boolean) =>
     `flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
       active
         ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
         : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
     }`
+
+  // Current sort as a single select value (avoids a nested ternary in the JSX).
+  let sortValue: 'default' | 'size-desc' | 'size-asc' = 'default'
+  if (fileSortBySize) sortValue = fileSizeDesc ? 'size-desc' : 'size-asc'
 
   return (
     <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-default bg-surface-elevated/50 min-h-0 lg:overflow-hidden">
@@ -192,20 +189,27 @@ export function FilePickerSidebar({
           </div>
         )}
         {(view === 'list' || !treeable) && (
-          <button
-            onClick={cycleSizeSort}
-            title="Ordenar por tamanho"
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
+          // Combo de ordenação — só uma ordem por vez, então um <select> (nativo,
+          // usável no iOS) em vez de botões soltos que quebravam pra outra linha.
+          <select
+            value={sortValue}
+            onChange={e => {
+              const v = e.target.value
+              if (v === 'default') { setFileSortBySize(false); setFileSizeDesc(true) }
+              else { setFileSortBySize(true); setFileSizeDesc(v === 'size-desc') }
+            }}
+            title="Ordenar arquivos"
+            aria-label="Ordenar arquivos"
+            className={`px-2 py-1 rounded text-[11px] border transition-colors cursor-pointer focus:outline-none ${
               fileSortBySize
                 ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
                 : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
             }`}
           >
-            {fileSortBySize && !fileSizeDesc
-              ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
-              : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${fileSortBySize ? '' : 'opacity-50'}`} />}
-            Tamanho
-          </button>
+            <option value="default">Ordem do torrent</option>
+            <option value="size-desc">Maior primeiro</option>
+            <option value="size-asc">Menor primeiro</option>
+          </select>
         )}
       </div>
       {view === 'tree' && treeable ? (
