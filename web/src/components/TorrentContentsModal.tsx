@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, ArrowDownWideNarrow, ArrowUpWideNarrow, Download, Eye } from 'lucide-react'
+import { FolderOpen, Loader2, Play, ListPlus, FileVideo, FileAudio, File as FileIcon, AlertCircle, Copy, Check, Server, Tag, Users, Calendar, Hash, Zap, Activity, Download, Eye } from 'lucide-react'
 import { SearchResult, TorrentInfo, streamAdd, pickTorrentSource, StreamFile, streamThumbnailURL, queueAllTorrentFiles } from '../api/client'
 import { previewRawURL } from '../api/preview'
 import { detectViewerKind } from './viewer/viewerKind'
@@ -209,6 +209,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   // component's cognitive complexity low.
   const { typeCounts, sortedFiles } = computeFileView(info?.files ?? [], filter, typeFilter, sortBySize, sizeDesc)
 
+  // Current sort as a single select value (avoids a nested ternary in the JSX).
+  let fileSortValue: 'default' | 'size-desc' | 'size-asc' = 'default'
+  if (sortBySize) fileSortValue = sizeDesc ? 'size-desc' : 'size-asc'
+
   // O backdrop fixo (inset-0) continua sendo um <div> — quem captura o clique-fora
   // e o Escape. O painel interno é o <dialog> semântico: o `w-full` anula a UA
   // `width: fit-content` (que sozinha estourava o viewport de ~390px no mobile),
@@ -367,25 +371,26 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         </button>
                       ))}
                     <div className="flex-1" />
-                    <button
-                      onClick={() => {
-                        // Cicla: Padrão → Tamanho (maior) → Tamanho (menor) → Padrão
-                        if (!sortBySize) setSortBySize(true)
-                        else if (sizeDesc) setSizeDesc(false)
-                        else { setSortBySize(false); setSizeDesc(true) }
+                    {/* Combo de ordenação — só uma ordem por vez (vide FilePickerSidebar). */}
+                    <select
+                      value={fileSortValue}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (v === 'default') { setSortBySize(false); setSizeDesc(true) }
+                        else { setSortBySize(true); setSizeDesc(v === 'size-desc') }
                       }}
-                      title="Ordenar por tamanho"
-                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-colors ${
+                      title="Ordenar arquivos"
+                      aria-label="Ordenar arquivos"
+                      className={`px-2 py-1 rounded-lg text-xs border transition-colors cursor-pointer focus:outline-none ${
                         sortBySize
                           ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40'
                           : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
                       }`}
                     >
-                      {sortBySize && !sizeDesc
-                        ? <ArrowUpWideNarrow className="w-3.5 h-3.5" />
-                        : <ArrowDownWideNarrow className={`w-3.5 h-3.5 ${sortBySize ? '' : 'opacity-50'}`} />}
-                      Tamanho
-                    </button>
+                      <option value="default">Ordem do torrent</option>
+                      <option value="size-desc">Maior primeiro</option>
+                      <option value="size-asc">Menor primeiro</option>
+                    </select>
                   </div>
                 </div>
               )}

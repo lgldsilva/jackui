@@ -42,24 +42,56 @@ func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, act
 	e, ok := s.active[hash]
 	if ok {
 		st := e.t.Stats()
+		mi := e.t.Metainfo()
 		s.mu.Unlock()
 		// ConnectedSeeders counts only the SEEDERS we're connected to right now —
 		// it can be 0 while playing (we're pulling from leechers) even though the
-		// tracker reports many seeders. Never let that live count regress the last
-		// tracker scrape (the real swarm size), so the badge stays consistent with
-		// the per-tracker panel.
-		seeders := s.seedersNotBelowScrape(hash, st.ConnectedSeeders)
-		h := &CachedHealth{
+		// tracker reports many seeders. Show the real swarm size (last tracker
+		// scrape) when higher, and kick a background scrape when we have no fresh
+		// one — so an active torrent never sits at a misleading 0. We do NOT persist
+		// the live count here (it would bury the scrape's CheckedAt); the cache is
+		// written only by scrapes.
+		cached := s.cache.GetHealth(hash.HexString())
+		seeders := st.ConnectedSeeders
+		if cached != nil && cached.Seeders > seeders {
+			seeders = cached.Seeders
+		}
+		s.maybeScrapeActive(hash, trackersFromMetainfo(&mi), cached)
+		return &CachedHealth{
 			Seeders:   seeders,
 			Peers:     st.TotalPeers,
 			Available: seeders > 0 || st.TotalPeers > 0,
 			CheckedAt: time.Now(),
-		}
-		_ = s.cache.SetHealth(hash.HexString(), seeders, h.Peers)
-		return h, true
+		}, true
 	}
 	s.mu.Unlock()
 	return s.cache.GetHealth(hash.HexString()), false
+}
+
+// maybeScrapeActive kicks a one-off background tracker scrape for an ACTIVE
+// torrent when there's no fresh scrape yet, so the badge shows the real swarm
+// size instead of just the peers we've connected to. Deduped/throttled like
+// ProbeHealthAsync; no-op without trackers or while a probe is already running.
+func (s *Streamer) maybeScrapeActive(hash metainfo.Hash, trackers []string, cached *CachedHealth) {
+	if len(trackers) == 0 {
+		return
+	}
+	if cached != nil && time.Since(cached.CheckedAt) < HealthFreshFor {
+		return // a fresh scrape already exists
+	}
+	if _, busy := healthInflight.LoadOrStore(hash, true); busy {
+		return
+	}
+	go func() {
+		defer healthInflight.Delete(hash)
+		healthProbeSem <- struct{}{}
+		defer func() { <-healthProbeSem }()
+		ctx, cancel := context.WithTimeout(context.Background(), scrapeBudget)
+		defer cancel()
+		if seeders, leechers, ok := scrapeSwarm(ctx, hash, trackers); ok {
+			_ = s.cache.SetHealth(hash.HexString(), seeders, leechers)
+		}
+	}()
 }
 
 // seedersNotBelowScrape clamps a live ConnectedSeeders count up to the last
