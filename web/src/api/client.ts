@@ -665,6 +665,28 @@ export const streamHealth = async (hash: string, magnet?: string, probe = false)
   }
 }
 
+// TrackerScrape is one tracker's reported swarm size (BEP 48). `tracker` is the
+// host only — the server never exposes a private tracker's passkey.
+export type TrackerScrape = {
+  tracker: string
+  seeders: number
+  leechers: number
+  ok: boolean
+}
+
+// streamTrackers scrapes the torrent's trackers and returns per-tracker swarm
+// sizes for the info panel. Bounded server-side (~8s). Empty on error.
+export const streamTrackers = async (hash: string, magnet?: string): Promise<TrackerScrape[]> => {
+  try {
+    const params = new URLSearchParams()
+    if (magnet) params.set('magnet', magnet)
+    const { data } = await api.get<TrackerScrape[]>(`/stream/trackers/${hash}?${params.toString()}`)
+    return data || []
+  } catch {
+    return []
+  }
+}
+
 // streamArtURL returns the persisted per-torrent thumbnail (poster/cover/frame).
 // Serves bytes, 302s to a TMDB poster, or 204s when nothing is resolved yet —
 // so an <img> using it should fall back to the title-based poster on error.

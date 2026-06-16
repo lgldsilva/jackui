@@ -196,6 +196,55 @@ func TestHTTPScrapeTracker_Non200(t *testing.T) {
 	}
 }
 
+func TestTrackerDisplayName(t *testing.T) {
+	cases := map[string]string{
+		"http://tracker.x.org/PASSKEYABC/announce":  "tracker.x.org", // passkey in path → dropped
+		"http://t.y.org/announce?passkey=secret123": "t.y.org",       // passkey in query → dropped
+		"udp://t.z.org:6969/announce":               "t.z.org:6969",  // host:port kept
+		"http://":                                   "tracker",       // no host → fallback
+	}
+	for in, want := range cases {
+		got := trackerDisplayName(in)
+		if got != want {
+			t.Errorf("trackerDisplayName(%q) = %q, want %q", in, got, want)
+		}
+		// Hard invariant: a passkey must never survive into the display name.
+		if strings.Contains(got, "PASSKEY") || strings.Contains(got, "passkey") || strings.Contains(got, "secret") {
+			t.Errorf("passkey leaked in display name for %q: %q", in, got)
+		}
+	}
+}
+
+func TestScrapeSwarmPerTracker(t *testing.T) {
+	hash := scrapeTestHash()
+	a := fakeScrapeTracker(t, hash, 30, 5)
+	// wss is unsupported → filtered by dedupe, so only the http tracker remains.
+	rows := scrapeSwarmPerTracker(context.Background(), hash, []string{a.URL + "/announce", "wss://x/announce"})
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows: %+v", len(rows), rows)
+	}
+	if !rows[0].OK || rows[0].Seeders != 30 || rows[0].Leechers != 5 {
+		t.Fatalf("row: %+v", rows[0])
+	}
+	if !strings.HasPrefix(rows[0].Tracker, "127.0.0.1:") {
+		t.Fatalf("tracker should be masked to host:port, got %q", rows[0].Tracker)
+	}
+	if scrapeSwarmPerTracker(context.Background(), hash, nil) != nil {
+		t.Fatal("no trackers should yield nil")
+	}
+}
+
+func TestStreamerTrackerStats(t *testing.T) {
+	hash := scrapeTestHash()
+	srv := fakeScrapeTracker(t, hash, 7, 2)
+	s := NewForTesting()
+	magnet := "magnet:?xt=urn:btih:" + hash.HexString() + "&tr=" + url.QueryEscape(srv.URL+"/announce")
+	rows := s.TrackerStats(context.Background(), hash, magnet)
+	if len(rows) != 1 || !rows[0].OK || rows[0].Seeders != 7 || rows[0].Leechers != 2 {
+		t.Fatalf("TrackerStats = %+v", rows)
+	}
+}
+
 // probeHealth prefers the tracker scrape and persists the real number.
 func TestProbeHealth_UsesScrape(t *testing.T) {
 	hash := scrapeTestHash()
