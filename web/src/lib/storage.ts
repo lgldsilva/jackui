@@ -28,6 +28,22 @@ export function remove(key: string): void {
   } catch { /* ignore */ }
 }
 
+// Remove every key under a sub-namespace (e.g. removeByPrefix('nav.') wipes all
+// persisted navigation state). Used by the incognito/logout sweep and to
+// invalidate a stale snapshot schema.
+export function removeByPrefix(prefix: string): void {
+  try {
+    const full = PREFIX + prefix
+    // Snapshot the keys first — removing while iterating localStorage mutates it.
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k?.startsWith(full)) keys.push(k)
+    }
+    for (const k of keys) localStorage.removeItem(k)
+  } catch { /* ignore */ }
+}
+
 // useState that mirrors to localStorage — filters/sorts/view-modes survive
 // reloads. Same signature as useState so it's a drop-in replacement. The
 // initial value is read once from storage (lazy), then every change persists.
