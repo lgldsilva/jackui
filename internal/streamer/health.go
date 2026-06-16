@@ -83,6 +83,19 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 		return
 	}
 
+	// Preferred: tracker scrape (BEP 48) — the real swarm size the tracker
+	// publishes, without joining the swarm. Falls through to the live connect
+	// probe below only when no tracker answered (DHT-only magnets, dead trackers).
+	sctx, scancel := context.WithTimeout(context.Background(), scrapeBudget)
+	seeders, leechers, ok := scrapeSwarm(sctx, hash, trackersFromMagnet(magnet))
+	scancel()
+	if ok {
+		_ = s.cache.SetHealth(hash.HexString(), seeders, leechers)
+		return
+	}
+
+	// Fallback (no tracker answered — DHT-only magnet / dead trackers): add the
+	// magnet, let peers connect briefly, count connected seeders/peers, then drop.
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.MetadataWait+healthPeerWait+2*time.Second)
 	defer cancel()
 	if _, err := s.Add(ctx, magnet); err != nil {
