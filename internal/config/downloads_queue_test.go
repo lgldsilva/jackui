@@ -54,6 +54,26 @@ func TestApplyDownloadsQueueEnv_Overrides(t *testing.T) {
 	}
 }
 
+func TestApplyDownloadsQueueEnv_AutoPromoteArr(t *testing.T) {
+	for _, v := range []string{"1", "true", "TRUE"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("JACKUI_DL_AUTO_PROMOTE_ARR", v)
+			cfg := &Config{}
+			applyDownloadsQueueEnv(cfg)
+			if !cfg.DownloadsQueue.AutoPromoteArr {
+				t.Fatalf("auto-promote should be enabled by env %q", v)
+			}
+		})
+	}
+	// Unset / bogus values leave it off.
+	t.Setenv("JACKUI_DL_AUTO_PROMOTE_ARR", "nope")
+	cfg := &Config{}
+	applyDownloadsQueueEnv(cfg)
+	if cfg.DownloadsQueue.AutoPromoteArr {
+		t.Error("auto-promote should stay off for a non-truthy value")
+	}
+}
+
 func TestActiveEnvOverrides_ReportsQueueKeys(t *testing.T) {
 	t.Setenv("JACKUI_DL_MAX_ACTIVE", "4")
 	out := ActiveEnvOverrides()
