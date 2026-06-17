@@ -42,11 +42,14 @@ const (
 // FileIndex sentinels. Non-negative values address one concrete file inside
 // the torrent; negatives select a resolution strategy:
 //
-//   - FileIndexAuto (-1): "pick the best file" — created by the Transmission
-//     RPC shim (Sonarr/Radarr don't know our indices); the worker resolves it
-//     to a real index after metadata and persists it via SetFileIndex.
+//   - FileIndexAuto (-1): "pick the best file" — the JackUI UI's single-file /
+//     streaming path (handlers/downloads.go) when no concrete file is chosen;
+//     the worker resolves it to a real index after metadata and persists it via
+//     SetFileIndex.
 //   - FileIndexWholeTorrent (-2): download the ENTIRE torrent as ONE queue
 //     item (t.DownloadAll, aggregate progress, completion moves every file).
+//     Created by the Transmission RPC shim (Sonarr/Radarr expect the whole
+//     release on disk so they can import every file in a multi-file/season pack).
 //
 // A sentinel (instead of a new whole_torrent column) keeps the
 // UNIQUE(user_id, info_hash, file_index) constraint doing the dedupe work for
