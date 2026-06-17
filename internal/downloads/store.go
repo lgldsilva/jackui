@@ -26,9 +26,16 @@ import (
 const (
 	StatusQueued      = "queued"
 	StatusDownloading = "downloading"
-	StatusCompleted   = "completed"
-	StatusFailed      = "failed"
-	StatusPaused      = "paused"
+	// StatusMoving is the post-download phase: every byte is on disk and the
+	// worker is relocating the file(s) from the streaming cache into their final
+	// home (downloadDir / *arr SharedDir). It runs OFF the tick loop in its own
+	// goroutine, so a slow cross-filesystem copy doesn't freeze other downloads,
+	// and it's durable: a `moving` row left behind by a restart is re-dispatched
+	// on boot (registerExistingDownloads), since the idempotent move can re-run.
+	StatusMoving    = "moving"
+	StatusCompleted = "completed"
+	StatusFailed    = "failed"
+	StatusPaused    = "paused"
 )
 
 // Priority drives queue scheduling. Aligned with the streamer's piece-priority
@@ -1030,7 +1037,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 
 func validStatus(s string) bool {
 	switch s {
-	case StatusQueued, StatusDownloading, StatusCompleted, StatusFailed, StatusPaused:
+	case StatusQueued, StatusDownloading, StatusMoving, StatusCompleted, StatusFailed, StatusPaused:
 		return true
 	}
 	return false

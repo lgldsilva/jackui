@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { Sheet } from './Sheet'
+import { useTransfers } from '../lib/transfers'
 
 type Props = {
   readonly mount: string
@@ -28,6 +29,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  const { bump } = useTransfers()
 
   // Load available mounts on open
   useEffect(() => {
@@ -69,7 +71,9 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
     setSubmitting(true)
     setError('')
     try {
-      // allSettled: um item que falha (ex: colisão de nome) não aborta os outros.
+      // allSettled: um item que falha na validação (ex: colisão de nome) não
+      // aborta os outros. Cada move aceito roda em background (202) e reporta ao
+      // painel de Transferências; aqui só validamos o aceite.
       const results = await Promise.allSettled(items.map(it => localMove(mount, it.path, dstMount, finalPath)))
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       if (failed.length === items.length) {
@@ -78,6 +82,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         return
       }
       if (failed.length > 0) setError(`${failed.length} de ${items.length} itens não puderam ser movidos.`)
+      bump() // atualiza o dock de Transferências na hora
       setDone(true)
       onMoved()
     } catch (e: any) {
@@ -117,9 +122,12 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         {done ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 px-6">
             <CheckCircle2 className="w-10 h-10 text-green-400" />
-            <p className="text-base font-semibold text-text-primary">Movido com sucesso</p>
+            <p className="text-base font-semibold text-text-primary">Movimentação iniciada</p>
             <p className="text-sm text-text-secondary font-mono truncate max-w-xs">
               {dstMount} / {finalPath || ''}
+            </p>
+            <p className="text-xs text-text-muted text-center max-w-xs">
+              Acompanhe o progresso no painel de Transferências (canto inferior). A lista atualiza ao concluir.
             </p>
             <button
               onClick={onClose}
