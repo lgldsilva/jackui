@@ -49,6 +49,7 @@ import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset
 import { AudioTransportBar } from './player/AudioTransportBar'
 import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, canPlayNativeHls, type FileType } from './player/playerFormat'
 import { computeMediaUrls, computeIsTranscoded } from './player/mediaUrls'
+import { computeFilePickerState } from './player/filePickerVisibility'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
@@ -1463,6 +1464,7 @@ export default function PlayerModal({
     // A playlist with >1 item shows the aggregated track list (all items'
     // files); a single item (or no playlist) shows the per-torrent picker.
     const aggregateMode = !!playlist && playlist.items.length > 1
+    const pickerState = computeFilePickerState({ info, minimized, sidebarOpen, aggregateMode })
     return (
       <div className="flex flex-col lg:flex-row flex-1 min-h-0">
         {/* Main column: video + transport + status + panels. On lg+ the
@@ -1685,7 +1687,7 @@ export default function PlayerModal({
             onClose={() => setSidebarOpen(false)}
           />
         )}
-        {!minimized && info.files.length > 1 && sidebarOpen && !aggregateMode && (
+        {info && pickerState.showFilePicker && (
           <FilePickerSidebar
             info={info}
             videoFiles={videoFiles}
@@ -1712,7 +1714,7 @@ export default function PlayerModal({
             • mobile: horizontal bar below the video. Without this, iOS
               users who tap "Esconder lista" had no way to bring it back —
               the list literally vanished. (See issue #50.) */}
-        {(aggregateMode || info.files.length > 1) && !sidebarOpen && (
+        {pickerState.showReopenTab && (
           <>
             {/* Mobile (and tablet up to lg): full-width bar */}
             <button
@@ -1721,7 +1723,7 @@ export default function PlayerModal({
               className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary text-xs flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4 rotate-90" />
-              Mostrar lista de arquivos ({aggregateMode ? playlist.items.length : info.files.length})
+              Mostrar lista de arquivos ({aggregateMode ? playlist.items.length : pickerState.fileCount})
             </button>
             {/* lg+: vertical strip on the right edge */}
             <button
@@ -1731,7 +1733,7 @@ export default function PlayerModal({
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
-                Arquivos ({aggregateMode ? playlist.items.length : info.files.length})
+                Arquivos ({aggregateMode ? playlist.items.length : pickerState.fileCount})
               </span>
             </button>
           </>
