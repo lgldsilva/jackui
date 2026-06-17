@@ -602,46 +602,57 @@ func (b *Browser) List(mountName, relPath string) ([]Entry, error) {
 
 	out := make([]Entry, 0, len(dirEntries))
 	for _, de := range dirEntries {
-		info, err := de.Info()
-		if err != nil {
-			continue
+		if entry, ok := buildEntry(abs, prefix, de); ok {
+			out = append(out, entry)
 		}
-		name := de.Name()
-		// Skip hidden files starting with "."
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-
-		var p string
-		if prefix == "" {
-			p = name
-		} else {
-			p = prefix + "/" + name
-		}
-
-		isDir := de.IsDir()
-		childAbs := filepath.Join(abs, name)
-		out = append(out, Entry{
-			Name:       name,
-			Path:       p,
-			IsDir:      isDir,
-			Size:       info.Size(),
-			ModTime:    info.ModTime(),
-			IsPlayable: !isDir && IsPlayable(name),
-			ChildCount: childCount(isDir, childAbs),
-			Locked:     isDir && isFolderLocked(childAbs),
-		})
 	}
 
 	// Directories first, then files; alphabetical within each group.
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].IsDir != out[j].IsDir {
-			return out[i].IsDir
-		}
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
+	sort.SliceStable(out, func(i, j int) bool { return lessEntry(out[i], out[j]) })
 
 	return out, nil
+}
+
+// buildEntry materializes a directory entry, returning ok=false for entries
+// that should be skipped (unreadable info or hidden files starting with ".").
+func buildEntry(abs, prefix string, de os.DirEntry) (Entry, bool) {
+	info, err := de.Info()
+	if err != nil {
+		return Entry{}, false
+	}
+	name := de.Name()
+	if strings.HasPrefix(name, ".") {
+		return Entry{}, false
+	}
+
+	isDir := de.IsDir()
+	childAbs := filepath.Join(abs, name)
+	return Entry{
+		Name:       name,
+		Path:       entryPath(prefix, name),
+		IsDir:      isDir,
+		Size:       info.Size(),
+		ModTime:    info.ModTime(),
+		IsPlayable: !isDir && IsPlayable(name),
+		ChildCount: childCount(isDir, childAbs),
+		Locked:     isDir && isFolderLocked(childAbs),
+	}, true
+}
+
+// entryPath joins the cleaned relPath prefix with an entry name.
+func entryPath(prefix, name string) string {
+	if prefix == "" {
+		return name
+	}
+	return prefix + "/" + name
+}
+
+// lessEntry orders directories before files, alphabetical within each group.
+func lessEntry(a, b Entry) bool {
+	if a.IsDir != b.IsDir {
+		return a.IsDir
+	}
+	return strings.ToLower(a.Name) < strings.ToLower(b.Name)
 }
 
 var playableExtensions = map[string]bool{
