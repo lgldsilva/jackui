@@ -1,5 +1,5 @@
 import { Loader2, Check, Download } from 'lucide-react'
-import { MediaTrack } from '../../api/client'
+import { MediaTrack, isSafariBrowser } from '../../api/client'
 
 export function formatSize(bytes: number): string {
   if (bytes === 0 || !bytes) return '0 B'
@@ -34,15 +34,24 @@ export function canPlayNativeHls(): boolean {
 }
 
 // webAudioBlocked: can the Web Audio graph (EQ + spectrum visualizer) tap THIS
-// element? Blocks ALL of WebKit (Safari/iOS). createMediaElementSource on WebKit
-// makes the graph the ONLY output path, and with a SUSPENDED AudioContext the
-// WebKit element STALLS (readyState 2, never plays) — for HLS it's mute, but even
-// for DIRECT files it freezes (Apple bug; #247 tried to allow direct-play on iOS
-// and it broke local audio). So on WebKit the element must play NATIVELY (sound
-// guaranteed); EQ/visualizer are Chrome/Firefox only. `isHls` kept for the call
-// sites but no longer needed (WebKit is blocked regardless of transport).
-export function webAudioBlocked(_isHls: boolean): boolean {
-  return canPlayNativeHls()
+// element? Blocks ONLY real WebKit (Safari + any iOS browser). On WebKit,
+// createMediaElementSource makes the graph the ONLY output path, and with a
+// SUSPENDED AudioContext the element STALLS (readyState 2, mute) even for direct
+// files (Apple bug; #247 tried direct-play tap on iOS and it broke local audio,
+// reverted in d0e8b9e). So WebKit plays NATIVELY (sound guaranteed); EQ/visualizer
+// are non-WebKit only.
+//
+// Blocks ONLY the HLS-on-WebKit combination — the one Apple can't tap (#231656:
+// WebKit gives zero audio data for HLS → AnalyserNode silent → element mute). On
+// WebKit DIRECT-PLAY the graph is allowed again (it worked for months pre-d0e8b9e),
+// guarded by useWebAudioGraph's readyState gate so it never taps a not-yet-ready
+// element with a suspended context (the freeze d0e8b9e worried about).
+//
+// Uses isSafariBrowser() — NOT canPlayNativeHls(). The old check disabled the EQ
+// on macOS Chrome/Edge too, because on macOS those Blink browsers ALSO report
+// native HLS support (canPlayType !== '') yet do NOT have the WebKit freeze bug.
+export function webAudioBlocked(isHls: boolean): boolean {
+  return isHls && isSafariBrowser()
 }
 
 // audioElementKey forces React to mount a FRESH <video> when an audio track

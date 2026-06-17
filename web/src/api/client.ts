@@ -1191,6 +1191,7 @@ export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?
 // antes da exclusão de Chrome/Edg. Também pega o iPadOS em "desktop mode", que se
 // reporta como "Macintosh" mas é um dispositivo multi-touch.
 export function isSafariBrowser(): boolean {
+  if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent
   const iOS = /iPhone|iPad|iPod/.test(ua) ||
     (/Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1)
