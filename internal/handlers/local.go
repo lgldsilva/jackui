@@ -26,6 +26,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 	"github.com/lgldsilva/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
 const (
@@ -704,7 +705,7 @@ func isMountRoot(b *local.Browser, abs string) bool {
 	return false
 }
 
-func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, dls *downloads.Store, s *streamer.Streamer, tr *transfer.Tracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
@@ -731,7 +732,11 @@ func LocalPromote(b *local.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client
 			base: base, mount: req.Mount, dls: dls, s: s,
 			overrides: scopedOverrides(b, req, username),
 		}
+		// One Transfers job for the whole batch (X/Y files across all items) — the
+		// dock shows live progress while this (possibly large/cross-fs) move runs.
+		deps.job = startPromoteJob(tr, b, req, paths, username)
 		moved, errs, results := execPromoteMoves(b, deps, req.Mount, paths, orig, targetDir)
+		deps.job.Done()
 		// `errors` keeps the legacy {path,error} list (single-item callers);
 		// `results` is the per-item batch feedback (success/error keyed by the
 		// ORIGINAL un-scoped path the UI sent, so the reclassify table can mark
@@ -795,6 +800,33 @@ func execPromoteMoves(b *local.Browser, deps *promoteDstDeps, mount string, path
 	return moved, errs, results
 }
 
+// startPromoteJob opens a single Transfers job covering every path in the batch
+// (X/Y files + summed bytes), so the dock shows aggregate progress. nil tracker
+// → nil job (all reporting becomes a no-op).
+func startPromoteJob(tr *transfer.Tracker, b *local.Browser, req *localPromoteReq, paths []string, username string) *transfer.Job {
+	files, total := 0, int64(0)
+	for _, rel := range paths {
+		if abs, err := b.ResolvePath(req.Mount, rel); err == nil {
+			f, by := countTree(abs)
+			files += f
+			total += by
+		}
+	}
+	label := promoteJobLabel(req, paths)
+	return tr.Start(label, "promote", files, total)
+}
+
+// promoteJobLabel names the dock entry: the single file's name, or "N itens".
+func promoteJobLabel(req *localPromoteReq, paths []string) string {
+	if len(paths) == 1 {
+		return filepath.Base(paths[0])
+	}
+	if req.Path != "" {
+		return filepath.Base(req.Path)
+	}
+	return fmt.Sprintf("%d itens", len(paths))
+}
+
 // promoteOnePath moves one already-scoped relative path into targetDir, applying
 // the AI rename via computePromoteDst. Returns nil on success (incl. a no-op when
 // already in place) or a {path,error} map describing the failure.
@@ -819,7 +851,8 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return gin.H{"path": scopedRel, "error": "criar destino: " + err.Error()}
 	}
-	if err := movePath(src, dst, stat); err != nil {
+	files, bytes := countTree(src)
+	if err := movePathJob(src, dst, stat, deps.job, files, bytes); err != nil {
 		// Remove the empty dir we created if the move failed — avoids orphan dirs
 		// (e.g. FUSE mounts that reject cross-device writes).
 		_ = os.Remove(filepath.Dir(dst))
@@ -834,6 +867,7 @@ func promoteOnePath(b *local.Browser, deps *promoteDstDeps, mount, scopedRel, ta
 //     sanitized + de-conflicted, never escaping base;
 //  2. the AI/TMDB suggestion (location-aware via LocalContext);
 //  3. the plain targetDir/baseName fallback.
+//
 // scopedRel is the SCOPED source path — used to look up the override and to give
 // the AI its location hint (currentDirOf).
 func computePromoteDst(d *promoteDstDeps, baseName, scopedRel, targetDir string) (string, string) {
@@ -947,6 +981,8 @@ type promoteDstDeps struct {
 	// (relative to base). When set for the item being moved, the edited target
 	// REPLACES the AI suggestion — after the same sanitize/anti-traversal guard.
 	overrides map[string]string
+	// job reports per-file move progress to the global Transfers dock (nil-safe).
+	job *transfer.Job
 }
 
 type localPromoteReq struct {
@@ -1261,13 +1297,13 @@ type moveEntryReq struct {
 // LocalMoveEntry handles POST /api/local/move — moves a file or directory
 // from one mount to another (or within the same mount). Admin only.
 // Body: { srcMount, srcPath, dstMount, dstPath (target directory) }
-func LocalMoveEntry(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+func LocalMoveEntry(b *local.Browser, dls *downloads.Store, s *streamer.Streamer, tr *transfer.Tracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		localMoveHandler(c, b, dls, s)
+		localMoveHandler(c, b, dls, s, tr)
 	}
 }
 
-func localMoveHandler(c *gin.Context, b *local.Browser, dls *downloads.Store, s *streamer.Streamer) {
+func localMoveHandler(c *gin.Context, b *local.Browser, dls *downloads.Store, s *streamer.Streamer, tr *transfer.Tracker) {
 	var req moveEntryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1315,12 +1351,24 @@ func localMoveHandler(c *gin.Context, b *local.Browser, dls *downloads.Store, s 
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "criar diretório destino: " + err.Error()})
 		return
 	}
-	if err := movePath(srcAbs, dstAbs, srcStat); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "mover: " + err.Error()})
-		return
-	}
-	relinked := relinkMovedTorrents(dls, s, srcAbs, dstAbs)
-	c.JSON(http.StatusOK, gin.H{"moved": filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath)), "relinked": relinked})
+
+	// The move runs in a goroutine reporting to the global Transfers tracker, so a
+	// large cross-filesystem copy (→ GDrive/other disk) doesn't block the request
+	// past the reverse-proxy timeout. The UI follows progress via the dock
+	// (GET /api/transfers) and refreshes the listing when the job finishes.
+	files, total := countTree(srcAbs)
+	label := filepath.Base(req.SrcPath)
+	job := tr.Start(label, "local-move", files, total)
+	moved := filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath))
+	go func() {
+		if err := movePathJob(srcAbs, dstAbs, srcStat, job, files, total); err != nil {
+			job.Fail(err)
+			return
+		}
+		relinkMovedTorrents(dls, s, srcAbs, dstAbs)
+		job.Done()
+	}()
+	c.JSON(http.StatusAccepted, gin.H{"moved": moved, "jobId": job.ID(), "async": true})
 }
 
 func isAdminMove(c *gin.Context) bool {
@@ -1364,6 +1412,39 @@ func resolveDest(b *local.Browser, c *gin.Context, req *moveEntryReq, srcAbs str
 
 func isSelfMove(srcStat os.FileInfo, srcAbs, dstAbs string) bool {
 	return srcStat.IsDir() && strings.HasPrefix(dstAbs+string(filepath.Separator), srcAbs+string(filepath.Separator))
+}
+
+// countTree returns the number of regular files under path and their total byte
+// size — file → (1, size); dir → recursive totals. Used to seed a transfer.Job
+// (X/Y files, bytes) before a move starts. Best-effort: unreadable entries are
+// skipped (the move itself surfaces real errors).
+func countTree(path string) (files int, bytes int64) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, 0
+	}
+	if !st.IsDir() {
+		return 1, st.Size()
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0, 0
+	}
+	for _, e := range entries {
+		f, b := countTree(filepath.Join(path, e.Name()))
+		files += f
+		bytes += b
+	}
+	return files, bytes
+}
+
+// reportInstantMove fast-forwards a job by an item's precomputed size — for a
+// same-filesystem os.Rename, which is instantaneous (no copy loop to meter).
+func reportInstantMove(job *transfer.Job, files int, bytes int64) {
+	job.AddBytes(bytes)
+	for i := 0; i < files; i++ {
+		job.FileDone()
+	}
 }
 
 type renameEntryReq struct {
@@ -1474,20 +1555,29 @@ func isValidRenameName(name string) bool {
 
 // movePath handles moving files and directories, even across different filesystems/mounts.
 func movePath(src, dst string, stat os.FileInfo) error {
-	// First try renaming. It works if on the same volume/filesystem.
-	err := os.Rename(src, dst)
-	if err == nil {
+	return movePathJob(src, dst, stat, nil, 0, 0)
+}
+
+// movePathJob is movePath with transfer-progress reporting. files/bytes are the
+// item's precomputed totals, reported in one shot for the instant same-fs rename;
+// the cross-device copy fallback meters itself, so those counts are ignored there.
+func movePathJob(src, dst string, stat os.FileInfo, job *transfer.Job, files int, bytes int64) error {
+	if err := os.Rename(src, dst); err == nil {
+		reportInstantMove(job, files, bytes)
 		return nil
 	}
-
-	// If rename fails (e.g. cross-device link), copy and delete
+	// If rename fails (e.g. cross-device link), copy and delete (metered).
 	if stat.IsDir() {
-		return copyDirAndRemove(src, dst, stat)
+		return copyDirAndRemoveJob(src, dst, stat, job)
 	}
-	return copyFileAndRemove(src, dst, stat)
+	return copyFileAndRemoveJob(src, dst, stat, job)
 }
 
 func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
+	return copyFileAndRemoveJob(src, dst, stat, nil)
+}
+
+func copyFileAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -1500,7 +1590,7 @@ func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
 	}
 	defer func() { _ = out.Close() }()
 
-	if _, err = io.Copy(out, in); err != nil {
+	if _, err = io.Copy(out, transfer.ProgressReader(in, job.AddBytesFunc())); err != nil {
 		_ = os.Remove(dst)
 		return err
 	}
@@ -1511,10 +1601,15 @@ func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
 	// fallback (→ rclone/GDrive, other disk) would otherwise stamp "now",
 	// breaking date sort and mtime-based scans.
 	_ = os.Chtimes(dst, stat.ModTime(), stat.ModTime())
+	job.FileDone()
 	return os.Remove(src)
 }
 
 func copyDirAndRemove(src, dst string, stat os.FileInfo) error {
+	return copyDirAndRemoveJob(src, dst, stat, nil)
+}
+
+func copyDirAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) error {
 	if err := os.MkdirAll(dst, stat.Mode()); err != nil {
 		return err
 	}
@@ -1534,11 +1629,11 @@ func copyDirAndRemove(src, dst string, stat os.FileInfo) error {
 		}
 
 		if entry.IsDir() {
-			if err := copyDirAndRemove(srcPath, dstPath, info); err != nil {
+			if err := copyDirAndRemoveJob(srcPath, dstPath, info, job); err != nil {
 				return err
 			}
 		} else {
-			if err := copyFileAndRemove(srcPath, dstPath, info); err != nil {
+			if err := copyFileAndRemoveJob(srcPath, dstPath, info, job); err != nil {
 				return err
 			}
 		}

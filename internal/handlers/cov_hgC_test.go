@@ -362,17 +362,31 @@ func Test_hgC_LocalMove_Success(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b, nil, nil)(c)
+	LocalMoveEntry(b, nil, nil, nil)(c)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	// The move now runs asynchronously (202 Accepted) and reports to the
+	// Transfers dock; wait for the goroutine to land the file.
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body: %s", w.Code, w.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(dstDir, "file.txt")); err != nil {
-		t.Errorf("moved file not at destination: %v", err)
-	}
+	dst := filepath.Join(dstDir, "file.txt")
+	waitForLocalFile(t, dst, 2*time.Second)
 	if _, err := os.Stat(filepath.Join(srcDir, "file.txt")); !os.IsNotExist(err) {
 		t.Error("source file should be gone after move")
 	}
+}
+
+// waitForLocalFile polls until path exists or the deadline passes.
+func waitForLocalFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("file %q did not appear within %s", path, timeout)
 }
 
 func Test_hgC_LocalMove_SelfMove(t *testing.T) {
@@ -393,7 +407,7 @@ func Test_hgC_LocalMove_SelfMove(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b, nil, nil)(c)
+	LocalMoveEntry(b, nil, nil, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400 (self-move); body: %s", w.Code, w.Body.String())
@@ -423,7 +437,7 @@ func Test_hgC_LocalMove_CollisionRefused(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalMoveEntry(b, nil, nil)(c)
+	LocalMoveEntry(b, nil, nil, nil)(c)
 
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409 (collision); body: %s", w.Code, w.Body.String())

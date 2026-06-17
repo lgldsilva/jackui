@@ -20,6 +20,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
 const (
@@ -99,7 +100,7 @@ func sanitizeSubdir(subdir string) (string, error) {
 //
 // targetSubdir vazio = raiz do destino. targetBase vazio = sharedDir (default).
 // Subpastas inexistentes são criadas (os.MkdirAll). Validação anti-traversal.
-func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -120,7 +121,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		updated, err := promoteOne(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA})
+		updated, err := promoteOne(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -136,7 +137,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 //
 // Resposta: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
 // Falhas individuais não abortam o batch — cada item é tentado.
-func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
@@ -147,7 +148,7 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClien
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA}, req)
+		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr}, req)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
@@ -318,6 +319,7 @@ type promoteOpts struct {
 	targetSubdir string
 	keepSeeding  bool
 	renameIA     bool
+	tracker      *transfer.Tracker // reports the move to the global Transfers dock (nil-safe)
 }
 
 func promoteOne(o *promoteOpts) (*downloads.Download, error) {
@@ -347,9 +349,13 @@ func promoteOne(o *promoteOpts) (*downloads.Download, error) {
 	if err := ensureTargetDir(targetDir); err != nil {
 		return nil, err
 	}
-	if err := moveWithFallback(src, dst); err != nil {
+	files, bytes := countTree(src)
+	job := o.tracker.Start(baseName, "promote", files, bytes)
+	if err := moveWithFallbackJob(src, dst, job, files, bytes); err != nil {
+		job.Fail(err)
 		return nil, errors.New("mover arquivo: " + err.Error())
 	}
+	job.Done()
 	_ = o.store.SetFilePath(o.userID, o.id, dst)
 	stopSeedingIfNeeded(o, d.InfoHash)
 	return o.store.Get(o.userID, o.id)
@@ -392,9 +398,17 @@ func ensureTargetDir(targetDir string) error {
 }
 
 func moveWithFallback(src, dst string) error {
+	return moveWithFallbackJob(src, dst, nil, 0, 0)
+}
+
+// moveWithFallbackJob is moveWithFallback with transfer-progress reporting:
+// files/bytes are reported in one shot for the instant same-fs rename; the
+// cross-device copy fallback meters itself.
+func moveWithFallbackJob(src, dst string, job *transfer.Job, files int, bytes int64) error {
 	if err := os.Rename(src, dst); err != nil {
-		return promoteCopyDelete(src, dst)
+		return promoteCopyDeleteJob(src, dst, job)
 	}
+	reportInstantMove(job, files, bytes)
 	return nil
 }
 
@@ -445,7 +459,9 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 // promoteCopyDelete handles cross-filesystem moves (Rename fails when src and
 // dst live on different mount points). Copies content then removes the source.
 // Best-effort cleanup: removes the partial dst on error.
-func promoteCopyDelete(src, dst string) error {
+func promoteCopyDelete(src, dst string) error { return promoteCopyDeleteJob(src, dst, nil) }
+
+func promoteCopyDeleteJob(src, dst string, job *transfer.Job) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -455,7 +471,7 @@ func promoteCopyDelete(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(out, transfer.ProgressReader(in, job.AddBytesFunc())); err != nil {
 		_ = out.Close()
 		_ = os.Remove(dst)
 		return err
@@ -464,5 +480,6 @@ func promoteCopyDelete(src, dst string) error {
 		_ = os.Remove(dst)
 		return err
 	}
+	job.FileDone()
 	return os.Remove(src)
 }
