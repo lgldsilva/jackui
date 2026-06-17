@@ -98,6 +98,41 @@ func TestNilJobSafe(t *testing.T) {
 	j.AddBytesFunc()(5) // não deve dar panic
 }
 
+func TestSetBytesTotalLateAndGuards(t *testing.T) {
+	tr := New()
+	j := tr.Start("late", "promote", 0, 0) // totals unknown at start
+	j.SetBytesTotal(-5)                     // negative is ignored (guard)
+	j.SetBytesTotal(200)
+	j.AddBytes(100)
+	if s := j.Snapshot(); s.BytesTotal != 200 || s.Progress != 0.5 {
+		t.Fatalf("late totals: %+v", s)
+	}
+	var nilJob *Job
+	nilJob.SetBytesTotal(10) // no-op, must not panic
+}
+
+func TestAddBytesFuncOnLiveJob(t *testing.T) {
+	tr := New()
+	j := tr.Start("x", "local-move", 1, 100)
+	j.AddBytesFunc()(40) // non-nil path delegates to AddBytes
+	if s := j.Snapshot(); s.BytesDone != 40 {
+		t.Fatalf("AddBytesFunc didn't apply: %+v", s)
+	}
+}
+
+func TestRateWindowPrunesStaleSamples(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(2000, 0)}
+	tr := &Tracker{now: clk.Now}
+	j := tr.Start("move", "local-move", 0, 10000)
+	j.AddBytes(1000)
+	clk.advance(rateWindow + time.Second) // first sample falls out of the window
+	j.AddBytes(2000)                       // pruneLocked trims the stale sample (i>0)
+	s := j.Snapshot()
+	if s.BytesDone != 3000 {
+		t.Fatalf("bytesDone=%d, want 3000", s.BytesDone)
+	}
+}
+
 func TestProgressByFilesWhenNoBytesTotal(t *testing.T) {
 	tr := New()
 	j := tr.Start("dir move", "local-move", 4, 0) // bytesTotal desconhecido

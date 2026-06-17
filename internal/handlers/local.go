@@ -33,6 +33,7 @@ const (
 	errMissingMountOrPathParam = "missing mount or path parameter"
 	mountMeusDownloads         = "meus downloads"
 	errOnlyMeusDownloads       = "Somente a área 'Meus downloads' pode ser modificada ou promovida"
+	errFileOrDirNotFound       = "file or directory not found"
 )
 
 // userFromCtx extracts the username from the JWT claims, returning ""
@@ -509,7 +510,7 @@ func LocalDelete(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) g
 		abs, err := resolveDeletablePath(b, mount, scopePath(b, c, mount, path))
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+				c.JSON(http.StatusNotFound, gin.H{"error": errFileOrDirNotFound})
 				return
 			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1508,7 +1509,7 @@ func resolveRenameSource(b *local.Browser, c *gin.Context, req renameEntryReq) (
 	srcAbs, err := resolveDeletablePath(b, req.Mount, scopePath(b, c, req.Mount, req.Path))
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": errFileOrDirNotFound})
 		} else {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		}
@@ -1516,7 +1517,7 @@ func resolveRenameSource(b *local.Browser, c *gin.Context, req renameEntryReq) (
 	}
 	stat, err := os.Stat(srcAbs)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": errFileOrDirNotFound})
 		return "", nil, false
 	}
 	return srcAbs, stat, true
