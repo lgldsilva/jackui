@@ -240,6 +240,34 @@ func TestTorrentAdd_SetsUserID(t *testing.T) {
 	}
 }
 
+// torrent-add (via *arr) deve criar o download como TORRENT INTEIRO
+// (FileIndexWholeTorrent), e não arquivo único — senão um pacote de temporada
+// ou release multi-arquivo importaria quebrado no Sonarr/Radarr.
+func TestTorrentAdd_CreatesWholeTorrent(t *testing.T) {
+	st := newTestStore(t)
+	h := NewHandler(st, nil, nil, "/data", "/data")
+	hash := strings.Repeat("a", 40)
+	resp := h.methodTorrentAdd(map[string]interface{}{
+		"filename": "magnet:?xt=urn:btih:" + hash,
+	}, 1)
+	if resp.Result != "success" {
+		t.Fatalf("torrent-add falhou: %q", resp.Result)
+	}
+	all, err := st.ListAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("esperava 1 download, got %d", len(all))
+	}
+	if all[0].FileIndex != downloads.FileIndexWholeTorrent {
+		t.Fatalf("esperava FileIndex=%d (whole torrent), got %d", downloads.FileIndexWholeTorrent, all[0].FileIndex)
+	}
+	if !all[0].IsWholeTorrent() {
+		t.Fatalf("esperava IsWholeTorrent()=true, got false (FileIndex=%d)", all[0].FileIndex)
+	}
+}
+
 // torrent-set "labels" deve atualizar a categoria do download existente
 // (antes chamava Create sem Magnet e nunca funcionava).
 func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {

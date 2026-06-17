@@ -18,6 +18,14 @@ import (
 const (
 	errFailedToCreateRequest = "failed to create request: %w"
 	torznabAPIEndpoint       = "/api/v2.0/indexers/all/results/torznab/api"
+
+	// maxConcurrentIndexerSearches bounds how many indexers StreamSearch queries
+	// at once. Jackett commonly has 50-100 configured indexers; firing them ALL in
+	// parallel saturates Jackett (it then serializes the upstream tracker calls),
+	// so many indexers exceed perIndexerTimeout and are silently dropped — the
+	// "Jackett tem N trackers mas o JackUI só mostra ~7" bug. A modest cap keeps
+	// Jackett responsive so even slow private trackers finish inside the timeout.
+	maxConcurrentIndexerSearches = 12
 )
 
 type Client struct {
@@ -443,11 +451,25 @@ func (c *Client) StreamSearch(
 		onHit(h)
 	}
 
+	// Bound concurrency with a semaphore so we don't saturate Jackett (see
+	// maxConcurrentIndexerSearches). Without this, all targets fire at once and the
+	// slow ones time out and vanish from the results.
+	sem := make(chan struct{}, maxConcurrentIndexerSearches)
 	var wg sync.WaitGroup
 	for _, idx := range targets {
 		wg.Add(1)
 		go func(idx Indexer) {
 			defer wg.Done()
+			// Acquire a slot (or bail if the caller's context is already done). The
+			// per-indexer timeout starts only AFTER we hold a slot, so time spent
+			// queued behind other indexers doesn't eat into this indexer's budget.
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				emit(IndexerHit{IndexerID: idx.ID, IndexerName: idx.Name, Err: ctx.Err()})
+				return
+			}
 			t0 := time.Now()
 			ictx, cancel := context.WithTimeout(ctx, perIndexerTimeout)
 			defer cancel()

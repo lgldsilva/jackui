@@ -1101,7 +1101,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
 	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
-	api.GET("/local/play", handlers.LocalPlay(deps.localBrowser, deps.libraryStore))
+	api.GET("/local/play", handlers.LocalHiddenGate(deps.streamSrv), handlers.LocalPlay(deps.localBrowser, deps.libraryStore))
 	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
 	api.GET("/local/audio/cover", handlers.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
 	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
