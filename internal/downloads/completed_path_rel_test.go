@@ -188,7 +188,7 @@ func TestMoveCompletedTree_SkipsPadPaths(t *testing.T) {
 	mustWrite(t, dataDir, "T", "real.bin")
 	// Pad entries exist only in metadata — nothing on disk. Without the skip,
 	// the move would fail forever ("completed file not found").
-	err := moveCompletedTree(dataDir, destDir, "T", []string{"T/.pad/512", ".pad/1024", "T/real.bin"})
+	err := moveCompletedTree(dataDir, destDir, "T", []string{"T/.pad/512", ".pad/1024", "T/real.bin"}, nil, nil)
 	if err != nil {
 		t.Fatalf("moveCompletedTree: %v", err)
 	}

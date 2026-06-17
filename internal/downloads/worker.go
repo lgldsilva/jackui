@@ -21,6 +21,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
+	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
 // sourceSearcher is the subset of the Jackett client the worker needs for source
@@ -72,6 +73,7 @@ type WorkerConfig struct {
 	Jackett         sourceSearcher       // Phase 2 source rotation; nil disables Jackett re-search
 	AIClient        *ai.Client           // nil → no AI auto-rename on completion
 	TMDBClient      *tmdb.Client         // enriches the AI rename; may be nil
+	Tracker         *transfer.Tracker    // global move/copy progress; nil disables progress reporting
 }
 
 // Worker reconciles download rows in the store with the running anacrolix
@@ -134,6 +136,13 @@ type Worker struct {
 	// re-organized Plex-style (best-effort, async). tmdbClient enriches it.
 	aiClient   *ai.Client
 	tmdbClient *tmdb.Client
+
+	// tracker records post-download move progress (X/Y files, bytes, rate, ETA)
+	// for the global Transfers dock. nil → no reporting (Job methods are nil-safe).
+	tracker *transfer.Tracker
+	// moveBackoff is the base delay between post-download move retries. A field
+	// (not a const) so tests can shrink it; defaults to 2s in NewWorker.
+	moveBackoff time.Duration
 }
 
 // wholeTarget is the slice of *torrent.Torrent the worker needs for
@@ -207,6 +216,8 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		jackett:         cfg.Jackett,
 		aiClient:        cfg.AIClient,
 		tmdbClient:      cfg.TMDBClient,
+		tracker:         cfg.Tracker,
+		moveBackoff:     2 * time.Second,
 	}
 	if cfg.Streamer != nil {
 		w.drop = cfg.Streamer.Drop
@@ -228,21 +239,47 @@ func registerExistingDownloads(cfg WorkerConfig) {
 		return
 	}
 	for _, d := range all {
-		if d.Status == StatusFailed || d.Name == "" {
+		switch {
+		case d.Status == StatusFailed || d.Name == "":
 			continue
+		case d.Status == StatusMoving:
+			rescueInterruptedMove(cfg, d)
+		case d.Status == StatusCompleted && cfg.DownloadDir != "":
+			rescueOrphanCompletion(cfg, d)
+		default:
+			cfg.Streamer.RegisterDownload(d.Name)
 		}
-		if d.Status == StatusCompleted && cfg.DownloadDir != "" {
-			if isOrphanedCompletion(d, cfg.DataDir) {
-				if err := cfg.Store.SetStatus(d.UserID, d.ID, StatusQueued); err != nil {
-					log.Printf("downloads: failed to set status queued for existing download %d: %v", d.ID, err)
-				}
-				cfg.Streamer.RegisterDownload(d.Name)
-				log.Printf("downloads: re-queued orphan #%d %q (file_path missing, source still in cache)", d.ID, d.Name)
-			}
-			continue
-		}
-		cfg.Streamer.RegisterDownload(d.Name)
 	}
+}
+
+// rescueOrphanCompletion re-queues a completed download whose moved file went
+// missing while its cache source survives (a move interrupted by a restart), so
+// the worker re-moves it. A healthy completed row (file present, or no cache
+// source) is left alone. Extracted to keep registerExistingDownloads flat.
+func rescueOrphanCompletion(cfg WorkerConfig, d Download) {
+	if !isOrphanedCompletion(d, cfg.DataDir) {
+		return
+	}
+	if err := cfg.Store.SetStatus(d.UserID, d.ID, StatusQueued); err != nil {
+		log.Printf("downloads: failed to set status queued for existing download %d: %v", d.ID, err)
+	}
+	cfg.Streamer.RegisterDownload(d.Name)
+	log.Printf("downloads: re-queued orphan #%d %q (file_path missing, source still in cache)", d.ID, d.Name)
+}
+
+// rescueInterruptedMove resumes a post-download move left in `moving` by a
+// restart: it re-registers eviction protection (so the cache source survives
+// until the re-move finishes) and flips the row back to `downloading`, so the
+// next tick re-runs checkCompletion → re-dispatches the move. The move helpers
+// are idempotent (already-moved files are skipped), so a partial move re-runs
+// safely without re-downloading. This is the "retoma no restart" guarantee.
+func rescueInterruptedMove(cfg WorkerConfig, d Download) {
+	cfg.Streamer.RegisterDownload(d.Name)
+	if err := cfg.Store.SetStatus(d.UserID, d.ID, StatusDownloading); err != nil {
+		log.Printf("downloads: failed to rescue interrupted move #%d: %v", d.ID, err)
+		return
+	}
+	log.Printf("downloads: resuming interrupted move #%d %q (was 'moving' → re-dispatching)", d.ID, d.Name)
 }
 
 // Start launches the worker loop in a goroutine. Idempotent on the caller side
@@ -607,41 +644,122 @@ func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 	w.mu.Unlock()
 }
 
+// checkCompletion fires when every byte is on disk: it hands the download off to
+// the post-download move WITHOUT blocking the tick loop. It captures the move
+// plan (the torrent-relative paths — cheap, just reading metadata), flips the row
+// to `moving`, removes it from the tracked set (so the tick neither re-dispatches
+// it nor untracks-and-unregisters it mid-move — eviction protection stays until
+// the move goroutine releases it), opens a transfer.Job for the Transfers dock,
+// and runs the actual relocation in its own goroutine. A nil/zero target (no
+// file yet) is a no-op. This is the fix for "100% mas não finaliza": the slow
+// cross-filesystem copy no longer wedges the tick, and a move that keeps failing
+// ends as `failed` (with the error) instead of retrying silently forever.
 func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	completed, total, ok := td.progress()
 	if !ok || total <= 0 || completed < total {
 		return
 	}
-	var dst string
-	var err error
-	if td.whole != nil {
-		dst, err = w.moveCompletedTorrent(d, td)
+	whole := td.whole != nil
+	var relPaths []string
+	if whole {
+		relPaths = wholeTorrentRelPaths(td.whole.Files())
 	} else {
-		dst, err = w.moveCompletedFile(d, td.file.Path(), td.name)
+		relPaths = []string{td.file.Path()}
 	}
+	name := td.name
+
+	// Enter the non-blocking "moving" phase. Order matters: flip status first (so
+	// the next ListActive excludes the row — no double-dispatch), then drop the
+	// tracked entry WITHOUT unregisterLocked (keep eviction protection alive for
+	// the copy; the move goroutine calls UnregisterDownload when it lands).
+	if err := w.store.SetStatus(d.UserID, d.ID, StatusMoving); err != nil {
+		log.Printf("downloads: failed to set status moving #%d: %v", d.ID, err)
+		return // stays downloading; the next tick retries the hand-off
+	}
+	w.mu.Lock()
+	delete(w.tracked, d.ID)
+	w.mu.Unlock()
+
+	job := w.tracker.Start(name, "download-move", len(relPaths), total)
+	go w.runCompletionMove(d, name, relPaths, whole, total, job)
+}
+
+// moveMaxAttempts bounds in-process retries of a post-download move before the
+// row is marked `failed`. Without a bound a recurring error (e.g. the
+// `permission denied` we saw on the destination) would retry forever, leaving the
+// download wedged at "100% downloading". A move interrupted by app shutdown is
+// NOT a failure: the row stays `moving` and boot rescue re-dispatches it.
+const moveMaxAttempts = 3
+
+// runCompletionMove performs the post-download relocation OFF the tick loop and
+// finalizes the row. The move helpers are idempotent, so each retry resumes where
+// the last left off. On success → `completed` (+ AI rename + ntfy); after
+// moveMaxAttempts of a persistent error → `failed` with the message; on app
+// shutdown mid-retry it returns leaving the row `moving` for boot rescue.
+func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, whole bool, total int64, job *transfer.Job) {
+	dst, err := w.attemptCompletionMove(d, name, relPaths, whole, job)
 	if err != nil {
-		// Don't flip to completed — the file never reached the destination. Retry
-		// next tick (e.g. the anacrolix storage is still renaming the .part).
-		// Avoids a phantom "completed" whose file_path points to a missing file.
-		log.Printf("downloads: completion move failed #%d %q: %v (retry next tick)", d.ID, td.name, err)
+		if e := w.store.SetError(d.UserID, d.ID, "move failed: "+err.Error()); e != nil {
+			log.Printf("downloads: failed to mark move-failed #%d: %v", d.ID, e)
+		}
+		job.Fail(err)
+		log.Printf("downloads: completion move #%d %q failed after %d attempts: %v", d.ID, name, moveMaxAttempts, err)
 		return
 	}
 	if err := w.store.SetStatus(d.UserID, d.ID, StatusCompleted); err != nil {
 		log.Printf("downloads: failed to set status completed for download %d: %v", d.ID, err)
 	}
-	w.mu.Lock()
-	delete(w.tracked, d.ID)
-	w.mu.Unlock()
-	log.Printf("downloads: completed #%d %q", d.ID, td.name)
-	// AI auto-rename (Plex-style) when an AI client is configured. Off the tick
-	// loop — the download is already usable; this just re-organizes it.
-	// Whole-torrent rows skip it: the rename chain targets ONE media file, not
-	// a tree of N files.
-	if w.aiClient != nil && dst != "" && td.whole == nil {
+	job.Done()
+	log.Printf("downloads: completed #%d %q", d.ID, name)
+	// AI auto-rename (Plex-style) when configured. Whole-torrent rows skip it:
+	// the rename chain targets ONE media file, not a tree of N files.
+	if w.aiClient != nil && dst != "" && !whole {
 		go w.aiRenameCompleted(d, dst)
 	}
-	body := fmt.Sprintf("%s · %.2f MB", td.name, float64(total)/1048576)
-	go w.sendNtfy(context.Background(), "Download concluído: "+td.name, body, "white_check_mark,torrent")
+	body := fmt.Sprintf("%s · %.2f MB", name, float64(total)/1048576)
+	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
+}
+
+// attemptCompletionMove runs the move with bounded retries, reporting progress to
+// job. It returns the destination path on success, or the last error after
+// moveMaxAttempts. A shutdown signal (w.stop) aborts the retry loop early with
+// the pending error so the caller leaves the row `moving` for boot rescue.
+func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []string, whole bool, job *transfer.Job) (string, error) {
+	var dst string
+	var err error
+	for attempt := 1; attempt <= moveMaxAttempts; attempt++ {
+		if whole {
+			dst, err = w.moveCompletedTorrentFiles(d, name, relPaths, job)
+		} else {
+			dst, err = w.moveCompletedFile(d, relPaths[0], name, job)
+		}
+		if err == nil {
+			return dst, nil
+		}
+		log.Printf("downloads: completion move #%d %q attempt %d/%d: %v", d.ID, name, attempt, moveMaxAttempts, err)
+		if attempt == moveMaxAttempts {
+			break
+		}
+		select {
+		case <-w.stop:
+			return "", err // shutting down: leave the row `moving` for boot rescue
+		case <-time.After(time.Duration(attempt) * w.moveBackoff):
+		}
+	}
+	return "", err
+}
+
+// wholeTorrentRelPaths returns the content files' torrent-relative paths, skipping
+// BEP 47 pad files (attr "p") — piece-alignment filler, never materialized.
+func wholeTorrentRelPaths(files []*torrent.File) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		if strings.Contains(f.FileInfo().Attr, "p") {
+			continue
+		}
+		out = append(out, f.Path())
+	}
+	return out
 }
 
 // peerCount is nil-safe len(t.PeerConns()) for diagnostic logs (tests build
@@ -699,8 +817,9 @@ func PromoteDir(sharedDir, category string) string {
 
 // moveDownloadedFile moves the completed file (final or leftover .part) for
 // relPath from dataDir into destDir, returning the destination path. The dst
-// always uses the final name, never .part.
-func moveDownloadedFile(dataDir, destDir, relPath string) (string, error) {
+// always uses the final name, never .part. onBytes (nil-safe) receives the bytes
+// copied so the caller can report transfer progress.
+func moveDownloadedFile(dataDir, destDir, relPath string, onBytes func(int64)) (string, error) {
 	src := resolveCompletedSrc(dataDir, relPath)
 	if src == "" {
 		return "", fmt.Errorf("completed file not found in %s for %q", dataDir, relPath)
@@ -709,7 +828,7 @@ func moveDownloadedFile(dataDir, destDir, relPath string) (string, error) {
 		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
 	dst := filepath.Join(destDir, filepath.Base(relPath))
-	if err := moveFile(src, dst); err != nil {
+	if err := moveFileProgress(src, dst, onBytes); err != nil {
 		return "", fmt.Errorf("move %s → %s: %w", src, dst, err)
 	}
 	return dst, nil
@@ -757,15 +876,16 @@ func (w *Worker) completionDest(d Download, torrentName string) string {
 // an error (instead of failing silently) so the caller only flips the row to
 // "completed" when the file actually reached its home — handling the case where
 // the anacrolix storage left a complete ".part" that wasn't renamed yet.
-func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) (string, error) {
+func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string, job *transfer.Job) (string, error) {
 	destDir := w.completionDest(d, torrentName)
 	if destDir == "" {
 		return "", nil
 	}
-	dst, err := moveDownloadedFile(w.dataDir, destDir, relPath)
+	dst, err := moveDownloadedFile(w.dataDir, destDir, relPath, job.AddBytesFunc())
 	if err != nil {
 		return "", err
 	}
+	job.FileDone()
 	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
 		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
 	}
@@ -782,28 +902,25 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) (str
 // next tick retries — moveCompletedTree is idempotent, so a retry (or the
 // boot-time orphan re-queue) skips files that already reached the destination.
 func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error) {
-	destDir := w.completionDest(d, td.name)
+	return w.moveCompletedTorrentFiles(d, td.name, wholeTorrentRelPaths(td.whole.Files()), nil)
+}
+
+// moveCompletedTorrentFiles is moveCompletedTorrent's core, taking the already-
+// resolved torrent-relative paths (so it runs off the tick without the live
+// torrent) and a transfer.Job for progress. Same idempotent/error contract.
+func (w *Worker) moveCompletedTorrentFiles(d Download, torrentName string, relPaths []string, job *transfer.Job) (string, error) {
+	destDir := w.completionDest(d, torrentName)
 	if destDir == "" {
 		return "", nil
 	}
-	files := td.whole.Files()
-	relPaths := make([]string, 0, len(files))
-	for _, f := range files {
-		// BEP 47 pad files (attr "p") are piece-alignment filler, not content;
-		// path-based ".pad/" entries are skipped inside moveCompletedTree.
-		if strings.Contains(f.FileInfo().Attr, "p") {
-			continue
-		}
-		relPaths = append(relPaths, f.Path())
-	}
-	if err := moveCompletedTree(w.dataDir, destDir, td.name, relPaths); err != nil {
+	if err := moveCompletedTree(w.dataDir, destDir, torrentName, relPaths, job.AddBytesFunc(), job.FileDone); err != nil {
 		return "", err
 	}
 	if err := w.store.SetFilePath(d.UserID, d.ID, destDir); err != nil {
 		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
 	}
-	w.streamer.UnregisterDownload(td.name)
-	log.Printf("downloads: moved whole torrent #%d %q (%d files) → %s", d.ID, td.name, len(relPaths), destDir)
+	w.streamer.UnregisterDownload(torrentName)
+	log.Printf("downloads: moved whole torrent #%d %q (%d files) → %s", d.ID, torrentName, len(relPaths), destDir)
 	return destDir, nil
 }
 
@@ -812,30 +929,45 @@ func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error)
 // "<torrentName>/" segment is stripped (destDir already carries the per-torrent
 // folder). Idempotent: a file whose source is gone but whose destination exists
 // was moved by a previous (interrupted) attempt and is skipped.
-func moveCompletedTree(dataDir, destDir, torrentName string, relPaths []string) error {
+func moveCompletedTree(dataDir, destDir, torrentName string, relPaths []string, onBytes func(int64), onFileDone func()) error {
 	for _, rel := range relPaths {
-		if isPadPath(torrentName, rel) {
-			continue
-		}
-		dst, err := wholeTorrentDest(destDir, torrentName, rel)
+		moved, err := moveTreeEntry(dataDir, destDir, torrentName, rel, onBytes)
 		if err != nil {
 			return err
 		}
-		src := resolveCompletedSrc(dataDir, rel)
-		if src == "" {
-			if fileExists(dst) {
-				continue // already moved on a previous attempt
-			}
-			return fmt.Errorf("completed file not found in %s for %q", dataDir, rel)
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("mkdir for %q: %w", rel, err)
-		}
-		if err := moveFile(src, dst); err != nil {
-			return fmt.Errorf("move %s → %s: %w", src, dst, err)
+		if moved && onFileDone != nil {
+			onFileDone() // a relocated (or already-present) file counts toward X/Y
 		}
 	}
 	return nil
+}
+
+// moveTreeEntry relocates one torrent-relative file into destDir. moved=true when
+// a file was moved OR already sat at the destination (a prior attempt); moved=
+// false for a skipped BEP 47 pad entry. Idempotent — safe to re-run after an
+// interrupted move.
+func moveTreeEntry(dataDir, destDir, torrentName, rel string, onBytes func(int64)) (bool, error) {
+	if isPadPath(torrentName, rel) {
+		return false, nil
+	}
+	dst, err := wholeTorrentDest(destDir, torrentName, rel)
+	if err != nil {
+		return false, err
+	}
+	src := resolveCompletedSrc(dataDir, rel)
+	if src == "" {
+		if fileExists(dst) {
+			return true, nil // already moved on a previous attempt
+		}
+		return false, fmt.Errorf("completed file not found in %s for %q", dataDir, rel)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return false, fmt.Errorf("mkdir for %q: %w", rel, err)
+	}
+	if err := moveFileProgress(src, dst, onBytes); err != nil {
+		return false, fmt.Errorf("move %s → %s: %w", src, dst, err)
+	}
+	return true, nil
 }
 
 // wholeTorrentDest resolves the destination path for one torrent-relative file,
@@ -891,10 +1023,18 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
 		log.Printf("downloads: AI-rename mkdir #%d: %v", d.ID, err)
 		return
 	}
-	if err := moveFileWithFallback(currentPath, newDst); err != nil {
+	var size int64
+	if st, e := os.Stat(currentPath); e == nil {
+		size = st.Size()
+	}
+	job := w.tracker.Start(filepath.Base(newDst), "ai-rename", 1, size)
+	if err := moveFileProgress(currentPath, newDst, job.AddBytesFunc()); err != nil {
+		job.Fail(err)
 		log.Printf("downloads: AI-rename move #%d: %v", d.ID, err)
 		return
 	}
+	job.FileDone()
+	job.Done()
 	if err := w.store.SetFilePath(d.UserID, d.ID, newDst); err != nil {
 		log.Printf("downloads: AI-rename set path #%d: %v", d.ID, err)
 		return
@@ -905,30 +1045,10 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
 }
 
 // moveFileWithFallback renames src→dst, falling back to copy+remove across
-// filesystems (EXDEV). Mirrors the promote move semantics.
-func moveFileWithFallback(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		_ = os.Remove(dst)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	return os.Remove(src)
-}
+// filesystems (EXDEV). Mirrors the promote move semantics. Delegates to
+// moveFileProgress (no progress reporting); aiRenameCompleted uses the metered
+// form directly for the Transfers dock.
+func moveFileWithFallback(src, dst string) error { return moveFileProgress(src, dst, nil) }
 
 // sanitizeFolderName turns a torrent name into ONE safe path segment for the
 // per-torrent destination folder: strips path separators and traversal, drops
@@ -1276,11 +1396,25 @@ func pickBestFile(files []*torrent.File) int {
 	return bestIdx
 }
 
-// moveFile moves src to dst. Tries os.Rename first (cheap, same-filesystem);
-// falls back to copy+delete for cross-filesystem moves (DataDir on one volume,
-// DownloadDir on another).
-func moveFile(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
+// renameFn is os.Rename, overridable in tests to force the cross-filesystem copy
+// fallback (EXDEV can't be reproduced within a single temp dir).
+var renameFn = os.Rename
+
+// moveFile moves src to dst with no progress reporting (see moveFileProgress).
+func moveFile(src, dst string) error { return moveFileProgress(src, dst, nil) }
+
+// moveFileProgress moves src to dst. Tries os.Rename first (cheap, same-
+// filesystem; reports the file size as one chunk so a same-fs move still shows
+// 100% on the progress bar); falls back to copy+delete for cross-filesystem moves
+// (DataDir on one volume, DownloadDir on another), streaming through a
+// transfer.ProgressReader so onBytes (nil-safe) sees the copy advance.
+func moveFileProgress(src, dst string, onBytes func(int64)) error {
+	if err := renameFn(src, dst); err == nil {
+		if onBytes != nil {
+			if st, e := os.Stat(dst); e == nil {
+				onBytes(st.Size())
+			}
+		}
 		return nil
 	}
 	in, err := os.Open(src)
@@ -1292,7 +1426,7 @@ func moveFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err := io.Copy(out, transfer.ProgressReader(in, onBytes)); err != nil {
 		_ = out.Close()
 		_ = os.Remove(dst)
 		return err

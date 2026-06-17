@@ -1,0 +1,318 @@
+// Package transfer is a small in-memory tracker for long-running file
+// move/copy operations (post-download move, Local-tab move, AI/promote), so the
+// UI can show ONE consistent progress pattern for all of them: X/Y files, bytes
+// done/total, transfer rate and ETA. It is the move-side analogue of
+// internal/localstream (which meters streaming reads) and reuses the same
+// windowed-rate idea. State is in-memory and lost on restart — for durable
+// resume of the post-download move, see downloads.StatusMoving / RescueStuckMoving.
+package transfer
+
+import (
+	"io"
+	"sync"
+	"time"
+)
+
+// Status is the lifecycle of a transfer Job.
+type Status string
+
+const (
+	StatusRunning Status = "running"
+	StatusDone    Status = "done"
+	StatusFailed  Status = "failed"
+)
+
+const (
+	// rateWindow is the sliding window used to compute the transfer rate
+	// (mirrors internal/localstream's 3s window).
+	rateWindow = 3 * time.Second
+	// doneRetentionTTL keeps finished jobs visible briefly so the UI can show
+	// the completion before they are pruned (lazy prune on List/Snapshot).
+	doneRetentionTTL = 20 * time.Second
+)
+
+type sample struct {
+	t time.Time
+	n int64
+}
+
+// Snapshot is the immutable, JSON-serializable view of a Job for the UI.
+type Snapshot struct {
+	ID         string  `json:"id"`
+	Label      string  `json:"label"`
+	Kind       string  `json:"kind"`
+	Status     Status  `json:"status"`
+	FilesDone  int     `json:"filesDone"`
+	FilesTotal int     `json:"filesTotal"`
+	BytesDone  int64   `json:"bytesDone"`
+	BytesTotal int64   `json:"bytesTotal"`
+	RatePerSec int64   `json:"ratePerSec"`
+	ETASeconds int     `json:"etaSeconds"`
+	Progress   float64 `json:"progress"` // 0..1 (by bytes when known, else by files)
+	Error      string  `json:"error,omitempty"`
+	StartedAt  string  `json:"startedAt"`
+}
+
+// Job is one tracked move/copy operation. Safe for concurrent use: producers
+// call AddBytes/FileDone from the copy loop while the API reads Snapshot.
+type Job struct {
+	now func() time.Time // clock seam for tests
+
+	mu         sync.Mutex
+	id         string
+	label      string
+	kind       string
+	status     Status
+	filesTotal int
+	filesDone  int
+	bytesTotal int64
+	bytesDone  int64
+	errMsg     string
+	startedAt  time.Time
+	updatedAt  time.Time
+	samples    []sample
+}
+
+// ID returns the job's stable identifier (empty for a nil Job), so a producer can
+// hand it back to the client to correlate with the dock entry.
+func (j *Job) ID() string {
+	if j == nil {
+		return ""
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.id
+}
+
+// AddBytes records bytes transferred (drives progress + rate). No-op on <=0
+// or a nil Job (so producers can stay agnostic to whether tracking is wired).
+func (j *Job) AddBytes(n int64) {
+	if j == nil || n <= 0 {
+		return
+	}
+	j.mu.Lock()
+	j.bytesDone += n
+	now := j.now()
+	j.updatedAt = now
+	j.samples = append(j.samples, sample{now, n})
+	j.pruneLocked(now)
+	j.mu.Unlock()
+}
+
+// AddBytesFunc returns a callback for instrumenting an io.Copy via ProgressReader.
+func (j *Job) AddBytesFunc() func(int64) {
+	if j == nil {
+		return func(int64) {}
+	}
+	return j.AddBytes
+}
+
+// FileDone increments the completed-files counter (X of Y).
+func (j *Job) FileDone() {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	j.filesDone++
+	j.updatedAt = j.now()
+	j.mu.Unlock()
+}
+
+// SetBytesTotal sets/raises the known total byte size (when discovered late).
+func (j *Job) SetBytesTotal(total int64) {
+	if j == nil || total < 0 {
+		return
+	}
+	j.mu.Lock()
+	j.bytesTotal = total
+	j.mu.Unlock()
+}
+
+// Done marks the job successful. Fail marks it failed with the error message.
+func (j *Job) Done()        { j.finish(StatusDone, "") }
+func (j *Job) Fail(err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	j.finish(StatusFailed, msg)
+}
+
+func (j *Job) finish(s Status, msg string) {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	j.status = s
+	j.errMsg = msg
+	j.updatedAt = j.now()
+	j.mu.Unlock()
+}
+
+func (j *Job) pruneLocked(now time.Time) {
+	cut := now.Add(-rateWindow)
+	i := 0
+	for i < len(j.samples) && j.samples[i].t.Before(cut) {
+		i++
+	}
+	if i > 0 {
+		j.samples = j.samples[i:]
+	}
+}
+
+func (j *Job) rateLocked(now time.Time) int64 {
+	j.pruneLocked(now)
+	var sum int64
+	for _, s := range j.samples {
+		sum += s.n
+	}
+	if sum == 0 {
+		return 0
+	}
+	return int64(float64(sum) / rateWindow.Seconds())
+}
+
+// Snapshot returns the current immutable view.
+func (j *Job) Snapshot() Snapshot {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	now := j.now()
+	rate := int64(0)
+	if j.status == StatusRunning {
+		rate = j.rateLocked(now)
+	}
+	progress := 0.0
+	switch {
+	case j.bytesTotal > 0:
+		progress = float64(j.bytesDone) / float64(j.bytesTotal)
+	case j.filesTotal > 0:
+		progress = float64(j.filesDone) / float64(j.filesTotal)
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	eta := 0
+	if rate > 0 && j.bytesTotal > j.bytesDone {
+		eta = int((j.bytesTotal - j.bytesDone) / rate)
+	}
+	return Snapshot{
+		ID: j.id, Label: j.label, Kind: j.kind, Status: j.status,
+		FilesDone: j.filesDone, FilesTotal: j.filesTotal,
+		BytesDone: j.bytesDone, BytesTotal: j.bytesTotal,
+		RatePerSec: rate, ETASeconds: eta, Progress: progress,
+		Error: j.errMsg, StartedAt: j.startedAt.Format(time.RFC3339),
+	}
+}
+
+func (j *Job) finishedBefore(t time.Time) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.status != StatusRunning && j.updatedAt.Before(t)
+}
+
+// Tracker holds the active and recently-finished jobs.
+type Tracker struct {
+	now func() time.Time
+
+	mu   sync.Mutex
+	seq  int64
+	jobs []*Job // insertion order (newest last)
+}
+
+// New returns a Tracker using the wall clock.
+func New() *Tracker { return &Tracker{now: time.Now} }
+
+// Start registers and returns a new running Job. filesTotal/bytesTotal may be 0
+// when unknown (rate/ETA degrade gracefully; SetBytesTotal can fill in later).
+func (t *Tracker) Start(label, kind string, filesTotal int, bytesTotal int64) *Job {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	t.seq++
+	now := t.now()
+	j := &Job{
+		now: t.now, id: idFor(t.seq, now), label: label, kind: kind,
+		status: StatusRunning, filesTotal: filesTotal, bytesTotal: bytesTotal,
+		startedAt: now, updatedAt: now,
+	}
+	t.jobs = append(t.jobs, j)
+	t.pruneLocked(now)
+	t.mu.Unlock()
+	return j
+}
+
+// List returns snapshots of all active + recently-finished jobs (newest first).
+func (t *Tracker) List() []Snapshot {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	t.pruneLocked(t.now())
+	jobs := append([]*Job(nil), t.jobs...)
+	t.mu.Unlock()
+	out := make([]Snapshot, 0, len(jobs))
+	for i := len(jobs) - 1; i >= 0; i-- { // newest first
+		out = append(out, jobs[i].Snapshot())
+	}
+	return out
+}
+
+func (t *Tracker) pruneLocked(now time.Time) {
+	cut := now.Add(-doneRetentionTTL)
+	kept := t.jobs[:0]
+	for _, j := range t.jobs {
+		if !j.finishedBefore(cut) {
+			kept = append(kept, j)
+		}
+	}
+	t.jobs = kept
+}
+
+func idFor(seq int64, now time.Time) string {
+	return "t" + itoa(now.UnixNano()) + "-" + itoa(seq)
+}
+
+func itoa(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}
+
+// ProgressReader wraps r so each Read reports the byte count via onBytes —
+// drop-in for io.Copy(dst, ProgressReader(src, job.AddBytes)).
+func ProgressReader(r io.Reader, onBytes func(int64)) io.Reader {
+	if onBytes == nil {
+		return r
+	}
+	return &progressReader{r: r, onBytes: onBytes}
+}
+
+type progressReader struct {
+	r       io.Reader
+	onBytes func(int64)
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	if n > 0 {
+		pr.onBytes(int64(n))
+	}
+	return n, err
+}
