@@ -4,7 +4,7 @@ export type LongPressHandlers = {
   readonly onTouchStart: (e: React.TouchEvent) => void
   readonly onTouchMove: (e: React.TouchEvent) => void
   readonly onTouchEnd: () => void
-  readonly onContextMenu: (e: React.MouseEvent) => void
+  readonly onContextMenu?: (e: React.MouseEvent) => void
 }
 
 type LongPressOptions = {
@@ -13,6 +13,10 @@ type LongPressOptions = {
   /** Cancel if the finger travels more than this many px (it's a scroll). Default 10. */
   readonly moveTolerance?: number
   readonly enabled?: boolean
+  /** Map desktop right-click (contextmenu) to the same callback. Default true.
+      A page that owns the right-click for something else (e.g. LocalPage opens
+      a new tab on right-click) passes false so this hook doesn't shadow it. */
+  readonly contextMenu?: boolean
 }
 
 /**
@@ -23,7 +27,7 @@ type LongPressOptions = {
  * scroll nativo — o cancelamento por movimento já evita disparos acidentais.
  */
 export function useLongPress(onLongPress: () => void, opts: LongPressOptions = {}): LongPressHandlers {
-  const { delay = 500, moveTolerance = 10, enabled = true } = opts
+  const { delay = 500, moveTolerance = 10, enabled = true, contextMenu = true } = opts
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const start = useRef<{ x: number; y: number } | null>(null)
 
@@ -54,5 +58,5 @@ export function useLongPress(onLongPress: () => void, opts: LongPressOptions = {
     onLongPress()
   }, [enabled, onLongPress])
 
-  return { onTouchStart, onTouchMove, onTouchEnd: clear, onContextMenu }
+  return { onTouchStart, onTouchMove, onTouchEnd: clear, ...(contextMenu ? { onContextMenu } : {}) }
 }

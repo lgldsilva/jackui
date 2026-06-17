@@ -46,6 +46,12 @@ describe('newTabProps', () => {
     expect(globalThis.open).toHaveBeenCalledWith('/?play=x', '_blank', 'noopener')
   })
 
+  it('a non-primary button click never runs the action (handled by onAuxClick)', () => {
+    const onActivate = vi.fn()
+    newTabProps('/?play=x', onActivate).onClick(ev({ button: 1 }))
+    expect(onActivate).not.toHaveBeenCalled()
+  })
+
   it('middle click (aux) opens a new tab', () => {
     const onActivate = vi.fn()
     newTabProps('/?play=x', onActivate).onAuxClick(ev({ button: 1 }))
