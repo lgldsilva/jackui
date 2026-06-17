@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
@@ -13,6 +14,26 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
+
+// waitForStatus polls the row until its status equals want or the deadline
+// passes — the post-download move now runs OFF the tick in its own goroutine, so
+// completion/failure is observed asynchronously.
+func waitForStatus(t *testing.T, store *Store, userID, id int, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if got, _ := store.Get(userID, id); got != nil && got.Status == want {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	got, _ := store.Get(userID, id)
+	status := "<nil>"
+	if got != nil {
+		status = got.Status
+	}
+	t.Fatalf("status = %q after %s, want %q", status, timeout, want)
+}
 
 // ─── store: sentinel semantics ──────────────────────────────────────────────
 
@@ -298,7 +319,7 @@ func TestMoveCompletedTree_IdempotentSkipsAlreadyMoved(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, "T", "todo.bin"), []byte("y"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := moveCompletedTree(dataDir, destDir, "T", []string{"T/done.bin", "T/todo.bin"})
+	err := moveCompletedTree(dataDir, destDir, "T", []string{"T/done.bin", "T/todo.bin"}, nil, nil)
 	if err != nil {
 		t.Fatalf("moveCompletedTree: %v", err)
 	}
@@ -306,7 +327,7 @@ func TestMoveCompletedTree_IdempotentSkipsAlreadyMoved(t *testing.T) {
 		t.Error("todo.bin should have been moved")
 	}
 	// Missing source AND missing destination → hard error (don't fake success).
-	err = moveCompletedTree(dataDir, destDir, "T", []string{"T/ghost.bin"})
+	err = moveCompletedTree(dataDir, destDir, "T", []string{"T/ghost.bin"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for a file missing from both cache and destination")
 	}
@@ -354,24 +375,24 @@ func TestCheckCompletion_WholeCompleteMovesAndFinishes(t *testing.T) {
 	// paths for the move, so wrap the real torrent's files.
 	fake := &fakeWhole{completed: 4, length: 4, files: tor.Files()}
 	td := &trackedDL{id: d.ID, userID: 1, name: "Pack2", whole: fake}
+	w.moveBackoff = time.Millisecond
 	w.tracked[d.ID] = td
 	w.checkCompletion(*d, td)
-	got, _ := store.Get(1, d.ID)
-	if got.Status != StatusCompleted {
-		t.Fatalf("status = %q, want completed", got.Status)
-	}
-	want := filepath.Join(downloadDir, "Pack2", "only.bin")
-	if !fileExists(want) {
-		t.Errorf("file should be moved to %q", want)
-	}
-	if got.FilePath != filepath.Join(downloadDir, "Pack2") {
-		t.Errorf("file_path = %q, want the torrent dest dir", got.FilePath)
-	}
+	// checkCompletion untracks synchronously and runs the move off the tick.
 	w.mu.Lock()
 	_, still := w.tracked[d.ID]
 	w.mu.Unlock()
 	if still {
-		t.Error("completed download must be untracked")
+		t.Error("download handed to the move must be untracked")
+	}
+	waitForStatus(t, store, 1, d.ID, StatusCompleted, 2*time.Second)
+	want := filepath.Join(downloadDir, "Pack2", "only.bin")
+	if !fileExists(want) {
+		t.Errorf("file should be moved to %q", want)
+	}
+	got, _ := store.Get(1, d.ID)
+	if got.FilePath != filepath.Join(downloadDir, "Pack2") {
+		t.Errorf("file_path = %q, want the torrent dest dir", got.FilePath)
 	}
 }
 
@@ -431,13 +452,13 @@ func TestPeerCount_NilSafe(t *testing.T) {
 }
 
 func TestMoveCompletedTree_RejectsUnsafePath(t *testing.T) {
-	err := moveCompletedTree(t.TempDir(), t.TempDir(), "T", []string{"../evil.bin"})
+	err := moveCompletedTree(t.TempDir(), t.TempDir(), "T", []string{"../evil.bin"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected traversal rejection to propagate")
 	}
 }
 
-func TestCheckCompletion_WholeMoveErrorKeepsRetrying(t *testing.T) {
+func TestCheckCompletion_WholeMoveErrorMarksFailed(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), t.TempDir())
 	d, _ := store.Create(Download{
@@ -446,21 +467,18 @@ func TestCheckCompletion_WholeMoveErrorKeepsRetrying(t *testing.T) {
 	})
 	tor := wholeSpecTorrent(t, "PackErr", [][]string{{"x.bin"}})
 	// Aggregate says complete, but the bytes never landed in the cache NOR the
-	// destination → the move fails and the row must NOT flip to completed (the
-	// next tick retries; flipping would fabricate a phantom completion).
+	// destination → the move keeps failing. After moveMaxAttempts the row must end
+	// as `failed` with a captured error — NOT wedged at "100% downloading" forever
+	// (the bug the user reported), and NOT a phantom `completed`.
 	fake := &fakeWhole{completed: 4, length: 4, files: tor.Files()}
 	td := &trackedDL{id: d.ID, userID: 1, name: "PackErr", whole: fake}
+	w.moveBackoff = time.Millisecond
 	w.tracked[d.ID] = td
 	w.checkCompletion(*d, td)
+	waitForStatus(t, store, 1, d.ID, StatusFailed, 2*time.Second)
 	got, _ := store.Get(1, d.ID)
-	if got.Status == StatusCompleted {
-		t.Fatal("move failure must not flip the row to completed")
-	}
-	w.mu.Lock()
-	_, still := w.tracked[d.ID]
-	w.mu.Unlock()
-	if !still {
-		t.Fatal("row must stay tracked so the next tick retries the move")
+	if got.Error == "" {
+		t.Fatal("a failed move must capture the error message")
 	}
 }
 

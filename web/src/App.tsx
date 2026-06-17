@@ -21,6 +21,8 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 import { ConfirmProvider } from './components/ConfirmDialog'
 import ErrorBoundary from './components/ErrorBoundary'
+import { TransfersProvider } from './lib/transfers'
+import TransfersDock from './components/TransfersDock'
 
 function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -108,17 +110,21 @@ function App() {
   return (
     <AuthProvider>
       <ConfirmProvider>
-        <PlayerProvider>
-          <div className="min-h-screen bg-surface">
-            <RouteRestorer />
-            {/* Global crash net: a render error in any page would otherwise blank
-                the whole app (white screen). Show a recoverable message; reset
-                does a hard reload to home so a wedged route always recovers. */}
-            <ErrorBoundary title="Algo deu errado" onReset={() => { globalThis.location.href = '/' }}>
-              <AppRoutes />
-            </ErrorBoundary>
-          </div>
-        </PlayerProvider>
+        <TransfersProvider>
+          <PlayerProvider>
+            <div className="min-h-screen bg-surface">
+              <RouteRestorer />
+              {/* Global crash net: a render error in any page would otherwise blank
+                  the whole app (white screen). Show a recoverable message; reset
+                  does a hard reload to home so a wedged route always recovers. */}
+              <ErrorBoundary title="Algo deu errado" onReset={() => { globalThis.location.href = '/' }}>
+                <AppRoutes />
+              </ErrorBoundary>
+              {/* Global file-movement progress dock (bottom-left). */}
+              <TransfersDock />
+            </div>
+          </PlayerProvider>
+        </TransfersProvider>
       </ConfirmProvider>
     </AuthProvider>
   )
