@@ -16,7 +16,6 @@ import {
   Trash2,
   ArrowUpCircle,
   FolderSync,
-  FolderX,
   FolderInput,
   CopyCheck,
   Upload,
@@ -24,10 +23,13 @@ import {
   Check,
   X,
   Lock,
+  Unlock,
   Users,
   MoreVertical,
   Eye,
   EyeOff,
+  Pencil,
+  RefreshCw,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
@@ -43,6 +45,8 @@ import { BatchActionBar } from '../components/BatchActionBar'
 import LocalPromoteModal from '../components/LocalPromoteModal'
 import ReclassifyFolderModal from '../components/ReclassifyFolderModal'
 import MoveFolderModal from '../components/MoveFolderModal'
+import RenameModal from '../components/RenameModal'
+import CleanEmptyButton from '../components/local/CleanEmptyButton'
 import {
   LocalEntry,
   LocalMount,
@@ -56,6 +60,7 @@ import {
   localMounts,
   localDelete,
   localCleanEmptyDirs,
+  localSetFolderLock,
   localCacheFolder,
   localUpload,
   adminListUsers,
@@ -243,9 +248,11 @@ type EntryRowProps = {
   readonly onOpen: (e: LocalEntry) => void
   readonly onEnterSelect: (e: LocalEntry) => void
   readonly onToggleSelect: (e: LocalEntry) => void
+  readonly onRename: (e: LocalEntry) => void
   readonly onPromote: (e: LocalEntry) => void
   readonly onReclassify: (e: LocalEntry) => void
   readonly onMove: (e: LocalEntry) => void
+  readonly onLock: (e: LocalEntry) => void
   readonly onDelete: (e: LocalEntry) => void
   readonly hidden: boolean
   readonly onToggleHidden: (e: LocalEntry) => void
@@ -264,22 +271,27 @@ const ACTION_COLOR: Record<string, string> = {
 }
 type EntryAction = { key: string; icon: typeof Trash2; label: string; color: keyof typeof ACTION_COLOR; run: () => void }
 
-function EntryActions({ entry: e, isAdmin, canAct, hidden, onPromote, onReclassify, onMove, onDelete, onToggleHidden }: {
+function EntryActions({ entry: e, isAdmin, canAct, hidden, onRename, onPromote, onReclassify, onMove, onLock, onDelete, onToggleHidden }: {
   readonly entry: LocalEntry
   readonly isAdmin: boolean
   readonly canAct: boolean
   readonly hidden: boolean
+  readonly onRename: (e: LocalEntry) => void
   readonly onPromote: (e: LocalEntry) => void
   readonly onReclassify: (e: LocalEntry) => void
   readonly onMove: (e: LocalEntry) => void
+  readonly onLock: (e: LocalEntry) => void
   readonly onDelete: (e: LocalEntry) => void
   readonly onToggleHidden: (e: LocalEntry) => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const actions: EntryAction[] = [
+    canAct && { key: 'rename', icon: Pencil, label: e.isDir ? 'Renomear pasta' : 'Renomear arquivo', color: 'amber', run: () => onRename(e) },
     canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: 'Promover / Organizar via IA', color: 'cyan', run: () => onPromote(e) },
     isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA', color: 'purple', run: () => onReclassify(e) },
     isAdmin && { key: 'move', icon: FolderInput, label: 'Mover para outro mount', color: 'amber', run: () => onMove(e) },
+    // Lock/unlock só faz sentido em pasta: fixa-a (.keep) contra o "limpar vazias".
+    canAct && e.isDir && { key: 'lock', icon: e.locked ? Unlock : Lock, label: e.locked ? 'Não manter (liberar p/ limpar vazias)' : 'Manter pasta (não limpar mesmo vazia)', color: 'amber', run: () => onLock(e) },
     // Hide/unhide is per-user and harmless on any mount, so it's always offered.
     { key: 'hide', icon: hidden ? Eye : EyeOff, label: hidden ? 'Mostrar (tirar do oculto)' : 'Ocultar', color: 'amber', run: () => onToggleHidden(e) },
     canAct && { key: 'delete', icon: Trash2, label: e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente', color: 'red', run: () => onDelete(e) },
@@ -401,6 +413,7 @@ function EntryRow(props: EntryRowProps) {
         <span className="flex-1 min-w-0 flex flex-col gap-0.5">
           <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere] flex items-center gap-1.5">
             {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="oculto" />}
+            {e.locked && <Lock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="mantida (não limpa)" />}
             {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label="visualizável" />}
             {e.name}
           </span>
@@ -428,9 +441,11 @@ function EntryRow(props: EntryRowProps) {
           isAdmin={isAdmin}
           canAct={canAct}
           hidden={props.hidden}
+          onRename={props.onRename}
           onPromote={props.onPromote}
           onReclassify={props.onReclassify}
           onMove={props.onMove}
+          onLock={props.onLock}
           onDelete={props.onDelete}
           onToggleHidden={props.onToggleHidden}
         />
@@ -461,6 +476,7 @@ export default function LocalPage() {
   const [promoteEntries, setPromoteEntries] = useState<LocalEntry[]>([])
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
+  const [renameItem, setRenameItem] = useState<LocalEntry | null>(null)
   // Viewer universal pra arquivos não-reproduzíveis (NFO/imagem/PDF/CBZ/zip/EPUB)
   const [previewEntry, setPreviewEntry] = useState<LocalEntry | null>(null)
   const confirm = useConfirm()
@@ -728,22 +744,38 @@ export default function LocalPage() {
 
   // Remove empty subfolders left behind after promoting/moving files. Low risk
   // (only deletes truly-empty dirs), so a light confirm is enough.
-  const requestCleanEmptyDirs = async () => {
+  // scope 'here' = recursivo a partir da pasta atual; 'root' = desde a raiz do
+  // mount. Pastas "mantidas" (.keep) sobrevivem em ambos. Arquivos não são tocados.
+  const requestCleanEmptyDirs = async (scope: 'here' | 'root') => {
     if (!activeMount) return
+    const target = scope === 'root' ? '' : path
     const ok = await confirm({
       title: 'Limpar pastas vazias?',
-      message: <>Remover todas as subpastas vazias a partir de <span className="text-text-primary font-medium">"{path || activeMount}"</span>? Arquivos não são afetados.</>,
+      message: <>Remover todas as subpastas vazias a partir de <span className="text-text-primary font-medium">"{target || activeMount}"</span>? Pastas mantidas (cadeado) e arquivos não são afetados.</>,
       confirmLabel: 'Limpar',
     })
     if (!ok) return
     setError('')
     setNotice('')
     try {
-      const { cleaned } = await localCleanEmptyDirs(activeMount, path)
+      const { cleaned } = await localCleanEmptyDirs(activeMount, target)
       setNotice(cleaned > 0 ? `${cleaned} pasta${plural(cleaned)} vazia${plural(cleaned)} removida${plural(cleaned)}.` : 'Nenhuma pasta vazia encontrada.')
       refresh()
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao limpar pastas vazias')
+    }
+  }
+
+  // Fixa/solta uma pasta (.keep) pra que o "limpar vazias" a mantenha mesmo sem
+  // arquivos. Sem confirm — é reversível e inofensivo.
+  const handleToggleLock = async (entry: LocalEntry) => {
+    if (!activeMount) return
+    setError('')
+    try {
+      await localSetFolderLock(activeMount, entry.path, !entry.locked)
+      refresh()
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e.message || 'Erro ao alterar manutenção da pasta')
     }
   }
 
@@ -953,6 +985,15 @@ export default function LocalPage() {
               {/* Botões de ação agrupados: no mobile quebram juntos para a linha
                   de baixo (antes encavalavam no breadcrumb); inline no desktop. */}
               <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={refresh}
+                disabled={loading}
+                title="Recarregar a lista de arquivos"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-surface-tertiary/60 hover:bg-surface-tertiary disabled:opacity-50 text-text-primary border border-strong px-3 py-1.5 rounded-lg transition-colors font-medium"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Recarregar</span>
+              </button>
               {activeMountObj?.cacheable && (
                 <button
                   onClick={requestCacheFolder}
@@ -981,14 +1022,7 @@ export default function LocalPage() {
                     <Upload className="w-4 h-4" />
                     <span className="hidden sm:inline">Upload</span>
                   </button>
-                  <button
-                    onClick={requestCleanEmptyDirs}
-                    title="Remover subpastas vazias desta pasta"
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border border-strong px-3 py-1.5 rounded-lg transition-colors font-medium"
-                  >
-                    <FolderX className="w-4 h-4" />
-                    <span className="hidden sm:inline">Limpar vazias</span>
-                  </button>
+                  <CleanEmptyButton atRoot={!path} onClean={requestCleanEmptyDirs} />
                   <button
                     onClick={() => setShowDuplicates(true)}
                     title="Encontrar arquivos com conteúdo idêntico (nomes diferentes) e apagar as cópias"
@@ -1162,9 +1196,11 @@ export default function LocalPage() {
                   onOpen={handleEntryClick}
                   onEnterSelect={enterSelect}
                   onToggleSelect={toggleSelect}
+                  onRename={setRenameItem}
                   onPromote={(entry) => setPromoteEntries([entry])}
                   onReclassify={setReclassifyItem}
                   onMove={setMoveItem}
+                  onLock={handleToggleLock}
                   onDelete={requestDelete}
                   hidden={hiddenSet.has(e.path)}
                   onToggleHidden={handleToggleHidden}
@@ -1205,6 +1241,14 @@ export default function LocalPage() {
             entry={reclassifyItem}
             onClose={() => setReclassifyItem(null)}
             onDone={() => { setReclassifyItem(null); refresh() }}
+          />
+
+          {/* Modal de renomear arquivo/pasta in-place */}
+          <RenameModal
+            mount={activeMount}
+            entry={renameItem}
+            onClose={() => setRenameItem(null)}
+            onRenamed={refresh}
           />
 
           {/* Modal de Mover entre mounts — individual (moveItem) ou lote (selectedEntries) */}

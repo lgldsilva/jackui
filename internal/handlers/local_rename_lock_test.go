@@ -1,0 +1,141 @@
+package handlers
+
+import (
+	"net/http"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/local"
+)
+
+func newRenameRouter(t *testing.T) (*gin.Engine, *local.Browser, *downloads.Store, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	meus := t.TempDir()
+	dls, err := downloads.New(filepath.Join(t.TempDir(), "dl.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { dls.Close() })
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: meus}})
+	router := gin.New()
+	router.POST("/api/local/rename", LocalRename(b, dls, nil))
+	router.POST("/api/local/lock", LocalSetFolderLock(b))
+	router.GET("/api/local/list", LocalList(b, nil))
+	return router, b, dls, meus
+}
+
+// TestLocalRenameFileRelinksTorrent renames a file and asserts the linked
+// download row's file_path is rewritten to the new location.
+func TestLocalRenameFileRelinksTorrent(t *testing.T) {
+	router, _, dls, meus := newRenameRouter(t)
+	old := filepath.Join(meus, "raw.name.mkv")
+	if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dls.Create(downloads.Download{
+		UserID: 1, InfoHash: "aabbccddeeff00112233445566778899aabbccdd",
+		FileIndex: 0, FilePath: old, Name: "raw.name.mkv",
+		Magnet: "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	w := postJSON(t, router, "/api/local/rename", gin.H{"mount": "Meus downloads", "path": "raw.name.mkv", "newName": "Filme Bonito.mkv"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	newPath := filepath.Join(meus, "Filme Bonito.mkv")
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("renamed file missing: %v", err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("old file still present")
+	}
+	rows, _ := dls.List(1)
+	if len(rows) != 1 || rows[0].FilePath != newPath {
+		t.Errorf("file_path not relinked: %+v", rows)
+	}
+}
+
+func TestLocalRenameRejectsBadNames(t *testing.T) {
+	router, _, _, meus := newRenameRouter(t)
+	if err := os.WriteFile(filepath.Join(meus, "a.mkv"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"../escape", "sub/dir.mkv", "..", "."} {
+		w := postJSON(t, router, "/api/local/rename", gin.H{"mount": "Meus downloads", "path": "a.mkv", "newName": name})
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("name %q: status=%d body=%s, want 400", name, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestLocalRenameRefusesCollision(t *testing.T) {
+	router, _, _, meus := newRenameRouter(t)
+	if err := os.WriteFile(filepath.Join(meus, "a.mkv"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meus, "b.mkv"), []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w := postJSON(t, router, "/api/local/rename", gin.H{"mount": "Meus downloads", "path": "a.mkv", "newName": "b.mkv"})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status=%d, want 409", w.Code)
+	}
+}
+
+// TestLocalFolderLockRoundtrip locks a folder, sees Locked=true in the listing,
+// confirms the empty-dir sweep keeps it, then unlocks.
+func TestLocalFolderLockRoundtrip(t *testing.T) {
+	router, b, _, meus := newRenameRouter(t)
+	if err := os.Mkdir(filepath.Join(meus, "keepme"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	w := postJSON(t, router, "/api/local/lock", gin.H{"mount": "Meus downloads", "path": "keepme", "locked": true})
+	if w.Code != http.StatusOK {
+		t.Fatalf("lock status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	entries, err := b.List("Meus downloads", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *local.Entry
+	for i := range entries {
+		if entries[i].Name == "keepme" {
+			found = &entries[i]
+		}
+		if entries[i].Name == ".keep" {
+			t.Error(".keep marker leaked into the listing")
+		}
+	}
+	if found == nil || !found.Locked {
+		t.Fatalf("folder not reported as locked: %+v", entries)
+	}
+
+	// Empty-dir sweep must keep the locked folder.
+	if _, err := b.RemoveEmptyDirs("Meus downloads", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(meus, "keepme")); err != nil {
+		t.Errorf("locked folder was removed by clean-empty: %v", err)
+	}
+
+	// Unlock removes the marker and the folder becomes sweepable.
+	w = postJSON(t, router, "/api/local/lock", gin.H{"mount": "Meus downloads", "path": "keepme", "locked": false})
+	if w.Code != http.StatusOK {
+		t.Fatalf("unlock status=%d", w.Code)
+	}
+	if _, err := os.Stat(filepath.Join(meus, "keepme", ".keep")); !os.IsNotExist(err) {
+		t.Error(".keep marker not removed on unlock")
+	}
+	if n, _ := b.RemoveEmptyDirs("Meus downloads", ""); n != 1 {
+		t.Errorf("unlocked empty folder not cleaned (removed=%d)", n)
+	}
+}

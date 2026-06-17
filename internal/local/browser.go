@@ -23,7 +23,15 @@ type Entry struct {
 	// ChildCount is the number of (non-hidden) entries directly inside a
 	// directory — shown in the UI where files show their size. 0 for files.
 	ChildCount int `json:"childCount"`
+	// Locked marks a directory the user pinned (a ".keep" marker inside) so
+	// "clean empty folders" never removes it even when it holds no files.
+	Locked bool `json:"locked,omitempty"`
 }
+
+// keepMarker is the empty-but-present file that pins a folder: a dir holding it
+// is no longer "empty" to RemoveEmptyDirs (os.Remove → ENOTEMPTY), so the
+// cleanup leaves it alone. List hides it (dotfile) and surfaces Entry.Locked.
+const keepMarker = ".keep"
 
 type Mount struct {
 	Name        string `json:"name"`
@@ -473,6 +481,47 @@ func (b *Browser) RemoveEmptyDirs(mountName, relPath string) (int, error) {
 	return removed, nil
 }
 
+// isFolderLocked reports whether dirAbs holds the keep marker.
+func isFolderLocked(dirAbs string) bool {
+	_, err := os.Stat(filepath.Join(dirAbs, keepMarker))
+	return err == nil
+}
+
+// SetFolderLock pins (locked=true) or unpins a directory by creating/removing
+// the keep marker inside it. Pinned folders survive RemoveEmptyDirs. The path
+// must resolve to a directory inside the mount (ResolvePath guards traversal);
+// the mount root itself can't be pinned. Idempotent: locking an already-locked
+// folder (or unlocking an unlocked one) is a no-op success.
+func (b *Browser) SetFolderLock(mountName, relPath string, locked bool) error {
+	abs, err := b.ResolvePath(mountName, relPath)
+	if err != nil {
+		return err
+	}
+	mountAbs, err := filepath.Abs(b.findMountPath(mountName))
+	if err == nil && abs == mountAbs {
+		return fmt.Errorf("cannot lock the mount root")
+	}
+	stat, err := os.Stat(abs)
+	if err != nil {
+		return err
+	}
+	if !stat.IsDir() {
+		return fmt.Errorf("not a directory")
+	}
+	marker := filepath.Join(abs, keepMarker)
+	if locked {
+		f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	}
+	if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // collectDirsDeepestFirst lists directories under root (skipping hidden trees),
 // ordered deepest-path-first so a parent is visited after its children — which
 // is what lets RemoveEmptyDirs cascade upward as children are removed.
@@ -571,6 +620,7 @@ func (b *Browser) List(mountName, relPath string) ([]Entry, error) {
 		}
 
 		isDir := de.IsDir()
+		childAbs := filepath.Join(abs, name)
 		out = append(out, Entry{
 			Name:       name,
 			Path:       p,
@@ -578,7 +628,8 @@ func (b *Browser) List(mountName, relPath string) ([]Entry, error) {
 			Size:       info.Size(),
 			ModTime:    info.ModTime(),
 			IsPlayable: !isDir && IsPlayable(name),
-			ChildCount: childCount(isDir, filepath.Join(abs, name)),
+			ChildCount: childCount(isDir, childAbs),
+			Locked:     isDir && isFolderLocked(childAbs),
 		})
 	}
 
