@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { ArrowUpCircle, Folder, Loader2, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
 import { LocalEntry, downloadPromoteBrowse, localPromote, fetchPromoteDestinations, PromoteDestination, localPromotePreview, PromotePreviewEntry } from '../api/client'
 import { Sheet } from './Sheet'
+import { useTrackedJobs } from '../lib/transfers'
+import FileProgressBar from './FileProgressBar'
 
 type Props = {
   readonly mount: string
@@ -30,6 +32,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
   const [renameIA, setRenameIA] = useState(false)
   const [previews, setPreviews] = useState<PromotePreviewEntry[]>([])
   const [previewLoading, setPreviewLoading] = useState(false)
+  const { start: startTracking, jobs: promoteJobs, bump } = useTrackedJobs('promote')
 
   const open = entries.length > 0
   const primary = entries[0] ?? null
@@ -99,6 +102,11 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
 
   const handlePromote = async () => {
     setSubmitting(true)
+    startTracking() // snapshot + começa a acompanhar o job de promote no painel
+    // Promote é síncrono no backend; estes bumps pegam o job em andamento cedo
+    // para a barra abaixo aparecer durante a cópia (não só ao final).
+    const t1 = setTimeout(bump, 400)
+    const t2 = setTimeout(bump, 1200)
     try {
       const r = await localPromote(mount, primary.path, finalTarget, selectedBase || undefined, renameIA, paths)
       if (r.failed > 0) {
@@ -113,6 +121,8 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || 'Erro ao promover')
     } finally {
+      clearTimeout(t1)
+      clearTimeout(t2)
       setSubmitting(false)
     }
   }
@@ -158,6 +168,27 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
             </p>
           )}
         </div>
+
+        {/* Progresso ao vivo da promoção (mesmo componente do dock de Transferências). */}
+        {submitting && promoteJobs.length > 0 && (
+          <div className="flex flex-col gap-3 border border-amber-500/30 bg-amber-500/5 rounded-lg p-3">
+            {promoteJobs.map(j => (
+              <FileProgressBar
+                key={j.id}
+                label={j.label}
+                status={j.status}
+                filesDone={j.filesDone}
+                filesTotal={j.filesTotal}
+                bytesDone={j.bytesDone}
+                bytesTotal={j.bytesTotal}
+                ratePerSec={j.ratePerSec}
+                etaSeconds={j.etaSeconds}
+                progress={j.progress}
+                error={j.error}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Seletor de destino */}
         {dests.length > 1 && (

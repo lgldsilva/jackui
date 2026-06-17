@@ -70,6 +70,7 @@ import {
 } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
 import { useTransfers } from '../lib/transfers'
+import FileProgressBar from '../components/FileProgressBar'
 import { newTabProps, openInNewTab, playHref } from '../lib/cardNav'
 import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
@@ -1060,30 +1061,17 @@ export default function LocalPage() {
             </div>
           )}
 
-          {/* Banner de progresso do upload (streaming direto pro disco no backend) */}
+          {/* Banner de progresso do upload (streaming direto pro disco no backend) —
+              mesmo componente FileProgressBar usado no dock global de Transferências. */}
           {upload && (
-            <div className="flex-shrink-0 bg-surface-secondary border border-green-500/30 rounded-xl p-3 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-sm text-text-primary">
-                <Upload className="w-4 h-4 text-green-400 flex-shrink-0 animate-pulse" />
-                <span className="truncate flex-1">{upload.name}</span>
-                <span className="text-xs text-text-secondary tabular-nums">
-                  {formatSize(upload.loaded)} / {formatSize(upload.total)}
-                  {upload.total > 0 && ` (${Math.round((upload.loaded / upload.total) * 100)}%)`}
-                </span>
-                <button
-                  onClick={() => uploadAbortRef.current?.abort()}
-                  title="Cancelar upload"
-                  className="p-1 rounded text-text-secondary hover:text-red-400 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="h-1.5 bg-surface-tertiary rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-green-500 transition-all duration-150"
-                  style={{ width: `${upload.total > 0 ? (upload.loaded / upload.total) * 100 : 0}%` }}
-                />
-              </div>
+            <div className="flex-shrink-0 bg-surface-secondary border border-green-500/30 rounded-xl p-3">
+              <FileProgressBar
+                label={upload.name}
+                status="running"
+                bytesDone={upload.loaded}
+                bytesTotal={upload.total}
+                onCancel={() => uploadAbortRef.current?.abort()}
+              />
             </div>
           )}
 
