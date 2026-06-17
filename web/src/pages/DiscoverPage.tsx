@@ -209,9 +209,16 @@ export default function DiscoverPage() {
   // Scroll restaurado quando o trending carrega (chamado antes do early-return).
   useScrollRestoration(items !== null)
 
+  // O toggle Filme/Série filtra a tela TODA — incluindo as recomendações do topo,
+  // não só a grade "Em alta". Aplicado antes de agrupar (tópicos que ficam vazios
+  // somem naturalmente).
+  const filteredRecs = useMemo(
+    () => (filter === 'all' ? recs : recs.filter(r => r.kind === filter)),
+    [recs, filter],
+  )
   // Group recommendations by their "Porque você viu X" source into collapsible
   // topics — client-side over the already-loaded list, so no extra requests.
-  const recGroups = useMemo(() => groupRecommendations(recs), [recs])
+  const recGroups = useMemo(() => groupRecommendations(filteredRecs), [filteredRecs])
   const collapsedSet = useMemo(() => new Set(collapsedKeys), [collapsedKeys])
   const toggleGroup = (key: string) =>
     setCollapsedKeys(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
