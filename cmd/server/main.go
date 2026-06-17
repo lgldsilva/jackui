@@ -1103,6 +1103,8 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
 	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/rename", handlers.LocalRename(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/lock", handlers.LocalSetFolderLock(deps.localBrowser))
 	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
 	api.GET("/local/play", handlers.LocalHiddenGate(deps.streamSrv), handlers.LocalPlay(deps.localBrowser, deps.libraryStore))
 	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
