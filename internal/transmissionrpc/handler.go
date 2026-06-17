@@ -106,6 +106,13 @@ type Handler struct {
 	authStore   *auth.Store
 	dataDir     string
 	downloadDir string
+	// sharedDir + autoPromote drive the *arr auto-promote: when autoPromote() is
+	// on, an *arr download's reported download-dir is sharedDir/<category> — the
+	// Transmission-style completed-downloads tree where the worker actually places
+	// the finished files (downloads.PromoteDir), so the *arr import from the right
+	// path. nil autoPromote ⇒ feature off (reports the plain downloadDir).
+	sharedDir   string
+	autoPromote func() bool
 
 	mu sync.RWMutex
 	// sessionID → userID. When auth is disabled all sessions map to 0 (system).
@@ -127,13 +134,15 @@ type Handler struct {
 	portTestInProgress bool
 }
 
-func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.Store, dataDir, downloadDir string) *Handler {
+func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.Store, dataDir, downloadDir, sharedDir string, autoPromote func() bool) *Handler {
 	return &Handler{
 		store:                store,
 		streamer:             s,
 		authStore:            authStore,
 		dataDir:              dataDir,
 		downloadDir:          downloadDir,
+		sharedDir:            sharedDir,
+		autoPromote:          autoPromote,
 		sessions:             make(map[string]int),
 		startAddedTorrents:   true,
 		downloadQueueEnabled: true,
@@ -712,8 +721,28 @@ func (h *Handler) methodGroupSet(args map[string]interface{}) rpcResponse {
 
 // ─── session-get ───────────────────────────────────────────────────────────
 
+// reportDir is the download-dir reported to the *arr for a download: the
+// auto-promote target (sharedDir/<category>) when enabled for an *arr download,
+// else the plain downloadDir. Keeps torrent-get's path in sync with where the
+// worker actually writes the finished files (downloads.PromoteDir).
+func (h *Handler) reportDir(d downloads.Download) string {
+	if h.autoPromoteOn() && d.Source == downloads.SourceArr {
+		return downloads.PromoteDir(h.sharedDir, d.Category)
+	}
+	return h.downloadDir
+}
+
+// autoPromoteOn reports whether *arr auto-promote is active (feature wired + a
+// SharedDir configured + the live setting on).
+func (h *Handler) autoPromoteOn() bool {
+	return h.sharedDir != "" && h.autoPromote != nil && h.autoPromote()
+}
+
 func (h *Handler) methodSessionGet() rpcResponse {
 	dir := h.downloadDir
+	if h.autoPromoteOn() {
+		dir = h.sharedDir // base of the Transmission-style completed-downloads tree
+	}
 	if dir == "" {
 		dir = h.dataDir
 	}
@@ -966,7 +995,7 @@ func (h *Handler) finalizeTorrentAdd(userID int, infoHash, name, magnet string, 
 	// (handlers/downloads.go), which passes an explicit FileIndex.
 	d, err := h.store.Create(downloads.Download{
 		UserID: userID, InfoHash: infoHash, FileIndex: downloads.FileIndexWholeTorrent,
-		Name: name, Magnet: magnet, Category: category,
+		Name: name, Magnet: magnet, Category: category, Source: downloads.SourceArr,
 	})
 	if err != nil {
 		return failResp(fmt.Sprintf("failed to create download: %v", err))
@@ -1309,7 +1338,7 @@ func (h *Handler) newTorrentView(d downloads.Download, si *streamer.TorrentInfo,
 		d:           d,
 		trStatus:    mapJackUIStatusToTR(d, si),
 		addTime:     d.CreatedAt.Unix(),
-		downloadDir: h.downloadDir,
+		downloadDir: h.reportDir(d),
 		isPrivate:   false,
 		peerLimit:   50,
 		torrentObj:  to,

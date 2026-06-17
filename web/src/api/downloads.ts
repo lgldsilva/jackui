@@ -43,6 +43,7 @@ export type DownloadsQueueSettings = {
   agingStepMin: number
   agingCap: number
   rotationEnabled: boolean
+  autoPromoteArr: boolean
 }
 
 // One known source (magnet) for a download — the original + alternatives found

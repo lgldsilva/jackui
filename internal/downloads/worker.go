@@ -44,6 +44,7 @@ type QueueSettings struct {
 	AgingStepMin      int  // queue aging: minutes of waiting per +1 bonus (0 disables)
 	AgingCap          int  // ceiling on the aging bonus
 	RotationEnabled   bool // Phase 2: on a no-seed stall, try alternative sources before demoting
+	AutoPromoteArr    bool // route completed *arr (RPC) downloads straight into SharedDir/<category>
 }
 
 // DefaultQueueSettings mirrors the config defaults; used when no getter is wired.
@@ -61,6 +62,7 @@ type WorkerConfig struct {
 	Streamer        *streamer.Streamer
 	DataDir         string // streamer DataDir — where anacrolix stores pieces
 	DownloadDir     string // destination for completed files (empty = keep in DataDir)
+	SharedDir       string // shared "completed downloads" tree for *arr auto-promote (empty = disabled)
 	Interval        time.Duration
 	NtfyBaseURL     string               // default https://ntfy.sh
 	NtfyTopic       string               // global default topic; per-user override via store
@@ -89,6 +91,7 @@ type Worker struct {
 	streamer    *streamer.Streamer
 	dataDir     string // streamer DataDir — where anacrolix stores pieces
 	downloadDir string // destination for completed files (empty = keep in DataDir)
+	sharedDir   string // shared "completed downloads" tree for *arr auto-promote (empty = disabled)
 	interval    time.Duration
 
 	mu      sync.Mutex
@@ -188,6 +191,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		streamer:        cfg.Streamer,
 		dataDir:         cfg.DataDir,
 		downloadDir:     cfg.DownloadDir,
+		sharedDir:       cfg.SharedDir,
 		interval:        cfg.Interval,
 		tracked:         make(map[int]*trackedDL),
 		pending:         make(map[int]context.CancelFunc),
@@ -681,6 +685,18 @@ func completedDestDir(downloadDir, username, torrentName string) string {
 	return filepath.Join(dir, sanitizeFolderName(torrentName))
 }
 
+// PromoteDir returns the Transmission-style "completed downloads" directory for
+// an *arr download: sharedDir/<sanitized category> (or just sharedDir when the
+// category is empty). Shared by the worker (where the finished files land) and
+// the Transmission RPC (the download-dir reported back to the *arr) so the two
+// always agree on the path the *arr will import from.
+func PromoteDir(sharedDir, category string) string {
+	if cat := sanitizeFolderName(category); category != "" && cat != "download" {
+		return filepath.Join(sharedDir, cat)
+	}
+	return sharedDir
+}
+
 // moveDownloadedFile moves the completed file (final or leftover .part) for
 // relPath from dataDir into destDir, returning the destination path. The dst
 // always uses the final name, never .part.
@@ -714,6 +730,27 @@ func isOrphanedCompletion(d Download, dataDir string) bool {
 	return d.FilePath != "" && !fileExists(d.FilePath) && dirHasFiles(filepath.Join(dataDir, d.Name))
 }
 
+// completionDest returns the per-torrent destination directory for a finished
+// download. Normally downloadDir[/username]/<torrent>; but an *arr download
+// (Source==SourceArr) with auto-promote enabled (and SharedDir set) goes straight
+// into sharedDir/<category>/<torrent> — the Transmission-style "completed
+// downloads" tree the *arr import from, catalogued by the category the *arr sent
+// (no per-user subdir, matching Transmission). Returns "" when no destination is
+// configured (legacy: keep the file in DataDir).
+func (w *Worker) completionDest(d Download, torrentName string) string {
+	if w.sharedDir != "" && d.Source == SourceArr && w.queueSettings().AutoPromoteArr {
+		return filepath.Join(PromoteDir(w.sharedDir, d.Category), sanitizeFolderName(torrentName))
+	}
+	if w.downloadDir == "" {
+		return ""
+	}
+	username := ""
+	if w.resolveUsername != nil {
+		username = w.resolveUsername(d.UserID)
+	}
+	return completedDestDir(w.downloadDir, username, torrentName)
+}
+
 // moveCompletedFile relocates a finished download from the streaming cache to the
 // dedicated downloadDir (per-user, per-torrent folder). Takes the torrent-relative
 // path + name as strings (not the *trackedDL) so it stays unit-testable. Returns
@@ -721,14 +758,10 @@ func isOrphanedCompletion(d Download, dataDir string) bool {
 // "completed" when the file actually reached its home — handling the case where
 // the anacrolix storage left a complete ".part" that wasn't renamed yet.
 func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) (string, error) {
-	if w.downloadDir == "" {
+	destDir := w.completionDest(d, torrentName)
+	if destDir == "" {
 		return "", nil
 	}
-	username := ""
-	if w.resolveUsername != nil {
-		username = w.resolveUsername(d.UserID)
-	}
-	destDir := completedDestDir(w.downloadDir, username, torrentName)
 	dst, err := moveDownloadedFile(w.dataDir, destDir, relPath)
 	if err != nil {
 		return "", err
@@ -749,7 +782,8 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string) (str
 // next tick retries — moveCompletedTree is idempotent, so a retry (or the
 // boot-time orphan re-queue) skips files that already reached the destination.
 func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error) {
-	if w.downloadDir == "" {
+	destDir := w.completionDest(d, td.name)
+	if destDir == "" {
 		return "", nil
 	}
 	files := td.whole.Files()
@@ -762,11 +796,6 @@ func (w *Worker) moveCompletedTorrent(d Download, td *trackedDL) (string, error)
 		}
 		relPaths = append(relPaths, f.Path())
 	}
-	username := ""
-	if w.resolveUsername != nil {
-		username = w.resolveUsername(d.UserID)
-	}
-	destDir := completedDestDir(w.downloadDir, username, td.name)
 	if err := moveCompletedTree(w.dataDir, destDir, td.name, relPaths); err != nil {
 		return "", err
 	}
