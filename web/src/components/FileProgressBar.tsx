@@ -1,4 +1,4 @@
-import { CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, X, Clock } from 'lucide-react'
 import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
 
 // FileProgressBar — the ONE reusable widget for any file move/copy progress:
@@ -8,7 +8,7 @@ import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
 
 export type FileProgressBarProps = {
   readonly label: string
-  readonly status?: 'running' | 'done' | 'failed'
+  readonly status?: 'queued' | 'running' | 'done' | 'failed'
   readonly filesDone?: number
   readonly filesTotal?: number
   readonly bytesDone?: number
@@ -24,6 +24,7 @@ export type FileProgressBarProps = {
 function gradientFor(status: string): string {
   if (status === 'done') return 'from-green-500 to-emerald-400'
   if (status === 'failed') return 'from-red-500 to-rose-400'
+  if (status === 'queued') return 'from-gray-500 to-gray-400'
   return 'from-amber-500 to-yellow-400'
 }
 
@@ -46,7 +47,9 @@ export default function FileProgressBar(props: FileProgressBarProps) {
           ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
           : status === 'failed'
             ? <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-            : <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />}
+            : status === 'queued'
+              ? <Clock className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+              : <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />}
         <span className="text-xs font-medium text-text-primary truncate flex-1" title={label}>{label}</span>
         {filesTotal > 0 && (
           <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">{filesDone}/{filesTotal}</span>
@@ -70,12 +73,14 @@ export default function FileProgressBar(props: FileProgressBarProps) {
         </span>
         {status === 'failed' && error
           ? <span className="text-red-400 truncate ml-2" title={error}>{error}</span>
-          : (
-            <span className="flex items-center gap-2">
-              {status === 'running' && ratePerSec > 0 && <span>{formatRate(ratePerSec)}</span>}
-              {eta && <span>· {eta}</span>}
-            </span>
-          )}
+          : status === 'queued'
+            ? <span className="ml-2">Na fila…</span>
+            : (
+              <span className="flex items-center gap-2">
+                {status === 'running' && ratePerSec > 0 && <span>{formatRate(ratePerSec)}</span>}
+                {eta && <span>· {eta}</span>}
+              </span>
+            )}
       </div>
     </div>
   )

@@ -149,21 +149,25 @@ type AuthConfig struct {
 }
 
 type BandwidthSchedule struct {
-	TimeRange       string `yaml:"time_range"`       // e.g. "08:00-18:00"
+	TimeRange       string `yaml:"time_range"`        // e.g. "08:00-18:00"
 	MaxDownloadRate int64  `yaml:"max_download_rate"` // bytes/sec
 	MaxUploadRate   int64  `yaml:"max_upload_rate"`   // bytes/sec
 }
 
 type StreamConfig struct {
-	DataDir            string              `yaml:"data_dir"`         // where torrent pieces are stored
-	DownloadDir        string              `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
-	SharedDir          string              `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
-	StateDir           string              `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
-	IdleMinutes        int                 `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
-	MetadataSeconds    int                 `yaml:"metadata_seconds"` // metadata fetch timeout
-	MaxCacheGB         int                 `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
-	PromoteDirs        []PromoteDir        `yaml:"promote_dirs"`     // additional promote destinations (name + path)
-	BandwidthSchedules []BandwidthSchedule `yaml:"bandwidth_schedules"`
+	DataDir         string `yaml:"data_dir"`         // where torrent pieces are stored
+	DownloadDir     string `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
+	SharedDir       string `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
+	StateDir        string `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
+	IdleMinutes     int    `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
+	MetadataSeconds int    `yaml:"metadata_seconds"` // metadata fetch timeout
+	MaxCacheGB      int    `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
+	// MaxConcurrentTransfers caps simultaneous file move/copy operations (post-
+	// download move, Local-tab move); the rest queue FIFO. 0 = default (3). Higher
+	// helps cloud/rclone destinations; lower (1-2) is better for a single HDD.
+	MaxConcurrentTransfers int                 `yaml:"max_concurrent_transfers"`
+	PromoteDirs            []PromoteDir        `yaml:"promote_dirs"` // additional promote destinations (name + path)
+	BandwidthSchedules     []BandwidthSchedule `yaml:"bandwidth_schedules"`
 
 	// ── Performance / hardware tuning (0/"" = usar default; aplicado no streamer) ──
 	// Banda: caps de peer em bytes/seg; 0 = ilimitado. Aplicados AO VIVO via

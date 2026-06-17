@@ -17,10 +17,17 @@ import (
 type Status string
 
 const (
+	// StatusQueued: registered but waiting for a concurrency slot (see Submit).
+	StatusQueued  Status = "queued"
 	StatusRunning Status = "running"
 	StatusDone    Status = "done"
 	StatusFailed  Status = "failed"
 )
+
+// defaultMaxConcurrent bounds simultaneous transfers; the rest queue (FIFO via
+// the semaphore). Mirrors the download queue's max_active idea: it avoids disk
+// seek-thrashing on a single volume and bounds memory/FD/cache-protection.
+const defaultMaxConcurrent = 3
 
 const (
 	// rateWindow is the sliding window used to compute the transfer rate
@@ -129,7 +136,7 @@ func (j *Job) SetBytesTotal(total int64) {
 }
 
 // Done marks the job successful. Fail marks it failed with the error message.
-func (j *Job) Done()        { j.finish(StatusDone, "") }
+func (j *Job) Done() { j.finish(StatusDone, "") }
 func (j *Job) Fail(err error) {
 	msg := ""
 	if err != nil {
@@ -207,7 +214,25 @@ func (j *Job) Snapshot() Snapshot {
 func (j *Job) finishedBefore(t time.Time) bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.status != StatusRunning && j.updatedAt.Before(t)
+	// Only terminal jobs are prunable — a queued job (waiting for a slot) must
+	// never be reaped just because its updatedAt is old.
+	return (j.status == StatusDone || j.status == StatusFailed) && j.updatedAt.Before(t)
+}
+
+// markRunning flips a queued job to running and (re)stamps startedAt so rate/ETA
+// measure from the actual start, not from when it was enqueued.
+func (j *Job) markRunning() {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	if j.status == StatusQueued {
+		j.status = StatusRunning
+		now := j.now()
+		j.startedAt = now
+		j.updatedAt = now
+	}
+	j.mu.Unlock()
 }
 
 // Tracker holds the active and recently-finished jobs.
@@ -217,14 +242,29 @@ type Tracker struct {
 	mu   sync.Mutex
 	seq  int64
 	jobs []*Job // insertion order (newest last)
+
+	// sem bounds concurrent Submit() jobs; the rest wait (queued). nil = unbounded
+	// (e.g. a hand-built Tracker in tests that only uses Start()).
+	sem chan struct{}
 }
 
-// New returns a Tracker using the wall clock.
-func New() *Tracker { return &Tracker{now: time.Now} }
+// New returns a Tracker using the wall clock. maxConcurrent (optional, default 3)
+// caps simultaneous Submit() transfers; excess ones queue.
+func New(maxConcurrent ...int) *Tracker {
+	n := defaultMaxConcurrent
+	if len(maxConcurrent) > 0 && maxConcurrent[0] > 0 {
+		n = maxConcurrent[0]
+	}
+	return &Tracker{now: time.Now, sem: make(chan struct{}, n)}
+}
 
-// Start registers and returns a new running Job. filesTotal/bytesTotal may be 0
-// when unknown (rate/ETA degrade gracefully; SetBytesTotal can fill in later).
+// Start registers and returns a new RUNNING Job (no queueing). filesTotal/
+// bytesTotal may be 0 when unknown (rate/ETA degrade gracefully).
 func (t *Tracker) Start(label, kind string, filesTotal int, bytesTotal int64) *Job {
+	return t.startJob(label, kind, filesTotal, bytesTotal, StatusRunning)
+}
+
+func (t *Tracker) startJob(label, kind string, filesTotal int, bytesTotal int64, status Status) *Job {
 	if t == nil {
 		return nil
 	}
@@ -233,12 +273,33 @@ func (t *Tracker) Start(label, kind string, filesTotal int, bytesTotal int64) *J
 	now := t.now()
 	j := &Job{
 		now: t.now, id: idFor(t.seq, now), label: label, kind: kind,
-		status: StatusRunning, filesTotal: filesTotal, bytesTotal: bytesTotal,
+		status: status, filesTotal: filesTotal, bytesTotal: bytesTotal,
 		startedAt: now, updatedAt: now,
 	}
 	t.jobs = append(t.jobs, j)
 	t.pruneLocked(now)
 	t.mu.Unlock()
+	return j
+}
+
+// Submit registers a job that starts QUEUED and runs fn once a concurrency slot
+// frees (bounded by maxConcurrent; excess jobs wait FIFO). fn receives the now-
+// running Job and owns its terminal Done()/Fail(). Returns immediately. On a nil
+// Tracker, fn runs unbounded in a goroutine with a nil Job (tracking disabled).
+func (t *Tracker) Submit(label, kind string, filesTotal int, bytesTotal int64, fn func(*Job)) *Job {
+	if t == nil {
+		go fn(nil)
+		return nil
+	}
+	j := t.startJob(label, kind, filesTotal, bytesTotal, StatusQueued)
+	go func() {
+		if t.sem != nil {
+			t.sem <- struct{}{} // blocks while queued
+			defer func() { <-t.sem }()
+		}
+		j.markRunning()
+		fn(j)
+	}()
 	return j
 }
 
