@@ -142,3 +142,65 @@ func TestProgressByFilesWhenNoBytesTotal(t *testing.T) {
 		t.Fatalf("progress por arquivos = %v, want 0.5", p)
 	}
 }
+
+// Submit bounds concurrency: with cap 1, the first job runs and the rest queue;
+// releasing the running one lets the queue drain.
+func TestSubmitBoundsConcurrencyAndQueues(t *testing.T) {
+	tr := New(1)
+	release := make(chan struct{})
+	started := make(chan struct{}, 3)
+	for i := 0; i < 3; i++ {
+		tr.Submit("j", "local-move", 1, 0, func(j *Job) {
+			started <- struct{}{}
+			<-release
+			j.Done()
+		})
+	}
+	<-started // one job acquired the single slot and is running
+
+	running, queued := 0, 0
+	for _, s := range tr.List() {
+		switch s.Status {
+		case StatusRunning:
+			running++
+		case StatusQueued:
+			queued++
+		}
+	}
+	if running != 1 || queued != 2 {
+		t.Fatalf("running=%d queued=%d, want 1/2 (cap=1)", running, queued)
+	}
+
+	close(release) // drain
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		done := 0
+		for _, s := range tr.List() {
+			if s.Status == StatusDone {
+				done++
+			}
+		}
+		if done == 3 {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatal("nem todos os 3 jobs concluíram após liberar a fila")
+}
+
+// Submit on a nil Tracker still runs fn (with a nil Job) — tracking disabled.
+func TestSubmitNilTrackerRunsFn(t *testing.T) {
+	var tr *Tracker
+	done := make(chan struct{})
+	tr.Submit("x", "local-move", 1, 0, func(j *Job) {
+		if j != nil {
+			t.Errorf("esperava Job nil no tracker nil")
+		}
+		close(done)
+	})
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("fn não rodou no tracker nil")
+	}
+}

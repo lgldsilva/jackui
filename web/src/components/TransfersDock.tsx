@@ -27,6 +27,7 @@ export default function TransfersDock() {
   if (transfers.length === 0) return null
 
   const running = transfers.filter((t) => t.status === 'running').length
+  const queued = transfers.filter((t) => t.status === 'queued').length
 
   return (
     <div
@@ -42,6 +43,7 @@ export default function TransfersDock() {
           <span className="flex-1 text-left">
             Transferências
             {running > 0 && <span className="ml-1 text-text-muted font-normal">· {running} ativa{running > 1 ? 's' : ''}</span>}
+            {queued > 0 && <span className="ml-1 text-text-muted font-normal">· {queued} na fila</span>}
           </span>
           {collapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>

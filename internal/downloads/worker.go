@@ -680,8 +680,13 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	delete(w.tracked, d.ID)
 	w.mu.Unlock()
 
-	job := w.tracker.Start(name, "download-move", len(relPaths), total)
-	go w.runCompletionMove(d, name, relPaths, whole, total, job)
+	// Submit to the bounded transfer pool: the move waits FIFO for a slot (status
+	// 'queued' in the dock) so many simultaneous completions don't thrash the disk
+	// all at once. The download row stays 'moving' meanwhile (boot rescue covers a
+	// restart while queued).
+	w.tracker.Submit(name, "download-move", len(relPaths), total, func(job *transfer.Job) {
+		w.runCompletionMove(d, name, relPaths, whole, total, job)
+	})
 }
 
 // moveMaxAttempts bounds in-process retries of a post-download move before the
