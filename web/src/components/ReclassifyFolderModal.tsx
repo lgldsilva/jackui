@@ -10,6 +10,8 @@ import {
   PromoteItemResult,
 } from '../api/client'
 import { Sheet } from './Sheet'
+import { useTrackedJobs } from '../lib/transfers'
+import FileProgressBar from './FileProgressBar'
 import ReclassifyTable from './reclassify/ReclassifyTable'
 import {
   buildEditableRows, buildOverrides, selectedPaths, rowTargetPath,
@@ -64,6 +66,7 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
   const [phase, setPhase] = useState<Phase>('scanning')
   const [files, setFiles] = useState<LocalEntry[]>([])
   const [error, setError] = useState('')
+  const { start: startTracking, jobs: promoteJobs, bump } = useTrackedJobs('promote')
 
   // destination state (same pattern as LocalPromoteModal)
   const [dests, setDests] = useState<PromoteDestination[]>([])
@@ -177,6 +180,9 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     if (!entry || selected.length === 0) return
     setPhase('executing')
     setError('')
+    startTracking() // acompanha o job de promote (IA) no painel/barra
+    const t1 = setTimeout(bump, 400)
+    const t2 = setTimeout(bump, 1200)
     try {
       const overrides = buildOverrides(rows, originalByPath)
       const r = await localPromote(
@@ -199,6 +205,9 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || t('reclassify.err_apply'))
       setPhase('preview')
+    } finally {
+      clearTimeout(t1)
+      clearTimeout(t2)
     }
   }
 
@@ -373,9 +382,31 @@ export default function ReclassifyFolderModal({ mount, entry, onClose, onDone }:
         {/* Phase: executing */}
         {phase === 'executing' && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 text-text-secondary">
-            <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
-            <p className="text-sm">{t('reclassify.moving')}</p>
-            <p className="text-xs text-text-muted">{selected.length} {t('reclassify.files_found', { count: selected.length })}</p>
+            {promoteJobs.length > 0 ? (
+              <div className="w-full max-w-md flex flex-col gap-3 px-2">
+                {promoteJobs.map(j => (
+                  <FileProgressBar
+                    key={j.id}
+                    label={j.label}
+                    status={j.status}
+                    filesDone={j.filesDone}
+                    filesTotal={j.filesTotal}
+                    bytesDone={j.bytesDone}
+                    bytesTotal={j.bytesTotal}
+                    ratePerSec={j.ratePerSec}
+                    etaSeconds={j.etaSeconds}
+                    progress={j.progress}
+                    error={j.error}
+                  />
+                ))}
+              </div>
+            ) : (
+              <>
+                <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+                <p className="text-sm">{t('reclassify.moving')}</p>
+                <p className="text-xs text-text-muted">{selected.length} {t('reclassify.files_found', { count: selected.length })}</p>
+              </>
+            )}
           </div>
         )}
 
