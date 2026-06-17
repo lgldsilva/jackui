@@ -602,7 +602,15 @@ func mountSource(reg *localstream.Registry, meterKey string, f *os.File, size in
 	if reg == nil {
 		return f, meterKey
 	}
-	return reg.OpenShared(meterKey, f, size), meterKey
+	// OpenSolo (NOT OpenShared): each transcode session must read through its OWN
+	// cursor. The meterKey is the same for every client of a (mount,path), but two
+	// concurrent sessions for the same file (e.g. a Chrome VOD client + a Safari
+	// native-HLS client = different HLS effKeys, or any two ffmpeg launches) would
+	// otherwise share ONE OpenShared Session/cursor — their interleaved Seek+Read
+	// thrash each other and the second client stalls. OpenSolo gives each its own
+	// handle (same fix the direct-play path uses); GetOrStart closes the loser's
+	// source when it dedupes same-effKey callers.
+	return reg.OpenSolo(meterKey, f, size), meterKey
 }
 
 func closeSource(reg *localstream.Registry, meterKey string, source io.ReadSeeker, f *os.File) {
