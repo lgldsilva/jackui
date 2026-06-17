@@ -24,6 +24,33 @@ func TestRegistryOpenSoloGetRelease(t *testing.T) {
 	}
 }
 
+// Two OpenSolo calls on the SAME key must yield DISTINCT sessions with
+// independent cursors — the property that fixes the "2nd client stalls on the
+// same local track" bug: concurrent transcode sessions must NOT share one cursor
+// (contrast TestRegistryOpenSharedReusesAndClosesDup, where OpenShared reuses).
+func TestRegistryOpenSoloIndependentCursors(t *testing.T) {
+	r := newRegistry(0, nil, false)
+	a := r.OpenSolo("k", newSpyFile(makeData(1000)), 1000)
+	b := r.OpenSolo("k", newSpyFile(makeData(1000)), 1000)
+	if a == b {
+		t.Fatal("OpenSolo returned the SAME session for the same key — concurrent readers would share one cursor")
+	}
+	// Advance a's cursor; b must stay at the start (independent positions).
+	if _, err := a.Seek(500, io.SeekStart); err != nil {
+		t.Fatalf("seek a: %v", err)
+	}
+	buf := make([]byte, 4)
+	if _, err := b.Read(buf); err != nil {
+		t.Fatalf("read b: %v", err)
+	}
+	want := makeData(1000)[:4]
+	for i := range buf {
+		if buf[i] != want[i] {
+			t.Fatalf("b read from a's position — cursors are shared (byte %d: %d != %d)", i, buf[i], want[i])
+		}
+	}
+}
+
 func TestRegistryOpenSharedReusesAndClosesDup(t *testing.T) {
 	r := newRegistry(0, nil, false)
 	f1 := newSpyFile(makeData(1000))
