@@ -276,7 +276,11 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		}
 
 		stopKeepAlive := startKeepAlive(c, state)
-		err := client.StreamSearch(c.Request.Context(), query, category, indexers, 30*time.Second, state.handleHit)
+		// 60s (not 30s) per indexer: with the fan-out now concurrency-bounded
+		// (see jackett.maxConcurrentIndexerSearches), slow private trackers query
+		// on a cold Jackett can legitimately take >30s; the keep-alive pinger holds
+		// the SSE connection open meanwhile.
+		err := client.StreamSearch(c.Request.Context(), query, category, indexers, 60*time.Second, state.handleHit)
 		stopKeepAlive()
 		state.markEmissionEnded()
 
