@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
 import { useMediaMode, getMediaMode } from '../lib/mediaMode'
+import { isRevealHidden } from '../lib/reveal'
+import { shouldBlockHiddenDeepLink } from '../lib/deepLinkGate'
 import PlayerModal from './PlayerModal'
 
 /**
@@ -143,26 +145,50 @@ export function parsePositiveFloat(s: string | null): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined
 }
 
-// resolveDeepLinkPlay looks up the library entry for a 40-hex info_hash (for a
-// nicer title/magnet + persisted kind) and plays it, falling back to a synthetic
-// magnet on miss. Extracted from the URL→state effect so that effect's cognitive
-// complexity stays under the gate (the lookup callback + fallbacks add up).
+// playResolvedFromLibrary picks the nicest metadata for `hash` from a library
+// list (title/magnet + persisted kind) and plays it, falling back to a synthetic
+// magnet when the hash isn't in the list.
+function playResolvedFromLibrary(
+  list: { infoHash: string; name?: string; magnet?: string; kind?: string }[],
+  hash: string,
+  fIdx: number | undefined,
+  initialSeek: number | undefined,
+  play: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void,
+): void {
+  const entry = list.find(e => e.infoHash === hash)
+  const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
+  const name = entry?.name || hash
+  // Carry the library entry's kind so a refresh of an audio deep-link opens the
+  // audio UI (the title heuristic alone misjudged albums → opened video).
+  const mk = entry?.kind === 'audio' || entry?.kind === 'video' ? entry.kind : undefined
+  play(syntheticResult(hash, name, magnet, mk), fIdx, initialSeek)
+}
+
+// resolveDeepLinkPlay resolves a 40-hex info_hash from a ?play deep link and plays
+// it. With the hidden curtain (easter egg) CLOSED it refuses to auto-play an item
+// that lives ONLY behind the curtain — otherwise a ?play=<hidden-hash> URL (e.g.
+// the one the player mirrored while the curtain was open, re-opened after a reload
+// that reset the in-memory curtain) would silently reveal hidden content. Items
+// visible without the curtain, and genuine non-library magnets (shared links),
+// still play.
 function resolveDeepLinkPlay(
   hash: string,
   fIdx: number | undefined,
   initialSeek: number | undefined,
   play: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void,
 ): void {
-  libraryList({ limit: 200 }).then(list => {
-    const entry = list.find(e => e.infoHash === hash)
-    const magnet = entry?.magnet || `magnet:?xt=urn:btih:${hash}`
-    const name = entry?.name || hash
-    // Carry the library entry's kind so a refresh of an audio deep-link opens the
-    // audio UI (the title heuristic alone misjudged albums → opened video).
-    const mk = entry?.kind === 'audio' || entry?.kind === 'video' ? entry.kind : undefined
-    play(syntheticResult(hash, name, magnet, mk), fIdx, initialSeek)
-  }).catch(() => {
-    play(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek)
+  if (isRevealHidden()) {
+    libraryList({ limit: 200 })
+      .then(list => playResolvedFromLibrary(list, hash, fIdx, initialSeek, play))
+      .catch(() => play(syntheticResult(hash, hash, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek))
+    return
+  }
+  Promise.all([
+    libraryList({ limit: 200 }).catch(() => []),
+    libraryList({ limit: 200, revealHidden: true }).catch(() => []),
+  ]).then(([visible, revealed]) => {
+    if (shouldBlockHiddenDeepLink(hash, visible, revealed)) return
+    playResolvedFromLibrary(visible, hash, fIdx, initialSeek, play)
   })
 }
 
