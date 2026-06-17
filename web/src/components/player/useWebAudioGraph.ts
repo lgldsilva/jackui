@@ -171,13 +171,6 @@ export function useWebAudioGraph(
     const build = (): boolean => {
       if (analyserRef.current) return true
       if (ctx.state !== 'running') return false
-      // SAFEGUARD (iOS direct-play): never tap an element that hasn't decoded any
-      // data yet. createMediaElementSource makes the graph the only output path; on
-      // WebKit, doing it while the element is still empty freezes it (readyState 2,
-      // mute — the regression d0e8b9e disabled all iOS EQ to avoid). Waiting for
-      // HAVE_CURRENT_DATA means the media is already flowing, so the tap is safe.
-      // Re-tried on loadeddata/canplay (listeners below) once data arrives.
-      if (el.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return false
       try {
         const g = buildGraph(ctx, getOrCreateSource(ctx, el), gainsRef.current)
         filtersRef.current = g.filters
@@ -203,16 +196,10 @@ export function useWebAudioGraph(
     const gestures: Array<keyof DocumentEventMap> = ['pointerdown', 'touchend', 'keydown']
     gestures.forEach(ev => document.addEventListener(ev, resume, { passive: true }))
     el.addEventListener('play', resume)
-    // loadeddata/canplay: retry once the element has data (the readyState gate
-    // above may have deferred the build until the media decoded its first frames).
-    el.addEventListener('loadeddata', resume)
-    el.addEventListener('canplay', resume)
     ctx.addEventListener('statechange', build)
     return () => {
       gestures.forEach(ev => document.removeEventListener(ev, resume))
       el.removeEventListener('play', resume)
-      el.removeEventListener('loadeddata', resume)
-      el.removeEventListener('canplay', resume)
       ctx.removeEventListener('statechange', build)
     }
   }, [enabled, isHls, videoRef])

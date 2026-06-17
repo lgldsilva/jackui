@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { webAudioBlocked, audioElementKey } from './playerFormat'
 
-// webAudioBlocked blocks ONLY the HLS-on-WebKit combination: there
-// createMediaElementSource reads zeros and the element goes mute (Apple #231656).
-// Direct-play on WebKit is allowed again (guarded by useWebAudioGraph's readyState
-// gate). Non-WebKit (Chrome/Firefox/Edge) is never blocked → EQ/visualizer mount.
+// webAudioBlocked blocks the Web Audio graph on ALL of WebKit (Safari/iOS):
+// createMediaElementSource freezes the element (readyState 2, mute) even for
+// direct-play, so WebKit plays natively. Non-WebKit (Chrome/Firefox/Edge — incl.
+// macOS, which isSafariBrowser() correctly excludes) is never blocked → EQ mounts.
 describe('webAudioBlocked', () => {
   it('never blocks on a non-WebKit browser (no navigator → not Safari)', () => {
     expect(webAudioBlocked(true)).toBe(false)
@@ -36,9 +36,9 @@ describe('webAudioBlocked', () => {
       if (!hadNavigator) delete g.navigator
     })
 
-    it('blocks HLS on WebKit but ALLOWS direct-play (readyState gate keeps it safe)', () => {
-      expect(webAudioBlocked(true)).toBe(true)   // HLS on Safari → blocked
-      expect(webAudioBlocked(false)).toBe(false) // direct-play on Safari → allowed
+    it('blocks ALL WebKit — HLS and direct-play alike (createMediaElementSource freezes the element)', () => {
+      expect(webAudioBlocked(true)).toBe(true)  // HLS on Safari → blocked
+      expect(webAudioBlocked(false)).toBe(true) // direct-play on Safari → ALSO blocked (freeze)
     })
 
     it('remounts only the audio HLS element (so it never inherits a tapped source)', () => {
