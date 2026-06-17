@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
@@ -46,6 +47,53 @@ func dropHiddenLocalEntries(entries []local.Entry, hidden map[string]bool) []loc
 		}
 	}
 	return out
+}
+
+// localPathHidden reports whether `path` — or any ancestor folder of it — is in
+// the user's hidden set. The ancestor walk means a file deep-linked inside a
+// hidden folder is treated as hidden too, not just an exactly-hidden entry.
+func localPathHidden(path string, hidden map[string]bool) bool {
+	if len(hidden) == 0 {
+		return false
+	}
+	p := strings.Trim(path, "/")
+	for p != "" {
+		if hidden[p] {
+			return true
+		}
+		i := strings.LastIndex(p, "/")
+		if i < 0 {
+			break
+		}
+		p = p[:i]
+	}
+	return false
+}
+
+// LocalHiddenGate refuses to resolve a local (mount,path) the user has hidden
+// while the reveal curtain (easter egg) is closed — closing the deep-link bypass
+// where ?play=local-… would reveal hidden local media regardless of the curtain.
+// It mirrors dropHiddenLocalEntries (the same set that hides the entry from
+// listings) and also blocks files inside a hidden folder. Applied to /local/play,
+// the player's direct-vs-HLS resolution step (called via axios, so the curtain
+// header/?revealHidden is present): blocked → the player never gets a playable
+// URL. Curtain open ⇒ hiddenLocalSet is empty ⇒ this is a no-op. Returns 404 (not
+// 403) so a hidden file is indistinguishable from a missing one.
+func LocalHiddenGate(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		mount := c.Query("mount")
+		path := c.Query("path")
+		if mount == "" || path == "" {
+			c.Next() // nothing to gate; let the handler return its own 400
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		if localPathHidden(path, hiddenLocalSet(c, s, userID, mount)) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": ErrFileNotFound})
+			return
+		}
+		c.Next()
+	}
 }
 
 // LocalSetHidden handles POST /api/local/hidden — marks (or unmarks) a local
