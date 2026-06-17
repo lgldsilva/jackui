@@ -69,6 +69,7 @@ import {
   localListHidden,
 } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
+import { useTransfers } from '../lib/transfers'
 import { newTabProps, openInNewTab, playHref } from '../lib/cardNav'
 import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
@@ -683,6 +684,18 @@ export default function LocalPage() {
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMount, path, viewAsUser, revealHidden])
+
+  // Async move/promote now run server-side and report to the Transfers dock; when
+  // the last running transfer finishes, re-list so the browser reflects the new
+  // layout (the source is gone, the destination has the file).
+  const { transfers } = useTransfers()
+  const prevRunningTransfers = useRef(0)
+  useEffect(() => {
+    const running = transfers.filter((t) => t.status === 'running').length
+    if (prevRunningTransfers.current > 0 && running === 0) refresh()
+    prevRunningTransfers.current = running
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transfers])
 
   // Which entries in this mount are hidden — flags them + offers "Mostrar" while
   // the curtain is open (closed → they're filtered server-side, empty set is ok).

@@ -1383,14 +1383,17 @@ export const localWalk = async (
 }
 
 // localMove moves a file or directory from one mount to another (admin only).
-// dstPath is the target directory; the source name is preserved.
+// dstPath is the target directory; the source name is preserved. The move runs
+// asynchronously server-side (202): it returns a jobId tracked by the global
+// Transfers dock; the file lands once the job finishes.
 export const localMove = async (
   srcMount: string,
   srcPath: string,
   dstMount: string,
   dstPath: string,
-): Promise<void> => {
-  await api.post(withViewAs('/local/move'), { srcMount, srcPath, dstMount, dstPath })
+): Promise<{ moved?: string; jobId?: string; async?: boolean }> => {
+  const { data } = await api.post(withViewAs('/local/move'), { srcMount, srcPath, dstMount, dstPath })
+  return data ?? {}
 }
 
 // localRename renames a file/folder in place (new bare name, no path separators).

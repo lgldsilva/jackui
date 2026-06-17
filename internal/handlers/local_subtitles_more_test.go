@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/ai"
@@ -657,7 +658,7 @@ func TestLocalMoveHandler_SelfMove(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b, nil, nil)
+	localMoveHandler(c, b, nil, nil, nil)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400 for self-move; body: %s", w.Code, w.Body.String())
 	}
@@ -671,7 +672,7 @@ func TestLocalMoveHandler_MissingFields(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/", strings.NewReader(`{"srcMount":"M"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	localMoveHandler(c, b, nil, nil)
+	localMoveHandler(c, b, nil, nil, nil)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
@@ -690,7 +691,7 @@ func TestLocalMoveHandler_SourceNotFound(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b, nil, nil)
+	localMoveHandler(c, b, nil, nil, nil)
 	if w.Code != 400 {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
 	}
@@ -710,7 +711,7 @@ func TestLocalMoveHandler_UnknownDstMount(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b, nil, nil)
+	localMoveHandler(c, b, nil, nil, nil)
 	if w.Code != 403 {
 		t.Errorf("status = %d, want 403; body: %s", w.Code, w.Body.String())
 	}
@@ -732,10 +733,12 @@ func TestLocalMoveHandler_Success(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	localMoveHandler(c, b, nil, nil)
-	if w.Code != 200 {
-		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	localMoveHandler(c, b, nil, nil, nil)
+	// Async move → 202 Accepted; wait for the goroutine to land the file.
+	if w.Code != 202 {
+		t.Errorf("status = %d, want 202; body: %s", w.Code, w.Body.String())
 	}
+	waitForLocalFile(t, filepath.Join(dstDir, "file.txt"), 2*time.Second)
 }
 
 func TestParseAt_NegativeValue(t *testing.T) {

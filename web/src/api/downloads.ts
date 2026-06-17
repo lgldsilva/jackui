@@ -17,7 +17,7 @@ export type DownloadEntry = {
   magnet: string
   tracker?: string
   category?: string
-  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'paused'
+  status: 'queued' | 'downloading' | 'moving' | 'completed' | 'failed' | 'paused'
   bytesDownloaded: number
   progress: number
   downRate?: number

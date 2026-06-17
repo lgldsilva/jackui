@@ -599,7 +599,7 @@ func TestWorker_MoveCompletedFile_NoDir(t *testing.T) {
 	})
 
 	// Should be a no-op in legacy mode.
-	if _, err := w.moveCompletedFile(Download{}, "x.mkv", "test"); err != nil {
+	if _, err := w.moveCompletedFile(Download{}, "x.mkv", "test", nil); err != nil {
 		t.Errorf("no-op expected, got %v", err)
 	}
 }
@@ -616,7 +616,7 @@ func TestWorker_MoveCompletedFile_MkdirFailure(t *testing.T) {
 	})
 
 	// Source doesn't exist in the (bogus) DataDir → returns an error, no panic.
-	if _, err := w.moveCompletedFile(Download{}, "test/f.mkv", "test"); err == nil {
+	if _, err := w.moveCompletedFile(Download{}, "test/f.mkv", "test", nil); err == nil {
 		t.Error("expected error when source is missing")
 	}
 }
