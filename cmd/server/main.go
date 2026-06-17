@@ -46,6 +46,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/subtitles"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 	"github.com/lgldsilva/jackui/internal/transcode"
+	"github.com/lgldsilva/jackui/internal/transfer"
 	"github.com/lgldsilva/jackui/internal/transmissionrpc"
 	"github.com/lgldsilva/jackui/internal/watchlist"
 	"github.com/lgldsilva/jackui/ui"
@@ -100,40 +101,41 @@ func watchForwardedPort(ctrl string, current int) {
 }
 
 type appDeps struct {
-	cfg            *config.Config
-	configPath     string
-	jackettClient  *jackett.Client
-	localBrowser   *local.Browser
-	historyStore   *history.Store
-	streamSrv      *streamer.Streamer
-	streamCfg      streamer.Config
-	stateDir       string
-	libraryStore   *library.Store
-	audioMetaStore *audiometa.Store
-	lyricsClient   *lyrics.Client
-	musicTrending  *musictrending.Client
-	playlistsStore *playlists.Store
-	downloadsStore *downloads.Store
-	downloadsWkr   *downloads.Worker
-	tmdbClient     *tmdb.Client
-	aiClient       *ai.Client
-	aiBench        *ai.BenchmarkStore
-	webSearch      *imagesearch.Chain
-	watchlistStore *watchlist.Store
-	watchlistWkr   *watchlist.Worker
-	pushStore      *push.Store
-	pushSender     *push.Sender
-	subtitleClient *subtitles.Client
-	authStore      *auth.Store
-	tokenMgr       *auth.TokenManager
-	waManager      *auth.WAManager
-	loginLockout   *auth.Lockout
-	mlr            *mailer.Mailer
-	promoteDests   []handlers.PromoteDest
-	hlsMgr         *transcode.HLSSessionManager
-	localStream    *localstream.Registry
-	localCache     *localcache.Cache
-	cleanup        []func()
+	cfg             *config.Config
+	configPath      string
+	jackettClient   *jackett.Client
+	localBrowser    *local.Browser
+	historyStore    *history.Store
+	streamSrv       *streamer.Streamer
+	streamCfg       streamer.Config
+	stateDir        string
+	libraryStore    *library.Store
+	audioMetaStore  *audiometa.Store
+	lyricsClient    *lyrics.Client
+	musicTrending   *musictrending.Client
+	playlistsStore  *playlists.Store
+	downloadsStore  *downloads.Store
+	downloadsWkr    *downloads.Worker
+	tmdbClient      *tmdb.Client
+	aiClient        *ai.Client
+	aiBench         *ai.BenchmarkStore
+	webSearch       *imagesearch.Chain
+	watchlistStore  *watchlist.Store
+	watchlistWkr    *watchlist.Worker
+	pushStore       *push.Store
+	pushSender      *push.Sender
+	subtitleClient  *subtitles.Client
+	authStore       *auth.Store
+	tokenMgr        *auth.TokenManager
+	waManager       *auth.WAManager
+	loginLockout    *auth.Lockout
+	mlr             *mailer.Mailer
+	promoteDests    []handlers.PromoteDest
+	hlsMgr          *transcode.HLSSessionManager
+	localStream     *localstream.Registry
+	localCache      *localcache.Cache
+	transferTracker *transfer.Tracker
+	cleanup         []func()
 }
 
 func (d *appDeps) addCleanup(fn func()) {
@@ -158,6 +160,9 @@ func main() {
 	deps.localBrowser = local.NewBrowser(deps.cfg.External.Mounts)
 	deps.localStream = localstream.NewRegistry(deps.cfg.External.LocalReadaheadMB)
 	deps.addCleanup(deps.localStream.Close)
+	// Global move/copy progress tracker, shared by the post-download move (worker)
+	// and the Local-tab/promote/AI moves (handlers) → the Transfers dock.
+	deps.transferTracker = transfer.New()
 	deps.webSearch = imagesearch.Default()
 	deps.mlr = mailer.New(deps.cfg.SMTP)
 
@@ -470,6 +475,7 @@ func initDownloadsStore(deps *appDeps) {
 		Jackett:         deps.jackettClient,
 		AIClient:        deps.aiClient,
 		TMDBClient:      deps.tmdbClient,
+		Tracker:         deps.transferTracker,
 	})
 	deps.downloadsWkr = worker
 	worker.Start()
@@ -1061,6 +1067,8 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.DELETE("/stream/:hash/viewer", handlers.StreamViewerClose(deps.streamSrv, deps.hlsMgr))
 	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))
 
+	api.GET("/transfers", handlers.TransfersList(deps.transferTracker))
+
 	registerLocalRoutes(api, deps)
 	registerDownloadsRoutes(api, deps)
 	registerHLSRoutes(api, adminAPI, deps)
@@ -1099,10 +1107,10 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/clean-empty", handlers.LocalCleanEmptyDirs(deps.localBrowser))
 	api.GET("/local/duplicates", handlers.LocalDuplicates(deps.localBrowser))
 	api.POST("/local/duplicates/delete", handlers.LocalDuplicatesDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/promote", handlers.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/promote", handlers.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
 	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
-	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
 	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
 	api.GET("/local/play", handlers.LocalHiddenGate(deps.streamSrv), handlers.LocalPlay(deps.localBrowser, deps.libraryStore))
 	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
@@ -1151,8 +1159,8 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))
 	api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(deps.downloadsStore))
 	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore, downloadRemoverDep(deps)))
-	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
-	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker))
+	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker))
 	api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(deps.downloadsStore, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/promote/destinations", handlers.DownloadsPromoteDests(deps.cfg.Stream.SharedDir, deps.promoteDests))
