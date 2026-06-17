@@ -33,7 +33,7 @@ func mkDownload(t *testing.T, st *downloads.Store, hash, status string) int {
 // newTorrentView, core/extraTorrentField, mapJackUIStatusToTR e activeTorrentInfo.
 func TestRPC_TorrentGet_AllStatuses(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	for i, status := range []string{
 		downloads.StatusDownloading, downloads.StatusCompleted,
 		downloads.StatusPaused, downloads.StatusFailed, downloads.StatusQueued,
@@ -59,7 +59,7 @@ func TestRPC_TorrentGet_AllStatuses(t *testing.T) {
 // torrent-get com lista de ids filtra (cobre o parseIDs + filtro no get).
 func TestRPC_TorrentGet_ByID(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 	mkDownload(t, st, strings.Repeat("b", 40), downloads.StatusCompleted)
 	resp := h.dispatch(rpcRequest{
@@ -73,7 +73,7 @@ func TestRPC_TorrentGet_ByID(t *testing.T) {
 
 func TestRPC_TorrentRemove(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 	resp := h.dispatch(rpcRequest{Method: "torrent-remove", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}}}, 1)
 	if resp.Result != "success" {
@@ -91,7 +91,7 @@ func TestRPC_TorrentRemove(t *testing.T) {
 
 func TestRPC_TorrentSet_Paused(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 	// pausa
 	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": true}}, 1)
@@ -107,7 +107,7 @@ func TestRPC_TorrentSet_Paused(t *testing.T) {
 
 func TestRPC_FreeSpace_And_SetLocation(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	if r := h.dispatch(rpcRequest{Method: "free-space", Arguments: map[string]interface{}{"path": "/data"}}, 1); r.Result != "success" {
 		t.Errorf("free-space: %q", r.Result)
 	}
@@ -118,7 +118,7 @@ func TestRPC_FreeSpace_And_SetLocation(t *testing.T) {
 
 func TestRPC_SessionStats_WithData(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 	mkDownload(t, st, strings.Repeat("b", 40), downloads.StatusCompleted)
 	if r := h.methodSessionStats(); r.Result != "success" {
@@ -129,7 +129,7 @@ func TestRPC_SessionStats_WithData(t *testing.T) {
 // torrent-add: variações de filename (cobre os ramos de methodTorrentAdd).
 func TestRPC_TorrentAdd_Variants(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	// bare infohash (sem prefixo magnet:) → vira magnet
 	if r := h.methodTorrentAdd(map[string]interface{}{"filename": strings.Repeat("a", 40)}, 1); r.Result != "success" {
 		t.Errorf("bare infohash: %q", r.Result)
@@ -162,7 +162,7 @@ func TestRPC_AuthHandshake(t *testing.T) {
 	if _, err := as.CreateUser("bob", "secret123!", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(st, nil, as, "/data", "/data")
+	h := NewHandler(st, nil, as, "/data", "/data", "", nil)
 	router := gin.New()
 	h.RegisterRoutes(router)
 

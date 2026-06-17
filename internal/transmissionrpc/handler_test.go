@@ -223,7 +223,7 @@ func TestFetchTorrentHash_BlocksInternalIP(t *testing.T) {
 // torrent-add deve atribuir o download ao usuário autenticado (não ao 0).
 func TestTorrentAdd_SetsUserID(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	hash := strings.Repeat("a", 40)
 	resp := h.methodTorrentAdd(map[string]interface{}{
 		"filename": "magnet:?xt=urn:btih:" + hash,
@@ -245,7 +245,7 @@ func TestTorrentAdd_SetsUserID(t *testing.T) {
 // ou release multi-arquivo importaria quebrado no Sonarr/Radarr.
 func TestTorrentAdd_CreatesWholeTorrent(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	hash := strings.Repeat("a", 40)
 	resp := h.methodTorrentAdd(map[string]interface{}{
 		"filename": "magnet:?xt=urn:btih:" + hash,
@@ -280,7 +280,7 @@ func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":    []interface{}{float64(d.ID)},
 		"labels": []interface{}{"tv-sonarr"},
@@ -371,7 +371,7 @@ func TestBuildTorrent_AllFieldsPresent(t *testing.T) {
 // ─── session-set ───────────────────────────────────────────────────────────
 
 func TestSessionSet_AltSpeed(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodSessionSet(map[string]interface{}{
@@ -400,7 +400,7 @@ func TestSessionSet_AltSpeed(t *testing.T) {
 }
 
 func TestSessionSet_QueueSettings(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodSessionSet(map[string]interface{}{
@@ -427,7 +427,7 @@ func TestSessionSet_QueueSettings(t *testing.T) {
 }
 
 func TestSessionSet_StartAdded(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodSessionSet(map[string]interface{}{
@@ -442,7 +442,7 @@ func TestSessionSet_StartAdded(t *testing.T) {
 }
 
 func TestSessionSet_NoArgs(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodSessionSet(map[string]interface{}{})
@@ -467,7 +467,7 @@ func TestSessionClose(t *testing.T) {
 
 func TestTorrentStart_ChangesStatus(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -497,7 +497,7 @@ func TestTorrentStart_ChangesStatus(t *testing.T) {
 
 func TestTorrentStop_ChangesStatus(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -525,7 +525,7 @@ func TestTorrentStop_ChangesStatus(t *testing.T) {
 
 func TestTorrentStartNow_SameAsStart(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -552,7 +552,7 @@ func TestTorrentStartNow_SameAsStart(t *testing.T) {
 
 func TestTorrentStart_OmitsCompleted(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -581,7 +581,7 @@ func TestTorrentStart_OmitsCompleted(t *testing.T) {
 
 func TestTorrentStart_AllWhenNoIDs(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	_, _ = st.Create(downloads.Download{
@@ -611,7 +611,7 @@ func TestTorrentStart_AllWhenNoIDs(t *testing.T) {
 // ─── torrent-verify ───────────────────────────────────────────────────────
 
 func TestTorrentVerify_NoStreamer_ReturnsSuccess(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentVerify(map[string]interface{}{
@@ -623,7 +623,7 @@ func TestTorrentVerify_NoStreamer_ReturnsSuccess(t *testing.T) {
 }
 
 func TestTorrentVerify_NoIDs_ReturnsSuccess(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentVerify(nil)
@@ -635,7 +635,7 @@ func TestTorrentVerify_NoIDs_ReturnsSuccess(t *testing.T) {
 // ─── torrent-reannounce ───────────────────────────────────────────────────
 
 func TestTorrentReannounce_NoStreamer_ReturnsSuccess(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentReannounce(map[string]interface{}{
@@ -647,7 +647,7 @@ func TestTorrentReannounce_NoStreamer_ReturnsSuccess(t *testing.T) {
 }
 
 func TestTorrentReannounce_NoIDs_ReturnsSuccess(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentReannounce(nil)
@@ -726,7 +726,7 @@ func TestForEachDownload_NoStore(t *testing.T) {
 
 func TestForEachDownload_WithStore(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	_, _ = st.Create(downloads.Download{
@@ -776,7 +776,7 @@ func TestHashFromDownload_Invalid(t *testing.T) {
 // ─── NewHandler defaults ──────────────────────────────────────────────────
 
 func TestNewHandler_Defaults(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	if !h.startAddedTorrents {
 		t.Error("startAddedTorrents defaults to true")
 	}
@@ -847,7 +847,7 @@ func TestGroupSet_MissingName(t *testing.T) {
 }
 
 func TestGroupSet_Default(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodGroupSet(map[string]interface{}{
@@ -1022,7 +1022,7 @@ func TestActiveTorrentObjects_NoStreamer(t *testing.T) {
 // ─── newTorrentView (magnetLink, trackerStats) ─────────────────────────────
 
 func TestNewTorrentView_MagnetLink(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	v := h.newTorrentView(downloads.Download{
 		InfoHash: "abcdef0123456789abcdef0123456789abcdef01",
 		Magnet:   "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01&dn=MyFile",
@@ -1033,7 +1033,7 @@ func TestNewTorrentView_MagnetLink(t *testing.T) {
 }
 
 func TestNewTorrentView_MagnetLink_Fallback(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	v := h.newTorrentView(downloads.Download{
 		InfoHash: "abcdef0123456789abcdef0123456789abcdef01",
 	}, nil, nil)
@@ -1044,7 +1044,7 @@ func TestNewTorrentView_MagnetLink_Fallback(t *testing.T) {
 }
 
 func TestNewTorrentView_Trackers(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	v := h.newTorrentView(downloads.Download{
 		InfoHash: "abcdef0123456789abcdef0123456789abcdef01",
 		Tracker:  "https://tracker.example.com/announce",
@@ -1068,7 +1068,7 @@ func TestNewTorrentView_Trackers(t *testing.T) {
 // ─── torrent-set enhanced args ─────────────────────────────────────────────
 
 func TestTorrentSet_BandwidthPriority(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	// bandwidthPriority only applies when streamer is available; without it
@@ -1084,7 +1084,7 @@ func TestTorrentSet_BandwidthPriority(t *testing.T) {
 
 func TestTorrentSet_TrackerListOld(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -1105,7 +1105,7 @@ func TestTorrentSet_TrackerListOld(t *testing.T) {
 }
 
 func TestTorrentSet_PeerLimit(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	// Without streamer, peer limit is a no-op (but still returns success).
@@ -1121,7 +1121,7 @@ func TestTorrentSet_PeerLimit(t *testing.T) {
 // ─── newTorrentView with si.Files ──────────────────────────────────────────
 
 func TestNewTorrentView_FileInfo(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	si := &streamer.TorrentInfo{
 		Name:      "TestTorrent",
 		TotalSize: 3000,
@@ -1234,7 +1234,7 @@ func TestConvertMapKeys_Array(t *testing.T) {
 }
 
 func TestHandleJSONRPC_SessionGet(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	body := `{"jsonrpc":"2.0","method":"session_get","params":{},"id":1}`
@@ -1279,7 +1279,7 @@ func TestHandleJSONRPC_SessionGet(t *testing.T) {
 // session-get) must dispatch normally, not fail with -32602. A nil params was
 // being passed straight to convertMapKeys (→ nil → not a map → error).
 func TestHandleJSONRPC_SessionGet_NoParams(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	body := `{"jsonrpc":"2.0","method":"session_get","id":7}`
@@ -1306,7 +1306,7 @@ func TestHandleJSONRPC_SessionGet_NoParams(t *testing.T) {
 }
 
 func TestHandleJSONRPC_Notification(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	// Notification = no "id" field
@@ -1370,7 +1370,7 @@ func TestHandleJSONRPC_ParseError(t *testing.T) {
 
 func TestHandleJSONRPC_SnakeCaseMethod(t *testing.T) {
 	// Ensure snake_case method names are converted to kebab-case internally.
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	body := `{"jsonrpc":"2.0","method":"torrent_start","params":{"ids":[1]},"id":2}`
@@ -1441,7 +1441,7 @@ func TestBuildTorrent_UploadRatio_NoTorrent(t *testing.T) {
 // ─── torrent-add metainfo ───────────────────────────────────────────────────
 
 func TestTorrentAdd_Metainfo_InvalidBase64(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentAdd(map[string]interface{}{
@@ -1453,7 +1453,7 @@ func TestTorrentAdd_Metainfo_InvalidBase64(t *testing.T) {
 }
 
 func TestTorrentAdd_Metainfo_InvalidTorrent(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	// Valid base64 but not a .torrent → parse error
@@ -1467,7 +1467,7 @@ func TestTorrentAdd_Metainfo_InvalidTorrent(t *testing.T) {
 }
 
 func TestTorrentAdd_MissingBothFilenameAndMetainfo(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentAdd(map[string]interface{}{}, 1)
@@ -1478,7 +1478,7 @@ func TestTorrentAdd_MissingBothFilenameAndMetainfo(t *testing.T) {
 
 func TestTorrentAdd_Metainfo_Labels(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	// Test that labels override category from download-dir. We can't easily
@@ -1501,7 +1501,7 @@ func TestTorrentAdd_Metainfo_Labels(t *testing.T) {
 
 func TestTorrentRemove_DeleteLocalData_NoStreamer(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -1527,7 +1527,7 @@ func TestTorrentRemove_DeleteLocalData_NoStreamer(t *testing.T) {
 
 func TestTorrentRemove_DeleteLocalData_False(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -1554,7 +1554,7 @@ func TestTorrentRemove_DeleteLocalData_False(t *testing.T) {
 
 func TestTorrentSetLocation_WithPath(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -1586,7 +1586,7 @@ func TestTorrentSetLocation_WithPath(t *testing.T) {
 // deve ser rejeitado e NÃO alterar o file_path persistido.
 func TestTorrentSetLocation_RejectsTraversal(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	d, err := st.Create(downloads.Download{
@@ -1613,7 +1613,7 @@ func TestTorrentSetLocation_RejectsTraversal(t *testing.T) {
 }
 
 func TestTorrentSetLocation_NoLocation(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSetLocation(map[string]interface{}{
@@ -1627,7 +1627,7 @@ func TestTorrentSetLocation_NoLocation(t *testing.T) {
 // ─── torrent-set speed limits ───────────────────────────────────────────────
 
 func TestTorrentSet_SpeedLimits(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1645,7 +1645,7 @@ func TestTorrentSet_SpeedLimits(t *testing.T) {
 // ─── torrent-set tracker args ──────────────────────────────────────────────
 
 func TestTorrentSet_TrackerAdd(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1658,7 +1658,7 @@ func TestTorrentSet_TrackerAdd(t *testing.T) {
 }
 
 func TestTorrentSet_TrackerReplace(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1671,7 +1671,7 @@ func TestTorrentSet_TrackerReplace(t *testing.T) {
 }
 
 func TestTorrentSet_TrackerList(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1684,7 +1684,7 @@ func TestTorrentSet_TrackerList(t *testing.T) {
 }
 
 func TestTorrentSet_TrackerList_Empty(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1699,7 +1699,7 @@ func TestTorrentSet_TrackerList_Empty(t *testing.T) {
 // ─── torrent-set seed ratio / idle ─────────────────────────────────────────
 
 func TestTorrentSet_SeedRatio(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1717,7 +1717,7 @@ func TestTorrentSet_SeedRatio(t *testing.T) {
 // ─── torrent-set honors-session-limits / queue-position ─────────────────────
 
 func TestTorrentSet_ExtraArgs(t *testing.T) {
-	h := NewHandler(nil, nil, nil, "/data", "/data")
+	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentSet(map[string]interface{}{
@@ -1734,7 +1734,7 @@ func TestTorrentSet_ExtraArgs(t *testing.T) {
 
 func TestTorrentAdd_PeerLimitAndPriority(t *testing.T) {
 	st := newTestStore(t)
-	h := NewHandler(st, nil, nil, "/data", "/data")
+	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodTorrentAdd(map[string]interface{}{

@@ -452,6 +452,7 @@ func initDownloadsStore(deps *appDeps) {
 			AgingStepMin:      q.AgingStepMin,
 			AgingCap:          q.AgingCap,
 			RotationEnabled:   q.RotationEnabled,
+			AutoPromoteArr:    q.AutoPromoteArr,
 		}
 	}
 	worker := downloads.NewWorker(downloads.WorkerConfig{
@@ -459,6 +460,7 @@ func initDownloadsStore(deps *appDeps) {
 		Streamer:        deps.streamSrv,
 		DataDir:         deps.streamCfg.DataDir,
 		DownloadDir:     deps.cfg.Stream.DownloadDir,
+		SharedDir:       deps.cfg.Stream.SharedDir,
 		Interval:        2 * time.Second,
 		NtfyBaseURL:     deps.cfg.Notifications.NtfyBaseURL,
 		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
@@ -916,6 +918,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		trpc := transmissionrpc.NewHandler(
 			deps.downloadsStore, deps.streamSrv, deps.authStore,
 			deps.streamCfg.DataDir, deps.cfg.Stream.DownloadDir,
+			deps.cfg.Stream.SharedDir, func() bool { return deps.cfg.DownloadsQueue.AutoPromoteArr },
 		)
 		trpc.RegisterRoutes(router)
 		log.Printf("Transmission RPC: /transmission/rpc (compat layer for *arr stack)")
