@@ -89,6 +89,70 @@ func TestLocalRenameRefusesCollision(t *testing.T) {
 	}
 }
 
+func TestLocalRenameMissingFields(t *testing.T) {
+	router, _, _, _ := newRenameRouter(t)
+	cases := []gin.H{
+		{"mount": "", "path": "a.mkv", "newName": "b.mkv"},
+		{"mount": "Meus downloads", "path": "", "newName": "b.mkv"},
+		{"mount": "Meus downloads", "path": "a.mkv", "newName": ""},
+	}
+	for _, body := range cases {
+		w := postJSON(t, router, "/api/local/rename", body)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body=%v status=%d, want 400", body, w.Code)
+		}
+	}
+}
+
+func TestLocalRenameBadJSON(t *testing.T) {
+	router, _, _, _ := newRenameRouter(t)
+	// NewName is a string; sending a number makes ShouldBindJSON fail.
+	w := postJSON(t, router, "/api/local/rename", gin.H{"mount": "Meus downloads", "path": "a.mkv", "newName": 123})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", w.Code)
+	}
+}
+
+func TestLocalRenameSourceNotFound(t *testing.T) {
+	router, _, _, _ := newRenameRouter(t)
+	w := postJSON(t, router, "/api/local/rename", gin.H{"mount": "Meus downloads", "path": "ghost.mkv", "newName": "x.mkv"})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s, want 404", w.Code, w.Body.String())
+	}
+}
+
+func TestLocalRenameNoopSameName(t *testing.T) {
+	router, _, _, meus := newRenameRouter(t)
+	if err := os.WriteFile(filepath.Join(meus, "same.mkv"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w := postJSON(t, router, "/api/local/rename", gin.H{"mount": "Meus downloads", "path": "same.mkv", "newName": "same.mkv"})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", w.Code, w.Body.String())
+	}
+}
+
+func TestLocalSetFolderLockErrors(t *testing.T) {
+	router, _, _, _ := newRenameRouter(t)
+
+	// Malformed body: Locked is a bool, a string fails the bind.
+	if w := postJSON(t, router, "/api/local/lock", gin.H{"mount": "Meus downloads", "path": "x", "locked": "nope"}); w.Code != http.StatusBadRequest {
+		t.Errorf("bad json: status=%d, want 400", w.Code)
+	}
+	// Missing required fields.
+	if w := postJSON(t, router, "/api/local/lock", gin.H{"mount": "", "path": "", "locked": true}); w.Code != http.StatusBadRequest {
+		t.Errorf("missing fields: status=%d, want 400", w.Code)
+	}
+	// Nonexistent directory → SetFolderLock stat fails with IsNotExist → 404.
+	if w := postJSON(t, router, "/api/local/lock", gin.H{"mount": "Meus downloads", "path": "ghost", "locked": true}); w.Code != http.StatusNotFound {
+		t.Errorf("ghost dir: status=%d body=%s, want 404", w.Code, w.Body.String())
+	}
+	// Locking the mount root is refused (non-IsNotExist error → 400).
+	if w := postJSON(t, router, "/api/local/lock", gin.H{"mount": "Meus downloads", "path": ".", "locked": true}); w.Code != http.StatusBadRequest {
+		t.Errorf("root lock: status=%d body=%s, want 400", w.Code, w.Body.String())
+	}
+}
+
 // TestLocalFolderLockRoundtrip locks a folder, sees Locked=true in the listing,
 // confirms the empty-dir sweep keeps it, then unlocks.
 func TestLocalFolderLockRoundtrip(t *testing.T) {
