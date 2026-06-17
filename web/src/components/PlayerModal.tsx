@@ -1270,7 +1270,7 @@ export default function PlayerModal({
   // está aberta (precisa exibir) OU o motor está ligado (precisa pré-carregar o
   // próximo); com 'off' e sidebar fechada não ativa nada em background.
   //
-  // No iOS/WebKit (engineOn=false) TODO o áudio toca no <video> nativo único, cujo
+  // No iOS/WebKit (engineOn=false) o áudio inteiro toca no <video> nativo único, cujo
   // play() é não-gesto e fica pendente durante o buffering inicial. Disparar a
   // rajada de resolução das N faixas do álbum (~40 /api/local/play + cascata de
   // re-renders) NESSA janela compete com o play() pendente. Adia a agregação no
