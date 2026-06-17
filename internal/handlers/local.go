@@ -558,6 +558,45 @@ func LocalCleanEmptyDirs(b *local.Browser) gin.HandlerFunc {
 	}
 }
 
+type folderLockReq struct {
+	Mount  string `json:"mount"`
+	Path   string `json:"path"`
+	Locked bool   `json:"locked"`
+}
+
+// LocalSetFolderLock handles POST /api/local/lock — pins/unpins a folder so the
+// "clean empty folders" sweep keeps it even with no files inside (a ".keep"
+// marker). Same access model as delete/clean: a writable mount ("meus
+// downloads") or admin. The mount root can't be pinned.
+func LocalSetFolderLock(b *local.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req folderLockReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.Mount == "" || req.Path == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
+			return
+		}
+		if !checkMountAccess(b, c, req.Mount) {
+			return
+		}
+		if !canModifyMount(c, req.Mount) {
+			return
+		}
+		if err := b.SetFolderLock(req.Mount, scopePath(b, c, req.Mount, req.Path), req.Locked); err != nil {
+			if os.IsNotExist(err) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"locked": req.Locked})
+	}
+}
+
 // purgeLinkedTorrents tears down the torrent(s) tied to a deleted local path:
 // drops the active torrent, wipes its piece cache, clears the favorite, and
 // removes the download row. Returns how many rows were removed. Best-effort —
@@ -1324,6 +1363,112 @@ func resolveDest(b *local.Browser, c *gin.Context, req *moveEntryReq, srcAbs str
 
 func isSelfMove(srcStat os.FileInfo, srcAbs, dstAbs string) bool {
 	return srcStat.IsDir() && strings.HasPrefix(dstAbs+string(filepath.Separator), srcAbs+string(filepath.Separator))
+}
+
+type renameEntryReq struct {
+	Mount   string `json:"mount"`
+	Path    string `json:"path"`
+	NewName string `json:"newName"`
+}
+
+// LocalRename handles POST /api/local/rename — renames a file or folder in
+// place (same parent directory). Same access model as delete: a writable mount
+// ("meus downloads") or admin. NewName must be a bare file name (no separators,
+// no traversal) and the mount root can't be renamed. Reuses movePath +
+// relinkMovedTorrents so a renamed download keeps its torrent link and replays.
+func LocalRename(b *local.Browser, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		req, ok := bindRenameReq(c)
+		if !ok {
+			return
+		}
+		if !checkMountAccess(b, c, req.Mount) || !canModifyMount(c, req.Mount) {
+			return
+		}
+		srcAbs, stat, ok := resolveRenameSource(b, c, req)
+		if !ok {
+			return
+		}
+		dstAbs, ok := resolveRenameDest(c, srcAbs, req.NewName)
+		if !ok {
+			return
+		}
+		if err := movePath(srcAbs, dstAbs, stat); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "renomear: " + err.Error()})
+			return
+		}
+		relinked := relinkMovedTorrents(dls, s, srcAbs, dstAbs)
+		c.JSON(http.StatusOK, gin.H{"renamed": filepath.Base(dstAbs), "relinked": relinked})
+	}
+}
+
+// bindRenameReq parses + validates the rename request (required fields and a
+// safe bare name). Writes the 400 and returns ok=false on any problem.
+func bindRenameReq(c *gin.Context) (renameEntryReq, bool) {
+	var req renameEntryReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return req, false
+	}
+	if req.Mount == "" || req.Path == "" || req.NewName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mount, path and newName are required"})
+		return req, false
+	}
+	if !isValidRenameName(req.NewName) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "nome inválido: não pode conter barras nem '..'"})
+		return req, false
+	}
+	return req, true
+}
+
+// resolveRenameSource resolves the source path (scoped + traversal-guarded) and
+// stats it. Writes the error response and returns ok=false on failure.
+func resolveRenameSource(b *local.Browser, c *gin.Context, req renameEntryReq) (string, os.FileInfo, bool) {
+	srcAbs, err := resolveDeletablePath(b, req.Mount, scopePath(b, c, req.Mount, req.Path))
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		}
+		return "", nil, false
+	}
+	stat, err := os.Stat(srcAbs)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file or directory not found"})
+		return "", nil, false
+	}
+	return srcAbs, stat, true
+}
+
+// resolveRenameDest builds the destination path (same parent dir, new bare
+// name) and refuses a no-op or a clobber. ok=false on failure (response sent).
+func resolveRenameDest(c *gin.Context, srcAbs, newName string) (string, bool) {
+	dstAbs := filepath.Join(filepath.Dir(srcAbs), newName)
+	if dstAbs == srcAbs {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "o novo nome é igual ao atual"})
+		return "", false
+	}
+	if _, err := os.Stat(dstAbs); err == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "já existe um item com esse nome"})
+		return "", false
+	}
+	return dstAbs, true
+}
+
+// isValidRenameName reports whether name is a safe bare file name: not empty,
+// not a traversal token, and free of path separators. filepath.Base collapses
+// any path to its last element, so equality proves there was no separator to
+// begin with (covers both / and the OS separator).
+func isValidRenameName(name string) bool {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" || trimmed == "." || trimmed == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	return filepath.Base(name) == name
 }
 
 // movePath handles moving files and directories, even across different filesystems/mounts.

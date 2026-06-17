@@ -1239,6 +1239,7 @@ export type LocalEntry = {
   modTime: string
   isPlayable: boolean
   childCount?: number // # of entries inside a directory (0/absent for files)
+  locked?: boolean    // dir pinned (.keep) — "clean empty" never removes it
 }
 
 export const localMounts = async (): Promise<LocalMount[]> => {
@@ -1390,6 +1391,24 @@ export const localMove = async (
   dstPath: string,
 ): Promise<void> => {
   await api.post(withViewAs('/local/move'), { srcMount, srcPath, dstMount, dstPath })
+}
+
+// localRename renames a file/folder in place (new bare name, no path separators).
+export const localRename = async (
+  mount: string,
+  path: string,
+  newName: string,
+): Promise<{ renamed: string; relinked: number }> => {
+  const { data } = await api.post<{ renamed: string; relinked: number }>(
+    withViewAs('/local/rename'),
+    { mount, path, newName },
+  )
+  return data
+}
+
+// localSetFolderLock pins/unpins a folder so "clean empty" keeps it (.keep marker).
+export const localSetFolderLock = async (mount: string, path: string, locked: boolean): Promise<void> => {
+  await api.post(withViewAs('/local/lock'), { mount, path, locked })
 }
 
 // Direct file URL with auth token in query string (http.ServeFile handles Range
