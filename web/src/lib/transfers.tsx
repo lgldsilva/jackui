@@ -68,3 +68,21 @@ export function useTransfers(): TransfersAPI {
   if (!ctx) return { transfers: [], bump: () => {} }
   return ctx
 }
+
+// useTrackedJobs lets a modal show live progress for the move/copy jobs IT just
+// started, without the backend having to return job IDs: call start() right
+// before kicking off the operation (it snapshots the existing job IDs + forces an
+// immediate poll), then render `jobs` — the transfers of `kind` that appeared
+// AFTER the snapshot. reset() clears the baseline (e.g. when the modal closes).
+export function useTrackedJobs(kind: string) {
+  const { transfers, bump } = useTransfers()
+  const baseline = useRef<Set<string> | null>(null)
+  const start = useCallback(() => {
+    baseline.current = new Set(transfers.map((t) => t.id))
+    bump()
+  }, [transfers, bump])
+  const reset = useCallback(() => { baseline.current = null }, [])
+  const base = baseline.current
+  const jobs = base ? transfers.filter((t) => t.kind === kind && !base.has(t.id)) : []
+  return { start, reset, jobs, bump }
+}
