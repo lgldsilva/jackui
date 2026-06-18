@@ -107,10 +107,13 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm font-medium text-text hover:bg-surface-3"
+        className="flex w-full items-center justify-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm font-medium text-text hover:bg-surface-3"
       >
         <ChevronRight className={`h-4 w-4 transition-transform ${open ? 'rotate-90' : ''}`} />
-        {t('player.audioTools')}
+        {/* No iOS/WebKit o equalizador fica oculto (só a letra abre), então o rótulo
+            vira "Letra" — não faz sentido anunciar "Equalizador" se ele não existe ali.
+            justify-center alinha este toggle com os outros ("Opções", "Mostrar lista"). */}
+        {blocked ? t('player.lyrics.title') : t('player.audioTools')}
       </button>
       {open && (
         // Quando o EQ/visualizador não está disponível (iOS/WebKit — webAudioBlocked),
