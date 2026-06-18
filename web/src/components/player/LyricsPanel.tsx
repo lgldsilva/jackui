@@ -3,22 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { lyricsGet, type Lyrics } from '../../api/client'
 import { parseLrc, activeLineIndex } from '../../lib/lrc'
 
-type LyricsPanelProps = {
-  readonly title: string
-  readonly artist: string
-  readonly album: string
-  readonly durationSec: number
-  readonly currentTime: number
-}
-
-// LyricsPanel fetches lyrics (backend LrcLib proxy) for the current track and,
-// when synced (LRC), highlights the active line and auto-scrolls to it. Falls
-// back to plain text, then to an empty state. Best-effort: never blocks playback.
-export function LyricsPanel({ title, artist, album, durationSec, currentTime }: LyricsPanelProps) {
-  const { t } = useTranslation()
+// useLyrics fetches lyrics (backend LrcLib proxy) for a track. Lifted out of the
+// panel so the PARENT (MusicPanel) can know whether lyrics exist BEFORE rendering
+// the section: on iOS the equalizer is hidden, so the "Letras" toggle should only
+// appear when there actually are lyrics — never a control that does nothing.
+export function useLyrics(title: string, artist: string, album: string, durationSec: number): { lyrics: Lyrics | null; loading: boolean } {
   const [lyrics, setLyrics] = useState<Lyrics | null>(null)
   const [loading, setLoading] = useState(false)
-  const activeRef = useRef<HTMLParagraphElement>(null)
   // durationSec is only an optional exact-match hint AND it fluctuates as the
   // stream loads. Keep it OUT of the fetch deps (read via ref) — otherwise the
   // effect re-fired on every duration tick and the panel stuck on "Fetching…".
@@ -39,6 +30,29 @@ export function LyricsPanel({ title, artist, album, durationSec, currentTime }: 
       .finally(() => { if (!cancelled) { clearTimeout(timer); setLoading(false) } })
     return () => { cancelled = true; clearTimeout(timer) }
   }, [title, artist, album])
+
+  return { lyrics, loading }
+}
+
+// hasLyricsContent: true when the fetched lyrics carry synced OR plain text.
+export function hasLyricsContent(l: Lyrics | null): boolean {
+  return !!(l?.synced || l?.plain)
+}
+
+type LyricsPanelProps = {
+  // Lyrics + loading come from the parent's useLyrics (single fetch shared with
+  // the visibility decision); currentTime drives the synced active-line highlight.
+  readonly lyrics: Lyrics | null
+  readonly loading: boolean
+  readonly currentTime: number
+}
+
+// LyricsPanel renders lyrics for the current track and, when synced (LRC),
+// highlights the active line and auto-scrolls to it. Falls back to plain text,
+// then to an empty state. Presentational — the fetch lives in useLyrics.
+export function LyricsPanel({ lyrics, loading, currentTime }: LyricsPanelProps) {
+  const { t } = useTranslation()
+  const activeRef = useRef<HTMLParagraphElement>(null)
 
   const lines = useMemo(() => parseLrc(lyrics?.synced ?? ''), [lyrics?.synced])
   const active = activeLineIndex(lines, currentTime)
@@ -75,7 +89,7 @@ function renderBody({ loading, lyrics, lines, active, activeRef, t }: {
         ref={i === active ? activeRef : undefined}
         className={i === active ? 'py-0.5 font-semibold text-primary' : 'py-0.5 text-text-muted'}
       >
-        {ln.text || ' '}
+        {ln.text || ' '}
       </p>
     ))
   }
