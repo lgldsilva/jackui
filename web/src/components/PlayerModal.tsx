@@ -860,15 +860,20 @@ export default function PlayerModal({
   }
 
   const handleVideoEnded = () => {
-    console.debug('[player] video onEnded', {
-      repeat,
-      nextIdx: mediaQueue.nextIdx,
-      hasPlaylistAdvance: !!onPlaylistAdvance,
-      playlistName: playlist?.name,
-      audioMode,
-    })
+    const v = videoRef.current
+    // iOS/WebKit dispara 'ended' ESPÚRIO quando o <video> direct-play TRAVA no
+    // início (stall em readyState 2, playhead ~0) em vez de realmente terminar.
+    // Tratar isso como fim auto-avançaria pro próximo item (na ordem/shuffle) e
+    // trocaria o src no meio do start, abortando o play() pendente — era o
+    // "trocou de faixa sozinho + sem som" no iPhone. Só é fim de verdade quando o
+    // playhead chegou perto da duração; com duração desconhecida (0/NaN) avança
+    // normal (não há como distinguir).
+    if (v && Number.isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 2) {
+      clientLog('warn', 'player', 'ended espúrio ignorado (longe do fim)', { currentTime: v.currentTime, duration: v.duration, readyState: v.readyState })
+      return
+    }
+    clientLog('info', 'player', 'video ended → avança', { repeat, nextIdx: mediaQueue.nextIdx, hasPlaylistAdvance: !!onPlaylistAdvance, audioMode })
     if (repeat === 'one') {
-      const v = videoRef.current
       if (v) { v.currentTime = 0; v.play().catch(() => {}) }
       return
     }
@@ -1095,6 +1100,19 @@ export default function PlayerModal({
     v.play()
       .then(() => clientLog('info', 'player', 'autoplay ok (som)', {}))
       .catch((e) => {
+        // AbortError ≠ bloqueio de autoplay (NotAllowedError): o play() foi
+        // INTERROMPIDO por um load()/troca de src/remontagem do elemento enquanto
+        // ainda estava pendente (no iOS a janela de buffering inicial é longa).
+        // NÃO encadear um play() mudo num elemento ainda carregando — isso só
+        // agrava o abort e mata o som de vez. Em vez disso, libera o guard
+        // one-shot pra o PRÓXIMO loadedmetadata/canplay re-tentar limpo no
+        // elemento já estabilizado (com SOM). Era a causa do "tocou e parou /
+        // sem som" no iPhone.
+        if ((e as { name?: string })?.name === 'AbortError') {
+          clientLog('warn', 'player', 'autoplay abortado (load interrompeu) — re-tentará', { err: String(e) })
+          autoplayTriedRef.current = false
+          return
+        }
         clientLog('warn', 'player', 'autoplay bloqueado, tentando mudo', { err: String(e) })
         v.muted = true
         v.play()
@@ -1251,7 +1269,16 @@ export default function PlayerModal({
   // item). Resolver itens ATIVA torrents no servidor → só ligamos quando a sidebar
   // está aberta (precisa exibir) OU o motor está ligado (precisa pré-carregar o
   // próximo); com 'off' e sidebar fechada não ativa nada em background.
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
+  //
+  // No iOS/WebKit (engineOn=false) TODO o áudio toca no <video> nativo único, cujo
+  // play() é não-gesto e fica pendente durante o buffering inicial. Disparar a
+  // rajada de resolução das N faixas do álbum (~40 /api/local/play + cascata de
+  // re-renders) NESSA janela compete com o play() pendente. Adia a agregação no
+  // WebKit até a faixa começar a tocar (currentTime>1) — aí o play() já
+  // estabilizou e a rajada é inócua. Desktop (engineOn) e não-WebKit mantêm o
+  // comportamento imediato (têm o motor gapless / autoplay tolerante).
+  const aggregateEnabled = inPlaylist && (engineOn || (sidebarOpen && (!canPlayNativeHls() || currentTime > 1)))
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, aggregateEnabled)
   // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
   // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
   // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.

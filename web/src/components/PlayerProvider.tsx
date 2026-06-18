@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
+import { clientLog } from '../lib/diag'
 import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import { isRevealHidden } from '../lib/reveal'
 import { shouldBlockHiddenDeepLink } from '../lib/deepLinkGate'
@@ -247,6 +248,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const updated = { ...pl, position: pos }
     setPlaylist(updated)
     playlistRef.current = updated
+    // DIAGNÓSTICO: salto explícito de item (clique na lista agregada ou motor).
+    clientLog('info', 'player', 'playlist jump', { itemIndex, pos, fileIndex })
     const base = playlistItemToResult(pl.items[itemIndex])
     setCurrent({ result: base.result, fileIdx: fileIndex ?? base.fileIdx })
   }, [])
@@ -304,6 +307,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const updated = { ...pl, position: next }
     setPlaylist(updated)
     playlistRef.current = updated
+    // DIAGNÓSTICO: toda mudança de item por avanço (gesto OU onEnded) fica no log
+    // do servidor — pra cravar trocas de faixa "fantasma" no iPhone.
+    clientLog('info', 'player', 'goTo muda item', { delta, from: pl.position, to: next, item: pl.order[next], repeat: repeatRef.current })
     setCurrent(playlistItemToResult(pl.items[pl.order[next]]))
   }, [])
 
