@@ -673,7 +673,7 @@ export default function SearchPage() {
   const activeFilterCount = [
     activeTab.titleFilter,
     activeTab.trackerFilter !== 'all',
-    activeTab.minSeeders !== 1,
+    activeTab.minSeeders > 1, // 0 ou 1 = permissivo/default; só conta se o user subiu
     activeTab.minLeechers > 0,
     activeTab.maxSizeGb,
     activeTab.onlyPlayable,
@@ -682,15 +682,17 @@ export default function SearchPage() {
     activeTab.codecGroup,
   ].filter(Boolean).length
 
-  // clearFilters zera TODOS os filtros que podem esconder resultados — inclusive
-  // os de qualidade (resolução/codec/HDR) que descartam silenciosamente o que não
-  // tem aquela metadata (ex.: software/ISO sem resolução) — e levanta a restrição
-  // de modo áudio/vídeo (showAll). É o "limpar tudo" do banner de ocultos.
+  // clearFilters zera TODOS os filtros que podem esconder resultados, do jeito MAIS
+  // permissivo possível — inclusive minSeeders=0 (revela torrents com 0 seeders, que
+  // o default minSeeders=1 escondia) e os de qualidade (resolução/codec/HDR, que
+  // descartam silenciosamente o que não tem aquela metadata, ex.: software/ISO sem
+  // resolução) — e levanta a restrição de modo áudio/vídeo (showAll). É o "mostrar
+  // tudo" do banner de ocultos: depois dele, filteredResults == groupedCount.
   const clearFilters = () => {
     setShowAll(true)
     updateTab(activeTab.id, {
       titleFilter: '', trackerFilter: 'all',
-      minSeeders: 1, minLeechers: 0, maxSizeGb: '',
+      minSeeders: 0, minLeechers: 0, maxSizeGb: '',
       onlyPlayable: false,
       resolution: '', hdrOnly: false, codecGroup: '',
     })
