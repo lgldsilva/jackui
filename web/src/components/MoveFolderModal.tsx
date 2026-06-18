@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { Sheet } from './Sheet'
-import { useTransfers } from '../lib/transfers'
+import { useTrackedJobs } from '../lib/transfers'
+import FileProgressBar from './FileProgressBar'
 
 type Props = {
   readonly mount: string
@@ -29,13 +30,14 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
-  const { bump } = useTransfers()
+  const { start: startTracking, jobs: moveJobs, reset: resetTracking } = useTrackedJobs('local-move')
 
   // Load available mounts on open
   useEffect(() => {
     if (!active) return
     setDone(false)
     setError('')
+    resetTracking()
     setBrowsePath('')
     setNewFolder('')
     localMounts().then(ms => {
@@ -70,6 +72,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
     if (!dstMount) return
     setSubmitting(true)
     setError('')
+    startTracking() // snapshot + bump: passa a acompanhar os jobs deste move
     try {
       // allSettled: um item que falha na validação (ex: colisão de nome) não
       // aborta os outros. Cada move aceito roda em background (202) e reporta ao
@@ -82,7 +85,6 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         return
       }
       if (failed.length > 0) setError(`${failed.length} de ${items.length} itens não puderam ser movidos.`)
-      bump() // atualiza o dock de Transferências na hora
       setDone(true)
       onMoved()
     } catch (e: any) {
@@ -120,15 +122,35 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         </div>
 
         {done ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-10 px-6">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 py-8 px-6">
             <CheckCircle2 className="w-10 h-10 text-green-400" />
             <p className="text-base font-semibold text-text-primary">Movimentação iniciada</p>
             <p className="text-sm text-text-secondary font-mono truncate max-w-xs">
               {dstMount} / {finalPath || ''}
             </p>
-            <p className="text-xs text-text-muted text-center max-w-xs">
-              Acompanhe o progresso no painel de Transferências (canto inferior). A lista atualiza ao concluir.
-            </p>
+            {moveJobs.length > 0 ? (
+              <div className="w-full max-w-sm flex flex-col gap-3 mt-1">
+                {moveJobs.map(j => (
+                  <FileProgressBar
+                    key={j.id}
+                    label={j.label}
+                    status={j.status}
+                    filesDone={j.filesDone}
+                    filesTotal={j.filesTotal}
+                    bytesDone={j.bytesDone}
+                    bytesTotal={j.bytesTotal}
+                    ratePerSec={j.ratePerSec}
+                    etaSeconds={j.etaSeconds}
+                    progress={j.progress}
+                    error={j.error}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-text-muted text-center max-w-xs">
+                Acompanhe o progresso no painel de Transferências (canto inferior). A lista atualiza ao concluir.
+              </p>
+            )}
             <button
               onClick={onClose}
               className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
