@@ -1352,22 +1352,22 @@ func localMoveHandler(c *gin.Context, b *local.Browser, dls *downloads.Store, s 
 		return
 	}
 
-	// The move runs in a goroutine reporting to the global Transfers tracker, so a
-	// large cross-filesystem copy (→ GDrive/other disk) doesn't block the request
-	// past the reverse-proxy timeout. The UI follows progress via the dock
-	// (GET /api/transfers) and refreshes the listing when the job finishes.
+	// The move is submitted to the bounded transfer pool (waits FIFO for a slot,
+	// status 'queued' in the dock) and runs off-request, so a large cross-fs copy
+	// (→ GDrive/other disk) neither blocks the request past the reverse-proxy
+	// timeout nor thrashes the disk against other transfers. The UI follows
+	// progress via the dock and refreshes the listing when the job finishes.
 	files, total := countTree(srcAbs)
 	label := filepath.Base(req.SrcPath)
-	job := tr.Start(label, "local-move", files, total)
 	moved := filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath))
-	go func() {
+	job := tr.Submit(label, "local-move", files, total, func(job *transfer.Job) {
 		if err := movePathJob(srcAbs, dstAbs, srcStat, job, files, total); err != nil {
 			job.Fail(err)
 			return
 		}
 		relinkMovedTorrents(dls, s, srcAbs, dstAbs)
 		job.Done()
-	}()
+	})
 	c.JSON(http.StatusAccepted, gin.H{"moved": moved, "jobId": job.ID(), "async": true})
 }
 

@@ -4,7 +4,7 @@ import { api } from './http'
 // One consistent shape for every move/copy in JackUI: the post-download move,
 // Local-tab moves, and promote/AI-rename. Mirrors internal/transfer.Snapshot.
 
-export type TransferStatus = 'running' | 'done' | 'failed'
+export type TransferStatus = 'queued' | 'running' | 'done' | 'failed'
 
 export type TransferKind = 'download-move' | 'local-move' | 'promote' | 'ai-rename'
 
