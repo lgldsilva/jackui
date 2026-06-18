@@ -682,6 +682,20 @@ export default function SearchPage() {
     activeTab.codecGroup,
   ].filter(Boolean).length
 
+  // clearFilters zera TODOS os filtros que podem esconder resultados — inclusive
+  // os de qualidade (resolução/codec/HDR) que descartam silenciosamente o que não
+  // tem aquela metadata (ex.: software/ISO sem resolução) — e levanta a restrição
+  // de modo áudio/vídeo (showAll). É o "limpar tudo" do banner de ocultos.
+  const clearFilters = () => {
+    setShowAll(true)
+    updateTab(activeTab.id, {
+      titleFilter: '', trackerFilter: 'all',
+      minSeeders: 1, minLeechers: 0, maxSizeGb: '',
+      onlyPlayable: false,
+      resolution: '', hdrOnly: false, codecGroup: '',
+    })
+  }
+
   // Shared result-card renderer, reused by the flat list and the grouped layout
   // so both paths get the exact same actions (download/play/playlist/explore).
   const renderResultCard = (result: SearchResult, key: string) => (
@@ -811,12 +825,7 @@ export default function SearchPage() {
       </button>
       {activeFilterCount > 0 && (
         <button
-          onClick={() => updateTab(activeTab.id, {
-            titleFilter: '', trackerFilter: 'all',
-            minSeeders: 1, minLeechers: 0, maxSizeGb: '',
-            onlyPlayable: false,
-            resolution: '', hdrOnly: false, codecGroup: '',
-          })}
+          onClick={clearFilters}
           className={`text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
           title={t('search.clean_filters')}
         >
@@ -826,40 +835,61 @@ export default function SearchPage() {
     </>
   )
 
-  // sortControls is the result-ordering segmented control. It lives in the
-  // results header (next to the count) — NOT in the filter bar — so the filter
-  // row stays a clean set of filters and the sort no longer floats/wraps to its
-  // own awkward right-aligned line. Scrolls horizontally if the header is tight.
+  // sortControls is the result-ordering control. No celular (sem espaço pro
+  // segmented control de 5 opções, que gerava scroll horizontal no header) vira
+  // um dropdown compacto + botão asc/desc; no desktop fica o segmented control.
+  const toggleSort = (key: ResultSortKey) => {
+    if (activeTab.resultSort === key) {
+      updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
+    } else {
+      updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
+    }
+  }
   const sortControls = () => (
-    <div className="flex items-center gap-1.5 max-w-full overflow-x-auto">
-      <span className="text-xs text-text-muted flex-shrink-0">Ordenar:</span>
-      <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 flex-shrink-0">
-        {SORT_OPTIONS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => {
-              if (activeTab.resultSort === key) {
-                updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
-              } else {
-                updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
-              }
-            }}
-            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
-              activeTab.resultSort === key
-                ? 'bg-green-500/20 text-green-400'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >
-            {label}
-            {activeTab.resultSort === key && (
-              activeTab.resultSortAsc
-                ? <SortAsc className="w-3 h-3" />
-                : <SortDesc className="w-3 h-3" />
-            )}
-          </button>
-        ))}
+    <>
+      {/* Mobile: dropdown compacto — nunca estoura a largura da tela. */}
+      <div className="flex sm:hidden items-center gap-1.5 min-w-0 w-full">
+        <span className="text-xs text-text-muted flex-shrink-0">Ordenar:</span>
+        <select
+          value={activeTab.resultSort}
+          onChange={e => updateTab(activeTab.id, { resultSort: e.target.value as ResultSortKey, resultSortAsc: false })}
+          className="flex-1 min-w-0 text-xs bg-surface-tertiary border border-strong rounded-lg px-2 py-1.5 text-text-primary"
+        >
+          {SORT_OPTIONS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <button
+          onClick={() => updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })}
+          title={activeTab.resultSortAsc ? 'Crescente' : 'Decrescente'}
+          className="flex-shrink-0 p-1.5 rounded-lg bg-surface-tertiary border border-strong text-text-secondary"
+        >
+          {activeTab.resultSortAsc ? <SortAsc className="w-3.5 h-3.5" /> : <SortDesc className="w-3.5 h-3.5" />}
+        </button>
       </div>
-    </div>
+      {/* Desktop: segmented control (wrap em vez de scroll horizontal). */}
+      <div className="hidden sm:flex items-center gap-1.5 max-w-full">
+        <span className="text-xs text-text-muted flex-shrink-0">Ordenar:</span>
+        <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 flex-wrap">
+          {SORT_OPTIONS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => toggleSort(key)}
+              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
+                activeTab.resultSort === key
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              {label}
+              {activeTab.resultSort === key && (
+                activeTab.resultSortAsc
+                  ? <SortAsc className="w-3 h-3" />
+                  : <SortDesc className="w-3 h-3" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   )
 
   return (
@@ -1068,6 +1098,25 @@ export default function SearchPage() {
               )}
             </button>
           </>
+        )}
+
+        {/* Aviso proeminente quando os filtros estão ESCONDENDO resultados — o caso
+            do Windows/ISO (sem resolução) sumindo por um filtro de qualidade
+            persistido. Sem isso o usuário não percebe e acha que "não retornou". */}
+        {hasResults && isFiltered && groupedCount - filteredResults.length > 0 && (
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl px-4 py-2.5 text-sm">
+            <Filter className="w-4 h-4 flex-shrink-0" />
+            <span className="flex-1">
+              <span className="font-semibold">{groupedCount - filteredResults.length}</span>{' '}
+              {groupedCount - filteredResults.length === 1 ? 'resultado oculto' : 'resultados ocultos'} pelos filtros ativos
+            </span>
+            <button
+              onClick={clearFilters}
+              className="flex-shrink-0 inline-flex items-center gap-1 font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100"
+            >
+              <X className="w-3.5 h-3.5" />Limpar filtros
+            </button>
+          </div>
         )}
 
         {/* Soft error with results */}

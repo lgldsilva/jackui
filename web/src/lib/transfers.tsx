@@ -31,8 +31,8 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
       const list = await transfersList()
       if (stopped.current) return
       setTransfers(list)
-      // Keep polling fast while anything is still running.
-      next = list.some((t) => t.status === 'running') ? POLL_ACTIVE_MS : POLL_IDLE_MS
+      // Keep polling fast while anything is still running OR queued.
+      next = list.some((t) => t.status === 'running' || t.status === 'queued') ? POLL_ACTIVE_MS : POLL_IDLE_MS
     } catch {
       // transient (e.g. token refresh) — back off to idle and try again
     }

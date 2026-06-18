@@ -161,8 +161,10 @@ func main() {
 	deps.localStream = localstream.NewRegistry(deps.cfg.External.LocalReadaheadMB)
 	deps.addCleanup(deps.localStream.Close)
 	// Global move/copy progress tracker, shared by the post-download move (worker)
-	// and the Local-tab/promote/AI moves (handlers) → the Transfers dock.
-	deps.transferTracker = transfer.New()
+	// and the Local-tab/promote/AI moves (handlers) → the Transfers dock. The
+	// concurrency cap (default 3; 0 → default) bounds simultaneous transfers; the
+	// rest queue FIFO.
+	deps.transferTracker = transfer.New(deps.cfg.Stream.MaxConcurrentTransfers)
 	deps.webSearch = imagesearch.Default()
 	deps.mlr = mailer.New(deps.cfg.SMTP)
 
