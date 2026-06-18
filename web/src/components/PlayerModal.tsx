@@ -1601,7 +1601,6 @@ export default function PlayerModal({
             videoRef={activeMediaRef}
             info={info}
             selectedFile={selectedFile}
-            mediaToken={mediaToken}
             currentTime={currentTime}
             duration={duration}
             formatTime={formatTime}
@@ -1622,7 +1621,6 @@ export default function PlayerModal({
             videoRef={activeMediaRef}
             info={info}
             selectedFile={selectedFile}
-            mediaToken={mediaToken}
             currentTime={currentTime}
             duration={duration}
             formatTime={formatTime}

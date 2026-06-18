@@ -99,9 +99,9 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
     .filter(Boolean)
     .join(' · ')
   return (
-    <div className="mt-3">
+    <div className="mt-3 mx-auto w-full max-w-xl">
       {metaLine && (
-        <p className="mb-2 truncate text-xs text-text-muted" title={metaLine}>{metaLine}</p>
+        <p className="mb-2 truncate text-center text-xs text-text-muted" title={metaLine}>{metaLine}</p>
       )}
       <button
         type="button"
@@ -113,17 +113,17 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
         {t('player.audioTools')}
       </button>
       {open && (
-        <div className="mt-3 grid gap-3 lg:grid-cols-2">
-          <div className="flex flex-col gap-3">
-            {blocked ? (
-              <p className="rounded-lg bg-surface-2 p-3 text-xs text-text-muted">{t('player.eqUnavailable')}</p>
-            ) : (
-              <>
-                <AudioVisualizer analyser={graph.analyser} />
-                <Equalizer graph={graph} />
-              </>
-            )}
-          </div>
+        // Quando o EQ/visualizador não está disponível (iOS/WebKit — webAudioBlocked),
+        // NÃO mostramos a coluna do equalizador nem a antiga nota "indisponível" (não
+        // faz sentido exibir um EQ que não funciona). A letra continua (não depende de
+        // Web Audio) e ocupa a largura toda.
+        <div className={`mt-3 grid gap-3 ${blocked ? '' : 'lg:grid-cols-2'}`}>
+          {!blocked && (
+            <div className="flex flex-col gap-3">
+              <AudioVisualizer analyser={graph.analyser} />
+              <Equalizer graph={graph} />
+            </div>
+          )}
           <LyricsPanel
             title={track.title}
             artist={track.artist}
