@@ -7,7 +7,7 @@ import { useWebAudioGraph, type WebAudioGraph } from './useWebAudioGraph'
 import { webAudioBlocked } from './playerFormat'
 import { Equalizer } from './Equalizer'
 import { AudioVisualizer } from './AudioVisualizer'
-import { LyricsPanel } from './LyricsPanel'
+import { LyricsPanel, useLyrics, hasLyricsContent } from './LyricsPanel'
 
 type MusicPanelProps = {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>
@@ -94,10 +94,17 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
   const blocked = !engineOwns && webAudioBlocked(isTranscoded)
   const track = useTrack(info, selectedFile)
   const [open, setOpen] = usePersistedState<boolean>('audio:toolsOpen', false)
+  // Busca a letra UMA vez aqui (compartilhada com o LyricsPanel) pra decidir se a
+  // seção deve aparecer. No iOS o EQ fica oculto; se também não há letra, não há
+  // nada funcional → não mostramos o botão (não faz sentido abrir um painel vazio).
+  const { lyrics, loading: lyricsLoading } = useLyrics(track.title, track.artist, track.album, duration)
+  const hasLyrics = hasLyricsContent(lyrics)
   const metaLine = [track.artist, track.album, track.year ? String(track.year) : '']
     .map((s) => s.trim())
     .filter(Boolean)
     .join(' · ')
+  // iOS/WebKit (blocked) sem letra: equalizador oculto + sem letra = nada pra exibir.
+  if (blocked && !hasLyrics) return null
   return (
     <div className="mt-3 mx-auto w-full max-w-xl">
       {metaLine && (
@@ -127,13 +134,7 @@ export function MusicPanel({ videoRef, info, selectedFile, currentTime, duration
               <Equalizer graph={graph} />
             </div>
           )}
-          <LyricsPanel
-            title={track.title}
-            artist={track.artist}
-            album={track.album}
-            durationSec={duration}
-            currentTime={currentTime}
-          />
+          <LyricsPanel lyrics={lyrics} loading={lyricsLoading} currentTime={currentTime} />
         </div>
       )}
     </div>
