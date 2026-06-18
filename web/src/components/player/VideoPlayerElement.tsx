@@ -15,11 +15,14 @@ type VideoPlayerElementProps = {
   // engineActive: o motor gapless assumiu o áudio (toca em <audio> próprios). O
   // <video> então fica SEM src e mudo (a capa continua), pra não dobrar o áudio.
   readonly engineActive?: boolean
-  // disableNativeAutoplay: iOS-áudio. A Apple proíbe play() de mídia-com-áudio fora
-  // de um gesto, então NÃO disparamos autoplay/nudge não-gesto (travariam o elemento
-  // em readyState 1, loop de AbortError). Em vez disso mostramos o overlay "Tocar" e
-  // o tap do usuário inicia. Mantém preload='auto' (só metadata) e o transport.
+  // disableNativeAutoplay: iOS-áudio AINDA não iniciado. A Apple proíbe play() de
+  // mídia-com-áudio fora de um gesto, então NÃO disparamos autoplay/nudge não-gesto
+  // (travariam o elemento em readyState 1, loop de AbortError). Mostramos o overlay
+  // "Tocar"; o tap inicia. Vira false após o 1º play (blessed) → auto-avanço.
   readonly disableNativeAutoplay?: boolean
+  // onPlaybackStarted: disparado no 1º evento 'playing' do elemento. No iOS marca o
+  // "blessed" (usuário iniciou via gesto) → libera o auto-avanço das próximas faixas.
+  readonly onPlaybackStarted?: () => void
   // suppressStartOverlay: já houve uma faixa nesta instância (troca de faixa de
   // música, não abertura fria). Suprime o spinner de "carregando" no início da
   // nova faixa — a capa/seekbar continuam; sem isso o spinner piscava a cada troca.
@@ -140,6 +143,7 @@ export function VideoPlayerElement({
   streamURL,
   engineActive = false,
   disableNativeAutoplay = false,
+  onPlaybackStarted,
   suppressStartOverlay = false,
   audioMode,
   subtitleVttURL,
@@ -301,6 +305,7 @@ export function VideoPlayerElement({
           }}
           onEnded={onVideoEnded}
           onCanPlay={onVideoCanPlay}
+          onPlaying={onPlaybackStarted}
         >
           <track
             kind={subtitleVttURL ? 'subtitles' : 'metadata'}
