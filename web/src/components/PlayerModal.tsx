@@ -1299,15 +1299,13 @@ export default function PlayerModal({
   // está aberta (precisa exibir) OU o motor está ligado (precisa pré-carregar o
   // próximo); com 'off' e sidebar fechada não ativa nada em background.
   //
-  // No iOS/WebKit (engineOn=false) o áudio inteiro toca no <video> nativo único, cujo
-  // play() é não-gesto e fica pendente durante o buffering inicial. Disparar a
-  // rajada de resolução das N faixas do álbum (~40 /api/local/play + cascata de
-  // re-renders) NESSA janela compete com o play() pendente. Adia a agregação no
-  // WebKit até a faixa começar a tocar (currentTime>1) — aí o play() já
-  // estabilizou e a rajada é inócua. Desktop (engineOn) e não-WebKit mantêm o
-  // comportamento imediato (têm o motor gapless / autoplay tolerante).
-  const aggregateEnabled = inPlaylist && (engineOn || (sidebarOpen && (!canPlayNativeHls() || currentTime > 1)))
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, aggregateEnabled)
+  // CRÍTICO: este gate TEM que ser estável entre faixas. usePlaylistTracks reconstrói
+  // o esqueleto da lista (setGroups) quando `enabled` muda — se o gate oscilar a cada
+  // faixa, a lista de músicas "recarrega" no auto-avanço. (Uma versão anterior gateava
+  // por `currentTime>1`, que cai a ~0 a cada nova faixa → toggle → reload. Removido.)
+  // O tap-to-play do iOS já evita o autoplay não-gesto, então não há mais play()
+  // pendente competindo com a rajada de resolução — o gate simples basta.
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
   // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
   // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
   // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
