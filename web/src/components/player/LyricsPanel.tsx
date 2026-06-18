@@ -48,7 +48,7 @@ export function LyricsPanel({ title, artist, album, durationSec, currentTime }: 
   }, [active])
 
   return (
-    <section className="rounded-lg bg-surface-2 p-3" aria-label={t('player.lyrics.title')}>
+    <section className="rounded-lg bg-surface-2 p-3 text-center" aria-label={t('player.lyrics.title')}>
       <span className="mb-2 block text-sm font-medium text-text">{t('player.lyrics.title')}</span>
       <div className="max-h-48 overflow-y-auto text-sm" aria-live="polite">
         {renderBody({ loading, lyrics, lines, active, activeRef, t })}
