@@ -5,9 +5,9 @@ import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
 import { canPlayNativeHls, audioElementKey } from './playerFormat'
-import { shouldShowStartOverlay } from './playerOverlay'
+import { shouldShowStartOverlay, shouldShowStartAudioOverlay } from './playerOverlay'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
-import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
+import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton, StartAudioOverlay } from './PlayerOverlays'
 
 type VideoPlayerElementProps = {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>
@@ -15,6 +15,11 @@ type VideoPlayerElementProps = {
   // engineActive: o motor gapless assumiu o áudio (toca em <audio> próprios). O
   // <video> então fica SEM src e mudo (a capa continua), pra não dobrar o áudio.
   readonly engineActive?: boolean
+  // disableNativeAutoplay: iOS-áudio. A Apple proíbe play() de mídia-com-áudio fora
+  // de um gesto, então NÃO disparamos autoplay/nudge não-gesto (travariam o elemento
+  // em readyState 1, loop de AbortError). Em vez disso mostramos o overlay "Tocar" e
+  // o tap do usuário inicia. Mantém preload='auto' (só metadata) e o transport.
+  readonly disableNativeAutoplay?: boolean
   // suppressStartOverlay: já houve uma faixa nesta instância (troca de faixa de
   // música, não abertura fria). Suprime o spinner de "carregando" no início da
   // nova faixa — a capa/seekbar continuam; sem isso o spinner piscava a cada troca.
@@ -122,16 +127,19 @@ function audioPreload(audioMode: boolean): 'auto' | undefined {
 // via autoplayTriedRef/seek/resume) pra contornar o 'canplay' que nunca chega no
 // iOS direct-play: o play() resultante faz o iOS buscar os dados e tocar (mudo se
 // faltar gesto → o usuário só tira o mute). Desktop/Chrome/vídeo seguem no canplay.
-function handleMetaLoaded(v: HTMLVideoElement, audioMode: boolean, onTimeUpdate: () => void, kickAutoplay: () => void) {
+function handleMetaLoaded(v: HTMLVideoElement, audioMode: boolean, onTimeUpdate: () => void, kickAutoplay: () => void, disableNativeAutoplay: boolean) {
   clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
   onTimeUpdate()
-  if (audioMode && canPlayNativeHls()) kickAutoplay()
+  // iOS-áudio (disableNativeAutoplay): NÃO chamar o autoplay aqui — o iOS exige
+  // gesto; o overlay "Tocar" cuida do start. Desktop/HLS-áudio seguem no kick.
+  if (audioMode && canPlayNativeHls() && !disableNativeAutoplay) kickAutoplay()
 }
 
 export function VideoPlayerElement({
   videoRef,
   streamURL,
   engineActive = false,
+  disableNativeAutoplay = false,
   suppressStartOverlay = false,
   audioMode,
   subtitleVttURL,
@@ -202,6 +210,22 @@ export function VideoPlayerElement({
   // Only rendered when a target is on the network.
   const airplay = useAirPlay(videoRef, streamURL)
 
+  // iOS-áudio (tap-to-play): suprime os nudges não-gesto (start-gap) SÓ no
+  // direct-play — HLS/transcode no iOS ainda precisa do nudge de warmup. O overlay
+  // "Tocar" some assim que o usuário toca (startOverlayDismissed) e reseta a cada
+  // troca de faixa (streamURL). startAudioPlayback roda DENTRO do onClick (gesto)
+  // → o iOS baixa os dados e toca com som a partir de readyState 1.
+  const suppressNudge = disableNativeAutoplay && !isTranscoded
+  const [startOverlayDismissed, setStartOverlayDismissed] = useState(false)
+  useEffect(() => { setStartOverlayDismissed(false) }, [streamURL])
+  const showStartAudioOverlay = shouldShowStartAudioOverlay({
+    disableNativeAutoplay, startOverlayDismissed, videoError, showResumePrompt, currentTime,
+  })
+  const startAudioPlayback = () => {
+    setStartOverlayDismissed(true)
+    videoRef.current?.play().catch(() => {})
+  }
+
   return (
     <div
       className={`bg-black relative w-full mx-auto flex items-center justify-center ${
@@ -227,7 +251,7 @@ export function VideoPlayerElement({
       {/* No modo-motor o <video> está mudo/sem-src (bufferedEnd fica sempre 0) e o
           motor é quem toca — então NÃO mostra o overlay de "carregando" (senão ele
           piscaria a cada faixa, o "refresh" indevido). Ver shouldShowStartOverlay. */}
-      {shouldShowStartOverlay({ videoError, engineActive, suppressStartOverlay, currentTime, bufferedEnd }) && (
+      {shouldShowStartOverlay({ videoError, engineActive, suppressStartOverlay, disableNativeAutoplay, currentTime, bufferedEnd }) && (
         <PlayerLoadingOverlay
           serverReady={serverReady}
           resumePosition={resumePosition}
@@ -238,6 +262,7 @@ export function VideoPlayerElement({
           formatTime={formatTime}
         />
       )}
+      {showStartAudioOverlay && <StartAudioOverlay onPlay={startAudioPlayback} />}
       <TranscodingBadge attempted={transcodeFallbackAttempted} videoError={videoError} />
       <AirPlayButton airplay={airplay} videoError={videoError} />
       {videoError ? null : (
@@ -250,7 +275,7 @@ export function VideoPlayerElement({
           src={engineActive || useHlsJs ? undefined : (streamURL || undefined)}
           muted={engineActive}
           controls={!audioMode}
-          autoPlay
+          autoPlay={!disableNativeAutoplay}
           preload={audioPreload(audioMode)}
           playsInline
           {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
@@ -260,18 +285,18 @@ export function VideoPlayerElement({
           onStalled={() => {
             clientLog('warn', 'player', 'stalled', videoDiagnostic())
             const v = videoRef.current
-            if (v && kickPastStartGap(v)) clientLog('info', 'player', 'start-gap nudge (stalled)', { currentTime: v.currentTime })
+            if (v && !suppressNudge && kickPastStartGap(v)) clientLog('info', 'player', 'start-gap nudge (stalled)', { currentTime: v.currentTime })
           }}
           onWaiting={() => {
             clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })
             const v = videoRef.current
-            if (v) kickPastStartGap(v)
+            if (v && !suppressNudge) kickPastStartGap(v)
           }}
           onTimeUpdate={onTimeUpdate}
-          onLoadedMetadata={(e) => handleMetaLoaded(e.currentTarget, audioMode, onTimeUpdate, onVideoCanPlay)}
+          onLoadedMetadata={(e) => handleMetaLoaded(e.currentTarget, audioMode, onTimeUpdate, onVideoCanPlay, disableNativeAutoplay)}
           onProgress={() => {
             const v = videoRef.current
-            if (v) kickPastStartGap(v)
+            if (v && !suppressNudge) kickPastStartGap(v)
             onTimeUpdate()
           }}
           onEnded={onVideoEnded}
