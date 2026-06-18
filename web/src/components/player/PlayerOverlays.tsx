@@ -1,4 +1,4 @@
-import { Loader2, Cpu, ChevronLeft, ChevronRight, Airplay } from 'lucide-react'
+import { Loader2, Cpu, ChevronLeft, ChevronRight, Airplay, Play } from 'lucide-react'
 import { TorrentInfo } from '../../api/client'
 import { formatRate } from '../../lib/format'
 import { formatSize } from './playerFormat'
@@ -34,6 +34,25 @@ export function ResumePrompt({ resumePosition, formatTime, onContinue, onRestart
         </button>
       </div>
     </div>
+  )
+}
+
+// StartAudioOverlay: botão grande "Tocar" sobre a capa, mostrado no iOS-áudio
+// quando a faixa abriu mas ainda não tocou. O iOS proíbe play() de áudio fora de
+// um gesto, então o onClick (gesto) é o que de fato inicia a reprodução com som —
+// não é só estética: é o caminho de start no iPhone/iPad. Espelha o ResumePrompt.
+export function StartAudioOverlay({ onPlay }: { readonly onPlay: () => void }) {
+  return (
+    <button
+      onClick={onPlay}
+      aria-label="Tocar"
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/45 backdrop-blur-sm"
+    >
+      <span className="flex items-center justify-center w-20 h-20 rounded-full bg-purple-600 text-white shadow-2xl hover:bg-purple-500 transition-colors">
+        <Play className="w-10 h-10 ml-1" />
+      </span>
+      <span className="text-text-primary text-sm font-medium">Tocar</span>
+    </button>
   )
 }
 
