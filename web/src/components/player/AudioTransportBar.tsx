@@ -1,13 +1,12 @@
 import { RefObject, useEffect, useState } from 'react'
 import { Pause, Play, Repeat, Shuffle, SkipBack, SkipForward } from 'lucide-react'
-import { TorrentInfo, streamArtworkURL } from '../../api/client'
+import { TorrentInfo } from '../../api/client'
 
 type AudioTransportBarProps = {
   // HTMLMediaElement: o <video> normal OU o <audio> ativo do motor gapless.
   readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly info: TorrentInfo
   readonly selectedFile: number
-  readonly mediaToken: string | null
   readonly currentTime: number
   readonly duration: number
   readonly formatTime: (s: number) => string
@@ -59,7 +58,6 @@ export function AudioTransportBar({
   videoRef,
   info,
   selectedFile,
-  mediaToken,
   currentTime,
   duration,
   formatTime,
@@ -117,27 +115,21 @@ export function AudioTransportBar({
         <button onClick={onNext} disabled={!hasNext} title="Próxima" className="p-1 text-text-secondary hover:text-text-primary disabled:opacity-30">
           <SkipForward className="w-4 h-4" />
         </button>
-        <span className="font-mono tabular-nums">{formatTime(currentTime)}</span>
+        <span className="font-mono tabular-nums flex-shrink-0">{formatTime(currentTime)}</span>
         {seekInput}
-        <span className="font-mono tabular-nums">{formatTime(duration)}</span>
+        <span className="font-mono tabular-nums flex-shrink-0">{formatTime(duration)}</span>
       </div>
     )
   }
 
   return (
-    <div className="px-3 sm:px-4 py-3 bg-surface border-b border-default flex flex-col gap-2">
-      {/* Track title + queue position */}
-      <div className="flex items-center gap-2 min-w-0">
-        <img
-          src={streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)}
-          alt=""
-          className="w-10 h-10 rounded object-cover bg-surface-tertiary flex-shrink-0"
-          onError={e => { e.currentTarget.style.visibility = 'hidden' }}
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm text-text-primary truncate" title={trackName}>{trackName}</p>
-          {queueLabel && <p className="text-xs text-text-muted tabular-nums">{queueLabel}</p>}
-        </div>
+    <div className="px-3 sm:px-4 py-3 bg-surface border-b border-default flex flex-col gap-2 mx-auto w-full max-w-xl">
+      {/* Track title + queue position — centralizado. O thumbnail pequeno foi removido:
+          no modo expandido a capa grande logo acima já mostra a arte (era redundante e
+          quebrava o alinhamento). */}
+      <div className="min-w-0 text-center">
+        <p className="text-sm text-text-primary truncate" title={trackName}>{trackName}</p>
+        {queueLabel && <p className="text-xs text-text-muted tabular-nums">{queueLabel}</p>}
       </div>
 
       {/* Transport row: shuffle · prev · play/pause · next · repeat */}
@@ -174,9 +166,9 @@ export function AudioTransportBar({
 
       {/* Seekbar */}
       <div className="flex items-center gap-2 text-xs text-text-secondary">
-        <span className="font-mono tabular-nums w-10 text-right">{formatTime(currentTime)}</span>
+        <span className="font-mono tabular-nums w-14 text-right flex-shrink-0">{formatTime(currentTime)}</span>
         {seekInput}
-        <span className="font-mono tabular-nums w-10">{formatTime(duration)}</span>
+        <span className="font-mono tabular-nums w-14 flex-shrink-0">{formatTime(duration)}</span>
       </div>
     </div>
   )
