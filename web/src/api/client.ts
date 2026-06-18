@@ -1193,11 +1193,21 @@ export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?
 export function isSafariBrowser(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent
-  const iOS = /iPhone|iPad|iPod/.test(ua) ||
-    (/Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1)
-  if (iOS) return true
+  if (isIOS()) return true
   if (/Chrome|Chromium|Android|Edg/.test(ua)) return false
   return /Safari/i.test(ua)
+}
+
+// isIOS detecta APENAS iOS/iPadOS (touch), NÃO o macOS-Safari desktop. Usado pra
+// gatear o comportamento "tap-to-play": no iPhone/iPad o play() de áudio EXIGE um
+// gesto (regra da Apple, sem ativação persistente) e o autoplay não-gesto trava o
+// elemento em readyState 1. No macOS-Safari/Chrome/Edge o autoplay funciona e fica
+// intacto. Pega também o iPadOS em "desktop mode" (reporta "Macintosh" + multi-touch).
+export function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  return /iPhone|iPad|iPod/.test(ua) ||
+    (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
 }
 
 export const clearHistory = async (): Promise<void> => {

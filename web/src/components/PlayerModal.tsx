@@ -15,6 +15,7 @@ import {
   streamViewerClose,
   streamFileURL,
   isSafariBrowser,
+  isIOS,
   resolveArt,
   subtitlesEnabled,
   subtitlesSearch,
@@ -1085,6 +1086,12 @@ export default function PlayerModal({
   // Seek once the video can play. Priority:
   //   1. URL-supplied initialSeek (explicit, e.g. shared link with `t=120`)
   //   2. per-user library resumeSeconds (background-saved, silent)
+  // iosAudio: caminho ÁUDIO no iPhone/iPad. Gate único do "tap-to-play": no iOS o
+  // play() de mídia-com-áudio EXIGE um gesto (regra da Apple), então desligamos o
+  // autoplay não-gesto e os nudges, mostramos o overlay "Tocar" e deixamos o tap do
+  // usuário iniciar. isIOS() (não isSafariBrowser) pra NÃO regredir o macOS-Safari,
+  // que toca com autoplay normal. Só depende de audioMode (prop) → válido aqui.
+  const iosAudio = audioMode && isIOS()
   // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
   // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
   // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
@@ -1093,6 +1100,16 @@ export default function PlayerModal({
   const maybeAutoplayNative = (v: HTMLVideoElement) => {
     if (autoplayTriedRef.current) return
     autoplayTriedRef.current = true
+    // iOS-áudio: NÃO tentar autoplay. A Apple proíbe play() de mídia-com-áudio fora
+    // de um gesto (e não há ativação persistente); um play() não-gesto trava o
+    // elemento em readyState 1 e aborta em loop (loadstart→try→waiting→AbortError→
+    // reload). Em vez de brigar, deixamos pausado e mostramos o overlay "Tocar"
+    // (VideoPlayerElement) — o tap do usuário (gesto) inicia com som. O <video>
+    // carrega só metadata (preload='auto') pra o play do gesto partir rápido.
+    if (iosAudio) {
+      clientLog('info', 'player', 'iOS: autoplay pulado — aguardando gesto (tap-to-play)', { readyState: v.readyState })
+      return
+    }
     // DIAGNÓSTICO (temporário): registra qual caminho o autoplay tomou no device,
     // pra cravar a intermitência do iOS — tocou com SOM, caiu no MUDO (sem gesto),
     // ou falhou. Mesma lógica do tryAutoplayMutedFallback + logs.
@@ -1511,6 +1528,7 @@ export default function PlayerModal({
           videoRef={videoRef}
           streamURL={streamURL}
           engineActive={engineOn}
+          disableNativeAutoplay={iosAudio}
           suppressStartOverlay={everReadyRef.current && audioMode}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
