@@ -234,11 +234,11 @@ export function VideoPlayerElement({
     <div
       className={`bg-black relative w-full mx-auto flex items-center justify-center ${
         audioMode
-          // Áudio: a capa é o foco visual. Cresce com a tela (no desktop a janela
-          // é larga e sobrava espaço preto), mas continua contida (object-contain)
-          // — álbuns sem capa caem no fallback de busca web, então o espaço não
-          // fica vazio. No mobile fica compacta pra lista de faixas respirar.
-          ? 'h-44 sm:h-56 lg:h-72 xl:h-80'
+          // Áudio: a capa é o foco visual. Cresce com a tela, mas continua contida
+          // (object-contain) e limitada a max-w-xl + mx-auto pra alinhar com o resto
+          // das seções centralizadas (transport, painel) — bloco coeso. No mobile
+          // fica compacta pra lista de faixas respirar.
+          ? 'h-44 sm:h-56 lg:h-72 xl:h-80 max-w-xl'
           : 'max-h-[70dvh] sm:max-h-[58dvh]'
       }`}
       style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
