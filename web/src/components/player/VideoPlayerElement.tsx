@@ -225,9 +225,22 @@ export function VideoPlayerElement({
   const showStartAudioOverlay = shouldShowStartAudioOverlay({
     disableNativeAutoplay, startOverlayDismissed, videoError, showResumePrompt, currentTime,
   })
+  // O tap no "Tocar" é o gesto que destrava o áudio no iOS. Dispensa o overlay
+  // otimisticamente, mas RE-EXIBE se o play() falhar (senão ficava "sem som e sem
+  // botão" — o estado preso que mascarava o bug) e LOGA o desfecho. Antes este
+  // caminho era MUDO (.catch(()=>{})), o que escondia se o play sequer engatava —
+  // a ausência de log foi o que dificultou o diagnóstico desta regressão.
   const startAudioPlayback = () => {
+    const v = videoRef.current
+    if (!v) return
     setStartOverlayDismissed(true)
-    videoRef.current?.play().catch(() => {})
+    clientLog('info', 'player', 'tap "Tocar" (gesto) → play()', { readyState: v.readyState })
+    v.play()
+      .then(() => clientLog('info', 'player', 'tap-to-play ok (som)', { readyState: v.readyState }))
+      .catch((e) => {
+        setStartOverlayDismissed(false)
+        clientLog('warn', 'player', 'tap-to-play falhou', { name: (e as { name?: string })?.name, err: String(e) })
+      })
   }
 
   return (

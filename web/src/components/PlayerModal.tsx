@@ -867,6 +867,17 @@ export default function PlayerModal({
     )
   }
 
+  // onPlaying do <video>: marca o `blessed` (1ª reprodução iniciada por gesto no
+  // iOS) UMA vez e loga. A partir daí o auto-avanço pode tocar programaticamente —
+  // o grant per-element da Apple persiste no src-swap ("Auto-play restrictions are
+  // granted on a per-element basis" + "change the source... instead of creating
+  // multiple media elements"). Idempotente: onPlaying dispara a cada retomada.
+  const handlePlaybackStarted = () => {
+    if (blessed) return
+    clientLog('info', 'player', 'blessed: 1ª reprodução iniciada (auto-avanço liberado)', {})
+    setBlessed(true)
+  }
+
   const handleVideoEnded = () => {
     const v = videoRef.current
     // iOS/WebKit dispara 'ended' ESPÚRIO quando o <video> direct-play TRAVA no
@@ -876,8 +887,16 @@ export default function PlayerModal({
     // "trocou de faixa sozinho + sem som" no iPhone. Só é fim de verdade quando o
     // playhead chegou perto da duração; com duração desconhecida (0/NaN) avança
     // normal (não há como distinguir).
-    if (v && Number.isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 2) {
-      clientLog('warn', 'player', 'ended espúrio ignorado (longe do fim)', { currentTime: v.currentTime, duration: v.duration, readyState: v.readyState })
+    // Fim de verdade ⇒ o playhead chegou perto da duração. Dois padrões de espúrio:
+    //  (a) duração conhecida e o playhead longe do fim;
+    //  (b) duração 0/NaN (elemento recém-trocado, ainda não estabilizou) com o
+    //      playhead ainda no começo — o stall cross-item (mp3↔m4a) que ANTES
+    //      escapava do guard e fazia a lista "pular" faixas sozinha (churn). Sem
+    //      isto, ao destravar o auto-avanço, a 2ª faixa estalava e avançava em loop.
+    const knownFarFromEnd = !!v && Number.isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 2
+    const unknownDurAtStart = !!v && !(Number.isFinite(v.duration) && v.duration > 0) && v.currentTime < 1
+    if (knownFarFromEnd || unknownDurAtStart) {
+      clientLog('warn', 'player', 'ended espúrio ignorado', { currentTime: v?.currentTime, duration: v?.duration, readyState: v?.readyState })
       return
     }
     clientLog('info', 'player', 'video ended → avança', { repeat, nextIdx: mediaQueue.nextIdx, hasPlaylistAdvance: !!onPlaylistAdvance, audioMode })
@@ -1302,10 +1321,20 @@ export default function PlayerModal({
   // CRÍTICO: este gate TEM que ser estável entre faixas. usePlaylistTracks reconstrói
   // o esqueleto da lista (setGroups) quando `enabled` muda — se o gate oscilar a cada
   // faixa, a lista de músicas "recarrega" no auto-avanço. (Uma versão anterior gateava
-  // por `currentTime>1`, que cai a ~0 a cada nova faixa → toggle → reload. Removido.)
-  // O tap-to-play do iOS já evita o autoplay não-gesto, então não há mais play()
-  // pendente competindo com a rajada de resolução — o gate simples basta.
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
+  // por `currentTime>1`, que cai a ~0 a cada nova faixa → toggle → reload. NÃO usar.)
+  //
+  // iOS: ADIA a rajada de resolução (~47 /api/local/play) até o usuário INICIAR a
+  // reprodução (blessed). No cold-start (sidebar abre por padrão no modo música) a
+  // rajada disparava JUNTO com o play() do gesto (tap-to-play) e competia com o
+  // buffering inicial do <video> → o iOS parava de buscar bytes em readyState 2 e a
+  // faixa 1 nunca chegava a 'playing'; logo `blessed` nunca era setado e NADA tocava.
+  // Era exatamente o que o tap-to-play original adiava (por currentTime>1); o fix de
+  // reload removeu o adiamento alegando "não há play() pendente competindo" — falso:
+  // o play() do GESTO fica pendente no buffering. `blessed` é latch ONE-WAY (nunca
+  // volta a false) → o gate continua estável entre faixas (não reintroduz o reload).
+  // No iOS o aggregate só alimenta a EXIBIÇÃO da lista (engineOn=false; a navegação
+  // usa mediaQueue/playlist, não o aggregate) → adiá-lo não afeta playback nem ⏮⏭.
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || (sidebarOpen && (!iosAudio || blessed))))
   // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
   // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
   // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
@@ -1539,7 +1568,7 @@ export default function PlayerModal({
           streamURL={streamURL}
           engineActive={engineOn}
           disableNativeAutoplay={disableNativeAutoplay}
-          onPlaybackStarted={() => setBlessed(true)}
+          onPlaybackStarted={handlePlaybackStarted}
           suppressStartOverlay={everReadyRef.current && audioMode}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
