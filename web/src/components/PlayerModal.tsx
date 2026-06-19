@@ -273,6 +273,13 @@ export default function PlayerModal({
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // blessed (iOS): o usuário JÁ iniciou a reprodução nesta sessão via gesto (toque
+  // no "Tocar" / play). A Apple então libera load()/play() programático pras
+  // faixas seguintes ("once the user has started playing the first media element").
+  // Detectado pelo 1º evento 'playing' do elemento — no iOS, a 1ª reprodução só
+  // ocorre por gesto (autoplay frio é bloqueado), então 'playing' ⇒ blessed. Com
+  // isso o auto-avanço entre faixas passa a tocar sozinho (player de verdade).
+  const [blessed, setBlessed] = useState(false)
   const [selectedFile, setSelectedFile] = useState<number>(-1)
   // Scrolls the file list to the currently-playing file when the picker opens —
   // a season pack reopened at episode 20 lands on it instead of at the top.
@@ -1092,6 +1099,11 @@ export default function PlayerModal({
   // usuário iniciar. isIOS() (não isSafariBrowser) pra NÃO regredir o macOS-Safari,
   // que toca com autoplay normal. Só depende de audioMode (prop) → válido aqui.
   const iosAudio = audioMode && isIOS()
+  // disableNativeAutoplay: bloqueia o autoplay não-gesto SÓ até o usuário iniciar a
+  // reprodução (blessed). Depois disso a Apple libera o play() programático, então
+  // as faixas seguintes do álbum encadeiam sozinhas (auto-avanço) — disableNativeAutoplay
+  // vira false e o caminho volta a ser o normal (autoplay no canplay).
+  const disableNativeAutoplay = iosAudio && !blessed
   // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
   // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
   // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
@@ -1100,13 +1112,13 @@ export default function PlayerModal({
   const maybeAutoplayNative = (v: HTMLVideoElement) => {
     if (autoplayTriedRef.current) return
     autoplayTriedRef.current = true
-    // iOS-áudio: NÃO tentar autoplay. A Apple proíbe play() de mídia-com-áudio fora
-    // de um gesto (e não há ativação persistente); um play() não-gesto trava o
-    // elemento em readyState 1 e aborta em loop (loadstart→try→waiting→AbortError→
-    // reload). Em vez de brigar, deixamos pausado e mostramos o overlay "Tocar"
-    // (VideoPlayerElement) — o tap do usuário (gesto) inicia com som. O <video>
-    // carrega só metadata (preload='auto') pra o play do gesto partir rápido.
-    if (iosAudio) {
+    // iOS-áudio AINDA NÃO iniciado (não blessed): NÃO tentar autoplay. A Apple proíbe
+    // play() de mídia-com-áudio fora de um gesto; um play() não-gesto trava o elemento
+    // em readyState 1 e aborta em loop. Deixamos pausado e mostramos o overlay "Tocar"
+    // — o tap do usuário (gesto) inicia. DEPOIS de iniciado (blessed), a Apple libera
+    // o play() programático → caímos no caminho normal abaixo e a faixa seguinte do
+    // álbum toca sozinha (auto-avanço).
+    if (iosAudio && !blessed) {
       clientLog('info', 'player', 'iOS: autoplay pulado — aguardando gesto (tap-to-play)', { readyState: v.readyState })
       return
     }
@@ -1528,7 +1540,8 @@ export default function PlayerModal({
           videoRef={videoRef}
           streamURL={streamURL}
           engineActive={engineOn}
-          disableNativeAutoplay={iosAudio}
+          disableNativeAutoplay={disableNativeAutoplay}
+          onPlaybackStarted={() => setBlessed(true)}
           suppressStartOverlay={everReadyRef.current && audioMode}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
