@@ -2,10 +2,10 @@
 // ./http. client.ts re-exporta tudo num barrel pra que os ~40 call-sites
 // (`import { api, withToken, ... } from '../api/client'`) sigam funcionando
 // enquanto o módulo é dividido por domínio. Ver [[feedback-no-god-files]].
-import { api, withToken, fetchMediaToken, MAGNET_PREFIX } from './http'
+import { api, withToken, fetchMediaToken, clearMediaToken, MAGNET_PREFIX } from './http'
 import { downloadCreate, WHOLE_TORRENT_FILE_INDEX, type DownloadEntry } from './downloads'
 import { audioCapsParam } from '../lib/audioCaps'
-export { api, withToken, fetchMediaToken, MAGNET_PREFIX }
+export { api, withToken, fetchMediaToken, clearMediaToken, MAGNET_PREFIX }
 
 // Domínios extraídos (re-exportados pra manter os call-sites em '../api/client').
 export * from './auth'

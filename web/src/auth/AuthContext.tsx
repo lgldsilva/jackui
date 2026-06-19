@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
-import api, { passkeyAuthenticate } from '../api/client'
+import api, { passkeyAuthenticate, clearMediaToken } from '../api/client'
 import { load, save, remove } from '../lib/storage'
 
 export type Role = 'admin' | 'user' | 'guest'
@@ -204,4 +204,7 @@ async function refreshTokens(): Promise<void> {
 function clearTokens() {
   remove(ACCESS_KEY)
   remove(REFRESH_KEY)
+  // Invalida o media token cacheado (módulo http) junto do logout/limpeza de auth,
+  // pra que a próxima sessão pegue um token fresco em vez de reusar o da sessão antiga.
+  clearMediaToken()
 }
