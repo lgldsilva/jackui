@@ -732,7 +732,14 @@ export default function PlayerModal({
     }
 
     return () => { cancelled = true }
-  }, [result])
+    // Keyado no VALOR `infoHash`, não no objeto `result`: o PlayerProvider recria o
+    // objeto `result` em vários pontos (playlistItemToResult, toggle Cinema/Música,
+    // sync URL↔estado) com o MESMO infoHash. Keyar no objeto re-rodava toda esta
+    // init (streamAdd/probe/library) ~16s após abrir, recarregando o <video> e
+    // abortando o play() do gesto no iOS. A troca de arquivo real muda infoHash e
+    // dispara normal; initialFileIndex tem efeito dedicado próprio.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result?.infoHash])
 
   // Marca que o player já renderizou uma faixa nesta instância → habilita o warm
   // hold (troca de faixa sem desmontar a UI) nas próximas trocas.
@@ -1334,7 +1341,7 @@ export default function PlayerModal({
   // volta a false) → o gate continua estável entre faixas (não reintroduz o reload).
   // No iOS o aggregate só alimenta a EXIBIÇÃO da lista (engineOn=false; a navegação
   // usa mediaQueue/playlist, não o aggregate) → adiá-lo não afeta playback nem ⏮⏭.
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || (sidebarOpen && (!iosAudio || blessed))))
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
   // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
   // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
   // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
