@@ -22,11 +22,20 @@ export type PlaylistTracksAPI = {
 // into a flat, grouped track list. The currently-playing item is seeded from
 // the already-loaded `currentInfo` (no refetch); the rest fill in in the
 // background, current-first then ascending, cache-first, throttled.
+//
+// `enabled` controla a EXIBIÇÃO (monta o esqueleto da lista + seeda a faixa
+// atual). `resolveEnabled` controla a RESOLUÇÃO EM RAJADA dos demais itens (cada
+// um faz streamMetadata/streamAdd — no caso local, ffprobe no servidor). São
+// separados de propósito: no iOS a rajada (~47 chamadas) compete com o
+// byte-stream da faixa atual e o iOS aborta o play() por timeout; então a lista
+// aparece na hora (enabled) mas a rajada só dispara após a 1ª reprodução
+// (resolveEnabled=blessed). Ver PlayerModal.
 export function usePlaylistTracks(
   items: readonly PlaylistItemLite[],
   currentItemIndex: number,
   currentInfo: TorrentInfo | null,
   enabled: boolean,
+  resolveEnabled: boolean,
 ): PlaylistTracksAPI {
   const [groups, setGroups] = useState<PlaylistGroup[]>([])
   const groupsRef = useRef<PlaylistGroup[]>(groups)
@@ -107,14 +116,22 @@ export function usePlaylistTracks(
   // current-first. Re-runs on every `groups` change (a finished resolve frees a
   // slot → fills the next). resolveOne flips status off 'pending' synchronously,
   // so the same item is never started twice.
+  // Gated TAMBÉM por `resolveEnabled`: no iOS a rajada espera a 1ª reprodução
+  // (blessed) pra não sufocar o byte-stream da faixa atual. resolveEnabled É
+  // dep deste efeito — sem isso, ao virar true (blessed) o efeito não re-rodaria
+  // e a rajada nunca arrancaria (itens ficariam 'pending' pra sempre). O
+  // eslint-disable abaixo não pega essa dep, por isso ela está explícita.
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !resolveEnabled) return
     const free = ACTIVATE_CONCURRENCY - inFlight.current.size
     if (free <= 0) return
     const next = orderPending(groups, currentItemIndex, inFlight.current).slice(0, free)
     for (const idx of next) void resolveOne(idx)
-  }, [groups, enabled, currentItemIndex, resolveOne])
+  }, [groups, enabled, resolveEnabled, currentItemIndex, resolveOne])
 
+  // ensureLoaded resolve UM grupo sob demanda (clique do usuário pra expandir um
+  // grupo ainda 'pending'). Bypassa `resolveEnabled` de propósito: é 1 requisição
+  // vinda de um gesto, não a rajada de N — não sufoca o playback.
   const ensureLoaded = useCallback((itemIndex: number) => {
     void resolveOne(itemIndex)
   }, [resolveOne])

@@ -1330,18 +1330,19 @@ export default function PlayerModal({
   // faixa, a lista de músicas "recarrega" no auto-avanço. (Uma versão anterior gateava
   // por `currentTime>1`, que cai a ~0 a cada nova faixa → toggle → reload. NÃO usar.)
   //
-  // iOS: ADIA a rajada de resolução (~47 /api/local/play) até o usuário INICIAR a
-  // reprodução (blessed). No cold-start (sidebar abre por padrão no modo música) a
-  // rajada disparava JUNTO com o play() do gesto (tap-to-play) e competia com o
-  // buffering inicial do <video> → o iOS parava de buscar bytes em readyState 2 e a
-  // faixa 1 nunca chegava a 'playing'; logo `blessed` nunca era setado e NADA tocava.
-  // Era exatamente o que o tap-to-play original adiava (por currentTime>1); o fix de
-  // reload removeu o adiamento alegando "não há play() pendente competindo" — falso:
-  // o play() do GESTO fica pendente no buffering. `blessed` é latch ONE-WAY (nunca
-  // volta a false) → o gate continua estável entre faixas (não reintroduz o reload).
-  // No iOS o aggregate só alimenta a EXIBIÇÃO da lista (engineOn=false; a navegação
-  // usa mediaQueue/playlist, não o aggregate) → adiá-lo não afeta playback nem ⏮⏭.
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen))
+  // SEPARAÇÃO exibição × resolução (essencial p/ o iOS):
+  //  - `enabled` (gate abaixo) monta o ESQUELETO da lista + seeda a faixa atual →
+  //    a lista aparece NA HORA. Estável entre faixas (depende de engineOn/sidebarOpen,
+  //    não de currentTime) → não recarrega no auto-avanço.
+  //  - `resolveEnabled` controla a RAJADA de resolução dos demais itens (~47
+  //    /api/local/play, cada um faz ffprobe no servidor). No iOS essa rajada
+  //    SUFOCAVA o byte-stream da faixa atual (byte-fetch de ~6s) → o iOS abortava
+  //    o play() do gesto (AbortError). Então adiamos a rajada até a 1ª reprodução
+  //    (blessed, latch one-way): byte-fetch sem contenção → play() inicia → blessed
+  //    → a rajada drena (throttle 2). Desktop (engineOn) resolve já (!iosAudio).
+  //    NÃO gatear a EXIBIÇÃO por blessed (foi o que zerou a lista no iOS antes).
+  const resolveEnabled = !iosAudio || blessed
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen), resolveEnabled)
   // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
   // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
   // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
