@@ -235,6 +235,15 @@ export function VideoPlayerElement({
     if (!v) return
     setStartOverlayDismissed(true)
     clientLog('info', 'player', 'tap "Tocar" (gesto) → play()', { readyState: v.readyState })
+    // iOS estaciona o elemento em readyState 2 / NETWORK_IDLE (evento 'suspend')
+    // depois de buscar só a metadata (preload), FORA de um gesto. Um v.play() puro
+    // num elemento suspenso NÃO re-dispara o fetch (zero range requests novos) → fica
+    // preso em rs2, 'playing' nunca dispara e o play() rejeita com AbortError. A
+    // recuperação confirmada (Apple Dev Forum 739368) é v.load() ANTES do v.play(),
+    // SÍNCRONO no mesmo gesto (re-arma o algoritmo de fetch). Só quando abaixo de
+    // HAVE_FUTURE_DATA(3). currentTime já é 0 aqui (overlay só aparece com playhead
+    // em 0), então o reset do load() é inócuo.
+    if (v.readyState < 3) v.load()
     v.play()
       .then(() => clientLog('info', 'player', 'tap-to-play ok (som)', { readyState: v.readyState }))
       .catch((e) => {
