@@ -41,15 +41,15 @@ pipeline {
   }
 
   environment {
-    REGISTRY    = '10.228.143.12:3000'
-    IMAGE       = "10.228.143.12:3000/lgldsilva/jackui"
+    REGISTRY    = '192.168.0.100:3000'
+    IMAGE       = "192.168.0.100:3000/lgldsilva/jackui"
     // TAG (git-sha8) é definido no stage 'Limpeza + Checkout', DEPOIS do
     // checkout — com skipDefaultCheckout(true) o env.GIT_COMMIT ainda é null
     // aqui no startup, e cair no BUILD_NUMBER geraria tag numérica que o regex
     // de retenção (^[0-9a-f]{8,40}$) não casa → tags vazariam pra sempre.
-    SONAR_HOST  = 'http://10.228.143.12:9100'
-    DT_API      = 'http://10.228.143.12:8081'
-    GITEA_API   = 'http://10.228.143.12:3000/api/v1'
+    SONAR_HOST  = 'http://192.168.0.100:9100'
+    DT_API      = 'http://192.168.0.100:8081'
+    GITEA_API   = 'http://192.168.0.100:3000/api/v1'
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
 
@@ -296,7 +296,7 @@ pipeline {
               echo "Tag $SEMVER já existe — nada a publicar."
             else
               git tag "$SEMVER"
-              if git push "http://$GITEA_USER:$GITEA_TOKEN@10.228.143.12:3000/lgldsilva/jackui.git" "refs/tags/$SEMVER"; then
+              if git push "http://$GITEA_USER:$GITEA_TOKEN@192.168.0.100:3000/lgldsilva/jackui.git" "refs/tags/$SEMVER"; then
                 echo "Tag $SEMVER publicada no Gitea."
               else
                 echo "aviso: push da tag $SEMVER falhou (deploy já concluído; só não registrou a tag)."
@@ -312,7 +312,7 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GU', passwordVariable: 'GT')]) {
           sh '''
-            API=http://10.228.143.12:3000/api/v1
+            API=http://192.168.0.100:3000/api/v1
             curl -sk -u "$GU:$GT" "$API/packages/lgldsilva?type=container&limit=100" \
               | docker run -i --rm ghcr.io/jqlang/jq:latest -r \
                   '[.[] | select(.name=="jackui" and (.version|test("^[0-9a-f]{8,40}$")))] | sort_by(.created_at) | reverse | .[2:][].version' \
