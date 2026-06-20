@@ -225,26 +225,25 @@ pipeline {
       }
     }
 
-    stage('Build & Push (amd64 nativo no alvo)') {
+    stage('Build & Push (amd64 nativo, local)') {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
+        // Jenkins roda NO hub amd64 com docker.sock montado: build/push direto,
+        // sem SSH (antes fazia ssh ao alvo quando o Jenkins era remoto no Oracle ARM).
         withCredentials([
-          usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN'),
-          sshUserPrivateKey(credentialsId: 'jackui-deploy', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+          usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')
         ]) {
           sh '''
-            SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $SSH_USER@10.228.143.1"
-            git archive --format=tar HEAD | $SSH "rm -rf /tmp/jackui-build && mkdir -p /tmp/jackui-build && tar -x -C /tmp/jackui-build"
-            $SSH "
-              set -e
-              cd /tmp/jackui-build
-              echo '$GITEA_TOKEN' | docker login $REGISTRY -u '$GITEA_USER' --password-stdin
-              docker build -f $DOCKERFILE --build-arg BUILD_TIMESTAMP=\\$(date +%s) --build-arg GIT_COMMIT=$GIT_COMMIT --build-arg APP_VERSION=${SEMVER:-$TAG} -t $IMAGE:$TAG -t $IMAGE:nvidia .
-              docker push $IMAGE:$TAG
-              docker push $IMAGE:nvidia
-              docker logout $REGISTRY
-              rm -rf /tmp/jackui-build
-            "
+            set -e
+            echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
+            docker build -f $DOCKERFILE \
+              --build-arg BUILD_TIMESTAMP=$(date +%s) \
+              --build-arg GIT_COMMIT=$GIT_COMMIT \
+              --build-arg APP_VERSION=${SEMVER:-$TAG} \
+              -t $IMAGE:$TAG -t $IMAGE:nvidia .
+            docker push $IMAGE:$TAG
+            docker push $IMAGE:nvidia
+            docker logout $REGISTRY
           '''
         }
       }
@@ -263,20 +262,17 @@ pipeline {
       }
     }
 
-    stage('Deploy (raspberrypi-srv)') {
+    stage('Deploy (local)') {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
-        withCredentials([sshUserPrivateKey(credentialsId: 'jackui-deploy', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
-          sh '''
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              "$SSH_USER"@10.228.143.1 "
-                docker pull ${IMAGE}:nvidia &&
-                docker tag ${IMAGE}:nvidia jackui:nvidia &&
-                docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui &&
-                docker image prune -f >/dev/null 2>&1 || true
-              "
-          '''
-        }
+        // Deploy local via docker.sock (sem SSH): pull, retag e sobe o compose no host.
+        sh '''
+          set -e
+          docker pull ${IMAGE}:nvidia
+          docker tag ${IMAGE}:nvidia jackui:nvidia
+          docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui
+          docker image prune -f >/dev/null 2>&1 || true
+        '''
       }
     }
 
