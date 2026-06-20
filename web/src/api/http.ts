@@ -52,9 +52,30 @@ export function withToken(url: string, override?: string): string {
 // permanece estável durante toda a sessão de playback, sobrevivendo a
 // refreshes do access token regular (que trocariam a query string e
 // derrubariam o playback pra 0).
+//
+// CACHEADO na sessão (module-level) + single-flight: o token de mídia vale pra
+// TODA a sessão (não é por-faixa), então re-buscá-lo retornaria um JWT NOVO
+// (iat/exp diferentes) → mudaria o `?token=` da URL → o browser recarregaria o
+// <video> (loadstart) e ABORTARIA o play() pendente (AbortError) — era a causa
+// do "play não toca no iPhone": uma re-init do player re-buscava o token e
+// derrubava a reprodução. Com o cache, qualquer re-busca retorna o MESMO token
+// → streamURL byte-idêntico → sem reload. Invalidado em clearMediaToken (logout).
+let mediaTokenCache = ''
+let mediaTokenInFlight: Promise<string> | null = null
 export async function fetchMediaToken(): Promise<string> {
-  const r = await api.post('/auth/media-token')
-  return r.data?.token || ''
+  if (mediaTokenCache) return mediaTokenCache
+  if (mediaTokenInFlight) return mediaTokenInFlight
+  mediaTokenInFlight = api.post('/auth/media-token')
+    .then(r => { mediaTokenCache = r.data?.token || ''; return mediaTokenCache })
+    .finally(() => { mediaTokenInFlight = null })
+  return mediaTokenInFlight
+}
+
+// clearMediaToken invalida o cache acima — chamado no logout/limpeza de auth
+// (clearTokens) pra que a próxima sessão pegue um token fresco.
+export function clearMediaToken() {
+  mediaTokenCache = ''
+  mediaTokenInFlight = null
 }
 
 export default api
