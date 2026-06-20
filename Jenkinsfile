@@ -80,7 +80,7 @@ pipeline {
       // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
       // exigem). GOCACHE/GOPATH em /tmp. Só ./internal/... — cmd/server importa o
       // pacote ui (//go:embed all:dist), que não compila antes do frontend build.
-      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '--platform linux/arm64 -u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
+      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '--platform linux/amd64 -u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
         retry(2) {
@@ -103,7 +103,7 @@ pipeline {
     }
 
     stage('Frontend build') {
-      agent { docker { image 'node:24-alpine'; reuseNode true; args '--platform linux/arm64 -e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
+      agent { docker { image 'node:24-alpine'; reuseNode true; args '--platform linux/amd64 -e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
       steps {
         dir('web') {
           sh 'npm ci'
@@ -142,7 +142,7 @@ pipeline {
         withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
           sh '''
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
-            docker run --rm --user 0 --platform linux/arm64 -e SONAR_TOKEN -e SONAR_HOST -v "$HOST_WS":/usr/src -w /usr/src \
+            docker run --rm --user 0 --platform linux/amd64 -e SONAR_TOKEN -e SONAR_HOST -v "$HOST_WS":/usr/src -w /usr/src \
               eclipse-temurin:21 \
               sh -c '
                 echo "Installing Node.js 24..."
@@ -154,10 +154,10 @@ pipeline {
                 NODE_BIN=$(command -v node)
                 node -v
                 if [ ! -d .sonar-scanner ]; then
-                  echo "Downloading native arm64 SonarScanner..."
-                  wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-aarch64.zip -O /tmp/sonar-scanner.zip
+                  echo "Downloading native amd64 SonarScanner..."
+                  wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-8.0.1.6346-linux-x64.zip -O /tmp/sonar-scanner.zip
                   unzip -q /tmp/sonar-scanner.zip -d .
-                  mv sonar-scanner-8.0.1.6346-linux-aarch64 .sonar-scanner
+                  mv sonar-scanner-8.0.1.6346-linux-x64 .sonar-scanner
                   rm -f /tmp/sonar-scanner.zip
                 fi
                 # .scannerwork FORA do workspace: o scanner cria esse dir no CWD e,
@@ -205,7 +205,7 @@ pipeline {
             # .cdx-src/bom.json persistiria e quebraria o checkout do próximo build.
             # Por isso o entrypoint sobrescrito faz o chown 1000 do /src antes de sair,
             # garantindo que o `rm` de fora consiga limpar.
-            docker run --rm --user 0 --platform linux/arm64 --entrypoint sh \
+            docker run --rm --user 0 --platform linux/amd64 --entrypoint sh \
               -v "$HOST_WS/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
               -c 'cdxgen --spec-version 1.6 -r -o /src/bom.json . ; chown -R 1000:1000 /src 2>/dev/null || true' || true
             if [ -s .cdx-src/bom.json ]; then
@@ -254,7 +254,7 @@ pipeline {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
         sh '''
-          TRIVY="docker run --rm --platform linux/arm64 -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
+          TRIVY="docker run --rm --platform linux/amd64 -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
           echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
           $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
           echo "=== Trivy: gate (falha em CRITICAL) ==="
