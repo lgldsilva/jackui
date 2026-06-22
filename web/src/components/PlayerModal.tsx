@@ -56,6 +56,7 @@ import { FilePickerSidebar } from './player/FilePickerSidebar'
 import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { SimpleAudioPlayer } from './player/SimpleAudioPlayer'
+import { SimpleAudioControls } from './player/SimpleAudioControls'
 import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
 
@@ -1120,9 +1121,14 @@ export default function PlayerModal({
   const iosAudio = audioMode && isIOS()
   // disableNativeAutoplay: bloqueia o autoplay não-gesto SÓ até o usuário iniciar a
   // reprodução (blessed). Depois disso a Apple libera o play() programático, então
-  // as faixas seguintes do álbum encadeiam sozinhas (auto-avanço) — disableNativeAutoplay
-  // vira false e o caminho volta a ser o normal (autoplay no canplay).
-  const disableNativeAutoplay = iosAudio && !blessed
+  // as faixas seguintes encadeiam sozinhas (auto-avanço) — vira false e o caminho
+  // volta ao normal (autoplay no loadedmetadata/canplay).
+  // Só alimenta o VideoPlayerElement (o áudio usa o SimpleAudioPlayer, que tem seu
+  // próprio gesto). O VÍDEO no iOS sofre O MESMO erro do áudio: o <video> com src
+  // declarativo pré-carrega e ESTACIONA em readyState 2 sem um gesto (logs: stalled
+  // rs2 + sem 'autoplay try'). Então o vídeo também vira tap-to-play no iOS — daí
+  // isIOS() (não só iosAudio). macOS-Safari/desktop seguem no autoplay (isIOS=false).
+  const disableNativeAutoplay = isIOS() && !blessed
   // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
   // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
   // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
@@ -1484,16 +1490,32 @@ export default function PlayerModal({
             controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
             Vídeo mantém o player existente com HLS/transcode. */}
         {audioMode ? (
-          <div className="relative w-full max-w-xl mx-auto flex items-center justify-center h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden">
-            <SimpleAudioPlayer
-              src={audioDirectSrc}
-              onEnded={handleVideoEnded}
-              onTimeUpdate={handleAudioTimeUpdate}
-              onPlaying={handlePlaybackStarted}
-              onError={() => setVideoError(true)}
-              className="absolute inset-0 z-10"
+          <>
+            <div className="relative w-full max-w-xl mx-auto flex items-center justify-center h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden">
+              <SimpleAudioPlayer
+                src={audioDirectSrc}
+                onEnded={handleVideoEnded}
+                onTimeUpdate={handleAudioTimeUpdate}
+                onPlaying={handlePlaybackStarted}
+                onError={() => setVideoError(true)}
+                className="absolute inset-0 z-10"
+              />
+            </div>
+            {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
+                simplificação e os controls nativos do <audio> não têm prev/next.
+                Só botões que trocam a FAIXA (handlePrev/handleNext) — sem Web Audio. */}
+            <SimpleAudioControls
+              onPrev={handlePrev}
+              onNext={handleNext}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              shuffle={shuffle}
+              repeat={repeat}
+              onToggleShuffle={onToggleShuffle}
+              onCycleRepeat={onCycleRepeat}
+              position={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
             />
-          </div>
+          </>
         ) : (
           <VideoPlayerElement
             videoRef={videoRef}
