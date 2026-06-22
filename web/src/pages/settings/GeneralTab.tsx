@@ -2,45 +2,6 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Wifi, CheckCircle, XCircle } from 'lucide-react'
 import { AppConfig, getStatus } from '../../api/client'
-import { useTransitionConfig, CROSSFADE_MIN, CROSSFADE_MAX, type TransitionMode } from '../../components/player/transition'
-
-// TransitionCard — preferência de transição entre faixas de música (Off / Gapless
-// / Crossfade) + duração do crossfade. Não-admin (é preferência do player, salva
-// em localStorage). Só afeta áudio direct-play; HLS/vídeo seguem com corte normal.
-function TransitionCard() {
-  const { t } = useTranslation()
-  const { mode, setMode, crossfadeSec, setSec } = useTransitionConfig()
-  return (
-    <section className="card flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-text-primary">{t('player.transition.title')}</h2>
-      <div>
-        <select
-          value={mode}
-          onChange={e => setMode(e.target.value as TransitionMode)}
-          className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 w-64"
-        >
-          <option value="off">{t('player.transition.off')}</option>
-          <option value="gapless">{t('player.transition.gapless')}</option>
-          <option value="crossfade">{t('player.transition.crossfade')}</option>
-        </select>
-      </div>
-      {mode === 'crossfade' && (
-        <div>
-          <label htmlFor="crossfade-sec" className="block text-sm text-text-secondary mb-1.5">
-            {t('player.transition.seconds', { sec: crossfadeSec })}
-          </label>
-          <input
-            id="crossfade-sec" type="range" min={CROSSFADE_MIN} max={CROSSFADE_MAX} step={1}
-            value={crossfadeSec}
-            onChange={e => setSec(Number(e.target.value))}
-            className="w-64"
-          />
-        </div>
-      )}
-      <p className="text-text-muted text-[11px]">{t('player.transition.hint')}</p>
-    </section>
-  )
-}
 
 function EnvBadge({ envVar }: { readonly envVar: string }) {
   return (
@@ -121,8 +82,6 @@ export default function GeneralTab({ config, setConfig, isAdmin, testing, testRe
           </select>
         </div>
       </section>
-
-      <TransitionCard />
 
       {isAdmin && config && (
         <>
