@@ -6,7 +6,7 @@ describe('computeAudioDirectUrl', () => {
   const baseInfo: TorrentInfo = {
     infoHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     name: 'album',
-    files: [{ index: 0, path: 'song.mp3', size: 100, downloaded: 0, progress: 0, priority: 'normal' }],
+    files: [{ index: 0, path: 'song.mp3', size: 100, downloaded: 0, progress: 0, priority: 'normal', isVideo: false }],
     totalSize: 100,
     peers: 0,
     seeders: 0,
@@ -39,7 +39,7 @@ describe('computeAudioDirectUrl', () => {
     const info: TorrentInfo = {
       ...baseInfo,
       infoHash: buildLocalHash(loc.mount, loc.path),
-      files: [{ index: 0, path: loc.path, size: 100, downloaded: 0, progress: 0, priority: 'normal' }],
+      files: [{ index: 0, path: loc.path, size: 100, downloaded: 0, progress: 0, priority: 'normal', isVideo: false }],
     }
     expect(computeAudioDirectUrl(info, 0, 'tok')).toBe(
       '/api/local/file?mount=Downloads&path=music%2Fsong.m4a&token=tok',

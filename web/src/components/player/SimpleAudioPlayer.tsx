@@ -47,6 +47,10 @@ export function SimpleAudioPlayer({
   className = '',
 }: SimpleAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  // Última URL (relativa) já anexada ao elemento. `el.src` (getter) é ABSOLUTO, então
+  // comparar `el.src !== effectiveSrc` (relativo) reanexava o src a cada render e podia
+  // abortar o play (reload). Comparar contra esta ref evita isso.
+  const attachedSrcRef = useRef('')
   const isWebKit = isSafariBrowser() || isIOS()
   const [blessed, setBlessed] = useState(false)
   const [startOverlayDismissed, setStartOverlayDismissed] = useState(false)
@@ -66,6 +70,7 @@ export function SimpleAudioPlayer({
     clientLog('info', 'audio', 'tap-to-play (gesto)', { readyState: el.readyState, hadSrc: !!el.src })
     if (isWebKit && !blessed) {
       el.src = src
+      attachedSrcRef.current = src
     }
     el.play()
       .then(() => {
@@ -79,13 +84,21 @@ export function SimpleAudioPlayer({
       })
   }, [audioRef, src, blessed, isWebKit, onPlaying])
 
+  // Anexa o src quando ele muda DE VERDADE (vs. a última URL relativa anexada).
+  // Depois do 1º gesto (blessed), TOCA a faixa nova sozinha — auto-avanço: a Apple
+  // libera play() programático no MESMO elemento pós-gesto. Antes do gesto no WebKit
+  // o effectiveSrc é undefined, então isto só dispara em troca de faixa pós-tap (ou
+  // no desktop, onde blessed vira true no 1º 'playing' nativo).
   useEffect(() => {
     const el = audioRef.current
-    if (!el) return
-    if (effectiveSrc && el.src !== effectiveSrc) {
-      el.src = effectiveSrc
+    if (!el || !effectiveSrc) return
+    if (attachedSrcRef.current === effectiveSrc) return
+    attachedSrcRef.current = effectiveSrc
+    el.src = effectiveSrc
+    if (blessed) {
+      el.play().catch((e) => clientLog('warn', 'audio', 'auto-advance play falhou', { err: String(e) }))
     }
-  }, [effectiveSrc])
+  }, [effectiveSrc, blessed])
 
   useEffect(() => {
     const el = audioRef.current
@@ -104,6 +117,9 @@ export function SimpleAudioPlayer({
     }
     const handlePlaying = () => {
       setErrored(false)
+      // Qualquer 1º play (tap no iOS OU play nativo no desktop) marca blessed → o
+      // efeito de src passa a tocar a faixa nova sozinho (auto-avanço em todas as plataformas).
+      setBlessed(true)
       onPlaying?.()
     }
     const handlePause = () => {
