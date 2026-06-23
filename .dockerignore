@@ -1,0 +1,26 @@
+# node_modules NUNCA vai pro contexto: o Dockerfile roda `npm ci` dentro do
+# container. Copiar o node_modules do host (que pode ser de outra plataforma —
+# symlinks Cygwin/XSym) por cima clobbava o .bin e quebrava o `tsc`/`vite build`.
+**/node_modules
+
+# .git é grande e inútil no build (a versão entra via build-args GIT_COMMIT).
+.git
+.gitignore
+
+# Segredos e dados locais não entram na imagem.
+.env
+.env.*
+*.db
+*.db-*
+
+# Build outputs: o frontend é rebuildado dentro do container (vite → ui/dist),
+# e o ui/dist final vem do estágio frontend (COPY --from=frontend), não do host.
+ui/dist
+web/dist
+electron/dist
+electron/out
+
+# Misc dev-only.
+.idea
+.vscode
+*.log

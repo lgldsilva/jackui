@@ -406,7 +406,10 @@ const localPlayableURLCache = new Map<string, string>()
 async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
   const loc = parseLocalHash(hash)
   if (!loc) throw new Error('invalid local hash')
-  const play = await localPlay(loc.mount, loc.path)
+  const isVideo = !/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(loc.path)
+  // Vídeo local no iOS → força HLS (o WebKit trava em MP4 progressive). Áudio e
+  // desktop seguem no direct.
+  const play = await localPlay(loc.mount, loc.path, isVideo && isIOS())
   // The URL from localPlay starts with /api/... (no token); withToken adds it.
   localPlayableURLCache.set(hash, play.url)
   const name = loc.path.split('/').pop() || loc.path
@@ -414,7 +417,7 @@ async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
     index: 0,
     path: loc.path,
     size: 0,
-    isVideo: !/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(loc.path),
+    isVideo,
     downloaded: 0,
     progress: 1,
     priority: 'normal',
@@ -1477,13 +1480,17 @@ export type LocalPlaySource = {
 // localPlay asks the server how to play a local file. The URL it returns is
 // ready to use — it already carries `?token=` so it works in <video src>
 // without the JS axios interceptor (which can't set headers on the element).
-export const localPlay = async (mount: string, path: string): Promise<LocalPlaySource> => {
+export const localPlay = async (mount: string, path: string, forceHLS = false): Promise<LocalPlaySource> => {
   const sp = new URLSearchParams({ mount, path })
   // Tell the server which non-universal audio codecs this browser can play
   // inline, so it transcodes (audio-only HLS) the ones it can't — Safari can't
   // do FLAC/OGG/Opus. Harmless on video files (the server ignores it there).
   const caps = audioCapsParam()
   if (caps) sp.set('acaps', caps)
+  // forceHLS: vídeo local no iOS/Safari. O WebKit trava em MP4 progressive por HTTP,
+  // então o vídeo local vai por HLS (remux, sem re-encode pra H264) — o MESMO caminho
+  // confiável do torrent. Sem isto o iOS carregava o <video src=mp4> e travava em rs2.
+  if (forceHLS) sp.set('transcode', 'hls')
   const params = appendViewAs(sp)
   const { data } = await api.get<LocalPlaySource>(`/local/play?${params}`)
   // The backend builds data.url (direct file or HLS playlist) without the

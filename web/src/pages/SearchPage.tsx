@@ -690,6 +690,8 @@ export default function SearchPage() {
   // tudo" do banner de ocultos: depois dele, filteredResults == groupedCount.
   const clearFilters = () => {
     setShowAll(true)
+    // groupSeries é um controle da barra de filtros que o reset não tocava — reseta tb.
+    if (groupSeries) { setGroupSeries(false); save('searchGroupSeries', false) }
     updateTab(activeTab.id, {
       titleFilter: '', trackerFilter: 'all',
       minSeeders: 0, minLeechers: 0, maxSizeGb: '',
@@ -938,7 +940,7 @@ export default function SearchPage() {
         </div>
       </div>
 
-      <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full min-w-0 overflow-x-clip px-4 py-6 flex flex-col gap-4">
         {/* Jackett setup prompt */}
         {showJackettSetup && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 sm:p-6">

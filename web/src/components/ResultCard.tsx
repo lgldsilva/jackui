@@ -194,7 +194,7 @@ function renderCardTitle(
   return (
     <div className="flex items-start justify-between gap-2">
       {renderArtSection(tmdb)}
-      <h3 className={`text-sm font-medium text-text-primary line-clamp-2 flex-1 ${cardClickable ? 'hover:text-green-400' : ''}`} title={titleAttr}>
+      <h3 className={`text-sm font-medium text-text-primary line-clamp-2 flex-1 min-w-0 break-words ${cardClickable ? 'hover:text-green-400' : ''}`} title={titleAttr}>
         {result.title}
         {tmdb && (
           <span className="block text-[11px] font-normal text-text-secondary mt-0.5 line-clamp-2">
@@ -203,15 +203,15 @@ function renderCardTitle(
           </span>
         )}
       </h3>
-      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        <div className="flex items-center gap-1.5">
+      <div className="flex flex-col items-end gap-1 min-w-0 max-w-[45%] overflow-hidden">
+        <div className="flex items-center gap-1.5 min-w-0 max-w-full">
           {/* p-2/-m-2 widens the touch target (~30px) for the finger without
               shifting the compact header layout — the negative margin cancels
               the padding so neighbours stay put. */}
-          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} disabled={favResolving} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-2 -m-2 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
+          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} disabled={favResolving} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-1.5 flex-shrink-0 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
             {renderFavoriteIcon(favResolving, isFavorited)}
           </button>
-          <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">{result.tracker}</span>
+          <span title={result.tracker} className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full truncate min-w-0 max-w-[5.5rem]">{result.tracker}</span>
         </div>
         {result.cached && <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">cache</span>}
         {result.isDownloaded && (
