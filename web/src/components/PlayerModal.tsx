@@ -57,6 +57,7 @@ import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { SimpleAudioPlayer } from './player/SimpleAudioPlayer'
 import { SimpleAudioControls } from './player/SimpleAudioControls'
+import { AudioCoverArt } from './player/AudioCoverArt'
 import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
 
@@ -1491,16 +1492,19 @@ export default function PlayerModal({
             Vídeo mantém o player existente com HLS/transcode. */}
         {audioMode ? (
           <>
-            <div className="relative w-full max-w-xl mx-auto flex items-center justify-center h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden">
-              <SimpleAudioPlayer
-                src={audioDirectSrc}
-                onEnded={handleVideoEnded}
-                onTimeUpdate={handleAudioTimeUpdate}
-                onPlaying={handlePlaybackStarted}
-                onError={() => setVideoError(true)}
-                className="absolute inset-0 z-10"
-              />
+            {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
+                LOGO ABAIXO (não esticada por cima da capa). */}
+            <div className="relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden">
+              <AudioCoverArt info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
             </div>
+            <SimpleAudioPlayer
+              src={audioDirectSrc}
+              onEnded={handleVideoEnded}
+              onTimeUpdate={handleAudioTimeUpdate}
+              onPlaying={handlePlaybackStarted}
+              onError={() => setVideoError(true)}
+              className="max-w-xl mx-auto mt-2"
+            />
             {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
                 simplificação e os controls nativos do <audio> não têm prev/next.
                 Só botões que trocam a FAIXA (handlePrev/handleNext) — sem Web Audio. */}
