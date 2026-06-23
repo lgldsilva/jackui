@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Volume2 } from 'lucide-react'
-import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL } from '../../api/client'
+import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL, isIOS } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
@@ -225,25 +225,32 @@ export function VideoPlayerElement({
   const showStartAudioOverlay = shouldShowStartAudioOverlay({
     disableNativeAutoplay, startOverlayDismissed, videoError, showResumePrompt, currentTime,
   })
-  // O tap no "Tocar" é o gesto que destrava o áudio no iOS. Dispensa o overlay
-  // otimisticamente, mas RE-EXIBE se o play() falhar (senão ficava "sem som e sem
-  // botão" — o estado preso que mascarava o bug) e LOGA o desfecho. Antes este
-  // caminho era MUDO (.catch(()=>{})), o que escondia se o play sequer engatava —
-  // a ausência de log foi o que dificultou o diagnóstico desta regressão.
+  // iOS: src IMPERATIVO (igual ao SimpleAudioPlayer que TOCA). O <video> é montado SEM
+  // src no iOS (não pré-carrega → não estaciona em readyState 2 antes do gesto — esse
+  // era o bug: o tap chamava v.load() num elemento pré-carregado, resetava rs2→0 e
+  // ABORTAVA o play, AbortError). Aqui o src é setado: pré-gesto (disableNativeAutoplay)
+  // ESPERA o tap; pós-blessed (auto-avanço) seta o src e o handleMetaLoaded toca no
+  // loadedmetadata. attachedSrcRef evita reanexar (el.src é absoluto; comparar com a
+  // streamURL relativa sempre diferiria → reload/abort).
+  const iosNative = isIOS() && !engineActive && !useHlsJs
+  const attachedSrcRef = useRef('')
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !iosNative || !streamURL) return
+    if (disableNativeAutoplay) return
+    if (attachedSrcRef.current === streamURL) return
+    attachedSrcRef.current = streamURL
+    v.src = streamURL
+  }, [videoRef, iosNative, streamURL, disableNativeAutoplay])
+  // O tap no "Tocar" é o gesto que destrava o vídeo no iOS. Espelha o SimpleAudioPlayer:
+  // seta o src DENTRO do gesto (o elemento estava SEM src) e play() no mesmo tick —
+  // SEM v.load(). Re-exibe o overlay se o play() falhar e LOGA o desfecho.
   const startAudioPlayback = () => {
     const v = videoRef.current
     if (!v) return
     setStartOverlayDismissed(true)
-    clientLog('info', 'player', 'tap "Tocar" (gesto) → play()', { readyState: v.readyState })
-    // iOS estaciona o elemento em readyState 2 / NETWORK_IDLE (evento 'suspend')
-    // depois de buscar só a metadata (preload), FORA de um gesto. Um v.play() puro
-    // num elemento suspenso NÃO re-dispara o fetch (zero range requests novos) → fica
-    // preso em rs2, 'playing' nunca dispara e o play() rejeita com AbortError. A
-    // recuperação confirmada (Apple Dev Forum 739368) é v.load() ANTES do v.play(),
-    // SÍNCRONO no mesmo gesto (re-arma o algoritmo de fetch). Só quando abaixo de
-    // HAVE_FUTURE_DATA(3). currentTime já é 0 aqui (overlay só aparece com playhead
-    // em 0), então o reset do load() é inócuo.
-    if (v.readyState < 3) v.load()
+    clientLog('info', 'player', 'tap "Tocar" (gesto) → src+play()', { readyState: v.readyState })
+    if (streamURL) { attachedSrcRef.current = streamURL; v.src = streamURL }
     v.play()
       .then(() => clientLog('info', 'player', 'tap-to-play ok (som)', { readyState: v.readyState }))
       .catch((e) => {
@@ -298,11 +305,11 @@ export function VideoPlayerElement({
           // See audioElementKey.
           key={audioElementKey(audioMode, isTranscoded)}
           ref={videoRef}
-          src={engineActive || useHlsJs ? undefined : (streamURL || undefined)}
+          src={iosNative || engineActive || useHlsJs ? undefined : (streamURL || undefined)}
           muted={engineActive}
           controls={!audioMode}
           autoPlay={!disableNativeAutoplay}
-          preload={audioPreload(audioMode)}
+          preload={iosNative ? 'none' : audioPreload(audioMode)}
           playsInline
           {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
           className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
