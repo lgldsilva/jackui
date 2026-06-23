@@ -52,6 +52,11 @@ type HLSSessionManager struct {
 	// rclone/Drive mount enters VOD immediately instead of re-probing for 30s.
 	durMu    sync.Mutex
 	durCache map[string]float64
+
+	// stopCh halts gcLoop; closed once by Stop(). stopped guards against a
+	// double close / double drain (Stop is registered as a shutdown cleanup).
+	stopCh  chan struct{}
+	stopped bool
 }
 
 // VODMode gates the finite-VOD (seekbar) HLS path, by client class. See
@@ -220,9 +225,34 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 		baseDir:  root,
 		sess:     make(map[string]*HLSSession),
 		starting: make(map[string]chan struct{}),
+		stopCh:   make(chan struct{}),
 	}
 	go m.gcLoop()
 	return m, nil
+}
+
+// Stop reaps every live session (kills ffmpeg, closes its loopback server and
+// removes its segment dir) and halts gcLoop. Called on graceful shutdown so no
+// encoder is left orphaned writing into the cache. Idempotent.
+func (m *HLSSessionManager) Stop() {
+	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return
+	}
+	m.stopped = true
+	close(m.stopCh)
+	sessions := make([]*HLSSession, 0, len(m.sess))
+	for k, s := range m.sess {
+		sessions = append(sessions, s)
+		delete(m.sess, k)
+	}
+	m.mu.Unlock()
+	// stop() outside m.mu: it blocks on the loopback-server shutdown and removes
+	// segments — same reason gcLoop reaps outside the lock.
+	for _, s := range sessions {
+		s.stop()
+	}
 }
 
 // errSessionStopped means the manager already reaped/closed this session —
@@ -243,7 +273,12 @@ const hlsIdleReapAfter = 5 * time.Minute
 func (m *HLSSessionManager) gcLoop() {
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
-	for range tick.C {
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-tick.C:
+		}
 		now := time.Now()
 		var reaped []*HLSSession
 		m.mu.Lock()

@@ -39,25 +39,39 @@ func BuildInfo(store *history.Store) gin.HandlerFunc {
 	}
 }
 
-// Health handles GET /healthz — liveness check. Fast, no external deps.
-// Returns 200 as long as the JackUI process and DB are alive.
-func Health(store *history.Store) gin.HandlerFunc {
+// Health handles GET /healthz — readiness check. Fast, no external deps.
+// Returns 200 only when the DB is alive AND the streamer initialized; 503
+// (status "degraded") otherwise, so the Docker healthcheck surfaces a process
+// that came up without streaming (a silent init failure used to read healthy).
+// streamerReady reports whether the streamer is up; nil means "not applicable"
+// (treated as ready) so callers that don't run a streamer stay green.
+func Health(store *history.Store, streamerReady func() bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		out := gin.H{"status": "ok", "time": time.Now().UTC().Format(time.RFC3339)}
+		degraded := false
+
 		dbStatus := "ok"
 		if store == nil {
 			dbStatus = "disabled"
 		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
 			dbStatus = downPrefix + err.Error()
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status": "degraded", "db": dbStatus,
-				"time": time.Now().UTC().Format(time.RFC3339),
-			})
-			return
+			degraded = true
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok", "db": dbStatus,
-			"time": time.Now().UTC().Format(time.RFC3339),
-		})
+		out["db"] = dbStatus
+
+		streamerStatus := "ok"
+		if streamerReady != nil && !streamerReady() {
+			streamerStatus = "down"
+			degraded = true
+		}
+		out["streamer"] = streamerStatus
+
+		code := http.StatusOK
+		if degraded {
+			out["status"] = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+		c.JSON(code, out)
 	}
 }
 

@@ -105,6 +105,48 @@ func TestGetOrStartConcurrentDedupe(t *testing.T) {
 	}
 }
 
+// Stop must reap every live session (closing its source) and be idempotent —
+// it's registered as a graceful-shutdown cleanup so no ffmpeg is orphaned.
+func TestManagerStopReapsSessionsAndIsIdempotent(t *testing.T) {
+	stubCaps(t)
+	m := lifecycleManager(t)
+
+	src := &fakeSource{}
+	s, err := m.GetOrStart(context.Background(), HLSStartOpts{
+		Key: "k", Source: src, SourceSize: 1, KnownDurationSec: 10,
+	})
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	if s == nil {
+		t.Fatal("nil session")
+	}
+
+	m.Stop()
+
+	m.mu.Lock()
+	n := len(m.sess)
+	stopped := m.stopped
+	m.mu.Unlock()
+	if n != 0 {
+		t.Errorf("after Stop, %d sessions remain, want 0", n)
+	}
+	if !stopped {
+		t.Error("manager not marked stopped")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !src.closed.Load() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !src.closed.Load() {
+		t.Error("Stop must close the live session's source")
+	}
+
+	// Idempotent: a second Stop (e.g. cleanup runs twice) must not panic on the
+	// already-closed stopCh.
+	m.Stop()
+}
+
 func countOpen(sources []*fakeSource) int {
 	n := 0
 	for _, s := range sources {

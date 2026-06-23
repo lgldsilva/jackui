@@ -1,7 +1,7 @@
 // JackUI — pipeline CI/CD (Jenkins @ oracle-desktop).
 //
 // Dois modos (multibranch):
-//  • PULL REQUEST  → só os GATES: backend test + frontend build/tsc. Se passar,
+//  • PULL REQUEST  → só os GATES: backend test + frontend tsc/test/build. Se passar,
 //    o ci-bot aprova o PR automaticamente (post success). Sem deploy/Sonar/SBOM
 //    (SonarQube Community não faz análise de PR; o gate completo roda na main).
 //  • main (merge)  → pipeline completo: test → frontend → SonarQube (quality
@@ -108,6 +108,7 @@ pipeline {
         dir('web') {
           sh 'npm ci'
           sh 'npx tsc --noEmit'
+          sh 'npm test'          // vitest run — pega regressões de funções puras (group, parser, etc.)
           sh 'npm run build'
         }
         // node:alpine roda como root por padrão: web/node_modules e web/dist nascem

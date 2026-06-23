@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"crypto/rand"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -84,18 +83,27 @@ func resolvePeerPort() int {
 
 // watchForwardedPort restarts the process when gluetun's forwarded port changes.
 // anacrolix binds the peer port at boot, so re-binding to a new forwarded port
-// needs a fresh client — a clean exit lets `restart: unless-stopped` recreate us
-// and repick the port. Port changes are rare (only on VPN reconnect), so the
-// occasional restart is acceptable.
-func watchForwardedPort(ctrl string, current int) {
+// needs a fresh client — it signals `restart` so main runs the graceful
+// shutdown and exits; `restart: unless-stopped` then recreates us and repicks
+// the port. Port changes are rare (only on VPN reconnect), so the occasional
+// restart is acceptable.
+func watchForwardedPort(ctrl string, current int, restart chan<- struct{}) {
 	for {
 		time.Sleep(2 * time.Minute)
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		p, err := gluetun.ForwardedPort(ctx, ctrl)
 		cancel()
 		if err == nil && p > 0 && p != current {
-			log.Printf("forwarded port changed %d→%d — exiting to rebind", current, p)
-			os.Exit(0)
+			log.Printf("forwarded port changed %d→%d — triggering graceful restart to rebind", current, p)
+			// Non-blocking: main drains this and runs graceful shutdown (closing
+			// stores, stopping ffmpeg, waiting on moves). The old os.Exit(0) here
+			// skipped all of that — SQLite mid-write, ffmpeg orphaned, downloads
+			// stuck in `moving`. The watcher's job is done after one signal.
+			select {
+			case restart <- struct{}{}:
+			default:
+			}
+			return
 		}
 	}
 }
@@ -135,7 +143,12 @@ type appDeps struct {
 	localStream     *localstream.Registry
 	localCache      *localcache.Cache
 	transferTracker *transfer.Tracker
-	cleanup         []func()
+	// restart is signalled by the gluetun forwarded-port watcher when the VPN
+	// port changes. main's select drains it and runs the SAME graceful shutdown
+	// as a SIGTERM (instead of os.Exit, which skipped every cleanup), then the
+	// process exits and `restart: unless-stopped` recreates us to rebind.
+	restart chan struct{}
+	cleanup []func()
 }
 
 func (d *appDeps) addCleanup(fn func()) {
@@ -168,8 +181,9 @@ func main() {
 	deps.webSearch = imagesearch.Default()
 	deps.mlr = mailer.New(deps.cfg.SMTP)
 
+	deps.restart = make(chan struct{}, 1)
 	initHistoryStore(deps)
-	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg)
+	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg, deps.restart)
 	// Persist local-file thumbnails (and negative markers) under the stream
 	// DataDir so they survive restarts instead of regenerating in /tmp.
 	handlers.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
@@ -203,8 +217,12 @@ func main() {
 	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
 
 	if deps.streamSrv != nil {
-		metrics.StartWorker(context.Background(), deps.streamSrv, deps.hlsMgr)
-		streamer.StartBandwidthScheduler(context.Background(), deps.streamSrv, deps.cfg)
+		// Cancellable so graceful shutdown stops these background loops instead of
+		// leaving them ticking against half-closed stores.
+		workerCtx, cancelWorkers := context.WithCancel(context.Background())
+		deps.addCleanup(cancelWorkers)
+		metrics.StartWorker(workerCtx, deps.streamSrv, deps.hlsMgr)
+		streamer.StartBandwidthScheduler(workerCtx, deps.streamSrv, deps.cfg)
 	}
 
 	startTranscodeProbe()
@@ -237,12 +255,27 @@ func main() {
 		log.Fatalf("HTTP server failed: %v", err)
 	case sig := <-quit:
 		log.Printf("Signal %s recebido — graceful shutdown iniciado...", sig)
+	case <-deps.restart:
+		log.Printf("VPN forwarded port mudou — graceful shutdown para rebind (restart policy recria o processo)...")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
+	}
+	// HTTP is down → no new transfers can be submitted via the API. Give in-flight
+	// moves a bounded window to finish before stores close; whatever doesn't drain
+	// is picked up by downloads.RescueStuckMoving at next boot.
+	if n := deps.transferTracker.ActiveCount(); n > 0 {
+		log.Printf("Aguardando %d transferência(s) em andamento (até 20s)...", n)
+		waitCtx, waitCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if deps.transferTracker.WaitIdle(waitCtx) {
+			log.Printf("Transferências concluídas.")
+		} else {
+			log.Printf("Timeout — %d transferência(s) ainda ativa(s); serão retomadas no próximo boot.", deps.transferTracker.ActiveCount())
+		}
+		waitCancel()
 	}
 	log.Printf("HTTP server encerrado — rodando cleanups (anacrolix, stores, worker)...")
 }
@@ -286,7 +319,7 @@ func transmissionRPCEnabled() bool {
 	return v == "1" || v == "true"
 }
 
-func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
+func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) (streamer.Config, string) {
 	sc := streamer.Config{
 		DataDir:       cfg.Stream.DataDir,
 		IdleTimeout:   time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
@@ -311,7 +344,7 @@ func prepareStreamConfig(cfg *config.Config) (streamer.Config, string) {
 	// torrents properly and improves leech. 0 → streamer default (51469).
 	sc.ListenPort = resolvePeerPort()
 	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" && sc.ListenPort > 0 {
-		go watchForwardedPort(ctrl, sc.ListenPort)
+		go watchForwardedPort(ctrl, sc.ListenPort, restart)
 	}
 	if sc.DataDir == "" {
 		sc.DataDir = "/data/streams"
@@ -685,7 +718,7 @@ func startTranscodeProbe() {
 func initAuth(deps *appDeps) {
 	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
 	if !deps.cfg.Auth.Enabled {
-		log.Printf("Auth disabled — all endpoints public (set JACKUI_AUTH_ENABLED=1 to enable)")
+		log.Printf("WARNING: auth disabled (JACKUI_AUTH_ENABLED!=1) — ALL endpoints are public, including admin routes (config, mounts, cache) and the Transmission RPC. Only run like this behind a trusted reverse proxy / on a private LAN; set JACKUI_AUTH_ENABLED=1 to protect them.")
 		return
 	}
 	initAuthStore(deps)
@@ -716,12 +749,12 @@ func initAuthStore(deps *appDeps) {
 
 func initJWTSecret(deps *appDeps) {
 	secret := []byte(deps.cfg.Auth.JWTSecret)
+	// Auth is enabled here (initJWTSecret only runs from initAuth). A missing/
+	// short secret used to fall back to a random one per boot — which silently
+	// invalidated every session on each restart (refresh tokens, MFA flows). Fail
+	// fast and demand a persistent secret instead of degrading auth silently.
 	if len(secret) < 32 {
-		secret = make([]byte, 32)
-		if _, err := rand.Read(secret); err != nil {
-			log.Fatalf("Failed to generate JWT secret: %v", err)
-		}
-		log.Printf("Auth: generated random JWT secret (set jwt_secret in config to persist across restarts)")
+		log.Fatalf("Auth: jwt_secret ausente ou curto (%d bytes) — defina jwt_secret no config ou JACKUI_JWT_SECRET com pelo menos 32 bytes; um secret efêmero desloga todas as sessões a cada restart", len(secret))
 	}
 	deps.tokenMgr = auth.NewTokenManager(secret, 15*time.Minute)
 }
@@ -771,6 +804,9 @@ func initHLSManager(deps *appDeps) {
 	}
 	hlsMgr.SetVODMode(transcode.ParseVODMode(deps.cfg.Stream.HLSVODMode))
 	deps.hlsMgr = hlsMgr
+	// Reap live sessions (kill ffmpeg, remove segment dirs) on shutdown instead
+	// of relying on the OS to orphan the encoders.
+	deps.addCleanup(hlsMgr.Stop)
 }
 
 func buildPromoteDests(cfg *config.Config) []handlers.PromoteDest {
@@ -900,7 +936,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges"}
 	router.Use(cors.New(corsConfig))
 
-	router.GET("/healthz", handlers.Health(deps.historyStore))
+	router.GET("/healthz", handlers.Health(deps.historyStore, func() bool { return deps.streamSrv != nil }))
 	// Public build metadata (commit/build time/version) — checkable without a token.
 	router.GET("/status", handlers.BuildInfo(deps.historyStore))
 	// Prometheus metrics. With auth enabled the endpoint requires either the
