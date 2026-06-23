@@ -10,6 +10,10 @@ type SimpleAudioPlayerProps = {
   readonly onPlaying?: () => void
   readonly onPause?: () => void
   readonly onError?: () => void
+  // Espelha o <audio> real para o pai (callback ref) — sem mexer na máquina iOS.
+  // Permite ao PlayerModal controlar play/pause/seek (MediaSession, atalhos) e
+  // o replay do repeat-one no MESMO elemento que o usuário "abençoou" com o gesto.
+  readonly elementRef?: (el: HTMLAudioElement | null) => void
   readonly className?: string
 }
 
@@ -27,9 +31,10 @@ export function SimpleAudioPlayer({
   onPlaying,
   onPause,
   onError,
+  elementRef,
   className = '',
 }: SimpleAudioPlayerProps) {
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const isWebKit = isSafariBrowser() || isIOS()
   const blessedRef = useRef(false)
   const attachedSrcRef = useRef('')
@@ -71,7 +76,7 @@ export function SimpleAudioPlayer({
 
   return (
     <audio
-      ref={audioRef}
+      ref={(el) => { audioRef.current = el; elementRef?.(el) }}
       src={src || undefined}
       controls
       preload={isWebKit ? 'none' : 'metadata'}
