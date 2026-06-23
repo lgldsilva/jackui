@@ -125,17 +125,17 @@ function audioPreload(audioMode: boolean): 'auto' | undefined {
   return audioMode && canPlayNativeHls() ? 'auto' : undefined
 }
 
-// handleMetaLoaded: 'loadedmetadata' SEMPRE dispara (iOS incluso). Em WebKit-áudio
-// chamamos o MESMO handler de autoplay (kickAutoplay = onVideoCanPlay, idempotente
-// via autoplayTriedRef/seek/resume) pra contornar o 'canplay' que nunca chega no
-// iOS direct-play: o play() resultante faz o iOS buscar os dados e tocar (mudo se
-// faltar gesto → o usuário só tira o mute). Desktop/Chrome/vídeo seguem no canplay.
-function handleMetaLoaded(v: HTMLVideoElement, audioMode: boolean, onTimeUpdate: () => void, kickAutoplay: () => void, disableNativeAutoplay: boolean) {
+// handleMetaLoaded: 'loadedmetadata' SEMPRE dispara (iOS incluso). No WebKit
+// (iOS/Safari) o vídeo direct PARADO estaciona em readyState 2 e o 'canplay'
+// (readyState ≥3) NUNCA chega → o autoplay nunca era acionado e o vídeo "carregava
+// mas não tocava" (confirmado nos logs: loadedmetadata → stalled rs2 → sem 'autoplay
+// try'). Chamamos o kick aqui (= onVideoCanPlay, idempotente via autoplayTriedRef +
+// seek/resume): o play()→fallback-mudo destrava o rs2. Desktop/Chrome seguem no
+// 'canplay' (que lá dispara normal, então o kick aqui é no-op idempotente).
+function handleMetaLoaded(v: HTMLVideoElement, onTimeUpdate: () => void, kickAutoplay: () => void, disableNativeAutoplay: boolean) {
   clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
   onTimeUpdate()
-  // iOS-áudio (disableNativeAutoplay): NÃO chamar o autoplay aqui — o iOS exige
-  // gesto; o overlay "Tocar" cuida do start. Desktop/HLS-áudio seguem no kick.
-  if (audioMode && canPlayNativeHls() && !disableNativeAutoplay) kickAutoplay()
+  if (canPlayNativeHls() && !disableNativeAutoplay) kickAutoplay()
 }
 
 export function VideoPlayerElement({
@@ -319,7 +319,7 @@ export function VideoPlayerElement({
             if (v && !suppressNudge) kickPastStartGap(v)
           }}
           onTimeUpdate={onTimeUpdate}
-          onLoadedMetadata={(e) => handleMetaLoaded(e.currentTarget, audioMode, onTimeUpdate, onVideoCanPlay, disableNativeAutoplay)}
+          onLoadedMetadata={(e) => handleMetaLoaded(e.currentTarget, onTimeUpdate, onVideoCanPlay, disableNativeAutoplay)}
           onProgress={() => {
             const v = videoRef.current
             if (v && !suppressNudge) kickPastStartGap(v)
