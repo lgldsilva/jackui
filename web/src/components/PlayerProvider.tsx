@@ -6,6 +6,7 @@ import { clientLog } from '../lib/diag'
 import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import { isRevealHidden } from '../lib/reveal'
 import { shouldBlockHiddenDeepLink } from '../lib/deepLinkGate'
+import { shuffledOrder } from '../lib/shuffle'
 import { savePlaylistSnapshot, loadPlaylistSnapshot, clearPlaylistSnapshot, snapshotIndexOfHash } from './player/playlistSnapshot'
 import PlayerModal from './PlayerModal'
 
@@ -103,18 +104,6 @@ function playlistItemToResult(item: PlaylistItem): { result: SearchResult; fileI
   // file-0 picks from the contents picker also go through pickPrimaryFile — for
   // most torrents that's still correct (file 0 is rarely the actual primary).
   return { result, fileIdx: item.fileIndex > 0 ? item.fileIndex : undefined }
-}
-
-function shuffledOrder(n: number, startIndex: number): number[] {
-  // Fisher-Yates on [0..n-1] excluding startIndex, then put startIndex at position 0.
-  const rest = Array.from({ length: n }, (_, i) => i).filter(i => i !== startIndex)
-  const rand = new Uint32Array(rest.length)
-  crypto.getRandomValues(rand)
-  for (let i = rest.length - 1; i > 0; i--) {
-    const j = rand[i] % (i + 1)
-    ;[rest[i], rest[j]] = [rest[j], rest[i]]
-  }
-  return [startIndex, ...rest]
 }
 
 // parsePositiveInt/Float read a URL query value as a positive number, returning
