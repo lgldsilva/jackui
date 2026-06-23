@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Volume2 } from 'lucide-react'
 import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL, isIOS } from '../../api/client'
 import { clientLog } from '../../lib/diag'
@@ -216,11 +216,25 @@ export function VideoPlayerElement({
 
   // PLAYER NATIVO DIRETO: sem overlay "Tocar". O <video controls> nativo expõe o
   // botão de play, que NO iOS já É o gesto que o WebKit exige — tocar nele toca com
-  // som. No iOS o preload é 'none' (não pré-carrega → não estaciona em readyState 2;
-  // o play nativo dispara um load FRESCO dentro do gesto). Desktop/macOS-Safari
-  // seguem com autoplay (maybeAutoplayNative no loadedmetadata/canplay).
+  // som. No iOS o preload é 'none' e o `autoPlay` é DESLIGADO: o autoplay-com-som é
+  // bloqueado no iOS e o atributo autoPlay só dispara um LOAD que estaciona em
+  // readyState 2 sem nunca tocar (o bug do mp4 local "carrega mas não toca"). O play
+  // nativo (gesto) dispara um load FRESCO e toca. Desktop/macOS seguem no autoplay.
   // suppressNudge: sem nudge de start-gap no direct-play (só HLS/transcode tem o buraco).
   const suppressNudge = disableNativeAutoplay && !isTranscoded
+  // Auto-avanço no iOS: depois do 1º play por gesto (blessed → !disableNativeAutoplay),
+  // a Apple libera o play() programático no mesmo elemento. Como o autoPlay fica
+  // desligado no iOS, é AQUI que a faixa nova toca sozinha. attachedSrcRef evita
+  // re-disparar no mesmo src (re-render). Pré-blessed NÃO toca — espera o play nativo.
+  const attachedSrcRef = useRef('')
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !isIOS() || engineActive || useHlsJs || !streamURL) return
+    if (disableNativeAutoplay) return
+    if (attachedSrcRef.current === streamURL) return
+    attachedSrcRef.current = streamURL
+    v.play().catch(() => {})
+  }, [videoRef, streamURL, disableNativeAutoplay, engineActive, useHlsJs])
 
   return (
     <div
@@ -270,7 +284,7 @@ export function VideoPlayerElement({
           src={engineActive || useHlsJs ? undefined : (streamURL || undefined)}
           muted={engineActive}
           controls={!audioMode}
-          autoPlay={!disableNativeAutoplay}
+          autoPlay={!isIOS() && !disableNativeAutoplay}
           preload={isIOS() ? 'none' : audioPreload(audioMode)}
           playsInline
           {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
