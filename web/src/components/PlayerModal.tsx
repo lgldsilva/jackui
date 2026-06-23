@@ -1499,6 +1499,45 @@ export default function PlayerModal({
     }
   }
 
+  // Corpo do player de ÁUDIO (capa + <audio> nativo + transporte). Extraído como
+  // render fn aninhada (igual renderActiveStream) para não inflar a complexidade
+  // cognitiva de renderActiveStream — todos os ternários de layout vivem aqui.
+  const renderAudioBody = () => (
+    <>
+      {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
+          LOGO ABAIXO (não esticada por cima da capa). */}
+      <div className={minimized
+        ? 'relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0 bg-gradient-to-br from-gray-800 to-gray-900 rounded overflow-hidden'
+        : 'relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden'}>
+        <AudioCoverArt info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
+      </div>
+      <SimpleAudioPlayer
+        src={audioDirectSrc}
+        onEnded={handleVideoEnded}
+        onTimeUpdate={handleAudioTimeUpdate}
+        onPlaying={handlePlaybackStarted}
+        onError={() => setVideoError(true)}
+        elementRef={(el) => { audioRef.current = el }}
+        className={minimized ? 'flex-1 min-w-0 basis-[55%] lg:basis-0' : 'max-w-xl mx-auto mt-2'}
+      />
+      {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
+          simplificação e os controls nativos do <audio> não têm prev/next.
+          Só botões que trocam a FAIXA (handlePrev/handleNext) — sem Web Audio. */}
+      <SimpleAudioControls
+        onPrev={handlePrev}
+        onNext={handleNext}
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        shuffle={shuffle}
+        repeat={repeat}
+        onToggleShuffle={onToggleShuffle}
+        onCycleRepeat={onCycleRepeat}
+        position={trackOrder.order.length > 1 ? `${trackOrder.cursor + 1} / ${trackOrder.order.length}` : undefined}
+        className={minimized ? 'w-full !py-1 lg:w-auto lg:ml-auto' : ''}
+      />
+    </>
+  )
+
   // The active-stream layout (video + controls + file picker). Extracted to a
   // nested render fn so its conditional blocks don't inflate the component's
   // cognitive complexity. Closes over all the local state — behavior identical.
@@ -1523,41 +1562,7 @@ export default function PlayerModal({
         {/* Player de áudio simplificado ou vídeo completo. Áudio usa <audio>
             controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
             Vídeo mantém o player existente com HLS/transcode. */}
-        {audioMode ? (
-          <>
-            {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
-                LOGO ABAIXO (não esticada por cima da capa). */}
-            <div className={minimized
-              ? 'relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0 bg-gradient-to-br from-gray-800 to-gray-900 rounded overflow-hidden'
-              : 'relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden'}>
-              <AudioCoverArt info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
-            </div>
-            <SimpleAudioPlayer
-              src={audioDirectSrc}
-              onEnded={handleVideoEnded}
-              onTimeUpdate={handleAudioTimeUpdate}
-              onPlaying={handlePlaybackStarted}
-              onError={() => setVideoError(true)}
-              elementRef={(el) => { audioRef.current = el }}
-              className={minimized ? 'flex-1 min-w-0 basis-[55%] lg:basis-0' : 'max-w-xl mx-auto mt-2'}
-            />
-            {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
-                simplificação e os controls nativos do <audio> não têm prev/next.
-                Só botões que trocam a FAIXA (handlePrev/handleNext) — sem Web Audio. */}
-            <SimpleAudioControls
-              onPrev={handlePrev}
-              onNext={handleNext}
-              hasPrev={hasPrev}
-              hasNext={hasNext}
-              shuffle={shuffle}
-              repeat={repeat}
-              onToggleShuffle={onToggleShuffle}
-              onCycleRepeat={onCycleRepeat}
-              position={trackOrder.order.length > 1 ? `${trackOrder.cursor + 1} / ${trackOrder.order.length}` : undefined}
-              className={minimized ? 'w-full !py-1 lg:w-auto lg:ml-auto' : ''}
-            />
-          </>
-        ) : (
+        {audioMode ? renderAudioBody() : (
           <VideoPlayerElement
             videoRef={videoRef}
             streamURL={streamURL}
