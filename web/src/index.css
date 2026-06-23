@@ -162,3 +162,10 @@ video::-webkit-media-text-track-display {
   /* Webkit: nudge the cue box up a touch from the very bottom edge */
   overflow: visible;
 }
+
+/* Player: efeito ao ABRIR/EXPANDIR (minimizado→cheio). Antes a troca era seca.
+   Aplicado via `animate-[player-expand_...]` no container expandido do PlayerModal. */
+@keyframes player-expand {
+  from { opacity: 0; transform: translateY(56px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}

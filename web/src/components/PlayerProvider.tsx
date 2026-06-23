@@ -6,7 +6,7 @@ import { clientLog } from '../lib/diag'
 import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import { isRevealHidden } from '../lib/reveal'
 import { shouldBlockHiddenDeepLink } from '../lib/deepLinkGate'
-import { savePlaylistSnapshot, loadPlaylistSnapshot, snapshotIndexOfHash } from './player/playlistSnapshot'
+import { savePlaylistSnapshot, loadPlaylistSnapshot, clearPlaylistSnapshot, snapshotIndexOfHash } from './player/playlistSnapshot'
 import PlayerModal from './PlayerModal'
 
 /**
@@ -212,6 +212,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand = false) => {
     setStartExpanded(expand)
     setPlaylist(null)
+    // Item único substitui o contexto de playlist — limpa o snapshot pra que o
+    // boot-frio não ressuscite uma lista velha em que o usuário não está mais.
+    clearPlaylistSnapshot()
     setCurrent({ result, fileIdx: initialFileIndex, initialSeek })
   }, [])
 
@@ -255,6 +258,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     // co-watchers (the backend only drops once the LAST viewer leaves).
     setCurrent(null)
     setPlaylist(null)
+    // Fechar (X) = dispensar: não restaurar no próximo boot. Matar o app NÃO passa
+    // por aqui (a playlist persiste no snapshot → é restaurada ao reabrir).
+    clearPlaylistSnapshot()
   }, [])
 
   const goTo = useCallback((delta: number) => {
@@ -433,6 +439,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // intra-session updates. The dep on `searchParams.get('play')` is enough — it
   // only fires when the URL itself changes, which is the trigger we actually want.
   const lastSyncedHashRef = useRef<string | null>(null)
+  // Garante que a restauração de playlist no boot frio (URL sem ?play) rode UMA vez.
+  // Depois disso, URL sem ?play = o usuário fechou o player → não re-abrir.
+  const bootRestoredRef = useRef(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const playUrlParam = searchParams.get('play')
   const fileUrlParam = searchParams.get('f')
@@ -441,6 +450,23 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // URL → state
   useEffect(() => {
     const hash = playUrlParam
+    // Boot frio (1ª execução): restaura a última playlist ANTES do short-circuit
+    // abaixo. No mount, hash e lastSynced são ambos null, então `hash === lastSynced`
+    // pularia tudo — e o PWA standalone reabre no start_url SEM ?play, nunca
+    // restaurando. Só com nada tocando e sem ?play (nem na URL real, contra lag do
+    // router); roda 1x (fechar o player limpa o ?play e não deve re-abrir).
+    if (!bootRestoredRef.current) {
+      bootRestoredRef.current = true
+      const realHash = new URLSearchParams(globalThis.location.search).get('play')
+      if (!hash && !realHash && !current) {
+        const boot = loadPlaylistSnapshot()
+        if (boot && boot.items.length > 0) {
+          const idx = boot.currentItemIndex >= 0 && boot.currentItemIndex < boot.items.length ? boot.currentItemIndex : 0
+          playPlaylist(boot.name, [...boot.items], idx)
+          return
+        }
+      }
+    }
     if (hash === lastSyncedHashRef.current) return
     if (!hash) {
       // Double check location.search to prevent React Router race conditions on tab resume/hydration

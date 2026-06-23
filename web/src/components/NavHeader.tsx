@@ -63,7 +63,8 @@ export default function NavHeader({ rightExtra }: Props) {
   // Easter egg: 7 taps on the JackUI logo (within 1.5s) flip the global "hidden
   // curtain" for this session — revealing hidden favourites/Continue Watching/
   // downloads/local everywhere. Works on mobile and desktop (the logo shows on
-  // both). Each tap still navigates home, which is harmless.
+  // both). A logo NÃO navega mais (era <Link to="/"> — o usuário não quer ir pra
+  // home ao tocar): é só o gatilho do easter egg.
   const tapCount = useRef(0)
   const tapTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onLogoTap = () => {
@@ -171,11 +172,11 @@ export default function NavHeader({ rightExtra }: Props) {
       <div className="flex items-center justify-between px-3 h-14 flex-shrink-0 border-b border-default/60">
         {/* Logo — hidden on the DESKTOP collapsed rail (no room beside the toggle);
             always shown on mobile (drawer) and on the expanded desktop rail. */}
-        <Link to="/" onClick={onLogoTap} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title={t('nav.home')}>
+        <button type="button" onClick={onLogoTap} className={`flex items-center gap-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`} title="Jack UI">
           <span className="text-xl font-bold text-green-500">Jack</span>
           <span className="text-xl font-bold text-text-primary">UI</span>
           {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label={t('nav.revealed_visible')} />}
-        </Link>
+        </button>
         {/* Desktop: collapse/expand. Centered (mx-auto) when collapsed so it
             doesn't overlap the (hidden) logo. Hidden on mobile (drawer closes via X). */}
         <button
@@ -261,7 +262,7 @@ export default function NavHeader({ rightExtra }: Props) {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <Link to="/" onClick={onLogoTap} className="flex items-center gap-1 flex-1 min-w-0" title={t('nav.home')}>
+          <button type="button" onClick={onLogoTap} className="flex items-center gap-1 flex-1 min-w-0 text-left" title="Jack UI">
             <span className="text-xl font-bold text-green-500">Jack</span>
             <span className="text-xl font-bold text-text-primary">UI</span>
             {revealed && <Eye className="w-3.5 h-3.5 text-amber-400 ml-1 flex-shrink-0" aria-label={t('nav.revealed_visible')} />}
@@ -270,7 +271,7 @@ export default function NavHeader({ rightExtra }: Props) {
                 {t('nav.incognito')}
               </span>
             )}
-          </Link>
+          </button>
           <div className="flex items-center gap-1 flex-shrink-0">
             <ThemeToggle variant="mobile" />
             <NotificationsBell />
