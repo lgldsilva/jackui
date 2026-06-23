@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Volume2 } from 'lucide-react'
 import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL, isIOS } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
 import { useAirPlay } from './playerHooks'
 import { canPlayNativeHls, audioElementKey } from './playerFormat'
-import { shouldShowStartOverlay } from './playerOverlay'
+import { shouldShowStartOverlay, shouldShowStartAudioOverlay } from './playerOverlay'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
-import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton } from './PlayerOverlays'
+import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton, StartAudioOverlay } from './PlayerOverlays'
 
 type VideoPlayerElementProps = {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>
@@ -135,9 +135,7 @@ function audioPreload(audioMode: boolean): 'auto' | undefined {
 function handleMetaLoaded(v: HTMLVideoElement, onTimeUpdate: () => void, kickAutoplay: () => void, disableNativeAutoplay: boolean) {
   clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
   onTimeUpdate()
-  // macOS-Safari/desktop-WebKit: dispara o autoplay no loadedmetadata. NO iOS NÃO —
-  // lá o play() programático sem gesto trava em readyState 2 (o play é só o nativo).
-  if (canPlayNativeHls() && !isIOS() && !disableNativeAutoplay) kickAutoplay()
+  if (canPlayNativeHls() && !disableNativeAutoplay) kickAutoplay()
 }
 
 export function VideoPlayerElement({
@@ -216,19 +214,50 @@ export function VideoPlayerElement({
   // Only rendered when a target is on the network.
   const airplay = useAirPlay(videoRef, streamURL)
 
-  // PLAYER NATIVO DIRETO: sem overlay "Tocar". O <video controls> nativo expõe o
-  // botão de play, que NO iOS já É o gesto que o WebKit exige — tocar nele toca com
-  // som. No iOS o preload é 'none' e o `autoPlay` é DESLIGADO: o autoplay-com-som é
-  // bloqueado no iOS e o atributo autoPlay só dispara um LOAD que estaciona em
-  // readyState 2 sem nunca tocar (o bug do mp4 local "carrega mas não toca"). O play
-  // nativo (gesto) dispara um load FRESCO e toca. Desktop/macOS seguem no autoplay.
-  // suppressNudge: sem nudge de start-gap no direct-play (só HLS/transcode tem o buraco).
+  // iOS-áudio (tap-to-play): suprime os nudges não-gesto (start-gap) SÓ no
+  // direct-play — HLS/transcode no iOS ainda precisa do nudge de warmup. O overlay
+  // "Tocar" some assim que o usuário toca (startOverlayDismissed) e reseta a cada
+  // troca de faixa (streamURL). startAudioPlayback roda DENTRO do onClick (gesto)
+  // → o iOS baixa os dados e toca com som a partir de readyState 1.
   const suppressNudge = disableNativeAutoplay && !isTranscoded
-  // NO iOS: ZERO play() programático. O blessed é por-SESSÃO (não por-elemento), então
-  // chamar play() num <video> novo que NÃO foi tocado por gesto neste instance → o iOS
-  // bloqueia e o elemento carrega e ESTACIONA em readyState 2 (o bug do mp4 local "fica
-  // no load"). O ÚNICO play no iOS é o gesto no play NATIVO. Auto-avanço programático
-  // some no iOS (o usuário toca a próxima); macOS-Safari/desktop seguem no autoplay.
+  const [startOverlayDismissed, setStartOverlayDismissed] = useState(false)
+  useEffect(() => { setStartOverlayDismissed(false) }, [streamURL])
+  const showStartAudioOverlay = shouldShowStartAudioOverlay({
+    disableNativeAutoplay, startOverlayDismissed, videoError, showResumePrompt, currentTime,
+  })
+  // iOS: src IMPERATIVO (igual ao SimpleAudioPlayer que TOCA). O <video> é montado SEM
+  // src no iOS (não pré-carrega → não estaciona em readyState 2 antes do gesto — esse
+  // era o bug: o tap chamava v.load() num elemento pré-carregado, resetava rs2→0 e
+  // ABORTAVA o play, AbortError). Aqui o src é setado: pré-gesto (disableNativeAutoplay)
+  // ESPERA o tap; pós-blessed (auto-avanço) seta o src e o handleMetaLoaded toca no
+  // loadedmetadata. attachedSrcRef evita reanexar (el.src é absoluto; comparar com a
+  // streamURL relativa sempre diferiria → reload/abort).
+  const iosNative = isIOS() && !engineActive && !useHlsJs
+  const attachedSrcRef = useRef('')
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !iosNative || !streamURL) return
+    if (disableNativeAutoplay) return
+    if (attachedSrcRef.current === streamURL) return
+    attachedSrcRef.current = streamURL
+    v.src = streamURL
+  }, [videoRef, iosNative, streamURL, disableNativeAutoplay])
+  // O tap no "Tocar" é o gesto que destrava o vídeo no iOS. Espelha o SimpleAudioPlayer:
+  // seta o src DENTRO do gesto (o elemento estava SEM src) e play() no mesmo tick —
+  // SEM v.load(). Re-exibe o overlay se o play() falhar e LOGA o desfecho.
+  const startAudioPlayback = () => {
+    const v = videoRef.current
+    if (!v) return
+    setStartOverlayDismissed(true)
+    clientLog('info', 'player', 'tap "Tocar" (gesto) → src+play()', { readyState: v.readyState })
+    if (streamURL) { attachedSrcRef.current = streamURL; v.src = streamURL }
+    v.play()
+      .then(() => clientLog('info', 'player', 'tap-to-play ok (som)', { readyState: v.readyState }))
+      .catch((e) => {
+        setStartOverlayDismissed(false)
+        clientLog('warn', 'player', 'tap-to-play falhou', { name: (e as { name?: string })?.name, err: String(e) })
+      })
+  }
 
   return (
     <div
@@ -266,6 +295,7 @@ export function VideoPlayerElement({
           formatTime={formatTime}
         />
       )}
+      {showStartAudioOverlay && <StartAudioOverlay onPlay={startAudioPlayback} />}
       <TranscodingBadge attempted={transcodeFallbackAttempted} videoError={videoError} />
       <AirPlayButton airplay={airplay} videoError={videoError} />
       {videoError ? null : (
@@ -275,11 +305,11 @@ export function VideoPlayerElement({
           // See audioElementKey.
           key={audioElementKey(audioMode, isTranscoded)}
           ref={videoRef}
-          src={engineActive || useHlsJs ? undefined : (streamURL || undefined)}
+          src={iosNative || engineActive || useHlsJs ? undefined : (streamURL || undefined)}
           muted={engineActive}
           controls={!audioMode}
-          autoPlay={!isIOS() && !disableNativeAutoplay}
-          preload={isIOS() ? 'none' : audioPreload(audioMode)}
+          autoPlay={!disableNativeAutoplay}
+          preload={iosNative ? 'none' : audioPreload(audioMode)}
           playsInline
           {...{ 'webkit-playsinline': 'true', 'x-webkit-airplay': 'allow' } as any}
           className={`max-h-full max-w-full${audioMode ? ' w-full h-full' : ''}`}
