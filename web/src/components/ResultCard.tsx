@@ -194,7 +194,7 @@ function renderCardTitle(
   return (
     <div className="flex items-start justify-between gap-2">
       {renderArtSection(tmdb)}
-      <h3 className={`text-sm font-medium text-text-primary line-clamp-2 flex-1 ${cardClickable ? 'hover:text-green-400' : ''}`} title={titleAttr}>
+      <h3 className={`text-sm font-medium text-text-primary line-clamp-2 flex-1 min-w-0 break-words ${cardClickable ? 'hover:text-green-400' : ''}`} title={titleAttr}>
         {result.title}
         {tmdb && (
           <span className="block text-[11px] font-normal text-text-secondary mt-0.5 line-clamp-2">
