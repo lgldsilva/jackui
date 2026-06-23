@@ -6,6 +6,7 @@ import { clientLog } from '../lib/diag'
 import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import { isRevealHidden } from '../lib/reveal'
 import { shouldBlockHiddenDeepLink } from '../lib/deepLinkGate'
+import { savePlaylistSnapshot, loadPlaylistSnapshot, snapshotIndexOfHash } from './player/playlistSnapshot'
 import PlayerModal from './PlayerModal'
 
 /**
@@ -198,6 +199,15 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const repeatRef = useRef<RepeatMode>('none')
   playlistRef.current = playlist
   repeatRef.current = repeat
+
+  // Persiste a playlist ativa pra reabrir o app restaurando prev/next + posição
+  // (a URL só carrega o item atual). Salva enquanto há playlist; NÃO limpa ao
+  // fechar — reabrir DEVE ressuscitar a última lista (o TTL de 7d corta antigas;
+  // a restauração só dispara se o ?play=hash bater com um item da lista salva).
+  useEffect(() => {
+    if (!playlist) return
+    savePlaylistSnapshot(playlist.name, playlist.items, playlist.order[playlist.position])
+  }, [playlist])
 
   const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand = false) => {
     setStartExpanded(expand)
@@ -446,6 +456,19 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     }
     const fIdx = parsePositiveInt(fileUrlParam)
     const initialSeek = parsePositiveFloat(timeUrlParam)
+
+    // Reabrir o app: se este hash pertence à última playlist salva, restaura a
+    // LISTA inteira (prev/next + posição) em vez de só o item — playSingle fazia
+    // setPlaylist(null), apagando o contexto. Vem ANTES do ramo local porque
+    // playlists de pastas locais usam pseudo-hash `local-...` (senão cairiam no
+    // isLocalHash e voltariam a perder a lista).
+    const snap = loadPlaylistSnapshot()
+    const snapIdx = snap ? snapshotIndexOfHash(snap, hash) : -1
+    if (snap && snapIdx >= 0) {
+      lastSyncedHashRef.current = hash
+      playPlaylist(snap.name, [...snap.items], snapIdx)
+      return
+    }
 
     // Local pseudo-hash (`local-<base64url>`): a deep link to a file on a mount,
     // used by "open in new tab" from the local browser. No library lookup —
