@@ -20,8 +20,14 @@ services:
           memory: ${JACKUI_MEM_LIMIT:-2g}
         reservations:
           memory: 256m
+    # /healthz returns 503 if the DB or the streamer failed to init — Docker
+    # marks the container unhealthy instead of it silently running degraded.
     healthcheck:
-      disable: true
+      test: ["CMD", "wget", "-qO-", "http://localhost:8989/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     ports:
       - "127.0.0.1:8989:8989"
       - "51469:51469/tcp"   # BitTorrent peer port (TCP)
