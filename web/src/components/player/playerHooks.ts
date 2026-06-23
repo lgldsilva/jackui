@@ -156,21 +156,32 @@ type MediaSessionOpts = {
   readonly playlistName?: string
   readonly onNext?: () => void
   readonly onPrev?: () => void
+  // URL ABSOLUTA da capa (o iOS busca a imagem no nível do SO). Vazia = sem artwork.
+  readonly artworkURL?: string
 }
 
 // useMediaSession exposes "what's playing" + media keys / lock-screen controls
 // to the OS. Without it, iOS shows "JackUI" with no metadata and AirPods/
 // bluetooth controls don't fire next/previous on the playlist.
-export function useMediaSession({ videoRef, info, selectedFile, playlistName, onNext, onPrev }: MediaSessionOpts) {
+export function useMediaSession({ videoRef, info, selectedFile, playlistName, onNext, onPrev, artworkURL }: MediaSessionOpts) {
   useEffect(() => {
     if (!info || selectedFile < 0) return
     if (!('mediaSession' in navigator)) return
     const file = info.files[selectedFile]
     const title = file?.path?.split('/').pop() || info.name
+    // artwork: 96 (player compacto) + 512 (expandido) apontando pra mesma capa —
+    // a rota serve uma imagem só; o iOS escolhe (ver MDN/dbushell). type é só dica.
+    const artwork = artworkURL
+      ? [
+          { src: artworkURL, sizes: '96x96', type: 'image/jpeg' },
+          { src: artworkURL, sizes: '512x512', type: 'image/jpeg' },
+        ]
+      : []
     navigator.mediaSession.metadata = new MediaMetadata({
       title,
       album: playlistName || info.name,
       artist: 'JackUI',
+      artwork,
     })
     const v = () => videoRef.current
     navigator.mediaSession.setActionHandler('play', () => { v()?.play().catch(() => {}) })
@@ -190,7 +201,7 @@ export function useMediaSession({ videoRef, info, selectedFile, playlistName, on
         navigator.mediaSession.setActionHandler('seekto', null)
       } catch {}
     }
-  }, [info?.infoHash, selectedFile, playlistName, onNext, onPrev])
+  }, [info?.infoHash, selectedFile, playlistName, onNext, onPrev, artworkURL])
 }
 
 type SubtitleOffsetOpts = {
