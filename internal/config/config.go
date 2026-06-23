@@ -142,7 +142,7 @@ type TMDBConfig struct {
 
 type AuthConfig struct {
 	Enabled       bool   `yaml:"enabled"`        // false = legacy no-auth mode (everything public)
-	JWTSecret     string `yaml:"jwt_secret"`     // HS256 secret (auto-generated if empty + persisted)
+	JWTSecret     string `yaml:"jwt_secret"`     // HS256 secret; REQUIRED (>=32 bytes) when auth enabled — boot fails otherwise
 	AdminUsername string `yaml:"admin_username"` // bootstrap admin login
 	AdminPassword string `yaml:"admin_password"` // bootstrap admin password (only used on first run)
 	DBPath        string `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
