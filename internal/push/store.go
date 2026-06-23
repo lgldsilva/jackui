@@ -38,7 +38,7 @@ type Store struct {
 }
 
 func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL)
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
 	if err != nil {
 		return nil, err
 	}

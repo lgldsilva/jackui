@@ -81,7 +81,7 @@ func ArtSourceRank(source string) int {
 }
 
 func NewMetadataCache(path string) (*MetadataCache, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL)
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
 	if err != nil {
 		return nil, err
 	}
