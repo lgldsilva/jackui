@@ -164,6 +164,11 @@ type MediaSessionOpts = {
 // to the OS. Without it, iOS shows "JackUI" with no metadata and AirPods/
 // bluetooth controls don't fire next/previous on the playlist.
 export function useMediaSession({ videoRef, info, selectedFile, playlistName, onNext, onPrev, artworkURL }: MediaSessionOpts) {
+  // Metadata (título + capa) só muda com a FAIXA/capa — mantida num effect SÓ
+  // com deps estáveis. Antes os action handlers (onNext/onPrev, recriados a cada
+  // render por não serem memoizados) estavam no mesmo effect, então a metadata
+  // era re-emitida a cada onTimeUpdate (~4×/s) e o SO re-baixava a capa toda vez
+  // (visto nos logs: milhares de GET /api/local/audio/cover numa única sessão).
   useEffect(() => {
     if (!info || selectedFile < 0) return
     if (!('mediaSession' in navigator)) return
@@ -183,6 +188,12 @@ export function useMediaSession({ videoRef, info, selectedFile, playlistName, on
       artist: 'JackUI',
       artwork,
     })
+  }, [info?.infoHash, selectedFile, playlistName, artworkURL])
+
+  // Action handlers (media keys / lock-screen). Re-registrar é barato (sem rede),
+  // então este effect pode re-rodar livremente quando os callbacks de faixa mudam.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
     const v = () => videoRef.current
     navigator.mediaSession.setActionHandler('play', () => { v()?.play().catch(() => {}) })
     navigator.mediaSession.setActionHandler('pause', () => { v()?.pause() })
@@ -201,28 +212,43 @@ export function useMediaSession({ videoRef, info, selectedFile, playlistName, on
         navigator.mediaSession.setActionHandler('seekto', null)
       } catch {}
     }
-  }, [info?.infoHash, selectedFile, playlistName, onNext, onPrev, artworkURL])
+  }, [videoRef, onNext, onPrev])
 }
 
 type SubtitleOffsetOpts = {
   readonly videoRef: RefObject<HTMLVideoElement>
   readonly subActive: string | null
+  readonly embeddedSub: number | null
+  readonly sidecarIdx: number | null
+  readonly localEmbeddedVttURL: string
   readonly subOffset: number
   readonly origCuesRef: MutableRefObject<{ start: number; end: number }[]>
 }
 
-// useSubtitleOffset applies the user-chosen sync offset to every cue of the
-// active text track, snapshotting the original timings once per loaded sub so
-// repeated offset changes stay relative to the source. Also clears the snapshot
-// whenever the active subtitle changes. Extracted verbatim from PlayerModal.
-export function useSubtitleOffset({ videoRef, subActive, subOffset, origCuesRef }: SubtitleOffsetOpts) {
+// useSubtitleOffset força o text track a aparecer e aplica o offset de sync do
+// usuário a cada cue, fazendo o snapshot dos tempos originais uma vez por sub
+// carregado pra mudanças repetidas de offset ficarem relativas à fonte.
+//
+// Ativa pra QUALQUER legenda que vire <track>: externa (subActive), embutida
+// (embeddedSub) ou sidecar (sidecarIdx). Antes só rodava pra externa, então
+// embutida/sidecar nunca recebiam `track.mode = 'showing'` — no Safari com HLS
+// nativo o atributo `default` do <track> NÃO basta quando o src chega depois
+// (blob da legenda embedded extraída sob demanda), e a faixa carregava invisível.
+// `localEmbeddedVttURL` entra nas deps porque o blob local é assíncrono: quando
+// ele finalmente chega, o effect re-roda e ativa o track já com src.
+export function useSubtitleOffset({ videoRef, subActive, embeddedSub, sidecarIdx, localEmbeddedVttURL, subOffset, origCuesRef }: SubtitleOffsetOpts) {
   useEffect(() => {
     const v = videoRef.current
-    if (!v || !subActive) return
+    const hasTrackSub = subActive !== null || embeddedSub !== null || sidecarIdx !== null
+    if (!v || !hasTrackSub) return
 
     const applyOffset = () => {
       const track = v.textTracks?.[0]
-      if (!track?.cues?.length) return
+      if (!track) return
+      // Ativa SEMPRE primeiro: sem isso o Safari não exibe um <track> cujo src
+      // chegou dinamicamente, mesmo com `default`.
+      track.mode = 'showing'
+      if (!track.cues?.length) return
       // Save originals once per loaded sub
       if (origCuesRef.current.length !== track.cues.length) {
         origCuesRef.current = Array.from(track.cues).map((c: any) => ({
@@ -236,7 +262,6 @@ export function useSubtitleOffset({ videoRef, subActive, subOffset, origCuesRef 
         cue.startTime = Math.max(0, orig.start + subOffset)
         cue.endTime = Math.max(0, orig.end + subOffset)
       })
-      track.mode = 'showing'
     }
 
     // Try now, and again when the track finishes loading
@@ -251,12 +276,12 @@ export function useSubtitleOffset({ videoRef, subActive, subOffset, origCuesRef 
         track.removeEventListener('cuechange', onLoad)
       }
     }
-  }, [subActive, subOffset])
+  }, [subActive, embeddedSub, sidecarIdx, localEmbeddedVttURL, subOffset])
 
-  // Reset original cue timings when subtitle changes
+  // Reset original cue timings when the active subtitle changes (any source).
   useEffect(() => {
     origCuesRef.current = []
-  }, [subActive])
+  }, [subActive, embeddedSub, sidecarIdx])
 }
 
 type TrackProbeOpts = {

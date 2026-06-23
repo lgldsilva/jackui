@@ -1087,7 +1087,7 @@ export default function PlayerModal({
 
   // Apply subtitle offset whenever active sub or offset changes (and reset the
   // cue snapshot when the subtitle changes). Extracted to a hook.
-  useSubtitleOffset({ videoRef, subActive, subOffset, origCuesRef })
+  useSubtitleOffset({ videoRef, subActive, embeddedSub, sidecarIdx, localEmbeddedVttURL, subOffset, origCuesRef })
 
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
