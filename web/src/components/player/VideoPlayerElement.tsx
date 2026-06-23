@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Volume2 } from 'lucide-react'
 import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL, isIOS } from '../../api/client'
 import { clientLog } from '../../lib/diag'
@@ -135,7 +135,9 @@ function audioPreload(audioMode: boolean): 'auto' | undefined {
 function handleMetaLoaded(v: HTMLVideoElement, onTimeUpdate: () => void, kickAutoplay: () => void, disableNativeAutoplay: boolean) {
   clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
   onTimeUpdate()
-  if (canPlayNativeHls() && !disableNativeAutoplay) kickAutoplay()
+  // macOS-Safari/desktop-WebKit: dispara o autoplay no loadedmetadata. NO iOS NÃO —
+  // lá o play() programático sem gesto trava em readyState 2 (o play é só o nativo).
+  if (canPlayNativeHls() && !isIOS() && !disableNativeAutoplay) kickAutoplay()
 }
 
 export function VideoPlayerElement({
@@ -222,19 +224,11 @@ export function VideoPlayerElement({
   // nativo (gesto) dispara um load FRESCO e toca. Desktop/macOS seguem no autoplay.
   // suppressNudge: sem nudge de start-gap no direct-play (só HLS/transcode tem o buraco).
   const suppressNudge = disableNativeAutoplay && !isTranscoded
-  // Auto-avanço no iOS: depois do 1º play por gesto (blessed → !disableNativeAutoplay),
-  // a Apple libera o play() programático no mesmo elemento. Como o autoPlay fica
-  // desligado no iOS, é AQUI que a faixa nova toca sozinha. attachedSrcRef evita
-  // re-disparar no mesmo src (re-render). Pré-blessed NÃO toca — espera o play nativo.
-  const attachedSrcRef = useRef('')
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v || !isIOS() || engineActive || useHlsJs || !streamURL) return
-    if (disableNativeAutoplay) return
-    if (attachedSrcRef.current === streamURL) return
-    attachedSrcRef.current = streamURL
-    v.play().catch(() => {})
-  }, [videoRef, streamURL, disableNativeAutoplay, engineActive, useHlsJs])
+  // NO iOS: ZERO play() programático. O blessed é por-SESSÃO (não por-elemento), então
+  // chamar play() num <video> novo que NÃO foi tocado por gesto neste instance → o iOS
+  // bloqueia e o elemento carrega e ESTACIONA em readyState 2 (o bug do mp4 local "fica
+  // no load"). O ÚNICO play no iOS é o gesto no play NATIVO. Auto-avanço programático
+  // some no iOS (o usuário toca a próxima); macOS-Safari/desktop seguem no autoplay.
 
   return (
     <div
