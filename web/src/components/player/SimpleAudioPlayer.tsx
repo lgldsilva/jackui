@@ -14,6 +14,23 @@ type SimpleAudioPlayerProps = {
   readonly className?: string
 }
 
+// Helpers puros extraídos para testes sem React Testing Library.
+export const computeAudioPreload = (isWebKit: boolean, blessed: boolean): 'none' | 'auto' =>
+  isWebKit && !blessed ? 'none' : 'auto'
+
+export const computeEffectiveSrc = (
+  isWebKit: boolean,
+  blessed: boolean,
+  src: string,
+): string | undefined => (isWebKit && !blessed ? undefined : src || undefined)
+
+export const shouldShowAudioOverlay = (
+  isWebKit: boolean,
+  blessed: boolean,
+  startOverlayDismissed: boolean,
+  errored: boolean,
+): boolean => isWebKit && !blessed && !startOverlayDismissed && !errored
+
 // SimpleAudioPlayer: player de áudio "pelado" inspirado no audiotest.html.
 // Usa um <audio controls> nativo com src DIRECT. No iOS/WebKit o elemento só
 // ganha src real DENTRO do primeiro gesto do usuário, exatamente como o teste
@@ -39,8 +56,8 @@ export function SimpleAudioPlayer({
   // DOM com preload='none' e sem src, então não pré-carrega e não estaciona em
   // readyState 2. O tap chama startPlayback(), que seta src e play() no mesmo
   // gesto — espelhando o audiotest.html.
-  const effectiveSrc = isWebKit && !blessed ? undefined : (src || undefined)
-  const preload = isWebKit && !blessed ? 'none' : 'auto'
+  const effectiveSrc = computeEffectiveSrc(isWebKit, blessed, src)
+  const preload = computeAudioPreload(isWebKit, blessed)
 
   const startPlayback = useCallback(() => {
     const el = audioRef.current
@@ -106,7 +123,7 @@ export function SimpleAudioPlayer({
     }
   }, [autoAdvance, onEnded, onTimeUpdate, onPlaying, onPause, onError])
 
-  const showOverlay = isWebKit && !blessed && !startOverlayDismissed && !errored
+  const showOverlay = shouldShowAudioOverlay(isWebKit, blessed, startOverlayDismissed, errored)
 
   return (
     <div className={`relative ${className}`}>
