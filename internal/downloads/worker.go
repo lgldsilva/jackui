@@ -1103,8 +1103,10 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	defer cancel()
 
 	// EffectiveMagnet is the active alternative source when rotation has switched
-	// away from the original, otherwise the original magnet.
-	hash, err := w.streamer.EnsureActive(ctx, d.EffectiveMagnet())
+	// away from the original, otherwise the original magnet. A common failure is
+	// an ephemeral indexer .torrent URL (Jackett /dl/...) that has since 404'd —
+	// ensureActiveWithFallback recovers via a bare info_hash magnet.
+	hash, err := w.ensureActiveWithFallback(ctx, &d)
 	if err != nil {
 		w.failOrRetry(d, "load torrent: "+err.Error())
 		return
@@ -1267,6 +1269,50 @@ func (w *Worker) resolveFileIndex(d *Download, files []*torrent.File) (int, bool
 		d.FileIndex = fileIdx
 	}
 	return fileIdx, true
+}
+
+// ensureActiveWithFallback loads the torrent for a download, recovering from a
+// dead primary source. Indexer .torrent links (Jackett /dl/...) are ephemeral —
+// once the token/cache expires they 404, and a row whose stored "magnet" is
+// actually such a URL would fail init forever. When that happens and the
+// info_hash is known, we retry with a bare magnet (DHT + the streamer's injected
+// public trackers resolve it) and persist it so later retries/reboots skip the
+// dead URL.
+func (w *Worker) ensureActiveWithFallback(ctx context.Context, d *Download) (metainfo.Hash, error) {
+	src := d.EffectiveMagnet()
+	hash, err := w.streamer.EnsureActive(ctx, src)
+	if err == nil {
+		return hash, nil
+	}
+	alt, ok := fallbackMagnet(src, d.InfoHash)
+	if !ok {
+		return hash, err
+	}
+	log.Printf("downloads: #%d source failed (%v) — retrying via info_hash magnet", d.ID, err)
+	h2, err2 := w.streamer.EnsureActive(ctx, alt)
+	if err2 != nil {
+		return hash, fmt.Errorf("%v; fallback por info_hash também falhou: %w", err, err2)
+	}
+	if uerr := w.store.SetActiveMagnet(d.UserID, d.ID, alt); uerr != nil {
+		log.Printf("downloads: #%d persist fallback magnet failed: %v", d.ID, uerr)
+	} else {
+		d.ActiveMagnet = alt
+	}
+	return h2, nil
+}
+
+// fallbackMagnet returns a bare info_hash magnet when src is an http(s) URL (an
+// ephemeral indexer .torrent link) and a 40-hex info_hash is known. ok is false
+// when no fallback applies — src is already a magnet, or the hash is missing.
+func fallbackMagnet(src, infoHash string) (magnet string, ok bool) {
+	if infoHash == "" {
+		return "", false
+	}
+	low := strings.ToLower(strings.TrimSpace(src))
+	if !strings.HasPrefix(low, "http://") && !strings.HasPrefix(low, "https://") {
+		return "", false
+	}
+	return "magnet:?xt=urn:btih:" + infoHash, true
 }
 
 // failOrRetry records a transient init failure. Below maxInitRetries it leaves
