@@ -807,6 +807,15 @@ func (w *Worker) reseedAfterCompletion(d Download) {
 // moveMaxAttempts. A shutdown signal (w.stop) aborts the retry loop early with
 // the pending error so the caller leaves the row `moving` for boot rescue.
 func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []string, whole bool, job *transfer.Job) (string, error) {
+	// Download-to-bulk: when the data was written STRAIGHT to its final
+	// destination, there's nothing to move — finalize in place. Covers the
+	// selected-file-in-multi case too (the storage preserves the internal tree,
+	// which moveDownloadedFile would flatten). Falls through to the move when the
+	// data ISN'T at the bulk path (no destination configured, or a legacy cache
+	// download from before this change).
+	if dst, ok := w.tryFinalizeBulk(d, name, relPaths, whole); ok {
+		return dst, nil
+	}
 	var dst string
 	var err error
 	for attempt := 1; attempt <= moveMaxAttempts; attempt++ {
@@ -829,6 +838,42 @@ func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []strin
 		}
 	}
 	return "", err
+}
+
+// tryFinalizeBulk finalizes a download whose data was written DIRECTLY to its
+// bulk destination (download-to-bulk): no move, just persist file_path and
+// release the eviction guard. Returns ok=false (so the caller falls back to the
+// cache→dest move) when no destination is configured OR the data isn't actually
+// at the expected bulk path — e.g. a legacy download that landed in the cache
+// before this change. dst is the file (or torrent dir) path on ok.
+func (w *Worker) tryFinalizeBulk(d Download, name string, relPaths []string, whole bool) (string, bool) {
+	if w.completionBaseDir(d) == "" {
+		return "", false
+	}
+	destDir := w.completionDest(d, name)
+	dst := destDir
+	if whole {
+		if !dirHasFiles(destDir) {
+			return "", false
+		}
+	} else {
+		dst = filepath.Join(destDir, bulkRelPath(name, relPaths[0]))
+		if !fileExists(dst) {
+			return "", false
+		}
+	}
+	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
+		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+	}
+	w.streamer.UnregisterDownload(name)
+	log.Printf("downloads: #%d %q already in bulk (no move) → %s", d.ID, name, dst)
+	return dst, true
+}
+
+// bulkRelPath mirrors bulkRel for a torrent-relative path string: strips the
+// torrent-name root so it matches the download storage layout.
+func bulkRelPath(name, rel string) string {
+	return filepath.FromSlash(strings.TrimPrefix(rel, name+"/"))
 }
 
 // wholeTorrentRelPaths returns the content files' torrent-relative paths, skipping
@@ -948,17 +993,61 @@ func isOrphanedCompletion(d Download, dataDir string) bool {
 // (no per-user subdir, matching Transmission). Returns "" when no destination is
 // configured (legacy: keep the file in DataDir).
 func (w *Worker) completionDest(d Download, torrentName string) string {
+	base := w.completionBaseDir(d)
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, sanitizeFolderName(torrentName))
+}
+
+// completionBaseDir returns the PARENT directory a finished download lands in,
+// WITHOUT the per-torrent name segment. The torrent name isn't known until
+// metadata arrives, so the download-to-bulk storage needs just the parent (it
+// appends <sanitize(name)> itself inside its TorrentDirMaker). Sharing this with
+// completionDest — which appends the SAME <sanitize(name)> — guarantees the
+// storage writes exactly where the move expects, making the move a no-op.
+// Returns "" when no destination is configured (legacy: keep in DataDir).
+func (w *Worker) completionBaseDir(d Download) string {
 	if w.sharedDir != "" && d.Source == SourceArr && w.queueSettings().AutoPromoteArr {
-		return filepath.Join(PromoteDir(w.sharedDir, d.Category), sanitizeFolderName(torrentName))
+		return PromoteDir(w.sharedDir, d.Category)
 	}
 	if w.downloadDir == "" {
 		return ""
 	}
-	username := ""
+	base := w.downloadDir
 	if w.resolveUsername != nil {
-		username = w.resolveUsername(d.UserID)
+		if u := w.resolveUsername(d.UserID); u != "" {
+			base = filepath.Join(base, u)
+		}
 	}
-	return completedDestDir(w.downloadDir, username, torrentName)
+	return base
+}
+
+// initFilePath computes the row's file_path + size at init time. For
+// download-to-bulk it points into the bulk destination (where the storage writes
+// the data) so streaming-of-in-progress and the post-completion finalize both
+// resolve there; with no destination configured it's the legacy cache path under
+// DataDir. Whole-torrent → the per-torrent dir; single/selected file → that dir
+// plus the file's tree path (name root stripped, matching the storage layout).
+func (w *Worker) initFilePath(d Download, t *torrent.Torrent, f *torrent.File, name string) (string, int64) {
+	if base := w.completionBaseDir(d); base != "" {
+		dir := filepath.Join(base, sanitizeFolderName(name)) // == completionDest(d, name)
+		if f != nil {
+			return filepath.Join(dir, bulkRel(name, f)), f.Length()
+		}
+		return dir, t.Length()
+	}
+	if f != nil {
+		return filepath.Join(w.dataDir, f.Path()), f.Length()
+	}
+	return filepath.Join(w.dataDir, name), t.Length()
+}
+
+// bulkRel returns a torrent file's path relative to its per-torrent dir, matching
+// the download storage layout: the internal tree WITHOUT the torrent-name root
+// (single-file torrents have no root, so it's just the file name).
+func bulkRel(name string, f *torrent.File) string {
+	return filepath.FromSlash(strings.TrimPrefix(f.Path(), name+"/"))
 }
 
 // moveCompletedFile relocates a finished download from the streaming cache to the
@@ -1226,12 +1315,7 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// SetFilePath sobrescreve com o destino; se falha, ainda dá pra achar o
 	// arquivo na cache pelo path. Whole-torrent: a raiz do torrent na cache e o
 	// tamanho agregado.
-	filePath := filepath.Join(w.dataDir, name)
-	fileSize := t.Length()
-	if f != nil {
-		filePath = filepath.Join(w.dataDir, f.Path())
-		fileSize = f.Length()
-	}
+	filePath, fileSize := w.initFilePath(d, t, f, name)
 	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
 		log.Printf("downloads: failed to update metadata for download %d: %v", d.ID, err)
 	}
@@ -1366,7 +1450,7 @@ func (w *Worker) resolveFileIndex(d *Download, files []*torrent.File) (int, bool
 // dead URL.
 func (w *Worker) ensureActiveWithFallback(ctx context.Context, d *Download) (metainfo.Hash, error) {
 	src := d.EffectiveMagnet()
-	hash, err := w.streamer.EnsureActive(ctx, src)
+	hash, err := w.ensureActive(ctx, *d, src)
 	if err == nil {
 		return hash, nil
 	}
@@ -1375,7 +1459,7 @@ func (w *Worker) ensureActiveWithFallback(ctx context.Context, d *Download) (met
 		return hash, err
 	}
 	log.Printf("downloads: #%d source failed (%v) — retrying via info_hash magnet", d.ID, err)
-	h2, err2 := w.streamer.EnsureActive(ctx, alt)
+	h2, err2 := w.ensureActive(ctx, *d, alt)
 	if err2 != nil {
 		return hash, fmt.Errorf("%v; fallback por info_hash também falhou: %w", err, err2)
 	}
@@ -1385,6 +1469,24 @@ func (w *Worker) ensureActiveWithFallback(ctx context.Context, d *Download) (met
 		d.ActiveMagnet = alt
 	}
 	return h2, nil
+}
+
+// ensureActive adds the torrent, writing its data DIRECTLY to the configured
+// bulk destination (download-to-bulk) when one is set — so torrents larger than
+// the SSD cache don't overflow it and the move-on-completion is a no-op. With no
+// destination configured it falls back to the cache (legacy streaming storage).
+// The BaseDir is the destination PARENT (without the torrent-name segment); the
+// storage appends <sanitizeFolderName(name)> itself once metadata resolves the
+// real name — keeping the write path identical to completionDest.
+func (w *Worker) ensureActive(ctx context.Context, d Download, src string) (metainfo.Hash, error) {
+	base := w.completionBaseDir(d)
+	if base == "" {
+		return w.streamer.EnsureActive(ctx, src)
+	}
+	return w.streamer.EnsureActiveForDownload(ctx, src, streamer.DownloadStorageSpec{
+		BaseDir:  base,
+		Sanitize: sanitizeFolderName,
+	})
 }
 
 // fallbackMagnet returns a bare info_hash magnet when src is an http(s) URL (an
