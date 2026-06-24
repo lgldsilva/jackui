@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
-import { transfersList, type TransferSnapshot } from '../api/transfers'
+import { transfersList, transferCancel, type TransferSnapshot } from '../api/transfers'
 import { useAuth } from '../auth/AuthContext'
 
 // TransfersProvider polls GET /api/transfers and exposes the live move/copy jobs
@@ -14,6 +14,8 @@ type TransfersAPI = {
   readonly transfers: readonly TransferSnapshot[]
   /** Force an immediate refresh — call right after kicking off a move/promote. */
   readonly bump: () => void
+  /** Cancel an in-flight move/copy (the dock's stop button). */
+  readonly cancel: (id: string) => void
 }
 
 const Ctx = createContext<TransfersAPI | null>(null)
@@ -46,6 +48,13 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
     void poll()
   }, [poll])
 
+  // Optimistically drop the job from the dock, tell the backend to abort, then
+  // refresh (the job will come back as "canceled" briefly, then prune).
+  const cancel = useCallback((id: string) => {
+    setTransfers((prev) => prev.filter((t) => t.id !== id))
+    transferCancel(id).catch(() => {}).finally(() => bump())
+  }, [bump])
+
   useEffect(() => {
     stopped.current = false
     if (!user) {
@@ -60,12 +69,12 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
     }
   }, [user, poll])
 
-  return <Ctx.Provider value={{ transfers, bump }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ transfers, bump, cancel }}>{children}</Ctx.Provider>
 }
 
 export function useTransfers(): TransfersAPI {
   const ctx = useContext(Ctx)
-  if (!ctx) return { transfers: [], bump: () => {} }
+  if (!ctx) return { transfers: [], bump: () => {}, cancel: () => {} }
   return ctx
 }
 

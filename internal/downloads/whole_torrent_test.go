@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"bytes"
 	"os"
 	"path/filepath"
@@ -319,7 +320,7 @@ func TestMoveCompletedTree_IdempotentSkipsAlreadyMoved(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, "T", "todo.bin"), []byte("y"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := moveCompletedTree(dataDir, destDir, "T", []string{"T/done.bin", "T/todo.bin"}, nil, nil)
+	err := moveCompletedTree(context.Background(), dataDir, destDir, "T", []string{"T/done.bin", "T/todo.bin"}, nil, nil)
 	if err != nil {
 		t.Fatalf("moveCompletedTree: %v", err)
 	}
@@ -327,7 +328,7 @@ func TestMoveCompletedTree_IdempotentSkipsAlreadyMoved(t *testing.T) {
 		t.Error("todo.bin should have been moved")
 	}
 	// Missing source AND missing destination → hard error (don't fake success).
-	err = moveCompletedTree(dataDir, destDir, "T", []string{"T/ghost.bin"}, nil, nil)
+	err = moveCompletedTree(context.Background(), dataDir, destDir, "T", []string{"T/ghost.bin"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for a file missing from both cache and destination")
 	}
@@ -452,7 +453,7 @@ func TestPeerCount_NilSafe(t *testing.T) {
 }
 
 func TestMoveCompletedTree_RejectsUnsafePath(t *testing.T) {
-	err := moveCompletedTree(t.TempDir(), t.TempDir(), "T", []string{"../evil.bin"}, nil, nil)
+	err := moveCompletedTree(context.Background(), t.TempDir(), t.TempDir(), "T", []string{"../evil.bin"}, nil, nil)
 	if err == nil {
 		t.Fatal("expected traversal rejection to propagate")
 	}
