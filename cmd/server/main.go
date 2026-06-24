@@ -597,6 +597,7 @@ func initDownloadsStore(deps *appDeps) {
 		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
 		NtfyToken:       deps.cfg.Notifications.NtfyToken,
 		ResolveUsername: usernameResolver,
+		FallbackUser:    deps.cfg.Auth.AdminUsername,
 		Settings:        queueSettings,
 		Jackett:         deps.jackettClient,
 		AIClient:        deps.aiClient,
@@ -663,10 +664,15 @@ func buildOwnerAttributor(deps *appDeps) func(abs string) (string, bool) {
 // logMigrationResult logs a per-mount migration summary and each moved entry;
 // a no-op when nothing was moved.
 func logMigrationResult(mount string, res local.MigrationResult) {
+	if res.Conflicts > 0 {
+		// A loose root entry couldn't be scoped because <user>/<name> already exists.
+		// We no longer mint "name (1)" dups, so this just means a manual merge is due.
+		log.Printf("UserSubpath migration %q: %d entr(ies) left at root — per-user dest already exists (manual merge needed)", mount, res.Conflicts)
+	}
 	if len(res.Moved) == 0 {
 		return
 	}
-	log.Printf("UserSubpath migration %q: moved %d entr(ies), %d already scoped", mount, len(res.Moved), res.Skipped)
+	log.Printf("UserSubpath migration %q: moved %d entr(ies), %d already scoped, %d active (.part, left in place)", mount, len(res.Moved), res.Skipped, res.Active)
 	for _, e := range res.Moved {
 		suffix := ""
 		if e.Fallback {

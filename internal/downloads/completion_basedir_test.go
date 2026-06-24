@@ -31,6 +31,25 @@ func TestCompletionBaseDir_PerUser(t *testing.T) {
 	}
 }
 
+// When the username resolver transiently fails (returns ""), a per-user download
+// must NOT fall to the bare downloadDir (the mount root the UserSubpath migration
+// scans) — it falls back to FallbackUser so it stays scoped under a user subdir.
+func TestCompletionBaseDir_FallbackUserWhenResolveFails(t *testing.T) {
+	store := newTestStore(t)
+	w := NewWorker(WorkerConfig{
+		Store:           store,
+		Streamer:        streamer.NewForTesting(),
+		DataDir:         t.TempDir(),
+		DownloadDir:     "/dl",
+		ResolveUsername: func(int) string { return "" }, // transient failure
+		FallbackUser:    "admin",
+		Settings:        func() QueueSettings { return QueueSettings{MaxActive: 3} },
+	})
+	if got := w.completionBaseDir(Download{UserID: 7}); got != filepath.FromSlash("/dl/admin") {
+		t.Errorf("resolve-fail base = %q, want /dl/admin (never the bare /dl root)", got)
+	}
+}
+
 func TestCompletionBaseDir_NoDownloadDir(t *testing.T) {
 	w, _ := newBulkWorker(t, "", "", false)
 	if got := w.completionBaseDir(Download{UserID: 1}); got != "" {
