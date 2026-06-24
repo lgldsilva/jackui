@@ -760,6 +760,15 @@ func (s *Store) SetError(userID, id int, msg string) error {
 	return err
 }
 
+// SetActiveMagnet persists an alternative active source magnet (EffectiveMagnet
+// then prefers it). Used when the original source — typically an ephemeral
+// indexer .torrent URL — dies (404) and the worker falls back to a bare
+// info_hash magnet, so later retries/reboots skip the dead URL. Scoped by user_id.
+func (s *Store) SetActiveMagnet(userID, id int, magnet string) error {
+	_, err := s.db.Exec(`UPDATE downloads SET active_magnet=? WHERE id=? AND user_id=?`, magnet, id, userID)
+	return err
+}
+
 // SetFilePath updates the on-disk path after the worker moves a completed file
 // to the download directory. Scoped by user_id (worker passes the row's own UserID).
 func (s *Store) SetFilePath(userID, id int, path string) error {
