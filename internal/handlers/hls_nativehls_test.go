@@ -61,11 +61,11 @@ func TestBuildVODPlaylist_NativeHLSAddsFlagToSegments(t *testing.T) {
 }
 
 func TestSegURLBuilder_NativeHLS(t *testing.T) {
-	withFlag := segURLBuilder("M", "v.mkv", "TOK", "", true)("seg_00001.ts")
+	withFlag := segURLBuilder("M", "v.mkv", "TOK", "", true, "")("seg_00001.ts")
 	if !strings.Contains(withFlag, "native_hls=1") {
 		t.Fatalf("expected native_hls=1 in seg URL, got %q", withFlag)
 	}
-	without := segURLBuilder("M", "v.mkv", "TOK", "", false)("seg_00001.ts")
+	without := segURLBuilder("M", "v.mkv", "TOK", "", false, "")("seg_00001.ts")
 	if strings.Contains(without, "native_hls") {
 		t.Fatalf("did not expect native_hls when false, got %q", without)
 	}

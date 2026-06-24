@@ -307,6 +307,10 @@ type HLSStartOpts struct {
 	// since the video pipeline's unconditional `-map 0:v:0` would fail on a file
 	// with no video stream.
 	AudioOnly bool
+	// AudioTrack é o índice ABSOLUTO da faixa de áudio a mapear no vídeo (>0 =
+	// escolhida; <=0 = primeira/default). A sessão é keyed pela faixa (ver
+	// hlsSessionKey) pra que trocar o áudio gere um transcode novo, não reuse o cache.
+	AudioTrack int
 }
 
 // readSeekerContent adapts a single-cursor io.ReadSeeker (e.g. anacrolix
@@ -595,6 +599,7 @@ type encodeSpec struct {
 	ffmpegPath string
 	vod        bool // duration known → finite VOD: forced keyframes + seekable restart
 	audioOnly  bool // pure-audio source → `-vn`, no video map, AAC HLS
+	audioTrack int  // absolute stream index pra `-map 0:<n>` quando >0 (faixa escolhida); 0/-1 = primeira faixa de áudio (0:a:0?)
 }
 
 // args builds the ffmpeg argv to encode starting at segment `startSeg`. For
@@ -621,9 +626,16 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// or before the requested time instead of decoding from byte 0.
 		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
 	}
+	// Faixa de áudio: default = primeira (0:a:0?). Quando o cliente escolhe uma
+	// faixa (índice absoluto > 0; em vídeo o áudio nunca é o stream 0), mapeia
+	// 0:<n> — o WebKit/HLS hardcodava a primeira e ignorava a escolha.
+	audioMap := "0:a:0?"
+	if e.audioTrack > 0 {
+		audioMap = fmt.Sprintf("0:%d?", e.audioTrack)
+	}
 	args = append(args,
 		"-i", e.inputURL,
-		"-map", "0:v:0", "-map", "0:a:0?",
+		"-map", "0:v:0", "-map", audioMap,
 		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",
 		"-c:v", e.encoder,
 	)
@@ -1076,6 +1088,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 			ffmpegPath: caps.FFmpegPath,
 			vod:        vod,
 			audioOnly:  opts.AudioOnly,
+			audioTrack: opts.AudioTrack,
 		},
 	}
 

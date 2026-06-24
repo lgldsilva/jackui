@@ -1180,9 +1180,18 @@ export const streamTranscodeURL = (hash: string, fileIdx: number, opts: Transcod
  * streaming format; the only thing Safari treats as a first-class video
  * source. Jellyfin, Plex, Emby all do the same routing.
  */
-export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?: string): string => {
-  if (isLocalHash(hash)) return localResolvedURL(hash, tokenOverride)
-  return withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8`, tokenOverride)
+export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?: string, audioTrack?: number): string => {
+  // audioTrack: faixa de áudio escolhida (índice absoluto do probe). O backend
+  // re-transcoda mapeando essa faixa e keya a sessão por ela. Vale pros DOIS
+  // caminhos: torrent (/api/stream/hls) e local (/api/local/hls via localResolvedURL).
+  const hasAudio = audioTrack != null && audioTrack >= 0
+  if (isLocalHash(hash)) {
+    const local = localResolvedURL(hash, tokenOverride)
+    if (!local || !hasAudio) return local
+    return local + (local.includes('?') ? '&' : '?') + `audio=${audioTrack}`
+  }
+  const audioQ = hasAudio ? `?audio=${audioTrack}` : ''
+  return withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8${audioQ}`, tokenOverride)
 }
 
 /**

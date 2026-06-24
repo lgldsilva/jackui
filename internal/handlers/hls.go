@@ -56,6 +56,30 @@ func mediaSegQuery(token string, nativeHLS bool) string {
 // (1 = Safari/iOS native HLS). Drives the VOD policy + session keying.
 func nativeHLSParam(c *gin.Context) bool { return c.Query("native_hls") == "1" }
 
+// withSegAudio anexa `audio=<n>` a cada linha de SEGMENTO da playlist quando o
+// cliente escolheu uma faixa de áudio. Assim as requisições de segmento carregam
+// a faixa e batem na MESMA sessão (keyed por áudio) que o master — senão o
+// segmento cairia na sessão default. Feito por pós-processamento pra não alterar
+// as assinaturas (testadas) de mediaSegQuery/buildVODPlaylist.
+func withSegAudio(data []byte, audio string) []byte {
+	if audio == "" {
+		return data
+	}
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		sep := "?"
+		if strings.Contains(trim, "?") {
+			sep = "&"
+		}
+		lines[i] = trim + sep + "audio=" + audio
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
 // buildVODPlaylist synthesises a finite HLS playlist covering the whole media
 // duration: every segment is declared up front (with a token on each line) and
 // EXT-X-ENDLIST marks it complete, so Safari renders a full seekbar instead of
@@ -118,17 +142,30 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 	}
 }
 
+// hlsSessionKey separa sessões HLS por faixa de áudio escolhida. Sem isso, trocar
+// o áudio reusava a sessão/transcode em cache (com a faixa antiga) → a escolha não
+// surtia efeito. Master e segmentos DEVEM derivar a mesma chave (o segmento lê
+// ?audio= da própria URL, injetada por withSegAudio).
+func hlsSessionKey(h metainfo.Hash, fileIdx, audioTrack int) string {
+	k := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
+	if audioTrack >= 0 {
+		k += fmt.Sprintf("-a%d", audioTrack)
+	}
+	return k
+}
+
 func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
-	key := fmt.Sprintf("%s-%d", hc.h.HexString(), hc.fileIdx)
+	audioTrack := parseIntOr(hc.c.Query("audio"), -1)
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
-		Key:        key,
+		Key:        hlsSessionKey(hc.h, hc.fileIdx, audioTrack),
 		Source:     source,
 		SourceSize: sourceSize,
 		NativeHLS:  nativeHLSParam(hc.c),
 		// A fully-downloaded torrent (served from the completed path on disk) is
 		// complete & seekable — same VOD case as a local file. An in-progress
 		// stream stays under the global vodMode (#61 Safari seek guard).
-		ForceVOD: complete,
+		ForceVOD:   complete,
+		AudioTrack: audioTrack,
 	})
 	if err != nil {
 		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -141,7 +178,7 @@ func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
 	if sess.IsVOD() {
 		c.Header(CacheControl, CacheNoStore)
 		c.Data(http.StatusOK, MIMEMPEGURL,
-			buildVODPlaylist(sess.DurationSec, c.Query("token"), nativeHLSParam(c)))
+			withSegAudio(buildVODPlaylist(sess.DurationSec, c.Query("token"), nativeHLSParam(c)), c.Query("audio")))
 		return
 	}
 	data := readEventPlaylist(c, sess)
@@ -169,7 +206,7 @@ func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
 		}
 		data = []byte(strings.Join(lines, "\n"))
 	}
-	return data
+	return withSegAudio(data, c.Query("audio"))
 }
 
 func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
@@ -203,7 +240,7 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	// EffectiveKey must match the one the master used — hence native_hls is
 	// carried on every segment URL (see mediaSegQuery).
-	key := mgr.EffectiveKey(fmt.Sprintf("%s-%d", h.HexString(), fileIdx), nativeHLSParam(c))
+	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, parseIntOr(c.Query("audio"), -1)), nativeHLSParam(c))
 	if sess, err := getSession(mgr, key); err == nil {
 		return sess
 	}
