@@ -69,6 +69,7 @@ type WorkerConfig struct {
 	NtfyTopic       string               // global default topic; per-user override via store
 	NtfyToken       string               // optional access token for protected topics (Authorization: Bearer)
 	ResolveUsername func(int) string     // optional username resolver for per-user subdir
+	FallbackUser    string               // per-user subdir to use when ResolveUsername fails (so a download NEVER lands at the bare mount root, where the UserSubpath migration would relocate it and create dup folders)
 	Settings        func() QueueSettings // live queue settings; nil → DefaultQueueSettings
 	Jackett         sourceSearcher       // Phase 2 source rotation; nil disables Jackett re-search
 	AIClient        *ai.Client           // nil → no AI auto-rename on completion
@@ -125,6 +126,12 @@ type Worker struct {
 	// resolveUsername returns the username for a given userID (for per-user subdir).
 	// nil or returning "" disables per-user isolation (legacy flat dir).
 	resolveUsername func(userID int) string
+
+	// fallbackUser is the per-user subdir used when resolveUsername transiently
+	// fails (e.g. auth DB busy at boot). Keeps a download out of the bare mount
+	// root, where the UserSubpath migration would relocate it into <user>/ and,
+	// colliding with the live download, spawn "name (1)", "name (2)" dup folders.
+	fallbackUser string
 
 	// settings returns the live queue settings (read each tick). nil → defaults.
 	settings func() QueueSettings
@@ -212,6 +219,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		ntfyToken:       cfg.NtfyToken,
 		ntfyClient:      &http.Client{Timeout: 10 * time.Second},
 		resolveUsername: cfg.ResolveUsername,
+		fallbackUser:    cfg.FallbackUser,
 		settings:        cfg.Settings,
 		jackett:         cfg.Jackett,
 		aiClient:        cfg.AIClient,
@@ -1028,7 +1036,18 @@ func (w *Worker) completionBaseDir(d Download) string {
 	}
 	base := w.downloadDir
 	if w.resolveUsername != nil {
-		if u := w.resolveUsername(d.UserID); u != "" {
+		// Per-user mode: ALWAYS land in a user subdir, never the bare downloadDir.
+		// When downloadDir is also a UserSubpath mount root, the bare root is exactly
+		// where the boot-time migration scans — a download there gets relocated into
+		// <user>/ and, racing the live torrent, duplicated as "name (1)", "name (2)".
+		// A transient resolveUsername failure must not drop us there: fall back to a
+		// stable user subdir (fallbackUser, typically the admin username — a known
+		// user the migration leaves alone).
+		u := w.resolveUsername(d.UserID)
+		if u == "" {
+			u = w.fallbackUser
+		}
+		if u != "" {
 			base = filepath.Join(base, u)
 		}
 	}
