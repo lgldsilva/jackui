@@ -417,6 +417,14 @@ function EntryRow(props: EntryRowProps) {
             {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="oculto" />}
             {e.locked && <Lock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="mantida (não limpa)" />}
             {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label="visualizável" />}
+            {e.incomplete && (
+              <span
+                className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                title="Download em andamento (arquivos .part) — ainda não finalizado"
+              >
+                <HardDriveDownload className="w-3 h-3" />baixando
+              </span>
+            )}
             {e.name}
           </span>
           {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
