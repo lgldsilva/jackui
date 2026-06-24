@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { Loader2 } from 'lucide-react'
 import { load, save } from './lib/storage'
 import { isIncognito } from './lib/incognito'
+import { isStandalonePWA, shouldRestoreRoute } from './lib/routeRestore'
 import SearchPage from './pages/SearchPage'
 import SettingsPage from './pages/SettingsPage'
 import HistoryPage from './pages/HistoryPage'
@@ -57,15 +58,19 @@ function RouteRestorer() {
   useEffect(() => {
     if (restoredRef.current || !isAuthenticated) return
     restoredRef.current = true
-    // CRITICAL: never hijack navigation when a player deep-link is active
-    // (?play=). Auth restore finishes ~1-2s AFTER the PlayerProvider opened the
-    // player from the URL; navigating to lastRoute here would strip ?play=, the
-    // provider would close() the player, and its unmount cleanup would
-    // streamDrop the torrent mid-transcode (ffmpeg then reads a truncated source
-    // → corrupt packets → SRC_NOT_SUPPORTED). Leave the deep-link alone.
-    if (location.search.includes('play=')) return
+    // Restore ONLY in an installed PWA (OS relaunches at start_url "/"). On a
+    // normal browser REFRESH the current URL is authoritative — redirecting to a
+    // previously-opened page was the bug. (The deep-link ?play= guard is folded
+    // into shouldRestoreRoute, keeping the comment's invariant: never hijack a
+    // player deep-link, since that would streamDrop the torrent mid-transcode.)
     const last = load<string>('lastRoute', '')
-    if (last && last !== '/' && location.pathname === '/') {
+    if (shouldRestoreRoute({
+      standalone: isStandalonePWA(),
+      authenticated: isAuthenticated,
+      pathname: location.pathname,
+      search: location.search,
+      lastRoute: last,
+    })) {
       navigate(last, { replace: true })
     }
   }, [isAuthenticated, location.pathname, location.search, navigate])
