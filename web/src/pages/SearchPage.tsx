@@ -16,7 +16,6 @@ import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
 import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
-import { clientLog } from '../lib/diag'
 import { getTabResults, mergeCachedResults, syncTabsToCache } from '../lib/searchResultsCache'
 import type { SearchPhase } from '../lib/searchResultsCache'
 import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
@@ -690,13 +689,6 @@ export default function SearchPage() {
   // resolução) — e levanta a restrição de modo áudio/vídeo (showAll). É o "mostrar
   // tudo" do banner de ocultos: depois dele, filteredResults == groupedCount.
   const clearFilters = () => {
-    // DIAGNÓSTICO (temporário): cravar se o clique chega aqui + o estado ANTES do
-    // reset (o código abaixo é correto; "nada acontece" no device pode ser bundle
-    // em cache ou outra fonte de estado).
-    clientLog('info', 'search', 'clearFilters', {
-      tab: activeTab.id, activeFilterCount,
-      before: { title: activeTab.titleFilter, tracker: activeTab.trackerFilter, minSeeders: activeTab.minSeeders, minLeechers: activeTab.minLeechers, maxGb: activeTab.maxSizeGb, onlyPlayable: activeTab.onlyPlayable, res: activeTab.resolution, hdr: activeTab.hdrOnly, codec: activeTab.codecGroup, groupSeries },
-    })
     setShowAll(true)
     // groupSeries é um controle da barra de filtros que o reset não tocava — reseta tb.
     if (groupSeries) { setGroupSeries(false); save('searchGroupSeries', false) }
@@ -948,7 +940,7 @@ export default function SearchPage() {
         </div>
       </div>
 
-      <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full min-w-0 overflow-x-clip px-4 py-6 flex flex-col gap-4">
         {/* Jackett setup prompt */}
         {showJackettSetup && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 sm:p-6">
