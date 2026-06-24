@@ -7,6 +7,7 @@ import {
 import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
+import DownloadDestinationPicker from './DownloadDestinationPicker'
 
 // Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
 // as opposed to handing the torrent to an external qBittorrent/Transmission.
@@ -57,6 +58,7 @@ async function downloadInternal(
   selectedFiles: Set<number>,
   streamAdd: (source: string) => Promise<any>,
   downloadCreate: (opts: any) => Promise<any>,
+  dest: { destBase: string; destSubdir: string } = { destBase: '', destSubdir: '' },
 ): Promise<string | null> {
   let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
   let infoHash = result.infoHash || hashFromMagnet(magnet)
@@ -71,13 +73,13 @@ async function downloadInternal(
     const picks = (files ?? []).filter(f => selectedFiles.has(f.index))
     if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
     const results = await Promise.allSettled(picks.map(f =>
-      downloadCreate({ infoHash, fileIndex: f.index, magnet, name: result.title, filePath: f.path, fileSize: f.size, tracker: result.tracker || undefined, category: result.category || undefined }),
+      downloadCreate({ infoHash, fileIndex: f.index, magnet, name: result.title, filePath: f.path, fileSize: f.size, tracker: result.tracker || undefined, category: result.category || undefined, destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined }),
     ))
     const failures = results.filter(r => r.status === 'rejected')
     if (failures.length === picks.length) throw new Error('Todos os downloads falharam')
     if (failures.length > 0) return `${picks.length - failures.length}/${picks.length} enfileirados; ${failures.length} falharam`
   } else {
-    await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined })
+    await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined, destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined })
   }
   return null
 }
@@ -120,6 +122,8 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   const [filesLoading, setFilesLoading] = useState(false)
   const [filesError, setFilesError] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set())
+  // Chosen destination for the internal download (#16); empty = default dir.
+  const [dest, setDest] = useState<{ destBase: string; destSubdir: string }>({ destBase: '', destSubdir: '' })
   const pathInputRef = useRef<HTMLInputElement>(null)
   // Auto-skip: sem clientes externos, o único destino é o interno — não faz
   // sentido abrir o modal de escolha. Baixamos direto (torrent inteiro) e
@@ -218,7 +222,7 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
 
     try {
       if (selectedClientId === INTERNAL_ID) {
-        const error = await downloadInternal(result, files, selectedFiles, streamAdd, downloadCreate)
+        const error = await downloadInternal(result, files, selectedFiles, streamAdd, downloadCreate, dest)
         if (error) setError(error)
       } else {
         await downloadTorrent(selectedClientId, result.magnetUri || '', result.link || '', savePath || undefined)
@@ -376,6 +380,11 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                 </ul>
               )}
             </div>
+          )}
+
+          {/* Destination picker — internal download only (#16). */}
+          {selectedClientId === INTERNAL_ID && (
+            <DownloadDestinationPicker onChange={setDest} />
           )}
 
           <div className={`relative ${selectedClientId === INTERNAL_ID ? 'hidden' : ''}`}>

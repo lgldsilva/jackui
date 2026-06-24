@@ -207,6 +207,15 @@
     "disclaimer": "Tempo assistido é aproximado (posição acumulada por título; reassistir não soma). Dias/horas usam o último play de cada título."
   },
   "downloads": {
+    "dest": {
+      "label": "Onde salvar",
+      "default": "Padrão (pasta de downloads)",
+      "loading": "Carregando subpastas…",
+      "empty": "Nenhuma subpasta aqui",
+      "newFolder": "Nova subpasta (opcional)",
+      "target": "Destino",
+      "root": "(raiz)"
+    },
     "whole_torrent_queued": "Torrent inteiro enfileirado — {{count}} arquivos, {{size}}",
     "whole_torrent_badge": "Torrent completo",
     "whole_torrent_files": "{{count}} arquivos",

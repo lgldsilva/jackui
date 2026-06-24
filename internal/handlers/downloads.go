@@ -216,17 +216,19 @@ func DownloadsUsers(dlStore *downloads.Store, authStore *auth.Store) gin.Handler
 
 // DownloadsCreate handles POST /api/downloads — enqueues a new full-file
 // download. Body: { infoHash, fileIndex, magnet, name, filePath, fileSize, tracker?, category? }
-func DownloadsCreate(store *downloads.Store) gin.HandlerFunc {
+func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			InfoHash  string `json:"infoHash"`
-			FileIndex int    `json:"fileIndex"`
-			Magnet    string `json:"magnet"`
-			Name      string `json:"name"`
-			FilePath  string `json:"filePath"`
-			FileSize  int64  `json:"fileSize"`
-			Tracker   string `json:"tracker,omitempty"`
-			Category  string `json:"category,omitempty"`
+			InfoHash   string `json:"infoHash"`
+			FileIndex  int    `json:"fileIndex"`
+			Magnet     string `json:"magnet"`
+			Name       string `json:"name"`
+			FilePath   string `json:"filePath"`
+			FileSize   int64  `json:"fileSize"`
+			Tracker    string `json:"tracker,omitempty"`
+			Category   string `json:"category,omitempty"`
+			DestBase   string `json:"destBase,omitempty"`   // chosen destination (#16); empty = default
+			DestSubdir string `json:"destSubdir,omitempty"` // optional subfolder under DestBase
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -243,16 +245,25 @@ func DownloadsCreate(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
+		// Validate the chosen destination against the user's allowed destinations
+		// (rejects an arbitrary path); empty base → default download dir.
+		base, subdir, err := dests.Resolve(userID, req.DestBase, req.DestSubdir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		d, err := store.Create(downloads.Download{
-			UserID:    userID,
-			InfoHash:  req.InfoHash,
-			FileIndex: req.FileIndex,
-			FilePath:  req.FilePath,
-			FileSize:  req.FileSize,
-			Name:      req.Name,
-			Magnet:    req.Magnet,
-			Tracker:   req.Tracker,
-			Category:  req.Category,
+			UserID:     userID,
+			InfoHash:   req.InfoHash,
+			FileIndex:  req.FileIndex,
+			FilePath:   req.FilePath,
+			FileSize:   req.FileSize,
+			Name:       req.Name,
+			Magnet:     req.Magnet,
+			Tracker:    req.Tracker,
+			Category:   req.Category,
+			DestBase:   base,
+			DestSubdir: subdir,
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

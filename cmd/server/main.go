@@ -157,6 +157,7 @@ type appDeps struct {
 	loginLockout    *auth.Lockout
 	mlr             *mailer.Mailer
 	promoteDests    []handlers.PromoteDest
+	destinations    *handlers.DestinationService
 	hlsMgr          *transcode.HLSSessionManager
 	localStream     *localstream.Registry
 	localCache      *localcache.Cache
@@ -228,6 +229,21 @@ func main() {
 	initAuth(deps)
 	migrateUserSubpathMounts(deps)
 	deps.promoteDests = buildPromoteDests(deps.cfg)
+	deps.destinations = &handlers.DestinationService{
+		Mounts:    deps.cfg.External.Mounts,
+		Promote:   deps.promoteDests,
+		SharedDir: deps.cfg.Stream.SharedDir,
+		ResolveUser: func(userID int) string {
+			if deps.authStore == nil {
+				return ""
+			}
+			u, err := deps.authStore.GetUserByID(userID)
+			if err != nil || u == nil {
+				return ""
+			}
+			return u.Username
+		},
+	}
 	initHLSManager(deps)
 
 	// Incognito reaper: delete stale incognito data after 1h of inactivity
@@ -1313,7 +1329,9 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/downloads/filtered", handlers.DownloadsListFiltered(deps.downloadsStore, deps.streamSrv, deps.localBrowser, deps.authStore))
 	api.GET("/downloads/trackers", handlers.DownloadsTrackers(deps.downloadsStore))
 	api.GET("/downloads/categories", handlers.DownloadsCategories(deps.downloadsStore))
-	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
+	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore, deps.destinations))
+	api.GET("/downloads/destinations", handlers.DownloadsDestinations(deps.destinations))
+	api.GET("/downloads/dest/browse", handlers.DownloadsDestinationBrowse(deps.destinations))
 	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore, downloadRemoverDep(deps)))
 	api.GET("/downloads/:id/details", handlers.DownloadsDetails(deps.downloadsStore, deps.streamSrv))
 	api.GET("/downloads/:id/peers", handlers.DownloadsPeers(deps.downloadsStore, deps.streamSrv))
