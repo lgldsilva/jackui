@@ -77,8 +77,12 @@ export function useFilteredResults<T extends SearchResult>(
     const titleLower = titleFilter.toLowerCase()
 
     let r = grouped.filter(res => {
-      if (res.seeders < minSeeders) return false
-      if (res.leechers < minLeechers) return false
+      // -1 = contagem DESCONHECIDA (vários trackers/Jackett não expõem o número).
+      // Tratar como "não filtrar por contagem": só rejeita valores CONHECIDOS
+      // (>= 0) abaixo do mínimo. Sem o guard `>= 0`, `-1 < 0` derrubava esses
+      // resultados mesmo com o mínimo em 0 — e "limpar filtros" nunca os revelava.
+      if (res.seeders >= 0 && res.seeders < minSeeders) return false
+      if (res.leechers >= 0 && res.leechers < minLeechers) return false
       if (res.size > maxBytes) return false
       if (titleLower && !res.title.toLowerCase().includes(titleLower)) return false
       if (onlyPlayable && !isPlayable(res)) return false

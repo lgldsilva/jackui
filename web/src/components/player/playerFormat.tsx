@@ -1,5 +1,5 @@
 import { Loader2, Check, Download } from 'lucide-react'
-import { MediaTrack, isSafariBrowser } from '../../api/client'
+import { MediaTrack } from '../../api/client'
 
 export function formatSize(bytes: number): string {
   if (bytes === 0 || !bytes) return '0 B'
@@ -31,27 +31,6 @@ export function canPlayNativeHls(): boolean {
     }
   }
   return _nativeHlsSupport
-}
-
-// webAudioBlocked: can the Web Audio graph (EQ + spectrum visualizer) tap THIS
-// element? Blocks ONLY real WebKit (Safari + any iOS browser). On WebKit,
-// createMediaElementSource makes the graph the ONLY output path, and with a
-// SUSPENDED AudioContext the element STALLS (readyState 2, mute) even for direct
-// files (Apple bug; #247 tried direct-play tap on iOS and it broke local audio,
-// reverted in d0e8b9e). So WebKit plays NATIVELY (sound guaranteed); EQ/visualizer
-// are non-WebKit only.
-//
-// Blocks the Web Audio graph on ALL of WebKit (Safari/iOS). Re-attempting it for
-// direct-play on iOS (gated by readyState) STILL froze the element at readyState 2
-// — autoplay aborts, no sound (confirmed in prod logs; same failure d0e8b9e and
-// #247 hit). So WebKit plays NATIVELY (sound guaranteed); EQ/visualizer are
-// non-WebKit only. `isHls` kept for call-site compat.
-//
-// Uses isSafariBrowser() — NOT canPlayNativeHls(): on macOS, Chrome/Edge (Blink)
-// ALSO report native HLS support yet have NO WebKit freeze bug, so canPlayNativeHls
-// wrongly disabled the EQ there. isSafariBrowser() blocks only true WebKit.
-export function webAudioBlocked(_isHls: boolean): boolean {
-  return isSafariBrowser()
 }
 
 // audioElementKey forces React to mount a FRESH <video> when an audio track

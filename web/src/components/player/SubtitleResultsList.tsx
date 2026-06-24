@@ -42,7 +42,7 @@ export function SubtitleResultsList({ subResults, subActive, pickSubtitle }: Pro
           />
         </div>
       )}
-      <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+      <div className="flex flex-col gap-1 max-h-[50vh] overflow-y-auto">
         {filtered.length === 0 && (
           <p className="text-xs text-text-muted py-2">{t('player.subtitles.noMatch')}</p>
         )}

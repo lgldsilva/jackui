@@ -251,9 +251,9 @@ func TestLocalPlayAudioUnknownSafeExtDirect(t *testing.T) {
 	}
 }
 
-// A non-safe extension whose codec can't be confirmed must transcode (HLS),
-// rather than risk Safari silently failing on FLAC/OGG/Opus.
-func TestLocalPlayAudioUnknownUnsafeExtTranscodes(t *testing.T) {
+// A non-safe extension whose codec can't be confirmed now direct-plays too,
+// to mirror simple playback.
+func TestLocalPlayAudioUnknownUnsafeExtDirect(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "song.flac"), id3mp3(false), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -265,7 +265,7 @@ func TestLocalPlayAudioUnknownUnsafeExtTranscodes(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Kind != "hls" {
-		t.Errorf("unidentifiable flac should transcode (hls), got %q", resp.Kind)
+	if resp.Kind != "direct" {
+		t.Errorf("unidentifiable flac should direct-play, got %q", resp.Kind)
 	}
 }

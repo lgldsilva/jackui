@@ -236,6 +236,17 @@ func appendTokenToURL(token, base string) string {
 }
 
 func localPlayVideoResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
+	// iOS/Safari WebKit trava em MP4 progressive servido por HTTP (estaciona em
+	// readyState 2). O cliente iOS pede transcode=hls pra vídeo local; H264/AAC vira
+	// só REMUX (sem re-encode, barato). Assim o vídeo local vai pelo MESMO caminho HLS
+	// confiável do torrent, em vez do direct/progressive que o iOS não toca.
+	if c.Query("transcode") == "hls" {
+		return LocalPlayResp{
+			Kind:   "hls",
+			URL:    appendTokenToURL(token, buildLocalHLSURL(mount, path)),
+			Reason: "client_forced",
+		}
+	}
 	probe, perr := probeLocalFile(c.Request.Context(), abs)
 	if perr != nil {
 		ext := strings.ToLower(filepath.Ext(path))
@@ -343,39 +354,17 @@ func audioExtUniversallySafe(path string) bool {
 // force-direct-played ALL audio, which silently failed on Safari for those
 // codecs — this is the fix.
 func localPlayAudioResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
-	caps := parseAudioCaps(c.Query("acaps"))
 	probe, perr := probeLocalFile(c.Request.Context(), abs)
-	// No probe OR an unknown codec (ffprobe emitted partial output): direct-play
-	// the universally-safe containers (mp3/m4a/aac), transcode the rest
-	// (flac/ogg/opus/wav stall silently on Safari) rather than guess wrong.
-	if perr != nil || probe.AudioCodec == "" {
-		if audioExtUniversallySafe(path) {
-			return LocalPlayResp{
-				Kind:   "direct",
-				URL:    appendTokenToURL(token, buildLocalFileURL(mount, path)),
-				Reason: "probe_unknown_safe_ext",
-			}
-		}
-		return LocalPlayResp{
-			Kind:   "hls",
-			URL:    appendTokenToURL(token, buildLocalHLSURL(mount, path)),
-			Reason: "probe_unknown",
-		}
-	}
-	if audioDirectPlayable(probe.AudioCodec, caps) {
-		return LocalPlayResp{
-			Kind:      "direct",
-			URL:       appendTokenToURL(token, buildLocalFileURL(mount, path)),
-			ACodec:    probe.AudioCodec,
-			Container: probe.Container,
-		}
+	var acodec, container string
+	if perr == nil {
+		acodec = probe.AudioCodec
+		container = probe.Container
 	}
 	return LocalPlayResp{
-		Kind:      "hls",
-		URL:       appendTokenToURL(token, buildLocalHLSURL(mount, path)),
-		Reason:    "acodec=" + probe.AudioCodec,
-		ACodec:    probe.AudioCodec,
-		Container: probe.Container,
+		Kind:      "direct",
+		URL:       appendTokenToURL(token, buildLocalFileURL(mount, path)),
+		ACodec:    acodec,
+		Container: container,
 	}
 }
 

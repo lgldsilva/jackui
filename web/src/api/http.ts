@@ -29,9 +29,21 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// stripToken remove TODO token= pré-existente (qualquer posição), sem deixar `?&`.
+// Torna o withToken IDEMPOTENTE: re-aplicar não empilha `token=A&token=B`. Sem isto,
+// o vídeo LOCAL ficava com `?...&token=ACCESS&token=MEDIA` (a URL cacheada do
+// /api/local/play já trazia um token e o withToken adicionava outro) — URL instável.
+function stripToken(url: string): string {
+  const qIdx = url.indexOf('?')
+  if (qIdx === -1) return url
+  const base = url.slice(0, qIdx)
+  const params = url.slice(qIdx + 1).split('&').filter(p => p && !p.startsWith('token='))
+  return params.length ? `${base}?${params.join('&')}` : base
+}
+
 // withToken appends an access token as ?token= query param. Used em URLs que
 // vão pra <video src>/<track src> onde headers Authorization não podem ser
-// setados — middleware aceita ?token= como fallback.
+// setados — middleware aceita ?token= como fallback. IDEMPOTENTE (stripToken).
 //
 // override: quando presente, usa esse token em vez do access token regular.
 // Caso de uso: o PlayerModal pega um media token (scope="media", TTL longo)
@@ -42,8 +54,9 @@ export function withToken(url: string, override?: string): string {
   const raw = override ?? localStorage.getItem('jackui:auth.access')
   if (!raw) return url
   const cleaned = String(raw).replaceAll(/^"|"$/g, '') // localStorage values are JSON-stringified
-  const sep = url.includes('?') ? '&' : '?'
-  return `${url}${sep}token=${encodeURIComponent(cleaned)}`
+  const base = stripToken(url)
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}token=${encodeURIComponent(cleaned)}`
 }
 
 // fetchMediaToken pede ao backend um JWT scope="media" com TTL longo (6h por

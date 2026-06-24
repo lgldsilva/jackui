@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { X, Play, Loader2, AlertCircle, FileVideo, Download, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy } from 'lucide-react'
 import {
   SearchResult,
@@ -47,19 +47,18 @@ import { previewRawURL } from '../api/preview'
 import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
-import { AudioTransportBar } from './player/AudioTransportBar'
-import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, canPlayNativeHls, type FileType } from './player/playerFormat'
-import { computeMediaUrls, computeIsTranscoded } from './player/mediaUrls'
+import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
+import { computeMediaUrls } from './player/mediaUrls'
 import { computeFilePickerState } from './player/filePickerVisibility'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
 import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
-import { MusicPanel } from './player/MusicPanel'
-import { useAudioEngine } from './player/useAudioEngine'
-import { useTransitionConfig } from './player/transition'
-import { engineEligible, resolveEngineNext } from './player/audioEngineLogic'
+import { SimpleAudioPlayer } from './player/SimpleAudioPlayer'
+import { SimpleAudioControls } from './player/SimpleAudioControls'
+import { AudioCoverArt } from './player/AudioCoverArt'
+import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
 
 type PlaylistMeta = {
@@ -91,10 +90,6 @@ type PlayerModalProps = {
   /** Reports the playhead (seconds) on every timeupdate. Lets the provider
    *  preserve position when it re-keys the modal on a Cinema/Música switch. */
   readonly onProgress?: (sec: number) => void
-  // Índice (na lista original de items) do próximo item da playlist na ordem de
-  // reprodução — o motor gapless usa pra pré-carregar a 1ª faixa do próximo item
-  // (cross-item). -1 = sem próximo / sem playlist.
-  readonly nextPlaylistItemIndex?: number
 }
 
 function renderPlayerHeader(props: {
@@ -268,7 +263,6 @@ export default function PlayerModal({
   startMinimized = false,
   audioMode = false,
   onProgress,
-  nextPlaylistItemIndex = -1,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -600,6 +594,7 @@ export default function PlayerModal({
   // a single left-anchored fill.
   const [bufferedRanges, setBufferedRanges] = useState<Array<[number, number]>>([])
   const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   // Swipe down on the header bar minimizes the player to its PiP card — the same
   // non-destructive dismiss as tapping the backdrop or pressing Escape (keeps
   // playback alive), the iOS idiom for "push this sheet away".
@@ -1127,9 +1122,14 @@ export default function PlayerModal({
   const iosAudio = audioMode && isIOS()
   // disableNativeAutoplay: bloqueia o autoplay não-gesto SÓ até o usuário iniciar a
   // reprodução (blessed). Depois disso a Apple libera o play() programático, então
-  // as faixas seguintes do álbum encadeiam sozinhas (auto-avanço) — disableNativeAutoplay
-  // vira false e o caminho volta a ser o normal (autoplay no canplay).
-  const disableNativeAutoplay = iosAudio && !blessed
+  // as faixas seguintes encadeiam sozinhas (auto-avanço) — vira false e o caminho
+  // volta ao normal (autoplay no loadedmetadata/canplay).
+  // Só alimenta o VideoPlayerElement (o áudio usa o SimpleAudioPlayer, que tem seu
+  // próprio gesto). O VÍDEO no iOS sofre O MESMO erro do áudio: o <video> com src
+  // declarativo pré-carrega e ESTACIONA em readyState 2 sem um gesto (logs: stalled
+  // rs2 + sem 'autoplay try'). Então o vídeo também vira tap-to-play no iOS — daí
+  // isIOS() (não só iosAudio). macOS-Safari/desktop seguem no autoplay (isIOS=false).
+  const disableNativeAutoplay = isIOS() && !blessed
   // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
   // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
   // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
@@ -1306,109 +1306,30 @@ export default function PlayerModal({
   const hasNext = mediaQueue.nextIdx >= 0 || !!onPlaylistAdvance
   const hasPrev = mediaQueue.prevIdx >= 0 || !!onPlaylistPrevious
 
-  // ─── Motor gapless/crossfade (Frente 5) ───────────────────────────────────
-  // Assume SÓ áudio direct-play com transição≠off; senão fica inerte e o <video>
-  // toca como hoje (com transition='off' tudo abaixo reduz ao caminho atual).
-  // engineEligible usa a MESMA verdade de isTranscoded do computeMediaUrls (via
-  // helper) ANTES do early-return. nextSrc só é setado se a próxima faixa do MESMO
-  // torrent parece direct-play (looksDirectAudio); senão null → hard-cut.
-  const transition = useTransitionConfig()
+  // ─── Áudio simplificado ───────────────────────────────────────────────────
+  // Player de áudio "pelado": <audio controls> com src DIRECT, sem Web Audio,
+  // sem gapless/crossfade, sem HLS.js, sem <track>. A única diferença entre
+  // origem local (rclone/disco) e torrent é a URL.
   const inPlaylist = !!playlist && playlist.items.length > 1
-  const engineIsTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
-  // !canPlayNativeHls(): motor só em não-WebKit (Chrome/Firefox). No iOS/Safari o
-  // createMediaElementSource trava o elemento (ver webAudioBlocked) → fica o player
-  // nativo. Sem isto o motor mudaria o <video> e tapearia os <audio> no iOS → stall.
-  const engineOn = engineEligible({ mode: transition.mode, isAudio: audioMode, isTranscoded: engineIsTranscoded, repeat }) && !canPlayNativeHls()
-  // Agregado da playlist (todas as faixas de todos os itens) — consumido pelo
-  // PlaylistTracksSidebar (por prop) e pelo motor (cross-item: 1ª faixa do próximo
-  // item). Resolver itens ATIVA torrents no servidor → só ligamos quando a sidebar
-  // está aberta (precisa exibir) OU o motor está ligado (precisa pré-carregar o
-  // próximo); com 'off' e sidebar fechada não ativa nada em background.
-  //
-  // CRÍTICO: este gate TEM que ser estável entre faixas. usePlaylistTracks reconstrói
-  // o esqueleto da lista (setGroups) quando `enabled` muda — se o gate oscilar a cada
-  // faixa, a lista de músicas "recarrega" no auto-avanço. (Uma versão anterior gateava
-  // por `currentTime>1`, que cai a ~0 a cada nova faixa → toggle → reload. NÃO usar.)
-  //
-  // SEPARAÇÃO exibição × resolução (essencial p/ o iOS):
-  //  - `enabled` (gate abaixo) monta o ESQUELETO da lista + seeda a faixa atual →
-  //    a lista aparece NA HORA. Estável entre faixas (depende de engineOn/sidebarOpen,
-  //    não de currentTime) → não recarrega no auto-avanço.
-  //  - `resolveEnabled` controla a RAJADA de resolução dos demais itens (~47
-  //    /api/local/play, cada um faz ffprobe no servidor). No iOS essa rajada
-  //    SUFOCAVA o byte-stream da faixa atual (byte-fetch de ~6s) → o iOS abortava
-  //    o play() do gesto (AbortError). Então adiamos a rajada até a 1ª reprodução
-  //    (blessed, latch one-way): byte-fetch sem contenção → play() inicia → blessed
-  //    → a rajada drena (throttle 2). Desktop (engineOn) resolve já (!iosAudio).
-  //    NÃO gatear a EXIBIÇÃO por blessed (foi o que zerou a lista no iOS antes).
+  const audioDirectSrc = useAudioDirectUrl(info, selectedFile, mediaToken)
+  const activeMediaRef = audioMode ? audioRef : videoRef
+
+  // Sidebar agregada da playlist (lista de faixas de vários itens). Resolução
+  // adiada até blessed no iOS, igual antes, para não sufocar o byte-stream.
   const resolveEnabled = !iosAudio || blessed
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && (engineOn || sidebarOpen), resolveEnabled)
-  // A PRÓXIMA faixa a transicionar (mesmo álbum OU 1º áudio do próximo item),
-  // decisão pura. itemIndex<0 = mesmo álbum (avança via playFile); >=0 = cross-item
-  // (avança via onPlaylistJump). É a MESMA faixa cuja URL vira nextSrc → fonte única.
-  const engineNextRef = engineOn
-    ? resolveEngineNext({
-        inPlaylist, mediaIndices: mediaQueue.indices, mediaCursor: mediaQueue.cursor, repeat,
-        curInfoHash: info?.infoHash ?? '', curFiles: info?.files ?? [],
-        groups: aggregate.groups, nextItemIndex: nextPlaylistItemIndex,
-      })
-    : null
-  const engineCurrentSrc = engineOn && info && selectedFile >= 0 ? streamFileURL(info.infoHash, selectedFile, mediaToken) : ''
-  const engineNextSrc = engineNextRef ? streamFileURL(engineNextRef.infoHash, engineNextRef.fileIndex, mediaToken) : null
-  const advanceEngine = () => {
-    if (!engineNextRef) return
-    if (engineNextRef.itemIndex < 0) playFile(engineNextRef.fileIndex)
-    else onPlaylistJump?.(engineNextRef.itemIndex, engineNextRef.fileIndex)
-  }
-  const engine = useAudioEngine({
-    enabled: engineOn,
-    currentSrc: engineCurrentSrc,
-    nextSrc: engineNextSrc,
-    mode: transition.mode,
-    crossfadeSec: transition.crossfadeSec,
-    onAdvance: advanceEngine,
-  })
-  // Elemento de mídia ATIVO: o <audio> do motor quando ele está LIGADO (engineOn),
-  // senão o <video>. CRÍTICO usar engineOn (não engine.active): o motor toca o
-  // <audio> assim que liga (mesmo antes do grafo/EQ montar = ready); se aqui
-  // usasse engine.active (=enabled&&ready), na janela enabled&&!ready o <audio>
-  // tocaria nativo E o <video> não-mudo também → áudio dobrado, e o pause iria no
-  // <video> deixando o <audio> de fundo. Os consumidores de ÁUDIO só usam membros
-  // de HTMLMediaElement. Motor desligado → é o videoRef → comportamento atual.
-  const activeMediaRef = engineOn ? engine.activeElRef : videoRef
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && sidebarOpen, resolveEnabled)
 
-  // Espelha currentTime/duration/onProgress do elemento ATIVO do motor no estado
-  // do player (seekbar + resume do toggle Cinema/Música). Re-anexa a cada faixa
-  // (selectedFile muda no avanço/swap) pra seguir o ping-pong. O <video> mudo do
-  // modo-motor não dispara timeupdate, então não há conflito de fontes.
-  useEffect(() => {
-    if (!engineOn) return
-    const el = engine.activeElRef.current
-    if (!el) return
-    const sync = () => {
-      setCurrentTime(el.currentTime)
-      setDuration(el.duration || 0)
-      onProgress?.(el.currentTime)
-    }
-    sync()
-    el.addEventListener('timeupdate', sync)
-    el.addEventListener('loadedmetadata', sync)
-    el.addEventListener('durationchange', sync)
-    return () => {
-      el.removeEventListener('timeupdate', sync)
-      el.removeEventListener('loadedmetadata', sync)
-      el.removeEventListener('durationchange', sync)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engineOn, engine.active, selectedFile])
+  // Espelha currentTime/duration/onProgress do <audio> no estado do player.
+  const handleAudioTimeUpdate = useCallback((currentTime: number, duration: number) => {
+    setCurrentTime(currentTime)
+    setDuration(duration)
+    onProgress?.(currentTime)
+  }, [onProgress])
 
-  // Atalhos de teclado controlam o elemento ATIVO (o <audio> do motor quando ele
-  // assume). Movido p/ depois do motor pra usar o activeMediaRef.
+  // Atalhos de teclado controlam o elemento ativo (<audio> ou <video>).
   useKeyboardShortcuts({ videoRef: activeMediaRef, minimized, requestFullscreen: handleRequestFullscreen })
 
-  // Media Session API — exposes "what's playing" + media keys / lock-screen
-  // controls to the OS. Without this, iOS shows "JackUI" with no metadata and
-  // AirPods/bluetooth controls don't fire next/previous on the playlist.
+  // Media Session API — expõe metadata + controles de lock-screen/AirPods.
   useMediaSession({ videoRef: activeMediaRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
 
   // Load initial favorite state when torrent info arrives. Match by infoHash
@@ -1566,128 +1487,79 @@ export default function PlayerModal({
             with a big empty gap below (the track sidebar makes the modal tall).
             It still scrolls when EQ/lyrics expand past the height. */}
         <div className={`flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
-        {/* Video player. Vertical-aware sizing: we cap at ~58vh so the controls,
-            status bar, file picker, and panels below all fit inside the modal's
-            90vh budget on standard 1080p/ultrawide-1080 monitors. The flex
-            centering + `mx-auto` keeps the <video> centered with letterbox
-            bars when the source aspect doesn't match the available area. */}
-        <VideoPlayerElement
-          videoRef={videoRef}
-          streamURL={streamURL}
-          engineActive={engineOn}
-          disableNativeAutoplay={disableNativeAutoplay}
-          onPlaybackStarted={handlePlaybackStarted}
-          suppressStartOverlay={everReadyRef.current && audioMode}
-          audioMode={audioMode}
-          subtitleVttURL={subtitleVttURL}
-          videoError={videoError}
-          serverReady={serverReady}
-          currentTime={currentTime}
-          bufferedEnd={bufferedEnd}
-          info={info}
-          selectedFile={selectedFile}
-          showResumePrompt={showResumePrompt}
-          resumePosition={resumePosition}
-          isTranscoded={isTranscoded}
-          transcodeFallbackAttempted={transcodeFallbackAttempted}
-          mediaToken={mediaToken}
-          renderVideoError={renderVideoError}
-          formatTime={formatTime}
-          onVideoError={handleVideoError}
-          onTimeUpdate={handleTimeUpdate}
-          onVideoEnded={handleVideoEnded}
-          onVideoCanPlay={handleVideoCanPlay}
-          videoDiagnostic={videoDiagnostic}
-          onResumeContinue={(pos) => {
-            const v = videoRef.current
-            if (v) { v.currentTime = pos; v.play().catch(() => {}) }
-            setShowResumePrompt(false)
-          }}
-          onResumeRestart={() => {
-            const v = videoRef.current
-            // "Começar do início": só re-seeka se a faixa JÁ avançou. Se mal
-            // começou (currentTime ~0, caso comum — o prompt aparece logo no
-            // início), seekar pra 0 reiniciaria/re-bufferizaria à toa. Aqui só
-            // garante a reprodução (o clique é um gesto → no iOS o play() sai com som).
-            if (v) {
-              if (v.currentTime > 1.5) v.currentTime = 0
-              v.play().catch(() => {})
-            }
-            setShowResumePrompt(false)
-            setResumePosition(null)
-          }}
-        />
-
-        {/* Motor gapless/crossfade: 2 <audio> ocultos em ping-pong (A/B). Ficam
-            no DOM (mais seguro p/ o tap do Web Audio no iOS que new Audio()).
-            Renderizados em modo áudio; inertes até a transição ser ligada. */}
-        {audioMode && (
+        {/* Player de áudio simplificado ou vídeo completo. Áudio usa <audio>
+            controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
+            Vídeo mantém o player existente com HLS/transcode. */}
+        {audioMode ? (
           <>
-            {/* <track> de legenda vazio: os <audio> do motor não têm legenda, mas a
-                regra de a11y (S4084) exige o elemento — igual ao <video>. */}
-            <audio ref={engine.elARef} hidden preload="auto"><track kind="captions" /></audio>
-            <audio ref={engine.elBRef} hidden preload="auto"><track kind="captions" /></audio>
+            {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
+                LOGO ABAIXO (não esticada por cima da capa). */}
+            <div className="relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden">
+              <AudioCoverArt info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
+            </div>
+            <SimpleAudioPlayer
+              src={audioDirectSrc}
+              onEnded={handleVideoEnded}
+              onTimeUpdate={handleAudioTimeUpdate}
+              onPlaying={handlePlaybackStarted}
+              onError={() => setVideoError(true)}
+              className="max-w-xl mx-auto mt-2"
+            />
+            {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
+                simplificação e os controls nativos do <audio> não têm prev/next.
+                Só botões que trocam a FAIXA (handlePrev/handleNext) — sem Web Audio. */}
+            <SimpleAudioControls
+              onPrev={handlePrev}
+              onNext={handleNext}
+              hasPrev={hasPrev}
+              hasNext={hasNext}
+              shuffle={shuffle}
+              repeat={repeat}
+              onToggleShuffle={onToggleShuffle}
+              onCycleRepeat={onCycleRepeat}
+              position={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
+            />
           </>
-        )}
-
-        {/* Minimized audio: the mini-player dock — play/pause + ⏮⏭ + slim seek
-            below the cover. In audio mode the <video> has no native controls,
-            so this custom bar drives playback (Spotify-style mini-player). */}
-        {minimized && audioMode && (
-          <AudioTransportBar
-            videoRef={activeMediaRef}
-            info={info}
-            selectedFile={selectedFile}
-            currentTime={currentTime}
-            duration={duration}
-            formatTime={formatTime}
-            onPrev={handlePrev}
-            onNext={handleNext}
-            hasPrev={hasPrev}
-            hasNext={hasNext}
-            pausedOverride={engineOn ? engine.paused : undefined}
-            compact
-          />
-        )}
-
-        {/* Music mode: full custom transport (cover · title · ⏮⏯⏭ · seek ·
-            shuffle/repeat) for audio when expanded — replaces the native
-            controls the <video> no longer renders in audio mode. */}
-        {!minimized && audioMode && (
-          <AudioTransportBar
-            videoRef={activeMediaRef}
-            info={info}
-            selectedFile={selectedFile}
-            currentTime={currentTime}
-            duration={duration}
-            formatTime={formatTime}
-            onPrev={handlePrev}
-            onNext={handleNext}
-            hasPrev={hasPrev}
-            hasNext={hasNext}
-            queueLabel={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
-            shuffle={shuffle}
-            repeat={repeat}
-            pausedOverride={engineOn ? engine.paused : undefined}
-            onToggleShuffle={onToggleShuffle}
-            onCycleRepeat={onCycleRepeat}
-          />
-        )}
-
-        {/* Music experience: spectrum visualizer + 10-band EQ + synced lyrics.
-            Audio-mode only — the Web Audio graph it builds taps the <video>
-            element, which in audio mode never plays video (PlayerProvider
-            remounts by kind), so it can't introduce A/V lag on films. */}
-        {!minimized && audioMode && (
-          <MusicPanel
+        ) : (
+          <VideoPlayerElement
             videoRef={videoRef}
+            streamURL={streamURL}
+            disableNativeAutoplay={disableNativeAutoplay}
+            onPlaybackStarted={handlePlaybackStarted}
+            audioMode={audioMode}
+            subtitleVttURL={subtitleVttURL}
+            videoError={videoError}
+            serverReady={serverReady}
+            currentTime={currentTime}
+            bufferedEnd={bufferedEnd}
             info={info}
             selectedFile={selectedFile}
-            currentTime={currentTime}
-            duration={duration}
+            showResumePrompt={showResumePrompt}
+            resumePosition={resumePosition}
             isTranscoded={isTranscoded}
-            engineGraph={engine.active ? engine.graph : null}
-            engineOwns={engineOn}
+            transcodeFallbackAttempted={transcodeFallbackAttempted}
+            mediaToken={mediaToken}
+            renderVideoError={renderVideoError}
+            formatTime={formatTime}
+            onVideoError={handleVideoError}
+            onTimeUpdate={handleTimeUpdate}
+            onVideoEnded={handleVideoEnded}
+            onVideoCanPlay={handleVideoCanPlay}
+            videoDiagnostic={videoDiagnostic}
+            onResumeContinue={(pos) => {
+              const v = videoRef.current
+              if (v) { v.currentTime = pos; v.play().catch(() => {}) }
+              setShowResumePrompt(false)
+            }}
+            onResumeRestart={() => {
+              const v = videoRef.current
+              if (v) {
+                if (v.currentTime > 1.5) v.currentTime = 0
+                v.play().catch(() => {})
+              }
+              setShowResumePrompt(false)
+              setResumePosition(null)
+            }}
           />
         )}
 
@@ -1716,7 +1588,7 @@ export default function PlayerModal({
             showMobileOpts={showMobileOpts}
             playbackSpeed={playbackSpeed}
             probe={probe}
-            onSeek={(sec) => { const v = videoRef.current; if (v && Number.isFinite(sec)) v.currentTime = sec }}
+            onSeek={(sec) => { const el = activeMediaRef.current; if (el && Number.isFinite(sec)) el.currentTime = sec }}
             sidecars={sidecars}
             transcodeAudio={transcodeAudio}
             forceH264={forceH264}
