@@ -990,6 +990,54 @@ func metricsStaticTokenBypass(prom gin.HandlerFunc) gin.HandlerFunc {
 	}
 }
 
+// peerPortRefreshHandler re-reads gluetun's forwarded port and, if it differs
+// from the port the streamer is bound to, signals the graceful restart so
+// resolvePeerPort rebinds to the new port on boot. Authenticated by the static
+// JACKUI_CONTROL_TOKEN (Bearer header or ?token=), constant-time compared — the
+// caller is the VPN port-routing script in the gluetun netns, which can't hold a
+// JWT. Disabled (503) when no token is configured; no-op when not behind gluetun.
+func peerPortRefreshHandler(ctrlURL string, s *streamer.Streamer, restart chan<- struct{}) gin.HandlerFunc {
+	token := strings.TrimSpace(os.Getenv("JACKUI_CONTROL_TOKEN"))
+	return func(c *gin.Context) {
+		if token == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "JACKUI_CONTROL_TOKEN not configured"})
+			return
+		}
+		presented := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		if presented == "" || presented == c.GetHeader("Authorization") {
+			presented = c.Query("token")
+		}
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		if ctrlURL == "" {
+			c.JSON(http.StatusOK, gin.H{"changed": false, "reason": "not behind gluetun"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 6*time.Second)
+		defer cancel()
+		p, err := gluetun.ForwardedPort(ctx, ctrlURL)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		cur := 0
+		if s != nil {
+			cur = s.ListenPort()
+		}
+		if p == cur {
+			c.JSON(http.StatusOK, gin.H{"changed": false, "port": p})
+			return
+		}
+		select {
+		case restart <- struct{}{}:
+		default:
+		}
+		c.JSON(http.StatusOK, gin.H{"changed": true, "from": cur, "to": p})
+	}
+}
+
 func setupRouter(deps *appDeps) *gin.Engine {
 	router := gin.New()
 	// Custom formatter instead of gin.Logger(): media routes authenticate via
@@ -1018,6 +1066,11 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	} else {
 		router.GET("/api/metrics", promHandler)
 	}
+	// Peer-port refresh: lets the gluetun port-forward up-command push an immediate
+	// rebind when ProtonVPN rotates the forwarded port (vs waiting for the ~2min
+	// watcher poll). Static-token auth (JACKUI_CONTROL_TOKEN) — the caller is a
+	// shell script inside the gluetun netns, not a browser, so it can't carry a JWT.
+	router.POST("/api/stream/peer-port/refresh", peerPortRefreshHandler(os.Getenv("JACKUI_GLUETUN_CONTROL_URL"), deps.streamSrv, deps.restart))
 	router.GET("/api/auth/config", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"enabled": deps.cfg.Auth.Enabled})
 	})
