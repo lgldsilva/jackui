@@ -902,14 +902,23 @@ func PromoteDir(sharedDir, category string) string {
 // always uses the final name, never .part. onBytes (nil-safe) receives the bytes
 // copied so the caller can report transfer progress.
 func moveDownloadedFile(dataDir, destDir, relPath string, onBytes func(int64)) (string, error) {
+	dst := filepath.Join(destDir, filepath.Base(relPath))
 	src := resolveCompletedSrc(dataDir, relPath)
 	if src == "" {
+		// Source isn't in the cache. If it's already at the destination, the move
+		// was done on a previous attempt (or the file was downloaded straight to
+		// bulk via relocated storage) — idempotent success, NOT an error. Mirrors
+		// the whole-torrent path (moveTreeEntry); without it, a single-file
+		// completed download whose file already lives in bulk wedged the row with
+		// "move failed: completed file not found in /data/streams".
+		if fileExists(dst) {
+			return dst, nil
+		}
 		return "", fmt.Errorf("completed file not found in %s for %q", dataDir, relPath)
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
-	dst := filepath.Join(destDir, filepath.Base(relPath))
 	if err := moveFileProgress(src, dst, onBytes); err != nil {
 		return "", fmt.Errorf("move %s → %s: %w", src, dst, err)
 	}

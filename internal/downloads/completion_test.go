@@ -63,6 +63,30 @@ func TestMoveDownloadedFile(t *testing.T) {
 	}
 }
 
+// Bug evidence: a single-file completed download whose file is ALREADY at the
+// destination (moved earlier, or downloaded straight to bulk via relocated
+// storage) must be an idempotent no-op success — not "completed file not found
+// in /data/streams". Mirrors the whole-torrent path (moveTreeEntry).
+func TestMoveDownloadedFile_AlreadyAtDest(t *testing.T) {
+	cache := t.TempDir() // empty: source NOT in cache
+	destDir := t.TempDir()
+	// File already sits at the destination.
+	if err := os.WriteFile(filepath.Join(destDir, "f.mkv"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := moveDownloadedFile(cache, destDir, "T/f.mkv", nil)
+	if err != nil {
+		t.Fatalf("already-at-dest should be a no-op success, got error: %v", err)
+	}
+	if want := filepath.Join(destDir, "f.mkv"); got != want {
+		t.Errorf("dst = %q, want %q", got, want)
+	}
+	// Sanity: still errors when the file is in neither cache nor destination.
+	if _, err := moveDownloadedFile(cache, destDir, "T/ghost.mkv", nil); err == nil {
+		t.Error("expected error when file is in neither cache nor destination")
+	}
+}
+
 func TestCompletedDestDir(t *testing.T) {
 	if got := completedDestDir("/dl", "alice", "Movie"); got != "/dl/alice/Movie" {
 		t.Errorf("with user: got %q", got)
