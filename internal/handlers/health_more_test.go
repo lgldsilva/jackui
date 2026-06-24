@@ -18,7 +18,7 @@ func TestHealth_Handler(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/health", nil)
 
-	Health(nil)(c)
+	Health(nil, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
