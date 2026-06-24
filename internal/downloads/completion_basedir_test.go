@@ -61,6 +61,41 @@ func TestCompletionDest_EqualsBaseDirPlusSanitizedName(t *testing.T) {
 	}
 }
 
+func TestCompletionBaseDir_PrefersChosenDestination(t *testing.T) {
+	w, _ := newBulkWorker(t, "/dl", "/shared", true)
+	// A picked destination wins over downloadDir AND over the *arr auto-promote.
+	d := Download{UserID: 1, Source: SourceArr, Category: "Movies", DestBase: "/mnt/nas"}
+	if got := w.completionBaseDir(d); got != "/mnt/nas" {
+		t.Errorf("DestBase: got %q, want /mnt/nas", got)
+	}
+	d.DestSubdir = "Series/2026"
+	if got := w.completionBaseDir(d); got != filepath.FromSlash("/mnt/nas/Series/2026") {
+		t.Errorf("DestBase+subdir: got %q", got)
+	}
+	// A tampered traversal subdir is dropped (defense-in-depth).
+	d.DestSubdir = "../../etc"
+	if got := w.completionBaseDir(d); got != "/mnt/nas" {
+		t.Errorf("traversal subdir should be dropped: got %q", got)
+	}
+}
+
+func TestCleanDestSubdir(t *testing.T) {
+	cases := map[string]string{
+		"":          "",
+		"movies":    "movies",
+		"a/b/c":     filepath.FromSlash("a/b/c"),
+		".":         "",
+		"../x":      "",
+		"a/../../x": "",
+		"/abs/path": "",
+	}
+	for in, want := range cases {
+		if got := cleanDestSubdir(in); got != want {
+			t.Errorf("cleanDestSubdir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestFinalizeBulkCompletion_SingleFile(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)

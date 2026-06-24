@@ -207,6 +207,15 @@
     "disclaimer": "Watch time is approximate (accumulated position per title; rewatching doesn't add). Days/hours use each title's last play."
   },
   "downloads": {
+    "dest": {
+      "label": "Where to save",
+      "default": "Default (downloads folder)",
+      "loading": "Loading subfolders…",
+      "empty": "No subfolders here",
+      "newFolder": "New subfolder (optional)",
+      "target": "Destination",
+      "root": "(root)"
+    },
     "whole_torrent_queued": "Whole torrent queued — {{count}} files, {{size}}",
     "whole_torrent_badge": "Whole torrent",
     "whole_torrent_files": "{{count}} files",

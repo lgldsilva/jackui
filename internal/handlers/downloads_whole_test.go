@@ -22,7 +22,7 @@ func TestDownloadsCreate_WholeTorrentSentinel(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.POST("/api/downloads", DownloadsCreate(store))
+	router.POST("/api/downloads", DownloadsCreate(store, nil))
 
 	body := map[string]interface{}{
 		"infoHash":  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -163,7 +163,7 @@ func TestDownloadsCreate_RejectsFileIndexBelowSentinel(t *testing.T) {
 	store := newDownloadsStore(t)
 
 	router := gin.New()
-	router.POST("/api/downloads", DownloadsCreate(store))
+	router.POST("/api/downloads", DownloadsCreate(store, nil))
 
 	body := map[string]interface{}{
 		"infoHash":  "cccccccccccccccccccccccccccccccccccccccc",
