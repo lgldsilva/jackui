@@ -22,3 +22,19 @@ func TransfersList(tr *transfer.Tracker) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"transfers": list})
 	}
 }
+
+// TransfersCancel handles DELETE /api/transfers/:id — cancels an in-flight
+// move/copy job: its context is canceled so the producer (post-download move,
+// promote, Local move) aborts its copy/retries, and the job flips to "canceled".
+// 404 when no job with that ID exists. This is what the dock's "stop" button calls
+// — previously the button rendered but had nothing to invoke.
+func TransfersCancel(tr *transfer.Tracker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		if id == "" || !tr.Cancel(id) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "transferência não encontrada"})
+			return
+		}
+		c.Status(http.StatusNoContent)
+	}
+}

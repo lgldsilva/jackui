@@ -4,7 +4,7 @@ import { api } from './http'
 // One consistent shape for every move/copy in JackUI: the post-download move,
 // Local-tab moves, and promote/AI-rename. Mirrors internal/transfer.Snapshot.
 
-export type TransferStatus = 'queued' | 'running' | 'done' | 'failed'
+export type TransferStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled'
 
 export type TransferKind = 'download-move' | 'local-move' | 'promote' | 'ai-rename'
 
@@ -28,4 +28,11 @@ export type TransferSnapshot = {
 export const transfersList = async (): Promise<TransferSnapshot[]> => {
   const { data } = await api.get<{ transfers: TransferSnapshot[] }>('/transfers')
   return data.transfers ?? []
+}
+
+// transferCancel aborts an in-flight move/copy (the dock's stop button). The
+// backend cancels the job's context so the copy/retries stop and it flips to
+// "canceled".
+export const transferCancel = async (id: string): Promise<void> => {
+  await api.delete(`/transfers/${encodeURIComponent(id)}`)
 }

@@ -819,6 +819,9 @@ func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []strin
 	var dst string
 	var err error
 	for attempt := 1; attempt <= moveMaxAttempts; attempt++ {
+		if job.Canceled() {
+			return "", fmt.Errorf("transferência cancelada")
+		}
 		if whole {
 			dst, err = w.moveCompletedTorrentFiles(d, name, relPaths, job)
 		} else {
@@ -946,7 +949,7 @@ func PromoteDir(sharedDir, category string) string {
 // relPath from dataDir into destDir, returning the destination path. The dst
 // always uses the final name, never .part. onBytes (nil-safe) receives the bytes
 // copied so the caller can report transfer progress.
-func moveDownloadedFile(dataDir, destDir, relPath string, onBytes func(int64)) (string, error) {
+func moveDownloadedFile(ctx context.Context, dataDir, destDir, relPath string, onBytes func(int64)) (string, error) {
 	dst := filepath.Join(destDir, filepath.Base(relPath))
 	src := resolveCompletedSrc(dataDir, relPath)
 	if src == "" {
@@ -964,7 +967,7 @@ func moveDownloadedFile(dataDir, destDir, relPath string, onBytes func(int64)) (
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
-	if err := moveFileProgress(src, dst, onBytes); err != nil {
+	if err := moveFileProgress(ctx, src, dst, onBytes); err != nil {
 		return "", fmt.Errorf("move %s → %s: %w", src, dst, err)
 	}
 	return dst, nil
@@ -1085,7 +1088,7 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string, job 
 	if destDir == "" {
 		return "", nil
 	}
-	dst, err := moveDownloadedFile(w.dataDir, destDir, relPath, job.AddBytesFunc())
+	dst, err := moveDownloadedFile(job.Context(), w.dataDir, destDir, relPath, job.AddBytesFunc())
 	if err != nil {
 		return "", err
 	}
@@ -1117,7 +1120,7 @@ func (w *Worker) moveCompletedTorrentFiles(d Download, torrentName string, relPa
 	if destDir == "" {
 		return "", nil
 	}
-	if err := moveCompletedTree(w.dataDir, destDir, torrentName, relPaths, job.AddBytesFunc(), job.FileDone); err != nil {
+	if err := moveCompletedTree(job.Context(), w.dataDir, destDir, torrentName, relPaths, job.AddBytesFunc(), job.FileDone); err != nil {
 		return "", err
 	}
 	if err := w.store.SetFilePath(d.UserID, d.ID, destDir); err != nil {
@@ -1133,9 +1136,12 @@ func (w *Worker) moveCompletedTorrentFiles(d Download, torrentName string, relPa
 // "<torrentName>/" segment is stripped (destDir already carries the per-torrent
 // folder). Idempotent: a file whose source is gone but whose destination exists
 // was moved by a previous (interrupted) attempt and is skipped.
-func moveCompletedTree(dataDir, destDir, torrentName string, relPaths []string, onBytes func(int64), onFileDone func()) error {
+func moveCompletedTree(ctx context.Context, dataDir, destDir, torrentName string, relPaths []string, onBytes func(int64), onFileDone func()) error {
 	for _, rel := range relPaths {
-		moved, err := moveTreeEntry(dataDir, destDir, torrentName, rel, onBytes)
+		if err := ctx.Err(); err != nil {
+			return err // canceled via Tracker.Cancel — stop between files
+		}
+		moved, err := moveTreeEntry(ctx, dataDir, destDir, torrentName, rel, onBytes)
 		if err != nil {
 			return err
 		}
@@ -1150,7 +1156,7 @@ func moveCompletedTree(dataDir, destDir, torrentName string, relPaths []string, 
 // a file was moved OR already sat at the destination (a prior attempt); moved=
 // false for a skipped BEP 47 pad entry. Idempotent — safe to re-run after an
 // interrupted move.
-func moveTreeEntry(dataDir, destDir, torrentName, rel string, onBytes func(int64)) (bool, error) {
+func moveTreeEntry(ctx context.Context, dataDir, destDir, torrentName, rel string, onBytes func(int64)) (bool, error) {
 	if isPadPath(torrentName, rel) {
 		return false, nil
 	}
@@ -1168,7 +1174,7 @@ func moveTreeEntry(dataDir, destDir, torrentName, rel string, onBytes func(int64
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return false, fmt.Errorf("mkdir for %q: %w", rel, err)
 	}
-	if err := moveFileProgress(src, dst, onBytes); err != nil {
+	if err := moveFileProgress(ctx, src, dst, onBytes); err != nil {
 		return false, fmt.Errorf("move %s → %s: %w", src, dst, err)
 	}
 	return true, nil
@@ -1232,7 +1238,7 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
 		size = st.Size()
 	}
 	job := w.tracker.Start(filepath.Base(newDst), "ai-rename", 1, size)
-	if err := moveFileProgress(currentPath, newDst, job.AddBytesFunc()); err != nil {
+	if err := moveFileProgress(job.Context(), currentPath, newDst, job.AddBytesFunc()); err != nil {
 		job.Fail(err)
 		log.Printf("downloads: AI-rename move #%d: %v", d.ID, err)
 		return
@@ -1252,7 +1258,9 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
 // filesystems (EXDEV). Mirrors the promote move semantics. Delegates to
 // moveFileProgress (no progress reporting); aiRenameCompleted uses the metered
 // form directly for the Transfers dock.
-func moveFileWithFallback(src, dst string) error { return moveFileProgress(src, dst, nil) }
+func moveFileWithFallback(src, dst string) error {
+	return moveFileProgress(context.Background(), src, dst, nil)
+}
 
 // sanitizeFolderName turns a torrent name into ONE safe path segment for the
 // per-torrent destination folder: strips path separators and traversal, drops
@@ -1664,14 +1672,14 @@ func pickBestFile(files []*torrent.File) int {
 var renameFn = os.Rename
 
 // moveFile moves src to dst with no progress reporting (see moveFileProgress).
-func moveFile(src, dst string) error { return moveFileProgress(src, dst, nil) }
+func moveFile(src, dst string) error { return moveFileProgress(context.Background(), src, dst, nil) }
 
 // moveFileProgress moves src to dst. Tries os.Rename first (cheap, same-
 // filesystem; reports the file size as one chunk so a same-fs move still shows
 // 100% on the progress bar); falls back to copy+delete for cross-filesystem moves
 // (DataDir on one volume, DownloadDir on another), streaming through a
 // transfer.ProgressReader so onBytes (nil-safe) sees the copy advance.
-func moveFileProgress(src, dst string, onBytes func(int64)) error {
+func moveFileProgress(ctx context.Context, src, dst string, onBytes func(int64)) error {
 	if err := renameFn(src, dst); err == nil {
 		if onBytes != nil {
 			if st, e := os.Stat(dst); e == nil {
@@ -1689,7 +1697,9 @@ func moveFileProgress(src, dst string, onBytes func(int64)) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, transfer.ProgressReader(in, onBytes)); err != nil {
+	// Cross-device copy streams through a ctx-aware reader so a Tracker.Cancel
+	// aborts it mid-file (the partial dst is removed below).
+	if _, err := io.Copy(out, transfer.ProgressReaderCtx(ctx, in, onBytes)); err != nil {
 		_ = out.Close()
 		_ = os.Remove(dst)
 		return err
