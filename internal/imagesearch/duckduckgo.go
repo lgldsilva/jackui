@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+
+	"github.com/lgldsilva/jackui/internal/httpretry"
 )
 
 // DuckDuckGo searches DDG's image endpoint, which needs a one-time "vqd" token
@@ -54,7 +56,7 @@ func (d *DuckDuckGo) Find(ctx context.Context, query string) ([]byte, string, er
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	req.Header.Set("User-Agent", browserUA)
 	req.Header.Set("Referer", d.htmlURL)
-	resp, err := d.http.Do(req)
+	resp, err := httpretry.Do(ctx, d.http, req, httpretry.Policy{MaxAttempts: 2})
 	if err != nil {
 		return nil, "", err
 	}
@@ -90,7 +92,7 @@ func (d *DuckDuckGo) token(ctx context.Context, query string) (string, error) {
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	req.Header.Set("User-Agent", browserUA)
-	resp, err := d.http.Do(req)
+	resp, err := httpretry.Do(ctx, d.http, req, httpretry.Policy{MaxAttempts: 2})
 	if err != nil {
 		return "", err
 	}

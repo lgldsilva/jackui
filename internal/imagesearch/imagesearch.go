@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/httpretry"
 )
 
 // browserUA is sent on every request — image search front-ends gate or reshape
@@ -87,7 +89,7 @@ func downloadImage(ctx context.Context, hc *http.Client, imageURL string) ([]byt
 		return nil, "", err
 	}
 	req.Header.Set("User-Agent", browserUA)
-	resp, err := hc.Do(req)
+	resp, err := httpretry.Do(ctx, hc, req, httpretry.Policy{MaxAttempts: 2})
 	if err != nil {
 		return nil, "", err
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
 	"github.com/lgldsilva/jackui/internal/diskutil"
+	"github.com/lgldsilva/jackui/internal/httpretry"
 	"golang.org/x/time/rate"
 )
 
@@ -973,7 +974,12 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*t
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	resp, err := httpClient.Do(req)
+	// Retry transient failures AND 404: an indexer that just published a release
+	// often 404s the .torrent link for a few seconds before it propagates — the
+	// "torrent URL returned 404" the user hit on a fresh card.
+	resp, err := httpretry.Do(ctx, httpClient, req, httpretry.Policy{
+		RetryOn: httpretry.RetryOnStatuses(http.StatusNotFound),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fetch torrent URL: %w", err)
 	}
