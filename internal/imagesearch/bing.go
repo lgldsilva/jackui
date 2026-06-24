@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/lgldsilva/jackui/internal/httpretry"
 )
 
 // Bing scrapes the image search results page for the original-image URL ("murl"
@@ -36,7 +38,7 @@ func (b *Bing) Find(ctx context.Context, query string) ([]byte, string, error) {
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	req.Header.Set("User-Agent", browserUA)
-	resp, err := b.http.Do(req)
+	resp, err := httpretry.Do(ctx, b.http, req, httpretry.Policy{MaxAttempts: 2})
 	if err != nil {
 		return nil, "", err
 	}

@@ -16,12 +16,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/httpretry"
 )
 
 const (
-	apiBase          = "https://api.opensubtitles.com/api/v1"
-	userAgent        = "JackUI v1.0"
-	contentTypeJSON  = "application/json"
+	apiBase         = "https://api.opensubtitles.com/api/v1"
+	userAgent       = "JackUI v1.0"
+	contentTypeJSON = "application/json"
 )
 
 // utf8BOM is the byte-order mark sometimes prepended to SRT files (U+FEFF).
@@ -149,7 +151,7 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 	req, _ := http.NewRequest("GET", apiBase+"/subtitles?"+q.Encode(), nil)
 	c.applyHeaders(req)
 
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(req.Context(), c.http, req, httpretry.Policy{})
 	if err != nil {
 		return nil, fmt.Errorf("opensubtitles search: %w", err)
 	}
@@ -247,7 +249,8 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 		return nil, errors.New("opensubtitles: empty download link")
 	}
 
-	dlResp, err := c.http.Get(meta.Link)
+	dlReq, _ := http.NewRequest("GET", meta.Link, nil)
+	dlResp, err := httpretry.Do(dlReq.Context(), c.http, dlReq, httpretry.Policy{})
 	if err != nil {
 		return nil, fmt.Errorf("fetch subtitle file: %w", err)
 	}

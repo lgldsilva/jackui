@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/httpretry"
 )
 
 const (
@@ -138,7 +139,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(req.Context(), c.http, req, httpretry.Policy{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Jackett API: %w", err)
 	}
@@ -204,7 +205,7 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 			return http.ErrUseLastResponse
 		},
 	}
-	resp, err := noFollow.Do(req)
+	resp, err := httpretry.Do(req.Context(), noFollow, req, httpretry.Policy{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Jackett API: %w", err)
 	}
@@ -313,7 +314,7 @@ func (c *Client) ListIndexers() ([]Indexer, error) {
 	q.Set("configured", "true")
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(req.Context(), c.http, req, httpretry.Policy{})
 	if err != nil {
 		return nil, fmt.Errorf("list indexers: %w", err)
 	}
@@ -359,7 +360,7 @@ func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category
 	}
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(req.Context(), c.http, req, httpretry.Policy{})
 	if err != nil {
 		return nil, err
 	}

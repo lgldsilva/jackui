@@ -1,6 +1,7 @@
-import axios from 'axios'
+import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { isIncognito } from '../lib/incognito'
 import { isRevealHidden } from '../lib/reveal'
+import { isRetryableGet, retryDelayMs, RETRY_MAX } from './retry'
 
 export const MAGNET_PREFIX = 'magnet:?xt=urn:btih:'
 
@@ -27,6 +28,23 @@ api.interceptors.request.use((config) => {
     config.headers['X-JackUI-Reveal-Hidden'] = '1'
   }
   return config
+})
+
+// Retry idempotent GETs on transient failures (network blip, 429, 5xx) with
+// backoff so a momentary hiccup doesn't surface as a hard error on cards,
+// search, health probes, metadata, etc. POSTs are never retried (may mutate).
+// 401s are left to the auth refresh interceptor (AuthContext) — not retried here.
+api.interceptors.response.use(undefined, async (error: AxiosError) => {
+  const config = error.config as (InternalAxiosRequestConfig & { _retryCount?: number }) | undefined
+  if (!config || !isRetryableGet(config.method, error.response?.status)) {
+    return Promise.reject(error)
+  }
+  const attempt = config._retryCount ?? 0
+  if (attempt >= RETRY_MAX) return Promise.reject(error)
+  config._retryCount = attempt + 1
+  const ra = Number(error.response?.headers?.['retry-after'])
+  await new Promise((res) => setTimeout(res, retryDelayMs(attempt, Number.isFinite(ra) ? ra : undefined)))
+  return api(config)
 })
 
 // stripToken remove TODO token= pré-existente (qualquer posição), sem deixar `?&`.
