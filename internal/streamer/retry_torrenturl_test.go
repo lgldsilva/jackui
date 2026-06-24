@@ -49,7 +49,7 @@ func TestAddFromTorrentURL_RetriesOn404(t *testing.T) {
 	}
 	defer s.Close()
 
-	tor, err := s.addFromTorrentURL(context.Background(), srv.URL)
+	tor, err := s.addFromTorrentURL(context.Background(), srv.URL, nil)
 	if err != nil {
 		t.Fatalf("addFromTorrentURL should retry the 404 and succeed: %v", err)
 	}

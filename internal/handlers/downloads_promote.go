@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
@@ -357,7 +359,7 @@ func promoteOne(o *promoteOpts) (*downloads.Download, error) {
 	}
 	job.Done()
 	_ = o.store.SetFilePath(o.userID, o.id, dst)
-	stopSeedingIfNeeded(o, d.InfoHash)
+	applySeedingAfterPromote(o, d)
 	return o.store.Get(o.userID, o.id)
 }
 
@@ -412,13 +414,31 @@ func moveWithFallbackJob(src, dst string, job *transfer.Job, files int, bytes in
 	return nil
 }
 
-func stopSeedingIfNeeded(o *promoteOpts, infoHash string) {
-	if o.keepSeeding {
+// applySeedingAfterPromote re-points or stops the torrent after its file was
+// moved to the promote destination. keepSeeding=false → Drop (stop seeding).
+// keepSeeding=true → Drop + re-add so anacrolix picks up the relocatedStorage at
+// the NEW path and keeps seeding IMMEDIATELY. Without the re-add the live torrent
+// kept pointing at the old (now-moved) file and silently stopped serving until
+// the next boot auto-seed — "keepSeeding" didn't actually keep it sending.
+// Mirrors the downloads worker's reseedAfterCompletion.
+func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
+	if d.InfoHash == "" {
 		return
 	}
 	var h metainfo.Hash
-	if err := h.FromHexString(infoHash); err == nil {
-		o.s.Drop(h)
+	if err := h.FromHexString(d.InfoHash); err != nil {
+		return
+	}
+	o.s.Drop(h)
+	if !o.keepSeeding {
+		return
+	}
+	// file_path was just updated to the new destination, so EnsureActive's
+	// relocatedStorage resolves the moved file and seeds it in place (no re-download).
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if _, err := o.s.EnsureActive(ctx, d.EffectiveMagnet()); err != nil {
+		log.Printf("promote: reseed #%d %q from new location failed: %v", d.ID, d.Name, err)
 	}
 }
 

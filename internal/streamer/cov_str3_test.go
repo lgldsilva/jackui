@@ -264,7 +264,7 @@ func Test_str3_NewSSRFTransport(t *testing.T) {
 func Test_str3_AddFromTorrentResponseNon200(t *testing.T) {
 	s := NewForTesting()
 	resp := &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(bytes.NewReader(nil))}
-	if _, err := s.addFromTorrentResponse(resp); err == nil {
+	if _, err := s.addFromTorrentResponse(resp, nil); err == nil {
 		t.Error("expected error for non-200 .torrent response")
 	}
 }
@@ -284,7 +284,7 @@ func Test_str3_AddFromTorrentResponseBadBody(t *testing.T) {
 	defer resp.Body.Close()
 
 	s := NewForTesting()
-	if _, err := s.addFromTorrentResponse(resp); err == nil {
+	if _, err := s.addFromTorrentResponse(resp, nil); err == nil {
 		t.Error("expected parse error for non-metainfo body")
 	}
 }
@@ -300,7 +300,7 @@ func Test_str3_AddFromCapturedMagnetValid(t *testing.T) {
 	defer s.Close()
 
 	const magnet = "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&dn=str3"
-	tor, err := s.addFromCapturedMagnet(magnet)
+	tor, err := s.addFromCapturedMagnet(magnet, nil)
 	if err != nil {
 		t.Fatalf("addFromCapturedMagnet: %v", err)
 	}

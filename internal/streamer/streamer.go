@@ -127,6 +127,12 @@ type Streamer struct {
 	cache            *MetadataCache  // optional — nil disables instant-open snapshots
 	stop             chan struct{}
 	filePathResolver FilePathResolver
+	// dlPieceCompletion is a shared, persistent (Bolt) piece-completion DB used by
+	// the download-to-bulk storage (downloadStorage). Persistent so a restart
+	// doesn't re-hash huge files sitting on the slow bulk disk. Shared across all
+	// download torrents (Bolt indexes by infohash internally). nil → NewFileOpts
+	// falls back to its own default completion under each baseDir (still persists).
+	dlPieceCompletion storage.PieceCompletion
 	// downloads holds torrent names that are part of a background-download
 	// queue. They must NOT be evicted by enforceCacheLimit even when idle —
 	// the user is waiting for the file to finish. The downloads worker
@@ -521,19 +527,31 @@ func New(cfg Config) (*Streamer, error) {
 	metainfoDir := filepath.Join(cfg.DataDir, ".metainfo")
 	_ = os.MkdirAll(metainfoDir, 0o755)
 
+	// Shared persistent piece-completion DB for download-to-bulk storage. Lives in
+	// the cache dir (it's only piece metadata — KB/MB), at a path DISTINCT from the
+	// client's own completion DB so the two Bolt files never lock each other.
+	dlCompletionDir := filepath.Join(cfg.DataDir, ".piece-completion-dl")
+	_ = os.MkdirAll(dlCompletionDir, 0o755)
+	dlPieceCompletion, err := storage.NewBoltPieceCompletion(dlCompletionDir)
+	if err != nil {
+		log.Printf("streamer: download piece-completion DB unavailable (%v) — falling back to per-baseDir completion", err)
+		dlPieceCompletion = nil
+	}
+
 	s := &Streamer{
-		cfg:           cfg,
-		client:        client,
-		active:        make(map[metainfo.Hash]*entry),
-		stop:          make(chan struct{}),
-		downloads:     make(map[string]struct{}),
-		metainfoDir:   metainfoDir,
-		verifiedFiles: make(map[string]bool),
-		dlLimiter:     dlLimiter,
-		upLimiter:     upLimiter,
-		storageImpl:   storageImpl,
-		readahead:     cfg.Readahead,
-		seedTrackers:  normalizeSeedTrackers(cfg.SeedTrackers),
+		cfg:               cfg,
+		client:            client,
+		active:            make(map[metainfo.Hash]*entry),
+		stop:              make(chan struct{}),
+		downloads:         make(map[string]struct{}),
+		metainfoDir:       metainfoDir,
+		verifiedFiles:     make(map[string]bool),
+		dlLimiter:         dlLimiter,
+		upLimiter:         upLimiter,
+		storageImpl:       storageImpl,
+		readahead:         cfg.Readahead,
+		seedTrackers:      normalizeSeedTrackers(cfg.SeedTrackers),
+		dlPieceCompletion: dlPieceCompletion,
 	}
 
 	go s.gcLoop()
@@ -734,6 +752,9 @@ func (s *Streamer) Close() {
 	if s.storageImpl != nil {
 		_ = s.storageImpl.Close()
 	}
+	if s.dlPieceCompletion != nil {
+		_ = s.dlPieceCompletion.Close()
+	}
 }
 
 // Add loads a magnet OR an HTTP(S) URL to a .torrent file and waits for metadata.
@@ -743,8 +764,21 @@ func (s *Streamer) Close() {
 // don't return a magnet), we fetch the file, parse the metainfo, and add via
 // AddTorrentSpec — same downstream behavior as magnet.
 func (s *Streamer) Add(ctx context.Context, magnetOrURL string) (*TorrentInfo, error) {
+	return s.addWithStorage(ctx, magnetOrURL, nil)
+}
+
+// AddForDownload is Add but writes the torrent's data DIRECTLY to its final
+// destination on bulk storage (ds.BaseDir/<sanitize(name)>/...) instead of the
+// SSD piece cache. Used by the downloads worker so torrents larger than the
+// cache don't overflow it and the move-on-completion becomes a no-op. The
+// streaming path (Add/EnsureActive) is unaffected — it passes ds=nil.
+func (s *Streamer) AddForDownload(ctx context.Context, magnetOrURL string, ds DownloadStorageSpec) (*TorrentInfo, error) {
+	return s.addWithStorage(ctx, magnetOrURL, &ds)
+}
+
+func (s *Streamer) addWithStorage(ctx context.Context, magnetOrURL string, ds *DownloadStorageSpec) (*TorrentInfo, error) {
 	src := cleanSource(magnetOrURL)
-	t, err := s.resolveSource(ctx, src)
+	t, err := s.resolveSource(ctx, src, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -761,13 +795,13 @@ func cleanSource(magnetOrURL string) string {
 	return src
 }
 
-func (s *Streamer) resolveSource(ctx context.Context, src string) (*torrent.Torrent, error) {
+func (s *Streamer) resolveSource(ctx context.Context, src string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	lower := strings.ToLower(src[:min(16, len(src))])
 	switch {
 	case isMagnet(lower, src):
-		return s.resolveMagnet(src)
+		return s.resolveMagnet(src, ds)
 	case strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://"):
-		return s.addFromTorrentURL(ctx, src)
+		return s.addFromTorrentURL(ctx, src, ds)
 	default:
 		return nil, fmt.Errorf("unsupported source — provide a magnet: or http(s):// URL (got %q)", firstChars(src, 30))
 	}
@@ -780,16 +814,38 @@ func isMagnet(lower, src string) bool {
 	return false
 }
 
-func (s *Streamer) resolveMagnet(src string) (*torrent.Torrent, error) {
+func (s *Streamer) resolveMagnet(src string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	if i := strings.Index(src, magnetPrefix); i >= 0 {
 		src = src[i:]
 	}
 	if mi, err := metainfo.ParseMagnetUri(src); err == nil {
 		if cached := s.loadCachedMetainfo(mi.InfoHash); cached != nil {
-			return s.addCachedMetainfo(cached, mi.InfoHash)
+			return s.addCachedMetainfo(cached, mi.InfoHash, ds)
 		}
 	}
-	t, err := s.client.AddMagnet(src)
+	return s.addMagnet(src, ds)
+}
+
+// addMagnet adds a magnet URI. With ds set (download-to-bulk), it builds a spec
+// so the per-torrent bulk storage can be attached; otherwise it uses the plain
+// AddMagnet path (default cache storage), unchanged.
+func (s *Streamer) addMagnet(src string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
+	if s.client == nil {
+		return nil, errors.New("torrent client unavailable")
+	}
+	if ds == nil {
+		t, err := s.client.AddMagnet(src)
+		if err != nil {
+			return nil, fmt.Errorf("add magnet: %w", err)
+		}
+		return t, nil
+	}
+	spec, err := torrent.TorrentSpecFromMagnetUri(src)
+	if err != nil {
+		return nil, fmt.Errorf("parse magnet: %w", err)
+	}
+	spec.Storage = s.downloadStorage(*ds)
+	t, _, err := s.client.AddTorrentSpec(spec)
 	if err != nil {
 		return nil, fmt.Errorf("add magnet: %w", err)
 	}
@@ -801,12 +857,17 @@ func (s *Streamer) resolveMagnet(src string) (*torrent.Torrent, error) {
 // completion), it attaches a per-torrent storage rooted at the real location so
 // anacrolix verifies + SEEDS in place instead of re-downloading into the cache.
 // Falls back to the default storage otherwise.
-func (s *Streamer) addCachedMetainfo(cached *metainfo.MetaInfo, hash metainfo.Hash) (*torrent.Torrent, error) {
+func (s *Streamer) addCachedMetainfo(cached *metainfo.MetaInfo, hash metainfo.Hash, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	spec := torrent.TorrentSpecFromMetaInfo(cached)
-	if info, err := cached.UnmarshalInfo(); err == nil {
-		if st := s.relocatedStorage(&info, hash); st != nil {
-			spec.Storage = st
-			log.Printf("streamer: seeding %s from relocated storage (file outside cache)", hash.HexString()[:8])
+	switch {
+	case ds != nil:
+		spec.Storage = s.downloadStorage(*ds)
+	default:
+		if info, err := cached.UnmarshalInfo(); err == nil {
+			if st := s.relocatedStorage(&info, hash); st != nil {
+				spec.Storage = st
+				log.Printf("streamer: seeding %s from relocated storage (file outside cache)", hash.HexString()[:8])
+			}
 		}
 	}
 	t, _, err := s.client.AddTorrentSpec(spec)
@@ -940,15 +1001,15 @@ func (s *Streamer) injectJackettAPIKey(torrentURL string) string {
 	return u.String()
 }
 
-func (s *Streamer) addFromCapturedMagnet(magnet string) (*torrent.Torrent, error) {
-	t, err := s.client.AddMagnet(magnet)
+func (s *Streamer) addFromCapturedMagnet(magnet string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
+	t, err := s.addMagnet(magnet, ds)
 	if err != nil {
 		return nil, fmt.Errorf("add magnet from redirect: %w", err)
 	}
 	return t, nil
 }
 
-func (s *Streamer) addFromTorrentResponse(resp *http.Response) (*torrent.Torrent, error) {
+func (s *Streamer) addFromTorrentResponse(resp *http.Response, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf(".torrent URL returned %d", resp.StatusCode)
 	}
@@ -960,11 +1021,14 @@ func (s *Streamer) addFromTorrentResponse(resp *http.Response) (*torrent.Torrent
 	if err != nil {
 		return nil, fmt.Errorf("metainfo spec: %w", err)
 	}
+	if ds != nil {
+		spec.Storage = s.downloadStorage(*ds)
+	}
 	t, _, err := s.client.AddTorrentSpec(spec)
 	return t, err
 }
 
-func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*torrent.Torrent, error) {
+func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	var capturedMagnet string
 
 	torrentURL = s.injectJackettAPIKey(torrentURL)
@@ -986,9 +1050,9 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string) (*t
 	defer resp.Body.Close()
 
 	if capturedMagnet != "" {
-		return s.addFromCapturedMagnet(capturedMagnet)
+		return s.addFromCapturedMagnet(capturedMagnet, ds)
 	}
-	return s.addFromTorrentResponse(resp)
+	return s.addFromTorrentResponse(resp, ds)
 }
 
 // Get returns the current TorrentInfo for an active torrent.
