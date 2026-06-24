@@ -8,6 +8,7 @@
 package transfer
 
 import (
+	"context"
 	"io"
 	"sync"
 	"time"
@@ -317,6 +318,48 @@ func (t *Tracker) List() []Snapshot {
 		out = append(out, jobs[i].Snapshot())
 	}
 	return out
+}
+
+// ActiveCount returns how many jobs are still Queued or Running. Used by the
+// graceful shutdown to decide whether to wait for in-flight moves.
+func (t *Tracker) ActiveCount() int {
+	if t == nil {
+		return 0
+	}
+	t.mu.Lock()
+	jobs := append([]*Job(nil), t.jobs...)
+	t.mu.Unlock()
+	n := 0
+	for _, j := range jobs {
+		j.mu.Lock()
+		s := j.status
+		j.mu.Unlock()
+		if s == StatusQueued || s == StatusRunning {
+			n++
+		}
+	}
+	return n
+}
+
+// WaitIdle blocks until no job is Queued/Running or ctx is done, polling every
+// 200ms. Best-effort: anything still in flight when ctx expires is left to the
+// durable boot rescue (downloads.RescueStuckMoving). Returns true if it drained.
+func (t *Tracker) WaitIdle(ctx context.Context) bool {
+	if t == nil {
+		return true
+	}
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if t.ActiveCount() == 0 {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-tick.C:
+		}
+	}
 }
 
 func (t *Tracker) pruneLocked(now time.Time) {
