@@ -18,7 +18,7 @@ func TestHealth_NilStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/healthz", nil)
 
-	Health(nil)(c)
+	Health(nil, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -47,7 +47,7 @@ func TestHealth_WithStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/healthz", nil)
 
-	Health(db)(c)
+	Health(db, func() bool { return true })(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -59,6 +59,36 @@ func TestHealth_WithStore(t *testing.T) {
 	}
 	if body["db"] != "ok" {
 		t.Errorf("db = %v, want 'ok'", body["db"])
+	}
+}
+
+// A live DB but a streamer that failed to init → 503 (degraded), so the Docker
+// healthcheck catches a process running without streaming.
+func TestHealth_StreamerDown(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := history.New(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/healthz", nil)
+
+	Health(db, func() bool { return false })(c)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", w.Code)
+	}
+	var body map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["status"] != "degraded" {
+		t.Errorf("status = %v, want 'degraded'", body["status"])
+	}
+	if body["streamer"] != "down" {
+		t.Errorf("streamer = %v, want 'down'", body["streamer"])
+	}
+	if body["db"] != "ok" {
+		t.Errorf("db = %v, want 'ok' (DB is fine, only streamer is down)", body["db"])
 	}
 }
 
@@ -92,7 +122,7 @@ func TestHealth_JSONStructure(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/healthz", nil)
 
-	Health(nil)(c)
+	Health(nil, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)

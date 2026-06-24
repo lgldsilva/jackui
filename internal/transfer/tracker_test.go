@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -202,5 +203,56 @@ func TestSubmitNilTrackerRunsFn(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("fn não rodou no tracker nil")
+	}
+}
+
+// ActiveCount counts only Queued/Running jobs; WaitIdle drains them or times out.
+func TestActiveCountAndWaitIdle(t *testing.T) {
+	tr := New(2)
+
+	if n := tr.ActiveCount(); n != 0 {
+		t.Fatalf("ActiveCount em tracker vazio = %d, want 0", n)
+	}
+
+	release := make(chan struct{})
+	var started sync.WaitGroup
+	started.Add(2)
+	for i := 0; i < 2; i++ {
+		tr.Submit("move", "local-move", 1, 100, func(j *Job) {
+			started.Done()
+			<-release
+			j.Done()
+		})
+	}
+	started.Wait()
+
+	if n := tr.ActiveCount(); n != 2 {
+		t.Fatalf("ActiveCount com 2 rodando = %d, want 2", n)
+	}
+
+	// WaitIdle deve estourar o timeout enquanto os jobs seguem ativos.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	if tr.WaitIdle(ctx) {
+		t.Error("WaitIdle retornou true com jobs ainda ativos")
+	}
+	cancel()
+
+	// Libera os jobs → WaitIdle deve drenar dentro do timeout.
+	close(release)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel2()
+	if !tr.WaitIdle(ctx2) {
+		t.Errorf("WaitIdle não drenou após concluir os jobs (ativos=%d)", tr.ActiveCount())
+	}
+}
+
+// WaitIdle/ActiveCount em *Tracker nil são no-ops seguros (tracking desabilitado).
+func TestWaitIdleNilTracker(t *testing.T) {
+	var tr *Tracker
+	if tr.ActiveCount() != 0 {
+		t.Error("ActiveCount nil != 0")
+	}
+	if !tr.WaitIdle(context.Background()) {
+		t.Error("WaitIdle nil deve retornar true")
 	}
 }

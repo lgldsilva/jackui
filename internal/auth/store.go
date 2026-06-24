@@ -72,7 +72,7 @@ type Store struct {
 
 // New opens (or creates) the auth DB at path.
 func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK)
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
 	if err != nil {
 		return nil, err
 	}
