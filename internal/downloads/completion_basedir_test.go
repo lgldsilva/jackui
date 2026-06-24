@@ -31,6 +31,41 @@ func TestCompletionBaseDir_PerUser(t *testing.T) {
 	}
 }
 
+// Downloads group under their category folder by default (…/<user>/<category>/…)
+// so the browser isn't a flat dump. A picked destination still wins (no grouping).
+func TestCompletionBaseDir_GroupsByCategory(t *testing.T) {
+	w, _ := newBulkWorker(t, "/dl", "", false)
+	if got := w.completionBaseDir(Download{UserID: 1, Category: "Movies"}); got != filepath.FromSlash("/dl/alice/Movies") {
+		t.Errorf("category group base = %q, want /dl/alice/Movies", got)
+	}
+	// No category → no grouping (back-compat).
+	if got := w.completionBaseDir(Download{UserID: 1}); got != filepath.FromSlash("/dl/alice") {
+		t.Errorf("no-category base = %q, want /dl/alice", got)
+	}
+	// Picked destination wins — category does NOT re-group it.
+	if got := w.completionBaseDir(Download{UserID: 1, Category: "Movies", DestBase: "/mnt/nas"}); got != "/mnt/nas" {
+		t.Errorf("DestBase base = %q, want /mnt/nas (no category grouping)", got)
+	}
+}
+
+func TestCategoryFolder(t *testing.T) {
+	cases := map[string]string{
+		"":            "",
+		"all":         "",
+		"All":         "",
+		"Movies":      "Movies",
+		"TV/HD":       "TV",     // top-level only
+		"Movies\\UHD": "Movies", // backslash subcategory
+		"5000":        "",       // bare torznab id
+		"XXX":         "XXX",
+	}
+	for in, want := range cases {
+		if got := categoryFolder(in); got != want {
+			t.Errorf("categoryFolder(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // When the username resolver transiently fails (returns ""), a per-user download
 // must NOT fall to the bare downloadDir (the mount root the UserSubpath migration
 // scans) — it falls back to FallbackUser so it stays scoped under a user subdir.

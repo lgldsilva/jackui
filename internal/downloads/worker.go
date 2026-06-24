@@ -1051,7 +1051,42 @@ func (w *Worker) completionBaseDir(d Download) string {
 			base = filepath.Join(base, u)
 		}
 	}
+	// Group downloads by their category folder (e.g. .../<user>/Movies/<torrent>) so
+	// the browser isn't a flat dump — the torrent's category is the natural grouping.
+	// Only when the user didn't pick an explicit destination (handled above).
+	if cat := categoryFolder(d.Category); cat != "" {
+		base = filepath.Join(base, cat)
+	}
 	return base
+}
+
+// categoryFolder turns a download's category label into a folder segment for
+// grouping, or "" when there's nothing useful to group by. Takes the top-level
+// label (before any "/" subcategory), drops the "all" placeholder and bare
+// numeric torznab IDs (a folder named "5000" helps no one), and sanitizes the
+// rest for the filesystem.
+func categoryFolder(category string) string {
+	c := strings.TrimSpace(category)
+	if c == "" || strings.EqualFold(c, "all") {
+		return ""
+	}
+	if i := strings.IndexAny(c, "/\\"); i >= 0 {
+		c = strings.TrimSpace(c[:i])
+	}
+	if c == "" || isAllDigits(c) {
+		return ""
+	}
+	return sanitizeFolderName(c)
+}
+
+// isAllDigits reports whether s is non-empty and every rune is an ASCII digit.
+func isAllDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // cleanDestSubdir defensively sanitizes a stored destination subdir: rejects
