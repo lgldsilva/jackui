@@ -88,6 +88,11 @@ export default function DownloadsPage() {
   const pendingDeletesRef = useRef(newPendingDeletes())
 
   const [activeTab, setActiveTab] = useEnumQueryParam<Tab>('tab', DOWNLOAD_TABS, 'all')
+  // Completed-view filter (Todos / Semeando / No disco). Lifted to the page so the
+  // chips render ONCE at the top of the tab content — before the active cards —
+  // instead of inside SeedingTab (which put them in the MIDDLE of the list,
+  // between the active and the completed cards).
+  const [completedFilter, setCompletedFilter] = usePersistedState<CompletedFilterKey>('downloads.completedFilter', 'all')
 
   const [torrents, setTorrents] = useState<TorrentInfo[]>([])
   const [torrentsLoaded, setTorrentsLoaded] = useState(false)
@@ -705,6 +710,15 @@ export default function DownloadsPage() {
     network:     [],
   }
 
+  // Counts for the completed-view filter chips, computed at page level (so the
+  // chips can sit at the TOP, above the active cards). Seeding = live torrents
+  // not yet on disk + completed groups still seeding; on-disk = completed groups
+  // whose torrent is no longer live.
+  const { seeding: seedingCountForTab, onDisk: onDiskCountForTab } =
+    completedViewCounts(tabDownloads[activeTab], tabTorrents[activeTab])
+  const hasCompletedForTab = seedingCountForTab > 0 || onDiskCountForTab > 0
+  const effectiveCompletedFilter: CompletedFilterKey = hasCompletedForTab ? completedFilter : 'all'
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -1054,8 +1068,20 @@ export default function DownloadsPage() {
         <div className="min-h-[300px]">
           {activeTab !== 'network' && (
             <>
-              {/* Active / downloading torrents */}
-              {tabTorrents[activeTab].length > 0 && (
+              {/* Completed-view filter — at the TOP, so it heads the whole list
+                  instead of sitting between the active and completed cards. */}
+              {torrentsLoaded && hasCompletedForTab && (
+                <div className="mb-4">
+                  <CompletedFilterChips
+                    value={completedFilter}
+                    onChange={setCompletedFilter}
+                    seedingN={seedingCountForTab}
+                    onDiskN={onDiskCountForTab}
+                  />
+                </div>
+              )}
+              {/* Active / downloading torrents — hidden when filtering "No disco". */}
+              {tabTorrents[activeTab].length > 0 && effectiveCompletedFilter !== 'ondisk' && (
                 <ActiveTab
                   torrents={tabTorrents[activeTab]}
                   downloads={[]}
@@ -1078,6 +1104,7 @@ export default function DownloadsPage() {
               <SeedingTab
                 torrents={[]}
                 downloads={tabDownloads[activeTab]}
+                completedFilter={effectiveCompletedFilter}
                 torrentsLoaded={torrentsLoaded}
                 busyHash={busyHash}
                 busyID={busyID}
@@ -1411,6 +1438,23 @@ function groupCompleted(items: readonly DownloadEntry[], torrents: readonly Torr
   return order.map(k => byKey.get(k) as CompletedGroup)
 }
 
+// completedViewCounts derives the chip counts for the completed view: "seeding"
+// = live torrents not yet on a completed row + completed groups still seeding;
+// "onDisk" = completed groups whose torrent is no longer live. Pure + exported so
+// the filter-chip behaviour is unit-testable without rendering the page.
+export function completedViewCounts(
+  downloads: readonly DownloadEntry[],
+  torrents: readonly TorrentInfo[],
+): { seeding: number; onDisk: number } {
+  const completed = downloads.filter(d => d.status === 'completed')
+  const groups = groupCompleted(completed, torrents)
+  const streamingOnly = torrents.filter(t => !completed.some(d => d.infoHash === t.infoHash))
+  return {
+    seeding: streamingOnly.length + groups.filter(g => g.seeding).length,
+    onDisk: groups.filter(g => !g.seeding).length,
+  }
+}
+
 // DownloadGroupCard — collapsible header for a multi-file torrent's completed
 // files, with torrent-level actions (promote/stop-seed/remove all). Single-file
 // groups render their lone card directly (no wrapper), so this is only used for
@@ -1506,7 +1550,7 @@ function GroupHeader({ icon, label, color }: { readonly icon: React.ReactNode; r
 // Sub-divided by lifecycle: Baixando agora / Na fila / Semeando / No disco / Pausados.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
+function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
   onPause, onResume, onDelete, onPromote, onStopSeed, onSetPriority,
   onPromoteMany, onDeleteMany, onStopSeedMany,
@@ -1514,6 +1558,7 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
 }: {
   readonly torrents: TorrentInfo[]
   readonly downloads: DownloadEntry[]
+  readonly completedFilter: CompletedFilterKey
   readonly torrentsLoaded: boolean
   readonly busyHash: string | null
   readonly busyID: number | null
@@ -1537,7 +1582,6 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
   readonly loading?: boolean
 }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const [completedFilter, setCompletedFilter] = usePersistedState<CompletedFilterKey>('downloads.completedFilter', 'all')
   const toggleGroup = (key: string) => setExpandedGroups(prev => {
     const next = new Set(prev)
     if (next.has(key)) next.delete(key); else next.add(key)
@@ -1635,11 +1679,6 @@ function SeedingTab({ torrents, downloads, torrentsLoaded, busyHash, busyID,
           title="Nada semeando ou completo"
           description="Torrents concluídos e em seed aparecerão aqui."
         />
-      )}
-
-      {/* Filtro Semeando / No disco — só quando há concluídos pra separar */}
-      {torrentsLoaded && !empty && hasCompleted && (
-        <CompletedFilterChips value={completedFilter} onChange={setCompletedFilter} seedingN={seedingCount} onDiskN={onDiskGroups.length} />
       )}
 
       {/* Baixando agora */}
