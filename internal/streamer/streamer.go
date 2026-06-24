@@ -108,6 +108,9 @@ type Config struct {
 	HalfOpenConns      int
 	PeersHighWater     int
 	PieceHashers       int
+	// SeedTrackers lista substrings de announce URLs cujos torrents devem
+	// continuar seedando após o uso (não dropados). Ver Streamer.seedTrackers.
+	SeedTrackers []string
 }
 
 // FilePathResolver resolves an info_hash and file index to a local physical file path.
@@ -157,6 +160,15 @@ type Streamer struct {
 	evictedCount   int64
 	evictedBytes   int64
 	lastEvictionAt time.Time
+	// seedTrackers holds lower-cased substrings matched against a torrent's
+	// announce URLs. A torrent whose trackers match is kept alive (seeding)
+	// instead of being dropped by the idle reaper or after the last viewer
+	// leaves — so private-tracker content (e.g. jackui) keeps uploading
+	// and the user's ratio survives. Guarded by s.mu; mutable live via
+	// SetSeedTrackers. seeds (optional) persists these hashes so seeding
+	// resumes across restarts.
+	seedTrackers []string
+	seeds        *SeedsStore
 }
 
 // streamReadaheadDefault é o readahead de streaming quando não configurado: 32
@@ -171,6 +183,63 @@ func (s *Streamer) SetFilePathResolver(r FilePathResolver) {
 
 // SetFavorites attaches the favorites store. Must be called before any GC tick.
 func (s *Streamer) SetFavorites(f *FavoritesStore) { s.favs = f }
+
+// SetSeeds attaches the persistent seed store (info_hash → magnet) so torrents
+// kept alive for seeding are re-added on boot. Optional — nil disables
+// persistence (seeding still works in-memory until the process exits).
+func (s *Streamer) SetSeeds(st *SeedsStore) { s.seeds = st }
+
+// SetSeedTrackers replaces the live list of tracker substrings whose torrents
+// must keep seeding. Applied immediately; matched case-insensitively against
+// announce URLs. Safe to call at runtime (e.g. from the settings endpoint).
+func (s *Streamer) SetSeedTrackers(trackers []string) {
+	norm := normalizeSeedTrackers(trackers)
+	s.mu.Lock()
+	s.seedTrackers = norm
+	s.mu.Unlock()
+}
+
+// normalizeSeedTrackers lower-cases and trims entries, dropping empties.
+func normalizeSeedTrackers(in []string) []string {
+	var out []string
+	for _, t := range in {
+		if s := strings.ToLower(strings.TrimSpace(t)); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// shouldKeepSeeding reports whether the torrent belongs to a configured
+// seed-tracker and must therefore be kept alive instead of dropped. Caller must
+// hold s.mu (reads s.seedTrackers). Matching is a case-insensitive substring of
+// any announce URL — the same announce source buildInfo surfaces to the UI.
+func (s *Streamer) shouldKeepSeeding(t *torrent.Torrent) bool {
+	if len(s.seedTrackers) == 0 || t == nil {
+		return false
+	}
+	mi := t.Metainfo()
+	var anns []string
+	for _, tier := range mi.UpvertedAnnounceList() {
+		anns = append(anns, tier...)
+	}
+	return matchesSeedTracker(anns, s.seedTrackers)
+}
+
+// matchesSeedTracker reports whether any announce URL contains any of the
+// (already lower-cased) seed-tracker substrings. Pure helper so the matching is
+// unit-testable without constructing a live *torrent.Torrent.
+func matchesSeedTracker(announces, trackers []string) bool {
+	for _, ann := range announces {
+		la := strings.ToLower(ann)
+		for _, want := range trackers {
+			if want != "" && strings.Contains(la, want) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // RegisterDownload marks a torrent (by directory name == torrent.Name()) as
 // part of an in-progress background download. While registered, its on-disk
@@ -363,6 +432,24 @@ type GlobalRate struct {
 	ActiveTorrents int   `json:"activeTorrents"`
 }
 
+// PeerInfo is the JSON-friendly view of one connected peer, for the downloads
+// "Peers" panel. anacrolix v1.61.0 doesn't export choke/interest, so Sending /
+// Receiving are INFERRED from live transfer rates rather than read directly.
+type PeerInfo struct {
+	Addr         string  `json:"addr"`
+	Client       string  `json:"client,omitempty"`
+	Network      string  `json:"network,omitempty"` // "tcp" | "utp" | ...
+	Availability float64 `json:"availability"`      // 0..1 fraction of pieces the peer has
+	DownRate     int64   `json:"downRate"`          // bytes/s we receive from this peer
+	UpRate       int64   `json:"upRate"`            // bytes/s we send to this peer
+	Downloaded   int64   `json:"downloaded"`        // data bytes read from this peer
+	Uploaded     int64   `json:"uploaded"`          // data bytes written to this peer
+	IsSeeder     bool    `json:"isSeeder"`          // peer reports all pieces
+	Receiving    bool    `json:"receiving"`         // inferred: downRate > 0
+	Sending      bool    `json:"sending"`           // inferred: upRate > 0
+	Encrypted    bool    `json:"encrypted,omitempty"`
+}
+
 func New(cfg Config) (*Streamer, error) {
 	if cfg.DataDir == "" {
 		cfg.DataDir = "./streams"
@@ -433,6 +520,7 @@ func New(cfg Config) (*Streamer, error) {
 		upLimiter:     upLimiter,
 		storageImpl:   storageImpl,
 		readahead:     cfg.Readahead,
+		seedTrackers:  normalizeSeedTrackers(cfg.SeedTrackers),
 	}
 
 	go s.gcLoop()
@@ -596,6 +684,35 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 	}
 }
 
+// maybePersistSeed records the torrent in the seed store when it matches a
+// configured seed-tracker, so seeding resumes automatically on the next boot.
+// No-op without a seed store or when the torrent isn't a keep-seeding match.
+func (s *Streamer) maybePersistSeed(t *torrent.Torrent) {
+	if s.seeds == nil || t == nil {
+		return
+	}
+	s.mu.Lock()
+	keep := s.shouldKeepSeeding(t)
+	s.mu.Unlock()
+	if !keep {
+		return
+	}
+	if err := s.seeds.Add(t.InfoHash().HexString(), magnetFromTorrent(t), t.Name()); err != nil {
+		log.Printf("streamer: persist seed %s failed: %v", t.InfoHash().HexString()[:8], err)
+	}
+}
+
+// magnetFromTorrent reconstructs a magnet URI (info_hash + full announce list,
+// passkeys included) good enough to re-add the torrent for seeding on boot.
+func magnetFromTorrent(t *torrent.Torrent) string {
+	m := metainfo.Magnet{InfoHash: t.InfoHash(), DisplayName: t.Name()}
+	mi := t.Metainfo()
+	for _, tier := range mi.UpvertedAnnounceList() {
+		m.Trackers = append(m.Trackers, tier...)
+	}
+	return m.String()
+}
+
 func (s *Streamer) Close() {
 	close(s.stop)
 	s.client.Close()
@@ -699,6 +816,7 @@ func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 	}
 	s.mu.Unlock()
 	s.persistMetainfo(t)
+	s.maybePersistSeed(t)
 	info := s.buildInfo(e)
 	if s.cache != nil {
 		_ = s.cache.Set(info)
@@ -851,6 +969,47 @@ func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 		return nil, errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
 	}
 	return s.buildInfo(e), nil
+}
+
+// Peers returns a snapshot of the currently-connected peers of an active
+// torrent for the downloads inspector. Errors when the torrent isn't active
+// (dropped or never opened). The peer set is read live from anacrolix.
+func (s *Streamer) Peers(hash metainfo.Hash) ([]PeerInfo, error) {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	s.mu.Unlock()
+	if !ok {
+		return nil, errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
+	}
+	t := e.t
+	numPieces := t.NumPieces()
+	conns := t.PeerConns()
+	out := make([]PeerInfo, 0, len(conns))
+	for _, pc := range conns {
+		st := pc.Stats()
+		pi := PeerInfo{
+			Network:    pc.Network,
+			DownRate:   int64(pc.DownloadRate()),
+			UpRate:     int64(st.LastWriteUploadRate),
+			Downloaded: st.BytesReadData.Int64(),
+			Uploaded:   st.BytesWrittenData.Int64(),
+			Encrypted:  pc.PeerPrefersEncryption,
+		}
+		if pc.RemoteAddr != nil {
+			pi.Addr = pc.RemoteAddr.String()
+		}
+		if name, _ := pc.PeerClientName.Load().(string); name != "" {
+			pi.Client = name
+		}
+		if numPieces > 0 {
+			pi.Availability = float64(st.RemotePieceCount) / float64(numPieces)
+			pi.IsSeeder = st.RemotePieceCount >= numPieces
+		}
+		pi.Receiving = pi.DownRate > 0
+		pi.Sending = pi.UpRate > 0
+		out = append(out, pi)
+	}
+	return out, nil
 }
 
 // GlobalStats returns aggregate download/upload rates across all active torrents.
@@ -1300,6 +1459,10 @@ func (s *Streamer) ReleaseViewer(hash metainfo.Hash) (scheduled bool) {
 	if _, protected := s.downloads[e.t.Name()]; protected {
 		return false
 	}
+	// Seed-tracker torrents keep uploading after the viewer leaves — never drop.
+	if s.shouldKeepSeeding(e.t) {
+		return false
+	}
 	if e.dropTimer != nil {
 		e.dropTimer.Stop()
 	}
@@ -1318,6 +1481,11 @@ func (s *Streamer) dropIfStillIdle(hash metainfo.Hash, e *entry) {
 		return
 	}
 	if _, protected := s.downloads[e.t.Name()]; protected {
+		s.mu.Unlock()
+		return
+	}
+	if s.shouldKeepSeeding(e.t) {
+		e.dropTimer = nil
 		s.mu.Unlock()
 		return
 	}
@@ -1494,6 +1662,10 @@ func (s *Streamer) gcLoop() {
 					// Active downloads stay alive even when idle — the user
 					// is waiting for the file to finish in background.
 					if _, protected := s.downloads[e.t.Name()]; protected {
+						continue
+					}
+					// Seed-tracker torrents keep seeding regardless of idleness.
+					if s.shouldKeepSeeding(e.t) {
 						continue
 					}
 					log.Printf("streamer: dropping idle torrent %s (%s)", e.t.Name(), h.HexString()[:8])

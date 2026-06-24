@@ -641,6 +641,35 @@ func getDownloadTorrentInfo(s *streamer.Streamer, infoHash, magnet string) *stre
 	return &streamer.TorrentInfo{Trackers: magnetTrackers}
 }
 
+// DownloadsPeers returns the live connected-peer list for a download's torrent.
+// When the torrent isn't active (dropped/never opened) it returns an empty list
+// with active=false instead of an error, so the polling UI can show "inactive".
+func DownloadsPeers(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		d, err := store.Get(userID, id)
+		if err != nil || d == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
+			return
+		}
+		peers := []streamer.PeerInfo{}
+		active := false
+		var h metainfo.Hash
+		if herr := h.FromHexString(d.InfoHash); herr == nil && s != nil {
+			if got, perr := s.Peers(h); perr == nil {
+				peers = got
+				active = true
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"peers": peers, "active": active})
+	}
+}
+
 func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))

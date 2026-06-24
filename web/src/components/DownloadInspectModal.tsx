@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
   Loader2, AlertCircle, Trash2, Square,
-  ArrowUpCircle, Activity, Globe, Play, Share2, Download,
+  ArrowUpCircle, Activity, Globe, Play, Share2, Download, Users,
 } from 'lucide-react'
+import PeersTab from './downloadInspect/PeersTab'
 import {
   DownloadEntry, DownloadDetails, StreamFile, TorrentInfo, DownloadSource,
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed, downloadSources, downloadCreate,
@@ -26,7 +27,7 @@ type Props = {
   readonly onAdopted?: () => void
 }
 
-type Tab = 'overview' | 'files' | 'trackers' | 'sources' | 'actions'
+type Tab = 'overview' | 'files' | 'trackers' | 'peers' | 'sources' | 'actions'
 
 // sourceStatusBadge maps a source's lifecycle to a label + color for the list.
 function sourceStatusBadge(status: DownloadSource['status']): { label: string; cls: string } {
@@ -377,6 +378,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
             { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
             { id: 'files' as Tab, label: filesTabLabel(torrent), icon: Files },
             { id: 'trackers' as Tab, label: trackersTabLabel(displayTrackers), icon: Globe },
+            { id: 'peers' as Tab, label: 'Peers', icon: Users },
             { id: 'sources' as Tab, label: 'Fontes', icon: Share2 },
             { id: 'actions' as Tab, label: 'Ações', icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
@@ -518,6 +520,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               )}
             </div>
           )}
+          {tab === 'peers' && <PeersTab downloadId={download.id} />}
           {tab === 'sources' && (
             <div>
               {renderSourcesTab(sources, loadingSources)}

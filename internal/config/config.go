@@ -195,6 +195,13 @@ type StreamConfig struct {
 	// instantâneo voltando para "hlsjs" ou "off".
 	// Env: JACKUI_HLS_VOD_MODE. Aplicado ao vivo (vale na próxima sessão HLS).
 	HLSVODMode string `yaml:"hls_vod_mode"`
+	// SeedTrackers lista substrings/hostnames de trackers cujos torrents devem
+	// CONTINUAR seedando após o uso (não são dropados pelo idle reaper nem pelo
+	// fim do stream), em vez do comportamento padrão de dropar. Casado
+	// case-insensitive contra as announce URLs do torrent (ex.: "jackui").
+	// Vazio = ninguém é mantido (comportamento atual). Aplicado ao vivo via
+	// Streamer.SetSeedTrackers. Env: JACKUI_SEED_TRACKERS (CSV).
+	SeedTrackers []string `yaml:"seed_trackers"`
 }
 
 // StorageBackendFile/Mmap são os valores válidos de StreamConfig.StorageBackend.
@@ -434,6 +441,9 @@ func applyStreamPerfEnv(cfg *Config) {
 	applyEnvInt(&cfg.Stream.HalfOpenConns, "JACKUI_HALF_OPEN")
 	applyEnvInt(&cfg.Stream.PeersHighWater, "JACKUI_PEERS_HIGH")
 	applyEnvInt(&cfg.Stream.PieceHashers, "JACKUI_PIECE_HASHERS")
+	if v := os.Getenv("JACKUI_SEED_TRACKERS"); v != "" {
+		cfg.Stream.SeedTrackers = splitCSV(v)
+	}
 
 	// Sanitiza: qualquer valor fora de {file,mmap} (incl. vazio) vira "file".
 	if cfg.Stream.StorageBackend != StorageBackendMmap {
@@ -459,6 +469,18 @@ func applyEnvInt64MB(target *int64, name string) {
 	if n, ok := envInt(name); ok && n >= 0 {
 		*target = int64(n) * 1024 * 1024
 	}
+}
+
+// splitCSV divide uma lista separada por vírgula, ignorando espaços e entradas
+// vazias. Devolve nil quando não sobra nenhum item.
+func splitCSV(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if s := strings.TrimSpace(part); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // envInt lê uma env var inteira. Retorna (0,false) se ausente ou inválida.
