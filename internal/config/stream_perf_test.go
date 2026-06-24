@@ -70,6 +70,32 @@ func TestStreamPerfEnvOverrides(t *testing.T) {
 	}
 }
 
+// JACKUI_SEED_TRACKERS (CSV) vira []string, com trim e drop de vazios.
+func TestSeedTrackersEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := defaultConfig().Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	t.Setenv("JACKUI_SEED_TRACKERS", " jackui , ,outro ")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := cfg.Stream.SeedTrackers
+	if len(got) != 2 || got[0] != "jackui" || got[1] != "outro" {
+		t.Errorf("seed_trackers env = %#v, queria [jackui outro]", got)
+	}
+}
+
+func TestSplitCSV(t *testing.T) {
+	if got := splitCSV(" a , ,b "); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Errorf("splitCSV = %#v", got)
+	}
+	if got := splitCSV("  , "); got != nil {
+		t.Errorf("splitCSV all-empty = %#v, want nil", got)
+	}
+}
+
 // Sanitização: backend inválido (ou vazio) cai pra "file".
 func TestStreamStorageBackendSanitized(t *testing.T) {
 	for _, in := range []string{"", "bogus", "FILE", "MMAP"} {
