@@ -48,6 +48,8 @@ import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
 import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
+import { useTrackOrder } from './player/useTrackOrder'
+import { nextTrack, prevTrack } from '../lib/trackTransport'
 import { computeMediaUrls } from './player/mediaUrls'
 import { computeFilePickerState } from './player/filePickerVisibility'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
@@ -594,7 +596,7 @@ export default function PlayerModal({
   // a single left-anchored fill.
   const [bufferedRanges, setBufferedRanges] = useState<Array<[number, number]>>([])
   const videoRef = useRef<HTMLVideoElement>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   // Swipe down on the header bar minimizes the player to its PiP card — the same
   // non-destructive dismiss as tapping the backdrop or pressing Escape (keeps
   // playback alive), the iOS idiom for "push this sheet away".
@@ -885,7 +887,10 @@ export default function PlayerModal({
   }
 
   const handleVideoEnded = () => {
-    const v = videoRef.current
+    // Elemento ATIVO: em áudio o <audio> do SimpleAudioPlayer (espelhado em
+    // audioRef via elementRef), em vídeo o <video>. Antes lia só videoRef →
+    // em áudio era null e o repeat-one nunca religava a faixa.
+    const v = audioMode ? audioRef.current : videoRef.current
     // iOS/WebKit dispara 'ended' ESPÚRIO quando o <video> direct-play TRAVA no
     // início (stall em readyState 2, playhead ~0) em vez de realmente terminar.
     // Tratar isso como fim auto-avançaria pro próximo item (na ordem/shuffle) e
@@ -1294,21 +1299,34 @@ export default function PlayerModal({
   // as the current file. Generalises the old video-only navigation so audio
   // albums get ⏮⏭ too. Hook keeps the logic out of this god-file (gate).
   const mediaQueue = useMediaQueue(info, selectedFile, displayFiles)
+  // Ordem de reprodução das faixas do MESMO torrent, respeitando shuffle (bag) e
+  // servindo de base pro repeat. O picker/sidebar segue usando mediaQueue (ordem
+  // de exibição); o transporte (prev/next/onEnded) segue trackOrder.
+  const trackOrder = useTrackOrder(mediaQueue.indices, selectedFile, shuffle, info?.infoHash)
 
   // Continuous transport: stay within the current torrent's queue, then spill
   // over into the user's playlist (next/prev torrent) at the boundary — one
   // logical timeline (Spotify/VLC style). Reused by the buttons, MediaSession
-  // (lock-screen/headphones) and onEnded auto-advance.
+  // (lock-screen/headphones) and onEnded auto-advance. nextTrack/prevTrack
+  // decidem faixa vs. spill vs. wrap (repeat-all sem playlist) — shuffle e
+  // repeat passam a valer DENTRO do álbum, não só entre torrents.
   const handleNext = () => {
-    if (mediaQueue.nextIdx >= 0) { playFile(mediaQueue.nextIdx); return }
+    const step = nextTrack(trackOrder.order, selectedFile, repeat, !!onPlaylistAdvance)
+    if (step.kind === 'track') { playFile(step.fileIndex); return }
+    if (step.kind === 'wrap-rebuild') {
+      const first = trackOrder.rebuildAndFirst()
+      if (first != null) playFile(first)
+      return
+    }
     onPlaylistAdvance?.()
   }
   const handlePrev = () => {
-    if (mediaQueue.prevIdx >= 0) { playFile(mediaQueue.prevIdx); return }
+    const step = prevTrack(trackOrder.order, selectedFile, repeat, !!onPlaylistPrevious)
+    if (step.kind === 'track') { playFile(step.fileIndex); return }
     onPlaylistPrevious?.()
   }
-  const hasNext = mediaQueue.nextIdx >= 0 || !!onPlaylistAdvance
-  const hasPrev = mediaQueue.prevIdx >= 0 || !!onPlaylistPrevious
+  const hasNext = trackOrder.hasNext || !!onPlaylistAdvance || repeat === 'all'
+  const hasPrev = trackOrder.hasPrev || !!onPlaylistPrevious || repeat === 'all'
 
   // ─── Áudio simplificado ───────────────────────────────────────────────────
   // Player de áudio "pelado": <audio controls> com src DIRECT, sem Web Audio,
@@ -1500,7 +1518,7 @@ export default function PlayerModal({
             with a big empty gap below (the track sidebar makes the modal tall).
             It still scrolls when EQ/lyrics expand past the height. */}
         <div className={audioMode && minimized
-          ? 'flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 min-w-0'
+          ? 'flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 min-w-0 lg:flex-nowrap lg:gap-x-4 lg:px-4'
           : `flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
         {/* Player de áudio simplificado ou vídeo completo. Áudio usa <audio>
             controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
@@ -1510,7 +1528,7 @@ export default function PlayerModal({
             {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
                 LOGO ABAIXO (não esticada por cima da capa). */}
             <div className={minimized
-              ? 'relative w-12 h-12 flex-shrink-0 bg-gradient-to-br from-gray-800 to-gray-900 rounded overflow-hidden'
+              ? 'relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0 bg-gradient-to-br from-gray-800 to-gray-900 rounded overflow-hidden'
               : 'relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden'}>
               <AudioCoverArt info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
             </div>
@@ -1520,7 +1538,8 @@ export default function PlayerModal({
               onTimeUpdate={handleAudioTimeUpdate}
               onPlaying={handlePlaybackStarted}
               onError={() => setVideoError(true)}
-              className={minimized ? 'flex-1 min-w-0 basis-[55%]' : 'max-w-xl mx-auto mt-2'}
+              elementRef={(el) => { audioRef.current = el }}
+              className={minimized ? 'flex-1 min-w-0 basis-[55%] lg:basis-0' : 'max-w-xl mx-auto mt-2'}
             />
             {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
                 simplificação e os controls nativos do <audio> não têm prev/next.
@@ -1534,8 +1553,8 @@ export default function PlayerModal({
               repeat={repeat}
               onToggleShuffle={onToggleShuffle}
               onCycleRepeat={onCycleRepeat}
-              position={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
-              className={minimized ? 'w-full !py-1' : ''}
+              position={trackOrder.order.length > 1 ? `${trackOrder.cursor + 1} / ${trackOrder.order.length}` : undefined}
+              className={minimized ? 'w-full !py-1 lg:w-auto lg:ml-auto' : ''}
             />
           </>
         ) : (
