@@ -91,7 +91,7 @@ type Config struct {
 	// server-side so it never has to travel through the browser.
 	JackettHost   string
 	JackettAPIKey string
-	// ListenPort is the BitTorrent peer port for inbound connections. 0 → 51469.
+	// ListenPort is the BitTorrent peer port for inbound connections. 0 → DefaultPeerPort.
 	// Behind a VPN this should be the provider's forwarded port so peers can
 	// reach us (seed + better leech). See resolvePeerPort in main.
 	ListenPort int
@@ -163,6 +163,11 @@ type Streamer struct {
 // MiB. Calibrado para o caminho de transcode HLS — abaixo disso o Reader do
 // anacrolix bloqueia esperando o próximo piece e o ffmpeg engasga.
 const streamReadaheadDefault = 32 << 20
+
+// DefaultPeerPort is the inbound BitTorrent peer port used when none is
+// configured (no VPN forwarded port, no JACKUI_PEER_PORT). Exported so the
+// boot wiring can treat "fell back to default" identically to the streamer.
+const DefaultPeerPort = 51469
 
 // SetFilePathResolver registers the custom file path resolver function (typically querying the downloads DB).
 func (s *Streamer) SetFilePathResolver(r FilePathResolver) {
@@ -374,7 +379,7 @@ func New(cfg Config) (*Streamer, error) {
 		cfg.MetadataWait = 60 * time.Second
 	}
 	if cfg.ListenPort == 0 {
-		cfg.ListenPort = 51469
+		cfg.ListenPort = DefaultPeerPort
 	}
 
 	tcfg := torrent.NewDefaultClientConfig()
