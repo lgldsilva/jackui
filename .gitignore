@@ -66,3 +66,4 @@ electron/dist/
 electron/version.json
 *.icns
 *.ico
+/server
