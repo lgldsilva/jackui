@@ -5,7 +5,7 @@ import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, p
 // audioCoverURL escolhe a fonte da capa: arquivo LOCAL serve a capa EMBUTIDA (rota
 // dedicada, headerless via ?token=); torrent usa a arte extraída por arquivo. Os
 // dois respondem 204 quando não há imagem (o <img> onError esconde).
-function audioCoverURL(info: TorrentInfo, selectedFile: number, mediaToken: string): string {
+export function audioCoverURL(info: TorrentInfo, selectedFile: number, mediaToken: string): string {
   if (isLocalHash(info.infoHash)) {
     const loc = parseLocalHash(info.infoHash)
     if (loc) return localAudioCoverURL(loc.mount, loc.path, mediaToken || undefined)

@@ -57,7 +57,7 @@ import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { SimpleAudioPlayer } from './player/SimpleAudioPlayer'
 import { SimpleAudioControls } from './player/SimpleAudioControls'
-import { AudioCoverArt } from './player/AudioCoverArt'
+import { AudioCoverArt, audioCoverURL } from './player/AudioCoverArt'
 import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
 
@@ -1334,7 +1334,10 @@ export default function PlayerModal({
   useKeyboardShortcuts({ videoRef: activeMediaRef, minimized, requestFullscreen: handleRequestFullscreen })
 
   // Media Session API — expõe metadata + controles de lock-screen/AirPods.
-  useMediaSession({ videoRef: activeMediaRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev })
+  // Capa pra tela de bloqueio (Now Playing) — URL ABSOLUTA porque o iOS busca a
+  // imagem fora do contexto da página. Cobre local e torrent (audioCoverURL).
+  const mediaArtworkURL = info ? `${globalThis.location?.origin ?? ''}${audioCoverURL(info, selectedFile, mediaToken)}` : ''
+  useMediaSession({ videoRef: activeMediaRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev, artworkURL: mediaArtworkURL })
 
   // Load initial favorite state when torrent info arrives. Match by infoHash
   // first (precise — same content always returns same hash) and fall back to
