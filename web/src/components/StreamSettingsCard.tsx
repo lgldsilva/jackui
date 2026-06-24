@@ -21,6 +21,8 @@ type Form = {
   peersHighWater: number
   pieceHashers: number
   maxCacheGB: number
+  // Editado como texto (um tracker por linha); convertido pra []string no save.
+  seedTrackersText: string
 }
 
 function toForm(s: StreamSettings): Form {
@@ -34,6 +36,7 @@ function toForm(s: StreamSettings): Form {
     peersHighWater: s.peersHighWater,
     pieceHashers: s.pieceHashers,
     maxCacheGB: s.maxCacheGB,
+    seedTrackersText: (s.seedTrackers ?? []).join('\n'),
   }
 }
 
@@ -48,6 +51,10 @@ function toPayload(f: Form): StreamSettings {
     peersHighWater: f.peersHighWater,
     pieceHashers: f.pieceHashers,
     maxCacheGB: f.maxCacheGB,
+    seedTrackers: f.seedTrackersText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean),
   }
 }
 
@@ -175,6 +182,28 @@ export default function StreamSettingsCard() {
           <NumberField label="Upload" value={form.upMbps} onChange={(n) => set('upMbps', n)}
             placeholder="0 = ilimitado" suffix="MB/s" />
         </div>
+      </div>
+
+      {/* Seed contínuo por tracker — ao vivo */}
+      <div className="flex flex-col gap-3">
+        <SectionTitle title="Seed contínuo por tracker" badge="live" />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-text-secondary">Trackers para manter seedando (um por linha)</span>
+          <textarea
+            value={form.seedTrackersText}
+            onChange={(e) => set('seedTrackersText', e.target.value)}
+            rows={3}
+            placeholder={'amigos-share\noutro-tracker-privado'}
+            spellCheck={false}
+            className="input-field font-mono text-sm min-h-[80px]"
+          />
+          <span className="text-[11px] text-text-muted">
+            Torrents cujo announce casa qualquer linha (substring, sem diferenciar maiúsculas) NÃO são dropados
+            após o uso — continuam no swarm enviando, e voltam a seedar sozinhos após reiniciar. Ideal pra trackers
+            privados onde o ratio importa. Vazio = ninguém é mantido (comportamento padrão). Públicos seguem sendo
+            dropados normalmente.
+          </span>
+        </label>
       </div>
 
       {/* Memória / leitura — ao vivo */}

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -335,6 +336,7 @@ func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) (streamer.
 		HalfOpenConns:      cfg.Stream.HalfOpenConns,
 		PeersHighWater:     cfg.Stream.PeersHighWater,
 		PieceHashers:       cfg.Stream.PieceHashers,
+		SeedTrackers:       cfg.Stream.SeedTrackers,
 	}
 	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
 		sc.JackettHost = u.Hostname()
@@ -380,6 +382,48 @@ func initStreamer(deps *appDeps) {
 	} else {
 		log.Printf("Warning: metadata cache init failed: %v", mcerr)
 	}
+	if seeds, serr := streamer.NewSeeds(streamer.DefaultSeedsPath(deps.stateDir)); serr == nil {
+		s.SetSeeds(seeds)
+		deps.addCleanup(func() { _ = seeds.Close() })
+		log.Printf("Seeds store: %s", streamer.DefaultSeedsPath(deps.stateDir))
+		go resumeSeeding(s, seeds)
+	} else {
+		log.Printf("Warning: seeds store init failed: %v", serr)
+	}
+}
+
+// resumeSeeding re-adds every persisted seed-tracker torrent on boot so seeding
+// resumes without the user re-opening anything. Bounded concurrency keeps the
+// metadata/hash-check storm in check; failures are logged and skipped.
+func resumeSeeding(s *streamer.Streamer, seeds *streamer.SeedsStore) {
+	entries, err := seeds.List()
+	if err != nil {
+		log.Printf("Warning: resume seeding list failed: %v", err)
+		return
+	}
+	if len(entries) == 0 {
+		return
+	}
+	log.Printf("Seeds: resuming %d torrent(s) for seeding", len(entries))
+	sem := make(chan struct{}, 3)
+	var wg sync.WaitGroup
+	for _, e := range entries {
+		if e.Magnet == "" {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(e streamer.SeedEntry) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			if _, aerr := s.EnsureActive(ctx, e.Magnet); aerr != nil {
+				log.Printf("Seeds: resume %s (%s) failed: %v", e.Name, e.InfoHash[:min(8, len(e.InfoHash))], aerr)
+			}
+		}(e)
+	}
+	wg.Wait()
 }
 
 func initLibraryStore(deps *appDeps) {
@@ -1188,6 +1232,7 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore))
 	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore, downloadRemoverDep(deps)))
 	api.GET("/downloads/:id/details", handlers.DownloadsDetails(deps.downloadsStore, deps.streamSrv))
+	api.GET("/downloads/:id/peers", handlers.DownloadsPeers(deps.downloadsStore, deps.streamSrv))
 	api.GET("/downloads/:id/sources", handlers.DownloadsSources(deps.downloadsStore))
 	api.POST("/downloads/:id/recheck", handlers.DownloadsRecheck(deps.downloadsStore, deps.streamSrv))
 	api.PATCH("/downloads/:id/pause", handlers.DownloadsPause(deps.downloadsStore))

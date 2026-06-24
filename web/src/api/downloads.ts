@@ -231,6 +231,35 @@ export const downloadDetails = async (id: number): Promise<DownloadDetails> => {
   return data
 }
 
+// PeerInfo: um peer conectado do torrent. `availability` é a fração (0..1) das
+// peças que o peer tem. `sending`/`receiving` são INFERIDOS das taxas (a lib
+// anacrolix não expõe choke/interest). `addr` pode repetir entre polls.
+export type PeerInfo = {
+  addr: string
+  client?: string
+  network?: string
+  availability: number
+  downRate: number
+  upRate: number
+  downloaded: number
+  uploaded: number
+  isSeeder: boolean
+  receiving: boolean
+  sending: boolean
+  encrypted?: boolean
+}
+
+// DownloadPeers: snapshot ao vivo dos peers. `active=false` quando o torrent não
+// está carregado no streamer (foi dropado / nunca aberto) — peers vem vazio.
+export type DownloadPeers = {
+  peers: PeerInfo[]
+  active: boolean
+}
+export const downloadPeers = async (id: number): Promise<DownloadPeers> => {
+  const { data } = await api.get<DownloadPeers>(`/downloads/${id}/peers`)
+  return data
+}
+
 export type PromoteDestination = {
   name: string
   path: string
