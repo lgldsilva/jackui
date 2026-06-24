@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
@@ -37,6 +38,9 @@ type streamSettingsBody struct {
 	PeersHighWater     int    `json:"peersHighWater"`
 	PieceHashers       int    `json:"pieceHashers"`
 	MaxCacheGB         int    `json:"maxCacheGB"`
+	// SeedTrackers: substrings de announce URLs cujos torrents continuam
+	// seedando após o uso (ex.: "amigos-share"). Aplicado ao vivo, sem reinício.
+	SeedTrackers []string `json:"seedTrackers"`
 }
 
 type streamSettingsResponse struct {
@@ -62,6 +66,7 @@ func currentStreamSettings(cfg *config.Config, s *streamer.Streamer) streamSetti
 		PeersHighWater:     st.PeersHighWater,
 		PieceHashers:       st.PieceHashers,
 		MaxCacheGB:         st.MaxCacheGB,
+		SeedTrackers:       st.SeedTrackers,
 	}
 }
 
@@ -102,6 +107,18 @@ func validateStreamSettings(b *streamSettingsBody) string {
 	return ""
 }
 
+// cleanSeedTrackers trims entries and drops empties so a stray blank line in the
+// UI textarea doesn't persist as an empty (match-everything) tracker substring.
+func cleanSeedTrackers(in []string) []string {
+	var out []string
+	for _, t := range in {
+		if s := strings.TrimSpace(t); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // streamRestartRequired diz se a mudança exige reiniciar o processo: campos lidos
 // só na construção do client anacrolix (storage/conns/peers/hashers) ou o cache
 // cap (s.cfg é copiado no boot). Compara o pedido com a config corrente.
@@ -140,6 +157,7 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 		cfg.Stream.PeersHighWater = b.PeersHighWater
 		cfg.Stream.PieceHashers = b.PieceHashers
 		cfg.Stream.MaxCacheGB = b.MaxCacheGB
+		cfg.Stream.SeedTrackers = cleanSeedTrackers(b.SeedTrackers)
 
 		if err := cfg.Save(configPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
@@ -150,6 +168,7 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 		if s != nil {
 			s.SetRateLimits(b.MaxDownloadRate, b.MaxUploadRate)
 			s.SetStreamReadahead(b.ReadaheadMB)
+			s.SetSeedTrackers(cfg.Stream.SeedTrackers)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "settings saved", "restartRequired": restart})

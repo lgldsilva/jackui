@@ -136,6 +136,32 @@ func TestStreamUpdateSettings_LiveFieldsNoRestart(t *testing.T) {
 	}
 }
 
+// PUT com seedTrackers persiste a lista limpa (sem linhas em branco) e não
+// exige reinício (aplicado ao vivo).
+func TestStreamUpdateSettings_SeedTrackers(t *testing.T) {
+	cfg, path := newTestConfig(t)
+	s := streamer.NewForTesting()
+	w := putSettings(t, cfg, path, s, `{"storageBackend":"file","seedTrackers":["amigos-share","  ","outro"]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["restartRequired"] != false {
+		t.Errorf("restartRequired = %v, queria false", resp["restartRequired"])
+	}
+	if len(cfg.Stream.SeedTrackers) != 2 || cfg.Stream.SeedTrackers[0] != "amigos-share" || cfg.Stream.SeedTrackers[1] != "outro" {
+		t.Errorf("seedTrackers não limpos/persistidos: %#v", cfg.Stream.SeedTrackers)
+	}
+}
+
+func TestCleanSeedTrackers(t *testing.T) {
+	got := cleanSeedTrackers([]string{" a ", "", "  ", "b"})
+	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("cleanSeedTrackers = %#v", got)
+	}
+}
+
 // PUT que muda backend/conns/cache EXIGE reinício.
 func TestStreamUpdateSettings_BootFieldsRequireRestart(t *testing.T) {
 	cfg, path := newTestConfig(t)

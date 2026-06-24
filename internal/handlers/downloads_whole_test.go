@@ -66,6 +66,60 @@ func TestDownloadsCreate_WholeTorrentSentinel(t *testing.T) {
 	}
 }
 
+// GET /downloads/:id/peers on a download whose torrent isn't active returns
+// 200 with active=false and an empty peer list (not an error) — the polling UI
+// renders an "inactive/no seed" state instead of an error.
+func TestDownloadsPeers_InactiveTorrent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	d, err := store.Create(downloads.Download{
+		InfoHash:  "cccccccccccccccccccccccccccccccccccccccc",
+		Magnet:    "magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc",
+		Name:      "Inactive",
+		FileIndex: downloads.FileIndexWholeTorrent,
+		FileSize:  10,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	s := streamer.NewForTesting()
+
+	router := gin.New()
+	router.GET("/downloads/:id/peers", DownloadsPeers(store, s))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", fmt.Sprintf("/downloads/%d/peers", d.ID), nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Peers  []streamer.PeerInfo `json:"peers"`
+		Active bool                `json:"active"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Active {
+		t.Errorf("active = true, want false (torrent not loaded)")
+	}
+	if len(resp.Peers) != 0 {
+		t.Errorf("peers = %v, want empty", resp.Peers)
+	}
+}
+
+// GET /downloads/:id/peers for an unknown id is 404.
+func TestDownloadsPeers_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	router := gin.New()
+	router.GET("/downloads/:id/peers", DownloadsPeers(store, streamer.NewForTesting()))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/downloads/9999/peers", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
 // Recheck on a whole-torrent row must hit RecheckAllFiles (every file), while a
 // per-file row keeps hitting RecheckFile. Both 502 here — the test streamer has
 // no active torrent — which is exactly the branch split we want to pin.

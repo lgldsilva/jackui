@@ -809,6 +809,8 @@ export type StreamSettings = {
   peersHighWater: number
   pieceHashers: number
   maxCacheGB: number
+  // Substrings de announce URLs cujos torrents continuam seedando após o uso.
+  seedTrackers: string[]
 }
 
 export type StreamSettingsDefaults = {
