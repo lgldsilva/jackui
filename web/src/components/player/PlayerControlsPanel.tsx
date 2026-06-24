@@ -1,4 +1,4 @@
-import { X, Loader2, Users, Activity, Subtitles, Check, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Upload, Laptop, Download } from 'lucide-react'
+import { Loader2, Users, Activity, Subtitles, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Laptop, Download } from 'lucide-react'
 import { TorrentInfo, Subtitle, StreamProbe, SidecarSubtitle, isLocalHash } from '../../api/client'
 import { LocalCacheButton } from './LocalCacheButton'
 import { ExternalPlayerMenu } from './ExternalPlayerMenu'
@@ -7,7 +7,8 @@ import { formatSize, subtitleButtonTitle, subtitleBtnClass, serverDownloadIcon, 
 import { MediaNavButtons } from './PlayerOverlays'
 import { EmbeddedTracksPanel } from './EmbeddedTracksPanel'
 import { ChaptersPanel, ChapterNavButtons } from './ChaptersPanel'
-import { SubtitleResultsList } from './SubtitleResultsList'
+import { Sheet } from '../Sheet'
+import { SubtitlePicker } from './SubtitlePicker'
 
 type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
@@ -397,74 +398,30 @@ export function PlayerControlsPanel({
           </span>
         </div>
 
-        {/* Subtitle picker panel */}
-        {subOpen && (
-          <div className="px-3 sm:px-4 pb-4 border-t border-default pt-3">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-text-primary flex items-center gap-2">
-                <Subtitles className="w-4 h-4 text-blue-400" />
-                Legendas (pt-BR / pt)
-              </h3>
-              <button onClick={() => setSubOpen(false)} className="text-text-muted hover:text-text-primary">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Carregar Legenda Local */}
-            <div className="mb-3 pb-3 border-b border-default/50 flex flex-col gap-2">
-              <div>
-                <label className="inline-flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg cursor-pointer transition-colors border border-strong">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>Carregar Legenda Local (.srt/.vtt)</span>
-                  <input
-                    type="file"
-                    accept=".srt,.vtt"
-                    onChange={handleCustomSubtitleUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-              {customSubName && (
-                <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-lg">
-                  <Check className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span className="truncate flex-1">Ativa: {customSubName}</span>
-                  <button
-                    onClick={clearCustomSub}
-                    className="text-text-secondary hover:text-red-400 font-bold ml-1 p-0.5"
-                    title="Remover legenda"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-            {subLoading && (
-              <div className="flex items-center gap-2 text-sm text-text-secondary py-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Buscando no OpenSubtitles...
-              </div>
-            )}
-            {subError && (
-              <p className="text-xs text-red-400 py-2">{subError}</p>
-            )}
-            {!subLoading && !subError && subResults.length === 0 && (
-              <p className="text-xs text-text-muted py-2">Nenhuma legenda encontrada</p>
-            )}
-            {subResults.length > 0 && (
-              <SubtitleResultsList subResults={subResults} subActive={subActive} pickSubtitle={pickSubtitle} />
-            )}
-            {subActive && (
-              <button
-                onClick={() => setSubActive(null)}
-                className="mt-2 text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1"
-              >
-                <X className="w-3 h-3" />
-                Remover legenda
-              </button>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Seletor de legendas — bottom-sheet no mobile (lista E filtro acessíveis,
+          que o painel embutido abaixo da dobra não permitia) e card centralizado
+          no desktop. z-[60] pra ficar acima do modal do player. */}
+      <Sheet
+        open={subOpen}
+        onClose={() => setSubOpen(false)}
+        title="Legendas (pt-BR / pt)"
+        icon={<Subtitles className="w-4 h-4 text-blue-400" />}
+        zClass="z-[60]"
+      >
+        <SubtitlePicker
+          handleCustomSubtitleUpload={handleCustomSubtitleUpload}
+          customSubName={customSubName}
+          clearCustomSub={clearCustomSub}
+          subLoading={subLoading}
+          subError={subError}
+          subResults={subResults}
+          subActive={subActive}
+          pickSubtitle={pickSubtitle}
+          setSubActive={setSubActive}
+        />
+      </Sheet>
     </>
   )
 }
