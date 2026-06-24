@@ -33,6 +33,25 @@ func writeCachedMetainfo(t *testing.T, dir string, h metainfo.Hash, announces []
 	}
 }
 
+// Evidence for the boot-race bug: relocatedStorage NEEDS the file-path resolver,
+// so resumeSeeding must wait for HasFilePathResolver — otherwise a resumed seed
+// races ahead, relocatedStorage returns nil, and it falls back to the empty cache
+// storage (showing 0%). This pins the gate resumeSeeding polls.
+func TestHasFilePathResolver(t *testing.T) {
+	s := &Streamer{}
+	if s.HasFilePathResolver() {
+		t.Fatal("expected false before SetFilePathResolver")
+	}
+	// Without the resolver, relocatedStorage must bail (the race's bad outcome).
+	if s.relocatedStorage(twoFileInfo(), metainfo.Hash{}) != nil {
+		t.Fatal("relocatedStorage must be nil without a resolver")
+	}
+	s.SetFilePathResolver(func(metainfo.Hash, int) (string, bool) { return "", false })
+	if !s.HasFilePathResolver() {
+		t.Fatal("expected true after SetFilePathResolver")
+	}
+}
+
 func TestMatchesSeedTrackerCached(t *testing.T) {
 	dir := t.TempDir()
 	var h metainfo.Hash
