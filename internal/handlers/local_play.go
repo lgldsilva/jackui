@@ -236,6 +236,17 @@ func appendTokenToURL(token, base string) string {
 }
 
 func localPlayVideoResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
+	// iOS/Safari WebKit trava em MP4 progressive servido por HTTP (estaciona em
+	// readyState 2). O cliente iOS pede transcode=hls pra vídeo local; H264/AAC vira
+	// só REMUX (sem re-encode, barato). Assim o vídeo local vai pelo MESMO caminho HLS
+	// confiável do torrent, em vez do direct/progressive que o iOS não toca.
+	if c.Query("transcode") == "hls" {
+		return LocalPlayResp{
+			Kind:   "hls",
+			URL:    appendTokenToURL(token, buildLocalHLSURL(mount, path)),
+			Reason: "client_forced",
+		}
+	}
 	probe, perr := probeLocalFile(c.Request.Context(), abs)
 	if perr != nil {
 		ext := strings.ToLower(filepath.Ext(path))
