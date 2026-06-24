@@ -5,8 +5,80 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 )
+
+// writeCachedMetainfo writes a .torrent (with the given announce URLs) to the
+// streamer's metainfo cache for hash h, so loadCachedMetainfo can read it back.
+func writeCachedMetainfo(t *testing.T, dir string, h metainfo.Hash, announces []string) {
+	t.Helper()
+	info := metainfo.Info{Name: "T", PieceLength: 1 << 14, Files: []metainfo.FileInfo{{Length: 10, Path: []string{"a.mkv"}}}}
+	ib, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+	tiers := make([][]string, 0, len(announces))
+	for _, a := range announces {
+		tiers = append(tiers, []string{a})
+	}
+	mi := metainfo.MetaInfo{InfoBytes: ib, AnnounceList: tiers}
+	f, err := os.Create(filepath.Join(dir, h.HexString()+".torrent"))
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	defer f.Close()
+	if err := mi.Write(f); err != nil {
+		t.Fatalf("write metainfo: %v", err)
+	}
+}
+
+// Evidence for the boot-race bug: relocatedStorage NEEDS the file-path resolver,
+// so resumeSeeding must wait for HasFilePathResolver — otherwise a resumed seed
+// races ahead, relocatedStorage returns nil, and it falls back to the empty cache
+// storage (showing 0%). This pins the gate resumeSeeding polls.
+func TestHasFilePathResolver(t *testing.T) {
+	s := &Streamer{}
+	if s.HasFilePathResolver() {
+		t.Fatal("expected false before SetFilePathResolver")
+	}
+	// Without the resolver, relocatedStorage must bail (the race's bad outcome).
+	if s.relocatedStorage(twoFileInfo(), metainfo.Hash{}) != nil {
+		t.Fatal("relocatedStorage must be nil without a resolver")
+	}
+	s.SetFilePathResolver(func(metainfo.Hash, int) (string, bool) { return "", false })
+	if !s.HasFilePathResolver() {
+		t.Fatal("expected true after SetFilePathResolver")
+	}
+}
+
+func TestMatchesSeedTrackerCached(t *testing.T) {
+	dir := t.TempDir()
+	var h metainfo.Hash
+	h[0] = 0xab
+	writeCachedMetainfo(t, dir, h, []string{
+		"https://amigos-share.club/announce.php?passkey=xyz",
+		"udp://tracker.openbittorrent.com:80/announce",
+	})
+
+	s := &Streamer{metainfoDir: dir, seedTrackers: []string{"amigos-share"}}
+	if !s.MatchesSeedTrackerCached(h) {
+		t.Fatal("expected match for amigos-share announce")
+	}
+
+	s.seedTrackers = []string{"outro-tracker"}
+	if s.MatchesSeedTrackerCached(h) {
+		t.Fatal("expected no match when seed-tracker absent from announce")
+	}
+
+	// Unknown hash → no cached metainfo → false.
+	var other metainfo.Hash
+	other[0] = 0x99
+	s.seedTrackers = []string{"amigos-share"}
+	if s.MatchesSeedTrackerCached(other) {
+		t.Fatal("expected false when no cached metainfo exists")
+	}
+}
 
 func twoFileInfo() *metainfo.Info {
 	return &metainfo.Info{
