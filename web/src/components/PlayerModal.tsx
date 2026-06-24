@@ -600,6 +600,10 @@ export default function PlayerModal({
   // playback alive), the iOS idiom for "push this sheet away".
   const headerRef = useRef<HTMLDivElement>(null)
   useSwipe(headerRef, { onDown: () => setMinimized(true) }, { enabled: !minimized, threshold: 50 })
+  // Minimized → arrastar pra CIMA (ou tocar) na barra expande de volta. Simétrico
+  // ao swipe-down do header: o player tem dois estados claros, barra↔cheio, por gesto.
+  const miniBarRef = useRef<HTMLDivElement>(null)
+  useSwipe(miniBarRef, { onUp: () => setMinimized(false) }, { enabled: minimized, threshold: 40 })
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null)
   // Prefetch fire-once flags. Reset whenever the underlying selected file
   // changes so re-watching a playlist item or switching files starts fresh.
@@ -1456,6 +1460,12 @@ export default function PlayerModal({
   // (keeps the component body's cognitive complexity down) — behavior unchanged.
   const shellProps = (): React.HTMLAttributes<HTMLDivElement> => {
     if (minimized) {
+      // Áudio: barra fina full-width colada no footer (acima da nav inferior, se houver)
+      // — o "mini-player" de música de verdade. Vídeo: card PiP no canto (um vídeo numa
+      // barra fina não faz sentido).
+      if (audioMode) {
+        return { className: 'fixed inset-x-0 z-50', style: { bottom: 'var(--bottom-bar-h, 0px)' } }
+      }
       return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom, 0px))' } }
     }
     return {
@@ -1486,7 +1496,9 @@ export default function PlayerModal({
             cover + transport fill the modal height instead of hugging the top
             with a big empty gap below (the track sidebar makes the modal tall).
             It still scrolls when EQ/lyrics expand past the height. */}
-        <div className={`flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
+        <div className={audioMode && minimized
+          ? 'flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 min-w-0'
+          : `flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
         {/* Player de áudio simplificado ou vídeo completo. Áudio usa <audio>
             controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
             Vídeo mantém o player existente com HLS/transcode. */}
@@ -1494,7 +1506,9 @@ export default function PlayerModal({
           <>
             {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
                 LOGO ABAIXO (não esticada por cima da capa). */}
-            <div className="relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden">
+            <div className={minimized
+              ? 'relative w-12 h-12 flex-shrink-0 bg-gradient-to-br from-gray-800 to-gray-900 rounded overflow-hidden'
+              : 'relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden'}>
               <AudioCoverArt info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
             </div>
             <SimpleAudioPlayer
@@ -1503,7 +1517,7 @@ export default function PlayerModal({
               onTimeUpdate={handleAudioTimeUpdate}
               onPlaying={handlePlaybackStarted}
               onError={() => setVideoError(true)}
-              className="max-w-xl mx-auto mt-2"
+              className={minimized ? 'flex-1 min-w-0 basis-[55%]' : 'max-w-xl mx-auto mt-2'}
             />
             {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
                 simplificação e os controls nativos do <audio> não têm prev/next.
@@ -1518,6 +1532,7 @@ export default function PlayerModal({
               onToggleShuffle={onToggleShuffle}
               onCycleRepeat={onCycleRepeat}
               position={mediaFileIndices.length > 1 ? `${mediaCursor + 1} / ${mediaFileIndices.length}` : undefined}
+              className={minimized ? 'w-full !py-1' : ''}
             />
           </>
         ) : (
@@ -1716,17 +1731,25 @@ export default function PlayerModal({
           dynamic viewport (handles iOS URL-bar collapse). Border/rounding stripped
           on phones so the modal becomes edge-to-edge. Returns to bounded card on sm+. */}
       <div className={minimized
-        ? 'bg-surface-secondary rounded-xl border border-default shadow-2xl w-full flex flex-col overflow-hidden'
-        : 'bg-surface-secondary rounded-none sm:rounded-2xl border-0 sm:border border-default w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col'}>
+        ? (audioMode
+            ? 'bg-surface-secondary rounded-t-xl border-t border-default shadow-2xl w-full flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)]'
+            : 'bg-surface-secondary rounded-xl border border-default shadow-2xl w-full flex flex-col overflow-hidden')
+        : 'bg-surface-secondary rounded-none sm:rounded-2xl border-0 sm:border border-default w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col animate-[player-expand_320ms_cubic-bezier(0.16,1,0.3,1)]'}>
         {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
             minimized, which previously left the little card with NO way back to the
             full player. This bar restores the expand + close affordances. */}
         {minimized && (
-          <div className="flex items-center justify-between gap-2 px-2 py-1 bg-surface/80 border-b border-default flex-shrink-0">
-            <span className="text-[11px] text-text-primary truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
-            <div className="flex items-center gap-0.5 flex-shrink-0">
-              <button onClick={() => setMinimized(false)} title="Expandir player" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
-              <button onClick={onClose} title="Fechar" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
+          <div ref={miniBarRef} className="flex flex-col flex-shrink-0 bg-surface/80 border-b border-default touch-pan-y" title="Arraste pra cima pra expandir">
+            {/* Grabber — sinaliza arrastar-pra-expandir (igual ao bottom-sheet). Sem
+                onClick na faixa: no iOS um toque/arrasto disparava expand espúrio
+                ("vai pra local nenhum"); expandir é só pelo gesto swipe-up ou o botão. */}
+            <div className="mx-auto mt-1 h-1 w-8 rounded-full bg-gray-600" aria-hidden />
+            <div className="flex items-center justify-between gap-2 px-2 py-1">
+              <span className="text-[11px] text-text-primary truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                <button onClick={(e) => { e.stopPropagation(); setMinimized(false) }} title="Expandir player" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
+                <button onClick={(e) => { e.stopPropagation(); onClose() }} title="Fechar" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
+              </div>
             </div>
           </div>
         )}
@@ -1788,8 +1811,10 @@ export default function PlayerModal({
           {/* Active stream */}
           {renderActiveStream()}
 
-          {/* No video files in torrent — auto-dismisses after a few seconds. */}
-          {info && videoFiles.length === 0 && showNoVideoBanner && (
+          {/* No video files in torrent — auto-dismisses after a few seconds.
+              NÃO no modo áudio: um álbum não tem vídeo por definição, e numa playlist
+              o aviso reabria a cada troca de faixa (info.infoHash muda). */}
+          {!audioMode && info && videoFiles.length === 0 && showNoVideoBanner && (
             <div className="m-5 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl transition-opacity">
               <p className="flex items-center gap-2 text-yellow-400 font-medium">
                 <AlertCircle className="w-4 h-4" />

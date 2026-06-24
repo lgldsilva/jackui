@@ -444,7 +444,7 @@ func Test_hgB_ResolveLocalFileStat_Missing(t *testing.T) {
 // to drive without ffmpeg; instead verify the VOD synth builder used by it.
 func Test_hgB_BuildLocalVODPlaylist_Rewrites(t *testing.T) {
 	seen := []string{}
-	build := segURLBuilder("Test", "movie.mkv", "TOK", "", false)
+	build := segURLBuilder("Test", "movie.mkv", "TOK", "", false, "")
 	pl := string(buildLocalVODPlaylist(10, func(name string) string {
 		u := build(name)
 		seen = append(seen, u)

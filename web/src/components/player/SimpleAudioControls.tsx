@@ -16,6 +16,7 @@ type SimpleAudioControlsProps = {
   readonly onToggleShuffle?: () => void
   readonly onCycleRepeat?: () => void
   readonly position?: string
+  readonly className?: string
 }
 
 const smallBtn = 'flex items-center justify-center min-w-[40px] min-h-[40px] p-2 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed'
@@ -30,9 +31,10 @@ export function SimpleAudioControls({
   onToggleShuffle,
   onCycleRepeat,
   position,
+  className = '',
 }: SimpleAudioControlsProps) {
   return (
-    <div className="flex items-center justify-center gap-3 sm:gap-4 py-3">
+    <div className={`flex items-center justify-center gap-3 sm:gap-4 py-3 ${className}`}>
       {onToggleShuffle && (
         <button
           type="button"

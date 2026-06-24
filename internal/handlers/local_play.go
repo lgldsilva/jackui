@@ -491,7 +491,8 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		sess, err := startLocalHLSSession(c, mgr, reg, localHLSSource{
 			mount: mount, path: scoped, abs: abs, stat: stat,
 			nativeHLS: nativeHLSParam(c), knownDur: knownDur,
-			audioOnly: isAudioByExt(path),
+			audioOnly:  isAudioByExt(path),
+			audioTrack: parseIntOr(c.Query("audio"), -1),
 		})
 		if err != nil {
 			return
@@ -499,7 +500,7 @@ func LocalHLSMaster(b *local.Browser, mgr *transcode.HLSSessionManager, reg *loc
 		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), nativeHLSParam(c))
+		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), nativeHLSParam(c), c.Query("audio"))
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
 }
@@ -549,10 +550,14 @@ type localHLSSource struct {
 	nativeHLS        bool
 	knownDur         float64
 	audioOnly        bool // pure-audio file → `-vn` AAC HLS (no video map)
+	audioTrack       int  // faixa de áudio escolhida (índice absoluto do probe; <0 = primeira/default)
 }
 
 func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, src localHLSSource) (*transcode.HLSSession, error) {
 	key := localSessionKey(src.mount, src.path)
+	if src.audioTrack >= 0 {
+		key += fmt.Sprintf("-a%d", src.audioTrack) // sessão por faixa: trocar áudio não reusa o cache
+	}
 	f, oerr := os.Open(src.abs)
 	if oerr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
@@ -573,8 +578,9 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 		// Local files are complete & seekable → always VOD when the duration is
 		// known (incl. Safari/iOS native HLS), regardless of the global vodMode.
 		// EVENT/live is the last resort for unknown-duration streams only.
-		ForceVOD:  true,
-		AudioOnly: src.audioOnly,
+		ForceVOD:   true,
+		AudioOnly:  src.audioOnly,
+		AudioTrack: src.audioTrack,
 	})
 	if err != nil {
 		closeSource(reg, meterKey, source, f)
@@ -618,7 +624,7 @@ func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	return true
 }
 
-func segURLBuilder(mount, path, token, user string, nativeHLS bool) func(name string) string {
+func segURLBuilder(mount, path, token, user string, nativeHLS bool, audio string) func(name string) string {
 	return func(name string) string {
 		p := url.Values{}
 		p.Set("mount", mount)
@@ -626,6 +632,11 @@ func segURLBuilder(mount, path, token, user string, nativeHLS bool) func(name st
 		p.Set("seg", name)
 		if token != "" {
 			p.Set("token", token)
+		}
+		// Faixa de áudio: o segmento precisa bater na MESMA sessão (keyed por áudio)
+		// que o master, senão cai na sessão default (primeira faixa).
+		if audio != "" {
+			p.Set("audio", audio)
 		}
 		// Propagate the admin "view as user" target so each segment request
 		// re-scopes to the same subdir the master playlist resolved against.
@@ -739,8 +750,12 @@ func validLocalSegPath(b *local.Browser, mount, path string) bool {
 }
 
 func resolveLocalSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount, path string) *transcode.HLSSession {
-	// EffectiveKey must match the master's — native_hls rides on every seg URL.
-	key := mgr.EffectiveKey(localSessionKey(mount, path), nativeHLSParam(c))
+	// EffectiveKey must match the master's — native_hls E audio rodam em toda seg URL.
+	raw := localSessionKey(mount, path)
+	if a := parseIntOr(c.Query("audio"), -1); a >= 0 {
+		raw += fmt.Sprintf("-a%d", a)
+	}
+	key := mgr.EffectiveKey(raw, nativeHLSParam(c))
 	sess, err := mgr.Peek(key)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
