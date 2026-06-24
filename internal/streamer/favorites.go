@@ -49,7 +49,7 @@ type FavoriteFolder struct {
 // NewFavorites opens (or creates) the favorites SQLite DB at given path.
 // Typically `<stream_dir>/.favorites.db`.
 func NewFavorites(path string) (*FavoritesStore, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL)
+	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
 	if err != nil {
 		return nil, err
 	}
