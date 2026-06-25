@@ -116,6 +116,12 @@ func (s *Store) migrate() error {
 		"remember_me": `ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`,
 		"user_agent":  `ALTER TABLE refresh_tokens ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''`,
 		"ip":          `ALTER TABLE refresh_tokens ADD COLUMN ip TEXT NOT NULL DEFAULT ''`,
+		// consumed_at: soft-delete on rotation. NULL = active. A token consumed
+		// within a short grace window can be re-presented by a CONCURRENT refresh
+		// (multi-tab, or the request burst when the backend returns from a deploy)
+		// without revoking the whole session family — that self-inflicted revoke
+		// was forcing a re-login after every deploy.
+		"consumed_at": `ALTER TABLE refresh_tokens ADD COLUMN consumed_at DATETIME`,
 	}); err != nil {
 		return err
 	}
@@ -769,6 +775,73 @@ func (s *Store) ValidateRefreshToken(plain string) (*User, bool, error) {
 	return u, remember == 1, err
 }
 
+// RefreshOutcome is the decision of a rotation attempt (RotateRefreshToken).
+type RefreshOutcome int
+
+const (
+	RefreshInvalid      RefreshOutcome = iota // unknown or expired token
+	RefreshRotated                            // we won the race; the token was consumed now
+	RefreshGraceReissue                       // recently consumed by a concurrent refresh — reissue, don't revoke
+	RefreshReuse                              // consumed long ago and presented again — treat as theft
+)
+
+// RotateRefreshToken atomically decides what to do with a presented refresh
+// token, replacing the validate-then-consume sequence in the handler:
+//
+//   - Invalid: unknown/expired token → reject (no revoke).
+//   - Rotated: the token was active and THIS call consumed it → issue a fresh pair.
+//   - GraceReissue: the token was consumed within `grace` (a concurrent refresh
+//     from another tab, or the request burst when the backend returns from a
+//     deploy) → issue a fresh pair WITHOUT revoking. This is what stops the
+//     re-login-after-deploy: the loser of a concurrent rotation no longer nukes
+//     the whole session family.
+//   - Reuse: the token was consumed BEFORE the grace window → a real replay of a
+//     rotated (possibly stolen) token → caller revokes all sessions.
+//
+// Returns the owning user + remember flag for the issue-tokens outcomes.
+func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bool, RefreshOutcome, error) {
+	hash := sha256Hex(plain)
+	var userID, remember int
+	var expStr string
+	var consumed sql.NullString
+	err := s.db.QueryRow(
+		"SELECT user_id, expires_at, remember_me, consumed_at FROM refresh_tokens WHERE token_hash = ?",
+		hash,
+	).Scan(&userID, &expStr, &remember, &consumed)
+	if err == sql.ErrNoRows {
+		return nil, false, RefreshInvalid, nil
+	}
+	if err != nil {
+		return nil, false, RefreshInvalid, err
+	}
+	if exp, e := parseTime(expStr); e == nil && time.Now().UTC().After(exp) {
+		return nil, false, RefreshInvalid, nil
+	}
+	u, err := s.GetUserByID(userID)
+	if err != nil {
+		return nil, false, RefreshInvalid, err
+	}
+	if consumed.Valid && consumed.String != "" {
+		if ct, e := parseTime(consumed.String); e == nil && time.Since(ct) <= grace {
+			return u, remember == 1, RefreshGraceReissue, nil
+		}
+		return u, remember == 1, RefreshReuse, nil
+	}
+	// Active token: try to consume it. We may lose to a concurrent refresh that
+	// flipped consumed_at first — that's a benign grace reissue, not reuse.
+	res, err := s.db.Exec(
+		"UPDATE refresh_tokens SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
+		time.Now().UTC().Format(dbutil.TimeFormat), hash,
+	)
+	if err != nil {
+		return nil, false, RefreshInvalid, err
+	}
+	if n, _ := res.RowsAffected(); n == 1 {
+		return u, remember == 1, RefreshRotated, nil
+	}
+	return u, remember == 1, RefreshGraceReissue, nil
+}
+
 // ConsumeRefreshToken deletes a refresh token (use on logout, or rolling rotation).
 func (s *Store) ConsumeRefreshToken(plain string) error {
 	hash := sha256Hex(plain)
@@ -791,10 +864,17 @@ func (s *Store) ConsumeRefreshTokenOnce(plain string) (bool, error) {
 	return n == 1, err
 }
 
-// CleanupExpired removes refresh tokens past their TTL. Call periodically.
+// CleanupExpired removes refresh tokens past their TTL, plus soft-consumed tokens
+// older than an hour (well past the rotation grace window) so they don't linger
+// until their original TTL. Call periodically.
 func (s *Store) CleanupExpired() error {
-	now := time.Now().UTC().Format(dbutil.TimeFormat)
-	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE expires_at < ?", now)
+	now := time.Now().UTC()
+	nowStr := now.Format(dbutil.TimeFormat)
+	consumedCutoff := now.Add(-time.Hour).Format(dbutil.TimeFormat)
+	_, err := s.db.Exec(
+		"DELETE FROM refresh_tokens WHERE expires_at < ? OR (consumed_at IS NOT NULL AND consumed_at < ?)",
+		nowStr, consumedCutoff,
+	)
 	return err
 }
 
@@ -817,7 +897,7 @@ type SessionInfo struct {
 // caller's own refresh token, may be empty) flags which row is "this device".
 func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, error) {
 	rows, err := s.db.Query(
-		"SELECT token_hash, created_at, expires_at, remember_me, user_agent, ip FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC",
+		"SELECT token_hash, created_at, expires_at, remember_me, user_agent, ip FROM refresh_tokens WHERE user_id = ? AND consumed_at IS NULL ORDER BY created_at DESC",
 		userID,
 	)
 	if err != nil {
