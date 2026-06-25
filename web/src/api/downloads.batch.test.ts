@@ -8,7 +8,7 @@ vi.mock('./http', () => ({
   MAGNET_PREFIX: 'magnet:?xt=urn:btih:',
 }))
 
-import { buildBatchFiles, downloadBatchCreate } from './downloads'
+import { buildBatchFiles, downloadBatchCreate, isWholeTorrentSelection } from './downloads'
 import type { StreamFile } from './client'
 
 const sf = (over: Partial<StreamFile>): StreamFile =>
@@ -28,6 +28,29 @@ describe('buildBatchFiles', () => {
 
   it('returns an empty array for no picks', () => {
     expect(buildBatchFiles([])).toEqual([])
+  })
+})
+
+describe('isWholeTorrentSelection', () => {
+  const files = [sf({ index: 0 }), sf({ index: 1 }), sf({ index: 2 })]
+
+  it('true quando TODOS os arquivos estão marcados (→ enfileira -2, 1 linha)', () => {
+    expect(isWholeTorrentSelection(files, new Set([0, 1, 2]))).toBe(true)
+  })
+
+  it('false p/ subconjunto (→ batch granular)', () => {
+    expect(isWholeTorrentSelection(files, new Set([0, 2]))).toBe(false)
+    expect(isWholeTorrentSelection(files, new Set([1]))).toBe(false)
+  })
+
+  it('false p/ seleção vazia e p/ lista vazia', () => {
+    expect(isWholeTorrentSelection(files, new Set())).toBe(false)
+    expect(isWholeTorrentSelection([], new Set())).toBe(false)
+  })
+
+  it('pack tipo Morgpie: 778 arquivos todos marcados = whole torrent', () => {
+    const pack = Array.from({ length: 778 }, (_, i) => sf({ index: i }))
+    expect(isWholeTorrentSelection(pack, new Set(pack.map(f => f.index)))).toBe(true)
   })
 })
 
