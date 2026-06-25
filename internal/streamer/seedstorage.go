@@ -43,8 +43,14 @@ func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) sto
 	}
 
 	return storage.NewFileOpts(storage.NewFileClientOpts{
-		// ClientBaseDir only locates the piece-completion DB; keep it in the cache.
+		// ClientBaseDir only roots the FilePathMaker fallback below.
 		ClientBaseDir: s.cfg.DataDir,
+		// In-memory completion (not a DB under DataDir): the default client storage
+		// already owns a completion DB there, and opening a second one at the same
+		// path would lock/conflict. In-memory means anacrolix re-verifies the real
+		// file on add (hash-check marks complete pieces → seeds, never re-downloads)
+		// and again after a restart — exactly what we want for a relocated seed.
+		PieceCompletion: storage.NewMapPieceCompletion(),
 		// Root the torrent at "/" so each file's absolute real path is used
 		// verbatim (joined under "/", it stays a valid sub-path).
 		TorrentDirMaker: func(string, *metainfo.Info, metainfo.Hash) string { return string(os.PathSeparator) },
