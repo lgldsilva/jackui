@@ -656,16 +656,32 @@ func (s *Streamer) resolveMagnet(src string) (*torrent.Torrent, error) {
 	}
 	if mi, err := metainfo.ParseMagnetUri(src); err == nil {
 		if cached := s.loadCachedMetainfo(mi.InfoHash); cached != nil {
-			t, err := s.client.AddTorrent(cached)
-			if err != nil {
-				return nil, fmt.Errorf("add cached metainfo: %w", err)
-			}
-			return t, nil
+			return s.addCachedMetainfo(cached, mi.InfoHash)
 		}
 	}
 	t, err := s.client.AddMagnet(src)
 	if err != nil {
 		return nil, fmt.Errorf("add magnet: %w", err)
+	}
+	return t, nil
+}
+
+// addCachedMetainfo adds a torrent from its cached .torrent file. When the
+// download's files have been relocated out of DataDir (e.g. moved to bulk on
+// completion), it attaches a per-torrent storage rooted at the real location so
+// anacrolix verifies + SEEDS in place instead of re-downloading into the cache.
+// Falls back to the default storage otherwise.
+func (s *Streamer) addCachedMetainfo(cached *metainfo.MetaInfo, hash metainfo.Hash) (*torrent.Torrent, error) {
+	spec := torrent.TorrentSpecFromMetaInfo(cached)
+	if info, err := cached.UnmarshalInfo(); err == nil {
+		if st := s.relocatedStorage(&info, hash); st != nil {
+			spec.Storage = st
+			log.Printf("streamer: seeding %s from relocated storage (file outside cache)", hash.HexString()[:8])
+		}
+	}
+	t, _, err := s.client.AddTorrentSpec(spec)
+	if err != nil {
+		return nil, fmt.Errorf("add cached metainfo: %w", err)
 	}
 	return t, nil
 }
