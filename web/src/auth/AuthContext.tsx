@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import api, { passkeyAuthenticate, clearMediaToken } from '../api/client'
 import { load, save, remove } from '../lib/storage'
+import { REFRESH_MAX_ATTEMPTS, httpStatusOf, isAuthRejection, refreshBackoffMs } from './refreshPolicy'
 
 export type Role = 'admin' | 'user' | 'guest'
 
@@ -71,8 +72,11 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
             const access = load<string>(ACCESS_KEY, '')
             original.headers.Authorization = `Bearer ${access}`
             return api(original)
-          } catch {
-            await logout()
+          } catch (refreshErr) {
+            // Only log out on a GENUINE auth rejection. A transient refresh
+            // failure (backend down during a deploy, network blip) must NOT drop
+            // the session — that was forcing a re-login on every deploy.
+            if (refreshAuthFailed(refreshErr)) await logout()
           }
         }
         throw error
@@ -108,8 +112,11 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
             await refreshTokens()
             const { data } = await api.get<AuthUser>('/auth/me')
             setUser(data)
-          } catch {
-            clearTokens()
+          } catch (e) {
+            // Only drop the session on a genuine auth rejection. On a transient
+            // failure (backend mid-deploy) keep the tokens so a retry/reload
+            // recovers instead of forcing a re-login.
+            if (refreshAuthFailed(e)) clearTokens()
           }
         }
       }
@@ -185,20 +192,46 @@ export function getRefreshToken(): string {
 // makes all callers await the same rotation.
 let refreshInFlight: Promise<void> | null = null
 
+// RefreshError distinguishes WHY a refresh failed. authFailed=true means the
+// session is genuinely invalid (no refresh token, or the server returned
+// 401/403) → log out. authFailed=false means a TRANSIENT failure (backend down
+// during a deploy, network blip, 5xx) survived all retries → keep the session;
+// the next request recovers once the backend is back.
+class RefreshError extends Error {
+  constructor(readonly authFailed: boolean) {
+    super(authFailed ? 'refresh rejected' : 'refresh failed transiently')
+  }
+}
+
+function refreshAuthFailed(e: unknown): boolean {
+  return e instanceof RefreshError && e.authFailed
+}
+
 async function refreshTokens(): Promise<void> {
   if (refreshInFlight) return refreshInFlight
-  refreshInFlight = (async () => {
+  refreshInFlight = doRefresh().finally(() => { refreshInFlight = null })
+  return refreshInFlight
+}
+
+async function doRefresh(): Promise<void> {
+  const refresh = load<string>(REFRESH_KEY, '')
+  if (!refresh) throw new RefreshError(true)
+  // Retry transient failures: the backend's rotation grace window makes a
+  // re-sent (possibly already-consumed) token reissue a fresh pair instead of
+  // revoking, so retrying across a deploy's restart window is safe.
+  for (let attempt = 0; attempt < REFRESH_MAX_ATTEMPTS; attempt++) {
     try {
-      const refresh = load<string>(REFRESH_KEY, '')
-      if (!refresh) throw new Error('no refresh token')
       const { data } = await api.post<TokenBundle>('/auth/refresh', { refresh })
       save(ACCESS_KEY, data.access)
       save(REFRESH_KEY, data.refresh)
-    } finally {
-      refreshInFlight = null
+      return
+    } catch (e) {
+      if (isAuthRejection(httpStatusOf(e))) throw new RefreshError(true)
+      if (attempt === REFRESH_MAX_ATTEMPTS - 1) throw new RefreshError(false)
+      await new Promise((r) => setTimeout(r, refreshBackoffMs(attempt)))
     }
-  })()
-  return refreshInFlight
+  }
+  throw new RefreshError(false)
 }
 
 function clearTokens() {
