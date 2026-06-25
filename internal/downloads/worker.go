@@ -861,24 +861,63 @@ func (w *Worker) tryFinalizeBulk(d Download, name string, relPaths []string, who
 	if w.completionBaseDir(d) == "" {
 		return "", false
 	}
-	destDir := w.completionDest(d, name)
-	dst := destDir
-	if whole {
-		if !dirHasFiles(destDir) {
-			return "", false
+	// Probe each candidate destination dir (frozen → current → category-less) and
+	// finalize at the first one that actually holds the data. The fallbacks cover
+	// rows whose storage wrote BEFORE category grouping shipped: the current
+	// completionDest points at .../<category>/<torrent> (empty), so without the
+	// category-less probe they wedged with "completed file not found".
+	for _, destDir := range w.bulkDestCandidates(d, name) {
+		dst := destDir
+		if whole {
+			if !dirHasFiles(destDir) {
+				continue
+			}
+		} else {
+			dst = filepath.Join(destDir, bulkRelPath(name, relPaths[0]))
+			if !fileExists(dst) {
+				continue
+			}
 		}
-	} else {
-		dst = filepath.Join(destDir, bulkRelPath(name, relPaths[0]))
-		if !fileExists(dst) {
-			return "", false
+		if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
+			log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+		}
+		w.streamer.UnregisterDownload(name)
+		log.Printf("downloads: #%d %q already in bulk (no move) → %s", d.ID, name, dst)
+		return dst, true
+	}
+	return "", false
+}
+
+// bulkDestCandidates lists the per-torrent destination dirs to probe when
+// finalizing a download-to-bulk row, in priority order:
+//  1. the dir FROZEN at metadata-resolve (authoritative — no drift),
+//  2. the freshly-computed completionDest (current category/auto-promote),
+//  3. a category-LESS variant (covers rows whose storage wrote before category
+//     grouping was added — the move-not-found wedge).
+//
+// Deduped, empties dropped. The category-less entry only appears when category
+// grouping is actually in effect (the base ends with the category segment).
+func (w *Worker) bulkDestCandidates(d Download, name string) []string {
+	var out []string
+	add := func(dir string) {
+		if dir == "" {
+			return
+		}
+		for _, x := range out {
+			if x == dir {
+				return
+			}
+		}
+		out = append(out, dir)
+	}
+	add(d.CompletionDest)
+	add(w.completionDest(d, name))
+	if base := w.completionBaseDir(d); base != "" {
+		if cat := categoryFolder(d.Category); cat != "" && filepath.Base(base) == cat {
+			add(filepath.Join(filepath.Dir(base), sanitizeFolderName(name)))
 		}
 	}
-	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
-		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
-	}
-	w.streamer.UnregisterDownload(name)
-	log.Printf("downloads: #%d %q already in bulk (no move) → %s", d.ID, name, dst)
-	return dst, true
+	return out
 }
 
 // bulkRelPath mirrors bulkRel for a torrent-relative path string: strips the
@@ -1404,6 +1443,15 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	filePath, fileSize := w.initFilePath(d, t, f, name)
 	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
 		log.Printf("downloads: failed to update metadata for download %d: %v", d.ID, err)
+	}
+	// Freeze the destination dir now that the name is known — completionBaseDir's
+	// inputs (category grouping, auto-promote) can change before completion, and a
+	// drift there was what wedged in-flight rows in `moving` after category grouping
+	// shipped. The finalize prefers this frozen value over recomputing.
+	if dest := w.completionDest(d, name); dest != "" {
+		if err := w.store.SetCompletionDest(d.UserID, d.ID, dest); err != nil {
+			log.Printf("downloads: failed to set completion_dest for download %d: %v", d.ID, err)
+		}
 	}
 
 	now := time.Now()

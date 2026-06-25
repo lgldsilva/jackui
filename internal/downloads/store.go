@@ -132,6 +132,9 @@ type Download struct {
 	// prefers these when set.
 	DestBase   string `json:"destBase,omitempty"`
 	DestSubdir string `json:"destSubdir,omitempty"`
+	// CompletionDest is the per-torrent destination dir frozen at metadata-resolve
+	// (completionBaseDir + sanitized name). Empty until resolved / for legacy rows.
+	CompletionDest string `json:"completionDest,omitempty"`
 }
 
 // IsWholeTorrent reports whether this row downloads the entire torrent as one
@@ -213,6 +216,12 @@ func (s *Store) migrate() error {
 		// Chosen download destination (#16 picker): a writable base + optional subdir.
 		"dest_base TEXT NOT NULL DEFAULT ''",
 		"dest_subdir TEXT NOT NULL DEFAULT ''",
+		// The per-torrent destination dir FROZEN when metadata resolves the name, so
+		// the completion finalize doesn't drift if completionBaseDir's inputs (category
+		// grouping, auto-promote) change between create and completion — the bug that
+		// wedged in-flight rows in `moving` after category grouping shipped. Empty for
+		// legacy rows (the finalize falls back to recomputing + a category-less probe).
+		"completion_dest TEXT NOT NULL DEFAULT ''",
 	}
 	for _, def := range addColumns {
 		if e := s.addColumnIfMissing("downloads", def); e != nil {
@@ -438,7 +447,8 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at,
 	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, ''),
 	COALESCE(active_magnet, ''), COALESCE(source, ''),
-	COALESCE(dest_base, ''), COALESCE(dest_subdir, '') FROM downloads `
+	COALESCE(dest_base, ''), COALESCE(dest_subdir, ''),
+	COALESCE(completion_dest, '') FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com
@@ -811,6 +821,14 @@ func (s *Store) UpdateMetadata(userID, id int, name string, filePath string, fil
 	return err
 }
 
+// SetCompletionDest freezes the per-torrent destination dir resolved once metadata
+// is known, so the completion finalize uses a stable path even if completionBaseDir's
+// inputs (category, auto-promote) change later. Non-fatal (next finalize falls back).
+func (s *Store) SetCompletionDest(userID, id int, dest string) error {
+	_, err := s.db.Exec(`UPDATE downloads SET completion_dest=? WHERE id=? AND user_id=?`, dest, id, userID)
+	return err
+}
+
 // UpdateProgress records the latest bytes_downloaded — called periodically
 // by the worker. Errors are non-fatal; the next tick will retry. Scoped by
 // user_id (worker passes the row's own UserID).
@@ -1032,7 +1050,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &createdAt,
 		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet, &d.Source,
-		&d.DestBase, &d.DestSubdir,
+		&d.DestBase, &d.DestSubdir, &d.CompletionDest,
 	)
 	if err != nil {
 		return nil, err
