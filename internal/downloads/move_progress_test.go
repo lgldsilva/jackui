@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"bytes"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func TestMoveFileProgress_ReportsBytesOnRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got int64
-	if err := moveFileProgress(src, filepath.Join(dir, "b.bin"), func(n int64) { got += n }); err != nil {
+	if err := moveFileProgress(context.Background(), src, filepath.Join(dir, "b.bin"), func(n int64) { got += n }); err != nil {
 		t.Fatalf("moveFileProgress: %v", err)
 	}
 	if got != 5 {
@@ -43,7 +44,7 @@ func TestMoveFileProgress_CopyFallbackReportsBytes(t *testing.T) {
 	}
 	dst := filepath.Join(dir, "b.bin")
 	var got int64
-	if err := moveFileProgress(src, dst, func(n int64) { got += n }); err != nil {
+	if err := moveFileProgress(context.Background(), src, dst, func(n int64) { got += n }); err != nil {
 		t.Fatalf("moveFileProgress (copy): %v", err)
 	}
 	if got != 100 {

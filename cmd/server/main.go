@@ -1250,6 +1250,7 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))
 
 	api.GET("/transfers", handlers.TransfersList(deps.transferTracker))
+	api.DELETE("/transfers/:id", handlers.TransfersCancel(deps.transferTracker))
 
 	registerLocalRoutes(api, deps)
 	registerDownloadsRoutes(api, deps)
