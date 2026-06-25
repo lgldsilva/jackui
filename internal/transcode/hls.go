@@ -57,6 +57,12 @@ type HLSSessionManager struct {
 	// double close / double drain (Stop is registered as a shutdown cleanup).
 	stopCh  chan struct{}
 	stopped bool
+
+	// gpuSem caps concurrent HARDWARE-decode sessions so the GPU's VRAM doesn't
+	// run out (CUDA_ERROR_OUT_OF_MEMORY). nil = unlimited (the single-transcode
+	// common case). A session over the cap decodes in software (NVENC still
+	// encodes). Sized from JACKUI_MAX_GPU_TRANSCODES at wiring time.
+	gpuSem *gpuSem
 }
 
 // VODMode gates the finite-VOD (seekbar) HLS path, by client class. See
@@ -208,6 +214,20 @@ type HLSSession struct {
 	// born with an unknown duration (see retryDuration). Called by stop() so a
 	// reaped session never leaks the goroutine.
 	retryCancel context.CancelFunc
+
+	// mgr backlinks the owning manager so the exit watcher can release the
+	// GPU-decode slot and trigger a software-decode relaunch on CUDA-OOM.
+	mgr *HLSSessionManager
+	// holdsGPUSlot is true while this session occupies a GPU-decode semaphore
+	// slot — released exactly once in stop() (or when downgraded to software
+	// decode on a CUDA-OOM recovery). Guarded by s.mu.
+	holdsGPUSlot bool
+	// oomDetector watches ffmpeg's stderr for a CUDA-OOM / hwaccel-init failure
+	// signature; the exit watcher reads it to decide a software-decode relaunch.
+	oomDetector *oomWatcher
+	// swFallbackTried guards against an infinite relaunch loop: a session only
+	// downgrades HW→software decode ONCE. Guarded by s.mu.
+	swFallbackTried bool
 }
 
 // NewHLSManager constructs a manager rooted at baseDir/hls/. The directory
@@ -226,10 +246,36 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 		sess:     make(map[string]*HLSSession),
 		starting: make(map[string]chan struct{}),
 		stopCh:   make(chan struct{}),
+		gpuSem:   newGPUSem(gpuTranscodeLimitFromEnv()),
 	}
 	go m.gcLoop()
 	return m, nil
 }
+
+// defaultMaxGPUTranscodes caps concurrent hardware-decode HLS sessions when
+// JACKUI_MAX_GPU_TRANSCODES is unset. Picked to fit a modest GPU's VRAM (the
+// production GTX 1070 with 8 GB ran out of memory around 7 concurrent CUVID
+// decoders): 3 leaves headroom; the 4th+ session decodes in software.
+const defaultMaxGPUTranscodes = 3
+
+// gpuTranscodeLimitFromEnv reads JACKUI_MAX_GPU_TRANSCODES. A positive value
+// caps concurrent HW-decode sessions; "0" means unlimited (opt out of the cap);
+// unset/invalid uses defaultMaxGPUTranscodes.
+func gpuTranscodeLimitFromEnv() int {
+	v := strings.TrimSpace(os.Getenv("JACKUI_MAX_GPU_TRANSCODES"))
+	if v == "" {
+		return defaultMaxGPUTranscodes
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return defaultMaxGPUTranscodes
+	}
+	return n // 0 = unlimited
+}
+
+// SetGPUTranscodeLimit overrides the concurrent HW-decode cap (tests; or a
+// future live-config path). limit <= 0 means unlimited.
+func (m *HLSSessionManager) SetGPUTranscodeLimit(limit int) { m.gpuSem = newGPUSem(limit) }
 
 // Stop reaps every live session (kills ffmpeg, closes its loopback server and
 // removes its segment dir) and halts gcLoop. Called on graceful shutdown so no
@@ -635,6 +681,31 @@ type encodeSpec struct {
 	vod        bool // duration known → finite VOD: forced keyframes + seekable restart
 	audioOnly  bool // pure-audio source → `-vn`, no video map, AAC HLS
 	audioTrack int  // absolute stream index pra `-map 0:<n>` quando >0 (faixa escolhida); 0/-1 = primeira faixa de áudio (0:a:0?)
+	// swDecode forces SOFTWARE video decode even for a HW encoder (e.g.
+	// h264_nvenc): the `-hwaccel cuda` decode flags are suppressed so the decode
+	// runs on CPU while NVENC still does the encode. Set when the GPU-decode
+	// semaphore is at its cap, or after a CUDA_ERROR_OUT_OF_MEMORY recovery. The
+	// scale/pix_fmt filters are unchanged: the NVENC path already scales in
+	// software and re-uploads (see videoScaleFilter), so software-decoded frames
+	// feed it identically.
+	swDecode bool
+}
+
+// decodeArgs returns the `-hwaccel` decode flags for this spec, or nil when
+// software decode is forced (swDecode). Centralised so args/audioArgs and the
+// guard tests share one notion of "what decode mode is this spec in".
+func (e *encodeSpec) decodeArgs() []string {
+	if e.swDecode {
+		return nil
+	}
+	return hwDecodeArgsFor(e.encoder)
+}
+
+// usesHWDecode reports whether this spec, as configured, will launch ffmpeg
+// with a hardware decoder (and therefore needs a GPU-decode semaphore slot).
+// False for CPU encoders and for any spec forced to software decode.
+func (e *encodeSpec) usesHWDecode() bool {
+	return len(e.decodeArgs()) > 0
 }
 
 // args builds the ffmpeg argv to encode starting at segment `startSeg`. For
@@ -654,8 +725,10 @@ func (e *encodeSpec) args(startSeg int) []string {
 	}
 	// HW decode matching the encoder backend so frames feed the scale_* filter
 	// (≤1080p + 8-bit NV12) below — required for 10-bit HDR sources, which the
-	// HW h264 encoders can't ingest directly. No-op for CPU (software decode).
-	args = append(args, hwDecodeArgsFor(e.encoder)...)
+	// HW h264 encoders can't ingest directly. No-op for CPU (software decode) and
+	// suppressed when swDecode forces a CPU decode under GPU pressure / after a
+	// CUDA-OOM recovery (the NVENC encode still runs on the GPU).
+	args = append(args, e.decodeArgs()...)
 	if e.vod && startSeg > 0 {
 		// Input seek (before -i) so ffmpeg jumps via Range to the keyframe at
 		// or before the requested time instead of decoding from byte 0.
@@ -807,7 +880,8 @@ func (s *HLSSession) launch(startSeg int) error {
 	ffctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
 	log.Printf("hls: ffmpeg %s", strings.Join(s.spec.args(startSeg), " "))
-	cmd.Stderr = newLogWriter("hls/" + s.Key + " ")
+	oom := newOOMWatcher("hls/" + s.Key + " ")
+	cmd.Stderr = oom
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return fmt.Errorf("ffmpeg start: %w", err)
@@ -823,6 +897,7 @@ func (s *HLSSession) launch(startSeg int) error {
 	}
 	s.Cmd = cmd
 	s.Cancel = cancel
+	s.oomDetector = oom
 	s.startSeg = startSeg
 	// Relançar limpa o flag de "encoder morto": um run anterior pode ter terminado
 	// (closed=true) e este o ressuscita (ex: seek pra um buraco após o ffmpeg
@@ -842,11 +917,50 @@ func (s *HLSSession) launch(startSeg int) error {
 			s.closed = true
 		}
 		s.mu.Unlock()
+		// CUDA-OOM recovery: ffmpeg died trying to create a hardware decoder with
+		// no VRAM. Relaunch the SAME session in software decode (NVENC still
+		// encodes) so playback succeeds. Only for a non-superseded HW-decode run
+		// that actually failed; tryRecoverFromCUDAOOM no-ops otherwise (and only
+		// downgrades once).
+		if err != nil && !superseded && s.tryRecoverFromCUDAOOM(ffctx, oom, startSeg) {
+			return
+		}
 		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) && !superseded {
 			log.Printf("hls: ffmpeg exited for session %s: %v", s.Key, err)
 		}
 	}()
 	return nil
+}
+
+// tryRecoverFromCUDAOOM relaunches the session in SOFTWARE decode after ffmpeg
+// failed creating a hardware decoder (CUDA_ERROR_OUT_OF_MEMORY / hwaccel init
+// error). It only fires when: the run was NOT cancelled by us, the stderr shows
+// the recoverable signature, the spec was using HW decode, and we haven't
+// already downgraded this session. On a match it flips spec.swDecode, returns
+// the held GPU slot (the HW decoder it couldn't allocate), clears `closed` and
+// relaunches at the same segment. Returns true when it took over the recovery
+// (caller must not log the exit as a hard failure).
+func (s *HLSSession) tryRecoverFromCUDAOOM(ffctx context.Context, oom *oomWatcher, startSeg int) bool {
+	if errors.Is(ffctx.Err(), context.Canceled) || oom == nil || !oom.sawOOM() {
+		return false
+	}
+	s.mu.Lock()
+	if s.dead || s.swFallbackTried || s.spec == nil || s.spec.swDecode {
+		s.mu.Unlock()
+		return false
+	}
+	s.swFallbackTried = true
+	s.spec.swDecode = true
+	s.mu.Unlock()
+
+	// The HW decoder failed to allocate — give the slot back so another session
+	// can use the VRAM this one no longer holds.
+	s.releaseGPUSlot()
+	log.Printf("hls: CUDA-OOM on session %s — retrying with software decode (NVENC still encodes)", s.Key)
+	if err := s.launch(startSeg); err != nil {
+		log.Printf("hls: software-decode relaunch of %s failed: %v", s.Key, err)
+	}
+	return true
 }
 
 // hlsForwardSeekThreshold is how many segments PAST the highest one on disk a
@@ -1116,6 +1230,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		DurationSec: durationSec,
 		sourceSrv:   srv,
 		source:      opts.Source,
+		mgr:         m,
 		spec: &encodeSpec{
 			dir:        dir,
 			inputURL:   inputURL,
@@ -1127,12 +1242,18 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		},
 	}
 
+	// Cap concurrent HARDWARE decoders so the GPU doesn't run out of VRAM. When
+	// the spec would use HW decode but no slot is free, this downgrades the spec
+	// to software decode (NVENC still encodes) so the session always starts.
+	m.reserveDecodeMode(s)
+
 	reason := ""
 	if !vod {
 		reason = " reason=" + vodReason(durationSec, opts.ForceVOD, mode, opts.NativeHLS)
 	}
-	log.Printf("hls: starting session %s (vod=%v%s)", effKey, s.spec.vod, reason)
+	log.Printf("hls: starting session %s (vod=%v sw_decode=%v%s)", effKey, s.spec.vod, s.spec.swDecode, reason)
 	if err := s.launch(0); err != nil {
+		s.releaseGPUSlot()
 		_ = srv.Close()
 		_ = os.RemoveAll(dir)
 		return nil, err
@@ -1152,6 +1273,92 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	}
 
 	return s, nil
+}
+
+// reserveDecodeMode decides whether a new session decodes on the GPU or in
+// software, and reserves a GPU-decode slot when it does. A spec that wouldn't
+// use HW decode anyway (CPU encoder) needs no slot and is left as-is. When the
+// semaphore is at its cap it first tries to RECLAIM a slot by reaping the
+// oldest idle HW-decode session (a superseded play the user moved on from), and
+// only if that still leaves no slot does it downgrade THIS session to software
+// decode. Sets s.spec.swDecode / s.holdsGPUSlot accordingly.
+func (m *HLSSessionManager) reserveDecodeMode(s *HLSSession) {
+	if !s.spec.usesHWDecode() {
+		return // CPU encoder — no GPU decoder to cap.
+	}
+	if m.gpuSem.tryAcquire() {
+		s.mu.Lock()
+		s.holdsGPUSlot = true
+		s.mu.Unlock()
+		return
+	}
+	// At the cap. Free the oldest idle HW-decode session (a play the user likely
+	// moved on from) and retry once before falling back to software decode.
+	if m.reclaimIdleGPUSlot() && m.gpuSem.tryAcquire() {
+		s.mu.Lock()
+		s.holdsGPUSlot = true
+		s.mu.Unlock()
+		return
+	}
+	log.Printf("hls: GPU-decode cap reached (%d in use) — session %s decodes in software (NVENC still encodes)", m.gpuSem.held(), s.Key)
+	s.spec.swDecode = true
+}
+
+// reclaimIdleGPUSlot reaps the single oldest IDLE hardware-decode session to
+// free a GPU-decode slot for a new play. "Idle" = no segment request for at
+// least gpuReclaimIdleAfter (a much shorter window than the 5-min general idle
+// reaper) so a session a viewer is actively watching is never torn out from
+// under them. Returns true when it reaped one (its slot is released by stop()).
+func (m *HLSSessionManager) reclaimIdleGPUSlot() bool {
+	now := time.Now()
+	m.mu.Lock()
+	var victim *HLSSession
+	var victimKey string
+	var oldest time.Time
+	for k, cand := range m.sess {
+		cand.mu.Lock()
+		idle := now.Sub(cand.LastAccess)
+		holds := cand.holdsGPUSlot
+		last := cand.LastAccess
+		cand.mu.Unlock()
+		if !holds || idle < gpuReclaimIdleAfter {
+			continue
+		}
+		if victim == nil || last.Before(oldest) {
+			victim, victimKey, oldest = cand, k, last
+		}
+	}
+	if victim != nil {
+		delete(m.sess, victimKey)
+	}
+	m.mu.Unlock()
+	if victim == nil {
+		return false
+	}
+	log.Printf("hls: reclaiming GPU slot from idle session %s (idle=%s) for a new play", victimKey, now.Sub(oldest))
+	victim.stop() // releases its GPU slot
+	return true
+}
+
+// gpuReclaimIdleAfter is how long a HW-decode session must have gone without a
+// segment request before a NEW play may reap it to reclaim its GPU slot. Short
+// (vs the 5-min general idle reaper) because the goal is to free VRAM the moment
+// the user starts a new file, but long enough not to disturb a session whose
+// player merely paused its segment loop after pre-buffering.
+const gpuReclaimIdleAfter = 20 * time.Second
+
+// releaseGPUSlot returns this session's GPU-decode slot to the semaphore, if it
+// held one. Idempotent: clears holdsGPUSlot so a double stop()/downgrade can't
+// under-count the semaphore. Safe with a nil manager.
+func (s *HLSSession) releaseGPUSlot() {
+	s.mu.Lock()
+	held := s.holdsGPUSlot
+	s.holdsGPUSlot = false
+	mgr := s.mgr
+	s.mu.Unlock()
+	if held && mgr != nil {
+		mgr.gpuSem.release()
+	}
 }
 
 // WaitForMaster blocks up to `timeout` waiting for the master `index.m3u8`
@@ -1267,6 +1474,7 @@ func (s *HLSSession) stop() {
 		cancelSrv()
 	}
 	closeIfCloser(src)
+	s.releaseGPUSlot() // return the GPU-decode slot (if held) to the semaphore
 	_ = os.RemoveAll(s.Dir)
 }
 

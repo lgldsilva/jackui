@@ -69,23 +69,58 @@ func enrichETA(d *downloads.Download, s *streamer.Streamer) {
 	if err != nil || info == nil {
 		return
 	}
-	d.DownRate = info.DownRate
-	if info.DownRate > 0 {
-		remaining := d.FileSize - d.BytesDownloaded
-		if remaining > 0 {
-			d.ETA = int(remaining / info.DownRate)
-		}
+	applyETA(d, info.DownRate)
+}
+
+// applyETA sets DownRate + ETA on a row from its torrent's (shared) download rate.
+// The rate is per-torrent, so every selected file of one torrent shares it.
+func applyETA(d *downloads.Download, rate int64) {
+	d.DownRate = rate
+	if rate <= 0 {
+		return
+	}
+	if remaining := d.FileSize - d.BytesDownloaded; remaining > 0 {
+		d.ETA = int(remaining / rate)
 	}
 }
 
-// enrichETAList calls enrichETA for each download in the slice.
+// enrichETAList fills DownRate/ETA for the slice, looking each torrent up in the
+// streamer ONCE per unique info_hash. Many rows are selected files of the SAME
+// torrent (a multi-file pack is hundreds of rows), and s.Get→buildInfo is
+// O(files); doing it per row was O(rows×files) and locked the torrent client
+// thousands of times — which made GET /api/downloads take MINUTES on a big pack.
+// Deduping by hash makes it O(unique active torrents).
 func enrichETAList(list []downloads.Download, s *streamer.Streamer) {
 	if s == nil {
 		return
 	}
+	rateByHash := make(map[string]int64)
 	for i := range list {
-		enrichETA(&list[i], s)
+		d := &list[i]
+		if d.InfoHash == "" || d.FileSize <= 0 {
+			continue
+		}
+		rate, seen := rateByHash[d.InfoHash]
+		if !seen {
+			rate = downRateOf(s, d.InfoHash)
+			rateByHash[d.InfoHash] = rate
+		}
+		applyETA(d, rate)
 	}
+}
+
+// downRateOf returns a torrent's current download rate, or 0 when it isn't active
+// (or the hash is malformed). One streamer lookup; callers cache it by hash.
+func downRateOf(s *streamer.Streamer, infoHash string) int64 {
+	var h metainfo.Hash
+	if err := h.FromHexString(infoHash); err != nil {
+		return 0
+	}
+	info, err := s.Get(h)
+	if err != nil || info == nil {
+		return 0
+	}
+	return info.DownRate
 }
 
 // markPromoted sets Promoted=true for completed downloads whose FilePath is
