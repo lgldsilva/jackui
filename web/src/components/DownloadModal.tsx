@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText, AlertCircle, Check } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
+  downloadBatchCreate, buildBatchFiles,
   streamAdd, streamMetadata, StreamFile, TorrentInfo,
 } from '../api/client'
 import { Sheet } from './Sheet'
@@ -72,12 +73,17 @@ async function downloadInternal(
   if ((files?.length ?? 0) > 0) {
     const picks = (files ?? []).filter(f => selectedFiles.has(f.index))
     if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
-    const results = await Promise.allSettled(picks.map(f =>
-      downloadCreate({ infoHash, fileIndex: f.index, magnet, name: result.title, filePath: f.path, fileSize: f.size, tracker: result.tracker || undefined, category: result.category || undefined, destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined }),
-    ))
-    const failures = results.filter(r => r.status === 'rejected')
-    if (failures.length === picks.length) throw new Error('Todos os downloads falharam')
-    if (failures.length > 0) return `${picks.length - failures.length}/${picks.length} enfileirados; ${failures.length} falharam`
+    // UMA request batch (antes: 1 POST por arquivo). O backend insere tudo numa
+    // transação tudo-ou-nada — não há mais sucesso parcial pra reportar.
+    const res = await downloadBatchCreate({
+      infoHash, magnet, name: result.title,
+      tracker: result.tracker || undefined, category: result.category || undefined,
+      destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined,
+      files: buildBatchFiles(picks),
+    })
+    if (res.created.length !== picks.length) {
+      return `${res.created.length}/${picks.length} enfileirados`
+    }
   } else {
     await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined, destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined })
   }
