@@ -26,6 +26,10 @@ type Entry struct {
 	// Locked marks a directory the user pinned (a ".keep" marker inside) so
 	// "clean empty folders" never removes it even when it holds no files.
 	Locked bool `json:"locked,omitempty"`
+	// Incomplete flags a download still in progress: a ".part" file, or a
+	// directory whose tree still holds one. Lets the browser show a "baixando"
+	// indicator instead of presenting a half-written file as if it were ready.
+	Incomplete bool `json:"incomplete,omitempty"`
 }
 
 // keepMarker is the empty-but-present file that pins a folder: a dir holding it
@@ -680,7 +684,18 @@ func buildEntry(abs, prefix string, de os.DirEntry) (Entry, bool) {
 		IsPlayable: !isDir && IsPlayable(name),
 		ChildCount: childCount(isDir, childAbs),
 		Locked:     isDir && isFolderLocked(childAbs),
+		Incomplete: entryIncomplete(isDir, name, childAbs),
 	}, true
+}
+
+// entryIncomplete reports whether an entry is a download still in progress: a
+// file is incomplete when it's an anacrolix ".part"; a directory is incomplete
+// when its tree still holds one (hasPartFiles short-circuits on the first hit).
+func entryIncomplete(isDir bool, name, abs string) bool {
+	if !isDir {
+		return strings.HasSuffix(name, ".part")
+	}
+	return hasPartFiles(abs)
 }
 
 // entryPath joins the cleaned relPath prefix with an entry name.
