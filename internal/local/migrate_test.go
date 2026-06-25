@@ -106,7 +106,7 @@ func TestMigrateToUserSubpath_SharedMountIsNoop(t *testing.T) {
 
 func TestMigrateToUserSubpath_Collision(t *testing.T) {
 	root := t.TempDir()
-	// A loose file collides with one already in the owner's subdir.
+	// A loose entry collides with one already in the owner's subdir.
 	mustMkdir(t, filepath.Join(root, "alice"))
 	mustWrite(t, filepath.Join(root, "alice", "movie.mkv"), "existing")
 	mustWrite(t, filepath.Join(root, "movie.mkv"), "incoming")
@@ -119,16 +119,56 @@ func TestMigrateToUserSubpath_Collision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if len(res.Moved) != 1 {
-		t.Fatalf("moved %d, want 1", len(res.Moved))
+	// New behaviour: never mint "movie (1).mkv" (that orphaned in-flight downloads).
+	// The incoming entry stays at the root, counted as a conflict for manual merge.
+	if len(res.Moved) != 0 {
+		t.Fatalf("moved %d, want 0 (collision must not relocate)", len(res.Moved))
 	}
-	// Existing file preserved, incoming auto-renamed.
-	existing, _ := os.ReadFile(filepath.Join(root, "alice", "movie.mkv"))
-	if string(existing) != "existing" {
+	if res.Conflicts != 1 {
+		t.Errorf("conflicts=%d, want 1", res.Conflicts)
+	}
+	// Existing file preserved, incoming left at root, NO numbered duplicate.
+	if existing, _ := os.ReadFile(filepath.Join(root, "alice", "movie.mkv")); string(existing) != "existing" {
 		t.Errorf("arquivo existente foi sobrescrito: %q", existing)
 	}
-	renamed, err := os.ReadFile(filepath.Join(root, "alice", "movie (1).mkv"))
-	if err != nil || string(renamed) != "incoming" {
-		t.Errorf("colisão não resolvida: renamed=%q err=%v", renamed, err)
+	if incoming, _ := os.ReadFile(filepath.Join(root, "movie.mkv")); string(incoming) != "incoming" {
+		t.Errorf("entrada da raiz deveria permanecer intacta: %q", incoming)
+	}
+	if fileExists(filepath.Join(root, "alice", "movie (1).mkv")) {
+		t.Error("não deveria ter criado duplicata numerada 'movie (1).mkv'")
+	}
+}
+
+// A download still in progress (anacrolix .part files) must never be relocated —
+// moving it out from under the live torrent strands its pieces and re-downloads.
+func TestMigrateToUserSubpath_SkipsActiveDownload(t *testing.T) {
+	root := t.TempDir()
+	// A loose torrent folder mid-download: contains a .part file.
+	mustMkdir(t, filepath.Join(root, "Morgpie"))
+	mustWrite(t, filepath.Join(root, "Morgpie", "clip.mp4.part"), "partial")
+	// A completed loose file alongside it (should still migrate normally).
+	mustWrite(t, filepath.Join(root, "done.mkv"), "D")
+
+	b := NewBrowser([]config.ExternalMount{{Name: "M", Path: root, UserSubpath: true}})
+	known := map[string]bool{"admin": true}
+	attribute := func(string) (string, bool) { return "admin", true }
+
+	res, err := b.MigrateToUserSubpath("M", known, "admin", attribute)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if res.Active != 1 {
+		t.Errorf("active=%d, want 1 (the .part download)", res.Active)
+	}
+	// In-progress folder untouched at the root.
+	if !fileExists(filepath.Join(root, "Morgpie", "clip.mp4.part")) {
+		t.Error("download ativo (.part) não deveria ter sido movido")
+	}
+	if fileExists(filepath.Join(root, "admin", "Morgpie")) {
+		t.Error("download ativo foi relocado indevidamente para admin/")
+	}
+	// The completed file still migrates.
+	if !fileExists(filepath.Join(root, "admin", "done.mkv")) {
+		t.Error("arquivo concluído deveria ter migrado para admin/")
 	}
 }

@@ -259,9 +259,11 @@ type MigratedEntry struct {
 
 // MigrationResult summarizes a MigrateToUserSubpath run.
 type MigrationResult struct {
-	Mount   string
-	Moved   []MigratedEntry
-	Skipped int // entries already inside a known user's subdir (idempotency)
+	Mount     string
+	Moved     []MigratedEntry
+	Skipped   int // entries already inside a known user's subdir (idempotency)
+	Active    int // entries left in place because they're downloads in progress (.part)
+	Conflicts int // entries left in place because the per-user dest already exists
 }
 
 // MigrateToUserSubpath relocates loose entries at a UserSubpath mount's root
@@ -296,25 +298,72 @@ func (b *Browser) MigrateToUserSubpath(mountName string, knownUsers map[string]b
 	}
 
 	for _, de := range entries {
-		name := de.Name()
-		// An existing user's subdir is already scoped → leave it (idempotency).
-		if de.IsDir() && knownUsers[name] {
-			res.Skipped++
-			continue
-		}
-
-		user, fallback := resolveOwner(filepath.Join(mountAbs, name), knownUsers, fallbackUser, attribute)
-		if user == "" {
-			// No owner and no fallback — leave in place rather than lose track.
-			continue
-		}
-
-		if err := moveIntoUserSubdir(mountAbs, user, name); err != nil {
+		if err := migrateRootEntry(mountAbs, de, knownUsers, fallbackUser, attribute, &res); err != nil {
 			return res, err
 		}
-		res.Moved = append(res.Moved, MigratedEntry{Name: name, ToUser: user, Fallback: fallback})
 	}
 	return res, nil
+}
+
+// migrateRootEntry decides what to do with one root entry and applies it,
+// tallying the outcome into res. Split out of MigrateToUserSubpath to keep that
+// function's cognitive complexity in check. Returns an error only for a real I/O
+// failure (which aborts the whole migration); every "leave in place" decision is
+// a counted no-op, not an error.
+func migrateRootEntry(mountAbs string, de os.DirEntry, knownUsers map[string]bool, fallbackUser string, attribute func(absPath string) (string, bool), res *MigrationResult) error {
+	name := de.Name()
+	srcAbs := filepath.Join(mountAbs, name)
+
+	// An existing user's subdir is already scoped → leave it (idempotency).
+	if de.IsDir() && knownUsers[name] {
+		res.Skipped++
+		return nil
+	}
+	// A download in progress (anacrolix leaves <file>.part until a piece is
+	// complete) must NEVER be relocated: moving the tree out from under the live
+	// torrent strands its pieces and forces a full re-download.
+	if de.IsDir() && hasPartFiles(srcAbs) {
+		res.Active++
+		return nil
+	}
+
+	user, fallback := resolveOwner(srcAbs, knownUsers, fallbackUser, attribute)
+	if user == "" {
+		return nil // no owner and no fallback — leave in place rather than lose track
+	}
+
+	moved, err := moveIntoUserSubdir(mountAbs, user, name)
+	if err != nil {
+		return err
+	}
+	if !moved {
+		// The per-user destination already exists. Appending " (N)" here is what
+		// spawned the duplicate "name (1)", "name (2)" folders (and orphaned data)
+		// when this raced a live download. Leave the entry at the root instead —
+		// still browsable, never duplicated — and surface it for manual cleanup.
+		res.Conflicts++
+		return nil
+	}
+	res.Moved = append(res.Moved, MigratedEntry{Name: name, ToUser: user, Fallback: fallback})
+	return nil
+}
+
+// hasPartFiles reports whether dir contains an anacrolix ".part" file anywhere in
+// its tree — the signature of a download still in progress. Walk stops at the
+// first hit; walk errors are treated as "no .part" (best-effort, never blocks).
+func hasPartFiles(dir string) bool {
+	found := false
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".part") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // resolveOwner attributes abs to a known user, falling back to fallbackUser
@@ -328,33 +377,28 @@ func resolveOwner(abs string, knownUsers map[string]bool, fallbackUser string, a
 	return user, false
 }
 
-// moveIntoUserSubdir relocates mountAbs/name into mountAbs/user/, creating the
-// subdir and avoiding collisions with any file already there.
-func moveIntoUserSubdir(mountAbs, user, name string) error {
+// moveIntoUserSubdir relocates mountAbs/name into mountAbs/user/. Returns
+// moved=false (without error) when mountAbs/user/name already exists: the caller
+// leaves the source at the root rather than minting a numbered duplicate, which
+// previously orphaned the in-flight download's data. err is reserved for real I/O
+// failures.
+func moveIntoUserSubdir(mountAbs, user, name string) (moved bool, err error) {
 	destDir := filepath.Join(mountAbs, user)
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return err
+		return false, err
 	}
-	return os.Rename(filepath.Join(mountAbs, name), nonCollidingPath(destDir, name))
+	dest := filepath.Join(destDir, name)
+	if _, err := os.Lstat(dest); err == nil {
+		return false, nil // destination taken — don't duplicate
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if err := os.Rename(filepath.Join(mountAbs, name), dest); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-// nonCollidingPath returns dir/name, or dir/name (n).ext if that already exists,
-// so a migration never overwrites a file already in the destination subdir.
-func nonCollidingPath(dir, name string) string {
-	dest := filepath.Join(dir, name)
-	if _, err := os.Stat(dest); os.IsNotExist(err) {
-		return dest
-	}
-	ext := filepath.Ext(name)
-	stem := strings.TrimSuffix(name, ext)
-	for i := 1; i < 10000; i++ {
-		cand := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
-		if _, err := os.Stat(cand); os.IsNotExist(err) {
-			return cand
-		}
-	}
-	return dest
-}
 
 func hasPathTraversal(relPath string) bool {
 	if relPath == "" {
