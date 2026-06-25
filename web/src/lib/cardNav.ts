@@ -29,6 +29,20 @@ export function searchHref(query: string): string {
   return `/?q=${encodeURIComponent(query)}`
 }
 
+// anchorNavProps is for a REAL <a href> card. A plain left-click runs the in-app
+// action (SPA play, no page navigation); a modified click (ctrl/cmd/shift/alt) or
+// a middle-click falls through to the browser's NATIVE new-tab — and because it's
+// a true anchor, right-click → "Open in new tab" and drag-to-tab-bar work too.
+export function anchorNavProps(onActivate: () => void) {
+  return {
+    onClick: (e: MouseEvent) => {
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return
+      e.preventDefault()
+      onActivate()
+    },
+  }
+}
+
 // newTabProps returns { onClick, onAuxClick } to spread on a clickable card.
 // `href` is where a new tab should open; `onActivate` is the existing in-app
 // action for a plain click. Modified/middle clicks never run onActivate.
