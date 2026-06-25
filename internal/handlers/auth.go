@@ -23,6 +23,11 @@ const (
 const (
 	refreshTTLNormal   = 24 * time.Hour      // session-ish — sliding 1 day window
 	refreshTTLRemember = 30 * 24 * time.Hour // "lembrar de mim" — sliding 30 days window (eternal as long as user opens app)
+	// refreshGrace tolerates concurrent refreshes of the same token (multi-tab, or
+	// the burst of retried requests when the backend returns from a deploy): a token
+	// rotated within this window reissues a fresh pair instead of revoking the whole
+	// session family. Real reuse (a replay after the window) still revokes.
+	refreshGrace = 30 * time.Second
 )
 
 type loginReq struct {
@@ -139,9 +144,23 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "refresh token required"})
 			return
 		}
-		user, remember, err := store.ValidateRefreshToken(req.Refresh)
+		// Atomic rotation with a grace window: distinguishes a benign concurrent
+		// refresh (reissue) from a real replay of a long-rotated token (revoke).
+		// Replaces the old validate-then-consume sequence whose loser revoked the
+		// whole family — the root cause of the re-login after every deploy.
+		user, remember, outcome, err := store.RotateRefreshToken(req.Refresh, refreshGrace)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		switch outcome {
+		case auth.RefreshInvalid:
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+			return
+		case auth.RefreshReuse:
+			// A rotated token replayed after the grace → treat as theft: revoke all.
+			_ = store.RevokeAllSessions(user.ID)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
 			return
 		}
 		// A disabled/pending account must not be able to keep renewing access — an
@@ -149,22 +168,6 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		if user.Status != auth.StatusActive && user.Status != "" {
 			_ = store.RevokeAllSessions(user.ID)
 			c.JSON(http.StatusForbidden, gin.H{"error": "conta inativa", "status": string(user.Status)})
-			return
-		}
-		// Rotate atomically: the DELETE is the source of truth, not the earlier
-		// SELECT in ValidateRefreshToken. If we're NOT the one that removed it,
-		// another request already rotated this token (concurrent refresh, or a
-		// replay of a leaked-then-rotated token) — refuse and revoke the whole
-		// session family as a reuse-detection defense. Closes the
-		// validate-then-delete TOCTOU that allowed token cloning.
-		consumed, cerr := store.ConsumeRefreshTokenOnce(req.Refresh)
-		if cerr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": cerr.Error()})
-			return
-		}
-		if !consumed {
-			_ = store.RevokeAllSessions(user.ID)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
 			return
 		}
 
