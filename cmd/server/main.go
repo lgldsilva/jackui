@@ -429,6 +429,12 @@ func resumeSeeding(s *streamer.Streamer, seeds *streamer.SeedsStore) {
 	if len(entries) == 0 {
 		return
 	}
+	// Wait for the file-path resolver (wired later, during downloads init) so a
+	// completed seed activates onto its relocated bulk storage instead of racing
+	// ahead and falling back to the empty cache storage (which shows 0%).
+	for i := 0; i < 100 && !s.HasFilePathResolver(); i++ {
+		time.Sleep(150 * time.Millisecond)
+	}
 	log.Printf("Seeds: resuming %d torrent(s) for seeding", len(entries))
 	sem := make(chan struct{}, 3)
 	var wg sync.WaitGroup
