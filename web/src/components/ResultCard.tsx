@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
-import { newTabProps, playHref, anchorNavProps } from '../lib/cardNav'
+import { playHref, anchorNavProps, swallowClick } from '../lib/cardNav'
 import QualityBadges from './QualityBadges'
 import SeedBadge from './SeedBadge'
 
@@ -210,7 +210,7 @@ function renderCardTitle(
           {/* p-2/-m-2 widens the touch target (~30px) for the finger without
               shifting the compact header layout — the negative margin cancels
               the padding so neighbours stay put. */}
-          <button onClick={(e) => { e.stopPropagation(); toggleFavorite(e) }} disabled={favResolving} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-1.5 flex-shrink-0 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
+          <button onClick={toggleFavorite} disabled={favResolving} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-1.5 flex-shrink-0 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
             {renderFavoriteIcon(favResolving, isFavorited)}
           </button>
           <span title={result.tracker} className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full truncate min-w-0 max-w-[5.5rem]">{result.tracker}</span>
@@ -258,7 +258,7 @@ function renderCardStats(
       <div className="flex items-center gap-1 text-red-400">
         <TrendingDown className="w-3.5 h-3.5" /><span>{result.leechers} leech</span>
         {onRefresh && result.id !== undefined && (
-          <button onClick={(e) => { e.stopPropagation(); void onRefresh(result) }} disabled={!!refreshing} title={refreshedAt ? `Atualizado em ${refreshedAt}` : 'Atualizar seeders/leechers'} className="ml-1 inline-flex items-center text-text-muted hover:text-cyan-400 disabled:opacity-50 transition-colors">
+          <button onClick={(e) => { swallowClick(e); void onRefresh(result) }} disabled={!!refreshing} title={refreshedAt ? `Atualizado em ${refreshedAt}` : 'Atualizar seeders/leechers'} className="ml-1 inline-flex items-center text-text-muted hover:text-cyan-400 disabled:opacity-50 transition-colors">
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         )}
@@ -287,48 +287,46 @@ type RenderCardActionsProps = {
 
 function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
   const { canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
-  // Play is the primary "play" surface (the card itself opens contents). When we
-  // have a real info hash, middle/ctrl-click opens the player deep-link in a new
-  // tab; a plain click runs the existing onPlay. No hash (link-only private
-  // trackers, resolved on demand) → keep the legacy click-only behaviour.
-  const playNav = result.infoHash ? newTabProps(playHref(result.infoHash), () => onPlay?.(result)) : null
+  // Every action button calls swallowClick (preventDefault + stopPropagation) so a
+  // click NEVER falls through to the card's <a> link navigation — clicking
+  // "Cliente"/Magnet/.torrent must NOT also open the player deep-link. New-tab for
+  // play is provided by the card link itself (the card is a real <a href>).
   return (
     <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap">
       {canPlay && (
           <button
-            onClick={(e) => { e.stopPropagation(); if (playNav) playNav.onClick(e); else onPlay?.(result) }}
-            onAuxClick={(e) => { e.stopPropagation(); playNav?.onAuxClick(e) }}
+            onClick={(e) => { swallowClick(e); onPlay?.(result) }}
             title="Reproduzir no browser via stream" className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <Play className="w-3.5 h-3.5 fill-current" />Play
         </button>
       )}
       {hasSource && onExploreContents && (
-        <button onClick={(e) => { e.stopPropagation(); onExploreContents(result) }} title="Ver arquivos dentro do torrent" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); onExploreContents(result) }} title="Ver arquivos dentro do torrent" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
           <FolderOpen className="w-3.5 h-3.5" />
         </button>
       )}
       {hasSource && onAddToPlaylist && (
-        <button onClick={(e) => { e.stopPropagation(); onAddToPlaylist(result) }} title="Adicionar a uma playlist" className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); onAddToPlaylist(result) }} title="Adicionar a uma playlist" className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <ListPlus className="w-3.5 h-3.5" />
         </button>
       )}
       {hasSource && (
         <div className="flex items-center gap-0.5">
-          <button onClick={(e) => { e.stopPropagation(); handleOpenMagnet() }} disabled={resolvingMagnet} title="Abrir com app associado (qBittorrent, etc.)" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-strong">
+          <button onClick={(e) => { swallowClick(e); handleOpenMagnet() }} disabled={resolvingMagnet} title="Abrir com app associado (qBittorrent, etc.)" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-strong">
             {resolvingMagnet ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <Magnet className="w-3.5 h-3.5" />}Magnet
           </button>
-          <button onClick={(e) => { e.stopPropagation(); handleCopyMagnet() }} disabled={resolvingMagnet} title="Copiar link magnet" className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
+          <button onClick={(e) => { swallowClick(e); handleCopyMagnet() }} disabled={resolvingMagnet} title="Copiar link magnet" className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
             {renderMagnetIcon(copied, resolvingMagnet)}
           </button>
         </div>
       )}
       {hasSource && (
-        <button onClick={(e) => { e.stopPropagation(); handleTorrentDownload() }} disabled={resolvingTorrent} title="Baixar arquivo .torrent" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); handleTorrentDownload() }} disabled={resolvingTorrent} title="Baixar arquivo .torrent" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
           {resolvingTorrent ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <FileDown className="w-3.5 h-3.5" />}.torrent
         </button>
       )}
       {canDownload && (
-        <button onClick={(e) => { e.stopPropagation(); onDownload(result) }} title="Enviar para cliente de download (qBittorrent/Deluge)" className="flex items-center gap-1 text-xs btn-primary py-1.5 px-2.5 flex-1 justify-center min-w-[80px]">
+        <button onClick={(e) => { swallowClick(e); onDownload(result) }} title="Enviar para cliente de download (qBittorrent/Deluge)" className="flex items-center gap-1 text-xs btn-primary py-1.5 px-2.5 flex-1 justify-center min-w-[80px]">
           <ExternalLink className="w-3.5 h-3.5" />Cliente
         </button>
       )}
@@ -348,7 +346,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   const isFavorited = favOpt ?? (result.isFavorited ?? false)
 
   const toggleFavorite = (e: React.MouseEvent) => {
-    e.stopPropagation()
+    swallowClick(e)
     if (favResolving) return
     void handleToggleFavorite(result, isFavorited, setFavOpt, setFavResolving)
   }

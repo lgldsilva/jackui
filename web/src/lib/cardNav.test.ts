@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { playHref, searchHref, newTabProps, openInNewTab, anchorNavProps } from './cardNav'
+import { playHref, searchHref, newTabProps, openInNewTab, anchorNavProps, swallowClick } from './cardNav'
 
 describe('playHref', () => {
   it('builds a bare deep-link from a hash', () => {
@@ -95,6 +95,15 @@ describe('anchorNavProps (real <a href> card)', () => {
     anchorNavProps(onActivate).onClick(e)
     expect(e.preventDefault).not.toHaveBeenCalled()
     expect(onActivate).not.toHaveBeenCalled()
+  })
+})
+
+describe('swallowClick', () => {
+  it('prevents default (the card link nav) AND stops propagation', () => {
+    const e = { preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as React.MouseEvent
+    swallowClick(e)
+    expect(e.preventDefault).toHaveBeenCalledOnce()
+    expect(e.stopPropagation).toHaveBeenCalledOnce()
   })
 })
 
