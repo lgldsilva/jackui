@@ -179,6 +179,54 @@ func TestFinalizeBulkCompletion_SingleFile(t *testing.T) {
 	}
 }
 
+// The destination frozen at metadata-resolve wins over the recomputed one, so a
+// later category/auto-promote change can't make the finalize look in the wrong dir.
+func TestFinalizeBulk_PrefersFrozenCompletionDest(t *testing.T) {
+	dl := t.TempDir()
+	w, store := newBulkWorker(t, dl, "", false)
+	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv", Category: "Movies"})
+	// Freeze a dir that differs from the current completionDest (category drift).
+	frozen := filepath.Join(dl, "frozen", "Movie.mkv")
+	if err := store.SetCompletionDest(1, d.ID, frozen); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(frozen, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(frozen, "Movie.mkv")
+	if err := os.WriteFile(want, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := store.Get(1, d.ID) // re-load so CompletionDest is populated
+	got, ok := w.tryFinalizeBulk(*row, "Movie.mkv", []string{"Movie.mkv"}, false)
+	if !ok || got != want {
+		t.Fatalf("frozen dest not preferred: ok=%v got=%q want=%q", ok, got, want)
+	}
+}
+
+// THE WEDGE FIX: a row created with a category whose storage wrote BEFORE category
+// grouping shipped — the file lives at the category-LESS path, but the current
+// completionDest points at .../<category>/<torrent> (empty). The category-less
+// probe must still finalize it instead of wedging in `moving`.
+func TestFinalizeBulk_FallbackCategoryLessForWedgedRow(t *testing.T) {
+	dl := t.TempDir()
+	w, store := newBulkWorker(t, dl, "", false)
+	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv", Category: "Movies"})
+	legacy := filepath.Join(dl, "alice", "Movie.mkv") // no "Movies" segment
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(legacy, "Movie.mkv")
+	if err := os.WriteFile(want, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Current completionDest is /dl/alice/Movies/Movie.mkv (empty) → must fall back.
+	got, ok := w.tryFinalizeBulk(*d, "Movie.mkv", []string{"Movie.mkv"}, false)
+	if !ok || got != want {
+		t.Fatalf("category-less fallback failed: ok=%v got=%q want=%q", ok, got, want)
+	}
+}
+
 // The tricky case: a single file selected from a MULTI-file torrent. The storage
 // preserves the internal tree (no name root), so finalize must look there — not
 // at the flattened basename moveDownloadedFile would have used.
