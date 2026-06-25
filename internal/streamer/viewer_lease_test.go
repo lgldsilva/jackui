@@ -54,8 +54,8 @@ func TestReleaseViewer_KeepsTorrentWhileOtherViewersRemain(t *testing.T) {
 	s.AcquireViewer(h)
 	s.AcquireViewer(h) // viewers = 2 (two browsers watching the same stream)
 
-	if scheduled := s.ReleaseViewer(h); scheduled {
-		t.Fatal("releasing one of two viewers must NOT schedule a drop")
+	if scheduled, last := s.ReleaseViewer(h); scheduled || last {
+		t.Fatal("releasing one of two viewers must NOT schedule a drop nor report last-viewer")
 	}
 	if e.viewers != 1 {
 		t.Fatalf("viewers = %d, want 1", e.viewers)
@@ -70,8 +70,74 @@ func TestReleaseViewer_KeepsTorrentWhileOtherViewersRemain(t *testing.T) {
 
 func TestReleaseViewer_UnknownHashNoop(t *testing.T) {
 	s := leaseTestStreamer()
-	if s.ReleaseViewer(metainfo.Hash{0x09}) {
-		t.Fatal("releasing an unknown hash should report not-scheduled")
+	if scheduled, last := s.ReleaseViewer(metainfo.Hash{0x09}); scheduled || last {
+		t.Fatal("releasing an unknown hash should report not-scheduled and not-last")
+	}
+}
+
+// TestReleaseViewer_LastViewerKeptTorrentStillReportsLast: a protected background
+// download keeps the torrent alive, but the last viewer leaving must still report
+// lastViewer=true so the caller tears down the HLS transcode (it only fed the
+// player). Regression guard for the idle-CPU fix.
+func TestReleaseViewer_LastViewerKeptTorrentStillReportsLast(t *testing.T) {
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	tor, _, err := s.client.AddTorrentSpec(str3TorrentSpec(t))
+	if err != nil {
+		t.Fatalf("AddTorrentSpec: %v", err)
+	}
+	h := tor.InfoHash()
+	e := &entry{t: tor, viewers: 1}
+	s.mu.Lock()
+	s.active[h] = e
+	s.downloads[tor.Name()] = struct{}{} // protected background download
+	s.mu.Unlock()
+
+	scheduled, last := s.ReleaseViewer(h)
+	if scheduled {
+		t.Error("protected download must NOT schedule a drop")
+	}
+	if !last {
+		t.Error("last viewer leaving must report lastViewer=true so HLS closes")
+	}
+	if _, ok := s.active[h]; !ok {
+		t.Error("protected torrent must stay active for the download")
+	}
+}
+
+// TestReleaseViewer_LastViewerStreamOnlySchedulesDrop: the last viewer of a plain
+// stream-only torrent both schedules the drop and reports lastViewer=true.
+func TestReleaseViewer_LastViewerStreamOnlySchedulesDrop(t *testing.T) {
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	tor, _, err := s.client.AddTorrentSpec(str3TorrentSpec(t))
+	if err != nil {
+		t.Fatalf("AddTorrentSpec: %v", err)
+	}
+	h := tor.InfoHash()
+	e := &entry{t: tor, viewers: 1}
+	s.mu.Lock()
+	s.active[h] = e
+	s.mu.Unlock()
+
+	scheduled, last := s.ReleaseViewer(h)
+	// Stop the scheduled drop so it can't fire mid-test.
+	s.mu.Lock()
+	if e.dropTimer != nil {
+		e.dropTimer.Stop()
+	}
+	s.mu.Unlock()
+	if !scheduled {
+		t.Error("last viewer of a stream-only torrent must schedule a drop")
+	}
+	if !last {
+		t.Error("must report lastViewer=true")
 	}
 }
 
