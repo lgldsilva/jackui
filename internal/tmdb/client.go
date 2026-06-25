@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
+	"github.com/lgldsilva/jackui/internal/httpretry"
 	_ "modernc.org/sqlite"
 )
 
@@ -258,7 +259,7 @@ func (c *Client) fetchImdbID(ctx context.Context, kind string, tmdbID int) strin
 	}
 	u := fmt.Sprintf("%s/%s/%d/external_ids?api_key=%s", apiBase, kind, tmdbID, url.QueryEscape(c.apiKey))
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(ctx, c.http, req, httpretry.Policy{})
 	if err != nil {
 		return ""
 	}
@@ -284,7 +285,7 @@ func (c *Client) fetchImdbRating(ctx context.Context, imdbID string) float64 {
 	}
 	u := fmt.Sprintf("https://www.omdbapi.com/?i=%s&apikey=%s", url.QueryEscape(imdbID), url.QueryEscape(c.omdbKey))
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(ctx, c.http, req, httpretry.Policy{})
 	if err != nil {
 		return 0
 	}
@@ -358,7 +359,7 @@ func (c *Client) fetchTrendingPage(ctx context.Context, page int) ([]Match, erro
 	q.Set("language", "pt-BR")
 	q.Set("page", strconv.Itoa(page))
 	req, _ := http.NewRequestWithContext(ctx, "GET", apiBase+"/trending/all/week?"+q.Encode(), nil)
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(ctx, c.http, req, httpretry.Policy{})
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +429,7 @@ func (c *Client) doSearchMulti(ctx context.Context, title string, year int) (*mu
 		q.Set("year", strconv.Itoa(year))
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", apiBase+"/search/multi?"+q.Encode(), nil)
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(ctx, c.http, req, httpretry.Policy{})
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +501,7 @@ func (c *Client) FetchEpisodeName(ctx context.Context, seriesID int, season, epi
 	}
 	u := fmt.Sprintf("%s/tv/%d/season/%d/episode/%d?api_key=%s&language=pt-BR", apiBase, seriesID, season, episode, url.QueryEscape(c.apiKey))
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
-	resp, err := c.http.Do(req)
+	resp, err := httpretry.Do(ctx, c.http, req, httpretry.Policy{})
 	if err != nil {
 		return ""
 	}
