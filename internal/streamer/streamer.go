@@ -1538,34 +1538,41 @@ func (s *Streamer) AcquireViewer(hash metainfo.Hash) {
 // ReleaseViewer drops a player session's lease. When the LAST viewer leaves a
 // stream-only (non-download) torrent, it schedules a drop after viewerGrace
 // instead of dropping eagerly — so other viewers keep streaming and a quick
-// reopen cancels the teardown. Returns true when a drop was scheduled, so the
-// caller can tear down the HLS session for the same hash.
-func (s *Streamer) ReleaseViewer(hash metainfo.Hash) (scheduled bool) {
+// reopen cancels the teardown.
+//
+// Returns (scheduled, lastViewer). scheduled is true when a drop was scheduled.
+// lastViewer is true whenever THIS call removed the final viewer — even when the
+// torrent is kept alive (background download or seed-tracker): the HLS transcode
+// exists only to feed the player, so the caller must stop it once nobody is
+// watching, while the torrent keeps seeding/downloading on its own.
+func (s *Streamer) ReleaseViewer(hash metainfo.Hash) (scheduled, lastViewer bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
 	if !ok {
-		return false
+		return false, false
 	}
 	if e.viewers > 0 {
 		e.viewers--
 	}
 	if e.viewers > 0 {
-		return false // another viewer still watching
+		return false, false // another viewer still watching
 	}
+	// No viewers left — the caller stops the HLS transcode regardless of what
+	// keeps the torrent alive below.
 	// Deliberate background downloads stay alive regardless of viewers.
 	if _, protected := s.downloads[e.t.Name()]; protected {
-		return false
+		return false, true
 	}
 	// Seed-tracker torrents keep uploading after the viewer leaves — never drop.
 	if s.shouldKeepSeeding(e.t) {
-		return false
+		return false, true
 	}
 	if e.dropTimer != nil {
 		e.dropTimer.Stop()
 	}
 	e.dropTimer = time.AfterFunc(viewerGrace, func() { s.dropIfStillIdle(hash, e) })
-	return true
+	return true, true
 }
 
 // dropIfStillIdle runs when a viewer-lease grace timer fires. It drops the

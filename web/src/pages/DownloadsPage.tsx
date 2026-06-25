@@ -319,7 +319,9 @@ export default function DownloadsPage() {
     load(); loadTorrents(); loadLimits(); loadFilterOptions()
     localMounts().then(setMounts).catch(() => {})
     getDownloadsQueueSettings().then(s => setMaxActive(s.maxActive)).catch(() => {})
-    const t = setInterval(() => { load(); loadTorrents() }, 2000)
+    // Pula o poll com a aba oculta — cada ciclo refaz streamActive→buildInfo de
+    // todos os torrents ativos (caro num pacote multi-arquivo). Retoma ao focar.
+    const t = setInterval(() => { if (document.hidden) return; load(); loadTorrents() }, 2000)
     return () => { mountedRef.current = false; clearInterval(t) }
   }, [])
 

@@ -973,6 +973,10 @@ export default function PlayerModal({
   useEffect(() => {
     if (!info?.infoHash) return
     const tick = () => {
+      // Skip while the tab is hidden (áudio em background é o caso comum): cada
+      // streamInfo reconstrói o buildInfo do torrent (dezenas de BytesCompleted
+      // num pacote multi-arquivo). Volta a atualizar sozinho ao focar a aba.
+      if (document.hidden) return
       streamInfo(info.infoHash).then(setInfo).catch(() => {})
     }
     pollRef.current = globalThis.setInterval(tick, 2000)

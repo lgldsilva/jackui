@@ -38,8 +38,14 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
     } catch {
       // transient (e.g. token refresh) — back off to idle and try again
     }
-    if (!stopped.current) {
+    // Pausa enquanto a aba está oculta: a doca de transferências em background
+    // não precisa rodar se ninguém está olhando. O visibilitychange retoma no
+    // foco; bump() também força um poll imediato após qualquer move/promote do
+    // usuário. timer=null sinaliza "pausado" pro resume não duplicar.
+    if (!stopped.current && !document.hidden) {
       timer.current = setTimeout(poll, next)
+    } else {
+      timer.current = null
     }
   }, [])
 
@@ -63,9 +69,13 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
       return () => { stopped.current = true }
     }
     void poll()
+    // Retoma o poll ao voltar pra aba (quando estava pausado: timer.current null).
+    const onVisible = () => { if (!document.hidden && !timer.current && !stopped.current) void poll() }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       stopped.current = true
-      if (timer.current) clearTimeout(timer.current)
+      if (timer.current) { clearTimeout(timer.current); timer.current = null }
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [user, poll])
 

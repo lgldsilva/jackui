@@ -377,7 +377,11 @@ func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if s.ReleaseViewer(h) && hlsMgr != nil {
+		// Close the HLS transcode whenever the LAST viewer leaves — even if the
+		// torrent stays alive to seed (seed-tracker) or finish a background
+		// download. The transcode only feeds the player; leaving it running burned
+		// CPU + a GPU-decode slot for nobody until the idle reaper (5min).
+		if _, lastViewer := s.ReleaseViewer(h); lastViewer && hlsMgr != nil {
 			hlsMgr.CloseForHash(h.HexString())
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "released"})
