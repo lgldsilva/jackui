@@ -738,7 +738,7 @@ func TestClearAll_WithDotPrefix(t *testing.T) {
 
 func TestResolveSource_Invalid(t *testing.T) {
 	s := NewForTesting()
-	_, err := s.resolveSource(nil, "ftp://bad")
+	_, err := s.resolveSource(nil, "ftp://bad", nil)
 	if err == nil {
 		t.Error("expected error for unsupported source")
 	}

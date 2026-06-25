@@ -382,18 +382,27 @@ func Test_hgA_promoteCopyDelete_BadSrc(t *testing.T) {
 	}
 }
 
-func Test_hgA_stopSeedingIfNeeded_KeepSeeding(t *testing.T) {
+func Test_hgA_applySeedingAfterPromote_KeepSeeding(t *testing.T) {
 	s := streamer.NewForTesting()
 	o := &promoteOpts{s: s, keepSeeding: true}
-	// Must be a no-op (no drop) — just ensure no panic with a valid hash.
-	stopSeedingIfNeeded(o, hgAValidHash)
+	// keepSeeding=true → Drop + re-add (EnsureActive). The empty magnet makes
+	// EnsureActive fail-and-log; the point is it doesn't panic and re-points.
+	d := &downloads.Download{ID: 1, InfoHash: hgAValidHash, Name: "x"}
+	applySeedingAfterPromote(o, d)
 }
 
-func Test_hgA_stopSeedingIfNeeded_InvalidHash(t *testing.T) {
+func Test_hgA_applySeedingAfterPromote_InvalidHash(t *testing.T) {
 	s := streamer.NewForTesting()
 	o := &promoteOpts{s: s, keepSeeding: false}
-	// Invalid hash → FromHexString fails → no Drop, no panic.
-	stopSeedingIfNeeded(o, "nothex")
+	// Invalid hash → FromHexString fails → returns early, no Drop, no panic.
+	applySeedingAfterPromote(o, &downloads.Download{InfoHash: "nothex"})
+}
+
+func Test_hgA_applySeedingAfterPromote_EmptyHash(t *testing.T) {
+	s := streamer.NewForTesting()
+	o := &promoteOpts{s: s, keepSeeding: true}
+	// Empty hash → returns immediately (nothing to drop/re-add).
+	applySeedingAfterPromote(o, &downloads.Download{InfoHash: ""})
 }
 
 // ----------------------------------------------------------------------------
@@ -429,7 +438,9 @@ func Test_hgA_promoteOne_Success(t *testing.T) {
 	shared := t.TempDir()
 	d := hgACompletedDownload(t, store, srcDir, "movie.mkv")
 
-	updated, err := promoteOne(&promoteOpts{store: store, s: s, sharedDir: shared, userID: 0, id: d.ID, keepSeeding: true})
+	// keepSeeding:false → promote + stop (Drop is a no-op here; nothing active).
+	// The keepSeeding re-add path is covered by Test_hgA_applySeedingAfterPromote_*.
+	updated, err := promoteOne(&promoteOpts{store: store, s: s, sharedDir: shared, userID: 0, id: d.ID, keepSeeding: false})
 	if err != nil {
 		t.Fatalf("promoteOne: %v", err)
 	}
