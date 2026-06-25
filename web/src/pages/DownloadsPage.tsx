@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
@@ -26,6 +27,7 @@ import {
   streamAdd, streamAddTorrentFile, WHOLE_TORRENT_FILE_INDEX
 } from '../api/client'
 import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
+import { localBrowseHref } from '../lib/localBrowse'
 import { newPendingDeletes, markDeleted, clearDeleted, reconcile } from '../lib/downloadsReconcile'
 import PromoteModal from '../components/PromoteModal'
 import { SelectAllButton } from '../components/SelectAllButton'
@@ -69,6 +71,7 @@ export default function DownloadsPage() {
   // (arquivo em mount como /mnt/downloads) ou pelo torrent (em /data/streams).
   // Carregado uma vez; mounts não mudam durante uma sessão.
   const [mounts, setMounts] = useState<LocalMount[]>([])
+  const navigate = useNavigate()
   const { playSingle } = usePlayer()
   const [loading, setLoading] = useState(true)
   const [busyID, setBusyID] = useState<number | null>(null)
@@ -407,6 +410,16 @@ export default function DownloadsPage() {
       link: '', infoHash: t.infoHash, publishDate: '',
     }
     playSingle(synthetic)
+  }
+
+  // Returns a handler that opens this download in the local-files browser (at the
+  // folder its file lives in), or undefined when the file isn't under a browsable
+  // mount (e.g. a cache-only completion) — so the "Abrir no local" button never
+  // shows a dead action. Maps file_path → mount + relpath, stripping the per-user
+  // subdir like the player does.
+  const openLocalFor = (d: DownloadEntry): (() => void) | undefined => {
+    const href = localBrowseHref(d.filePath, mounts, user?.username, d.fileIndex === WHOLE_TORRENT_FILE_INDEX)
+    return href ? () => navigate(href) : undefined
   }
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -1113,6 +1126,7 @@ export default function DownloadsPage() {
                   onDelete={onDelete}
                   onPlay={onPlay}
                   onInspect={(d: DownloadEntry) => setInspectId(String(d.id))}
+                openLocalFor={openLocalFor}
                 />
               )}
               {/* Background downloads for this tab */}
@@ -1145,6 +1159,7 @@ export default function DownloadsPage() {
                 onSetPriority={onSetPriority}
                 onPlay={onPlay}
                 onInspect={(d: DownloadEntry) => setInspectId(String(d.id))}
+                openLocalFor={openLocalFor}
                 loading={loading}
               />
             </>
@@ -1347,7 +1362,7 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 
 function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete, onTorrentPlay,
-  onPause, onResume, onDelete, onPlay, onInspect,
+  onPause, onResume, onDelete, onPlay, onInspect, openLocalFor,
 }: {
   readonly torrents: TorrentInfo[]
   readonly downloads: DownloadEntry[]
@@ -1365,6 +1380,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   readonly onDelete: (id: number) => void
   readonly onPlay: (d: DownloadEntry) => void
   readonly onInspect: (d: DownloadEntry) => void
+  readonly openLocalFor: (d: DownloadEntry) => (() => void) | undefined
 }) {
   const empty = torrents.length === 0 && downloads.length === 0 && torrentsLoaded && !loading
   const isLoading = (!torrentsLoaded || (loading && downloads.length === 0)) && torrents.length === 0 && downloads.length === 0
@@ -1412,6 +1428,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
           onDelete={() => onDelete(d.id)}
           onPlay={() => onPlay(d)}
           onInspect={() => onInspect(d)}
+          onOpenLocal={openLocalFor(d)}
         />
       ))}
     </div>
@@ -1572,7 +1589,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete, onTorrentPlay,
   onPause, onResume, onDelete, onPromote, onStopSeed, onSetPriority,
   onPromoteMany, onDeleteMany, onStopSeedMany,
-  selected, onToggleSelected, onPlay, onInspect, loading,
+  selected, onToggleSelected, onPlay, onInspect, openLocalFor, loading,
 }: {
   readonly torrents: TorrentInfo[]
   readonly downloads: DownloadEntry[]
@@ -1598,6 +1615,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
   readonly onToggleSelected: (id: number) => void
   readonly onPlay: (d: DownloadEntry) => void
   readonly onInspect: (d: DownloadEntry) => void
+  readonly openLocalFor: (d: DownloadEntry) => (() => void) | undefined
   readonly loading?: boolean
 }) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -1633,6 +1651,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       onPlay={() => onPlay(d)}
       onInspect={() => onInspect(d)}
       onSetPriority={(p) => onSetPriority(d.id, p)}
+      onOpenLocal={openLocalFor(d)}
     />
   )
 
@@ -2063,6 +2082,8 @@ type DownloadCardProps = {
   readonly onPlay?: () => void
   readonly onInspect?: () => void
   readonly onSetPriority?: (priority: DownloadPriority) => void
+  /** Opens the file in the local browser; undefined when it isn't under a mount. */
+  readonly onOpenLocal?: () => void
 }
 
 // PriorityBadge shows the queue priority on a download card. Hidden for the
@@ -2079,7 +2100,7 @@ function PriorityBadge({ priority }: { readonly priority?: DownloadPriority }) {
   )
 }
 
-function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority }: DownloadCardProps) {
+function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority, onOpenLocal }: DownloadCardProps) {
   const { isGuest } = useAuth()
   const { t } = useTranslation()
   // Item de torrent INTEIRO (sentinel): UM card com progresso agregado.
@@ -2281,6 +2302,16 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             variant="neutral"
             icon={<Pause className="w-3.5 h-3.5" />}
             label="Parar de seedar"
+          />
+        )}
+        {isCompleted && onOpenLocal && (
+          <ActionButton
+            onClick={onOpenLocal}
+            disabled={busy}
+            variant="info"
+            icon={<Folder className="w-3.5 h-3.5" />}
+            label="Abrir no local"
+            title="Abre o navegador de arquivos na pasta deste download"
           />
         )}
         {onInspect && (
