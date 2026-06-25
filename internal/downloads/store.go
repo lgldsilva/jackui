@@ -107,6 +107,8 @@ type Download struct {
 	BytesDownloaded int64      `json:"bytesDownloaded"`
 	Progress        float64    `json:"progress"`
 	DownRate        int64      `json:"downRate,omitempty"` // bytes/sec, populated by handler
+	UpRate          int64      `json:"upRate,omitempty"`   // bytes/sec, populated by handler (seeding)
+	Seeders         int        `json:"seeders,omitempty"`  // live swarm seeders, populated by handler
 	ETA             int        `json:"eta,omitempty"`      // remaining seconds, populated by handler
 	StartedAt       *time.Time `json:"startedAt"`
 	CompletedAt     *time.Time `json:"completedAt"`
