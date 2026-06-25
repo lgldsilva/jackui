@@ -1337,6 +1337,7 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/downloads/trackers", handlers.DownloadsTrackers(deps.downloadsStore))
 	api.GET("/downloads/categories", handlers.DownloadsCategories(deps.downloadsStore))
 	api.POST("/downloads", handlers.DownloadsCreate(deps.downloadsStore, deps.destinations))
+	api.POST("/downloads/batch", handlers.DownloadsBatchCreate(deps.downloadsStore, deps.destinations))
 	api.GET("/downloads/destinations", handlers.DownloadsDestinations(deps.destinations))
 	api.GET("/downloads/dest/browse", handlers.DownloadsDestinationBrowse(deps.destinations))
 	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore, downloadRemoverDep(deps)))

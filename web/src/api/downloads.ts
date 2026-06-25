@@ -1,5 +1,5 @@
 import { api } from './http'
-import type { TorrentInfo, PromotePreviewEntry } from './client'
+import type { TorrentInfo, PromotePreviewEntry, StreamFile } from './client'
 
 // ─── Background downloads ──────────────────────────────────────────────────
 // Full-file (not streaming) download queue. Backed by anacrolix file.Download
@@ -140,6 +140,46 @@ export const downloadsList = async (): Promise<DownloadEntry[]> => {
 
 export const downloadCreate = async (params: DownloadCreateParams): Promise<DownloadEntry> => {
   const { data } = await api.post<DownloadEntry>('/downloads', params)
+  return data
+}
+
+// Um arquivo do torrent dentro de um enqueue batch. Só os campos por-arquivo;
+// infoHash/magnet/name/tracker/category/destino são compartilhados no corpo.
+export type BatchFile = {
+  fileIndex: number
+  filePath: string
+  fileSize: number
+}
+
+export type DownloadBatchCreateParams = {
+  infoHash: string
+  magnet: string
+  name: string
+  tracker?: string
+  category?: string
+  destBase?: string
+  destSubdir?: string
+  files: BatchFile[]
+}
+
+export type DownloadBatchCreateResult = {
+  created: DownloadEntry[]
+  requeued: number
+}
+
+// buildBatchFiles mapeia os arquivos escolhidos (StreamFile do preview) para o
+// formato por-arquivo do corpo do batch. Função PURA — testável sem rede.
+export function buildBatchFiles(picks: readonly StreamFile[]): BatchFile[] {
+  return picks.map(f => ({ fileIndex: f.index, filePath: f.path, fileSize: f.size }))
+}
+
+// downloadBatchCreate enfileira N arquivos de UM torrent numa ÚNICA request
+// (substitui o Promise.allSettled de 1 POST por arquivo). O backend resolve o
+// destino uma vez e insere tudo numa transação (tudo-ou-nada, idempotente).
+export const downloadBatchCreate = async (
+  params: DownloadBatchCreateParams,
+): Promise<DownloadBatchCreateResult> => {
+  const { data } = await api.post<DownloadBatchCreateResult>('/downloads/batch', params)
   return data
 }
 
