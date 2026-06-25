@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { playHref, searchHref, newTabProps, openInNewTab } from './cardNav'
+import { playHref, searchHref, newTabProps, openInNewTab, anchorNavProps } from './cardNav'
 
 describe('playHref', () => {
   it('builds a bare deep-link from a hash', () => {
@@ -62,6 +62,39 @@ describe('newTabProps', () => {
   it('non-middle aux click does nothing', () => {
     newTabProps('/?play=x', vi.fn()).onAuxClick(ev({ button: 2 }))
     expect(globalThis.open).not.toHaveBeenCalled()
+  })
+})
+
+describe('anchorNavProps (real <a href> card)', () => {
+  const ev = (over: Partial<MouseEvent> = {}) => ({
+    ctrlKey: false, metaKey: false, shiftKey: false, altKey: false, button: 0,
+    preventDefault: vi.fn(), ...over,
+  }) as unknown as React.MouseEvent
+
+  it('plain left-click prevents navigation and runs the in-app action', () => {
+    const onActivate = vi.fn()
+    const e = ev()
+    anchorNavProps(onActivate).onClick(e)
+    expect(e.preventDefault).toHaveBeenCalledOnce()
+    expect(onActivate).toHaveBeenCalledOnce()
+  })
+
+  it('ctrl/cmd/shift/alt click falls through to the native new-tab (no preventDefault, no action)', () => {
+    for (const mod of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }]) {
+      const onActivate = vi.fn()
+      const e = ev(mod)
+      anchorNavProps(onActivate).onClick(e)
+      expect(e.preventDefault).not.toHaveBeenCalled()
+      expect(onActivate).not.toHaveBeenCalled()
+    }
+  })
+
+  it('middle-click falls through to native new-tab', () => {
+    const onActivate = vi.fn()
+    const e = ev({ button: 1 })
+    anchorNavProps(onActivate).onClick(e)
+    expect(e.preventDefault).not.toHaveBeenCalled()
+    expect(onActivate).not.toHaveBeenCalled()
   })
 })
 

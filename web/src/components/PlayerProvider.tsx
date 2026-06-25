@@ -180,6 +180,13 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // Open the player maximised (not the minimized audio dock) when a caller asks
   // — e.g. the local-files page wants the full music experience straight away.
   const [startExpanded, setStartExpanded] = useState(false)
+  // deepLinkMode: this tab BOOTED at a /?play= deep-link (a new tab opened from a
+  // search card). The whole tab is dedicated to playback → render the player
+  // full-viewport (browser-wide, not the centered modal) with just a Home button.
+  // Cleared on close/Home so any later in-app playback uses the normal modal.
+  const [deepLinkMode, setDeepLinkMode] = useState(() =>
+    new URLSearchParams(globalThis.location.search).has('play'),
+  )
   const lastTimeRef = useRef(0)        // latest playhead (sec), fed by PlayerModal onProgress
   const prevModeRef = useRef(mediaMode) // detects an actual toggle vs. a re-render
   // Ref mirror so callbacks invoked from <PlayerModal onPlaylistAdvance> see the latest state
@@ -247,6 +254,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     // co-watchers (the backend only drops once the LAST viewer leaves).
     setCurrent(null)
     setPlaylist(null)
+    setDeepLinkMode(false) // leaving the player exits full-viewport; later plays are modal
     // Fechar (X) = dispensar: não restaurar no próximo boot. Matar o app NÃO passa
     // por aqui (a playlist persiste no snapshot → é restaurada ao reabrir).
     clearPlaylistSnapshot()
@@ -588,6 +596,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           onPrefetchNextNextPlaylist={prefetchNextNext}
           startMinimized={currentKind === 'audio' && !startExpanded}
           audioMode={currentKind === 'audio'}
+          fullViewport={deepLinkMode && currentKind !== 'audio'}
+          onHome={close}
           onProgress={(s) => { lastTimeRef.current = s }}
         />
       )}

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
-import { newTabProps, playHref } from '../lib/cardNav'
+import { newTabProps, playHref, anchorNavProps } from '../lib/cardNav'
 import QualityBadges from './QualityBadges'
 import SeedBadge from './SeedBadge'
 
@@ -70,7 +70,9 @@ async function resolveMagnetIfNeeded(
 
 function useTmdbMatch(title: string) {
   const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
-  const cardRef = useRef<HTMLButtonElement>(null)
+  // HTMLElement (not HTMLButtonElement): the card renders as <a> when playable
+  // (so it's a real new-tab-able link) or <button> otherwise.
+  const cardRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!cardRef.current) return
@@ -378,9 +380,13 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
   // para syntheticResult / deep links que constroem SearchResult sem o campo.
   const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
 
-  // Card-wide click → opens contents. Action buttons stopPropagation to not double-trigger.
-  const cardClickable = hasSource && onExploreContents !== undefined
-  const handleCardClick = cardClickable ? () => onExploreContents(result) : undefined
+  // Playable cards become a REAL link to the player deep-link, so the browser's
+  // native new-tab works (ctrl/cmd/middle-click, right-click → "open in new tab").
+  // A plain click plays in the current tab. Non-playable cards keep the old
+  // button-click → explore-contents behaviour.
+  const playLinkHref = canPlay && result.infoHash ? playHref(result.infoHash) : null
+  const cardClickable = playLinkHref !== null || (hasSource && onExploreContents !== undefined)
+  const handleCardClick = !playLinkHref && hasSource && onExploreContents ? () => onExploreContents(result) : undefined
 
   let titleAttr: string
   if (tmdb) {
@@ -390,31 +396,54 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
     titleAttr = result.title
   }
 
-  return (
-    <button
-      ref={cardRef}
-      onClick={handleCardClick}
-      onKeyDown={cardClickable ? (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          handleCardClick?.()
-        }
-      } : undefined}
-      className={`card flex flex-col gap-3 text-left ${
-        cardClickable
-          ? 'cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
-          : 'cursor-default'
-      }`}
-      style={cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined}
-      title={cardClickable ? 'Toque pra ver arquivos no torrent' : undefined}
-      type="button"
-      disabled={!cardClickable}
-    >
+  const cardClass = `card flex flex-col gap-3 text-left ${
+    cardClickable
+      ? 'cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
+      : 'cursor-default'
+  }`
+  const cardTapStyle = cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined
+  const cardInner = (
+    <>
       {renderCardTitle(tmdb, result, isFavorited, cardClickable, titleAttr, toggleFavorite, favResolving)}
       <QualityBadges quality={result.quality} />
       {renderCategoryBadges(result)}
       {renderCardStats(result, onRefresh, refreshing, refreshedAt)}
       {renderCardActions({ canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied })}
+    </>
+  )
+
+  if (playLinkHref) {
+    return (
+      <a
+        ref={(el) => { cardRef.current = el }}
+        href={playLinkHref}
+        {...anchorNavProps(() => onPlay?.(result))}
+        className={cardClass}
+        style={cardTapStyle}
+        title="Tocar — Ctrl/Cmd ou clique do meio abre em nova aba"
+      >
+        {cardInner}
+      </a>
+    )
+  }
+
+  return (
+    <button
+      ref={(el) => { cardRef.current = el }}
+      onClick={handleCardClick}
+      onKeyDown={handleCardClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleCardClick()
+        }
+      } : undefined}
+      className={cardClass}
+      style={cardTapStyle}
+      title={cardClickable ? 'Toque pra ver arquivos no torrent' : undefined}
+      type="button"
+      disabled={!cardClickable}
+    >
+      {cardInner}
     </button>
   )
 }

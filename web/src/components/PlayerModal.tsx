@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy, Home } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -89,9 +89,30 @@ type PlayerModalProps = {
   readonly onPrefetchNextNextPlaylist?: () => void
   readonly startMinimized?: boolean
   readonly audioMode?: boolean
+  /** Render the player filling the whole browser viewport (not the centered
+   *  modal) — used when the tab booted at a /?play= deep-link. Shows a Home
+   *  button instead of minimize/close. */
+  readonly fullViewport?: boolean
+  /** Navigate back to Home (used by the full-viewport Home button). */
+  readonly onHome?: () => void
   /** Reports the playhead (seconds) on every timeupdate. Lets the provider
    *  preserve position when it re-keys the modal on a Cinema/Música switch. */
   readonly onProgress?: (sec: number) => void
+}
+
+// minimizedOrFullClass returns the outer panel classes for the player shell:
+// minimized (audio bar / video PiP), full-viewport (deep-link tab — fills the
+// whole browser window), or the default centered modal.
+function minimizedOrFullClass(minimized: boolean, audioMode: boolean, fullViewport: boolean): string {
+  if (minimized) {
+    return audioMode
+      ? 'bg-surface-secondary rounded-t-xl border-t border-default shadow-2xl w-full flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)]'
+      : 'bg-surface-secondary rounded-xl border border-default shadow-2xl w-full flex flex-col overflow-hidden'
+  }
+  if (fullViewport) {
+    return 'bg-surface-secondary w-full h-full max-w-none rounded-none border-0 min-h-0 flex flex-col'
+  }
+  return 'bg-surface-secondary rounded-none sm:rounded-2xl border-0 sm:border border-default w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col animate-[player-expand_320ms_cubic-bezier(0.16,1,0.3,1)]'
 }
 
 function renderPlayerHeader(props: {
@@ -109,8 +130,10 @@ function renderPlayerHeader(props: {
   onClose: () => void
   onShowInfo: () => void
   headerRef: React.RefObject<HTMLDivElement>
+  fullViewport?: boolean
+  onHome?: () => void
 }) {
-  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef } = props
+  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef, fullViewport, onHome } = props
   if (minimized) return null
   return (
     <div ref={headerRef} className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-default flex-shrink-0 touch-pan-y">
@@ -124,8 +147,20 @@ function renderPlayerHeader(props: {
         {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-text-secondary hover:text-text-primary transition-colors"><Info className="w-5 h-5" /></button>}
         {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
         <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-500 dark:hover:text-amber-300' : 'text-text-secondary hover:text-text-primary'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-        <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
-        <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
+        {fullViewport
+          ? (
+            // Deep-link tab dedicated to playback: the only navigation affordance
+            // is a single Home button (no minimize/PiP — there's nothing behind).
+            <button onClick={() => (onHome ?? onClose)()} title="Voltar para a Home" className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors">
+              <Home className="w-5 h-5" />
+            </button>
+          )
+          : (
+            <>
+              <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
+              <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
+            </>
+          )}
       </div>
     </div>
   )
@@ -264,6 +299,8 @@ export default function PlayerModal({
   onPrefetchNextNextPlaylist,
   startMinimized = false,
   audioMode = false,
+  fullViewport = false,
+  onHome,
   onProgress,
 }: PlayerModalProps) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
@@ -1489,6 +1526,18 @@ export default function PlayerModal({
       }
       return { className: 'fixed right-3 z-50 w-[360px] max-w-[calc(100vw-1.5rem)]', style: { bottom: 'calc(0.75rem + var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom, 0px))' } }
     }
+    // Full-viewport (deep-link tab): fill the whole browser window — solid black,
+    // no padding, no backdrop-click-to-minimize (the tab is dedicated to playback;
+    // exit is the Home button). Escape goes Home.
+    if (fullViewport) {
+      return {
+        className: 'fixed inset-0 bg-black flex items-stretch justify-center z-50',
+        onKeyDown: (e) => { if (e.key === 'Escape') (onHome ?? onClose)() },
+        role: 'dialog',
+        'aria-modal': 'true',
+        tabIndex: -1,
+      }
+    }
     return {
       className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4',
       onClick: (e) => { if (e.target === e.currentTarget) setMinimized(true) },
@@ -1757,11 +1806,7 @@ export default function PlayerModal({
           Mobile-fullscreen: `h-[100dvh]` on phones makes the modal occupy the full
           dynamic viewport (handles iOS URL-bar collapse). Border/rounding stripped
           on phones so the modal becomes edge-to-edge. Returns to bounded card on sm+. */}
-      <div className={minimized
-        ? (audioMode
-            ? 'bg-surface-secondary rounded-t-xl border-t border-default shadow-2xl w-full flex flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)]'
-            : 'bg-surface-secondary rounded-xl border border-default shadow-2xl w-full flex flex-col overflow-hidden')
-        : 'bg-surface-secondary rounded-none sm:rounded-2xl border-0 sm:border border-default w-full max-w-4xl lg:max-w-6xl 2xl:max-w-[min(90vw,1600px)] shadow-2xl sm:h-auto sm:max-h-[90vh] min-h-0 flex flex-col animate-[player-expand_320ms_cubic-bezier(0.16,1,0.3,1)]'}>
+      <div className={minimizedOrFullClass(minimized, audioMode, fullViewport)}>
         {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
             minimized, which previously left the little card with NO way back to the
             full player. This bar restores the expand + close affordances. */}
@@ -1780,7 +1825,7 @@ export default function PlayerModal({
             </div>
           </div>
         )}
-        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo: () => setShowInfo(true), headerRef })}
+        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo: () => setShowInfo(true), headerRef, fullViewport, onHome })}
         {!minimized && showInfo && info && renderTorrentInfoModal({
           info, result, isTranscoded, encoderLabel,
           onClose: () => setShowInfo(false),
