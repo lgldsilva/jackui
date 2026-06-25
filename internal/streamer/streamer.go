@@ -186,6 +186,13 @@ func (s *Streamer) SetFilePathResolver(r FilePathResolver) {
 	s.filePathResolver = r
 }
 
+// HasFilePathResolver reports whether the file-path resolver has been wired yet.
+// Boot-time seed resumption waits on this so relocatedStorage (which needs the
+// resolver to locate moved files) doesn't lose a race against the resolver being
+// set — otherwise a resumed seed would fall back to the empty cache storage and
+// show 0%.
+func (s *Streamer) HasFilePathResolver() bool { return s.filePathResolver != nil }
+
 // SetFavorites attaches the favorites store. Must be called before any GC tick.
 func (s *Streamer) SetFavorites(f *FavoritesStore) { s.favs = f }
 
