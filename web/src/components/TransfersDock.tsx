@@ -21,7 +21,7 @@ function kindLabel(kind: string): string {
 }
 
 export default function TransfersDock() {
-  const { transfers } = useTransfers()
+  const { transfers, cancel } = useTransfers()
   const [collapsed, setCollapsed] = useState(false)
 
   if (transfers.length === 0) return null
@@ -62,6 +62,7 @@ export default function TransfersDock() {
                 etaSeconds={t.etaSeconds}
                 progress={t.progress}
                 error={t.error}
+                onCancel={() => cancel(t.id)}
               />
             ))}
           </div>

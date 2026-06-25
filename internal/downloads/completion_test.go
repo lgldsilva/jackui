@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,7 +47,7 @@ func TestMoveDownloadedFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "T", "f.mkv.part"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := moveDownloadedFile(src, filepath.Join(dst, "T"), "T/f.mkv", nil)
+	got, err := moveDownloadedFile(context.Background(), src, filepath.Join(dst, "T"), "T/f.mkv", nil)
 	if err != nil {
 		t.Fatalf("move: %v", err)
 	}
@@ -58,7 +59,7 @@ func TestMoveDownloadedFile(t *testing.T) {
 		t.Error("moved file should exist at dst without the .part suffix")
 	}
 	// missing source → error
-	if _, err := moveDownloadedFile(src, dst, "nope/x.mkv", nil); err == nil {
+	if _, err := moveDownloadedFile(context.Background(), src, dst, "nope/x.mkv", nil); err == nil {
 		t.Error("expected error for missing source")
 	}
 }
@@ -74,7 +75,7 @@ func TestMoveDownloadedFile_AlreadyAtDest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(destDir, "f.mkv"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := moveDownloadedFile(cache, destDir, "T/f.mkv", nil)
+	got, err := moveDownloadedFile(context.Background(), cache, destDir, "T/f.mkv", nil)
 	if err != nil {
 		t.Fatalf("already-at-dest should be a no-op success, got error: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestMoveDownloadedFile_AlreadyAtDest(t *testing.T) {
 		t.Errorf("dst = %q, want %q", got, want)
 	}
 	// Sanity: still errors when the file is in neither cache nor destination.
-	if _, err := moveDownloadedFile(cache, destDir, "T/ghost.mkv", nil); err == nil {
+	if _, err := moveDownloadedFile(context.Background(), cache, destDir, "T/ghost.mkv", nil); err == nil {
 		t.Error("expected error when file is in neither cache nor destination")
 	}
 }

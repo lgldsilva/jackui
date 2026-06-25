@@ -8,7 +8,7 @@ import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
 
 export type FileProgressBarProps = {
   readonly label: string
-  readonly status?: 'queued' | 'running' | 'done' | 'failed'
+  readonly status?: 'queued' | 'running' | 'done' | 'failed' | 'canceled'
   readonly filesDone?: number
   readonly filesTotal?: number
   readonly bytesDone?: number
@@ -23,7 +23,7 @@ export type FileProgressBarProps = {
 
 function gradientFor(status: string): string {
   if (status === 'done') return 'from-green-500 to-emerald-400'
-  if (status === 'failed') return 'from-red-500 to-rose-400'
+  if (status === 'failed' || status === 'canceled') return 'from-red-500 to-rose-400'
   if (status === 'queued') return 'from-gray-500 to-gray-400'
   return 'from-amber-500 to-yellow-400'
 }
@@ -54,7 +54,7 @@ export default function FileProgressBar(props: FileProgressBarProps) {
         {filesTotal > 0 && (
           <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">{filesDone}/{filesTotal}</span>
         )}
-        {onCancel && status === 'running' && (
+        {onCancel && (status === 'running' || status === 'queued') && (
           <button onClick={onCancel} title="Cancelar" className="text-text-muted hover:text-red-400 transition-colors flex-shrink-0">
             <X className="w-3.5 h-3.5" />
           </button>

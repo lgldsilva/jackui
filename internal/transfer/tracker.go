@@ -19,10 +19,11 @@ type Status string
 
 const (
 	// StatusQueued: registered but waiting for a concurrency slot (see Submit).
-	StatusQueued  Status = "queued"
-	StatusRunning Status = "running"
-	StatusDone    Status = "done"
-	StatusFailed  Status = "failed"
+	StatusQueued   Status = "queued"
+	StatusRunning  Status = "running"
+	StatusDone     Status = "done"
+	StatusFailed   Status = "failed"
+	StatusCanceled Status = "canceled"
 )
 
 // defaultMaxConcurrent bounds simultaneous transfers; the rest queue (FIFO via
@@ -65,6 +66,9 @@ type Snapshot struct {
 // call AddBytes/FileDone from the copy loop while the API reads Snapshot.
 type Job struct {
 	now func() time.Time // clock seam for tests
+
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	mu         sync.Mutex
 	id         string
@@ -151,10 +155,59 @@ func (j *Job) finish(s Status, msg string) {
 		return
 	}
 	j.mu.Lock()
-	j.status = s
-	j.errMsg = msg
-	j.updatedAt = j.now()
+	// A canceled job stays canceled — a late Done()/Fail() from the producer
+	// (which only notices the cancellation after it returns) must not resurrect it.
+	if j.status != StatusCanceled {
+		j.status = s
+		j.errMsg = msg
+		j.updatedAt = j.now()
+	}
+	cancel := j.cancel
 	j.mu.Unlock()
+	if cancel != nil {
+		cancel() // release the context now that the job is terminal
+	}
+}
+
+// Context returns the job's cancellation context (Background for a nil job). A
+// producer should pass it to its copy loop / retries so Tracker.Cancel aborts
+// the work in flight.
+func (j *Job) Context() context.Context {
+	if j == nil || j.ctx == nil {
+		return context.Background()
+	}
+	return j.ctx
+}
+
+// Canceled reports whether the job was canceled via Tracker.Cancel.
+func (j *Job) Canceled() bool {
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.status == StatusCanceled
+}
+
+// markCanceled flips a non-terminal job to canceled and cancels its context.
+// Returns false if the job was already terminal (nothing to cancel).
+func (j *Job) markCanceled() bool {
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	if j.status == StatusDone || j.status == StatusFailed || j.status == StatusCanceled {
+		j.mu.Unlock()
+		return false
+	}
+	j.status = StatusCanceled
+	j.updatedAt = j.now()
+	cancel := j.cancel
+	j.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return true
 }
 
 func (j *Job) pruneLocked(now time.Time) {
@@ -217,7 +270,7 @@ func (j *Job) finishedBefore(t time.Time) bool {
 	defer j.mu.Unlock()
 	// Only terminal jobs are prunable — a queued job (waiting for a slot) must
 	// never be reaped just because its updatedAt is old.
-	return (j.status == StatusDone || j.status == StatusFailed) && j.updatedAt.Before(t)
+	return (j.status == StatusDone || j.status == StatusFailed || j.status == StatusCanceled) && j.updatedAt.Before(t)
 }
 
 // markRunning flips a queued job to running and (re)stamps startedAt so rate/ETA
@@ -272,10 +325,11 @@ func (t *Tracker) startJob(label, kind string, filesTotal int, bytesTotal int64,
 	t.mu.Lock()
 	t.seq++
 	now := t.now()
+	ctx, cancel := context.WithCancel(context.Background())
 	j := &Job{
 		now: t.now, id: idFor(t.seq, now), label: label, kind: kind,
 		status: status, filesTotal: filesTotal, bytesTotal: bytesTotal,
-		startedAt: now, updatedAt: now,
+		startedAt: now, updatedAt: now, ctx: ctx, cancel: cancel,
 	}
 	t.jobs = append(t.jobs, j)
 	t.pruneLocked(now)
@@ -302,6 +356,29 @@ func (t *Tracker) Submit(label, kind string, filesTotal int, bytesTotal int64, f
 		fn(j)
 	}()
 	return j
+}
+
+// Cancel cancels a tracked job by ID: it cancels the job's context (so the
+// producer's copy loop / retries abort) and marks it canceled. Returns true when
+// a job with that ID exists (even if it was already terminal), false otherwise.
+func (t *Tracker) Cancel(id string) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	var target *Job
+	for _, j := range t.jobs {
+		if j.ID() == id {
+			target = j
+			break
+		}
+	}
+	t.mu.Unlock()
+	if target == nil {
+		return false
+	}
+	target.markCanceled()
+	return true
 }
 
 // List returns snapshots of all active + recently-finished jobs (newest first).
@@ -402,20 +479,33 @@ func itoa(n int64) string {
 // ProgressReader wraps r so each Read reports the byte count via onBytes —
 // drop-in for io.Copy(dst, ProgressReader(src, job.AddBytes)).
 func ProgressReader(r io.Reader, onBytes func(int64)) io.Reader {
-	if onBytes == nil {
+	return ProgressReaderCtx(nil, r, onBytes)
+}
+
+// ProgressReaderCtx is ProgressReader that also aborts the copy when ctx is
+// canceled (returns ctx.Err() from Read), so a Tracker.Cancel stops an
+// in-progress file copy mid-stream. nil ctx → no cancellation (plain progress).
+func ProgressReaderCtx(ctx context.Context, r io.Reader, onBytes func(int64)) io.Reader {
+	if onBytes == nil && ctx == nil {
 		return r
 	}
-	return &progressReader{r: r, onBytes: onBytes}
+	return &progressReader{ctx: ctx, r: r, onBytes: onBytes}
 }
 
 type progressReader struct {
+	ctx     context.Context
 	r       io.Reader
 	onBytes func(int64)
 }
 
 func (pr *progressReader) Read(p []byte) (int, error) {
+	if pr.ctx != nil {
+		if err := pr.ctx.Err(); err != nil {
+			return 0, err
+		}
+	}
 	n, err := pr.r.Read(p)
-	if n > 0 {
+	if n > 0 && pr.onBytes != nil {
 		pr.onBytes(int64(n))
 	}
 	return n, err
