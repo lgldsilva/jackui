@@ -1069,6 +1069,28 @@ func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 	return s.buildInfo(e), nil
 }
 
+// LiveStats returns a torrent's current down/up rate + connected seeders WITHOUT
+// building the full file list. buildInfo (used by Get) iterates t.Files() — a
+// 778-file pack walks every file under the client lock, so enriching the
+// downloads list via Get made GET /api/downloads take many SECONDS (worse under
+// active-download lock contention). The list only needs the per-torrent
+// rate/seeders, so this skips the O(files) loop → O(1) per torrent. ok=false
+// when the torrent isn't active.
+func (s *Streamer) LiveStats(hash metainfo.Hash) (down, up int64, seeders int, ok bool) {
+	now := time.Now()
+	s.mu.Lock()
+	e, exists := s.active[hash]
+	if !exists {
+		s.mu.Unlock()
+		return 0, 0, 0, false
+	}
+	e.lastAccess = now
+	down, up = sampleRateLocked(e, now)
+	t := e.t
+	s.mu.Unlock()
+	return down, up, t.Stats().ConnectedSeeders, true
+}
+
 // Peers returns a snapshot of the currently-connected peers of an active
 // torrent for the downloads inspector. Errors when the torrent isn't active
 // (dropped or never opened). The peer set is read live from anacrolix.
