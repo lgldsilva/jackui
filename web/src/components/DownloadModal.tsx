@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText, AlertCircle, Check } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
-  downloadBatchCreate, buildBatchFiles,
+  downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
   streamAdd, streamMetadata, StreamFile, TorrentInfo,
 } from '../api/client'
 import { Sheet } from './Sheet'
@@ -71,8 +71,23 @@ async function downloadInternal(
   if (!infoHash || !magnet) throw new Error('Sem magnet/infoHash — não dá pra baixar internamente')
 
   if ((files?.length ?? 0) > 0) {
-    const picks = (files ?? []).filter(f => selectedFiles.has(f.index))
+    const all = files ?? []
+    const picks = all.filter(f => selectedFiles.has(f.index))
     if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
+    // Todos os arquivos marcados → UMA linha "torrent inteiro" (fileIndex=-2):
+    // o anacrolix baixa o torrent inteiro via file priorities, não N downloads.
+    // Um pack de 778 arquivos vira 1 linha → acaba a explosão que inflava a
+    // lista e fazia /api/downloads demorar. Subconjunto cai no batch (1 linha
+    // por arquivo escolhido), preservando a granularidade.
+    if (isWholeTorrentSelection(all, selectedFiles)) {
+      await downloadCreate({
+        infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name: result.title,
+        filePath: '', fileSize: all.reduce((s, f) => s + (f.size || 0), 0),
+        tracker: result.tracker || undefined, category: result.category || undefined,
+        destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined,
+      })
+      return null
+    }
     // UMA request batch (antes: 1 POST por arquivo). O backend insere tudo numa
     // transação tudo-ou-nada — não há mais sucesso parcial pra reportar.
     const res = await downloadBatchCreate({

@@ -6,7 +6,8 @@ import {
 } from 'lucide-react'
 import {
   streamAdd, streamAddTorrentFile, streamMetadata,
-  downloadCreate, downloadTorrent, getClients,
+  downloadCreate, downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
+  downloadTorrent, getClients,
   SearchResult, StreamFile, DownloadClient
 } from '../api/client'
 import { Sheet } from './Sheet'
@@ -98,8 +99,15 @@ async function confirmDownloads(
     if (!infoHash || !magnet) continue
     if (selectedClientId === INTERNAL_ID) {
       if ((item.files?.length ?? 0) > 0) {
-        const picks = (item.files ?? []).filter(f => item.selectedFiles.has(f.index))
-        await Promise.all(picks.map(f => downloadCreate({ infoHash, fileIndex: f.index, magnet, name: item.name, filePath: f.path, fileSize: f.size })))
+        const all = item.files ?? []
+        const picks = all.filter(f => item.selectedFiles.has(f.index))
+        if (isWholeTorrentSelection(all, item.selectedFiles)) {
+          // Todos marcados → 1 linha "torrent inteiro" (-2), não N por-arquivo.
+          await downloadCreate({ infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name: item.name, filePath: '', fileSize: all.reduce((s, f) => s + (f.size || 0), 0) })
+        } else {
+          // Subconjunto → batch numa request (substitui o Promise.all de N POSTs).
+          await downloadBatchCreate({ infoHash, magnet, name: item.name, files: buildBatchFiles(picks) })
+        }
       } else {
         await downloadCreate({ infoHash, fileIndex: 0, magnet, name: item.name, filePath: '', fileSize: 0 })
       }

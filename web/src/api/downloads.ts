@@ -175,6 +175,19 @@ export function buildBatchFiles(picks: readonly StreamFile[]): BatchFile[] {
   return picks.map(f => ({ fileIndex: f.index, filePath: f.path, fileSize: f.size }))
 }
 
+// isWholeTorrentSelection: true quando TODOS os arquivos do torrent estão
+// marcados. Nesse caso enfileira-se UMA linha "torrent inteiro" (fileIndex=-2,
+// file priorities do anacrolix) em vez de N linhas por-arquivo — um pack de 778
+// arquivos vira 1 linha (fim da explosão que inflava a lista e o /api/downloads).
+// Subconjunto (o usuário desmarcou algo) continua batch, preservando a
+// granularidade. Função PURA — testável sem rede.
+export function isWholeTorrentSelection(
+  files: readonly StreamFile[],
+  selected: ReadonlySet<number>,
+): boolean {
+  return files.length > 0 && files.every(f => selected.has(f.index))
+}
+
 // downloadBatchCreate enfileira N arquivos de UM torrent numa ÚNICA request
 // (substitui o Promise.allSettled de 1 POST por arquivo). O backend resolve o
 // destino uma vez e insere tudo numa transação (tudo-ou-nada, idempotente).
