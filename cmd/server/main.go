@@ -64,13 +64,25 @@ const (
 // falls back to its default 51469).
 func resolvePeerPort() int {
 	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-		defer cancel()
-		if p, err := gluetun.ForwardedPort(ctx, ctrl); err == nil {
-			log.Printf("peer port: using gluetun forwarded port %d", p)
-			return p
-		} else {
-			log.Printf("peer port: gluetun forwarded port unavailable (%v) — falling back", err)
+		// gluetun's control server — and the VPN's forwarded port — can take tens of
+		// seconds to come up after boot. A single query that loses this race binds
+		// the WRONG port (inbound/seeding then never works) AND, because the watcher
+		// below only starts when ListenPort>0 used to be the gate, could leave us
+		// stuck on the fallback. So retry within a bounded window before giving up.
+		deadline := time.Now().Add(peerPortBootTimeout)
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+			p, err := gluetun.ForwardedPort(ctx, ctrl)
+			cancel()
+			if err == nil && p > 0 {
+				log.Printf("peer port: using gluetun forwarded port %d", p)
+				return p
+			}
+			if time.Now().After(deadline) {
+				log.Printf("peer port: gluetun forwarded port unavailable after retries (%v) — falling back; watcher will rebind once gluetun is ready", err)
+				break
+			}
+			time.Sleep(3 * time.Second)
 		}
 	}
 	if v := os.Getenv("JACKUI_PEER_PORT"); v != "" {
@@ -80,6 +92,11 @@ func resolvePeerPort() int {
 	}
 	return 0
 }
+
+// peerPortBootTimeout bounds how long resolvePeerPort waits for gluetun at boot.
+// Generous enough to cover VPN connect + NAT-PMP acquisition; the watcher is the
+// backstop if it's still not ready.
+const peerPortBootTimeout = 2 * time.Minute
 
 // watchForwardedPort restarts the process when gluetun's forwarded port changes.
 // anacrolix binds the peer port at boot, so re-binding to a new forwarded port
@@ -343,8 +360,16 @@ func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) (streamer.
 	// forwarded port (read from gluetun) so peers can reach us — seeds public
 	// torrents properly and improves leech. 0 → streamer default (51469).
 	sc.ListenPort = resolvePeerPort()
-	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" && sc.ListenPort > 0 {
-		go watchForwardedPort(ctrl, sc.ListenPort, restart)
+	if ctrl := os.Getenv("JACKUI_GLUETUN_CONTROL_URL"); ctrl != "" {
+		// Always watch when behind gluetun — even if the boot resolve fell back. We
+		// pass the EFFECTIVE port (the streamer's default when 0) so the watcher can
+		// spot the real forwarded port once gluetun is ready and trigger a rebind.
+		// Gating on ListenPort>0 used to leave a boot-race stuck on the fallback.
+		effective := sc.ListenPort
+		if effective == 0 {
+			effective = streamer.DefaultPeerPort
+		}
+		go watchForwardedPort(ctrl, effective, restart)
 	}
 	if sc.DataDir == "" {
 		sc.DataDir = "/data/streams"
