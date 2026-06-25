@@ -16,6 +16,7 @@ import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
 import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
 import { load, save } from '../lib/storage'
+import { reorder } from '../lib/reorder'
 import { getTabResults, mergeCachedResults, syncTabsToCache } from '../lib/searchResultsCache'
 import type { SearchPhase } from '../lib/searchResultsCache'
 import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
@@ -602,6 +603,16 @@ export default function SearchPage() {
     })
   }
 
+  // Drag-to-reorder the tab strip. dragIndexRef holds the index of the tab being
+  // dragged; dropping over another tab moves it there. Persisted by the tabs
+  // effect like any other change.
+  const dragIndexRef = useRef<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const moveTab = (from: number, to: number) => {
+    if (from === to) return
+    setTabs(prev => reorder(prev, from, to))
+  }
+
   const activeTab = tabs.find(t => t.id === activeId) ?? tabs[0]
   const isSearching = activeTab.phase === 'cache' || activeTab.phase === 'live'
 
@@ -903,16 +914,21 @@ export default function SearchPage() {
       {/* Tab strip */}
       <div className="bg-surface-secondary/60 border-b border-default px-4">
         <div ref={stripRef} className="max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-end gap-0.5 overflow-x-auto scroll-smooth snap-x safe-left">
-          {tabs.map(tab => (
+          {tabs.map((tab, i) => (
             <button
               key={tab.id}
               ref={tab.id === activeId ? activeTabRef : undefined}
               onClick={() => setActiveId(tab.id)}
-              className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 snap-start ${
+              draggable
+              onDragStart={(e) => { dragIndexRef.current = i; e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverIndex !== i) setDragOverIndex(i) }}
+              onDrop={(e) => { e.preventDefault(); if (dragIndexRef.current !== null) moveTab(dragIndexRef.current, i); dragIndexRef.current = null; setDragOverIndex(null) }}
+              onDragEnd={() => { dragIndexRef.current = null; setDragOverIndex(null) }}
+              className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 snap-start cursor-grab active:cursor-grabbing ${
                 tab.id === activeId
                   ? 'bg-surface border-default text-text-primary'
                   : 'border-transparent text-text-muted hover:text-text-primary hover:bg-surface-secondary'
-              }`}
+              } ${dragOverIndex === i && dragIndexRef.current !== null && dragIndexRef.current !== i ? 'ring-2 ring-green-500/60' : ''}`}
             >
               <PhaseIndicator phase={tab.phase} />
               <span className="truncate flex-1 min-w-0 text-left">
