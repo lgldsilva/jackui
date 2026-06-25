@@ -1,5 +1,14 @@
 import type { MouseEvent } from 'react'
 
+// swallowClick stops a click on an action control (button) inside a card that is
+// itself a <a href> link: preventDefault cancels the card's link navigation
+// (otherwise clicking e.g. the "Cliente" button would ALSO open the player
+// deep-link), and stopPropagation stops the card's own onClick handler.
+export function swallowClick(e: MouseEvent): void {
+  e.preventDefault()
+  e.stopPropagation()
+}
+
 // Helpers for "open a card in a new tab". The app mirrors playback into the URL
 // (`/?play=HASH&f=IDX&t=SEC`, read by PlayerProvider on load) and routes are
 // plain paths, so a fresh tab opened at the right URL reproduces the click.
