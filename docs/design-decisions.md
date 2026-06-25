@@ -197,14 +197,121 @@ and doesn't thrash.
 
 ---
 
+## A torrent is ONE unit, not N downloads
+
+**Decision.** The scheduler and worker reason about a *torrent*, not a file. Rows stay
+per-(user, info_hash, file_index) for the file SELECTION and per-file progress, but are
+folded at runtime into a per-(user, info_hash) **group** that is the unit of work: one
+slot, one `EnsureActive`, one verify, one progress sample, one completion move +
+AI-rename, one stall cycle.
+
+**Why (the receipt).** Driving per row was O(N) in CPU/RAM: a ~389-file pack ran 389
+`EnsureActive`/`VerifyFile`/stall cycles and **OOM'd**; one `MaxActive` slot per file
+starved every other download.
+
+**How.** `internal/downloads/aggregate.go` derives the group (`GroupRows`/`grpKey`);
+the scheduler counts ONE slot per group; `reconcileGroup` marks only the SELECTED files
+wanted via anacrolix **file priorities** (rest cancelled). A whole-torrent group (the
+`FileIndexWholeTorrent = -2` sentinel) uses `t.DownloadAll`. The UI groups rows into ONE
+card per torrent. **At enqueue**, picking ALL files (`isWholeTorrentSelection`) creates a
+single `-2` row (a 778-file pack = 1 row); only a real subset goes per-file via
+`downloadBatchCreate`. (#347/#348/#356)
+
+---
+
+## `GET /api/downloads` is O(unique torrents), never O(files)
+
+**Decision.** Enriching the list with live rate/seeders/ETA does O(1) work per torrent
+and dedupes by info_hash — never walks `t.Files()` per row.
+
+**Why (the receipt).** `s.Get`→`buildInfo` walks every file under the client lock; per
+row that was O(rows×files) and `GET /api/downloads` took **2–17s** on a 778-file pack —
+the queue page hung and looked empty.
+
+**How.** `enrichETAList` (`internal/handlers/downloads.go`) dedupes by info_hash and calls
+`Streamer.LiveStats(hash)` — **O(1)**: the cached rate sample + `Stats().ConnectedSeeders`,
+NO file walk (vs `Get`/`buildInfo`). The counter likewise counts torrents (`countTorrents`),
+not rows. (#355)
+
+---
+
+## Graceful shutdown is bounded by a hard watchdog (`os.Exit` backstop)
+
+**Decision.** SIGTERM and the gluetun forwarded-port `restart` signal run the SAME
+graceful shutdown (stop HTTP, drain in-flight transfers, run cleanups in reverse order)
+— but `runCleanup` is wrapped in a **20s watchdog that `os.Exit(0)`s** if cleanup blocks.
+
+**Why (the receipt).** We tried "graceful, no `os.Exit`" first — and it bit us: when the
+VPN network dropped, the anacrolix/DHT teardown **blocked forever** ("error announcing to
+DHT: nothing resolved"), the HTTP server was already down (eternal **502**), the process
+never exited, and `restart: unless-stopped` never recreated it. A real outage. Graceful
+is right, but it MUST be bounded.
+
+**How.** `cmd/server/main.go`: `runCleanup` runs the cleanups in a goroutine; on
+`cleanupHardDeadline` (20s) it logs and `os.Exit(0)` so Docker recycles into a fresh
+instance. The next boot reconciles (`RescueStuckMoving`, `resumeSeeding`, piece verify),
+so forcing exit past a stuck cleanup is safe.
+
+**Trade-offs.** A wedged cleanup loses up to ~that window of clean teardown, but the
+alternative (observed) is an unkillable 502. Normal shutdowns finish well inside 20s. (#355)
+
+---
+
+## Seed completed torrents from the cached metainfo, in place
+
+**Decision.** Re-activate a COMPLETED download for seeding from the metainfo we already
+cached by info_hash — never re-fetch a `.torrent` over HTTP.
+
+**Why (the receipt).** The old path re-fetched the `.torrent` by URL and died with
+`auto-seed failed: .torrent URL 404` (Jackett `/dl/...` links expire); and the file lives
+in bulk (moved out of the cache on completion), so re-downloading would be wrong.
+
+**How.** The seed paths use `Download.SeedSource()` → a bare info_hash magnet;
+`streamer.resolveMagnet` is **cache-first** (`loadCachedMetainfo` → `addCachedMetainfo`
+with `relocatedStorage` rooted at the file's real bulk location) so anacrolix verifies +
+SEEDS in place. (#351)
+
+---
+
+## Local files: local disk serves directly; only REMOTE mounts get read-ahead/cache
+
+**Decision.** A local-disk file is served via `http.ServeFile` (kernel sendfile + page
+cache = instant Range seeks). The whole-file LRU cache and 16 MB read-ahead are reserved
+for slow/remote mounts.
+
+**Why (the receipt).** The synchronous 16 MB `fillAt` on every seek added ~1s of
+first-byte latency on local disk for zero benefit; on an rclone/FUSE mount it's the
+difference between seekable playback and intermittent EIO.
+
+**How.** `serveLocalFileMetered` (`internal/handlers/local.go`) checks `isRemoteFS(abs)`:
+local (and a remote file already pulled into the localcache) → `http.ServeFile`;
+remote/FUSE → the metered `localstream.Session` with read-ahead. (#350)
+
+---
+
+## Cap hardware-decode sessions; spill the rest to software decode
+
+**Decision.** Bound how many concurrent ffmpeg sessions hold a CUDA decoder; sessions over
+the cap (or after a CUDA-OOM) run SOFTWARE decode feeding the same NVENC encoder.
+
+**Why (the receipt).** Each `-hwaccel cuda` decode allocates a CUVID decoder in VRAM; with
+~7 concurrent HLS sessions the GPU hit `CUDA_ERROR_OUT_OF_MEMORY` and the next play/seek
+failed in the player.
+
+**How.** `internal/transcode/gpusem.go`: `gpuSem` grants HW-decode slots up to the cap
+(default 3; 0 = unlimited); `hls.go` detects CUDA-OOM in ffmpeg stderr and relaunches in
+software decode. The NVENC *encode* still runs on the GPU. (#349)
+
+---
+
 ## What we are explicitly NOT doing (yet)
 
 - **No public-internet hardening.** JackUI assumes a reverse proxy + trusted network.
 - **No multi-writer SQLite / external DB.** Single-writer is fine at home scale.
 - **No mermaid diagrams.** ASCII box-and-arrow only — renders everywhere, diffs cleanly.
-- **No i18n yet.** UI is Portuguese-only; see the README roadmap.
-- **The streamer does not yet reconcile pieces with already-downloaded files** — a
-  completed download still re-streams through the cache rather than reading the file.
+- *(Done since: react-i18next ships pt/en; and the streamer now reconciles on-disk pieces
+  — the worker `VerifyFile`s before `f.Download()` and streaming reconciles via
+  `verifyFilePieces`, so a completed download seeds/plays in place without re-downloading.)*
 
 ## Mistakes-to-avoid checklist
 
@@ -218,3 +325,17 @@ and doesn't thrash.
       via `timeout ssh` — the remote container is orphaned on timeout and can OOM the host.
 - [ ] Don't point a new env var at an empty cache dir on deploy — it holds the streamer
       DBs (favourites/library/playlists), not just pieces.
+- [ ] Don't drive a multi-file torrent per file — one slot/verify/stall cycle PER TORRENT
+      (group by info_hash). Per-file driving OOM'd on season packs.
+- [ ] Don't `s.Get`/`buildInfo` per download row to enrich a list — use `LiveStats` (O(1))
+      and dedupe by info_hash (`buildInfo` is O(files)).
+- [ ] Don't let cleanup block shutdown forever — `runCleanup` has a 20s watchdog that
+      `os.Exit`s; a stuck anacrolix/DHT teardown once hung the process at an eternal 502.
+- [ ] Don't re-fetch a `.torrent` by URL to re-seed — resolve the cached metainfo by
+      info_hash (`SeedSource` → bare magnet) and seed in place from bulk storage.
+- [ ] Don't read-ahead / pre-cache a local-disk file — that's only for remote/FUSE mounts
+      (`isRemoteFS`); local goes straight to `http.ServeFile`.
+- [ ] Don't run unbounded `-hwaccel cuda` decoders — cap them and spill to software decode
+      (recover from CUDA-OOM) so the Nth concurrent stream doesn't fail.
+- [ ] Don't add a prod env var only to the repo compose — prod is a hand-maintained
+      compose (NOT a Portainer stack); edit the server-side file or it won't take effect.
