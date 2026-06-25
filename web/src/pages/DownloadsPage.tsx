@@ -395,6 +395,20 @@ export default function DownloadsPage() {
     playSingle(synthetic, d.fileIndex)
   }
 
+  // Play a STREAMING torrent card (TorrentInfo, no download row). Opens the player
+  // by info_hash WITHOUT a file index, so it resolves the main file and lists the
+  // rest — the same "ver arquivos + tocar" the whole-torrent download case gets.
+  const onTorrentPlay = (t: TorrentInfo) => {
+    const synthetic: SearchResult = {
+      title: t.name || t.infoHash,
+      tracker: '', categoryId: 0, category: '', size: t.totalSize || 0,
+      seeders: 0, leechers: 0, age: '',
+      magnetUri: `magnet:?xt=urn:btih:${t.infoHash}`,
+      link: '', infoHash: t.infoHash, publishDate: '',
+    }
+    playSingle(synthetic)
+  }
+
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const onPause = async (id: number) => {
@@ -1093,6 +1107,7 @@ export default function DownloadsPage() {
                   onTorrentResume={onTorrentResume}
                   onTorrentPriority={onTorrentPriority}
                   onTorrentDelete={onTorrentDelete}
+                  onTorrentPlay={onTorrentPlay}
                   onPause={onPause}
                   onResume={onResume}
                   onDelete={onDelete}
@@ -1118,6 +1133,7 @@ export default function DownloadsPage() {
                 onTorrentResume={onTorrentResume}
                 onTorrentPriority={onTorrentPriority}
                 onTorrentDelete={onTorrentDelete}
+                onTorrentPlay={onTorrentPlay}
                 onPause={onPause}
                 onResume={onResume}
                 onDelete={onDelete}
@@ -1330,7 +1346,7 @@ function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, busyID,
-  onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
+  onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete, onTorrentPlay,
   onPause, onResume, onDelete, onPlay, onInspect,
 }: {
   readonly torrents: TorrentInfo[]
@@ -1343,6 +1359,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   readonly onTorrentResume: (h: string) => void
   readonly onTorrentPriority: (h: string, p: StreamPriority) => void
   readonly onTorrentDelete: (h: string) => void
+  readonly onTorrentPlay: (t: TorrentInfo) => void
   readonly onPause: (id: number) => void
   readonly onResume: (id: number) => void
   readonly onDelete: (id: number) => void
@@ -1379,6 +1396,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
           onResume={() => onTorrentResume(t.infoHash)}
           onPriority={(p) => onTorrentPriority(t.infoHash, p)}
           onDelete={() => onTorrentDelete(t.infoHash)}
+          onPlay={() => onTorrentPlay(t)}
         />
       ))}
 
@@ -1551,7 +1569,7 @@ function GroupHeader({ icon, label, color }: { readonly icon: React.ReactNode; r
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busyHash, busyID,
-  onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete,
+  onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete, onTorrentPlay,
   onPause, onResume, onDelete, onPromote, onStopSeed, onSetPriority,
   onPromoteMany, onDeleteMany, onStopSeedMany,
   selected, onToggleSelected, onPlay, onInspect, loading,
@@ -1566,6 +1584,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
   readonly onTorrentResume: (h: string) => void
   readonly onTorrentPriority: (h: string, p: StreamPriority) => void
   readonly onTorrentDelete: (h: string) => void
+  readonly onTorrentPlay: (t: TorrentInfo) => void
   readonly onPause: (id: number) => void
   readonly onResume: (id: number) => void
   readonly onDelete: (id: number) => void
@@ -1710,6 +1729,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
               onResume={() => onTorrentResume(t.infoHash)}
               onPriority={(p) => onTorrentPriority(t.infoHash, p)}
               onDelete={() => onTorrentDelete(t.infoHash)}
+              onPlay={() => onTorrentPlay(t)}
             />
           ))}
           {seedingGroups.map(renderCompletedGroup)}
@@ -1861,9 +1881,10 @@ type TorrentCardProps = {
   readonly onResume: () => void
   readonly onPriority: (p: StreamPriority) => void
   readonly onDelete: () => void
+  readonly onPlay?: () => void
 }
 
-function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: TorrentCardProps) {
+function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay }: TorrentCardProps) {
   const pct = Math.max(0, Math.min(1, t.progress || 0)) * 100
   const status = t.status || (pct >= 100 ? 'complete' : 'downloading')
   const isPaused = status === 'paused'
@@ -1971,6 +1992,12 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete }: Torre
 
       {/* Action bar */}
       <div className="flex items-center gap-2 flex-wrap pt-1">
+        {/* Ver arquivos / tocar: abre o player pelo info_hash (resolve o arquivo
+            principal e lista os demais). Disponível assim que há algo no cache —
+            inclusive quando completo/semeando, que antes só tinha pausar/parar. */}
+        {onPlay && t.progress > 0 && (
+          <ActionButton onClick={onPlay} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5 fill-current" />} label="Ver arquivos" title="Abre o player: toca o arquivo principal e lista os demais do torrent" />
+        )}
         {isPaused ? (
           <ActionButton onClick={onResume} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5" />} label="Retomar" title="Retoma o torrent de onde parou" />
         ) : (
