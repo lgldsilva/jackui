@@ -1008,6 +1008,15 @@ func (w *Worker) completionDest(d Download, torrentName string) string {
 // storage writes exactly where the move expects, making the move a no-op.
 // Returns "" when no destination is configured (legacy: keep in DataDir).
 func (w *Worker) completionBaseDir(d Download) string {
+	// A destination the user explicitly picked (#16) wins over the defaults. It was
+	// validated against the user's allowed destinations at create time; the subdir
+	// is re-cleaned defensively against traversal here.
+	if d.DestBase != "" {
+		if sub := cleanDestSubdir(d.DestSubdir); sub != "" {
+			return filepath.Join(d.DestBase, sub)
+		}
+		return d.DestBase
+	}
 	if w.sharedDir != "" && d.Source == SourceArr && w.queueSettings().AutoPromoteArr {
 		return PromoteDir(w.sharedDir, d.Category)
 	}
@@ -1021,6 +1030,21 @@ func (w *Worker) completionBaseDir(d Download) string {
 		}
 	}
 	return base
+}
+
+// cleanDestSubdir defensively sanitizes a stored destination subdir: rejects
+// absolute paths and any ".." traversal, returning a cleaned relative path or ""
+// (which means "no subdir"). The subdir is already validated at create time;
+// this is belt-and-suspenders against a tampered DB row.
+func cleanDestSubdir(sub string) string {
+	if sub == "" || filepath.IsAbs(sub) {
+		return ""
+	}
+	clean := filepath.Clean(filepath.FromSlash(sub))
+	if clean == "." || !filepath.IsLocal(clean) {
+		return ""
+	}
+	return clean
 }
 
 // initFilePath computes the row's file_path + size at init time. For

@@ -77,6 +77,27 @@ export type DownloadCreateParams = {
   fileSize: number
   tracker?: string
   category?: string
+  destBase?: string   // chosen destination (#16); empty = default download dir
+  destSubdir?: string // optional subfolder under destBase
+}
+
+// DownloadDestination is a writable target the user may pick for a download:
+// a mount they're allowed to see, or a promote destination.
+export type DownloadDestination = {
+  name: string
+  path: string
+  userSubpath?: boolean
+}
+
+export const downloadDestinations = async (): Promise<DownloadDestination[]> => {
+  const { data } = await api.get<DownloadDestination[]>('/downloads/destinations')
+  return data || []
+}
+
+export const downloadDestBrowse = async (base: string, path: string): Promise<{ dirs: string[]; path: string }> => {
+  const query = new URLSearchParams({ base, path })
+  const { data } = await api.get<{ dirs: string[]; path: string }>(`/downloads/dest/browse?${query.toString()}`)
+  return data
 }
 
 export type DownloadFilterParams = {
