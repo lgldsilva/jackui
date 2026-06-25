@@ -1268,6 +1268,7 @@ export type LocalEntry = {
   isPlayable: boolean
   childCount?: number // # of entries inside a directory (0/absent for files)
   locked?: boolean    // dir pinned (.keep) — "clean empty" never removes it
+  incomplete?: boolean // download in progress (a .part file, or a dir holding one)
 }
 
 export const localMounts = async (): Promise<LocalMount[]> => {
