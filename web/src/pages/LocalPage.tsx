@@ -76,6 +76,7 @@ import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
 import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
 import { previewRawURL } from '../api/preview'
+import { matchesEntryStatus, type LocalStatusFilter } from '../lib/localFilter'
 
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
@@ -477,6 +478,7 @@ export default function LocalPage() {
   const [showDuplicates, setShowDuplicates] = useState(false)
   const { playSingle, playPlaylist } = usePlayer()
   const [kind, setKind] = usePersistedState<KindFilter>('local.kind', 'all')
+  const [statusFilter, setStatusFilter] = usePersistedState<LocalStatusFilter>('local.status', 'all')
   const [sortKey, setSortKey] = usePersistedState<SortKey>('local.sortKey', 'name')
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>('local.sortDir', 'asc')
 
@@ -532,9 +534,12 @@ export default function LocalPage() {
   // filter + sort apply within each group, folders kept on top.
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const matchesSearch = (e: LocalEntry) => !q || e.name.toLowerCase().includes(q)
-    const dirs = entries.filter((e) => e.isDir && matchesSearch(e))
-    let files = entries.filter((e) => !e.isDir && matchesSearch(e))
+    // O filtro de status (baixando/concluído) aplica a pastas E arquivos — mas só
+    // quando ≠ 'all', pra que no default a navegação por pastas siga livre.
+    const keep = (e: LocalEntry) =>
+      (!q || e.name.toLowerCase().includes(q)) && matchesEntryStatus(e, statusFilter)
+    const dirs = entries.filter((e) => e.isDir && keep(e))
+    let files = entries.filter((e) => !e.isDir && keep(e))
     if (kind === 'video') files = files.filter((e) => isVideo(e.name))
     else if (kind === 'audio') files = files.filter((e) => isAudio(e.name))
     else if (kind === 'other') files = files.filter((e) => !isVideo(e.name) && !isAudio(e.name))
@@ -547,7 +552,7 @@ export default function LocalPage() {
       return sortDir === 'asc' ? r : -r
     }
     return [...dirs.sort(cmp), ...files.sort(cmp)]
-  }, [entries, kind, sortKey, sortDir, search])
+  }, [entries, kind, statusFilter, sortKey, sortDir, search])
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
@@ -1143,6 +1148,23 @@ export default function LocalPage() {
                       }`}
                     >
                       {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
+                    </button>
+                  ))}
+                </div>
+                <span className="mx-1 h-4 w-px bg-surface-tertiary hidden sm:block" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-text-muted sm:hidden mr-0.5">Status:</span>
+                  {(['all', 'downloading', 'done'] as LocalStatusFilter[]).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setStatusFilter(s)}
+                      className={`px-2.5 py-1 rounded-full border transition-colors ${
+                        statusFilter === s
+                          ? 'bg-green-500/15 text-green-400 border-green-500/40'
+                          : 'text-text-secondary border-default hover:border-strong'
+                      }`}
+                    >
+                      {{ all: 'Todos', downloading: 'Baixando', done: 'Concluído' }[s]}
                     </button>
                   ))}
                 </div>
