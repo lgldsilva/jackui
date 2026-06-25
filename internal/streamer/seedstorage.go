@@ -73,6 +73,25 @@ func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) sto
 	})
 }
 
+// MatchesSeedTrackerCached reports whether the torrent's CACHED metainfo announce
+// matches a configured seed-tracker, without activating the torrent. Used at boot
+// to decide which completed downloads to auto-reactivate for seeding. Returns
+// false when no metainfo is cached or no seed-trackers are configured.
+func (s *Streamer) MatchesSeedTrackerCached(hash metainfo.Hash) bool {
+	cached := s.loadCachedMetainfo(hash)
+	if cached == nil {
+		return false
+	}
+	var anns []string
+	for _, tier := range cached.UpvertedAnnounceList() {
+		anns = append(anns, tier...)
+	}
+	s.mu.Lock()
+	trackers := s.seedTrackers
+	s.mu.Unlock()
+	return matchesSeedTracker(anns, trackers)
+}
+
 // fileIndexInInfo returns the index of file within info.UpvertedFiles(), matched
 // by in-torrent path; -1 if not found.
 func fileIndexInInfo(info *metainfo.Info, file *metainfo.FileInfo) int {

@@ -287,6 +287,51 @@ func rescueInterruptedMove(cfg WorkerConfig, d Download) {
 func (w *Worker) Start() {
 	w.doneWG.Add(1)
 	go w.run()
+	go w.autoSeedCompleted()
+}
+
+// autoSeedCompleted re-activates, on boot, every COMPLETED download whose tracker
+// is configured for continuous seeding (e.g. jackui). EnsureActive picks up
+// the relocated storage (the file lives in bulk, outside the cache), so anacrolix
+// verifies it in place and SEEDS — no re-download. Only `completed` rows qualify:
+// a paused/failed/removed row was stopped by the user and is left alone. Bounded
+// concurrency keeps the metadata/verify storm in check.
+func (w *Worker) autoSeedCompleted() {
+	all, err := w.store.ListAll()
+	if err != nil {
+		return
+	}
+	sem := make(chan struct{}, 3)
+	var wg sync.WaitGroup
+	started := 0
+	for _, d := range all {
+		if d.Status != StatusCompleted || d.InfoHash == "" {
+			continue
+		}
+		var h metainfo.Hash
+		if err := h.FromHexString(d.InfoHash); err != nil {
+			continue
+		}
+		if !w.streamer.MatchesSeedTrackerCached(h) {
+			continue
+		}
+		started++
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(d Download) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			if _, err := w.streamer.EnsureActive(ctx, d.EffectiveMagnet()); err != nil {
+				log.Printf("downloads: auto-seed #%d %q failed: %v", d.ID, d.Name, err)
+			}
+		}(d)
+	}
+	if started > 0 {
+		log.Printf("downloads: auto-seeding %d completed torrent(s) for seed-trackers", started)
+	}
+	wg.Wait()
 }
 
 // Stop signals the worker to exit and blocks until the loop returns. Safe to
@@ -716,6 +761,11 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	}
 	job.Done()
 	log.Printf("downloads: completed #%d %q", d.ID, name)
+	// Seed-tracker content keeps seeding from its NEW (bulk) home instead of going
+	// idle: the download torrent still points at the now-moved cache file, so we
+	// swap it onto the relocated storage. Status is `completed` + file_path=bulk by
+	// now, so EnsureActive's relocatedStorage resolves to the real file.
+	go w.reseedAfterCompletion(d)
 	// AI auto-rename (Plex-style) when configured. Whole-torrent rows skip it:
 	// the rename chain targets ONE media file, not a tree of N files.
 	if w.aiClient != nil && dst != "" && !whole {
@@ -723,6 +773,33 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	}
 	body := fmt.Sprintf("%s · %.2f MB", name, float64(total)/1048576)
 	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
+}
+
+// reseedAfterCompletion re-activates a just-completed download from its new bulk
+// location when its tracker is configured for continuous seeding. The torrent
+// that drove the download still has cache-rooted storage pointing at the file we
+// just moved away, so Drop + EnsureActive swaps it onto the relocated storage
+// (anacrolix verifies the bulk file and seeds — no re-download). No-op when the
+// tracker isn't a seed-tracker.
+func (w *Worker) reseedAfterCompletion(d Download) {
+	if d.InfoHash == "" {
+		return
+	}
+	var h metainfo.Hash
+	if err := h.FromHexString(d.InfoHash); err != nil {
+		return
+	}
+	if !w.streamer.MatchesSeedTrackerCached(h) {
+		return
+	}
+	w.streamer.Drop(h)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if _, err := w.streamer.EnsureActive(ctx, d.EffectiveMagnet()); err != nil {
+		log.Printf("downloads: reseed #%d %q failed: %v", d.ID, d.Name, err)
+		return
+	}
+	log.Printf("downloads: #%d %q reseeding from bulk (seed-tracker)", d.ID, d.Name)
 }
 
 // attemptCompletionMove runs the move with bounded retries, reporting progress to
