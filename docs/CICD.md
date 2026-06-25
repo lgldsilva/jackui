@@ -1,59 +1,85 @@
 # CI/CD — JackUI
 
-Automated pipeline: **push/PR → Jenkins tests, scans, builds (natively on the target),
-pushes to the Gitea registry, and ssh-deploys to the home server.**
+Automated pipeline: **push/PR → Jenkins (on the home server, amd64) tests, scans,
+builds the image, pushes to the Gitea registry, and deploys via the local
+`docker.sock` (`docker compose up -d --force-recreate`).** No SSH and no Portainer
+stack — prod is a hand-maintained compose file, and the container runs behind gluetun.
 
 ```
 Gitea (push to main / PR)
-   │ webhook  (currently flaky → builds are often triggered manually)
+   │ webhook  (currently flaky → builds are often triggered manually / SCM poll)
    ▼
-Jenkins @ oracle-desktop (arm64 controller)
-   ├─ Backend test        (golang:1.26-alpine)
+Jenkins @ home server (amd64, /var/run/docker.sock mounted)
+   ├─ Backend test        (golang:1.26-alpine, --platform linux/amd64)
    ├─ Frontend build      (node:24-alpine)
    ├─ SonarQube           (quality gate, -Dsonar.qualitygate.wait=true)
    ├─ SBOM → Dependency-Track  (cdxgen → DT upload)
-   ├─ Build & Push        (ssh → raspberrypi-srv builds the image NATIVELY (amd64),
+   ├─ Build & Push        (docker build on the local amd64 daemon (docker.sock),
    │                       pushes gitea.raspberrypi.lan/lgldsilva/jackui:nvidia)
    ├─ Trivy               (fails on CRITICAL, --ignore-unfixed)
-   ├─ Deploy              (ssh → raspberrypi-srv: docker compose up -d --force-recreate jackui)
+   ├─ Deploy              (local docker.sock: pull + retag +
+   │                       docker compose -f <hand-file> up -d --force-recreate jackui)
    └─ Old-tag cleanup     (prune old registry tags)
 ```
 
 Secrets come from **Jenkins credentials**, never the repo: `jackui-sonar-token`,
 `jackui-dt` (Dependency-Track), `jackui-gitea` (registry, needs `write:package`),
-`jackui-deploy` (ssh key), `jackui-ci-bot` (PR approval). The Gitea registry / Sonar /
-DT live on **oracle-desktop** (`10.228.143.12`); the build and deploy SSH to
-**raspberrypi-srv** (`10.228.143.1`).
+`jackui-ci-bot` (PR approval). The Gitea registry / Sonar / DT live on
+**oracle-desktop** (`10.228.143.12`); the build + deploy run **locally** on the
+amd64 home-server Jenkins via `docker.sock` (no SSH).
 
-## Why build on the target (not on the Jenkins controller)
+## Build & deploy run locally (amd64, docker.sock)
 
-The controller (oracle-desktop) is **arm64**; the deploy target (raspberrypi-srv) is
-**amd64**. Emulating amd64 under qemu on the controller OOM-killed the build, so the
-`docker build` runs **natively on raspberrypi-srv over SSH** and pushes to the Gitea
-registry. Deploy is a second SSH that recreates the container from the home-server
-compose.
-
-> [!WARNING]
-> The Sonar stage runs the scanner as `docker run --platform linux/amd64` on the arm64
-> controller, which needs qemu **binfmt** registered. binfmt is **not auto-registered
-> after a reboot** — install `qemu-user-static` on the controller so `systemd-binfmt`
-> restores it on boot, otherwise the Sonar stage fails with `exec format error` and the
-> gate reads a stale prior analysis.
+Jenkins runs **on the amd64 home server** with `/var/run/docker.sock` mounted, so the
+`docker build`, `docker push` and the deploy all talk to the local daemon directly —
+**no SSH, no cross-arch emulation**. (The Jenkinsfile header comments still describe
+the old arm64-controller-over-SSH model — that's stale; the stages run local.) The
+`--platform linux/amd64` flags on the Sonar/Trivy/test containers are no-ops on the
+amd64 host (no qemu/binfmt needed).
 
 ## Deploy mechanism
 
-The `Deploy` stage SSHes to raspberrypi-srv and runs:
+The `Deploy` stage runs on the local daemon:
 
 ```bash
+docker pull  ${IMAGE}:nvidia
+docker tag   ${IMAGE}:nvidia jackui:nvidia
 docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml \
   up -d --force-recreate jackui
 ```
 
 > [!IMPORTANT]
-> The **production compose is the one on the server** (`/portainer/Files/AppData/Config/jackui/docker-compose.yml`),
-> separate from the repo's `docker-compose.yml`. Jenkins only does `up -d` against it —
-> it does **not** copy the repo compose. So **env/volume/port changes must be made in
-> that server-side compose** (then `up -d`); the repo compose is a reference.
+> **It is NOT a Portainer stack.** Despite the `/portainer/Files/AppData/Config/...`
+> path, the Portainer API does **not** list jackui — that path is just a directory
+> convention. Production is plain `docker compose up -d --force-recreate` against a
+> **hand-maintained** compose file on the host, separate from the repo's
+> `docker-compose.yml`. Jenkins only swaps the **image** (`pull` + retag + `up -d`); it
+> does **not** copy the repo compose. So **any new env var / volume / port from the repo
+> compose does NOT reach prod by itself** — edit the server-side hand-file and `up -d`.
+
+> [!WARNING]
+> **Prod runs BEHIND gluetun** (its own ProtonVPN tunnel), even though the repo ships VPN
+> as an opt-in overlay (`docker-compose.gluetun.yml`, `make deploy-auto-vpn`) and
+> CLAUDE.md calls it opt-in. The hand-file folds that overlay in: the jackui service uses
+> `network_mode: "container:gluetun-jackui"` and seeds on Proton's **forwarded port**.
+> JackUI reads that port from gluetun's control API on boot
+> (`JACKUI_GLUETUN_CONTROL_URL=http://localhost:8000`) and `watchForwardedPort`
+> (`cmd/server/main.go`) triggers a graceful restart when Proton rotates the port;
+> `restart: unless-stopped` then recreates the process so it rebinds.
+
+### Low-footprint ("Balanceado") profile lives in the hand-file
+
+The host is shared (Jackett/Ollama/Jellyfin/*arr), so prod runs a low-consumption tuning
+that exists **only in the server-side compose**, not in any repo compose:
+
+| Env | Effect |
+|---|---|
+| `GOGC=75`, `GOMEMLIMIT=1600MiB`, `GOMAXPROCS=2` | caps the Go heap/GC + scheduler |
+| `JACKUI_MAX_CONNS=40` | peer conns per torrent (`Stream.MaxConnsPerTorrent`) |
+| `JACKUI_PEERS_HIGH=200` | peer high-water mark (`Stream.PeersHighWater`) |
+
+The app's real heap is ~222 MiB; most of the reported RSS is reclaimable page cache.
+Because these live in the hand-file, **a repo change to defaults won't move prod**.
 
 ## One-time setup
 
