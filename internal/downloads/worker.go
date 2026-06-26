@@ -338,7 +338,7 @@ func (w *Worker) autoSeedCompleted() {
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
-			if _, err := w.streamer.EnsureActive(ctx, d.EffectiveMagnet()); err != nil {
+			if _, err := w.streamer.EnsureActive(ctx, d.SeedSource()); err != nil {
 				log.Printf("downloads: auto-seed #%d %q failed: %v", d.ID, d.Name, err)
 			}
 		}(d)
@@ -1006,7 +1006,7 @@ func (w *Worker) reseedAfterCompletion(d Download) {
 	w.streamer.Drop(h)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if _, err := w.streamer.EnsureActive(ctx, d.EffectiveMagnet()); err != nil {
+	if _, err := w.streamer.EnsureActive(ctx, d.SeedSource()); err != nil {
 		log.Printf("downloads: reseed #%d %q failed: %v", d.ID, d.Name, err)
 		return
 	}
