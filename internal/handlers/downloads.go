@@ -93,6 +93,11 @@ func applyLive(d *downloads.Download, st liveStats) {
 // is O(files); doing it per row was O(rows×files) and locked the torrent client
 // thousands of times — which made GET /api/downloads take MINUTES on a big pack.
 // Deduping by hash makes it O(unique active torrents).
+//
+// NOTE: This relies on the implicit invariant that all files of the same torrent
+// (sharing the same InfoHash) report the same aggregated torrent downRate/upRate
+// and seeders. Caching stats by hash (byHash) ensures that even if list sorting
+// is unstable, the rate applied to any sibling row is identical and stable.
 func enrichETAList(list []downloads.Download, s *streamer.Streamer) {
 	if s == nil {
 		return
