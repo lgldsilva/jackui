@@ -1,5 +1,5 @@
 import { CheckCircle2, AlertCircle, Loader2, X, Clock } from 'lucide-react'
-import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
+import { formatBytes, formatRate, formatDurationShort, formatBytesPair } from '../lib/format'
 
 // FileProgressBar — the ONE reusable widget for any file move/copy progress:
 // label, X/Y files, bytes done/total, transfer rate and ETA, plus a bar. Used by
@@ -68,7 +68,7 @@ export default function FileProgressBar(props: FileProgressBarProps) {
       </div>
       <div className="flex items-center justify-between text-[10px] text-text-muted tabular-nums">
         <span>
-          {bytesTotal > 0 ? `${formatBytes(bytesDone)} / ${formatBytes(bytesTotal)}` : formatBytes(bytesDone)}
+          {bytesTotal > 0 ? formatBytesPair(bytesDone, bytesTotal) : formatBytes(bytesDone)}
           <span className="ml-1">({pct.toFixed(0)}%)</span>
         </span>
         {status === 'failed' && error
