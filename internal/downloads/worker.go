@@ -100,7 +100,13 @@ type Worker struct {
 	mu      sync.Mutex
 	tracked map[int]*trackedDL         // fully initialized, being sampled — by download.ID
 	pending map[int]context.CancelFunc // init goroutine in flight — cancel on removal/stop
-	retries map[int]int                // transient init failures per download.ID
+	// pendingHash maps an in-flight init's download.ID → its torrent hash, so
+	// Remove can tell whether a SIBLING file of the same torrent is still being
+	// resolved (and must keep the shared torrent alive) even before any member is
+	// tracked. Populated alongside `pending` once the hash is known; cleared with
+	// it. A zero hash (pre-metadata single-file init) means "hash unknown yet".
+	pendingHash map[int]metainfo.Hash
+	retries     map[int]int // transient init failures per download.ID
 	// removed is a tombstone set of download IDs deleted via Remove(). An init
 	// goroutine that was already resolving metadata when the delete landed must
 	// NOT promote the row back into `tracked` (or re-register streamer
@@ -211,6 +217,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		interval:        cfg.Interval,
 		tracked:         make(map[int]*trackedDL),
 		pending:         make(map[int]context.CancelFunc),
+		pendingHash:     make(map[int]metainfo.Hash),
 		retries:         make(map[int]int),
 		removed:         make(map[int]struct{}),
 		stop:            make(chan struct{}),
@@ -378,35 +385,68 @@ func (w *Worker) Remove(id int, infoHash string) {
 	var hash metainfo.Hash
 	haveHash := false
 
-	w.mu.Lock()
-	w.removed[id] = struct{}{}
-	if cancel := w.pending[id]; cancel != nil {
-		cancel()
-		delete(w.pending, id)
-	}
-	if td := w.tracked[id]; td != nil {
-		w.unregisterLocked(td) // drops streamer protection unless a sibling shares the name
-		if td.hash != (metainfo.Hash{}) {
-			hash, haveHash = td.hash, true
-		}
-		delete(w.tracked, id)
-	}
-	delete(w.retries, id)
-	w.mu.Unlock()
-
-	// Fall back to the row's persisted infoHash when nothing was tracked (a
-	// queued row deleted before init ever ran has no trackedDL but may still
-	// have an active torrent in the streamer).
-	if !haveHash && infoHash != "" {
+	// Resolve the hash up front: prefer the persisted infoHash (the handler
+	// already has it from the deleted row) so we can detect siblings even when
+	// THIS row was never tracked (a queued/initializing member).
+	if infoHash != "" {
 		if err := hash.FromHexString(infoHash); err == nil {
 			haveHash = true
 		}
 	}
+
+	w.mu.Lock()
+	w.removed[id] = struct{}{}
+	if cancel := w.pending[id]; cancel != nil {
+		cancel()
+		w.clearPendingLocked(id)
+	}
+	removed := w.tracked[id]
+	if removed != nil {
+		if removed.hash != (metainfo.Hash{}) {
+			hash, haveHash = removed.hash, true
+		}
+		delete(w.tracked, id)
+		w.unregisterLocked(removed) // drops streamer protection unless a sibling shares the name
+	}
+	delete(w.retries, id)
+	// Aggregate-by-torrent: keep the torrent alive if ANY sibling file of the SAME
+	// torrent still needs it — one already tracked OR one still resolving in a
+	// shared init (pendingHash). Both checks run AFTER deleting our own entries so
+	// we never count ourselves.
+	siblingKeepsTorrent := haveHash &&
+		(w.hashTrackedLocked(hash) || w.pendingSiblingLocked(hash, id))
+	w.mu.Unlock()
+
+	// Removing ONE file of a multi-file torrent: just stop fetching that file
+	// (PiecePriorityNone) and keep the torrent leeching the rest. A sibling still
+	// in init has no live *torrent.File for us yet, but initGroup will reconcile
+	// priorities; cancel ours if we have it.
+	if siblingKeepsTorrent {
+		if removed != nil && removed.file != nil {
+			removed.file.Cancel()
+		}
+		return
+	}
+
 	if haveHash {
-		// Drop runs OUTSIDE w.mu (streamer lock + I/O) and is a safe no-op if a
-		// player still holds a viewer lease on the same torrent.
+		// Last member gone → drop the torrent. Drop runs OUTSIDE w.mu (streamer
+		// lock + I/O) and is a safe no-op if a player still holds a viewer lease.
 		w.dropTorrent(hash)
 	}
+}
+
+// hashTrackedLocked reports whether ANY tracked download still maps to hash —
+// i.e. a sibling file of the same torrent is still being driven. Caller holds w.mu.
+func (w *Worker) hashTrackedLocked(hash metainfo.Hash) bool {
+	if hash == (metainfo.Hash{}) {
+		return false
+	}
+	for _, td := range w.tracked {
+		if td.hash == hash {
+			return true
+		}
+	}
+	return false
 }
 
 // dropTorrent drops a torrent via the injected seam (nil-safe).
@@ -464,7 +504,10 @@ func (w *Worker) tick() {
 
 	// Untrack any IDs that vanished from the active set since last tick
 	// (user paused/cancelled, or a prior tick demoted them). Cancel in-flight
-	// inits too so a cancelled download stops resolving metadata immediately.
+	// inits too so a cancelled download stops resolving metadata immediately. A
+	// torrent is dropped ONLY when NO active row still shares its hash — a sibling
+	// file of the same torrent (aggregate-by-torrent) must keep it leeching.
+	stillWantedHashes := w.hashesStillWanted(active)
 	w.mu.Lock()
 	var toDrop []metainfo.Hash
 	for id, td := range w.tracked {
@@ -472,7 +515,7 @@ func (w *Worker) tick() {
 			w.unregisterLocked(td)
 			delete(w.tracked, id)
 			delete(w.retries, id)
-			if td.hash != (metainfo.Hash{}) {
+			if td.hash != (metainfo.Hash{}) && !stillWantedHashes[td.hash] {
 				toDrop = append(toDrop, td.hash)
 			}
 		}
@@ -480,7 +523,7 @@ func (w *Worker) tick() {
 	for id, cancel := range w.pending {
 		if !wantIDs[id] {
 			cancel()
-			delete(w.pending, id)
+			w.clearPendingLocked(id)
 			delete(w.retries, id)
 		}
 	}
@@ -497,8 +540,11 @@ func (w *Worker) tick() {
 		w.dropTorrent(h)
 	}
 
-	for _, d := range active {
-		w.reconcile(d)
+	// Aggregate-by-torrent: drive each torrent ONCE per tick (one init/sample/
+	// completion per group) instead of once per file, regardless of how many
+	// files the torrent has selected.
+	for _, g := range GroupRows(active) {
+		w.reconcileGroup(g)
 	}
 
 	qs := w.queueSettings()
@@ -506,23 +552,107 @@ func (w *Worker) tick() {
 	w.applySchedule(qs)
 }
 
+// hashesStillWanted is the set of info hashes that ANY currently-active row maps
+// to — used so the tick's untrack-vanished pass doesn't Drop a torrent a sibling
+// file still depends on.
+func (w *Worker) hashesStillWanted(active []Download) map[metainfo.Hash]bool {
+	out := make(map[metainfo.Hash]bool, len(active))
+	for _, d := range active {
+		if d.InfoHash == "" {
+			continue
+		}
+		var h metainfo.Hash
+		if h.FromHexString(d.InfoHash) == nil {
+			out[h] = true
+		}
+	}
+	return out
+}
+
 // detectStalls demotes downloads that have made no progress for >= the stall
 // threshold AND have zero connected seeders (a true no-seed stall, not just a
-// slow download). Demoting frees the slot and sends the row to the end of its
-// priority group. After MaxStalls demotes the download is paused (the user's
-// choice: it stops cycling but isn't marked failed).
+// slow download). The unit is the TORRENT: stalled victims are grouped by
+// (user, info_hash) and the WHOLE group is demoted together (one stall cycle per
+// torrent), so a multi-file pack doesn't thrash file-by-file. Demoting frees the
+// slot and sends every member to the end of its priority group. After MaxStalls
+// the whole group is paused (the user's choice: it stops cycling, not failed).
 func (w *Worker) detectStalls(qs QueueSettings) {
 	if qs.StallThresholdMin <= 0 {
 		return
 	}
-	for _, td := range w.collectStallVictims(qs) {
-		// Phase 2: before demoting, try rotating to an alternative source. If it
-		// rotates, the download keeps its slot and re-inits with the new magnet.
-		if qs.RotationEnabled && w.tryRotate(td, qs) {
+	for _, victims := range w.groupStallVictims(qs) {
+		// Phase 2: before demoting, try rotating to an alternative source. One
+		// rotation per torrent (the representative member); on success the group
+		// keeps its slot and re-inits with the new magnet.
+		if qs.RotationEnabled && w.tryRotate(victims[0], qs) {
 			continue
 		}
-		w.demoteStalled(td, qs)
+		w.demoteStalledGroup(victims, qs)
 	}
+}
+
+// groupStallVictims folds the no-seed stall victims into per-(user, info_hash)
+// buckets so the whole torrent is demoted as a unit. A victim with no info_hash
+// (pre-metadata) keys on its id, staying an independent group of one — matching
+// the single-row behavior the existing detectStalls tests assert.
+func (w *Worker) groupStallVictims(qs QueueSettings) [][]*trackedDL {
+	order := make([]string, 0)
+	byKey := make(map[string][]*trackedDL)
+	for _, td := range w.collectStallVictims(qs) {
+		k := grpKey(td.userID, td.id, td.infoHash)
+		if _, ok := byKey[k]; !ok {
+			order = append(order, k)
+		}
+		byKey[k] = append(byKey[k], td)
+	}
+	out := make([][]*trackedDL, 0, len(order))
+	for _, k := range order {
+		out = append(out, byKey[k])
+	}
+	return out
+}
+
+// demoteStalledGroup demotes EVERY member of a stalled torrent in one batch (one
+// stall counted per member, so they cross MaxStalls together), tears down their
+// tracking, and pauses the whole group once it has cycled MaxStalls times.
+func (w *Worker) demoteStalledGroup(victims []*trackedDL, qs QueueSettings) {
+	ids := make([]int, 0, len(victims))
+	for _, td := range victims {
+		ids = append(ids, td.id)
+	}
+	demoted, err := w.store.DemoteGroup(ids)
+	if err != nil || len(demoted) == 0 {
+		return
+	}
+	w.mu.Lock()
+	for _, td := range victims {
+		delete(w.tracked, td.id)
+		delete(w.retries, td.id)
+		w.unregisterLocked(td)
+	}
+	w.mu.Unlock()
+	rep := victims[0]
+	stalls := w.maxStallCount(demoted, rep.userID)
+	log.Printf("downloads: torrent %q stalled (no seed for %dm) → %d row(s) requeued (stall #%d)",
+		rep.name, qs.StallThresholdMin, len(demoted), stalls)
+	if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
+		if _, err := w.store.SetStatusByIDs(rep.userID, demoted, StatusPaused); err != nil {
+			log.Printf("downloads: failed to pause stalled torrent %q: %v", rep.name, err)
+		}
+		log.Printf("downloads: torrent %q paused after %d no-seed stalls", rep.name, stalls)
+	}
+}
+
+// maxStallCount returns the highest stall counter among the given rows (the
+// group crosses MaxStalls when its most-stalled member does).
+func (w *Worker) maxStallCount(ids []int, userID int) int {
+	max := 0
+	for _, id := range ids {
+		if d, _ := w.store.Get(userID, id); d != nil && d.Stalls > max {
+			max = d.Stalls
+		}
+	}
+	return max
 }
 
 // collectStallVictims returns tracked downloads with no progress for >= the
@@ -545,32 +675,13 @@ func (w *Worker) collectStallVictims(qs QueueSettings) []*trackedDL {
 	return victims
 }
 
-// demoteStalled sends a stalled download to the back of its priority group and,
-// once it has cycled MaxStalls times, pauses it (the user's choice: stop cycling
-// without marking it failed).
-func (w *Worker) demoteStalled(td *trackedDL, qs QueueSettings) {
-	stalls, demoted, err := w.store.DemoteToQueued(td.id)
-	if err != nil || !demoted {
-		return
-	}
-	w.mu.Lock()
-	delete(w.tracked, td.id)
-	delete(w.retries, td.id)
-	w.unregisterLocked(td)
-	w.mu.Unlock()
-	log.Printf("downloads: #%d %q stalled (no seed for %dm) → requeued (stall #%d)", td.id, td.name, qs.StallThresholdMin, stalls)
-	if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
-		if err := w.store.SetStatus(td.userID, td.id, StatusPaused); err != nil {
-			log.Printf("downloads: failed to set status paused for stalled download %d: %v", td.id, err)
-		}
-		log.Printf("downloads: #%d %q paused after %d no-seed stalls", td.id, td.name, stalls)
-	}
-}
-
 // applySchedule enforces the active limit and priority order: it promotes queued
 // rows into free slots and preempts a downloading row when a strictly
-// higher-priority row is waiting (see schedulePlan). Promotion only flips the
-// status; the next tick's reconcile does the heavy init work.
+// higher-priority row is waiting (see schedulePlan, which counts ONE slot per
+// torrent group). Promotion only flips the status; the next tick's reconcileGroup
+// does the heavy init work — ONCE per torrent. Status transitions go through the
+// batch store helpers so a multi-file pack flips in one transaction per group;
+// the in-memory teardown of a preempted group is per member (preemptActive).
 func (w *Worker) applySchedule(qs QueueSettings) {
 	schedulable, err := w.store.ListSchedulable()
 	if err != nil {
@@ -578,25 +689,81 @@ func (w *Worker) applySchedule(qs QueueSettings) {
 		return
 	}
 	plan := schedulePlan(schedulable, qs.sched(), time.Now())
-	for _, d := range schedulable {
+	for _, g := range GroupRows(schedulable) {
+		w.applyGroupSchedule(g, plan)
+	}
+}
+
+// applyGroupSchedule promotes or preempts a whole torrent group per the plan: a
+// group chosen by the scheduler has every queued member promoted (batch tx); a
+// group dropped from the plan has every downloading member preempted (batch DB
+// transition + per-member in-memory teardown). A group with members on both
+// sides can't happen — schedulePlan expands to ALL or NONE of a group's ids.
+func (w *Worker) applyGroupSchedule(g Group, plan map[int]bool) {
+	var promote, preempt []Download
+	for _, m := range g.Members {
 		switch {
-		case plan[d.ID] && d.Status == StatusQueued:
-			if ok, _ := w.store.PromoteToDownloading(d.ID); ok {
-				log.Printf("downloads: promoted #%d %q (%s) → downloading", d.ID, d.Name, d.Priority)
-			}
-		case !plan[d.ID] && d.Status == StatusDownloading:
-			w.preemptActive(d)
+		case plan[m.ID] && m.Status == StatusQueued:
+			promote = append(promote, m)
+		case !plan[m.ID] && m.Status == StatusDownloading:
+			preempt = append(preempt, m)
+		}
+	}
+	if ids := downloadIDs(promote); len(ids) > 0 {
+		if got, _ := w.store.PromoteGroup(ids); len(got) > 0 {
+			log.Printf("downloads: promoted torrent %q (%d row(s)) → downloading", g.Members[0].Name, len(got))
+		}
+	}
+	if len(preempt) > 0 {
+		w.preemptGroup(preempt)
+	}
+}
+
+// preemptGroup demotes a whole torrent group back to the queue (over limit /
+// out-prioritized) in one DB transaction, then tears down each member's
+// in-memory tracking. No stall is counted. Delegates the per-member teardown to
+// preemptActive's logic via preemptTeardown so the proven path stays shared.
+func (w *Worker) preemptGroup(members []Download) {
+	demoted, err := w.store.PreemptGroup(downloadIDs(members))
+	if err != nil || len(demoted) == 0 {
+		return
+	}
+	demotedSet := make(map[int]bool, len(demoted))
+	for _, id := range demoted {
+		demotedSet[id] = true
+	}
+	for _, m := range members {
+		if demotedSet[m.ID] {
+			w.preemptTeardown(m)
 		}
 	}
 }
 
-// preemptActive demotes a downloading row back to the queue (over limit or
+// downloadIDs extracts the IDs of a slice of downloads.
+func downloadIDs(ds []Download) []int {
+	ids := make([]int, 0, len(ds))
+	for _, d := range ds {
+		ids = append(ids, d.ID)
+	}
+	return ids
+}
+
+// preemptActive demotes a single downloading row back to the queue (over limit or
 // out-prioritized by the scheduler) and tears down its in-memory tracking. No
-// stall is counted — this isn't a no-seed stall.
+// stall is counted — this isn't a no-seed stall. Retained for the single-row
+// callers/tests; the tick's group path uses preemptGroup (batch DB) + the shared
+// preemptTeardown.
 func (w *Worker) preemptActive(d Download) {
 	if ok, _ := w.store.PreemptToQueued(d.ID); !ok {
 		return
 	}
+	w.preemptTeardown(d)
+}
+
+// preemptTeardown drops a preempted row's in-memory tracking (tracked entry,
+// in-flight init, retry counter), releasing eviction protection unless a sibling
+// still needs it. The DB transition is the caller's responsibility.
+func (w *Worker) preemptTeardown(d Download) {
 	w.mu.Lock()
 	if td := w.tracked[d.ID]; td != nil {
 		delete(w.tracked, d.ID)
@@ -604,7 +771,7 @@ func (w *Worker) preemptActive(d Download) {
 	}
 	if cancel := w.pending[d.ID]; cancel != nil {
 		cancel()
-		delete(w.pending, d.ID)
+		w.clearPendingLocked(d.ID)
 	}
 	delete(w.retries, d.ID)
 	w.mu.Unlock()
@@ -667,10 +834,46 @@ func (w *Worker) torrentStillActive(td *trackedDL) bool {
 func (w *Worker) startInit(d Download) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.mu.Lock()
-	w.pending[d.ID] = cancel
+	w.setPendingLocked(d.ID, d.InfoHash, cancel)
 	w.mu.Unlock()
 	w.doneWG.Add(1)
 	go w.initDownload(ctx, d)
+}
+
+// setPendingLocked records an in-flight init under id: its cancel func and the
+// torrent hash (parsed from the row's infoHash; zero when unknown). Caller holds
+// w.mu. Keeps `pending` and `pendingHash` in lockstep so Remove can find a
+// sibling still in init.
+func (w *Worker) setPendingLocked(id int, infoHash string, cancel context.CancelFunc) {
+	w.pending[id] = cancel
+	var h metainfo.Hash
+	if infoHash != "" {
+		_ = h.FromHexString(infoHash)
+	}
+	w.pendingHash[id] = h
+}
+
+// clearPendingLocked drops an id's in-flight init bookkeeping (cancel + hash).
+// Caller holds w.mu.
+func (w *Worker) clearPendingLocked(id int) {
+	delete(w.pending, id)
+	delete(w.pendingHash, id)
+}
+
+// pendingSiblingLocked reports whether ANY in-flight init (other than excludeID)
+// is resolving the same non-zero torrent hash — a sibling file of the same
+// torrent still being set up, which must keep the shared torrent alive. Caller
+// holds w.mu.
+func (w *Worker) pendingSiblingLocked(hash metainfo.Hash, excludeID int) bool {
+	if hash == (metainfo.Hash{}) {
+		return false
+	}
+	for id, h := range w.pendingHash {
+		if id != excludeID && h == hash {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Worker) sampleProgress(d Download, td *trackedDL) {
@@ -1389,7 +1592,7 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	defer w.doneWG.Done()
 	defer func() {
 		w.mu.Lock()
-		delete(w.pending, d.ID)
+		w.clearPendingLocked(d.ID)
 		// Clear any deletion tombstone now that THIS init has fully exited: the
 		// resurrection window is closed (we either bailed or promoted under the
 		// lock above), so an ID reused by a later Create starts clean. Done here

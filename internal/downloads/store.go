@@ -579,6 +579,26 @@ func (s *Store) ListActive() ([]Download, error) {
 	return scanSlice(rows)
 }
 
+// WantedRowsByHash returns every row of one (user, info_hash) that still WANTS
+// the torrent's data — status `downloading` or `queued`. The aggregate-by-torrent
+// completion check uses this to avoid finalizing a torrent while a sibling file
+// is still queued (not yet promoted/downloaded): the tick groups only the active
+// (downloading) rows, so a queued sibling is invisible to GroupRows and would
+// otherwise let the move fire with a file missing. info_hash must be non-empty
+// (a hashless pre-metadata row has no siblings to speak of).
+func (s *Store) WantedRowsByHash(userID int, infoHash string) ([]Download, error) {
+	if s == nil || infoHash == "" {
+		return nil, nil
+	}
+	rows, err := s.db.Query(dlSelect+"WHERE user_id=? AND info_hash=? AND status IN (?, ?)",
+		userID, infoHash, StatusDownloading, StatusQueued)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
+}
+
 // ListAll returns every download — used by the streamer to compute the
 // "protected from eviction" set on startup (any non-final entry should keep
 // its torrent data on disk).
@@ -835,6 +855,123 @@ func (s *Store) SetCompletionDest(userID, id int, dest string) error {
 func (s *Store) UpdateProgress(userID, id int, bytes int64) error {
 	_, err := s.db.Exec(`UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`, bytes, id, userID)
 	return err
+}
+
+// ProgressUpdate is one row's freshly-sampled byte count, batched by the worker.
+type ProgressUpdate struct {
+	UserID int
+	ID     int
+	Bytes  int64
+}
+
+// UpdateProgressBatch writes the per-file progress of an entire torrent group in
+// ONE transaction. The aggregate-by-torrent tick samples the live *torrent.Torrent
+// once and records each selected file's BytesCompleted on its own row, so a
+// 389-file pack costs one tx instead of 389 separate UPDATEs (the I/O the OOM fix
+// targets). With MaxOpenConns(1) the single tx also serializes cleanly. A nil/
+// empty batch is a no-op.
+func (s *Store) UpdateProgressBatch(items []ProgressUpdate) error {
+	if len(items) == 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for _, it := range items {
+		if _, err := stmt.Exec(it.Bytes, it.ID, it.UserID); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// PromoteGroup flips every queued row of a torrent group to downloading in ONE
+// transaction, preserving PromoteToDownloading's status guard (a row not in
+// `queued` — already downloading, paused, or removed — is skipped) and its
+// started_at COALESCE. Returns the IDs actually promoted.
+func (s *Store) PromoteGroup(ids []int) ([]int, error) {
+	return s.txGuardedStatus(ids, StatusQueued,
+		`UPDATE downloads SET status=?, started_at=COALESCE(started_at, CURRENT_TIMESTAMP) WHERE id=? AND status=?`,
+		StatusDownloading)
+}
+
+// PreemptGroup sends every downloading row of a group back to the queue WITHOUT
+// counting a stall (over-limit / out-prioritized), in ONE transaction. Mirrors
+// PreemptToQueued's guard + queued_since reset. Returns the IDs actually demoted.
+func (s *Store) PreemptGroup(ids []int) ([]int, error) {
+	return s.txGuardedStatus(ids, StatusDownloading,
+		`UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP WHERE id=? AND status=?`,
+		StatusQueued)
+}
+
+// DemoteGroup sends every downloading row of a group back to the queue counting a
+// stall (no-seed), in ONE transaction. Mirrors DemoteToQueued's guard + bump.
+// Returns the IDs actually demoted (their stall counters now incremented).
+func (s *Store) DemoteGroup(ids []int) ([]int, error) {
+	return s.txGuardedStatus(ids, StatusDownloading,
+		`UPDATE downloads SET status=?, queued_since=CURRENT_TIMESTAMP, stalls=stalls+1 WHERE id=? AND status=?`,
+		StatusQueued)
+}
+
+// MoveGroup flips every DOWNLOADING row of a group into `moving` in ONE
+// transaction, guarded on status so a row paused/removed between the tick's
+// snapshot and this call is skipped (not clobbered). Returns the IDs that
+// actually transitioned — the completion move should relocate only those.
+func (s *Store) MoveGroup(ids []int) ([]int, error) {
+	return s.txGuardedStatus(ids, StatusDownloading,
+		`UPDATE downloads SET status=? WHERE id=? AND status=?`, StatusMoving)
+}
+
+// CompleteGroup flips every `moving` row of a group into `completed` (with
+// completed_at) in ONE transaction, guarded on status. Returns the IDs finalized.
+func (s *Store) CompleteGroup(ids []int) ([]int, error) {
+	return s.txGuardedStatus(ids, StatusMoving,
+		`UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP WHERE id=? AND status=?`,
+		StatusCompleted)
+}
+
+// txGuardedStatus runs a status-guarded UPDATE for each id in one transaction.
+// query must take (newStatus, id, fromStatus) in that order; only rows currently
+// in fromStatus change (the guard that makes a concurrent pause/cancel a no-op).
+// Returns the ids whose row actually changed. Kept tiny so the group helpers stay
+// well under the cognitive-complexity gate.
+func (s *Store) txGuardedStatus(ids []int, fromStatus, query, newStatus string) ([]int, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	defer stmt.Close()
+	changed := make([]int, 0, len(ids))
+	for _, id := range ids {
+		res, err := stmt.Exec(newStatus, id, fromStatus)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			changed = append(changed, id)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return changed, nil
 }
 
 // SetFileIndex updates the target file index after metadata resolves for

@@ -99,8 +99,8 @@ func (w *Worker) activateSource(td *trackedDL, d Download, next Source) bool {
 	delete(w.retries, td.id)
 	if cancel := w.pending[td.id]; cancel != nil {
 		cancel()
-		delete(w.pending, td.id)
 	}
+	w.clearPendingLocked(td.id) // drop pending + pendingHash in lockstep (no orphan)
 	w.unregisterLocked(td)
 	w.mu.Unlock()
 	w.streamer.Drop(td.hash)
