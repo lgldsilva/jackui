@@ -174,12 +174,17 @@ func LocalFile(b *local.Browser, reg *localstream.Registry, cache *localcache.Ca
 	}
 }
 
-// serveLocalFileMetered opens abs and serves it through a metered Session so
-// the direct-play path also reports speed. The session is registered under the
-// direct transfer key for /local/transfer-status to find. Falls back to
-// http.ServeFile when reg is nil (e.g. older tests).
+// serveLocalFileMetered serves abs with Range/HEAD support. Remote/FUSE mounts
+// (rclone/Drive/NFS) go through a metered read-ahead Session: high-latency
+// round-trips are amortized by big aligned reads and the UI gets a transfer
+// speed for /local/transfer-status. Local-disk files are served directly via
+// http.ServeFile — the kernel page cache + sendfile already give instant Range
+// seeks, whereas the 16 MB synchronous read-ahead would add ~1s of first-byte
+// latency to EVERY seek (slow scrubbing on downloaded videos). reg==nil (older
+// tests) also serves directly. A file cached from a remote mount is by now on
+// local disk, so isRemoteFS(abs) is false → it serves fast too.
 func serveLocalFileMetered(c *gin.Context, reg *localstream.Registry, mount, scoped, abs string) {
-	if reg == nil {
+	if reg == nil || !isRemoteFS(abs) {
 		http.ServeFile(c.Writer, c.Request, abs)
 		return
 	}
