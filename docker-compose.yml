@@ -89,6 +89,21 @@ services:
       # Token estático pro scraper do Prometheus quando JACKUI_AUTH_ENABLED=1
       # (JWTs expiram; scrape configs não fazem refresh). Vazio = só admin JWT.
       - JACKUI_METRICS_TOKEN=${JACKUI_METRICS_TOKEN:-}
+      # ── Perfil de baixo consumo (auditoria de perf, perfil "Balanceado") ───
+      # Memória: GOGC=75 aperta o heap-alvo entre GCs (de 100 → menos RSS gordo
+      # esperando o próximo GC); GOMEMLIMIT é o teto rígido (~1.6 GiB, ~400 MB de
+      # folga p/ stacks de goroutine, mmap do BoltDB e off-heap do ffmpeg) que
+      # evita OOM-kill perto do limite de 2 GiB. GOMAXPROCS=2 casa com cpus=2.0.
+      # Caps de peers (de 50/500 da lib anacrolix) cortam buffers residentes por
+      # conexão sem matar o seed/leech caseiro — JackUI já injeta 20 trackers
+      # públicos, então a descoberta de peers não depende de um swarm enorme.
+      # ⚠ PROD: estes valores vivem no STACK DO PORTAINER (este bloco é a
+      # referência versionada; ao mudar em prod, edite o stack lá também).
+      - GOGC=${GOGC:-75}
+      - GOMEMLIMIT=${GOMEMLIMIT:-1600MiB}
+      - GOMAXPROCS=${GOMAXPROCS:-2}
+      - JACKUI_MAX_CONNS=${JACKUI_MAX_CONNS:-40}
+      - JACKUI_PEERS_HIGH=${JACKUI_PEERS_HIGH:-200}
       - JACKUI_DOWNLOAD_DIR=/mnt/storage/jacktrack/download
       # Destination of the "Promote" button — moves a file from the app's private
       # area to the shared library visible to all media apps.
