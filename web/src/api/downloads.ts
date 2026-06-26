@@ -374,24 +374,27 @@ export const downloadPromotePreview = async (
     ids,
     ...opts,
   })
-  return data
+  // Go nil slice serializes as JSON null; the UI does previews.length → guard.
+  return { previews: data?.previews ?? [] }
 }
 
 // Lista subpastas no {base}/<path> pra alimentar o navegador da PromoteModal.
-// base vazio = sharedDir (default). 
+// base vazio = sharedDir (default).
 export const downloadPromoteBrowse = async (path: string, base?: string): Promise<{ dirs: string[]; path: string }> => {
   const params = new URLSearchParams({ path })
   if (base) params.set('base', base)
   const { data } = await api.get<{ dirs: string[]; path: string }>(
     `/downloads/promote/browse?${params}`,
   )
-  return data
+  // A subpasta-folha (sem subdirs) volta com dirs=null (nil slice no Go); o
+  // navegador faz dirs.length → null crasha. Normaliza para [] sempre.
+  return { dirs: data?.dirs ?? [], path: data?.path ?? path }
 }
 
 // Lista destinos de promoção disponíveis (nome + path).
 export const fetchPromoteDestinations = async (): Promise<PromoteDestination[]> => {
   const { data } = await api.get<PromoteDestination[]>('/promote/destinations')
-  return data
+  return data ?? []
 }
 
 // Para de seedar sem mover o arquivo.
