@@ -1583,6 +1583,15 @@ func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
 }
 
 func copyFileAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) error {
+	// Resume: se o destino já tem este arquivo com o MESMO tamanho, uma
+	// transferência anterior já o copiou (foi interrompida depois, no meio do
+	// lote). Pula a cópia — contabiliza no progresso (sem inflar a taxa) e remove
+	// a origem. É o que torna o move/promote retomável sem recopiar o que já foi.
+	if di, err := os.Stat(dst); err == nil && !di.IsDir() && di.Size() == stat.Size() {
+		job.AddSkipped(stat.Size())
+		job.FileDone()
+		return os.Remove(src)
+	}
 	in, err := os.Open(src)
 	if err != nil {
 		return err

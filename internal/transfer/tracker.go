@@ -119,6 +119,21 @@ func (j *Job) AddBytesFunc() func(int64) {
 	return j.AddBytes
 }
 
+// AddSkipped advances progress by bytes that were NOT copied now because they
+// already existed at the destination (a resumed transfer skipping a file that a
+// previous run finished). Counts toward done/total/progress but does NOT enter
+// the rate window — otherwise skipping a large file instantly would spike the
+// reported speed to an absurd value.
+func (j *Job) AddSkipped(n int64) {
+	if j == nil || n <= 0 {
+		return
+	}
+	j.mu.Lock()
+	j.bytesDone += n
+	j.updatedAt = j.now()
+	j.mu.Unlock()
+}
+
 // FileDone increments the completed-files counter (X of Y).
 func (j *Job) FileDone() {
 	if j == nil {

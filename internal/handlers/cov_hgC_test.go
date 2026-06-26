@@ -289,6 +289,66 @@ func Test_hgC_CopyFileAndRemove_SrcMissing(t *testing.T) {
 	}
 }
 
+// Resume: o destino já tem o arquivo com o mesmo tamanho (uma transferência
+// anterior o copiou antes de ser interrompida). copyFileAndRemove deve PULAR a
+// cópia, preservar o destino e remover a origem — sem recopiar.
+func Test_hgC_CopyFileAndRemove_ResumeSkipsExisting(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.bin")
+	dst := filepath.Join(dir, "dst.bin")
+	if err := os.WriteFile(src, []byte("conteudo-igual"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("conteudo-igual"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stat, _ := os.Stat(src)
+	if err := copyFileAndRemove(src, dst, stat); err != nil {
+		t.Fatalf("copyFileAndRemove (resume): %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("origem deveria ser removida (move concluído via resume)")
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "conteudo-igual" {
+		t.Errorf("destino não deveria mudar no resume, got %q", b)
+	}
+}
+
+// Resume de diretório parcial: parte dos arquivos já está no destino (run
+// anterior interrompida). copyDirAndRemove completa só o que falta e remove a
+// origem inteira ao final.
+func Test_hgC_CopyDirAndRemove_ResumePartial(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Brasiloirinha")
+	dst := filepath.Join(dir, "out")
+	if err := os.MkdirAll(filepath.Join(src, "Fotos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "Fotos", "1.jpg"), []byte("foto"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "video.mp4"), []byte("video-grande"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Simula a run anterior: a foto já foi copiada pro destino, o vídeo não.
+	if err := os.MkdirAll(filepath.Join(dst, "Fotos"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "Fotos", "1.jpg"), []byte("foto"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stat, _ := os.Stat(src)
+	if err := copyDirAndRemove(src, dst, stat); err != nil {
+		t.Fatalf("copyDirAndRemove (resume): %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dst, "video.mp4")); string(b) != "video-grande" {
+		t.Errorf("vídeo faltante não foi copiado, got %q", b)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("origem deveria ser removida ao final do resume")
+	}
+}
+
 // hgCFakeFileInfo satisfies os.FileInfo enough for copyFileAndRemove's Mode()
 // call on the error path (the file open fails before mode matters).
 type hgCFakeFileInfo struct{ os.FileInfo }
