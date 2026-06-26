@@ -1212,6 +1212,15 @@ func moveDownloadedFile(ctx context.Context, dataDir, destDir, relPath string, o
 		if fileExists(dst) {
 			return dst, nil
 		}
+		// anacrolix relocated storage writes dst+".part" while pieces land and
+		// renames it on completion; a torrent dropped before that rename finishes
+		// leaves a complete-size .part at the destination. Finishing the rename here
+		// recovers the file without re-downloading anything.
+		if part := dst + partSuffix; fileExists(part) {
+			if err := os.Rename(part, dst); err == nil {
+				return dst, nil
+			}
+		}
 		return "", fmt.Errorf("completed file not found in %s for %q", dataDir, relPath)
 	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
@@ -1464,6 +1473,14 @@ func moveTreeEntry(ctx context.Context, dataDir, destDir, torrentName, rel strin
 	if src == "" {
 		if fileExists(dst) {
 			return true, nil // already moved on a previous attempt
+		}
+		// anacrolix relocated storage may have written dst+".part" and not yet
+		// renamed it (torrent dropped mid-rename). Completing the rename here
+		// recovers without re-downloading. Mirrors moveDownloadedFile.
+		if part := dst + partSuffix; fileExists(part) {
+			if err := os.Rename(part, dst); err == nil {
+				return true, nil
+			}
 		}
 		return false, fmt.Errorf("completed file not found in %s for %q", dataDir, rel)
 	}
