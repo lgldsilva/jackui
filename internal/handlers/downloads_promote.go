@@ -435,9 +435,11 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 	}
 	// file_path was just updated to the new destination, so EnsureActive's
 	// relocatedStorage resolves the moved file and seeds it in place (no re-download).
+	// SeedSource prefers a bare info_hash magnet → the cached metainfo resolves it
+	// without re-fetching the (often dead) origin .torrent URL.
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if _, err := o.s.EnsureActive(ctx, d.EffectiveMagnet()); err != nil {
+	if _, err := o.s.EnsureActive(ctx, d.SeedSource()); err != nil {
 		log.Printf("promote: reseed #%d %q from new location failed: %v", d.ID, d.Name, err)
 	}
 }

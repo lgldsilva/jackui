@@ -152,6 +152,21 @@ func (d Download) EffectiveMagnet() string {
 	return d.Magnet
 }
 
+// SeedSource returns the source to (re)activate a COMPLETED download for
+// seeding. It prefers a bare info_hash magnet so the streamer resolves the
+// torrent from its CACHED metainfo and seeds the on-disk data in place, instead
+// of re-fetching the original indexer .torrent URL — an ephemeral Jackett/proxy
+// link that 404s once its token expires (the "auto-seed failed: .torrent URL
+// returned 404" log). The bare magnet is just the lookup key: the cached
+// metainfo carries the full announce list, so the seed still reaches the
+// tracker. Falls back to the stored source when the info_hash is unknown.
+func (d Download) SeedSource() string {
+	if d.InfoHash != "" {
+		return "magnet:?xt=urn:btih:" + d.InfoHash
+	}
+	return d.EffectiveMagnet()
+}
+
 type Store struct {
 	db *sql.DB
 }
