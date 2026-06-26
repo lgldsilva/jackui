@@ -495,10 +495,31 @@ func (w *Worker) completeGroup(g Group, state groupState) {
 // (preserving the torrent's internal tree) off the tick, sets EACH member's
 // file_path to its own moved file (item 6: never the bare torrent dir), then
 // finalizes the moved rows to `completed` (status-guarded). On a persistent move
-// error the moved rows go `failed`; an app shutdown mid-retry leaves them
-// `moving` for boot rescue. Multi-file groups never AI-rename.
+// error (after moveMaxAttempts retries) the moved rows go `failed`; an app
+// shutdown mid-retry leaves them `moving` for boot rescue. Multi-file groups
+// never AI-rename.
 func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMover, total int64, job *transfer.Job) {
-	if err := w.moveGroupFiles(g, name, movers, job); err != nil {
+	var err error
+	for attempt := 1; attempt <= moveMaxAttempts; attempt++ {
+		if job.Canceled() {
+			err = fmt.Errorf("transferência cancelada")
+			break
+		}
+		err = w.moveGroupFiles(g, name, movers, job)
+		if err == nil {
+			break
+		}
+		log.Printf("downloads: group %s move attempt %d/%d: %v", g.Key, attempt, moveMaxAttempts, err)
+		if attempt == moveMaxAttempts {
+			break
+		}
+		select {
+		case <-w.stop:
+			return // shutting down: leave rows `moving` for boot rescue
+		case <-time.After(time.Duration(attempt) * w.moveBackoff):
+		}
+	}
+	if err != nil {
 		for _, mv := range movers {
 			if e := w.store.SetError(mv.row.UserID, mv.row.ID, "move failed: "+err.Error()); e != nil {
 				log.Printf("downloads: mark group move-failed #%d: %v", mv.row.ID, e)
