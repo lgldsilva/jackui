@@ -649,19 +649,26 @@ export default function LocalPage() {
 
   useEffect(() => {
     localMounts()
-      .then((ms) => {
-        setMounts(ms)
-        const mountFromUrl = new URLSearchParams(globalThis.location.search).get('mount')
-        if (ms.length > 0 && !mountFromUrl) {
-          updateNavigation(ms[0].name, '', true)
-        }
-      })
+      .then(setMounts)
       .catch((e: unknown) => {
         const msg = e instanceof Error ? e.message : 'Erro ao carregar mounts'
         setError(msg)
       })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Auto-seleciona o primeiro mount sempre que NENHUM está selecionado — no land
+  // inicial E ao re-clicar "Local" na nav (que vai pra /local sem ?mount=, zerando
+  // o activeMount). Tem que ser REATIVO, não só no load: no mobile o seletor de
+  // mount vive DENTRO do bloco `{activeMount && ...}`, então um activeMount vazio
+  // escondia os mounts por completo ("clico no Local 2x e some os mounts"). Manter
+  // sempre um mount selecionado evita esse estado morto. Loop não acontece: ao
+  // selecionar, activeMount deixa de ser vazio e o efeito vira no-op.
+  useEffect(() => {
+    if (mounts.length > 0 && !activeMount) {
+      updateNavigation(mounts[0].name, '', true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounts, activeMount])
 
   // reqSeq guards against out-of-order responses: when the user navigates
   // quickly (or the initial mount load is still in flight), two localList calls
