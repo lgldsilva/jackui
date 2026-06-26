@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -347,7 +346,8 @@ func promoteOne(o *promoteOpts) (*downloads.Download, error) {
 	if src == dst {
 		return d, nil
 	}
-	if _, statErr := os.Stat(src); statErr != nil {
+	srcInfo, statErr := os.Stat(src)
+	if statErr != nil {
 		return nil, errors.New("arquivo de origem não existe: " + statErr.Error())
 	}
 	if err := ensureTargetDir(targetDir); err != nil {
@@ -355,7 +355,10 @@ func promoteOne(o *promoteOpts) (*downloads.Download, error) {
 	}
 	files, bytes := countTree(src)
 	job := o.tracker.Start(baseName, "promote", files, bytes)
-	if err := moveWithFallbackJob(src, dst, job, files, bytes); err != nil {
+	// movePathJob trata arquivo E diretório (whole-torrent é uma pasta) — o copy
+	// cross-device antigo (promoteCopyDeleteJob) só lia arquivo e estourava
+	// "read ...: is a directory" ao promover um torrent de múltiplos arquivos.
+	if err := movePathJob(src, dst, srcInfo, job, files, bytes); err != nil {
 		job.Fail(err)
 		return nil, errors.New("mover arquivo: " + err.Error())
 	}
@@ -399,21 +402,6 @@ func promoteDestPath(o *promoteOpts, baseName string, targetDir *string) string 
 
 func ensureTargetDir(targetDir string) error {
 	return os.MkdirAll(targetDir, 0755)
-}
-
-func moveWithFallback(src, dst string) error {
-	return moveWithFallbackJob(src, dst, nil, 0, 0)
-}
-
-// moveWithFallbackJob is moveWithFallback with transfer-progress reporting:
-// files/bytes are reported in one shot for the instant same-fs rename; the
-// cross-device copy fallback meters itself.
-func moveWithFallbackJob(src, dst string, job *transfer.Job, files int, bytes int64) error {
-	if err := os.Rename(src, dst); err != nil {
-		return promoteCopyDeleteJob(src, dst, job)
-	}
-	reportInstantMove(job, files, bytes)
-	return nil
 }
 
 // applySeedingAfterPromote re-points or stops the torrent after its file was
@@ -480,30 +468,3 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 	}
 }
 
-// promoteCopyDelete handles cross-filesystem moves (Rename fails when src and
-// dst live on different mount points). Copies content then removes the source.
-// Best-effort cleanup: removes the partial dst on error.
-func promoteCopyDelete(src, dst string) error { return promoteCopyDeleteJob(src, dst, nil) }
-
-func promoteCopyDeleteJob(src, dst string, job *transfer.Job) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, transfer.ProgressReader(in, job.AddBytesFunc())); err != nil {
-		_ = out.Close()
-		_ = os.Remove(dst)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		_ = os.Remove(dst)
-		return err
-	}
-	job.FileDone()
-	return os.Remove(src)
-}
