@@ -9,7 +9,7 @@ import {
   DownloadEntry, DownloadDetails, StreamFile, TorrentInfo, DownloadSource,
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed, downloadSources, downloadCreate,
 } from '../api/client'
-import { formatBytes, formatRate } from '../lib/format'
+import { formatBytes, formatRate, formatBytesPair } from '../lib/format'
 import { Sheet } from './Sheet'
 
 type Props = {
@@ -440,7 +440,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               </Field>
               <Field label="Progresso">
                 <span className="text-text-primary">
-                  {formatBytes(d.bytesDownloaded)} ({d.fileSize > 0 ? Math.round((d.bytesDownloaded / d.fileSize) * 100) : 0}%)
+                  {formatBytesPair(d.bytesDownloaded, d.fileSize)} ({d.fileSize > 0 ? Math.round((d.bytesDownloaded / d.fileSize) * 100) : 0}%)
                 </span>
               </Field>
               {torrent && (
