@@ -700,16 +700,7 @@ export default function DownloadsPage() {
   ).length
 
   // Summary stats
-  const dlRateByHash = new Map<string, number>()
-  for (const d of items) {
-    if (d.status === 'downloading') {
-      if (!dlRateByHash.has(d.infoHash)) {
-        dlRateByHash.set(d.infoHash, d.downRate || 0)
-      }
-    }
-  }
-  const totalDown = displayTorrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
-    + Array.from(dlRateByHash.values()).reduce((sum, rate) => sum + rate, 0)
+  const totalDown = torrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
   const totalUp = torrents.reduce((sum, t) => sum + (t.upRate || 0), 0)
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
   // Counts are by TORRENT, not by file row (a 778-file pack is 1 torrent) — see
