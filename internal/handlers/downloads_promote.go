@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/diskutil"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -418,24 +420,28 @@ func runPromotePlan(o *promoteOpts, p *promotePlan, job *transfer.Job) error {
 	return nil
 }
 
-// submitPromotePlans copia os planos validados em background, num único job
-// agregado do pool de transferências — para a request retornar na hora (sem
-// estourar o timeout do proxy numa cópia grande). O painel de Transferências
-// mostra o progresso; a lista de downloads reflete o novo file_path ao concluir.
+// submitPromotePlans copia os planos validados em background. A estratégia
+// depende do disco DESTINO:
+//   - HDD (rotacional): UM job sequencial. Cópias paralelas no mesmo HDD fazem
+//     a cabeça do disco buscar entre elas (seek thrashing) e o throughput
+//     agregado despenca vs uma cópia de cada vez.
+//   - SSD/NVMe: UM job por item → o pool roda vários em paralelo, com progresso
+//     por arquivo, sem penalidade de seek.
+//
+// Em ambos os casos a intenção é persistida ANTES de copiar (resume no boot) e
+// removida ao concluir, e a request retorna na hora (sem 504).
 func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePlan) {
-	// Um job POR item (não um job agregado): o pool de transferências roda vários
-	// em paralelo (até defaultMaxConcurrent) e enfileira o resto, então o usuário
-	// vê o progresso por arquivo no painel e várias cópias andam ao mesmo tempo —
-	// em vez de uma fila sequencial dentro de um job único.
+	if len(plans) == 0 {
+		return
+	}
+	if diskutil.IsRotational(plans[0].dst) {
+		submitPromoteSerial(o, tr, plans)
+		return
+	}
 	for _, p := range plans {
 		p := p // captura por iteração
-		label := safeBaseName(p.src, p.d.Name)
-		// Persiste a intenção ANTES de copiar: se o processo cair/reiniciar no
-		// meio, o boot re-submete (resume-aware: pula o que já foi copiado).
-		// Removida ao concluir com sucesso.
-		payload, _ := json.Marshal(promotePayload{DownloadID: p.d.ID, UserID: o.userID, KeepSeeding: o.keepSeeding})
-		pid, _ := o.pending.Add(transfer.Pending{Kind: "promote", Src: p.src, Dst: p.dst, Payload: string(payload)})
-		tr.Submit(label, "promote", p.files, p.bytes, func(job *transfer.Job) {
+		pid := addPendingPromote(o, p)
+		tr.Submit(safeBaseName(p.src, p.d.Name), "promote", p.files, p.bytes, func(job *transfer.Job) {
 			if err := runPromotePlan(o, p, job); err != nil {
 				job.Fail(err)
 				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
@@ -445,6 +451,48 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 			job.Done()
 		})
 	}
+}
+
+// submitPromoteSerial copia todos os planos num único job, um de cada vez —
+// usado quando o destino é um HDD (evita seek thrashing de cópias paralelas).
+func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promotePlan) {
+	pids := make([]int64, len(plans))
+	files, bytes := 0, int64(0)
+	for i, p := range plans {
+		pids[i] = addPendingPromote(o, p)
+		files += p.files
+		bytes += p.bytes
+	}
+	label := safeBaseName(plans[0].src, plans[0].d.Name)
+	if len(plans) > 1 {
+		label = fmt.Sprintf("%d itens", len(plans))
+	}
+	tr.Submit(label, "promote", files, bytes, func(job *transfer.Job) {
+		var firstErr error
+		for i, p := range plans {
+			if err := runPromotePlan(o, p, job); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
+				continue
+			}
+			_ = o.pending.Remove(pids[i])
+		}
+		if firstErr != nil {
+			job.Fail(firstErr)
+			return
+		}
+		job.Done()
+	})
+}
+
+// addPendingPromote persiste a intenção de uma promoção (resume no boot) e
+// devolve o id pra removê-la ao concluir.
+func addPendingPromote(o *promoteOpts, p *promotePlan) int64 {
+	payload, _ := json.Marshal(promotePayload{DownloadID: p.d.ID, UserID: o.userID, KeepSeeding: o.keepSeeding})
+	pid, _ := o.pending.Add(transfer.Pending{Kind: "promote", Src: p.src, Dst: p.dst, Payload: string(payload)})
+	return pid
 }
 
 func promoteTargetDir(o *promoteOpts) (string, error) {
