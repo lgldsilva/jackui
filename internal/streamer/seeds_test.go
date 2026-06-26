@@ -2,6 +2,8 @@ package streamer
 
 import (
 	"path/filepath"
+
+	"github.com/anacrolix/torrent/metainfo"
 	"testing"
 )
 
@@ -139,5 +141,29 @@ func TestSetSeedTrackersLive(t *testing.T) {
 	// shouldKeepSeeding with a nil torrent is always false (guard).
 	if s.shouldKeepSeeding(nil) {
 		t.Fatal("nil torrent should not keep seeding")
+	}
+}
+
+// DropSeed (ação explícita do usuário) remove o registro PERSISTENTE de
+// auto-seed, ao contrário do Drop genérico — senão o torrent voltaria a seedar
+// no próximo boot. Regressão do "streamings ativos que reaparecem".
+func TestDropSeedRemovesPersisted(t *testing.T) {
+	s := NewForTesting()
+	seeds := newSeedsForTest(t)
+	s.SetSeeds(seeds)
+
+	var h metainfo.Hash
+	if err := h.FromHexString("aabbccddeeff00112233445566778899aabbccdd"); err != nil {
+		t.Fatal(err)
+	}
+	if err := seeds.Add(h.HexString(), "magnet:?xt=urn:btih:"+h.HexString(), "X"); err != nil {
+		t.Fatal(err)
+	}
+	if !seeds.Has(h.HexString()) {
+		t.Fatal("seed deveria existir antes do DropSeed")
+	}
+	s.DropSeed(h) // não está ativo no client → Drop é no-op; o que importa é limpar o persistido
+	if seeds.Has(h.HexString()) {
+		t.Error("DropSeed deveria remover o seed persistido (.seeds.db)")
 	}
 }
