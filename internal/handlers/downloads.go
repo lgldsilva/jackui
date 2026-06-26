@@ -55,72 +55,77 @@ func (uc userCache) get(store *auth.Store, userID int) string {
 	return u.Username
 }
 
-// enrichETA populates DownRate and ETA for a download by looking up the
-// active torrent info from the streamer. No-op when streamer is nil.
+// liveStats holds a torrent's live (non-persisted) metrics. They're per-torrent,
+// so every selected file of one torrent shares them.
+type liveStats struct {
+	down, up int64
+	seeders  int
+}
+
+// enrichETA populates the live metrics + ETA for a download by looking up the
+// active torrent info from the streamer. No-op when streamer is nil or the
+// torrent isn't active — the row's existing values are preserved.
 func enrichETA(d *downloads.Download, s *streamer.Streamer) {
 	if s == nil || d.InfoHash == "" || d.FileSize <= 0 {
 		return
 	}
-	var h metainfo.Hash
-	if err := h.FromHexString(d.InfoHash); err != nil {
-		return
+	if st, ok := liveStatsOf(s, d.InfoHash); ok {
+		applyLive(d, st)
 	}
-	info, err := s.Get(h)
-	if err != nil || info == nil {
-		return
-	}
-	applyETA(d, info.DownRate)
 }
 
-// applyETA sets DownRate + ETA on a row from its torrent's (shared) download rate.
-// The rate is per-torrent, so every selected file of one torrent shares it.
-func applyETA(d *downloads.Download, rate int64) {
-	d.DownRate = rate
-	if rate <= 0 {
+// applyLive sets DownRate/UpRate/Seeders + ETA on a row from its torrent's
+// shared stats. The UI sorts by down/up rate and seeders client-side (they're
+// live, not stored, so they can't be ORDER BY'd in SQL).
+func applyLive(d *downloads.Download, st liveStats) {
+	d.DownRate, d.UpRate, d.Seeders = st.down, st.up, st.seeders
+	if st.down <= 0 {
 		return
 	}
 	if remaining := d.FileSize - d.BytesDownloaded; remaining > 0 {
-		d.ETA = int(remaining / rate)
+		d.ETA = int(remaining / st.down)
 	}
 }
 
-// enrichETAList fills DownRate/ETA for the slice, looking each torrent up in the
-// streamer ONCE per unique info_hash. Many rows are selected files of the SAME
-// torrent (a multi-file pack is hundreds of rows), and s.Get→buildInfo is
-// O(files); doing it per row was O(rows×files) and locked the torrent client
+// enrichETAList fills the live metrics + ETA for the slice, looking each torrent
+// up in the streamer ONCE per unique info_hash. Many rows are selected files of
+// the SAME torrent (a multi-file pack is hundreds of rows), and s.Get→buildInfo
+// is O(files); doing it per row was O(rows×files) and locked the torrent client
 // thousands of times — which made GET /api/downloads take MINUTES on a big pack.
 // Deduping by hash makes it O(unique active torrents).
 func enrichETAList(list []downloads.Download, s *streamer.Streamer) {
 	if s == nil {
 		return
 	}
-	rateByHash := make(map[string]int64)
+	byHash := make(map[string]liveStats)
 	for i := range list {
 		d := &list[i]
 		if d.InfoHash == "" || d.FileSize <= 0 {
 			continue
 		}
-		rate, seen := rateByHash[d.InfoHash]
+		st, seen := byHash[d.InfoHash]
 		if !seen {
-			rate = downRateOf(s, d.InfoHash)
-			rateByHash[d.InfoHash] = rate
+			st, _ = liveStatsOf(s, d.InfoHash) // zero value when inactive — rows default to 0 anyway
+			byHash[d.InfoHash] = st
 		}
-		applyETA(d, rate)
+		applyLive(d, st)
 	}
 }
 
-// downRateOf returns a torrent's current download rate, or 0 when it isn't active
-// (or the hash is malformed). One streamer lookup; callers cache it by hash.
-func downRateOf(s *streamer.Streamer, infoHash string) int64 {
+// liveStatsOf returns a torrent's current down/up rate + seeders. ok is false
+// when the torrent isn't active (or the hash is malformed) — callers preserve
+// the row's existing values in that case. One streamer lookup; callers cache it
+// by hash.
+func liveStatsOf(s *streamer.Streamer, infoHash string) (liveStats, bool) {
 	var h metainfo.Hash
 	if err := h.FromHexString(infoHash); err != nil {
-		return 0
+		return liveStats{}, false
 	}
 	info, err := s.Get(h)
 	if err != nil || info == nil {
-		return 0
+		return liveStats{}, false
 	}
-	return info.DownRate
+	return liveStats{down: info.DownRate, up: info.UpRate, seeders: info.Seeders}, true
 }
 
 // markPromoted sets Promoted=true for completed downloads whose FilePath is

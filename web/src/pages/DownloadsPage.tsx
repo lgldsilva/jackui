@@ -29,6 +29,7 @@ import {
 import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
 import { localBrowseHref } from '../lib/localBrowse'
 import { newPendingDeletes, markDeleted, clearDeleted, reconcile } from '../lib/downloadsReconcile'
+import { applyDownloadSort } from '../lib/downloadSort'
 import PromoteModal from '../components/PromoteModal'
 import { SelectAllButton } from '../components/SelectAllButton'
 import { usePlayer } from '../components/PlayerProvider'
@@ -624,12 +625,18 @@ export default function DownloadsPage() {
     return s === 'seeding' || s === 'complete'
   })
 
+  // Ordenação por métrica AO VIVO (velocidade ↓/↑, seeds) é client-side: esses
+  // valores não são persistidos, então o backend não os ordena (ORDER BY). As
+  // demais chaves (data/nome/...) seguem server-side; aqui a ordem é preservada.
+  // As seções/grupos derivam de sortedItems para herdar a ordem escolhida.
+  const sortedItems = applyDownloadSort(items, sortCol, sortDir)
+
   // Per-status download groups
   const downloadsByStatus = {
-    downloading: items.filter(d => d.status === 'downloading' || d.status === 'queued'),
-    paused:      items.filter(d => d.status === 'paused'),
-    completed:   items.filter(d => d.status === 'completed'),
-    failed:      items.filter(d => d.status === 'failed'),
+    downloading: sortedItems.filter(d => d.status === 'downloading' || d.status === 'queued'),
+    paused:      sortedItems.filter(d => d.status === 'paused'),
+    completed:   sortedItems.filter(d => d.status === 'completed'),
+    failed:      sortedItems.filter(d => d.status === 'failed'),
   }
   const completedDownloads = downloadsByStatus.completed
 
@@ -721,7 +728,7 @@ export default function DownloadsPage() {
 
   // Items for the currently-selected status tab
   const tabDownloads: Record<Tab, DownloadEntry[]> = {
-    all:         items,
+    all:         sortedItems,
     downloading: [...downloadsByStatus.downloading, ...downloadsByStatus.paused, ...downloadsByStatus.failed],
     paused:      downloadsByStatus.paused,
     completed:   completedDownloads,
@@ -1005,6 +1012,9 @@ export default function DownloadsPage() {
                   <option value="name">Nome</option>
                   <option value="size">Tamanho</option>
                   <option value="progress">Progresso</option>
+                  <option value="downRate">Velocidade ↓</option>
+                  <option value="upRate">Velocidade ↑</option>
+                  <option value="seeders">Seeds</option>
                   <option value="status">Status</option>
                   <option value="tracker">Tracker</option>
                   <option value="category">Categoria</option>
