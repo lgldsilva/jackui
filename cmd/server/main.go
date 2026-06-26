@@ -161,7 +161,8 @@ type appDeps struct {
 	hlsMgr          *transcode.HLSSessionManager
 	localStream     *localstream.Registry
 	localCache      *localcache.Cache
-	transferTracker *transfer.Tracker
+	transferTracker  *transfer.Tracker
+	pendingTransfers *transfer.Store // persisted move/promote intents → resumed on boot
 	// restart is signalled by the gluetun forwarded-port watcher when the VPN
 	// port changes. main's select drains it and runs the SAME graceful shutdown
 	// as a SIGTERM (instead of os.Exit, which skipped every cleanup), then the
@@ -566,6 +567,17 @@ func initDownloadsStore(deps *appDeps) {
 	deps.downloadsStore = d
 	deps.addCleanup(func() { d.Close() })
 	log.Printf("Downloads: %s", dlPath)
+
+	// Pending-transfers store: persists move/promote copy intents so a deploy or
+	// crash mid-copy resumes them on the next boot (resume-aware copy finishes
+	// only what's left). Best-effort — a failure here just disables resume.
+	if ts, err := transfer.OpenStore(deps.stateDir + "/.transfers.db"); err != nil {
+		log.Printf("Warning: pending-transfers store init failed (resume disabled): %v", err)
+	} else {
+		deps.pendingTransfers = ts
+		deps.addCleanup(func() { ts.Close() })
+		handlers.ReconcilePendingTransfers(ts, deps.transferTracker, d, deps.streamSrv)
+	}
 
 	deps.streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
 		// FileRelPath lets the store resolve files inside whole-torrent rows
@@ -1374,8 +1386,8 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))
 	api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(deps.downloadsStore))
 	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore, downloadRemoverDep(deps)))
-	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker))
-	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker))
+	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker, deps.pendingTransfers))
+	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker, deps.pendingTransfers))
 	api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(deps.downloadsStore, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/promote/destinations", handlers.DownloadsPromoteDests(deps.cfg.Stream.SharedDir, deps.promoteDests))
