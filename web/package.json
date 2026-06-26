@@ -1,6 +1,6 @@
 {
   "name": "jackui",
-  "version": "0.4.0",
+  "version": "0.64.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
