@@ -81,15 +81,16 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
           {m.kind === 'tv' ? <Tv className="w-3 h-3" /> : <Film className="w-3 h-3" />}
           {m.kind === 'tv' ? 'Série' : 'Filme'}
         </span>
-        {/* On recommendation cards a hover-only "ignore" (X) sits top-right; the
-            rating drops one row so the two never overlap. Trending cards keep the
-            rating at top-right (no dismiss). */}
+        {/* On recommendation cards an "ignore" (X) sits top-right. Always visible
+            on touch (no hover there — the X was unreachable on mobile); hover-only
+            on devices with a real pointer to keep the grid clean. The rating drops
+            one row so the two never overlap. Trending cards have no dismiss. */}
         {onDismiss && (
           <button
             onClick={onDismiss}
             title="Não recomendar isto"
             aria-label={`Não recomendar "${m.title}"`}
-            className="absolute top-1 right-1 z-[2] flex items-center justify-center w-7 h-7 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400 transition-opacity"
+            className="absolute top-1 right-1 z-[2] flex items-center justify-center w-7 h-7 rounded-full bg-black/70 text-white opacity-100 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400 transition-opacity"
           >
             <X className="w-4 h-4" />
           </button>

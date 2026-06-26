@@ -718,6 +718,21 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 // maybePersistSeed records the torrent in the seed store when it matches a
 // configured seed-tracker, so seeding resumes automatically on the next boot.
 // No-op without a seed store or when the torrent isn't a keep-seeding match.
+// DropSeed para de auto-seedar um torrent de vez: remove o registro PERSISTENTE
+// (.seeds.db) para que ele NÃO volte no próximo boot (resumeSeeding) e o dropa
+// da memória. Usar nas ações EXPLÍCITAS do usuário (parar de seedar / remover
+// torrent / excluir download) — ao contrário do Drop genérico (idle/health),
+// que preserva o auto-seed. Sem isto, um torrent auto-seedado reaparecia como
+// "ativo" para sempre, mesmo após ser removido.
+func (s *Streamer) DropSeed(hash metainfo.Hash) {
+	if s.seeds != nil {
+		if err := s.seeds.Remove(hash.HexString()); err != nil {
+			log.Printf("streamer: remove persisted seed %s failed: %v", hash.HexString()[:8], err)
+		}
+	}
+	s.Drop(hash)
+}
+
 func (s *Streamer) maybePersistSeed(t *torrent.Torrent) {
 	if s.seeds == nil || t == nil {
 		return

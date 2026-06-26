@@ -165,9 +165,17 @@ type StreamConfig struct {
 	// MaxConcurrentTransfers caps simultaneous file move/copy operations (post-
 	// download move, Local-tab move); the rest queue FIFO. 0 = default (3). Higher
 	// helps cloud/rclone destinations; lower (1-2) is better for a single HDD.
-	MaxConcurrentTransfers int                 `yaml:"max_concurrent_transfers"`
-	PromoteDirs            []PromoteDir        `yaml:"promote_dirs"` // additional promote destinations (name + path)
-	BandwidthSchedules     []BandwidthSchedule `yaml:"bandwidth_schedules"`
+	MaxConcurrentTransfers int `yaml:"max_concurrent_transfers"`
+	// TransferConcurrencyMode controla como as cópias de promote/move concorrem:
+	//   "" / "auto" → detecta o disco DESTINO: serializa em HDD (evita seek
+	//                 thrashing), paraleliza em SSD/NVMe. (default, recomendado)
+	//   "serial"    → sempre uma cópia por vez (qualquer disco).
+	//   "parallel"  → sempre em paralelo até MaxConcurrentTransfers (ignora a
+	//                 detecção de HDD; útil p/ RAID/NVMe-cache onde seek não dói).
+	// Lido AO VIVO a cada promote (UI/yaml alteram sem reiniciar).
+	TransferConcurrencyMode string              `yaml:"transfer_concurrency_mode"`
+	PromoteDirs             []PromoteDir        `yaml:"promote_dirs"` // additional promote destinations (name + path)
+	BandwidthSchedules      []BandwidthSchedule `yaml:"bandwidth_schedules"`
 
 	// ── Performance / hardware tuning (0/"" = usar default; aplicado no streamer) ──
 	// Banda: caps de peer em bytes/seg; 0 = ilimitado. Aplicados AO VIVO via
