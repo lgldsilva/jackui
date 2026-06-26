@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
@@ -451,41 +452,49 @@ func Test_hgA_applySeedingAfterPromote_EmptyHash(t *testing.T) {
 // downloads_promote.go — promoteOne + handlers
 // ----------------------------------------------------------------------------
 
-func Test_hgA_promoteOne_NotFound(t *testing.T) {
+func Test_hgA_promotePrepare_NotFound(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
-	_, err := promoteOne(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: 999})
+	_, err := promotePreparePlan(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: 999})
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}
 }
 
-func Test_hgA_promoteOne_NotCompleted(t *testing.T) {
+func Test_hgA_promotePrepare_NotCompleted(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = promoteOne(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: d.ID})
+	_, err = promotePreparePlan(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: d.ID})
 	if err == nil {
 		t.Fatal("expected error for non-completed download")
 	}
 }
 
-func Test_hgA_promoteOne_Success(t *testing.T) {
+// Prepare valida e devolve o plano; runPromotePlan faz a cópia (job nil = sem
+// reporte) + atualiza file_path. Espelha o caminho async do handler.
+func Test_hgA_promotePlan_Success(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	srcDir := t.TempDir()
 	shared := t.TempDir()
 	d := hgACompletedDownload(t, store, srcDir, "movie.mkv")
 
-	// keepSeeding:false → promote + stop (Drop is a no-op here; nothing active).
-	// The keepSeeding re-add path is covered by Test_hgA_applySeedingAfterPromote_*.
-	updated, err := promoteOne(&promoteOpts{store: store, s: s, sharedDir: shared, userID: 0, id: d.ID, keepSeeding: false})
+	o := &promoteOpts{store: store, s: s, sharedDir: shared, userID: 0, id: d.ID, keepSeeding: false}
+	plan, err := promotePreparePlan(o)
 	if err != nil {
-		t.Fatalf("promoteOne: %v", err)
+		t.Fatalf("promotePreparePlan: %v", err)
 	}
+	if plan == nil {
+		t.Fatal("expected a plan (src != dst)")
+	}
+	if err := runPromotePlan(o, plan, nil); err != nil {
+		t.Fatalf("runPromotePlan: %v", err)
+	}
+	updated, _ := store.Get(0, d.ID)
 	if updated.FilePath != filepath.Join(shared, "movie.mkv") {
 		t.Errorf("FilePath=%q", updated.FilePath)
 	}
@@ -494,7 +503,7 @@ func Test_hgA_promoteOne_Success(t *testing.T) {
 	}
 }
 
-func Test_hgA_promoteOne_MissingSrc(t *testing.T) {
+func Test_hgA_promotePrepare_MissingSrc(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	// Create completed row pointing at a file that doesn't exist on disk.
@@ -503,7 +512,7 @@ func Test_hgA_promoteOne_MissingSrc(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
-	_, err = promoteOne(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: d.ID})
+	_, err = promotePreparePlan(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: d.ID})
 	if err == nil {
 		t.Fatal("expected error for missing source file")
 	}
@@ -565,8 +574,18 @@ func Test_hgA_DownloadsPromote_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(shared, "promote_me.mkv")); err != nil {
-		t.Errorf("file not promoted: %v", err)
+	// A cópia roda em background (tr.Submit → goroutine), então o handler retorna
+	// 200 antes de mover. Aguarda o arquivo aparecer no destino (polling curto).
+	moved := false
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(filepath.Join(shared, "promote_me.mkv")); err == nil {
+			moved = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !moved {
+		t.Errorf("file not promoted within timeout (async copy)")
 	}
 }
 
