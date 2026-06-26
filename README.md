@@ -7,7 +7,7 @@ A self-hosted **torrent streaming media server** — search, stream a torrent to
 > JackUI started as a visual front-end for [Jackett](https://github.com/Jackett/Jackett) and grew into a full media server: find a release, start playing it while it downloads, and let the server transcode incompatible codecs to something your browser can play. No "wait for the download to finish", no separate transcoding box.
 
 > [!NOTE]
-> The web UI is currently Portuguese-only. Internationalisation (i18n) is on the [roadmap](#roadmap). This README and the developer docs are in English.
+> The web UI is internationalised (react-i18next): Portuguese and English ship today (`web/src/locales/{pt,en}.json`). This README and the developer docs are in English.
 
 ## How it works
 
@@ -32,17 +32,22 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 ## Features
 
 - **Stream before download** — torrent → HTTP with Range; playback starts on the first pieces. Disk cache with LRU eviction (favourites protected).
-- **On-demand transcode** — HEVC/AV1/x265 → H.264 via GPU (NVENC/VAAPI/QSV) or libx264 fallback. Safari gets **HLS**; everyone else gets direct-play or progressive transcode.
-- **Swarm health on cards** — `SeedBadge` shows seeders + availability, probed in the background and cached.
+- **On-demand transcode** — HEVC/AV1/x265 → H.264 via GPU (NVENC/VAAPI/QSV) or libx264 fallback. Safari gets **HLS**; everyone else gets direct-play or progressive transcode. The GPU is bounded: a semaphore caps concurrent CUDA decoders (`JACKUI_MAX_GPU_TRANSCODES`, default 3) and an extra session falls back to CPU-decode + NVENC-encode on `CUDA_ERROR_OUT_OF_MEMORY`, so playback never hard-fails for lack of VRAM.
+- **Music player** — audio playlists with **gapless** playback, selectable HLS audio track (torrent + local), cover art / chapters / `mediaSession` (lock-screen + AirPlay on Safari/iOS), and a footer mini-player you can drag and expand.
+- **Swarm health on cards** — `SeedBadge` shows seeders + availability. A background **tracker scrape** (BEP 48, private trackers included) backs the count so an active torrent never sits at a misleading 0; results are cached.
 - **Subtitles** — embedded (ffmpeg probe), sidecar `.srt`/`.vtt` inside the torrent, and external (OpenSubtitles). Choice persists per file.
-- **TMDB enrichment** — posters + metadata on results and library (SQLite cache, 30-day TTL). **Discover** page surfaces weekly-trending titles.
+- **Discover & recommendations** — a **Discover** page with weekly-trending titles, **personalised recommendations** seeded from your favourites + watch history (with dismiss), and a **Music** mode showing trending albums (keyless Apple RSS). Both seed the search on click.
+- **TMDB enrichment** — posters + metadata on results and library (SQLite cache, 30-day TTL).
 - **Per-torrent artwork** — resolved and persisted by `info_hash` through a fail-safe chain: embedded torrent image → TMDB poster → keyless web image search → captured frame.
-- **AI title cleanup** (optional) — an OpenAI-compatible chain (Groq / OpenRouter / Ollama) cleans raw release names before the TMDB lookup, with fallback + circuit breaker.
-- **Background downloads** — queue torrents to disk via the internal worker (qBittorrent/Transmission clients also supported).
+- **AI title cleanup** (optional) — an OpenAI-compatible chain (Groq / OpenRouter / Ollama) cleans raw release names before the TMDB lookup, with per-provider fallback + circuit breaker. A tunable benchmark (Settings → admin) scores providers on accuracy, latency and cost/energy, keeps history, and reorders the chain.
+- **Downloads queue** — the internal worker treats a **multi-file torrent as one unit**: the scheduler counts a slot per torrent and steers the anacrolix file priorities (selected = download, the rest = cancel), so one big pack no longer hogs every slot or spikes CPU/RAM. The list groups one card per torrent; you can filter completed into **Seeding vs On-disk** and sort by speed / seeds / date / name / size / progress. Downloads land under a category folder by default, with a destination picker (incl. browse into mounts) and **auto-seed of completed** torrents (re-seeded in place from the cached metainfo). qBittorrent/Transmission clients are also supported.
 - **`*arr` provider** — exposes a Transmission-RPC-compatible endpoint so **Sonarr/Radarr/Prowlarr** can use JackUI as their download client (opt-in). See [docs/TRANSMISSION_RPC.md](docs/TRANSMISSION_RPC.md).
-- **Library extras** — Playlists, Watchlists (cron + ntfy push), Continue Watching (resume position), a local-files browser over configured mounts, and an Incognito toggle that skips history/library writes.
+- **Local files** — browse configured mounts; a downloaded video on **local disk** seeks instantly (`http.ServeFile`/sendfile), while remote/rclone mounts get read-ahead + a whole-file LRU disk cache. Local play falls back to HLS when the container/codec needs it. Continue Watching tracks local items too; the list filters by **downloading / done**.
+- **Library extras** — Playlists, Watchlists (cron + ntfy push, opt-in auto-download with quality filters), Continue Watching (resume position), and an Incognito toggle that skips history/library writes. A global "reveal hidden" curtain hides flagged items across the UI.
+- **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS` + `JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`) keeps idle memory low on a home server.
 - **Desktop app** (optional) — an Electron wrapper bundling the Go server, with a status tray, magnet deep-links, and native downloads. See [`electron/`](electron/).
-- **Auth** — optional JWT (`JACKUI_AUTH_ENABLED=1`) with rotated refresh tokens and `AdminOnly` routes.
+- **Auth** — optional JWT (`JACKUI_AUTH_ENABLED=1`) with rotated refresh tokens, roles, MFA/passkeys, and `AdminOnly` routes (incl. admin password reset).
+- **Observability** — public `/status` (version/commit/buildTime), Prometheus `/api/metrics` (admin JWT or `JACKUI_METRICS_TOKEN`), structured logs (`JACKUI_LOG_FORMAT=json`), and scheduled **bandwidth windows** for the streamer.
 
 ## Stack
 
@@ -91,8 +96,12 @@ Runtime config comes from `config.yaml` plus environment overrides (env wins). K
 | `TMDB_API_KEY` | — | Poster/metadata enrichment (optional) |
 | `GROQ_API_KEY` / `OPENROUTER_API_KEY` / `OLLAMA_BASE_URL` | — | AI title cleanup (optional, auto-detected) |
 | `JACKUI_TRANSMISSION_RPC_ENABLED` | `0` | Expose the Transmission-RPC `*arr` provider (opt-in) |
+| `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent CUDA decoders (`0` = unlimited; extras fall back to CPU-decode) |
+| `JACKUI_MAX_CONNS` / `JACKUI_PEERS_HIGH` | — | Peer-connection tuning (conns per torrent / swarm high-water) |
 
 State (`JACKUI_CONFIG_DIR`) is deliberately separate from the piece cache + streamer DBs (`JACKUI_CACHE_DIR`) to reduce I/O contention.
+
+*Low-footprint runtime tuning* (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`) is applied via the process environment, not `config.yaml`; production sets it in the deploy compose (see below).
 
 ## Deployment
 
@@ -112,9 +121,12 @@ make deploy-auto        # ✅ default: auto-detects GPU (NVENC/VAAPI/QSV), no VP
 make deploy-auto-vpn    # same, but routes through a gluetun VPN overlay (opt-in)
 ```
 
-`deploy-auto` is the standard path. The `-vpn` variants add a gluetun overlay (`network_mode: container:gluetun`); it is **not** the default because the VPN was cutting peer connectivity on many torrents.
+`deploy-auto` is the standard `make` target (auto-detects the GPU, no VPN); `-vpn` adds a gluetun overlay (`network_mode: container:gluetun`).
 
-CI/CD (Jenkins multibranch + SonarQube quality gate + Trivy + Dependency-Track) is documented in [docs/CICD.md](docs/CICD.md).
+> [!NOTE]
+> The author's own production instance currently runs **behind gluetun** (`network_mode: container:gluetun`, on the VPN's forwarded port — `watchForwardedPort` in `cmd/server/main.go` triggers a graceful restart to rebind when the port rotates), even though the no-VPN path is the documented default. Pick the mode that keeps your swarm healthy.
+
+CI/CD is a Jenkins multibranch job (SonarQube quality gate + Trivy + Dependency-Track), documented in [docs/CICD.md](docs/CICD.md). The deploy step runs `docker compose up -d --force-recreate` against a **hand-maintained** `docker-compose.yml` on the server (not a Portainer stack) — Jenkins only swaps the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
 
 ## Architecture
 
@@ -145,7 +157,7 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 
 ## Roadmap
 
-- [x] **i18n / multi-language UI** — the web UI is Portuguese-only today; extract strings and support English (and others).
+- [x] **i18n / multi-language UI** — done: react-i18next ships Portuguese + English (`web/src/locales/`).
 - [ ] HLS master playlist (Phase 2): N audio/subtitle tracks + multi-resolution in one VOD stream.
 - [x] Streamer reconciles pieces with already-downloaded files (play without re-downloading).
 - [x] "Promote" button on the local-files page; split the streamer's SQLite stores from the cache dir via `JACKUI_STATE_DIR`.

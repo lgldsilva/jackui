@@ -55,7 +55,7 @@ web/src/             React 18 + TS + Vite + Tailwind. PlayerProvider sits ABOVE 
 | `internal/handlers` | HTTP handlers: search (+SSE), config, stream, subtitles, local-file play, artwork resolve, `classify`, diag. |
 | `internal/jackett` | Jackett search client. Strips the API key from download links and re-injects it server-side. |
 | `internal/config` | `config.yaml` load/save + env overrides; stream perf knobs. |
-| `internal/downloads` | Background download queue + async worker (`EnsureActive`+`GotInfo` in a goroutine). |
+| `internal/downloads` | Background download queue + async worker (`EnsureActive`+`GotInfo` in a goroutine). The **aggregate-by-torrent model** lives in `aggregate.go` (see below). |
 | `internal/downloader` | qBittorrent / Transmission client adapters. |
 | `internal/transmissionrpc` | Transmission-RPC compatibility layer so `*arr` apps treat JackUI as a Transmission daemon (opt-in). |
 | `internal/tmdb` | TMDB enrichment (posters, metadata, trending) with SQLite cache. |
@@ -68,6 +68,38 @@ web/src/             React 18 + TS + Vite + Tailwind. PlayerProvider sits ABOVE 
 | `internal/middleware` | Cross-cutting Gin middleware (incognito flag, media-token `?token=` auth). |
 | `internal/parser` / `renamer` / `dbutil` | Release-name parsing, library renaming, SQLite time helpers. |
 | `electron/` | Optional desktop wrapper (Electron main + preload) bundling the Go server. |
+
+## The downloads subsystem (aggregate-by-torrent)
+
+The store persists **one row per `(user_id, info_hash, file_index)`** — a single-file
+download, a selected file inside a multi-file pack, or the whole-torrent sentinel.
+anacrolix, however, treats the torrent as **one unit**. Driving the queue per row (one
+`EnsureActive` / `VerifyFile` / progress-sample / stall-cycle **per file**) was O(files)
+in CPU/RAM and OOM'd on big season packs.
+
+`internal/downloads/aggregate.go` resolves the rows sharing a `(user_id, info_hash)` into
+a runtime **`Group`** (`GroupRows`). The scheduler and worker act on the group, never the
+row:
+
+- the **scheduler** counts **one slot per torrent** — `MaxActive`/`PerUserMax` are
+  torrents, not files (`scheduler.go`);
+- the **worker** activates the torrent **once** per group, marks only the selected files
+  wanted via anacrolix **file priorities** (deselected/removed → `PiecePriorityNone`),
+  samples progress **once**, and runs **one** completion-move + **one** AI-rename + **one**
+  stall cycle for the whole torrent.
+
+No new table and no migration: a single-file download is a group of one, and the
+**whole-torrent sentinel `FileIndexWholeTorrent = -2`** (`store.go`) is an aggregate row
+covering all N files (`DownloadAll()`). **At enqueue**, picking ALL files
+(`isWholeTorrentSelection`) creates a single `-2` row — a 778-file pack = 1 row — while a
+real subset goes per-file via `POST /api/downloads/batch`. The UI groups by `infoHash` →
+**one card per torrent** (counts are per-torrent via `countTorrents`).
+
+**`GET /api/downloads` must stay cheap.** Many rows are selected files of the same
+torrent, so `enrichETAList` (`internal/handlers/downloads.go`) dedupes by `info_hash` and
+calls `Streamer.LiveStats(hash)` — **O(1)** per torrent (cached rate sample +
+`Stats().ConnectedSeeders`, no file walk). The old per-row `s.Get`→`buildInfo` was
+O(rows×files) and made the endpoint take 2–17 s on a big pack.
 
 ## Storage architecture
 
@@ -110,8 +142,10 @@ single `time.Parse` layout.
    `initial_offset` that strands Safari at `t=0`. See design-decisions.
 3. **The ffmpeg source must be seekable** — served over loopback HTTP with Range, not
    a pipe. Seek+Read atomic under mutex.
-4. **A dead magnet must not freeze other downloads.** The downloads worker is async,
-   per-item, with bounded retries.
+4. **A dead magnet must not freeze other downloads, and one torrent is one unit.** The
+   worker is async with bounded retries (init runs in a goroutine, so a stuck `GotInfo`
+   doesn't block the queue). The scheduler/worker operate **per torrent group**
+   (`internal/downloads/aggregate.go`), never per file — see *The downloads subsystem*.
 5. **Incognito skips writes silently** — handlers consult `middleware.IsIncognito(c)`
    and no-op history/library writes.
 
@@ -128,5 +162,6 @@ frontend shows which keys are environment-managed.
 3. `cmd/server/main.go` — how everything is wired together (`appDeps`, route groups).
 4. `internal/streamer/streamer.go` — the heart: Add, cache, the loopback source.
 5. `internal/transcode/` — the ffmpeg/HLS pipeline (read [design-decisions.md](design-decisions.md) first; the gotchas there explain the flags).
-6. `internal/handlers/` — pick the handler for the feature you're touching.
-7. `web/src/components/PlayerProvider.tsx` + `PlayerModal.tsx` — the playback UI.
+6. `internal/downloads/aggregate.go` — the queue's mental model (torrent = one unit, rows aggregated at runtime).
+7. `internal/handlers/` — pick the handler for the feature you're touching.
+8. `web/src/components/PlayerProvider.tsx` + `PlayerModal.tsx` — the playback UI.
