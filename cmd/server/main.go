@@ -174,9 +174,29 @@ func (d *appDeps) addCleanup(fn func()) {
 	d.cleanup = append(d.cleanup, fn)
 }
 
+// cleanupHardDeadline bounds graceful cleanup. The cleanups (anacrolix client
+// Close → Drop each torrent + DHT, store Close, worker Stop) normally finish in
+// a few seconds, but a torrent/DHT teardown can BLOCK indefinitely when the VPN
+// network is down (the "error announcing to DHT: nothing resolved" flood). When
+// that happened mid-shutdown the process hung forever — HTTP already down (502),
+// but never exited, so `restart: unless-stopped` never recreated it. Bounding it
+// + forcing os.Exit lets Docker recycle into a fresh, working instance; the next
+// boot reconciles state (RescueStuckMoving, resumeSeeding, piece verify).
+const cleanupHardDeadline = 20 * time.Second
+
 func (d *appDeps) runCleanup() {
-	for i := len(d.cleanup) - 1; i >= 0; i-- {
-		d.cleanup[i]()
+	done := make(chan struct{})
+	go func() {
+		for i := len(d.cleanup) - 1; i >= 0; i-- {
+			d.cleanup[i]()
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(cleanupHardDeadline):
+		log.Printf("cleanup excedeu %s (anacrolix/DHT travado, rede caída?) — forçando saída; o próximo boot reconcilia", cleanupHardDeadline)
+		os.Exit(0)
 	}
 }
 
