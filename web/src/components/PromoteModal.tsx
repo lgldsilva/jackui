@@ -25,7 +25,6 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const [error, setError] = useState('')
   const [newFolder, setNewFolder] = useState('')
   const [keepSeeding, setKeepSeeding] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
   const [renameIA, setRenameIA] = useState(false)
   const [previews, setPreviews] = useState<PromotePreviewEntry[]>([])
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -88,19 +87,18 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const currentDest = dests.find(d => d.path === selectedBase) || dests[0]
   const destLabel = currentDest?.name || 'Biblioteca'
 
-  const handlePromote = async () => {
-    setSubmitting(true)
-    try {
-      const result = await downloadPromoteBatch(
-        items.map(i => i.id),
-        { keepSeeding, targetSubdir: finalTarget, targetBase: selectedBase || undefined, renameIA },
-      )
-      onPromoted(result)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setSubmitting(false)
-    }
+  const handlePromote = () => {
+    // Fecha o modal NA HORA: a cópia roda em background (pool de transferências)
+    // e aparece no painel de Transferências. Assim o usuário pode promover outro
+    // lote sem esperar a cópia (que pode ser grande/lenta). O resultado —
+    // aceitos + erros de validação — é processado por onPromoted quando a
+    // resposta volta (rápida: só validação + enfileiramento, sem a cópia).
+    const ids = items.map(i => i.id)
+    const opts = { keepSeeding, targetSubdir: finalTarget, targetBase: selectedBase || undefined, renameIA }
+    onClose()
+    downloadPromoteBatch(ids, opts)
+      .then(onPromoted)
+      .catch((e: unknown) => alert(`Erro ao promover: ${e instanceof Error ? e.message : String(e)}`))
   }
 
   const breadcrumb = path.split('/').filter(Boolean)
@@ -277,17 +275,16 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
           <div className="flex items-center gap-2 justify-end">
             <button
               onClick={onClose}
-              disabled={submitting}
               className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded"
             >
               Cancelar
             </button>
             <button
               onClick={handlePromote}
-              disabled={submitting || previewLoading}
+              disabled={previewLoading}
               className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
             >
-              {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
+              <ArrowUpCircle className="w-3.5 h-3.5" />
               Promover {items.length > 1 ? `(${items.length})` : ''}
             </button>
           </div>
