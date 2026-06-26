@@ -699,7 +699,11 @@ export default function DownloadsPage() {
     d => d.status === 'downloading' && (d.downRate ?? 0) === 0 && d.bytesDownloaded < d.fileSize
   ).length
 
-  // Summary stats
+  // Summary stats: Calculated solely from the active torrents list (`torrents`).
+  // Since `items` contains individual file rows of the same torrent (which all
+  // share the torrent's aggregate down/up rate and peers), summing from `items` or
+  // mixing both would cause double-counting. Using `torrents` ensures each active
+  // torrent is counted exactly once.
   const totalDown = torrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
   const totalUp = torrents.reduce((sum, t) => sum + (t.upRate || 0), 0)
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
