@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -122,11 +123,19 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		updated, err := promoteOne(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr})
+		o := &promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr}
+		plan, err := promotePreparePlan(o)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if plan != nil {
+			// Cópia roda em background (pool de transferências) → responde na hora.
+			submitPromotePlans(o, tr, []*promotePlan{plan})
+		}
+		// Retorno otimista: file_path ainda aponta pro original até a cópia terminar
+		// (a lista reflete o destino quando o job do dock conclui).
+		updated, _ := store.Get(userID, id)
 		c.JSON(http.StatusOK, updated)
 	}
 }
@@ -149,7 +158,7 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClien
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr}, req)
+		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr}, req, tr)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
@@ -172,19 +181,33 @@ func validateBatchReq(c *gin.Context, sharedDir string, dests []PromoteDest) (*p
 	return &req, base, true
 }
 
-func promoteBatchItems(o *promoteOpts, req *promoteReq) ([]downloads.Download, []gin.H) {
+// promoteBatchItems valida cada item SINCRONAMENTE (erros voltam na resposta) e
+// submete os válidos pra cópia em background. `promoted` é otimista: lista os
+// aceitos (a cópia roda no painel de Transferências); `failed` traz só os que
+// falharam na validação. Isso mantém o shape da resposta e evita o 504 numa
+// cópia grande síncrona.
+func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([]downloads.Download, []gin.H) {
 	promoted := []downloads.Download{}
 	failed := []gin.H{}
+	var plans []*promotePlan
 	for _, id := range req.IDs {
 		o.id = id
-		d, err := promoteOne(o)
+		plan, err := promotePreparePlan(o)
 		if err != nil {
 			failed = append(failed, gin.H{"id": id, "error": err.Error()})
 			continue
 		}
-		if d != nil {
-			promoted = append(promoted, *d)
+		if plan == nil { // já no destino — sucesso imediato, sem cópia
+			if d, _ := o.store.Get(o.userID, id); d != nil {
+				promoted = append(promoted, *d)
+			}
+			continue
 		}
+		plans = append(plans, plan)
+		promoted = append(promoted, *plan.d)
+	}
+	if len(plans) > 0 {
+		submitPromotePlans(o, tr, plans)
 	}
 	return promoted, failed
 }
@@ -325,7 +348,24 @@ type promoteOpts struct {
 	tracker      *transfer.Tracker // reports the move to the global Transfers dock (nil-safe)
 }
 
-func promoteOne(o *promoteOpts) (*downloads.Download, error) {
+// promotePlan é um promote validado pronto pra copiar. A validação é síncrona
+// (rápida); a cópia (movePathJob) roda depois em background — ver runPromotePlan.
+type promotePlan struct {
+	d       *downloads.Download
+	src     string
+	dst     string
+	srcInfo os.FileInfo
+	files   int
+	bytes   int64
+}
+
+// promotePreparePlan valida e resolve os caminhos SINCRONAMENTE (sem copiar).
+// Retorna (plan, nil) quando há o que mover; (nil, nil) quando o arquivo já está
+// no destino (no-op); (nil, err) em falha de validação — reportável na resposta
+// imediata. Separar a validação da cópia deixa o handler responder na hora e
+// jogar a cópia (lenta em arquivo grande) pro pool de transferências, evitando
+// o 504 do proxy reverso numa cópia síncrona longa.
+func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
 	d, err := o.store.Get(o.userID, o.id)
 	if err != nil || d == nil {
 		return nil, errors.New(errDownloadNotFound)
@@ -344,7 +384,7 @@ func promoteOne(o *promoteOpts) (*downloads.Download, error) {
 	baseName := safeBaseName(src, d.Name)
 	dst := promoteDestPath(o, baseName, &targetDir)
 	if src == dst {
-		return d, nil
+		return nil, nil // já no lugar
 	}
 	srcInfo, statErr := os.Stat(src)
 	if statErr != nil {
@@ -354,18 +394,55 @@ func promoteOne(o *promoteOpts) (*downloads.Download, error) {
 		return nil, err
 	}
 	files, bytes := countTree(src)
-	job := o.tracker.Start(baseName, "promote", files, bytes)
-	// movePathJob trata arquivo E diretório (whole-torrent é uma pasta) — o copy
-	// cross-device antigo (promoteCopyDeleteJob) só lia arquivo e estourava
-	// "read ...: is a directory" ao promover um torrent de múltiplos arquivos.
-	if err := movePathJob(src, dst, srcInfo, job, files, bytes); err != nil {
-		job.Fail(err)
-		return nil, errors.New("mover arquivo: " + err.Error())
+	return &promotePlan{d: d, src: src, dst: dst, srcInfo: srcInfo, files: files, bytes: bytes}, nil
+}
+
+// runPromotePlan executa a cópia + pós-processamento de um plano. Roda DENTRO do
+// job de transferência (background); job pode ser nil (reporte vira no-op).
+// movePathJob trata arquivo E diretório (whole-torrent é uma pasta).
+func runPromotePlan(o *promoteOpts, p *promotePlan, job *transfer.Job) error {
+	if err := movePathJob(p.src, p.dst, p.srcInfo, job, p.files, p.bytes); err != nil {
+		return errors.New("mover arquivo: " + err.Error())
 	}
-	job.Done()
-	_ = o.store.SetFilePath(o.userID, o.id, dst)
-	applySeedingAfterPromote(o, d)
-	return o.store.Get(o.userID, o.id)
+	_ = o.store.SetFilePath(o.userID, p.d.ID, p.dst)
+	applySeedingAfterPromote(o, p.d)
+	return nil
+}
+
+// submitPromotePlans copia os planos validados em background, num único job
+// agregado do pool de transferências — para a request retornar na hora (sem
+// estourar o timeout do proxy numa cópia grande). O painel de Transferências
+// mostra o progresso; a lista de downloads reflete o novo file_path ao concluir.
+func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePlan) {
+	files, bytes := 0, int64(0)
+	for _, p := range plans {
+		files += p.files
+		bytes += p.bytes
+	}
+	label := promoteBatchLabel(plans)
+	tr.Submit(label, "promote", files, bytes, func(job *transfer.Job) {
+		var firstErr error
+		for _, p := range plans {
+			if err := runPromotePlan(o, p, job); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
+			}
+		}
+		if firstErr != nil {
+			job.Fail(firstErr)
+			return
+		}
+		job.Done()
+	})
+}
+
+func promoteBatchLabel(plans []*promotePlan) string {
+	if len(plans) == 1 {
+		return safeBaseName(plans[0].src, plans[0].d.Name)
+	}
+	return fmt.Sprintf("%d itens", len(plans))
 }
 
 func promoteTargetDir(o *promoteOpts) (string, error) {
