@@ -145,6 +145,26 @@ export default function DownloadsQueueCard() {
         Downloads vindos do Sonarr/Radarr (via Transmission RPC) são gravados direto em <code>Downloads/&lt;categoria&gt;/</code> — a mesma árvore que o Transmission usa — para os *arr importarem como esperado. Requer o diretório compartilhado (JACKUI_SHARED_DIR) configurado.
       </p>
 
+      <div className="flex flex-col gap-1.5 border-t border-default pt-4">
+        <label className="text-sm text-text-primary font-medium flex items-center gap-2">
+          Cópia ao promover/mover
+          <LiveBadge />
+        </label>
+        <select
+          value={form.transferConcurrencyMode || 'auto'}
+          onChange={(e) => set('transferConcurrencyMode', e.target.value as DownloadsQueueSettings['transferConcurrencyMode'])}
+          className="input-field min-h-[44px]"
+        >
+          <option value="auto">Automático (recomendado) — serializa em HD, paraleliza em SSD</option>
+          <option value="serial">Sempre uma de cada vez</option>
+          <option value="parallel">Sempre em paralelo</option>
+        </select>
+        <span className="text-[11px] text-text-muted">
+          Em HD mecânico, cópias paralelas competem pela cabeça do disco e ficam lentas (seek thrashing).
+          O automático detecta o disco de destino e escolhe sozinho.
+        </span>
+      </div>
+
       <div className="flex items-center justify-between gap-3 border-t border-default pt-4">
         <div className="text-xs">
           {error && <span className="text-red-400">{error}</span>}
