@@ -273,6 +273,76 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 	}
 }
 
+// DownloadsBatchCreate handles POST /api/downloads/batch — enqueues every selected
+// file of ONE torrent in a single transaction (replaces N single-file POSTs). The
+// torrent identity (infoHash/magnet/name/tracker/category) and the destination are
+// shared; only the per-file fields vary. Body:
+//
+//	{ infoHash, magnet, name, tracker?, category?, destBase?, destSubdir?,
+//	  files: [{ fileIndex, filePath, fileSize }] }
+//
+// Returns { created: [...], requeued: n } — `requeued` counts files that already
+// existed (the row came back unchanged or re-queued rather than freshly inserted).
+func DownloadsBatchCreate(store *downloads.Store, dests *DestinationService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			InfoHash   string `json:"infoHash"`
+			Magnet     string `json:"magnet"`
+			Name       string `json:"name"`
+			Tracker    string `json:"tracker,omitempty"`
+			Category   string `json:"category,omitempty"`
+			DestBase   string `json:"destBase,omitempty"`
+			DestSubdir string `json:"destSubdir,omitempty"`
+			Files      []struct {
+				FileIndex int    `json:"fileIndex"`
+				FilePath  string `json:"filePath"`
+				FileSize  int64  `json:"fileSize"`
+			} `json:"files"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if req.InfoHash == "" || req.Magnet == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash and magnet are required"})
+			return
+		}
+		if len(req.Files) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "files must not be empty"})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		// Validate the chosen destination ONCE — it's shared by every file.
+		base, subdir, err := dests.Resolve(userID, req.DestBase, req.DestSubdir)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		rows := make([]downloads.Download, 0, len(req.Files))
+		for _, f := range req.Files {
+			rows = append(rows, downloads.Download{
+				UserID:     userID,
+				InfoHash:   req.InfoHash,
+				FileIndex:  f.FileIndex,
+				FilePath:   f.FilePath,
+				FileSize:   f.FileSize,
+				Name:       req.Name,
+				Magnet:     req.Magnet,
+				Tracker:    req.Tracker,
+				Category:   req.Category,
+				DestBase:   base,
+				DestSubdir: subdir,
+			})
+		}
+		res, err := store.BatchCreate(rows)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"created": res.Rows, "requeued": res.Requeued})
+	}
+}
+
 // DownloadRemover is the slice of the downloads worker the delete handlers
 // need: synchronously tear down in-memory tracking + drop the torrent for a
 // deleted row, so the deletion is authoritative the instant the handler

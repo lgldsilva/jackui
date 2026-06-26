@@ -1435,7 +1435,9 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   )
 }
 
-// CompletedGroup bundles all completed files of one torrent (same infoHash).
+// CompletedGroup bundles all files of one torrent (same infoHash). The name is
+// kept generic ("Group") since groupByHash now feeds every lifecycle section
+// (downloading/queued/paused), not just completed.
 type CompletedGroup = {
   key: string
   name: string
@@ -1451,9 +1453,12 @@ function naturalFileCompare(a: DownloadEntry, b: DownloadEntry): number {
   return (a.filePath || a.name).localeCompare(b.filePath || b.name, undefined, { numeric: true, sensitivity: 'base' })
 }
 
-// groupCompleted groups completed downloads by infoHash, preserving first-seen
-// order. `seeding` is true when the torrent is still live in the streamer.
-function groupCompleted(items: readonly DownloadEntry[], torrents: readonly TorrentInfo[]): CompletedGroup[] {
+// groupByHash groups downloads by infoHash, preserving first-seen order, with no
+// status filter — so it works for ANY lifecycle section (Baixando/Fila/Pausados/
+// Concluídos). A single-file torrent and a whole-torrent (-2) item each land in a
+// group of one (rendered as a plain card, no wrapper). `seeding` is true when the
+// torrent is still live in the streamer. Pure + exported for unit tests.
+export function groupByHash(items: readonly DownloadEntry[], torrents: readonly TorrentInfo[]): CompletedGroup[] {
   const byKey = new Map<string, CompletedGroup>()
   const order: string[] = []
   for (const d of items) {
@@ -1473,6 +1478,25 @@ function groupCompleted(items: readonly DownloadEntry[], torrents: readonly Torr
   return order.map(k => byKey.get(k) as CompletedGroup)
 }
 
+// groupCompleted is the completed-only view kept for completedViewCounts: same
+// grouping, the caller pre-filters to status==='completed'.
+function groupCompleted(items: readonly DownloadEntry[], torrents: readonly TorrentInfo[]): CompletedGroup[] {
+  return groupByHash(items, torrents)
+}
+
+// groupProgress aggregates a multi-file group's progress: sum(bytes_downloaded) /
+// sum(file_size), clamped to [0,1]. A group with no known sizes reports 0.
+function groupProgress(g: CompletedGroup): { downloaded: number; total: number; pct: number } {
+  let downloaded = 0
+  let total = 0
+  for (const f of g.files) {
+    downloaded += f.bytesDownloaded || 0
+    total += f.fileSize || 0
+  }
+  const pct = total > 0 ? Math.max(0, Math.min(1, downloaded / total)) * 100 : 0
+  return { downloaded, total, pct }
+}
+
 // completedViewCounts derives the chip counts for the completed view: "seeding"
 // = live torrents not yet on a completed row + completed groups still seeding;
 // "onDisk" = completed groups whose torrent is no longer live. Pure + exported so
@@ -1490,22 +1514,75 @@ export function completedViewCounts(
   }
 }
 
-// DownloadGroupCard — collapsible header for a multi-file torrent's completed
-// files, with torrent-level actions (promote/stop-seed/remove all). Single-file
-// groups render their lone card directly (no wrapper), so this is only used for
-// groups with 2+ files. Children are the per-file DownloadCards (shown expanded).
-function DownloadGroupCard({
-  group, expanded, onToggle, onPromote, onStopSeed, onDelete, busy, children,
-}: {
-  readonly group: CompletedGroup
-  readonly expanded: boolean
-  readonly onToggle: () => void
+// CompletedGroupActions — the promote/stop-seed/remove-all controls for a
+// completed (or seeding) multi-file group. Extracted so DownloadGroupCard stays
+// presentation-only and each lifecycle section supplies the right action set.
+function CompletedGroupActions({ onPromote, onStopSeed, onDelete, busy }: {
   readonly onPromote: () => void
   readonly onStopSeed?: () => void
   readonly onDelete: () => void
   readonly busy: boolean
+}) {
+  return (
+    <>
+      <button onClick={onPromote} disabled={busy} title="Promover todos" className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50">
+        <ArrowUpCircle className="w-4 h-4" />
+      </button>
+      {onStopSeed && (
+        <button onClick={onStopSeed} disabled={busy} title="Parar de seedar todos" className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
+          <Pause className="w-4 h-4" />
+        </button>
+      )}
+      <button onClick={onDelete} disabled={busy} title="Remover torrent da lista" className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </>
+  )
+}
+
+// ActiveGroupActions — torrent-level pause/resume + remove-all for an in-progress
+// multi-file group (Baixando/Fila/Pausados). Pause/resume act on the whole
+// torrent by infoHash; remove drops every file row.
+function ActiveGroupActions({ paused, onPause, onResume, onDelete, busy }: {
+  readonly paused: boolean
+  readonly onPause: () => void
+  readonly onResume: () => void
+  readonly onDelete: () => void
+  readonly busy: boolean
+}) {
+  return (
+    <>
+      {paused ? (
+        <button onClick={onResume} disabled={busy} title="Retomar torrent" className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50">
+          <Play className="w-4 h-4" />
+        </button>
+      ) : (
+        <button onClick={onPause} disabled={busy} title="Pausar torrent" className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
+          <Pause className="w-4 h-4" />
+        </button>
+      )}
+      <button onClick={onDelete} disabled={busy} title="Remover torrent da lista" className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </>
+  )
+}
+
+// DownloadGroupCard — collapsible header for a multi-file torrent (2+ files), with
+// an aggregate progress bar and a slot for torrent-level actions. Single-file and
+// whole-torrent groups render their lone card directly (no wrapper). Children are
+// the per-file DownloadCards (shown when expanded).
+function DownloadGroupCard({
+  group, expanded, onToggle, actions, children,
+}: {
+  readonly group: CompletedGroup
+  readonly expanded: boolean
+  readonly onToggle: () => void
+  readonly actions: React.ReactNode
   readonly children: React.ReactNode
 }) {
+  const prog = groupProgress(group)
+  const showBar = !group.files.every(f => f.status === 'completed')
   return (
     <div className="rounded-xl border border-default/50 bg-surface-secondary/40 overflow-hidden">
       <div className="flex items-center gap-2 p-3">
@@ -1520,20 +1597,18 @@ function DownloadGroupCard({
             </span>
           )}
         </button>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button onClick={onPromote} disabled={busy} title="Promover todos" className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50">
-            <ArrowUpCircle className="w-4 h-4" />
-          </button>
-          {onStopSeed && (
-            <button onClick={onStopSeed} disabled={busy} title="Parar de seedar todos" className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
-              <Pause className="w-4 h-4" />
-            </button>
-          )}
-          <button onClick={onDelete} disabled={busy} title="Remover torrent da lista" className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">{actions}</div>
       </div>
+      {showBar && (
+        <div className="px-3 pb-2 -mt-1">
+          <div className="h-1.5 rounded-full bg-surface-tertiary/60 overflow-hidden">
+            <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all" style={{ width: `${prog.pct}%` }} />
+          </div>
+          <div className="text-[10px] text-text-muted mt-1">
+            {formatBytes(prog.downloaded)} / {formatBytes(prog.total)} · {Math.round(prog.pct)}%
+          </div>
+        </div>
+      )}
       {expanded && <div className="flex flex-col gap-2 px-3 pb-3 pl-6 border-l-2 border-default/50 ml-3">{children}</div>}
     </div>
   )
@@ -1655,9 +1730,10 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
     />
   )
 
-  // A completed group renders as one collapsible card when it has 2+ files
-  // (multi-file torrent); a lone file renders as its plain card (no wrapper).
-  const renderCompletedGroup = (g: CompletedGroup) => {
+  // groupShell wraps a multi-file group in the collapsible card; a group of one
+  // (single-file OR whole-torrent -2) renders its lone card with no wrapper, so
+  // the torrent stays the unit without doubling chrome.
+  const groupShell = (g: CompletedGroup, actions: React.ReactNode) => {
     if (g.files.length === 1) return renderDownloadCard(g.files[0])
     return (
       <DownloadGroupCard
@@ -1665,24 +1741,51 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
         group={g}
         expanded={expandedGroups.has(g.key)}
         onToggle={() => toggleGroup(g.key)}
-        onPromote={() => onPromoteMany(g.files)}
-        onStopSeed={g.seeding ? () => onStopSeedMany(g.files) : undefined}
-        onDelete={() => onDeleteMany(g.files)}
-        busy={g.files.some(f => busyID === f.id)}
+        actions={actions}
       >
         {g.files.map(renderDownloadCard)}
       </DownloadGroupCard>
     )
   }
 
+  // Completed/seeding group: promote / stop-seed (only while live) / remove all.
+  const renderCompletedGroup = (g: CompletedGroup) => groupShell(g, (
+    <CompletedGroupActions
+      onPromote={() => onPromoteMany(g.files)}
+      onStopSeed={g.seeding ? () => onStopSeedMany(g.files) : undefined}
+      onDelete={() => onDeleteMany(g.files)}
+      busy={g.files.some(f => busyID === f.id)}
+    />
+  ))
+
+  // In-progress group (Baixando/Fila/Pausados): pause/resume the whole torrent and
+  // remove every file. Pause/resume fan out to the per-file download rows (the unit
+  // the backend aggregates by (user, info_hash)), so the group's status reflects in
+  // each row. A group is "paused" when ALL its files are.
+  const renderActiveGroup = (g: CompletedGroup) => {
+    const allPaused = g.files.every(f => f.status === 'paused')
+    return groupShell(g, (
+      <ActiveGroupActions
+        paused={allPaused}
+        onPause={() => g.files.forEach(f => onPause(f.id))}
+        onResume={() => g.files.forEach(f => onResume(f.id))}
+        onDelete={() => onDeleteMany(g.files)}
+        busy={g.files.some(f => busyID === f.id)}
+      />
+    ))
+  }
+
   // Group downloads by lifecycle so the list is legible. Completed files are
   // grouped per torrent (infoHash) and split into Seeding (live) vs On-disk.
   // Streaming-only torrents (no download row) keep their TorrentCard. Headers
   // show only when more than one group is non-empty.
-  const downloadingNow = downloads.filter(d => d.status === 'downloading')
-  const queued = downloads.filter(d => d.status === 'queued')
+  // Each lifecycle section is grouped per torrent (infoHash): a multi-file torrent
+  // is ONE card, a single-file / whole-torrent (-2) item a card of one. Counts and
+  // headers count GROUPS (torrents), not file rows.
+  const downloadingGroups = groupByHash(downloads.filter(d => d.status === 'downloading'), torrents)
+  const queuedGroups = groupByHash(downloads.filter(d => d.status === 'queued'), torrents)
+  const otherGroups = groupByHash(downloads.filter(d => d.status === 'paused' || d.status === 'failed'), torrents)
   const completed = downloads.filter(d => d.status === 'completed')
-  const otherDownloads = downloads.filter(d => d.status === 'paused' || d.status === 'failed')
   const completedGroups = groupCompleted(completed, torrents)
   const seedingGroups = completedGroups.filter(g => g.seeding)
   const onDiskGroups = completedGroups.filter(g => !g.seeding)
@@ -1690,9 +1793,9 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
   const streamingOnly = torrents.filter(t => !completed.some(d => d.infoHash === t.infoHash))
   const seedingCount = streamingOnly.length + seedingGroups.length
 
-  const groupCount = [downloadingNow.length, queued.length, seedingCount, onDiskGroups.length, otherDownloads.length]
+  const sectionCount = [downloadingGroups.length, queuedGroups.length, seedingCount, onDiskGroups.length, otherGroups.length]
     .filter(n => n > 0).length
-  const showHeaders = groupCount > 1
+  const showHeaders = sectionCount > 1
   // Filtro Semeando/No disco: 'seeding' isola os que estão semeando ao vivo,
   // 'ondisk' os parados no disco, 'all' mostra tudo (incluindo baixando/fila/pausados).
   const hasCompleted = seedingCount > 0 || onDiskGroups.length > 0
@@ -1720,18 +1823,18 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       )}
 
       {/* Baixando agora */}
-      {showOthers && downloadingNow.length > 0 && (
+      {showOthers && downloadingGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label="Baixando agora" color="text-cyan-400" />}
-          {downloadingNow.map(renderDownloadCard)}
+          {showHeaders && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label={`Baixando agora (${downloadingGroups.length})`} color="text-cyan-400" />}
+          {downloadingGroups.map(renderActiveGroup)}
         </>
       )}
 
       {/* Na fila */}
-      {showOthers && queued.length > 0 && (
+      {showOthers && queuedGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queued.length})`} color="text-text-muted" />}
-          {queued.map(renderDownloadCard)}
+          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queuedGroups.length})`} color="text-text-muted" />}
+          {queuedGroups.map(renderActiveGroup)}
         </>
       )}
 
@@ -1764,10 +1867,10 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       )}
 
       {/* Pausados / falhos */}
-      {showOthers && otherDownloads.length > 0 && (
+      {showOthers && otherGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label="Pausados / erro" color="text-text-muted" />}
-          {otherDownloads.map(renderDownloadCard)}
+          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label={`Pausados / erro (${otherGroups.length})`} color="text-text-muted" />}
+          {otherGroups.map(renderActiveGroup)}
         </>
       )}
     </div>
