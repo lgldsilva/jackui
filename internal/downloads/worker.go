@@ -1214,6 +1214,11 @@ func moveDownloadedFile(ctx context.Context, dataDir, destDir, relPath string, o
 		}
 		return "", fmt.Errorf("completed file not found in %s for %q", dataDir, relPath)
 	}
+	// Destination already present: remove the stale cache copy and succeed.
+	if fileExists(dst) {
+		_ = os.Remove(src)
+		return dst, nil
+	}
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
@@ -1466,6 +1471,13 @@ func moveTreeEntry(ctx context.Context, dataDir, destDir, torrentName, rel strin
 			return true, nil // already moved on a previous attempt
 		}
 		return false, fmt.Errorf("completed file not found in %s for %q", dataDir, rel)
+	}
+	// Destination already present (e.g. relocated storage wrote it directly to
+	// bulk while a cache copy remained). Remove the stale cache file and treat
+	// as success — no need to overwrite a read-only (444) relocated-storage file.
+	if fileExists(dst) {
+		_ = os.Remove(src)
+		return true, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return false, fmt.Errorf("mkdir for %q: %w", rel, err)
