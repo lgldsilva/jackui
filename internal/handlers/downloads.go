@@ -121,11 +121,14 @@ func liveStatsOf(s *streamer.Streamer, infoHash string) (liveStats, bool) {
 	if err := h.FromHexString(infoHash); err != nil {
 		return liveStats{}, false
 	}
-	info, err := s.Get(h)
-	if err != nil || info == nil {
+	// LiveStats (not Get) — Get→buildInfo is O(files) and a multi-file pack
+	// (Morgpie: 778 files) made enriching the list take many seconds under load.
+	// LiveStats is O(1) per torrent: just the cached rate sample + Stats().
+	down, up, seeders, ok := s.LiveStats(h)
+	if !ok {
 		return liveStats{}, false
 	}
-	return liveStats{down: info.DownRate, up: info.UpRate, seeders: info.Seeders}, true
+	return liveStats{down: down, up: up, seeders: seeders}, true
 }
 
 // markPromoted sets Promoted=true for completed downloads whose FilePath is

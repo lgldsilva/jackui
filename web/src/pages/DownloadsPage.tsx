@@ -704,12 +704,14 @@ export default function DownloadsPage() {
     + items.filter(d => d.status === 'downloading').reduce((sum, d) => sum + (d.downRate || 0), 0)
   const totalUp = torrents.reduce((sum, t) => sum + (t.upRate || 0), 0)
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
-  const activeCount = activeTorrents.length + downloadsByStatus.downloading.length
+  // Counts are by TORRENT, not by file row (a 778-file pack is 1 torrent) — see
+  // countTorrents. Keeps the badges/indicators aligned with the grouped cards.
+  const activeCount = activeTorrents.length + countTorrents(downloadsByStatus.downloading)
   const seedingCount = seedingTorrents.length
   // Background downloads actually running vs waiting (downloadsByStatus.downloading
   // groups both for tab counts, so split them here for the "X/N active" indicator).
-  const downloadingNowCount = items.filter(d => d.status === 'downloading').length
-  const queuedCount = items.filter(d => d.status === 'queued').length
+  const downloadingNowCount = countTorrents(items.filter(d => d.status === 'downloading'))
+  const queuedCount = countTorrents(items.filter(d => d.status === 'queued'))
   let queueSubtitle: string | undefined
   if (queuedCount > 0) queueSubtitle = `${queuedCount} na fila`
   else if (seedingCount > 0) queueSubtitle = `${seedingCount} semeando`
@@ -720,11 +722,11 @@ export default function DownloadsPage() {
 
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
-    all:         displayTorrents.length + items.length,
-    downloading: activeTorrents.length + downloadsByStatus.downloading.length,
-    paused:      downloadsByStatus.paused.length,
-    completed:   seedingTorrents.length + completedDownloads.length,
-    failed:      downloadsByStatus.failed.length,
+    all:         displayTorrents.length + countTorrents(items),
+    downloading: activeTorrents.length + countTorrents(downloadsByStatus.downloading),
+    paused:      countTorrents(downloadsByStatus.paused),
+    completed:   seedingTorrents.length + countTorrents(completedDownloads),
+    failed:      countTorrents(downloadsByStatus.failed),
     network:     0,
   }
 
@@ -1463,6 +1465,17 @@ type CompletedGroup = {
 // lista já ordenada pelo backend).
 function naturalFileCompare(a: DownloadEntry, b: DownloadEntry): number {
   return (a.filePath || a.name).localeCompare(b.filePath || b.name, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+// countTorrents counts DISTINCT torrents in a set of download rows. A multi-file
+// torrent is N rows (one per file) but ONE torrent — the badges/counters must
+// count torrents, not files, so a 778-file pack reads as 1 (matching the grouped
+// card view). Hashless rows (pre-metadata) count individually, mirroring the
+// backend grpKey id-fallback.
+export function countTorrents(rows: readonly DownloadEntry[]): number {
+  const seen = new Set<string>()
+  for (const d of rows) seen.add(d.infoHash || `id:${d.id}`)
+  return seen.size
 }
 
 // groupByHash groups downloads by infoHash, preserving first-seen order, with no
