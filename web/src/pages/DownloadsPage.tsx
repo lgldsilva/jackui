@@ -32,6 +32,8 @@ import { newPendingDeletes, markDeleted, clearDeleted, reconcile } from '../lib/
 import { applyDownloadSort } from '../lib/downloadSort'
 import PromoteModal from '../components/PromoteModal'
 import { SelectAllButton } from '../components/SelectAllButton'
+import DownloadGroupFilterBar from '../components/DownloadGroupFilterBar'
+import { viewGroupFiles, groupStatusCounts, type GroupFileStatusFilter, type GroupFileSortKey, type GroupFileSortDir } from '../lib/groupFileView'
 import { usePlayer } from '../components/PlayerProvider'
 import DownloadInspectModal from '../components/DownloadInspectModal'
 import DownloadModal from '../components/DownloadModal'
@@ -1614,14 +1616,27 @@ function ActiveGroupActions({ paused, onPause, onResume, onRetryFailed, onDelete
 // whole-torrent groups render their lone card directly (no wrapper). Children are
 // the per-file DownloadCards (shown when expanded).
 function DownloadGroupCard({
-  group, expanded, onToggle, actions, children,
+  group, expanded, onToggle, actions, renderFile,
 }: {
   readonly group: CompletedGroup
   readonly expanded: boolean
   readonly onToggle: () => void
   readonly actions: React.ReactNode
-  readonly children: React.ReactNode
+  readonly renderFile: (d: DownloadEntry) => React.ReactNode
 }) {
+  // Filtro/ordenação interno do torrent (só multi-arquivo chega aqui). Default
+  // 'all' + nome asc preserva o comportamento anterior (ordem natural por nome).
+  const [statusFilter, setStatusFilter] = useState<GroupFileStatusFilter>('all')
+  const [sortKey, setSortKey] = useState<GroupFileSortKey>('name')
+  const [sortDir, setSortDir] = useState<GroupFileSortDir>('asc')
+  // Clicar na chave já ativa inverte a direção; trocar de chave reinicia em asc.
+  const onSort = (key: GroupFileSortKey) => {
+    if (key === sortKey) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const counts = groupStatusCounts(group.files)
+  const view = viewGroupFiles(group.files, statusFilter, sortKey, sortDir)
+
   const prog = groupProgress(group)
   const showBar = !group.files.every(f => f.status === 'completed')
   return (
@@ -1650,7 +1665,23 @@ function DownloadGroupCard({
           </div>
         </div>
       )}
-      {expanded && <div className="flex flex-col gap-2 px-3 pb-3 pl-6 border-l-2 border-default/50 ml-3">{children}</div>}
+      {expanded && (
+        <div className="px-3 pb-3 pl-6 border-l-2 border-default/50 ml-3">
+          <DownloadGroupFilterBar
+            counts={counts}
+            statusFilter={statusFilter}
+            onStatusFilter={setStatusFilter}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSort={onSort}
+          />
+          {view.length === 0 ? (
+            <p className="text-xs text-text-muted text-center py-3">Nenhum arquivo com esse filtro.</p>
+          ) : (
+            <div className="flex flex-col gap-2">{view.map(renderFile)}</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1784,9 +1815,8 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
         expanded={expandedGroups.has(g.key)}
         onToggle={() => toggleGroup(g.key)}
         actions={actions}
-      >
-        {g.files.map(renderDownloadCard)}
-      </DownloadGroupCard>
+        renderFile={renderDownloadCard}
+      />
     )
   }
 
