@@ -26,7 +26,7 @@ import {
   LocalMount, localMounts, buildLocalHash, SearchResult,
   streamAdd, streamAddTorrentFile, WHOLE_TORRENT_FILE_INDEX
 } from '../api/client'
-import { formatBytes, formatRate, formatDurationShort } from '../lib/format'
+import { formatRate, formatDurationShort, formatBytesPair } from '../lib/format'
 import { localBrowseHref } from '../lib/localBrowse'
 import { newPendingDeletes, markDeleted, clearDeleted, reconcile } from '../lib/downloadsReconcile'
 import { applyDownloadSort } from '../lib/downloadSort'
@@ -700,8 +700,16 @@ export default function DownloadsPage() {
   ).length
 
   // Summary stats
-  const totalDown = torrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
-    + items.filter(d => d.status === 'downloading').reduce((sum, d) => sum + (d.downRate || 0), 0)
+  const dlRateByHash = new Map<string, number>()
+  for (const d of items) {
+    if (d.status === 'downloading') {
+      if (!dlRateByHash.has(d.infoHash)) {
+        dlRateByHash.set(d.infoHash, d.downRate || 0)
+      }
+    }
+  }
+  const totalDown = displayTorrents.reduce((sum, t) => sum + (t.downRate || 0), 0)
+    + Array.from(dlRateByHash.values()).reduce((sum, rate) => sum + rate, 0)
   const totalUp = torrents.reduce((sum, t) => sum + (t.upRate || 0), 0)
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
   // Counts are by TORRENT, not by file row (a 778-file pack is 1 torrent) — see
@@ -1630,7 +1638,7 @@ function DownloadGroupCard({
             <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all" style={{ width: `${prog.pct}%` }} />
           </div>
           <div className="text-[10px] text-text-muted mt-1">
-            {formatBytes(prog.downloaded)} / {formatBytes(prog.total)} · {Math.round(prog.pct)}%
+            {formatBytesPair(prog.downloaded, prog.total)} · {Math.round(prog.pct)}%
           </div>
         </div>
       )}
@@ -2126,7 +2134,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay 
         {/* Stats row — bytes/% + ETA. Velocidades subiram para os chips acima. */}
         <div className="flex items-center justify-between mt-2 text-xs text-text-secondary gap-3 flex-wrap">
           <span className="text-text-primary font-medium">
-            {formatBytes(Math.round((t.totalSize || 0) * (t.progress || 0)))} / {formatBytes(t.totalSize)}
+            {formatBytesPair(Math.round((t.totalSize || 0) * (t.progress || 0)), t.totalSize)}
             <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
           </span>
           {eta && (
@@ -2353,7 +2361,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
         </div>
         <div className="flex items-center justify-between mt-2 text-xs text-text-secondary">
           <span className="text-text-primary font-medium">
-            {formatBytes(d.bytesDownloaded)} / {formatBytes(d.fileSize)}
+            {formatBytesPair(d.bytesDownloaded, d.fileSize)}
             <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
           </span>
           {!isCompleted && !isFailed && etaText && (

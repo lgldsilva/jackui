@@ -2,11 +2,22 @@
 
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
 
-export function formatBytes(bytes: number): string {
-  if (!bytes || bytes <= 0) return '0 B'
+export function bytesUnit(bytes: number): number {
+  if (!bytes || bytes <= 0) return 0
   const k = 1024
-  const i = Math.min(UNITS.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${UNITS[i]}`
+  return Math.min(UNITS.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
+}
+
+export function formatBytesAs(bytes: number, unitIndex: number): string {
+  const targetUnit = UNITS[unitIndex] ?? 'B'
+  if (!bytes || bytes <= 0) return `0 ${targetUnit}`
+  const val = bytes / Math.pow(1024, unitIndex)
+  return `${Number.parseFloat(val.toFixed(2))} ${targetUnit}`
+}
+
+export function formatBytes(bytes: number): string {
+  const i = bytesUnit(bytes)
+  return formatBytesAs(bytes, i)
 }
 
 export function formatRate(bytesPerSec: number): string {
@@ -53,4 +64,9 @@ export function formatDate(iso: string): string {
   if (diffH < 48) return 'ontem'
   if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
+export function formatBytesPair(downloaded: number, total: number): string {
+  const u = bytesUnit(total)
+  return `${formatBytesAs(downloaded, u)} / ${formatBytesAs(total, u)}`
 }
