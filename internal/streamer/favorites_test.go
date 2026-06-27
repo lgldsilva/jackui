@@ -1,16 +1,16 @@
 package streamer
 
 import (
-	"database/sql"
-	"path/filepath"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newTestFavorites(t *testing.T) *FavoritesStore {
 	t.Helper()
-	s, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}
@@ -83,110 +83,6 @@ func TestFavoritesUpsertOnConflict(t *testing.T) {
 	}
 	if list[0].Reason != "auto-5min" {
 		t.Errorf("reason not updated: %q", list[0].Reason)
-	}
-}
-
-// Regression: legacy favorites DB (no user_id/magnet) must migrate without errors.
-// Captures the bug where CREATE INDEX on user_id ran before ALTER added the column.
-func TestFavoritesMigrateLegacyDB(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "fav_legacy.db")
-	{
-		legacy, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
-		if err != nil {
-			t.Fatalf("open legacy: %v", err)
-		}
-		_, err = legacy.Exec(`
-			CREATE TABLE favorites (
-				name TEXT PRIMARY KEY,
-				info_hash TEXT,
-				favorited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				reason TEXT NOT NULL DEFAULT 'manual'
-			);
-			INSERT INTO favorites(name, info_hash, reason) VALUES('old fav', 'oldhash', 'manual');
-		`)
-		if err != nil {
-			t.Fatalf("seed legacy: %v", err)
-		}
-		legacy.Close()
-	}
-
-	f, err := NewFavorites(path)
-	if err != nil {
-		t.Fatalf("migration failed: %v", err)
-	}
-	defer f.Close()
-
-	if !f.hasColumn("favorites", "user_id") {
-		t.Error("user_id column not added")
-	}
-	if !f.hasColumn("favorites", "magnet") {
-		t.Error("magnet column not added")
-	}
-
-	// Legacy row still queryable (with default user_id=0)
-	list, _ := f.List(0, false, false)
-	if len(list) != 1 {
-		t.Errorf("expected legacy row preserved, got %d rows", len(list))
-	}
-
-	// New favorites work after migration
-	if err := f.Add("new fav", "newhash", "magnet:new", "manual", 5); err != nil {
-		t.Fatalf("Add after migration: %v", err)
-	}
-	list5, _ := f.List(5, false, false)
-	if len(list5) != 1 || list5[0].Magnet != "magnet:new" {
-		t.Errorf("new favorite not isolated to user 5: %v", list5)
-	}
-}
-
-// Regression: the PlayerModal favoriteAdd args-order bug wrote the literal "manual" into the
-// magnet column. NewFavorites must repair those rows on open by reconstructing the magnet from
-// info_hash. Idempotent — a subsequent reopen finds zero rows to fix.
-func TestFavoritesRecoversManualMagnetCorruption(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "fav_corrupt.db")
-
-	// First open creates the schema. Seed corrupted rows directly via SQL to simulate prod state.
-	{
-		f, err := NewFavorites(path)
-		if err != nil {
-			t.Fatalf("first open: %v", err)
-		}
-		// Bypass Add() (which sanitises) and inject the corruption shape.
-		_, err = f.db.Exec(
-			`INSERT INTO favorites(name, info_hash, magnet, reason, user_id) VALUES
-				('Corrupt Movie',  'aabbccddeeff00112233445566778899aabbccdd', 'manual', 'manual', 1),
-				('No Hash',        '',                                          'manual', 'manual', 1),
-				('Healthy',        '1234567890abcdef1234567890abcdef12345678', 'magnet:?xt=urn:btih:1234567890abcdef1234567890abcdef12345678', 'manual', 1)`,
-		)
-		if err != nil {
-			t.Fatalf("seed corrupt rows: %v", err)
-		}
-		f.Close()
-	}
-
-	// Reopen — the recovery UPDATE must rewrite the "manual" magnet into a proper one for
-	// rows that have an info_hash. Rows without info_hash stay as "manual" (defensive UI catches them).
-	f, err := NewFavorites(path)
-	if err != nil {
-		t.Fatalf("reopen with recovery: %v", err)
-	}
-	defer f.Close()
-
-	rows, _ := f.List(1, false, false)
-	got := map[string]string{}
-	for _, r := range rows {
-		got[r.Name] = r.Magnet
-	}
-	wantCorruptFixed := "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd"
-	if got["Corrupt Movie"] != wantCorruptFixed {
-		t.Errorf("corrupt row not repaired:\n  got  %q\n  want %q", got["Corrupt Movie"], wantCorruptFixed)
-	}
-	if got["No Hash"] != "manual" {
-		// Defensive: can't reconstruct a magnet without an info_hash. Leave it; UI will warn.
-		t.Errorf("row without info_hash should be untouched, got %q", got["No Hash"])
-	}
-	if got["Healthy"] != "magnet:?xt=urn:btih:1234567890abcdef1234567890abcdef12345678" {
-		t.Errorf("healthy row mutated: %q", got["Healthy"])
 	}
 }
 
@@ -504,35 +400,6 @@ func TestFavoritesDefaultPath(t *testing.T) {
 	}
 }
 
-func TestNewFavorites_InvalidPath(t *testing.T) {
-	_, err := NewFavorites("/nonexistent/foo/fav.db")
-	if err == nil {
-		t.Error("expected error for invalid path")
-	}
-}
-
-func TestFavoritesHasColumn(t *testing.T) {
-	f := newTestFavorites(t)
-	if !f.hasColumn("favorites", "name") {
-		t.Error("expected 'name' column to exist")
-	}
-	if f.hasColumn("favorites", "nonexistent_column_xyz") {
-		t.Error("expected nonexistent column to not exist")
-	}
-}
-
-func TestFavoritesHasColumn_Error(t *testing.T) {
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	// Query a non-existent table
-	if f.hasColumn("nonexistent_table", "col") {
-		t.Error("expected false for non-existent table")
-	}
-}
-
 func TestFavoritesRemove_IncludeAll(t *testing.T) {
 	f := newTestFavorites(t)
 	f.Add("movie", "h1", "magnet:1", "manual", 1)
@@ -544,12 +411,14 @@ func TestFavoritesRemove_IncludeAll(t *testing.T) {
 }
 
 func TestFavoritesIsFavoriteOf_FailClosed(t *testing.T) {
-	// Create a store then close it to trigger DB error
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	// Create a store on a pool, then close the pool to trigger DB errors.
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3)
+	f, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = pool.Close()
 	// On a closed DB, IsFavoriteOf should return true (fail-closed)
 	if !f.IsFavoriteOf("anything", 1) {
 		t.Error("expected fail-closed (true) for closed DB")
@@ -557,22 +426,26 @@ func TestFavoritesIsFavoriteOf_FailClosed(t *testing.T) {
 }
 
 func TestFavoritesIsFavorite_FailClosed(t *testing.T) {
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3)
+	f, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = pool.Close()
 	if !f.IsFavorite("anything") {
 		t.Error("expected fail-closed (true) for closed DB")
 	}
 }
 
 func TestFavoritesIsFavoriteByHash_FailClosed(t *testing.T) {
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3)
+	f, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = pool.Close()
 	if !f.IsFavoriteByHash("anything") {
 		t.Error("expected fail-closed (true) for closed DB")
 	}

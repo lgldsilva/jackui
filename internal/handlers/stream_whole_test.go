@@ -14,6 +14,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
@@ -50,7 +51,7 @@ func wholeTestEnv(t *testing.T) (*downloads.Store, *streamer.Streamer, string) {
 	}
 
 	s := streamer.NewForTesting()
-	mc, err := streamer.NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	mc, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}

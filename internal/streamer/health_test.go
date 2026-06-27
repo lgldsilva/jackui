@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestHealthSnapshot_NoCache(t *testing.T) {
@@ -21,8 +23,7 @@ func TestHealthSnapshot_NoCache(t *testing.T) {
 }
 
 func TestHealthSnapshot_WithCache(t *testing.T) {
-	dir := t.TempDir()
-	c, err := NewMetadataCache(dir + "/meta.db")
+	c, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -50,8 +51,7 @@ func TestHealthSnapshot_WithCache(t *testing.T) {
 }
 
 func TestHealthSnapshot_NoMatchInCache(t *testing.T) {
-	dir := t.TempDir()
-	c, err := NewMetadataCache(dir + "/meta.db")
+	c, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}

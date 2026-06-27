@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,7 +15,7 @@ import (
 // newRecLib returns a fresh library store in a temp dir.
 func newRecLib(t *testing.T) *library.Store {
 	t.Helper()
-	lib, err := library.New(seededPool(t))
+	lib, err := library.New(seededPool(t, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 	if err != nil {
 		t.Fatalf("library.New: %v", err)
 	}
@@ -54,7 +53,7 @@ func hideFavourite(t *testing.T, fav *streamer.FavoritesStore, userID int, hash,
 func recStreamer(t *testing.T) (*streamer.Streamer, *streamer.FavoritesStore) {
 	t.Helper()
 	s := streamer.NewForTesting()
-	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	fav, err := streamer.NewFavorites(seededPool(t, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}

@@ -8,15 +8,23 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
+
+// b2i maps a Go bool to the SMALLINT 0/1 the schema uses (pgx won't implicitly
+// cast a bool param into a smallint column).
+func b2iFav(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 // FavoritesStore persists "favorite" markings for streamed torrents.
 // Favorites are protected from cache eviction (both LRU and manual clear-all).
 //
 // Schema: one row per torrent name (as stored on disk), nullable info_hash for cross-reference.
 type FavoritesStore struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
 type Favorite struct {
@@ -46,132 +54,14 @@ type FavoriteFolder struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// NewFavorites opens (or creates) the favorites SQLite DB at given path.
-// Typically `<stream_dir>/.favorites.db`.
-func NewFavorites(path string) (*FavoritesStore, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	// CREATE with full schema (fresh DBs). Existing DBs get the columns via ALTER below.
-	// `idx_fav_user` is created AFTER the ALTER to avoid "no such column" on legacy DBs.
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS favorites (
-			name         TEXT PRIMARY KEY,
-			info_hash    TEXT,
-			favorited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			reason       TEXT NOT NULL DEFAULT 'manual',
-			user_id      INTEGER NOT NULL DEFAULT 0,
-			magnet       TEXT NOT NULL DEFAULT ''
-		);
-		CREATE INDEX IF NOT EXISTS idx_fav_hash ON favorites(info_hash);
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	s := &FavoritesStore{db: db}
-	// Idempotent ALTERs for DBs that pre-date user_id / magnet
-	if !s.hasColumn("favorites", "user_id") {
-		if _, err := db.Exec(`ALTER TABLE favorites ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	if !s.hasColumn("favorites", "magnet") {
-		if _, err := db.Exec(`ALTER TABLE favorites ADD COLUMN magnet TEXT NOT NULL DEFAULT ''`); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	// Now safe — user_id column exists
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_fav_user ON favorites(user_id)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Folder tree + folder_id column. Idempotent: hasColumn gate keeps it
-	// safe to run on existing DBs that pre-date the feature. ON DELETE SET
-	// NULL means deleting a folder drops favorites back to root instead of
-	// deleting them — closer to user expectation than CASCADE.
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS favorite_folders (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
-			name       TEXT    NOT NULL,
-			parent_id  INTEGER REFERENCES favorite_folders(id) ON DELETE CASCADE,
-			position   INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(user_id, parent_id, name)
-		);
-		CREATE INDEX IF NOT EXISTS idx_fav_folders_user_parent ON favorite_folders(user_id, parent_id);
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if !s.hasColumn("favorites", "folder_id") {
-		if _, err := db.Exec(`ALTER TABLE favorites ADD COLUMN folder_id INTEGER REFERENCES favorite_folders(id) ON DELETE SET NULL`); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	// `hidden` folders are kept out of the normal listing (sidebar AND the "all"
-	// view) unless the caller explicitly opts in (the UI's easter egg). A light
-	// privacy curtain, not encryption — for a category you'd rather not show on a
-	// casual glance.
-	if !s.hasColumn("favorite_folders", "hidden") {
-		if _, err := db.Exec(`ALTER TABLE favorite_folders ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	// The hidden curtain also covers local files, which have no info_hash — they
-	// are keyed by (mount, path). A row here hides that path (and everything
-	// under it) from the local browser unless the easter egg is open. Lives in
-	// the favourites DB because it's the same "hidden curtain" domain.
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS hidden_local_paths (
-			user_id    INTEGER NOT NULL,
-			mount      TEXT    NOT NULL,
-			path       TEXT    NOT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (user_id, mount, path)
-		);
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Recovery: an earlier client bug (PlayerModal favoriteAdd args swap) wrote the literal
-	// string "manual" into the magnet column instead of the reason. Repair those rows in-place
-	// by reconstructing a tracker-less magnet from info_hash. Idempotent: runs on every open
-	// but matches zero rows once fixed.
-	if _, err := db.Exec(`
-		UPDATE favorites
-		SET magnet = 'magnet:?xt=urn:btih:' || info_hash
-		WHERE magnet = 'manual' AND info_hash != ''
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return s, nil
+// NewFavorites wires the favorites store onto the shared Postgres pool. Schema
+// is applied centrally (internal/db migrations).
+func NewFavorites(pool *sql.DB) (*FavoritesStore, error) {
+	return &FavoritesStore{db: dbutil.Wrap(pool)}, nil
 }
 
-// hasColumn returns true if the table has the given column. Used for idempotent migrations.
-func (f *FavoritesStore) hasColumn(table, col string) bool {
-	rows, err := f.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err == nil && n == col {
-			return true
-		}
-	}
-	return false
-}
-
-func (f *FavoritesStore) Close() { f.db.Close() }
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (f *FavoritesStore) Close() {}
 
 // Add marks a stream as favorite. Idempotent — re-adding refreshes the timestamp.
 // userID=0 means "no auth/legacy". magnet may be empty if unknown.
@@ -359,7 +249,7 @@ func (f *FavoritesStore) SetLocalPathHidden(userID int, mount, path string, hidd
 	}
 	if hidden {
 		_, err := f.db.Exec(
-			`INSERT OR IGNORE INTO hidden_local_paths(user_id, mount, path) VALUES(?, ?, ?)`,
+			`INSERT INTO hidden_local_paths(user_id, mount, path) VALUES(?, ?, ?) ON CONFLICT DO NOTHING`,
 			userID, mount, path)
 		return err
 	}
@@ -411,12 +301,10 @@ func (f *FavoritesStore) List(userID int, includeAll, includeHidden bool) ([]Fav
 	out := []Favorite{}
 	for rows.Next() {
 		var fav Favorite
-		var ts string
 		var folderID sql.NullInt64
-		if err := rows.Scan(&fav.Name, &fav.InfoHash, &fav.Magnet, &fav.UserID, &ts, &fav.Reason, &folderID); err != nil {
+		if err := rows.Scan(&fav.Name, &fav.InfoHash, &fav.Magnet, &fav.UserID, &fav.FavoritedAt, &fav.Reason, &folderID); err != nil {
 			continue
 		}
-		fav.FavoritedAt = dbutil.ParseTime(ts)
 		if folderID.Valid {
 			v := int(folderID.Int64)
 			fav.FolderID = &v
@@ -456,15 +344,13 @@ func (f *FavoritesStore) ListFolders(userID int, includeHidden bool) ([]Favorite
 	for rows.Next() {
 		var fl FavoriteFolder
 		var parent sql.NullInt64
-		var ts string
-		if err := rows.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &fl.Hidden, &ts); err != nil {
+		if err := rows.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &fl.Hidden, &fl.CreatedAt); err != nil {
 			return nil, err
 		}
 		if parent.Valid {
 			v := int(parent.Int64)
 			fl.ParentID = &v
 		}
-		fl.CreatedAt = dbutil.ParseTime(ts)
 		out = append(out, fl)
 	}
 	return out, rows.Err()
@@ -480,14 +366,14 @@ func (f *FavoritesStore) CreateFolder(userID int, name string, parentID *int, hi
 	if parentID != nil {
 		parent = *parentID
 	}
-	res, err := f.db.Exec(`
+	var id int64
+	err := f.db.QueryRow(`
 		INSERT INTO favorite_folders (user_id, name, parent_id, position, hidden)
-		VALUES (?, ?, ?, COALESCE((SELECT MAX(position)+1 FROM favorite_folders WHERE user_id = ? AND parent_id IS ?), 0), ?)
-	`, userID, name, parent, userID, parent, hidden)
+		VALUES (?, ?, ?, COALESCE((SELECT MAX(position)+1 FROM favorite_folders WHERE user_id = ? AND parent_id IS NOT DISTINCT FROM ?), 0), ?) RETURNING id
+	`, userID, name, parent, userID, parent, b2iFav(hidden)).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return f.GetFolder(userID, int(id))
 }
 
@@ -496,7 +382,7 @@ func (f *FavoritesStore) SetFolderHidden(userID, id int, hidden bool) error {
 	if f == nil {
 		return nil
 	}
-	_, err := f.db.Exec(`UPDATE favorite_folders SET hidden = ? WHERE id = ? AND user_id = ?`, hidden, id, userID)
+	_, err := f.db.Exec(`UPDATE favorite_folders SET hidden = ? WHERE id = ? AND user_id = ?`, b2iFav(hidden), id, userID)
 	return err
 }
 
@@ -508,15 +394,13 @@ func (f *FavoritesStore) GetFolder(userID, id int) (*FavoriteFolder, error) {
 	`, id, userID)
 	var fl FavoriteFolder
 	var parent sql.NullInt64
-	var ts string
-	if err := row.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &fl.Hidden, &ts); err != nil {
+	if err := row.Scan(&fl.ID, &fl.UserID, &fl.Name, &parent, &fl.Position, &fl.Hidden, &fl.CreatedAt); err != nil {
 		return nil, err
 	}
 	if parent.Valid {
 		v := int(parent.Int64)
 		fl.ParentID = &v
 	}
-	fl.CreatedAt = dbutil.ParseTime(ts)
 	return &fl, nil
 }
 

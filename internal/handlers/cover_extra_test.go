@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -348,8 +349,7 @@ func TestStreamAdd_BadJSON_Extra(t *testing.T) {
 
 func TestStreamMetadata_HasCache_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	dir := t.TempDir()
-	mc, err := streamer.NewMetadataCache(filepath.Join(dir, "meta.db"))
+	mc, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,8 +383,7 @@ func TestStreamMetadata_HasCache_Extra(t *testing.T) {
 
 func TestStreamMetadata_Miss_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	dir := t.TempDir()
-	mc, err := streamer.NewMetadataCache(filepath.Join(dir, "meta.db"))
+	mc, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,8 +532,7 @@ func TestStreamResolveLocalAbs_Valid_Extra(t *testing.T) {
 func TestStreamFavorites_WithFavs_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	favPath := filepath.Join(t.TempDir(), "fav.db")
-	fav, err := streamer.NewFavorites(favPath)
+	fav, err := streamer.NewFavorites(seededPool(t, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,13 +562,13 @@ func TestStreamFavorites_WithFavs_Extra(t *testing.T) {
 func TestStreamFavorites_SortMetaEnrichment_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	fav, err := streamer.NewFavorites(seededPool(t, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(fav.Close)
 	s.SetFavorites(fav)
-	mc, err := streamer.NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	mc, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

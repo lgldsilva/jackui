@@ -44,7 +44,7 @@ func TestDropHiddenHelpers(t *testing.T) {
 func newCurtainStreamer(t *testing.T) (*streamer.Streamer, *streamer.FavoritesStore) {
 	t.Helper()
 	s := streamer.NewForTesting()
-	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	fav, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}

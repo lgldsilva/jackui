@@ -51,7 +51,7 @@ func hgEHistory(t *testing.T) *history.Store {
 
 func hgEFavs(t *testing.T) *streamer.FavoritesStore {
 	t.Helper()
-	f, err := streamer.NewFavorites(t.TempDir() + "/favs.db")
+	f, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
