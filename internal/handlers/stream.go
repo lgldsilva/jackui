@@ -343,7 +343,10 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.H
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		s.Drop(h)
+		// DropSeed (não Drop): remover o torrent é uma ação explícita do usuário,
+		// então também limpa o auto-seed persistido — senão ele voltaria a seedar
+		// no próximo boot e reapareceria como "ativo".
+		s.DropSeed(h)
 		if hlsMgr != nil {
 			hlsMgr.CloseForHash(h.HexString())
 		}

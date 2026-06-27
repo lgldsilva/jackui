@@ -576,10 +576,13 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 	if err := h.FromHexString(d.InfoHash); err != nil {
 		return
 	}
-	o.s.Drop(h)
 	if !o.keepSeeding {
+		// Usuário promoveu SEM "continuar seedando" → para de vez e limpa o
+		// auto-seed persistido (senão voltaria a seedar no próximo boot).
+		o.s.DropSeed(h)
 		return
 	}
+	o.s.Drop(h)
 	// file_path was just updated to the new destination, so EnsureActive's
 	// relocatedStorage resolves the moved file and seeds it in place (no re-download).
 	// SeedSource prefers a bare info_hash magnet → the cached metainfo resolves it
@@ -618,7 +621,9 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 		if d.InfoHash != "" {
 			var h metainfo.Hash
 			if err := h.FromHexString(d.InfoHash); err == nil {
-				s.Drop(h)
+				// "Parar de seedar" é explícito → DropSeed limpa também o auto-seed
+				// persistido, senão voltaria a seedar no próximo boot.
+				s.DropSeed(h)
 			}
 		}
 		c.Status(http.StatusNoContent)
