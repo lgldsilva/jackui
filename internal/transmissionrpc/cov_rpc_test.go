@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/downloads"
 )
 
@@ -154,7 +154,7 @@ func TestRPC_TorrentAdd_Variants(t *testing.T) {
 func TestRPC_AuthHandshake(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	st := newTestStore(t)
-	as, err := auth.New(filepath.Join(t.TempDir(), "auth.db"))
+	as, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

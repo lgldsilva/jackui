@@ -8,11 +8,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestPasskeyRegisterBegin_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +33,7 @@ func TestPasskeyRegisterBegin_StoreError(t *testing.T) {
 
 func TestPasskeyRegisterFinish_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestPasskeyLoginBegin_EmptyUsername(t *testing.T) {
 
 func TestPasskeyLoginBegin_UserNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestPasskeyLoginBegin_UserNotFound(t *testing.T) {
 
 func TestPasskeyLoginBegin_NoPasskeys(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +118,7 @@ func TestPasskeyLoginBegin_NoPasskeys(t *testing.T) {
 
 func TestPasskeyLoginFinish_UserNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestPasskeyLoginFinish_UserNotFound(t *testing.T) {
 
 func TestPasskeyLoginFinish_PendingStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +162,7 @@ func TestPasskeyLoginFinish_PendingStatus(t *testing.T) {
 
 func TestPasskeyLoginFinish_DisabledStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func TestPasskeyLoginFinish_DisabledStatus(t *testing.T) {
 
 func TestPasskeyList_WithCreds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +206,7 @@ func TestPasskeyList_WithCreds(t *testing.T) {
 
 func TestPasskeyDelete_NotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

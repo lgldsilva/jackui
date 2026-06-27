@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/middleware"
@@ -47,7 +48,7 @@ func newDLHiddenFixture(t *testing.T) *dlHiddenFixture {
 	t.Cleanup(func() { fav.Close() })
 	s.SetFavorites(fav)
 
-	authSt, err := auth.New(filepath.Join(t.TempDir(), "auth.db"))
+	authSt, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}

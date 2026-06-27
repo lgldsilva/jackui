@@ -9,6 +9,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -25,7 +26,7 @@ func TestUserCacheGetWithNilStore(t *testing.T) {
 }
 
 func TestUserCacheGetWithStore(t *testing.T) {
-	store, err := auth.New(t.TempDir() + "/auth_cover.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestUserCacheGetWithStore(t *testing.T) {
 }
 
 func TestUserCacheGetWithMissingUser(t *testing.T) {
-	store, err := auth.New(t.TempDir() + "/auth_cover2.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

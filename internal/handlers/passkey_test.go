@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestPasskeyList_NoClaims(t *testing.T) {
@@ -50,7 +51,7 @@ func TestPasskeyRegisterBegin_NoClaims(t *testing.T) {
 
 func TestPasskeyRegisterBegin_NoWA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestPasskeyRegisterFinish_NoClaims(t *testing.T) {
 
 func TestPasskeyRegisterFinish_NoWA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

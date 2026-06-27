@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestMe_NoClaims(t *testing.T) {
@@ -26,7 +27,7 @@ func TestMe_NoClaims(t *testing.T) {
 
 func TestMe_WithClaims(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +88,7 @@ func TestLogout_NoBody(t *testing.T) {
 
 func TestListUsers_ReturnsEmptyArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +337,7 @@ func TestRefresh_NoBody(t *testing.T) {
 
 func TestSetNtfyTopic_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
