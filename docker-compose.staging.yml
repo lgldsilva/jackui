@@ -44,9 +44,7 @@ services:
       - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
       - JACKUI_PORT=8989
-      - JACKUI_DB_PATH=/data/jackui.db
       - JACKUI_STREAM_DIR=/data/streams
-      - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-30}
       - JACKUI_DOWNLOAD_DIR=/data/downloads
       - JACKUI_SHARED_DIR=/data/shared
