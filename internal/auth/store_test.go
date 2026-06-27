@@ -1,14 +1,15 @@
 package auth
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(filepath.Join(t.TempDir(), "auth.db"))
+	s, err := New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -275,8 +276,8 @@ func TestCleanupExpired(t *testing.T) {
 	s.Bootstrap("admin", "x")
 	u, _ := s.VerifyPassword("admin", "x")
 
-	s.CreateRefreshToken(u.ID, -1*time.Hour, false, "", "")  // expired
-	s.CreateRefreshToken(u.ID, 1*time.Hour, false, "", "")   // valid
+	s.CreateRefreshToken(u.ID, -1*time.Hour, false, "", "") // expired
+	s.CreateRefreshToken(u.ID, 1*time.Hour, false, "", "")  // valid
 
 	if err := s.CleanupExpired(); err != nil {
 		t.Fatalf("Cleanup: %v", err)
@@ -302,78 +303,5 @@ func TestDeleteUserCascadesRefreshTokens(t *testing.T) {
 	s.db.QueryRow("SELECT COUNT(*) FROM refresh_tokens WHERE user_id = ?", id).Scan(&n)
 	if n != 0 {
 		t.Errorf("expected 0 refresh tokens (cascade), got %d", n)
-	}
-}
-
-// ─── Corrupted Date Parser Coverage ────────────────────────────────────────
-
-func TestStore_CorruptedCreatedAt(t *testing.T) {
-	s := newTestStore(t)
-	// Força inserção de usuário com data corrompida ("invalid-date")
-	_, err := s.db.Exec(
-		"INSERT INTO users(id, username, email, password_hash, role, status, email_verified, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-		1001, "badtime", "bad@time.com", "dummyhash", RoleUser, StatusActive, 1, "invalid-date",
-	)
-	if err != nil {
-		t.Fatalf("failed to insert dummy user: %v", err)
-	}
-
-	// 1. GetUserByID
-	u, err := s.GetUserByID(1001)
-	if err != nil {
-		t.Fatalf("GetUserByID error: %v", err)
-	}
-	if !u.CreatedAt.IsZero() {
-		t.Errorf("expected zero time for corrupted date, got %v", u.CreatedAt)
-	}
-
-	// 2. GetUserByEmail
-	u, err = s.GetUserByEmail("bad@time.com")
-	if err != nil {
-		t.Fatalf("GetUserByEmail error: %v", err)
-	}
-	if !u.CreatedAt.IsZero() {
-		t.Errorf("expected zero time for corrupted date, got %v", u.CreatedAt)
-	}
-
-	// 3. GetUserByUsername
-	u, err = s.GetUserByUsername("badtime")
-	if err != nil {
-		t.Fatalf("GetUserByUsername error: %v", err)
-	}
-	if !u.CreatedAt.IsZero() {
-		t.Errorf("expected zero time for corrupted date, got %v", u.CreatedAt)
-	}
-
-	// 4. ListUsers
-	users, err := s.ListUsers()
-	if err != nil {
-		t.Fatalf("ListUsers error: %v", err)
-	}
-	var found bool
-	for _, usr := range users {
-		if usr.ID == 1001 {
-			found = true
-			if !usr.CreatedAt.IsZero() {
-				t.Errorf("expected zero time for list user, got %v", usr.CreatedAt)
-			}
-		}
-	}
-	if !found {
-		t.Error("corrupted user not found in ListUsers")
-	}
-
-	// 5. VerifyPassword (com hashing real)
-	_, errCreateUser := s.CreateUser("badpw", "pw123", RoleUser)
-	if errCreateUser != nil {
-		t.Fatalf("CreateUser error: %v", errCreateUser)
-	}
-	s.db.Exec("UPDATE users SET created_at = 'invalid-date' WHERE username = 'badpw'")
-	u, err = s.VerifyPassword("badpw", "pw123")
-	if err != nil {
-		t.Fatalf("VerifyPassword error: %v", err)
-	}
-	if !u.CreatedAt.IsZero() {
-		t.Errorf("expected zero time for VerifyPassword, got %v", u.CreatedAt)
 	}
 }

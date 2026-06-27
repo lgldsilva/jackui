@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // adminUsersRouter wires the admin user-management routes exactly like
@@ -231,22 +231,21 @@ func TestAdminUserSessions_ListRevokeRevokeAll(t *testing.T) {
 // dropped out from under the store (users stays intact so the :id lookup still
 // resolves), so every session query/exec fails.
 func TestAdminUserSessions_StoreErrors(t *testing.T) {
-	path := t.TempDir() + "/auth.db"
-	store, err := auth.New(path)
+	// Isolated schema: this test DROPs a table to force errors, which would
+	// break NewDB's shared per-process schema for every other test.
+	pool := dbtest.NewIsolatedDB(t)
+	store, err := auth.New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
 	user := createTestUser(t, store, "alice", "secret123")
 
-	raw, err := sql.Open("sqlite", path)
-	if err != nil {
+	// Drop refresh_tokens out from under the store (users stays intact so the
+	// :id lookup resolves) so every session query/exec fails → 500.
+	if _, err := pool.Exec("DROP TABLE refresh_tokens"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec("DROP TABLE refresh_tokens"); err != nil {
-		t.Fatal(err)
-	}
-	_ = raw.Close()
 
 	r := adminUsersRouter(store, adminClaims())
 	paths := []struct{ method, path string }{
@@ -413,5 +412,3 @@ func TestChangePassword_NoRefreshKeepsSessions(t *testing.T) {
 		t.Fatalf("sessions = %d, want 1 (untouched without refresh)", len(sessions))
 	}
 }
-
-

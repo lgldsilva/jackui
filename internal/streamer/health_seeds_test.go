@@ -1,15 +1,16 @@
 package streamer
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // seedersNotBelowScrape must never let a live ConnectedSeeders count drop below
 // the last tracker scrape — that's the real swarm size.
 func TestSeedersNotBelowScrape(t *testing.T) {
 	s := NewForTesting()
-	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "m.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

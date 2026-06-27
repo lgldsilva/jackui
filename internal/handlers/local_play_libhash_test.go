@@ -27,7 +27,7 @@ func TestLocalInfoHashMatchesFrontend(t *testing.T) {
 }
 
 func TestUpsertLocalLibrary(t *testing.T) {
-	lib, err := library.New(t.TempDir() + "/lib.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

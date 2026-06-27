@@ -11,15 +11,31 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newAuthStore(t *testing.T) *auth.Store {
 	t.Helper()
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(store.Close)
+	return store
+}
+
+// closedAuthStore returns an auth store whose underlying pool is already closed,
+// so every query errors — used to exercise the handlers' 500/store-error paths.
+// (Store.Close is a no-op now that the pool is shared/owned by main, so closing
+// the store no longer induces errors.)
+func closedAuthStore(t *testing.T) *auth.Store {
+	t.Helper()
+	pool := dbtest.NewDB(t)
+	store, err := auth.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
 	return store
 }
 
@@ -292,7 +308,7 @@ func TestRefresh_Valid(t *testing.T) {
 
 func TestMediaToken_UserNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,8 +421,7 @@ func TestDeleteUser_Valid(t *testing.T) {
 
 func TestDeleteUser_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newAuthStore(t)
-	store.Close()
+	store := closedAuthStore(t)
 
 	router := gin.New()
 	router.DELETE("/api/auth/users/:id", DeleteUser(store))
@@ -452,8 +467,7 @@ func TestListSessions_WithBody(t *testing.T) {
 
 func TestRevokeSession_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newAuthStore(t)
-	store.Close()
+	store := closedAuthStore(t)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -523,8 +537,7 @@ func TestCreateUser_WithBody(t *testing.T) {
 
 func TestListUsers_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newAuthStore(t)
-	store.Close()
+	store := closedAuthStore(t)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -646,8 +659,7 @@ func TestSetUserStatus_ValidActive(t *testing.T) {
 
 func TestListSessions_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newAuthStore(t)
-	store.Close()
+	store := closedAuthStore(t)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -865,8 +877,7 @@ func TestSetUserStatus_ValidDisable(t *testing.T) {
 
 func TestSetUserStatus_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newAuthStore(t)
-	store.Close()
+	store := closedAuthStore(t)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

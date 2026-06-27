@@ -11,7 +11,6 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // Subscription is one browser push endpoint owned by a user.
@@ -34,53 +33,17 @@ type Notification struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// New wires the push store onto the shared Postgres pool. Schema is applied
+// centrally (internal/db migrations).
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() { _ = s.db.Close() }
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS vapid_keys (
-			id          INTEGER PRIMARY KEY CHECK (id = 1),
-			public_key  TEXT NOT NULL,
-			private_key TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS push_subscriptions (
-			user_id    INTEGER NOT NULL,
-			endpoint   TEXT    NOT NULL UNIQUE,
-			p256dh     TEXT    NOT NULL,
-			auth       TEXT    NOT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
-		CREATE TABLE IF NOT EXISTS notifications (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id    INTEGER NOT NULL,
-			title      TEXT    NOT NULL,
-			body       TEXT    NOT NULL DEFAULT '',
-			magnet     TEXT    NOT NULL DEFAULT '',
-			read       INTEGER NOT NULL DEFAULT 0,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, id DESC);
-	`)
-	return err
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // LoadOrCreateVAPID returns the persisted VAPID pair, generating it on first
 // boot. Rotating the pair would invalidate every browser subscription, so it
@@ -178,12 +141,10 @@ func (s *Store) Notifications(userID, limit int) ([]Notification, error) {
 	for rows.Next() {
 		n := Notification{}
 		var read int
-		var createdAt string
-		if err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Body, &n.Magnet, &read, &createdAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Title, &n.Body, &n.Magnet, &read, &n.CreatedAt); err != nil {
 			continue
 		}
 		n.Read = read != 0
-		n.CreatedAt = dbutil.ParseTime(createdAt)
 		out = append(out, n)
 	}
 	return out, rows.Err()

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // Status is the lifecycle of a Download row. The scheduler promotes rows from
@@ -170,138 +169,17 @@ func (d Download) SeedSource() string {
 }
 
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// New wires the downloads store onto the shared Postgres pool. Schema is applied
+// centrally (internal/db migrations).
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() { _ = s.db.Close() }
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS downloads (
-			id               INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id          INTEGER NOT NULL,
-			info_hash        TEXT    NOT NULL,
-			file_index       INTEGER NOT NULL,
-			file_path        TEXT    NOT NULL,
-			file_size        INTEGER NOT NULL,
-			name             TEXT    NOT NULL,
-			magnet           TEXT    NOT NULL,
-			tracker          TEXT    NOT NULL DEFAULT '',
-			category         TEXT    NOT NULL DEFAULT '',
-			status           TEXT    NOT NULL DEFAULT 'queued',
-			bytes_downloaded INTEGER NOT NULL DEFAULT 0,
-			started_at       DATETIME,
-			completed_at     DATETIME,
-			error            TEXT    NOT NULL DEFAULT '',
-			created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(user_id, info_hash, file_index)
-		);
-		CREATE INDEX IF NOT EXISTS idx_dl_user ON downloads(user_id);
-		CREATE INDEX IF NOT EXISTS idx_dl_status ON downloads(status);
-	`)
-	if err != nil {
-		return err
-	}
-	// Columns added after v1, applied idempotently (definition includes the
-	// `<name> <type/default>` so ALTER is a no-op when the column already exists).
-	// Queue-scheduling columns: priority + fair ordering + no-seed stall count.
-	addColumns := []string{
-		"tracker TEXT NOT NULL DEFAULT ''",
-		"category TEXT NOT NULL DEFAULT ''",
-		"priority TEXT NOT NULL DEFAULT 'normal'",
-		"queued_since DATETIME",
-		"stalls INTEGER NOT NULL DEFAULT 0",
-		// Phase 2 (source rotation): the magnet currently being downloaded when it
-		// differs from the original `magnet` (an alternative source). Empty = original.
-		"active_magnet TEXT NOT NULL DEFAULT ''",
-		// Origin marker (e.g. SourceArr for the Transmission RPC); empty for UI.
-		"source TEXT NOT NULL DEFAULT ''",
-		// Chosen download destination (#16 picker): a writable base + optional subdir.
-		"dest_base TEXT NOT NULL DEFAULT ''",
-		"dest_subdir TEXT NOT NULL DEFAULT ''",
-		// The per-torrent destination dir FROZEN when metadata resolves the name, so
-		// the completion finalize doesn't drift if completionBaseDir's inputs (category
-		// grouping, auto-promote) change between create and completion — the bug that
-		// wedged in-flight rows in `moving` after category grouping shipped. Empty for
-		// legacy rows (the finalize falls back to recomputing + a category-less probe).
-		"completion_dest TEXT NOT NULL DEFAULT ''",
-	}
-	for _, def := range addColumns {
-		if e := s.addColumnIfMissing("downloads", def); e != nil {
-			return e
-		}
-	}
-	// Phase 2: catalog of known sources per download (the original + alternatives
-	// discovered via Jackett re-search), used for round-robin rotation when a
-	// source dries up. Kept in a side table so downloads.info_hash never mutates.
-	_, err = s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS download_sources (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			download_id INTEGER NOT NULL,
-			magnet      TEXT    NOT NULL,
-			info_hash   TEXT    NOT NULL,
-			title       TEXT    NOT NULL DEFAULT '',
-			tracker     TEXT    NOT NULL DEFAULT '',
-			seeders     INTEGER NOT NULL DEFAULT 0,
-			size        INTEGER NOT NULL DEFAULT 0,
-			status      TEXT    NOT NULL DEFAULT 'candidate',
-			tries       INTEGER NOT NULL DEFAULT 0,
-			last_tried  DATETIME,
-			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(download_id, info_hash)
-		);
-		CREATE INDEX IF NOT EXISTS idx_src_dl ON download_sources(download_id);
-	`)
-	return err
-}
-
-// addColumnIfMissing runs ALTER TABLE ADD COLUMN when the column (first token of
-// def) isn't present yet. def is the full column definition, e.g. "priority TEXT
-// NOT NULL DEFAULT 'normal'".
-func (s *Store) addColumnIfMissing(table, def string) error {
-	col := def
-	if i := strings.IndexByte(def, ' '); i > 0 {
-		col = def[:i]
-	}
-	if s.hasColumn(table, col) {
-		return nil
-	}
-	_, err := s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + def)
-	return err
-}
-
-func (s *Store) hasColumn(table, col string) bool {
-	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull int
-		var dflt sql.NullString
-		var pk int
-		if rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk) == nil && name == col {
-			return true
-		}
-	}
-	return false
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // execer is the subset of *sql.DB / *sql.Tx that createOne needs. Sharing it lets
 // Create (autocommit) and BatchCreate (single transaction) run the SAME idempotent
@@ -316,8 +194,9 @@ type execer interface {
 // Tx): validate → re-queue an existing paused/failed row (GetByKey) → otherwise
 // INSERT. It returns the resulting row plus `inserted` (true only for a fresh
 // INSERT; false when an existing row was returned/re-queued). BOTH reads and
-// writes go through `x`: when `x` is an open Tx it owns the store's single
-// connection (MaxOpenConns(1)), so reading off s.db would deadlock the batch.
+// writes go through `x`: in a batch (x is an open Tx) the idempotency read must
+// SEE the rows inserted earlier in the SAME transaction, so it can't read off
+// s.db (a different connection that wouldn't see the uncommitted writes).
 func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, err error) {
 	if d.InfoHash == "" || d.Magnet == "" {
 		return nil, false, errors.New("infoHash e magnet são obrigatórios")
@@ -336,14 +215,14 @@ func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, e
 		}
 		return existing, false, nil
 	}
-	res, err := x.Exec(`
+	var id int64
+	err = x.QueryRow(`
 		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status, priority, source, dest_base, dest_subdir, queued_since)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusQueued, priority, d.Source, d.DestBase, d.DestSubdir)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) RETURNING id
+	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusQueued, priority, d.Source, d.DestBase, d.DestSubdir).Scan(&id)
 	if err != nil {
 		return nil, false, err
 	}
-	id, _ := res.LastInsertId()
 	got, err := s.getWith(x, d.UserID, int(id))
 	return got, true, err
 }
@@ -454,8 +333,8 @@ func (s *Store) Get(userID, id int) (*Download, error) {
 }
 
 // getWith reads a row through `x`. createOne passes the open Tx so a batch's
-// reads share the single connection the Tx holds — issuing them on s.db would
-// block forever (MaxOpenConns(1): the Tx owns the only connection).
+// idempotency read sees rows inserted earlier in the SAME transaction — reading
+// off s.db (a separate connection) wouldn't see those uncommitted writes.
 func (s *Store) getWith(x execer, userID, id int) (*Download, error) {
 	row := x.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
 	return scanRow(row)
@@ -546,8 +425,8 @@ func resolveWholeTorrentFile(destDir, torrentName, relPath string) string {
 
 const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_size, name, magnet,
 	tracker, category, status, bytes_downloaded,
-	COALESCE(started_at, ''), COALESCE(completed_at, ''), error, created_at,
-	COALESCE(priority, 'normal'), COALESCE(stalls, 0), COALESCE(queued_since, ''),
+	started_at, completed_at, error, created_at,
+	COALESCE(priority, 'normal'), COALESCE(stalls, 0), queued_since,
 	COALESCE(active_magnet, ''), COALESCE(source, ''),
 	COALESCE(dest_base, ''), COALESCE(dest_subdir, ''),
 	COALESCE(completion_dest, '') FROM downloads `
@@ -1283,27 +1162,29 @@ func scanRows(rows *sql.Rows) (*Download, error) {
 
 func scanGeneric(r rowScanner) (*Download, error) {
 	d := &Download{}
-	var startedAt, completedAt, createdAt, queuedSince string
+	var startedAt, completedAt, queuedSince sql.NullTime
 	err := r.Scan(
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
-		&startedAt, &completedAt, &d.Error, &createdAt,
+		&startedAt, &completedAt, &d.Error, &d.CreatedAt,
 		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet, &d.Source,
 		&d.DestBase, &d.DestSubdir, &d.CompletionDest,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if t := dbutil.ParseTime(startedAt); !t.IsZero() {
+	if startedAt.Valid {
+		t := startedAt.Time
 		d.StartedAt = &t
 	}
-	if t := dbutil.ParseTime(completedAt); !t.IsZero() {
+	if completedAt.Valid {
+		t := completedAt.Time
 		d.CompletedAt = &t
 	}
-	if t := dbutil.ParseTime(queuedSince); !t.IsZero() {
+	if queuedSince.Valid {
+		t := queuedSince.Time
 		d.QueuedSince = &t
 	}
-	d.CreatedAt = dbutil.ParseTime(createdAt)
 	if d.FileSize > 0 {
 		d.Progress = float64(d.BytesDownloaded) / float64(d.FileSize)
 		if d.Progress > 1 {

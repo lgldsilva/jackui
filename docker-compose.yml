@@ -22,6 +22,10 @@ services:
           memory: 256m
     # /healthz returns 503 if the DB or the streamer failed to init — Docker
     # marks the container unhealthy instead of it silently running degraded.
+    # Wait for the Postgres sidecar to be accepting connections before boot.
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8989/healthz"]
       interval: 30s
@@ -67,6 +71,11 @@ services:
       - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
       - JACKUI_PORT=8989
+      # Unified PostgreSQL store (sidecar). All app state lives here now; the
+      # legacy SQLite paths below are kept only for the one-time `migrate-auth`
+      # ETL that imports the old auth.db. ⚠ Behind gluetun (prod), the override
+      # in docker-compose.gluetun.yml swaps this to localhost:5432.
+      - JACKUI_DATABASE_URL=${JACKUI_DATABASE_URL:-postgres://jackui:${POSTGRES_PASSWORD}@postgres:5432/jackui?sslmode=disable}
       - JACKUI_DB_PATH=/data/jackui.db
       - JACKUI_STREAM_DIR=/data/streams
       # State DBs (favorites, library, downloads, tmdb-cache, etc.) live on the
@@ -148,6 +157,31 @@ services:
     networks:
       - vpn-gateway_vpn-net
       - npm-network
+
+  # Unified data store. Sidecar so the single Postgres holds every table with
+  # real cross-table FKs (replacing the 14 separate SQLite files). NOT exposed on
+  # the host — only jackui talks to it over the internal network.
+  postgres:
+    image: postgres:16-alpine
+    container_name: jackui-postgres
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-jackui}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      - POSTGRES_DB=${POSTGRES_DB:-jackui}
+      # Subdir so a non-root user owns PGDATA without fighting lost+found.
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    volumes:
+      - ${JACKUI_PG_DIR:-./data/postgres}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jackui} -d ${POSTGRES_DB:-jackui}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - vpn-gateway_vpn-net
 
 networks:
   vpn-gateway_vpn-net:

@@ -3,11 +3,11 @@ package transmissionrpc
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // *arr clients (Sonarr/Radarr/Prowlarr) fetch the CSRF session-id with a GET to
@@ -17,7 +17,7 @@ import (
 func TestRPC_GetSessionProbe(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	st := newTestStore(t)
-	as, err := auth.New(filepath.Join(t.TempDir(), "auth.db"))
+	as, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

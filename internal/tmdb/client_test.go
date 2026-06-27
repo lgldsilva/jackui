@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 type testTransport struct {
@@ -25,8 +26,7 @@ func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func testClient(t *testing.T, srv *httptest.Server) *Client {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, err := New("testkey", "", dbPath)
+	c, err := New("testkey", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -37,8 +37,7 @@ func testClient(t *testing.T, srv *httptest.Server) *Client {
 
 func testClientWithOMDb(t *testing.T, srv *httptest.Server, omdbSrv *httptest.Server) *Client {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, err := New("testkey", "omdbkey", dbPath)
+	c, err := New("testkey", "omdbkey", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -52,7 +51,7 @@ func testClientWithOMDb(t *testing.T, srv *httptest.Server, omdbSrv *httptest.Se
 }
 
 func TestNew_DisabledClient(t *testing.T) {
-	c, err := New("", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, err := New("", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -63,7 +62,7 @@ func TestNew_DisabledClient(t *testing.T) {
 }
 
 func TestMatch_DisabledClient(t *testing.T) {
-	c, err := New("", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, err := New("", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -75,7 +74,7 @@ func TestMatch_DisabledClient(t *testing.T) {
 }
 
 func TestMatch_EmptyTitle(t *testing.T) {
-	c, err := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, err := New("key", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -178,7 +177,7 @@ func TestSafePrefix(t *testing.T) {
 }
 
 func TestTrendingCached(t *testing.T) {
-	c, err := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, err := New("key", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -213,7 +212,7 @@ func TestBuildTrendingItems(t *testing.T) {
 }
 
 func TestFetchImdbID_InvalidKind(t *testing.T) {
-	c, _ := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("key", "", dbtest.NewDB(t))
 	id := c.fetchImdbID(context.Background(), "person", 1)
 	if id != "" {
 		t.Fatal("expected empty for invalid kind")
@@ -221,7 +220,7 @@ func TestFetchImdbID_InvalidKind(t *testing.T) {
 }
 
 func TestFetchEpisodeName_Disabled(t *testing.T) {
-	c, _ := New("", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("", "", dbtest.NewDB(t))
 	name := c.FetchEpisodeName(context.Background(), 1, 1, 1)
 	if name != "" {
 		t.Fatal("expected empty for disabled client")
@@ -229,7 +228,7 @@ func TestFetchEpisodeName_Disabled(t *testing.T) {
 }
 
 func TestFetchEpisodeName_InvalidParams(t *testing.T) {
-	c, _ := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("key", "", dbtest.NewDB(t))
 	if name := c.FetchEpisodeName(context.Background(), 0, 1, 1); name != "" {
 		t.Fatal("expected empty for zero seriesID")
 	}
@@ -306,8 +305,7 @@ func TestMatch_APIError(t *testing.T) {
 }
 
 func TestSetCached_NilMatch(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 	c.setCached("testkey", nil)
 	m, ok := c.getCached("testkey")
 	// Negative cache: ok=true, m=nil
@@ -320,21 +318,21 @@ func TestSetCached_NilMatch(t *testing.T) {
 }
 
 func TestFetchImdbRating_NoKey(t *testing.T) {
-	c, _ := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("key", "", dbtest.NewDB(t))
 	if r := c.fetchImdbRating(context.Background(), "tt1234567"); r != 0 {
 		t.Fatal("expected 0 without omdb key")
 	}
 }
 
 func TestFetchImdbRating_EmptyID(t *testing.T) {
-	c, _ := New("key", "omdbkey", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 	if r := c.fetchImdbRating(context.Background(), ""); r != 0 {
 		t.Fatal("expected 0 for empty imdb id")
 	}
 }
 
 func TestTrending_Disabled(t *testing.T) {
-	c, _ := New("", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("", "", dbtest.NewDB(t))
 	_, err := c.Trending(context.Background())
 	if err != ErrDisabled {
 		t.Fatalf("expected ErrDisabled, got: %v", err)
@@ -342,7 +340,7 @@ func TestTrending_Disabled(t *testing.T) {
 }
 
 func TestTrending_FromCache(t *testing.T) {
-	c, _ := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, _ := New("key", "", dbtest.NewDB(t))
 	c.setTrendingCache([]Match{{Title: "Cached", TmdbID: 1}})
 	items, err := c.Trending(context.Background())
 	if err != nil {
@@ -354,8 +352,7 @@ func TestTrending_FromCache(t *testing.T) {
 }
 
 func TestGetCached_ExpiredEntry(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{"title":"old"}', '2020-01-01 00:00:00')`, "expiredkey")
 	m, ok := c.getCached("expiredkey")
@@ -365,8 +362,7 @@ func TestGetCached_ExpiredEntry(t *testing.T) {
 }
 
 func TestGetCached_CorruptPayload(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{corrupt', CURRENT_TIMESTAMP)`, "corruptkey")
 	m, ok := c.getCached("corruptkey")
@@ -376,8 +372,7 @@ func TestGetCached_CorruptPayload(t *testing.T) {
 }
 
 func TestGetCached_NegativeCache(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, 'null', CURRENT_TIMESTAMP)`, "negkey")
 	m, ok := c.getCached("negkey")
@@ -449,8 +444,7 @@ func TestFetchImdbRating_Success(t *testing.T) {
 	}))
 	defer omdbSrv.Close()
 
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "omdbkey", dbPath)
+	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 	c.http = &http.Client{Transport: &testTransport{serverURL: apiSrv.URL}}
 
 	rating := c.fetchImdbRating(context.Background(), "tt1234567")
@@ -465,8 +459,7 @@ func TestFetchImdbRating_NA(t *testing.T) {
 	}))
 	defer omdbSrv.Close()
 
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "omdbkey", dbPath)
+	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 
 	rating := c.fetchImdbRating(context.Background(), "tt9999999")
 	_ = rating
@@ -478,24 +471,21 @@ func TestBackfillRating(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "omdbkey", dbPath)
+	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 
 	c.setCached("movie|2020", &Match{TmdbID: 1, ImdbID: "tt1234567", ImdbRating: 0, Title: "Test", Year: 2020, Kind: "movie"})
 	c.backfillRating("movie|2020", Match{TmdbID: 1, ImdbID: "tt1234567", ImdbRating: 0, Title: "Test", Year: 2020, Kind: "movie"})
 }
 
 func TestBackfillRating_ZeroRating(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "omdbkey", dbPath)
+	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 
 	c.setCached("testkey", &Match{TmdbID: 1, ImdbID: "tt0000000", Title: "Test", Kind: "movie"})
 	c.backfillRating("testkey", Match{TmdbID: 1, ImdbID: "tt0000000", Title: "Test", Kind: "movie"})
 }
 
 func TestSetCachedAndGetCached(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.setCached("testkey", nil)
 	m, ok := c.getCached("testkey")
@@ -511,8 +501,7 @@ func TestSetCachedAndGetCached(t *testing.T) {
 }
 
 func TestClientClose(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("", "", dbPath)
+	c, _ := New("", "", dbtest.NewDB(t))
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -524,8 +513,7 @@ func TestPickBestMatch_SkipsNonMovieTv(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 
 	out := &multiSearchResp{
 		Results: []tmdbResult{
@@ -597,11 +585,10 @@ func TestFetchTrending_Non200(t *testing.T) {
 }
 
 func TestCachedTTLCheck(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("key", "", dbPath)
+	c, _ := New("key", "", dbtest.NewDB(t))
 
 	// Insert fresh entry
-	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{"tmdbId":1,"title":"test","kind":"movie"}', datetime('now'))`, "freshkey")
+	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{"tmdbId":1,"title":"test","kind":"movie"}', now())`, "freshkey")
 	m, ok := c.getCached("freshkey")
 	if !ok || m == nil || m.TmdbID != 1 {
 		t.Fatal("expected fresh cache hit")
@@ -619,8 +606,7 @@ func TestMatch_DisableOmdbStillWorks(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	dbPath := filepath.Join(t.TempDir(), "tmdb.db")
-	c, _ := New("testkey", "", dbPath)
+	c, _ := New("testkey", "", dbtest.NewDB(t))
 	c.http = &http.Client{Transport: &testTransport{serverURL: srv.URL}}
 
 	m, err := c.Match(context.Background(), "Test 2022")

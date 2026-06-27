@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +35,7 @@ const (
 
 func newTestHistoryStore(t *testing.T) *history.Store {
 	t.Helper()
-	store, err := history.New(filepath.Join(t.TempDir(), "history.db"))
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatalf("history.New: %v", err)
 	}
@@ -348,11 +347,12 @@ func TestPersistEmitted_SaveErrorIsLoggedNotFatal(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	store, err := history.New(filepath.Join(t.TempDir(), "closed.db"))
+	pool := seededPool(t)
+	store, err := history.New(pool)
 	if err != nil {
 		t.Fatalf("history.New: %v", err)
 	}
-	store.Close() // force Save to fail
+	pool.Close() // force Save to fail (Store.Close is a no-op now)
 	// Must not panic — the error is logged and the stream proceeds to `done`.
 	persistEmitted(c, store, "q", []jackett.Result{{Title: "x", InfoHash: hashA}}, 0)
 }

@@ -16,7 +16,7 @@ func newRenameRouter(t *testing.T) (*gin.Engine, *local.Browser, *downloads.Stor
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	meus := t.TempDir()
-	dls, err := downloads.New(filepath.Join(t.TempDir(), "dl.db"))
+	dls, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

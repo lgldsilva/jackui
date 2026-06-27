@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net"
-	"path/filepath"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
@@ -26,7 +25,7 @@ func freePort(t *testing.T) int {
 // moved folder), while leaving unrelated downloads untouched. A nil streamer is
 // fine — the Drop step is skipped.
 func TestRelinkMovedTorrents(t *testing.T) {
-	dls, err := downloads.New(filepath.Join(t.TempDir(), "dl.db"))
+	dls, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +79,7 @@ func TestRelinkMovedTorrentsDropsTorrent(t *testing.T) {
 	}
 	defer s.Close()
 
-	dls, err := downloads.New(filepath.Join(t.TempDir(), "dl.db"))
+	dls, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

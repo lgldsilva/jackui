@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestDiscover_MergesMovieAndTvByPopularity(t *testing.T) {
@@ -134,7 +136,7 @@ func TestTrending_PaginatesAndTagsDirection(t *testing.T) {
 }
 
 func TestDiscover_DisabledClient(t *testing.T) {
-	c, _ := New("", "", t.TempDir()+"/tmdb.db")
+	c, _ := New("", "", dbtest.NewDB(t))
 	defer c.Close()
 	if _, err := c.Discover(context.Background(), 2024, 0); err != ErrDisabled {
 		t.Errorf("expected ErrDisabled, got %v", err)
@@ -164,7 +166,7 @@ func TestGenres_UpstreamErrorAndDisabled(t *testing.T) {
 	if _, err := testClient(t, srv).Genres(context.Background()); err == nil {
 		t.Error("expected error when genre list fails")
 	}
-	dc, _ := New("", "", t.TempDir()+"/tmdb.db")
+	dc, _ := New("", "", dbtest.NewDB(t))
 	defer dc.Close()
 	if _, err := dc.Genres(context.Background()); err != ErrDisabled {
 		t.Errorf("expected ErrDisabled, got %v", err)

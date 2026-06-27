@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/mailer"
 )
 
@@ -55,7 +56,7 @@ func TestRegister_MissingFields(t *testing.T) {
 
 func TestInvite_WithStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestVerifyEmail_EmptyBody(t *testing.T) {
 
 func TestForgot_Always200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +128,7 @@ func TestForgot_Always200(t *testing.T) {
 
 func TestForgot_NoBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +188,7 @@ func TestReset_ShortPassword(t *testing.T) {
 
 func TestRegister_WithStoreConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := auth.New(t.TempDir() + "/auth.db")
+	store, err := auth.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

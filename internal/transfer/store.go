@@ -4,7 +4,6 @@ import (
 	"database/sql"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // Pending is a transfer (move/promote) whose copy must survive a restart. The
@@ -24,56 +23,32 @@ type Pending struct {
 // Store persists pending transfers in a dedicated SQLite file. All methods are
 // nil-safe so callers can stay agnostic to whether persistence is wired.
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-// OpenStore opens (creating if needed) the pending-transfers DB at path.
-func OpenStore(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// OpenStore wires the pending-transfers store onto the shared Postgres pool.
+// Schema is applied centrally (internal/db migrations).
+func OpenStore(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() {
-	if s != nil && s.db != nil {
-		_ = s.db.Close()
-	}
-}
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS pending_transfers (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			kind       TEXT     NOT NULL,
-			src        TEXT     NOT NULL,
-			dst        TEXT     NOT NULL,
-			payload    TEXT     NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);`)
-	return err
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // Add persists a pending transfer and returns its id (0 when the store is nil).
 func (s *Store) Add(p Pending) (int64, error) {
 	if s == nil || s.db == nil {
 		return 0, nil
 	}
-	res, err := s.db.Exec(
-		`INSERT INTO pending_transfers (kind, src, dst, payload) VALUES (?, ?, ?, ?)`,
+	var id int64
+	err := s.db.QueryRow(
+		`INSERT INTO pending_transfers (kind, src, dst, payload) VALUES (?, ?, ?, ?) RETURNING id`,
 		p.Kind, p.Src, p.Dst, p.Payload,
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 // Remove deletes a pending transfer once its copy completed (no-op on id 0).

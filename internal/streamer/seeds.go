@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // SeedsStore persists the torrents that must keep seeding (because they belong
@@ -17,7 +16,7 @@ import (
 // only protects pieces from LRU eviction, whereas a seed entry is an automatic,
 // tracker-driven marker whose job is to bring the torrent back into the swarm.
 type SeedsStore struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
 // SeedEntry is one persisted seed row.
@@ -28,35 +27,14 @@ type SeedEntry struct {
 	AddedAt  time.Time `json:"addedAt"`
 }
 
-// NewSeeds opens (or creates) the seeds SQLite DB. Typically
-// `<state_dir>/.seeds.db`.
-func NewSeeds(path string) (*SeedsStore, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS seeds (
-			info_hash TEXT PRIMARY KEY,
-			magnet    TEXT NOT NULL DEFAULT '',
-			name      TEXT NOT NULL DEFAULT '',
-			added_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return &SeedsStore{db: db}, nil
+// NewSeeds wires the seeds store onto the shared Postgres pool. Schema is
+// applied centrally (internal/db migrations).
+func NewSeeds(pool *sql.DB) (*SeedsStore, error) {
+	return &SeedsStore{db: dbutil.Wrap(pool)}, nil
 }
 
-// Close releases the DB handle.
-func (s *SeedsStore) Close() error {
-	if s == nil || s.db == nil {
-		return nil
-	}
-	return s.db.Close()
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *SeedsStore) Close() error { return nil }
 
 // Add upserts a seed entry. Idempotent — re-adding the same hash refreshes the
 // magnet/name without disturbing added_at. Nil-safe receiver.
@@ -93,11 +71,9 @@ func (s *SeedsStore) List() ([]SeedEntry, error) {
 	var out []SeedEntry
 	for rows.Next() {
 		var e SeedEntry
-		var added string
-		if err := rows.Scan(&e.InfoHash, &e.Magnet, &e.Name, &added); err != nil {
+		if err := rows.Scan(&e.InfoHash, &e.Magnet, &e.Name, &e.AddedAt); err != nil {
 			return nil, err
 		}
-		e.AddedAt = dbutil.ParseTime(added)
 		out = append(out, e)
 	}
 	return out, rows.Err()

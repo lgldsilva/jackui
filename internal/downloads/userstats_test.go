@@ -1,12 +1,15 @@
 package downloads
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestUserStats(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "dl.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s, err := New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}

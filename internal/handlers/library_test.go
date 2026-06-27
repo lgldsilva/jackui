@@ -13,7 +13,7 @@ import (
 
 func TestLibraryList_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestLibraryList_Empty(t *testing.T) {
 
 func TestLibraryGet_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestLibraryGet_InvalidID(t *testing.T) {
 
 func TestLibraryGet_NotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestLibraryGet_NotFound(t *testing.T) {
 
 func TestLibraryUpdateResume_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestLibraryUpdateResume_InvalidID(t *testing.T) {
 
 func TestLibraryUpdateResume_NoBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestLibraryUpdateResume_NoBody(t *testing.T) {
 
 func TestLibraryUpdateResume_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestLibraryUpdateResume_Valid(t *testing.T) {
 
 func TestLibraryDeleteAll_ReturnsCount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestLibraryDeleteAll_ReturnsCount(t *testing.T) {
 
 func TestLibraryDelete_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestLibraryDelete_InvalidID(t *testing.T) {
 
 func TestLibraryDelete_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestLibraryDelete_Success(t *testing.T) {
 
 func TestLibraryList_WithLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestLibraryList_WithLimit(t *testing.T) {
 
 func TestLibraryList_WithInvalidLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(t.TempDir() + "/library.db")
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

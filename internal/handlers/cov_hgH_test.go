@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 	"github.com/lgldsilva/jackui/internal/transcode"
@@ -58,7 +59,7 @@ func hgHCtx(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
 // tmdb.ErrDisabled, which the handlers must translate into 503.
 func hgHDisabledTMDB(t *testing.T) *tmdb.Client {
 	t.Helper()
-	c, err := tmdb.New("", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, err := tmdb.New("", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("tmdb.New: %v", err)
 	}

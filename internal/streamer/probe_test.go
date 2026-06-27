@@ -2,11 +2,12 @@ package streamer
 
 import (
 	"io"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestIsImageSubtitle(t *testing.T) {
@@ -315,8 +316,7 @@ func TestProbeHealthAsync_EmptyMagnetNoOp(t *testing.T) {
 }
 
 func TestMetadataCache_NewAndClose(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -326,8 +326,7 @@ func TestMetadataCache_NewAndClose(t *testing.T) {
 }
 
 func TestMetadataCache_SetAndGetMeta(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -362,8 +361,7 @@ func TestMetadataCache_SetAndGetMeta(t *testing.T) {
 }
 
 func TestMetadataCache_GetNonExistent(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -376,8 +374,7 @@ func TestMetadataCache_GetNonExistent(t *testing.T) {
 }
 
 func TestMetadataCache_SetAndGetArt(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -405,8 +402,7 @@ func TestMetadataCache_SetAndGetArt(t *testing.T) {
 }
 
 func TestMetadataCache_GetArtNonExistent(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -419,8 +415,7 @@ func TestMetadataCache_GetArtNonExistent(t *testing.T) {
 }
 
 func TestMetadataCache_SetAndGetHealth(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -446,8 +441,7 @@ func TestMetadataCache_SetAndGetHealth(t *testing.T) {
 }
 
 func TestMetadataCache_GetHealthFallback(t *testing.T) {
-	dir := t.TempDir()
-	cache, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	cache, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -468,8 +462,7 @@ func TestTorrentImage_NotActive(t *testing.T) {
 }
 
 func TestHealthSnapshot_UnknownHash(t *testing.T) {
-	dir := t.TempDir()
-	c, err := NewMetadataCache(filepath.Join(dir, "meta.db"))
+	c, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -539,8 +532,7 @@ func TestSetMetadataCache(t *testing.T) {
 	if s.MetadataCache() != nil {
 		t.Error("expected nil cache initially")
 	}
-	dir := t.TempDir()
-	c, _ := NewMetadataCache(filepath.Join(dir, "m.db"))
+	c, _ := NewMetadataCache(dbtest.NewDB(t))
 	defer c.Close()
 	s.SetMetadataCache(c)
 	if s.MetadataCache() == nil {

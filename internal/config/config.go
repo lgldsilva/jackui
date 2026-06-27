@@ -3,7 +3,9 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +23,10 @@ type Config struct {
 	DownloadClients []DownloadClient     `yaml:"download_clients"`
 	Port            int                  `yaml:"port"`
 	DBPath          string               `yaml:"db_path"`
+	// DatabaseURL is the PostgreSQL DSN for the unified data store. When set it
+	// supersedes the per-store SQLite paths (DBPath/Stream.StateDir). Env:
+	// JACKUI_DATABASE_URL (preferred) or DATABASE_URL.
+	DatabaseURL string `yaml:"database_url"`
 	Stream          StreamConfig         `yaml:"stream"`
 	Subtitles       SubtitlesConfig      `yaml:"subtitles"`
 	Auth            AuthConfig           `yaml:"auth"`
@@ -283,6 +289,7 @@ func (c *Config) Save(path string) error {
 // applyEnvOverrides sobrescreve valores do YAML com variáveis de ambiente quando definidas.
 // JACKUI_PORT, JACKETT_URL, JACKETT_API_KEY são os mais comuns em Docker.
 func applyEnvOverrides(cfg *Config) {
+	applyDatabaseEnv(cfg)
 	applyJackettEnv(cfg)
 	applyStreamEnv(cfg)
 	applyAuthEnv(cfg)
@@ -318,6 +325,48 @@ func applyEnvOverrides(cfg *Config) {
 	if cfg.Stream.MetadataSeconds == 0 {
 		cfg.Stream.MetadataSeconds = 60
 	}
+}
+
+// applyDatabaseEnv resolves the PostgreSQL DSN from the environment.
+// JACKUI_DATABASE_URL takes precedence over the conventional DATABASE_URL; when
+// neither is set but the JACKUI_PG_* parts are, a DSN is assembled from them.
+func applyDatabaseEnv(cfg *Config) {
+	if v := os.Getenv("JACKUI_DATABASE_URL"); v != "" {
+		cfg.DatabaseURL = v
+		return
+	}
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		cfg.DatabaseURL = v
+		return
+	}
+	host := os.Getenv("JACKUI_PG_HOST")
+	if host == "" {
+		return
+	}
+	port := os.Getenv("JACKUI_PG_PORT")
+	if port == "" {
+		port = "5432"
+	}
+	user := os.Getenv("JACKUI_PG_USER")
+	if user == "" {
+		user = "jackui"
+	}
+	dbname := os.Getenv("JACKUI_PG_DB")
+	if dbname == "" {
+		dbname = "jackui"
+	}
+	sslmode := os.Getenv("JACKUI_PG_SSLMODE")
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, os.Getenv("JACKUI_PG_PASSWORD")),
+		Host:     net.JoinHostPort(host, port),
+		Path:     "/" + dbname,
+		RawQuery: "sslmode=" + sslmode,
+	}
+	cfg.DatabaseURL = u.String()
 }
 
 // applyDownloadsQueueEnv reads the queue-scheduler knobs from the environment
@@ -365,11 +414,15 @@ var maskedEnvKeys = map[string]bool{
 	"JACKETT_API_KEY": true, "JACKUI_ADMIN_PASSWORD": true, "JACKUI_JWT_SECRET": true,
 	"JACKUI_SMTP_PASS": true, "GROQ_API_KEY": true, "OPENROUTER_API_KEY": true,
 	"TMDB_API_KEY": true, "OMDB_API_KEY": true, "JACKUI_NTFY_TOKEN": true,
+	// DSNs carry the DB password.
+	"JACKUI_DATABASE_URL": true, "DATABASE_URL": true, "JACKUI_PG_PASSWORD": true,
 }
 
 func ActiveEnvOverrides() map[string]string {
 	keys := []string{
 		"JACKETT_URL", "JACKETT_API_KEY",
+		"JACKUI_DATABASE_URL", "DATABASE_URL",
+		"JACKUI_PG_HOST", "JACKUI_PG_PORT", "JACKUI_PG_USER", "JACKUI_PG_PASSWORD", "JACKUI_PG_DB", "JACKUI_PG_SSLMODE",
 		"JACKUI_PORT", "JACKUI_DB_PATH",
 		"JACKUI_STREAM_DIR", "JACKUI_DOWNLOAD_DIR",
 		"JACKUI_STATE_DIR", "JACKUI_SHARED_DIR",

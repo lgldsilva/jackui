@@ -38,7 +38,7 @@ func TestHealth_NilStore(t *testing.T) {
 
 func TestHealth_WithStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := history.New(t.TempDir() + "/test.db")
+	db, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestHealth_WithStore(t *testing.T) {
 // healthcheck catches a process running without streaming.
 func TestHealth_StreamerDown(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := history.New(t.TempDir() + "/test.db")
+	db, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,11 +144,12 @@ func TestHealth_JSONStructure(t *testing.T) {
 
 func TestStatus_DbDegraded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	pool := seededPool(t)
+	store, err := history.New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	pool.Close()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -203,7 +204,7 @@ func TestBuildInfo_NilStore(t *testing.T) {
 
 func TestBuildInfo_WithStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := history.New(t.TempDir() + "/test.db")
+	db, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,11 +229,12 @@ func TestBuildInfo_WithStore(t *testing.T) {
 
 func TestBuildInfo_DbDown(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	pool := seededPool(t)
+	store, err := history.New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.Close() // closed store → DB probe fails, but the endpoint stays 200.
+	pool.Close() // closed store → DB probe fails, but the endpoint stays 200.
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -252,7 +254,7 @@ func TestBuildInfo_DbDown(t *testing.T) {
 
 func TestStatus_Healthy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

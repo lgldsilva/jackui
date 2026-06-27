@@ -1,18 +1,13 @@
 package history
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
 func TestDistinctQueryCount(t *testing.T) {
-	s, err := New(filepath.Join(t.TempDir(), "hist.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
+	s := newTestStore(t)
 
 	res := func(hash string) []jackett.Result { return []jackett.Result{{Title: "X", InfoHash: hash}} }
 	if err := s.Save("matrix", res("h1"), 1, false); err != nil {

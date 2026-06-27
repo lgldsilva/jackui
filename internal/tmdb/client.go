@@ -22,7 +22,6 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
 	"github.com/lgldsilva/jackui/internal/httpretry"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -53,7 +52,7 @@ type Client struct {
 	apiKey  string
 	omdbKey string
 	http    *http.Client
-	cache   *sql.DB
+	cache   *dbutil.DB
 
 	// Trending is refreshed at most every trendingTTL (it changes slowly and is
 	// shared by all users), cached in memory rather than the on-disk match cache.
@@ -72,37 +71,17 @@ const trendingTTL = 6 * time.Hour
 // from every call — handlers should surface that as "no enrichment available"
 // (404) without exploding. omdbKey is optional: when set, matches are enriched
 // with the real IMDb rating (via OMDb) on top of TMDB's own vote average.
-func New(apiKey, omdbKey, cachePath string) (*Client, error) {
-	db, err := sql.Open(dbutil.DriverName, cachePath+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS tmdb_match (
-			cache_key  TEXT PRIMARY KEY,
-			payload    TEXT NOT NULL,
-			cached_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS trending_snapshot (
-			week_key TEXT    NOT NULL,
-			tmdb_id  INTEGER NOT NULL,
-			rank     INTEGER NOT NULL,
-			PRIMARY KEY (week_key, tmdb_id)
-		);
-	`); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
+func New(apiKey, omdbKey string, pool *sql.DB) (*Client, error) {
 	return &Client{
 		apiKey:  apiKey,
 		omdbKey: omdbKey,
 		http:    &http.Client{Timeout: 8 * time.Second},
-		cache:   db,
+		cache:   dbutil.Wrap(pool),
 	}, nil
 }
 
-func (c *Client) Close() error { return c.cache.Close() }
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (c *Client) Close() error { return nil }
 
 // ErrDisabled means no API key is configured — handlers should fall through
 // gracefully instead of returning a 500.
@@ -167,16 +146,12 @@ func (c *Client) Match(ctx context.Context, rawTitle string) (*Match, error) {
 }
 
 func (c *Client) getCached(key string) (*Match, bool) {
-	var payload, cachedAt string
-	err := c.cache.QueryRow(`SELECT payload, cached_at FROM tmdb_match WHERE cache_key=?`, key).Scan(&payload, &cachedAt)
+	var payload string
+	var ts time.Time
+	err := c.cache.QueryRow(`SELECT payload, cached_at FROM tmdb_match WHERE cache_key=?`, key).Scan(&payload, &ts)
 	if err != nil {
 		return nil, false
 	}
-	// Use the shared parser: modernc.org/sqlite sometimes returns DATETIME as
-	// RFC3339, which the bare "2006-01-02 15:04:05" layout dropped to zero time
-	// → every entry looked expired → every lookup hit the TMDB API, defeating
-	// the 30-day cache. (Same class of bug already fixed in the other stores.)
-	ts := dbutil.ParseTime(cachedAt)
 	if time.Since(ts) > cacheTTL {
 		return nil, false
 	}
