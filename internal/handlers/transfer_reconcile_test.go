@@ -118,3 +118,27 @@ func Test_Reconcile_UnknownKindDropped(t *testing.T) {
 		t.Errorf("kind desconhecido deveria ser removido, got %d", len(l))
 	}
 }
+
+func Test_shouldSerialize_Modes(t *testing.T) {
+	// serial: força sequencial em qualquer disco.
+	if !shouldSerialize(transferModeSerial, "/qualquer/coisa") {
+		t.Error("modo serial deveria serializar")
+	}
+	// parallel: nunca serializa (ignora detecção de HDD).
+	if shouldSerialize(transferModeParallel, "/qualquer/coisa") {
+		t.Error("modo parallel não deveria serializar")
+	}
+	// auto / "" : delega à detecção de disco — path inexistente → false.
+	if shouldSerialize(transferModeAuto, "/no/such/path-xyz") {
+		t.Error("auto em path inexistente deveria ser false (não-rotacional)")
+	}
+	if shouldSerialize("", "/no/such/path-xyz") {
+		t.Error("vazio = auto")
+	}
+}
+
+func Test_transferMode_NilSafe(t *testing.T) {
+	if transferMode(nil) != "" {
+		t.Error("transferMode(nil) deveria ser vazio")
+	}
+}

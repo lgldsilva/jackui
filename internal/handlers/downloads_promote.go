@@ -19,6 +19,7 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/diskutil"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/renamer"
@@ -104,7 +105,7 @@ func sanitizeSubdir(subdir string) (string, error) {
 //
 // targetSubdir vazio = raiz do destino. targetBase vazio = sharedDir (default).
 // Subpastas inexistentes são criadas (os.MkdirAll). Validação anti-traversal.
-func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker, pending *transfer.Store) gin.HandlerFunc {
+func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -125,7 +126,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		o := &promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr, pending: pending}
+		o := &promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr, pending: pending, concMode: transferMode(cfg)}
 		plan, err := promotePreparePlan(o)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -149,7 +150,7 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 //
 // Resposta: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
 // Falhas individuais não abortam o batch — cada item é tentado.
-func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker, pending *transfer.Store) gin.HandlerFunc {
+func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
@@ -160,7 +161,7 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClien
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr, pending: pending}, req, tr)
+		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr, pending: pending, concMode: transferMode(cfg)}, req, tr)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
@@ -349,6 +350,35 @@ type promoteOpts struct {
 	renameIA     bool
 	tracker      *transfer.Tracker // reports the move to the global Transfers dock (nil-safe)
 	pending      *transfer.Store   // persists the copy intent so a restart can resume it (nil-safe)
+	concMode     string            // "" / "auto" / "serial" / "parallel" — ver TransferConcurrencyMode
+}
+
+// Modos de concorrência de transferência (config TransferConcurrencyMode).
+const (
+	transferModeAuto     = "auto"
+	transferModeSerial   = "serial"
+	transferModeParallel = "parallel"
+)
+
+// transferMode lê o modo de concorrência da config AO VIVO (nil-safe → "").
+func transferMode(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.Stream.TransferConcurrencyMode
+}
+
+// shouldSerialize decide, pelo modo + disco destino, se as cópias rodam uma de
+// cada vez. "auto" (default) detecta HDD; "serial"/"parallel" forçam.
+func shouldSerialize(mode, dst string) bool {
+	switch mode {
+	case transferModeSerial:
+		return true
+	case transferModeParallel:
+		return false
+	default: // "" ou "auto"
+		return diskutil.IsRotational(dst)
+	}
 }
 
 // promotePayload is the kind-specific JSON stored with a pending promote, so the
@@ -434,7 +464,7 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 	if len(plans) == 0 {
 		return
 	}
-	if diskutil.IsRotational(plans[0].dst) {
+	if shouldSerialize(o.concMode, plans[0].dst) {
 		submitPromoteSerial(o, tr, plans)
 		return
 	}
