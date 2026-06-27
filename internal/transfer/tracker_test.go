@@ -94,9 +94,30 @@ func TestProgressReader(t *testing.T) {
 func TestNilJobSafe(t *testing.T) {
 	var j *Job
 	j.AddBytes(10)
+	j.AddSkipped(10)
 	j.FileDone()
 	j.Done()
 	j.AddBytesFunc()(5) // não deve dar panic
+}
+
+// AddSkipped avança o progresso (bytes já presentes no destino, resume) SEM
+// entrar na janela de taxa — senão pular um arquivo grande dispararia um rate
+// absurdo. Conferimos: bytesDone sobe, RatePerSec permanece 0.
+func TestAddSkippedAdvancesProgressNotRate(t *testing.T) {
+	tr := New()
+	j := tr.Start("resume", "promote", 2, 1000)
+	j.AddSkipped(600)
+	s := j.Snapshot()
+	if s.BytesDone != 600 {
+		t.Fatalf("BytesDone = %d, want 600", s.BytesDone)
+	}
+	if s.RatePerSec != 0 {
+		t.Fatalf("RatePerSec = %d, want 0 (skip não conta na taxa)", s.RatePerSec)
+	}
+	j.AddSkipped(-1) // guard: ignorado
+	if j.Snapshot().BytesDone != 600 {
+		t.Fatal("AddSkipped(<=0) deveria ser no-op")
+	}
 }
 
 func TestSetBytesTotalLateAndGuards(t *testing.T) {
