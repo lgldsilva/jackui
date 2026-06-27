@@ -111,7 +111,9 @@ func withSearchPath(base, schema string) (string, error) {
 		return "", err
 	}
 	q := u.Query()
-	q.Set("search_path", schema)
+	// Tables land in the private schema (first), extensions/helpers resolve from
+	// public (second) — mirrors production where everything lives in public.
+	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
