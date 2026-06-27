@@ -79,10 +79,8 @@ func TestApplyStreamEnv(t *testing.T) {
 	cfg := &Config{}
 
 	t.Setenv("JACKUI_PORT", "9999")
-	t.Setenv("JACKUI_DB_PATH", "/custom/db")
 	t.Setenv("JACKUI_STREAM_DIR", "/custom/stream")
 	t.Setenv("JACKUI_DOWNLOAD_DIR", "/custom/dl")
-	t.Setenv("JACKUI_STATE_DIR", "/custom/state")
 	t.Setenv("JACKUI_SHARED_DIR", "/custom/shared")
 	t.Setenv("JACKUI_STREAM_MAX_GB", "50")
 
@@ -91,17 +89,11 @@ func TestApplyStreamEnv(t *testing.T) {
 	if cfg.Port != 9999 {
 		t.Fatalf("Port = %d, want 9999", cfg.Port)
 	}
-	if cfg.DBPath != "/custom/db" {
-		t.Fatalf("DBPath = %q", cfg.DBPath)
-	}
 	if cfg.Stream.DataDir != "/custom/stream" {
 		t.Fatalf("DataDir = %q", cfg.Stream.DataDir)
 	}
 	if cfg.Stream.DownloadDir != "/custom/dl" {
 		t.Fatalf("DownloadDir = %q", cfg.Stream.DownloadDir)
-	}
-	if cfg.Stream.StateDir != "/custom/state" {
-		t.Fatalf("StateDir = %q", cfg.Stream.StateDir)
 	}
 	if cfg.Stream.SharedDir != "/custom/shared" {
 		t.Fatalf("SharedDir = %q", cfg.Stream.SharedDir)
