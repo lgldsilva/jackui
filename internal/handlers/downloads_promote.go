@@ -291,7 +291,9 @@ func joinIfSub(root, sub string) string {
 }
 
 func listDirs(entries []os.DirEntry) []string {
-	var dirs []string
+	// Non-nil slice so a folder with no subdirs serializes as JSON [] (not null):
+	// the UI does `dirs.length` on the result, and a nil slice → null → crash.
+	dirs := []string{}
 	for _, e := range entries {
 		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
 			dirs = append(dirs, e.Name())

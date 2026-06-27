@@ -1408,7 +1408,8 @@ export const localWalk = async (
 ): Promise<{ entries: LocalEntry[]; total: number }> => {
   const params = appendViewAs(new URLSearchParams({ mount, path, media_only: mediaOnly ? '1' : '0' }))
   const { data } = await api.get<{ entries: LocalEntry[]; total: number }>(`/local/walk?${params}`)
-  return data
+  // Go nil slice → JSON null; callers do r.entries.filter(...) → guard both fields.
+  return { entries: data?.entries ?? [], total: data?.total ?? 0 }
 }
 
 // localMove moves a file or directory from one mount to another (admin only).

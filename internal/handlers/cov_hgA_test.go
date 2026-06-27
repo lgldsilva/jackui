@@ -320,6 +320,23 @@ func Test_hgA_listDirs(t *testing.T) {
 	if len(dirs) != 2 || dirs[0] != "alpha" || dirs[1] != "beta" {
 		t.Errorf("listDirs = %v want [alpha beta]", dirs)
 	}
+
+	// Regression: a folder with no subdirs must return a NON-NIL slice so it
+	// serializes as JSON [] (not null). A nil slice → null → the UI's
+	// dirs.length crashes ("null is not an object (evaluating 'f.length')").
+	leaf := t.TempDir()
+	_ = os.WriteFile(filepath.Join(leaf, "only-a-file.mkv"), []byte("x"), 0o644)
+	leafEntries, err := os.ReadDir(leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noDirs := listDirs(leafEntries)
+	if noDirs == nil {
+		t.Error("listDirs returned nil for a subdir-less folder; want non-nil empty slice (JSON [])")
+	}
+	if b, _ := json.Marshal(noDirs); string(b) != "[]" {
+		t.Errorf("listDirs([]) marshaled to %s, want []", b)
+	}
 }
 
 func Test_hgA_safeBaseName(t *testing.T) {
