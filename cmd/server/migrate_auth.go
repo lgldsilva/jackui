@@ -131,7 +131,7 @@ func copyUsers(src *sql.DB, tx *sql.Tx) (int, error) {
 			username, passwordHash     string
 			role                       string
 			createdAt                  sql.NullString
-			email, status             string
+			email, status              string
 			emailVerified, totpEnabled int
 			totpSecret, ntfyTopic      string
 		)
@@ -190,10 +190,10 @@ func copyAuthTokens(src *sql.DB, tx *sql.Tx) (int, error) {
 	n := 0
 	for rows.Next() {
 		var (
-			tokenHash        string
-			userID           sql.NullInt64 // NULL for invites
-			purpose, email   string
-			expiresAt        sql.NullString
+			tokenHash         string
+			userID            sql.NullInt64 // NULL for invites
+			purpose, email    string
+			expiresAt         sql.NullString
 			usedAt, createdAt sql.NullString
 		)
 		if err := rows.Scan(&tokenHash, &userID, &purpose, &email, &expiresAt, &usedAt, &createdAt); err != nil {
@@ -246,8 +246,8 @@ func copyBackupCodes(src *sql.DB, tx *sql.Tx) (int, error) {
 	n := 0
 	for rows.Next() {
 		var (
-			codeHash         string
-			userID           int64
+			codeHash          string
+			userID            int64
 			usedAt, createdAt sql.NullString
 		)
 		if err := rows.Scan(&codeHash, &userID, &usedAt, &createdAt); err != nil {

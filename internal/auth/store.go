@@ -16,13 +16,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"golang.org/x/crypto/bcrypt"
-	_ "modernc.org/sqlite"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
 )
@@ -65,164 +63,27 @@ type User struct {
 	CreatedAt     time.Time `json:"createdAt"`
 }
 
-// Store wraps the SQLite-backed user + refresh token persistence.
+// Store wraps the PostgreSQL-backed user + refresh token persistence.
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-// New opens (or creates) the auth DB at path.
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// New wires the auth store onto the shared Postgres pool. The schema is applied
+// centrally (internal/db migrations), so there's no per-store migrate here.
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() { _ = s.db.Close() }
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS users (
-			id            INTEGER PRIMARY KEY AUTOINCREMENT,
-			username      TEXT UNIQUE NOT NULL,
-			password_hash TEXT NOT NULL,
-			role          TEXT NOT NULL DEFAULT 'user',
-			created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS refresh_tokens (
-			token_hash  TEXT PRIMARY KEY,
-			user_id     INTEGER NOT NULL,
-			expires_at  DATETIME NOT NULL,
-			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			remember_me INTEGER NOT NULL DEFAULT 0,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		);
-		CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
-		CREATE INDEX IF NOT EXISTS idx_refresh_exp  ON refresh_tokens(expires_at);
-	`)
-	if err != nil {
-		return err
-	}
-	// Idempotent ALTERs for older DBs that pre-date these columns. user_agent/ip
-	// identify the device behind each session (shown in "active sessions").
-	if err := s.addMissingColumns("refresh_tokens", map[string]string{
-		"remember_me": `ALTER TABLE refresh_tokens ADD COLUMN remember_me INTEGER NOT NULL DEFAULT 0`,
-		"user_agent":  `ALTER TABLE refresh_tokens ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''`,
-		"ip":          `ALTER TABLE refresh_tokens ADD COLUMN ip TEXT NOT NULL DEFAULT ''`,
-		// consumed_at: soft-delete on rotation. NULL = active. A token consumed
-		// within a short grace window can be re-presented by a CONCURRENT refresh
-		// (multi-tab, or the request burst when the backend returns from a deploy)
-		// without revoking the whole session family — that self-inflicted revoke
-		// was forcing a re-login after every deploy.
-		"consumed_at": `ALTER TABLE refresh_tokens ADD COLUMN consumed_at DATETIME`,
-	}); err != nil {
-		return err
-	}
-	// Account-lifecycle columns. Default status 'active' so EXISTING users (incl.
-	// the bootstrap admin) keep logging in untouched; new self-registrations are
-	// inserted as 'pending' explicitly. email_verified defaults 1 for the same
-	// reason — pre-existing accounts aren't retroactively locked out.
-	if err := s.addMissingColumns("users", map[string]string{
-		"email":          `ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
-		"status":         `ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
-		"email_verified": `ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1`,
-		"totp_secret":    `ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
-		"totp_enabled":   `ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
-		"ntfy_topic":     `ALTER TABLE users ADD COLUMN ntfy_topic TEXT NOT NULL DEFAULT ''`,
-	}); err != nil {
-		return err
-	}
-	// Generic single-use tokens for invite / email-verify / password-reset. Only
-	// the SHA-256 of the token is stored. user_id is NULL for invites (no account
-	// exists yet); email carries an optional pre-set address for invites.
-	if _, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS auth_tokens (
-			token_hash TEXT PRIMARY KEY,
-			user_id    INTEGER,
-			purpose    TEXT NOT NULL,
-			email      TEXT NOT NULL DEFAULT '',
-			expires_at DATETIME NOT NULL,
-			used_at    DATETIME,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		);
-		CREATE INDEX IF NOT EXISTS idx_authtok_exp ON auth_tokens(expires_at);
-	`); err != nil {
-		return err
-	}
-	// WebAuthn (passkey) credentials. cred_id is the base64url credential id
-	// (stable PK); data is the full webauthn.Credential JSON (public key, sign
-	// count, transports, flags). One user may register several authenticators.
-	if _, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS webauthn_credentials (
-			cred_id    TEXT PRIMARY KEY,
-			user_id    INTEGER NOT NULL,
-			data       TEXT NOT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		);
-		CREATE INDEX IF NOT EXISTS idx_wacred_user ON webauthn_credentials(user_id);
-	`); err != nil {
-		return err
-	}
-	// MFA backup codes — single-use recovery codes shown once when TOTP is
-	// enabled. Only the SHA-256 of each code is stored; used_at marks redemption.
-	if _, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS mfa_backup_codes (
-			code_hash  TEXT PRIMARY KEY,
-			user_id    INTEGER NOT NULL,
-			used_at    DATETIME,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-		);
-		CREATE INDEX IF NOT EXISTS idx_backupcode_user ON mfa_backup_codes(user_id);
-	`); err != nil {
-		return err
-	}
-	return nil
-}
-
-// addMissingColumns applies the given idempotent ALTERs for columns the table
-// doesn't have yet (cols maps column name → ALTER TABLE statement).
-func (s *Store) addMissingColumns(table string, cols map[string]string) error {
-	for col, ddl := range cols {
-		if s.hasColumn(table, col) {
-			continue
-		}
-		if _, err := s.db.Exec(ddl); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Store) hasColumn(table, col string) bool {
-	rows, err := s.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err == nil && n == col {
-			return true
-		}
-	}
-	return false
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // Bootstrap ensures an admin user exists. If no users at all, creates "admin" with the given password.
 // Use this once at startup with the password from config/env.
 func (s *Store) Bootstrap(adminUser, adminPass string) error {
 	var count int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+	// Exclude the anonymous sentinel (id 0, seeded by the schema migration) so
+	// the admin is still bootstrapped on a fresh install.
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM users WHERE id <> 0").Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -247,14 +108,14 @@ func (s *Store) CreateUser(username, password string, role Role) (int, error) {
 	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
 	}
-	res, err := s.db.Exec(
-		"INSERT INTO users(username, password_hash, role) VALUES(?, ?, ?)",
+	var id int64
+	err = s.db.QueryRow(
+		"INSERT INTO users(username, password_hash, role) VALUES(?, ?, ?) RETURNING id",
 		username, string(hash), string(role),
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
 	return int(id), nil
 }
 
@@ -405,14 +266,14 @@ func (s *Store) CreateUserFull(username, email, password string, role Role, stat
 	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
 	}
-	res, err := s.db.Exec(
-		"INSERT INTO users(username, email, password_hash, role, status, email_verified) VALUES(?, ?, ?, ?, ?, 0)",
+	var id int64
+	err = s.db.QueryRow(
+		"INSERT INTO users(username, email, password_hash, role, status, email_verified) VALUES(?, ?, ?, ?, ?, 0) RETURNING id",
 		username, email, string(hash), string(role), string(status),
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
 	return int(id), nil
 }
 
@@ -455,8 +316,6 @@ func (s *Store) SetEmailVerified(userID int, promoteTo Status) error {
 	return err
 }
 
-const errParseLogFormat = "auth: failed to parse CreatedAt %q for user %d: %v"
-
 // GetUserByEmail returns the (verified-or-not) user with a given email, or nil
 // when none. Used by password recovery. Empty email never matches.
 func (s *Store) GetUserByEmail(email string) (*User, error) {
@@ -464,21 +323,15 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 		return nil, nil
 	}
 	var u User
-	var ts string
 	err := s.db.QueryRow(
 		"SELECT id, username, role, email, status, email_verified, ntfy_topic, created_at FROM users WHERE email = ? AND email != '' LIMIT 1",
 		email,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.NtfyTopic, &ts)
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	var errParse error
-	u.CreatedAt, errParse = parseTime(ts)
-	if errParse != nil {
-		log.Printf(errParseLogFormat, ts, u.ID, errParse)
 	}
 	return &u, nil
 }
@@ -498,11 +351,10 @@ func (s *Store) Exists(username, email string) (bool, error) {
 func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	var u User
 	var hash string
-	var ts string
 	err := s.db.QueryRow(
 		"SELECT id, username, password_hash, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts)
+	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("usuário ou senha inválidos")
 	}
@@ -511,11 +363,6 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
 		return nil, errors.New("usuário ou senha inválidos")
-	}
-	var errParse error
-	u.CreatedAt, errParse = parseTime(ts)
-	if errParse != nil {
-		log.Printf(errParseLogFormat, ts, u.ID, errParse)
 	}
 	return &u, nil
 }
@@ -528,21 +375,15 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 		return nil, nil
 	}
 	var u User
-	var ts string
 	err := s.db.QueryRow(
 		"SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts)
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	var errParse error
-	u.CreatedAt, errParse = parseTime(ts)
-	if errParse != nil {
-		log.Printf(errParseLogFormat, ts, u.ID, errParse)
 	}
 	return &u, nil
 }
@@ -550,27 +391,21 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 // GetUserByID is used by middleware after JWT validation to load current user state.
 func (s *Store) GetUserByID(id int) (*User, error) {
 	var u User
-	var ts string
 	err := s.db.QueryRow(
 		"SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE id = ?", id,
-	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts)
+	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
 	if err != nil {
 		return nil, err
 	}
-	var errParse error
-	u.CreatedAt, errParse = parseTime(ts)
-	if errParse != nil {
-		log.Printf(errParseLogFormat, ts, u.ID, errParse)
-	}
 	return &u, nil
 }
 
 // ListUsers returns all users (admin only).
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE id <> 0 ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -578,14 +413,8 @@ func (s *Store) ListUsers() ([]User, error) {
 	var out []User
 	for rows.Next() {
 		var u User
-		var ts string
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &ts); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt); err != nil {
 			continue
-		}
-		var errParse error
-		u.CreatedAt, errParse = parseTime(ts)
-		if errParse != nil {
-			log.Printf(errParseLogFormat, ts, u.ID, errParse)
 		}
 		out = append(out, u)
 	}
@@ -612,7 +441,7 @@ func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.D
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO auth_tokens(token_hash, user_id, purpose, email, expires_at) VALUES(?, ?, ?, ?, ?)`,
-		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC().Format(dbutil.TimeFormat),
+		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC(),
 	)
 	if err != nil {
 		return "", err
@@ -625,22 +454,23 @@ func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.D
 func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
 	hash := sha256Hex(plain)
 	var uid sql.NullInt64
-	var email, expStr string
-	var used sql.NullString
+	var email string
+	var exp time.Time
+	var used sql.NullTime
 	err := s.db.QueryRow(
 		`SELECT user_id, email, expires_at, used_at FROM auth_tokens WHERE token_hash = ? AND purpose = ?`,
 		hash, purpose,
-	).Scan(&uid, &email, &expStr, &used)
+	).Scan(&uid, &email, &exp, &used)
 	if err == sql.ErrNoRows {
 		return nil, errors.New("token inválido")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if used.Valid && used.String != "" {
+	if used.Valid {
 		return nil, errors.New("token já utilizado")
 	}
-	if exp, perr := parseTime(expStr); perr == nil && time.Now().After(exp) {
+	if time.Now().After(exp) {
 		return nil, errors.New("token expirado")
 	}
 	if _, err := s.db.Exec(`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash); err != nil {
@@ -670,7 +500,8 @@ func (s *Store) AddCredential(userID int, cred *webauthn.Credential) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		"INSERT OR REPLACE INTO webauthn_credentials(cred_id, user_id, data) VALUES(?, ?, ?)",
+		`INSERT INTO webauthn_credentials(cred_id, user_id, data) VALUES(?, ?, ?)
+		 ON CONFLICT(cred_id) DO UPDATE SET user_id = excluded.user_id, data = excluded.data`,
 		credKey(cred.ID), userID, string(blob),
 	)
 	return err
@@ -739,7 +570,7 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool,
 	}
 	_, err = s.db.Exec(
 		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me, user_agent, ip) VALUES(?, ?, ?, ?, ?, ?)",
-		hash, userID, time.Now().Add(ttl).UTC().Format(dbutil.TimeFormat), rem, userAgent, ip,
+		hash, userID, time.Now().Add(ttl).UTC(), rem, userAgent, ip,
 	)
 	if err != nil {
 		return "", err
@@ -752,19 +583,15 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool,
 func (s *Store) ValidateRefreshToken(plain string) (*User, bool, error) {
 	hash := sha256Hex(plain)
 	var userID int
-	var expStr string
+	var exp time.Time
 	var remember int
 	err := s.db.QueryRow(
 		"SELECT user_id, expires_at, remember_me FROM refresh_tokens WHERE token_hash = ?",
 		hash,
-	).Scan(&userID, &expStr, &remember)
+	).Scan(&userID, &exp, &remember)
 	if err == sql.ErrNoRows {
 		return nil, false, errors.New("refresh token inválido")
 	}
-	if err != nil {
-		return nil, false, err
-	}
-	exp, err := parseTime(expStr)
 	if err != nil {
 		return nil, false, err
 	}
@@ -802,27 +629,27 @@ const (
 func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bool, RefreshOutcome, error) {
 	hash := sha256Hex(plain)
 	var userID, remember int
-	var expStr string
-	var consumed sql.NullString
+	var exp time.Time
+	var consumed sql.NullTime
 	err := s.db.QueryRow(
 		"SELECT user_id, expires_at, remember_me, consumed_at FROM refresh_tokens WHERE token_hash = ?",
 		hash,
-	).Scan(&userID, &expStr, &remember, &consumed)
+	).Scan(&userID, &exp, &remember, &consumed)
 	if err == sql.ErrNoRows {
 		return nil, false, RefreshInvalid, nil
 	}
 	if err != nil {
 		return nil, false, RefreshInvalid, err
 	}
-	if exp, e := parseTime(expStr); e == nil && time.Now().UTC().After(exp) {
+	if time.Now().UTC().After(exp) {
 		return nil, false, RefreshInvalid, nil
 	}
 	u, err := s.GetUserByID(userID)
 	if err != nil {
 		return nil, false, RefreshInvalid, err
 	}
-	if consumed.Valid && consumed.String != "" {
-		if ct, e := parseTime(consumed.String); e == nil && time.Since(ct) <= grace {
+	if consumed.Valid {
+		if time.Since(consumed.Time) <= grace {
 			return u, remember == 1, RefreshGraceReissue, nil
 		}
 		return u, remember == 1, RefreshReuse, nil
@@ -831,7 +658,7 @@ func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bo
 	// flipped consumed_at first — that's a benign grace reissue, not reuse.
 	res, err := s.db.Exec(
 		"UPDATE refresh_tokens SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
-		time.Now().UTC().Format(dbutil.TimeFormat), hash,
+		time.Now().UTC(), hash,
 	)
 	if err != nil {
 		return nil, false, RefreshInvalid, err
@@ -869,11 +696,9 @@ func (s *Store) ConsumeRefreshTokenOnce(plain string) (bool, error) {
 // until their original TTL. Call periodically.
 func (s *Store) CleanupExpired() error {
 	now := time.Now().UTC()
-	nowStr := now.Format(dbutil.TimeFormat)
-	consumedCutoff := now.Add(-time.Hour).Format(dbutil.TimeFormat)
 	_, err := s.db.Exec(
 		"DELETE FROM refresh_tokens WHERE expires_at < ? OR (consumed_at IS NOT NULL AND consumed_at < ?)",
-		nowStr, consumedCutoff,
+		now, now.Add(-time.Hour),
 	)
 	return err
 }
@@ -910,22 +735,16 @@ func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, er
 	}
 	out := []SessionInfo{}
 	for rows.Next() {
-		var hash, created, expires, ua, ip string
+		var hash, ua, ip string
+		var created, expires time.Time
 		var remember int
 		if err := rows.Scan(&hash, &created, &expires, &remember, &ua, &ip); err != nil {
 			continue
 		}
-		si := SessionInfo{ID: hash, Remember: remember == 1, Current: hash == curHash, UserAgent: ua, IP: ip}
-		var errParse error
-		si.CreatedAt, errParse = parseTime(created)
-		if errParse != nil {
-			log.Printf("auth: failed to parse CreatedAt %q for session: %v", created, errParse)
-		}
-		si.ExpiresAt, errParse = parseTime(expires)
-		if errParse != nil {
-			log.Printf("auth: failed to parse ExpiresAt %q for session: %v", expires, errParse)
-		}
-		out = append(out, si)
+		out = append(out, SessionInfo{
+			ID: hash, Remember: remember == 1, Current: hash == curHash,
+			UserAgent: ua, IP: ip, CreatedAt: created, ExpiresAt: expires,
+		})
 	}
 	return out, rows.Err()
 }
@@ -991,22 +810,4 @@ func randomFromAlphabet(n int, alphabet string) (string, error) {
 		i++
 	}
 	return string(out), nil
-}
-
-// parseTime accepts the formats SQLite may emit for DATETIME columns:
-//   - "2006-01-02 15:04:05"           (CURRENT_TIMESTAMP default format)
-//   - "2006-01-02T15:04:05Z"          (driver-normalized ISO 8601)
-//   - RFC3339 with sub-second precision
-func parseTime(s string) (time.Time, error) {
-	for _, layout := range []string{
-		dbutil.TimeFormat,
-		"2006-01-02T15:04:05Z",
-		time.RFC3339,
-		time.RFC3339Nano,
-	} {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unrecognized time format: %q", s)
 }

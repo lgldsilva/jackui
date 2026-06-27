@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"log"
@@ -25,6 +26,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	appdb "github.com/lgldsilva/jackui/internal/db"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/gluetun"
 	"github.com/lgldsilva/jackui/internal/handlers"
@@ -127,40 +129,41 @@ func watchForwardedPort(ctrl string, current int, restart chan<- struct{}) {
 }
 
 type appDeps struct {
-	cfg             *config.Config
-	configPath      string
-	jackettClient   *jackett.Client
-	localBrowser    *local.Browser
-	historyStore    *history.Store
-	streamSrv       *streamer.Streamer
-	streamCfg       streamer.Config
-	stateDir        string
-	libraryStore    *library.Store
-	audioMetaStore  *audiometa.Store
-	lyricsClient    *lyrics.Client
-	musicTrending   *musictrending.Client
-	playlistsStore  *playlists.Store
-	downloadsStore  *downloads.Store
-	downloadsWkr    *downloads.Worker
-	tmdbClient      *tmdb.Client
-	aiClient        *ai.Client
-	aiBench         *ai.BenchmarkStore
-	webSearch       *imagesearch.Chain
-	watchlistStore  *watchlist.Store
-	watchlistWkr    *watchlist.Worker
-	pushStore       *push.Store
-	pushSender      *push.Sender
-	subtitleClient  *subtitles.Client
-	authStore       *auth.Store
-	tokenMgr        *auth.TokenManager
-	waManager       *auth.WAManager
-	loginLockout    *auth.Lockout
-	mlr             *mailer.Mailer
-	promoteDests    []handlers.PromoteDest
-	destinations    *handlers.DestinationService
-	hlsMgr          *transcode.HLSSessionManager
-	localStream     *localstream.Registry
-	localCache      *localcache.Cache
+	cfg              *config.Config
+	configPath       string
+	db               *sql.DB // shared PostgreSQL pool (all stores)
+	jackettClient    *jackett.Client
+	localBrowser     *local.Browser
+	historyStore     *history.Store
+	streamSrv        *streamer.Streamer
+	streamCfg        streamer.Config
+	stateDir         string
+	libraryStore     *library.Store
+	audioMetaStore   *audiometa.Store
+	lyricsClient     *lyrics.Client
+	musicTrending    *musictrending.Client
+	playlistsStore   *playlists.Store
+	downloadsStore   *downloads.Store
+	downloadsWkr     *downloads.Worker
+	tmdbClient       *tmdb.Client
+	aiClient         *ai.Client
+	aiBench          *ai.BenchmarkStore
+	webSearch        *imagesearch.Chain
+	watchlistStore   *watchlist.Store
+	watchlistWkr     *watchlist.Worker
+	pushStore        *push.Store
+	pushSender       *push.Sender
+	subtitleClient   *subtitles.Client
+	authStore        *auth.Store
+	tokenMgr         *auth.TokenManager
+	waManager        *auth.WAManager
+	loginLockout     *auth.Lockout
+	mlr              *mailer.Mailer
+	promoteDests     []handlers.PromoteDest
+	destinations     *handlers.DestinationService
+	hlsMgr           *transcode.HLSSessionManager
+	localStream      *localstream.Registry
+	localCache       *localcache.Cache
 	transferTracker  *transfer.Tracker
 	pendingTransfers *transfer.Store // persisted move/promote intents → resumed on boot
 	// restart is signalled by the gluetun forwarded-port watcher when the VPN
@@ -230,6 +233,7 @@ func main() {
 	deps.mlr = mailer.New(deps.cfg.SMTP)
 
 	deps.restart = make(chan struct{}, 1)
+	initDB(deps)
 	initHistoryStore(deps)
 	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg, deps.restart)
 	// Persist local-file thumbnails (and negative markers) under the stream
@@ -852,6 +856,26 @@ func startTranscodeProbe() {
 	}()
 }
 
+// initDB opens the shared PostgreSQL pool and applies the unified schema. All
+// stores receive this pool. Fatal if DATABASE_URL is unset or unreachable.
+func initDB(deps *appDeps) {
+	if deps.cfg.DatabaseURL == "" {
+		log.Fatalf("DATABASE_URL ausente — defina JACKUI_DATABASE_URL (ou DATABASE_URL / JACKUI_PG_*) com o DSN do PostgreSQL")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := appdb.Open(ctx, deps.cfg.DatabaseURL, 60*time.Second)
+	if err != nil {
+		log.Fatalf("PostgreSQL init failed: %v", err)
+	}
+	if err := appdb.Migrate(pool); err != nil {
+		log.Fatalf("PostgreSQL migrate failed: %v", err)
+	}
+	deps.db = pool
+	deps.addCleanup(func() { _ = pool.Close() })
+	log.Printf("PostgreSQL pool ready; schema migrated")
+}
+
 func initAuth(deps *appDeps) {
 	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
 	if !deps.cfg.Auth.Enabled {
@@ -871,17 +895,13 @@ func initAuth(deps *appDeps) {
 }
 
 func initAuthStore(deps *appDeps) {
-	authDB := deps.cfg.Auth.DBPath
-	if authDB == "" {
-		authDB = "/data/auth.db"
-	}
-	authStore, err := auth.New(authDB)
+	authStore, err := auth.New(deps.db)
 	if err != nil {
 		log.Fatalf("Auth store init failed: %v", err)
 	}
 	deps.authStore = authStore
 	deps.addCleanup(func() { authStore.Close() })
-	log.Printf("Auth enabled: user store at %s", authDB)
+	log.Printf("Auth enabled: user store on PostgreSQL")
 }
 
 func initJWTSecret(deps *appDeps) {
