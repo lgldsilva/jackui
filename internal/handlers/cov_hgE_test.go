@@ -91,7 +91,7 @@ func hgEPlaylists(t *testing.T) *playlists.Store {
 
 func hgEWatchlist(t *testing.T) *watchlist.Store {
 	t.Helper()
-	s, err := watchlist.New(t.TempDir() + "/wl.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
