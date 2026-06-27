@@ -39,8 +39,13 @@ func TestStats_AllStoresNilReturnsZeroes(t *testing.T) {
 }
 
 func TestStats_LibraryError500(t *testing.T) {
-	lib := hgELibrary(t)
-	lib.Close() // a closed DB forces List to fail
+	// Close the underlying pool (Store.Close is a no-op now) so List fails → 500.
+	pool := seededPool(t)
+	lib, err := library.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
 	r := statsRouter(lib, nil, nil, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/stats", nil))

@@ -510,15 +510,14 @@ func initLibraryStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	libPath := deps.stateDir + "/.library.db"
-	l, err := library.New(libPath)
+	l, err := library.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: library store init failed: %v", err)
 		return
 	}
 	deps.libraryStore = l
 	deps.addCleanup(func() { l.Close() })
-	log.Printf("Library: %s", libPath)
+	log.Printf("Library: PostgreSQL")
 	if mc := deps.streamSrv.MetadataCache(); mc != nil {
 		n, mErr := l.RefreshStalePrimary(func(hash string) (int, bool) {
 			meta := mc.Get(hash)

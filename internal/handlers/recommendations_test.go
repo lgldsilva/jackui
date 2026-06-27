@@ -133,7 +133,7 @@ func TestRecommendations_NilClientReturns503(t *testing.T) {
 
 func TestRecommendations_EmptyLibraryReturns200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	lib, err := library.New(filepath.Join(t.TempDir(), "lib.db"))
+	lib, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatalf("library.New: %v", err)
 	}
