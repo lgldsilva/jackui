@@ -6,7 +6,7 @@ import {
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
   Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive, AlertTriangle,
   ListFilter, Download, CheckSquare, MoreHorizontal, ChevronDown, ChevronRight, Folder,
-  ArrowUp, ArrowDown, ArrowDownWideNarrow,
+  ArrowUp, ArrowDown, ArrowDownWideNarrow, RotateCcw,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
@@ -571,6 +571,12 @@ export default function DownloadsPage() {
     setBulkBusy(true)
     try { await Promise.all(ds.map(d => downloadStopSeed(d.id).catch(() => {}))); await load(); await loadTorrents() }
     finally { setBulkBusy(false) }
+  }
+  const onRetryMany = async (ds: DownloadEntry[]) => {
+    const ids = ds.filter(d => d.status === 'failed').map(d => d.id)
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    try { await downloadBatchResume(ids); await load() } finally { setBulkBusy(false) }
   }
 
   const onTorrentPause = async (hash: string) => {
@@ -1173,6 +1179,7 @@ export default function DownloadsPage() {
                 onPromoteMany={onPromoteMany}
                 onDeleteMany={onDeleteMany}
                 onStopSeedMany={onStopSeedMany}
+                onRetryMany={onRetryMany}
                 onSetPriority={onSetPriority}
                 onPlay={onPlay}
                 onInspect={(d: DownloadEntry) => setInspectId(String(d.id))}
@@ -1568,18 +1575,24 @@ function CompletedGroupActions({ onPromote, onStopSeed, onDelete, busy }: {
   )
 }
 
-// ActiveGroupActions — torrent-level pause/resume + remove-all for an in-progress
-// multi-file group (Baixando/Fila/Pausados). Pause/resume act on the whole
-// torrent by infoHash; remove drops every file row.
-function ActiveGroupActions({ paused, onPause, onResume, onDelete, busy }: {
+// ActiveGroupActions — torrent-level pause/resume/retry + remove-all for an
+// in-progress multi-file group (Baixando/Fila/Pausados/Erro). Pause/resume act
+// on the whole torrent by infoHash; onRetryFailed re-queues only failed files.
+function ActiveGroupActions({ paused, onPause, onResume, onRetryFailed, onDelete, busy }: {
   readonly paused: boolean
   readonly onPause: () => void
   readonly onResume: () => void
+  readonly onRetryFailed?: () => void
   readonly onDelete: () => void
   readonly busy: boolean
 }) {
   return (
     <>
+      {onRetryFailed && (
+        <button onClick={onRetryFailed} disabled={busy} title="Tentar novamente (todos com erro)" className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50">
+          <RotateCcw className="w-4 h-4" />
+        </button>
+      )}
       {paused ? (
         <button onClick={onResume} disabled={busy} title="Retomar torrent" className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50">
           <Play className="w-4 h-4" />
@@ -1691,7 +1704,7 @@ function GroupHeader({ icon, label, color }: { readonly icon: React.ReactNode; r
 function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete, onTorrentPlay,
   onPause, onResume, onDelete, onPromote, onStopSeed, onSetPriority,
-  onPromoteMany, onDeleteMany, onStopSeedMany,
+  onPromoteMany, onDeleteMany, onStopSeedMany, onRetryMany,
   selected, onToggleSelected, onPlay, onInspect, openLocalFor, loading,
 }: {
   readonly torrents: TorrentInfo[]
@@ -1713,6 +1726,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
   readonly onPromoteMany: (ds: DownloadEntry[]) => void
   readonly onDeleteMany: (ds: DownloadEntry[]) => void
   readonly onStopSeedMany: (ds: DownloadEntry[]) => void
+  readonly onRetryMany: (ds: DownloadEntry[]) => void
   readonly onSetPriority: (id: number, p: DownloadPriority) => void
   readonly selected: Set<number>
   readonly onToggleSelected: (id: number) => void
@@ -1786,17 +1800,18 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
     />
   ))
 
-  // In-progress group (Baixando/Fila/Pausados): pause/resume the whole torrent and
-  // remove every file. Pause/resume fan out to the per-file download rows (the unit
-  // the backend aggregates by (user, info_hash)), so the group's status reflects in
-  // each row. A group is "paused" when ALL its files are.
+  // In-progress group (Baixando/Fila/Pausados/Erro): pause/resume/retry the whole
+  // torrent; remove drops every file row. onRetryFailed appears only when some files
+  // are in the failed state — batch-requeues them in one request.
   const renderActiveGroup = (g: CompletedGroup) => {
     const allPaused = g.files.every(f => f.status === 'paused')
+    const hasFailed = g.files.some(f => f.status === 'failed')
     return groupShell(g, (
       <ActiveGroupActions
         paused={allPaused}
         onPause={() => g.files.forEach(f => onPause(f.id))}
         onResume={() => g.files.forEach(f => onResume(f.id))}
+        onRetryFailed={hasFailed ? () => onRetryMany(g.files) : undefined}
         onDelete={() => onDeleteMany(g.files)}
         busy={g.files.some(f => busyID === f.id)}
       />
