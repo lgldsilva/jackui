@@ -376,14 +376,15 @@ func Test_hgA_promoteDestPath_NoRename(t *testing.T) {
 	}
 }
 
-func Test_hgA_moveWithFallback_CrossViaCopy(t *testing.T) {
+func Test_hgA_movePathJob_File(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "src.bin")
 	dst := filepath.Join(t.TempDir(), "dst.bin")
 	if err := os.WriteFile(src, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := moveWithFallback(src, dst); err != nil {
-		t.Fatalf("moveWithFallback: %v", err)
+	st, _ := os.Stat(src)
+	if err := movePathJob(src, dst, st, nil, 0, 0); err != nil {
+		t.Fatalf("movePathJob file: %v", err)
 	}
 	if _, err := os.Stat(dst); err != nil {
 		t.Errorf("dst not present: %v", err)
@@ -393,9 +394,33 @@ func Test_hgA_moveWithFallback_CrossViaCopy(t *testing.T) {
 	}
 }
 
-func Test_hgA_promoteCopyDelete_BadSrc(t *testing.T) {
-	if err := promoteCopyDelete("/nonexistent/src", filepath.Join(t.TempDir(), "x")); err == nil {
-		t.Error("expected error opening missing source")
+// Regressão #2105: promover um whole-torrent (file_path = DIRETÓRIO) caía no
+// caminho cross-device e tratava o diretório como arquivo único, estourando
+// "read ...: is a directory". copyDirAndRemoveJob copia a árvore inteira.
+func Test_hgA_copyDirAndRemove_Tree(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "Brasiloirinha")
+	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.mp4"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "sub", "b.mp4"), []byte("yy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "out")
+	st, _ := os.Stat(src)
+	if err := copyDirAndRemoveJob(src, dst, st, nil); err != nil {
+		t.Fatalf("copyDirAndRemoveJob: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "a.mp4")); err != nil {
+		t.Errorf("dst/a.mp4 ausente: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "sub", "b.mp4")); err != nil {
+		t.Errorf("dst/sub/b.mp4 ausente: %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Errorf("src deveria ser removido após o move da árvore")
 	}
 }
 
