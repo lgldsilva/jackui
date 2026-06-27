@@ -17,20 +17,32 @@ type downloadsQueueBody struct {
 	AgingCap          int  `json:"agingCap"`
 	RotationEnabled   bool `json:"rotationEnabled"`
 	AutoPromoteArr    bool `json:"autoPromoteArr"`
+	// TransferConcurrencyMode: "auto" (default) | "serial" | "parallel".
+	TransferConcurrencyMode string `json:"transferConcurrencyMode"`
 }
 
 func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
 	q := cfg.DownloadsQueue
 	return downloadsQueueBody{
-		MaxActive:         q.MaxActive,
-		PerUserMaxActive:  q.PerUserMaxActive,
-		StallThresholdMin: q.StallThresholdMin,
-		MaxStalls:         q.MaxStalls,
-		AgingStepMin:      q.AgingStepMin,
-		AgingCap:          q.AgingCap,
-		RotationEnabled:   q.RotationEnabled,
-		AutoPromoteArr:    q.AutoPromoteArr,
+		MaxActive:               q.MaxActive,
+		PerUserMaxActive:        q.PerUserMaxActive,
+		StallThresholdMin:       q.StallThresholdMin,
+		MaxStalls:               q.MaxStalls,
+		AgingStepMin:            q.AgingStepMin,
+		AgingCap:                q.AgingCap,
+		RotationEnabled:         q.RotationEnabled,
+		AutoPromoteArr:          q.AutoPromoteArr,
+		TransferConcurrencyMode: transferModeOrAuto(cfg.Stream.TransferConcurrencyMode),
 	}
+}
+
+// transferModeOrAuto normaliza o valor vazio (default) para "auto" na resposta,
+// pra UI sempre mostrar uma opção selecionada.
+func transferModeOrAuto(m string) string {
+	if m == "" {
+		return transferModeAuto
+	}
+	return m
 }
 
 // DownloadsGetSettings handles GET /api/downloads/settings — current queue knobs.
@@ -56,6 +68,11 @@ func validateDownloadsQueue(b *downloadsQueueBody) string {
 	if b.AgingStepMin < 0 || b.AgingCap < 0 {
 		return "valores de aging devem ser >= 0"
 	}
+	switch b.TransferConcurrencyMode {
+	case "", transferModeAuto, transferModeSerial, transferModeParallel:
+	default:
+		return "transferConcurrencyMode deve ser auto, serial ou parallel"
+	}
 	return ""
 }
 
@@ -80,6 +97,12 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string) gin.HandlerF
 		cfg.DownloadsQueue.AgingCap = b.AgingCap
 		cfg.DownloadsQueue.RotationEnabled = b.RotationEnabled
 		cfg.DownloadsQueue.AutoPromoteArr = b.AutoPromoteArr
+		// "auto" é o default; persiste vazio pra manter o yaml limpo.
+		if b.TransferConcurrencyMode == transferModeAuto {
+			cfg.Stream.TransferConcurrencyMode = ""
+		} else {
+			cfg.Stream.TransferConcurrencyMode = b.TransferConcurrencyMode
+		}
 
 		if err := cfg.Save(configPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})

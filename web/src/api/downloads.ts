@@ -46,6 +46,9 @@ export type DownloadsQueueSettings = {
   agingCap: number
   rotationEnabled: boolean
   autoPromoteArr: boolean
+  // Modo de concorrência das cópias de promover/mover: 'auto' (detecta HDD/SSD),
+  // 'serial' (uma por vez) ou 'parallel' (sempre paralelo).
+  transferConcurrencyMode: 'auto' | 'serial' | 'parallel'
 }
 
 // One known source (magnet) for a download — the original + alternatives found
