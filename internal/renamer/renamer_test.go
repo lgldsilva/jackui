@@ -12,6 +12,7 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
@@ -388,7 +389,7 @@ func newAIClient(t *testing.T, baseURL string) *ai.Client {
 
 func newTMDBClient(t *testing.T, baseURL string) *tmdb.Client {
 	t.Helper()
-	c, err := tmdb.New("test-key", "", t.TempDir()+"/tmdb.db")
+	c, err := tmdb.New("test-key", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("tmdb.New: %v", err)
 	}

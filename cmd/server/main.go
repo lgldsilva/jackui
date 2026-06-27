@@ -540,15 +540,14 @@ func initLibraryStore(deps *appDeps) {
 // behind a Continue-Watching page load). Optional: a failure just disables the
 // tag/cover cache (handlers fall back to live parsing), it never blocks boot.
 func initAudioMetaStore(deps *appDeps) {
-	amPath := deps.stateDir + "/.audio-metadata.db"
-	am, err := audiometa.New(amPath)
+	am, err := audiometa.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: audio metadata store init failed: %v", err)
 		return
 	}
 	deps.audioMetaStore = am
 	deps.addCleanup(func() { am.Close() })
-	log.Printf("Audio metadata: %s", amPath)
+	log.Printf("Audio metadata: PostgreSQL")
 }
 
 func initPlaylistsStore(deps *appDeps) {
@@ -730,8 +729,7 @@ func initTMDBClient(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	tmdbPath := deps.stateDir + "/.tmdb-cache.db"
-	tc, err := tmdb.New(deps.cfg.TMDB.APIKey, deps.cfg.TMDB.OMDbAPIKey, tmdbPath)
+	tc, err := tmdb.New(deps.cfg.TMDB.APIKey, deps.cfg.TMDB.OMDbAPIKey, deps.db)
 	if err != nil {
 		log.Printf("Warning: tmdb client init failed: %v", err)
 		return
@@ -739,9 +737,9 @@ func initTMDBClient(deps *appDeps) {
 	deps.tmdbClient = tc
 	deps.addCleanup(func() { _ = tc.Close() })
 	if deps.cfg.TMDB.APIKey != "" {
-		log.Printf("TMDB enrichment: enabled (cache: %s)", tmdbPath)
+		log.Printf("TMDB enrichment: enabled (PostgreSQL cache)")
 	} else {
-		log.Printf("TMDB enrichment: disabled (no API key) — cache prepared at %s", tmdbPath)
+		log.Printf("TMDB enrichment: disabled (no API key)")
 	}
 }
 

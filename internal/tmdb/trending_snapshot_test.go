@@ -1,14 +1,15 @@
 package tmdb
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"time"
 )
 
 func newSnapTestClient(t *testing.T) *Client {
 	t.Helper()
-	c, err := New("key", "", filepath.Join(t.TempDir(), "tmdb.db"))
+	c, err := New("key", "", dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -31,10 +32,10 @@ func TestSetDirection(t *testing.T) {
 		wantDirection string
 		wantDelta     int
 	}{
-		{10, 2, "up", 3},    // 5 → 2 : up 3
-		{20, 4, "down", 4},  // 0 → 4 : down 4
-		{30, 2, "same", 0},  // unchanged
-		{99, 1, "new", 0},   // not in prev
+		{10, 2, "up", 3},   // 5 → 2 : up 3
+		{20, 4, "down", 4}, // 0 → 4 : down 4
+		{30, 2, "same", 0}, // unchanged
+		{99, 1, "new", 0},  // not in prev
 	}
 	for _, c := range cases {
 		m := &Match{TmdbID: c.id}
