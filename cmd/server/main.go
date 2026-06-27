@@ -748,7 +748,7 @@ func initAIClient(deps *appDeps) {
 		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
 		return
 	}
-	bs, err := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(deps.stateDir))
+	bs, err := ai.NewBenchmarkStore(deps.db)
 	if err != nil {
 		log.Printf("Warning: ai benchmark store init failed: %v", err)
 	} else {

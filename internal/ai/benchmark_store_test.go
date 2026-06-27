@@ -2,13 +2,15 @@ package ai
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newTestStore(t *testing.T) *BenchmarkStore {
 	t.Helper()
-	s, err := NewBenchmarkStore(filepath.Join(t.TempDir(), "bench.db"))
+	s, err := NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewBenchmarkStore: %v", err)
 	}
@@ -30,7 +32,7 @@ func seedHistory(t *testing.T, s *BenchmarkStore, slot, outcome, successAt, firs
 	}
 	_, err := s.db.Exec(`
 		INSERT INTO benchmark_history(slot_id, last_outcome, last_error, last_success_at, last_run_at, first_failure_at, consecutive_failures)
-		VALUES(?, ?, '', ?, ?, ?, ?)`, slot, outcome, sa, successAt, ff, consec)
+		VALUES(?, ?, '', ?, ?, ?, ?)`, slot, outcome, sa, sa, ff, consec)
 	if err != nil {
 		t.Fatalf("seedHistory: %v", err)
 	}
@@ -237,16 +239,14 @@ func TestRecordRunErrorStreakWithoutPriorStart(t *testing.T) {
 }
 
 func TestTsRFC3339(t *testing.T) {
-	if got := tsRFC3339(sql.NullString{}); got != "" {
+	if got := tsRFC3339(sql.NullTime{}); got != "" {
 		t.Errorf("null → %q, want empty", got)
 	}
-	if got := tsRFC3339(sql.NullString{Valid: true, String: ""}); got != "" {
-		t.Errorf("empty → %q, want empty", got)
+	if got := tsRFC3339(sql.NullTime{Valid: true}); got != "" {
+		t.Errorf("zero time → %q, want empty", got)
 	}
-	if got := tsRFC3339(sql.NullString{Valid: true, String: "not-a-time"}); got != "" {
-		t.Errorf("unparseable → %q, want empty", got)
-	}
-	if got := tsRFC3339(sql.NullString{Valid: true, String: "2020-01-02 03:04:05"}); got != "2020-01-02T03:04:05Z" {
+	ts := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if got := tsRFC3339(sql.NullTime{Valid: true, Time: ts}); got != "2020-01-02T03:04:05Z" {
 		t.Errorf("valid → %q, want 2020-01-02T03:04:05Z", got)
 	}
 }

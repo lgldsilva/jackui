@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestGetAIBenchmark_NilClientNilStore(t *testing.T) {
@@ -38,7 +38,7 @@ func TestGetAIBenchmark_NilClientNilStore(t *testing.T) {
 
 func TestGetAIBenchmark_WithStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestPutAICases_NilStore(t *testing.T) {
 
 func TestPutAICases_InvalidJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestPutAICases_InvalidJSON(t *testing.T) {
 
 func TestPutAICases_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,11 +127,12 @@ func TestPutAICases_Valid(t *testing.T) {
 
 func TestPutAICases_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	pool := dbtest.NewDB(t)
+	store, err := ai.NewBenchmarkStore(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.Close()
+	pool.Close()
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -165,7 +166,7 @@ func TestPutAICostConfig(t *testing.T) {
 		Providers: map[string]config.AIProvider{"groq": {BaseURL: "http://x"}},
 		Chain:     []config.AIChainSlot{{ID: "groq:m", Provider: "groq", Model: "m"}},
 	})
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/b.db")
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +272,7 @@ func TestRunAIBenchmarkIncomplete_RerunsIncomplete(t *testing.T) {
 	if client == nil {
 		t.Fatal("client nil")
 	}
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +313,7 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 	if client == nil {
 		t.Fatal("client nil")
 	}
-	store, err := ai.NewBenchmarkStore(t.TempDir() + "/ai-benchmark.db")
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,11 +378,12 @@ func TestPersistBenchmarkRun(t *testing.T) {
 	}
 
 	// Closed store → RecordRun's Begin fails → error bubbles up.
-	store, err := ai.NewBenchmarkStore(filepath.Join(t.TempDir(), "b.db"))
+	pool := dbtest.NewDB(t)
+	store, err := ai.NewBenchmarkStore(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.Close()
+	pool.Close()
 	if _, err := persistBenchmarkRun(store, scores, "", ""); err == nil {
 		t.Fatal("expected an error from a closed store")
 	}

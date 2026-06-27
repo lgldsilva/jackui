@@ -7,91 +7,31 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // BenchmarkStore persists benchmark results, the (user-editable) case set, and
 // the resulting chain order so a re-ranking survives restarts and the chain
 // boots in its best-known order without re-running the benchmark.
 type BenchmarkStore struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-func NewBenchmarkStore(path string) (*BenchmarkStore, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS benchmark_result (
-			slot_id        TEXT PRIMARY KEY,
-			provider       TEXT NOT NULL DEFAULT '',
-			model          TEXT NOT NULL DEFAULT '',
-			accuracy       REAL NOT NULL DEFAULT 0,
-			avg_latency_ms INTEGER NOT NULL DEFAULT 0,
-			composite      REAL NOT NULL DEFAULT 0,
-			chain_order    INTEGER NOT NULL DEFAULT 0,
-			samples        INTEGER NOT NULL DEFAULT 0,
-			failure_reason TEXT NOT NULL DEFAULT '',
-			incomplete     INTEGER NOT NULL DEFAULT 0,
-			cost_per_1m    REAL NOT NULL DEFAULT 0,
-			tasks          TEXT NOT NULL DEFAULT '',
-			updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS benchmark_case (
-			id     INTEGER PRIMARY KEY AUTOINCREMENT,
-			raw    TEXT NOT NULL,
-			expect TEXT NOT NULL,
-			task   TEXT NOT NULL DEFAULT '',
-			origin TEXT NOT NULL DEFAULT ''
-		);
-		CREATE TABLE IF NOT EXISTS benchmark_setting (
-			key   TEXT PRIMARY KEY,
-			value REAL NOT NULL
-		);
-		-- Durable per-slot run history, kept in a SEPARATE table so it SURVIVES the
-		-- DELETE+INSERT that SaveResults does to benchmark_result. It answers: did the
-		-- last run succeed or error, has the error persisted (consecutive_failures +
-		-- first_failure_at), and when did the model last succeed (last_success_at,
-		-- preserved across later failures). Only RecordRun mutates it, and only for
-		-- the slots actually re-run. Rows of slots dropped from the config are left
-		-- as harmless orphans: Results() LEFT-JOINs from benchmark_result so they
-		-- never surface, and the row count is bounded by the distinct provider:model
-		-- ever benchmarked (tens) — not worth a prune.
-		CREATE TABLE IF NOT EXISTS benchmark_history (
-			slot_id              TEXT PRIMARY KEY,
-			last_outcome         TEXT     NOT NULL DEFAULT '',
-			last_error           TEXT     NOT NULL DEFAULT '',
-			last_success_at      DATETIME,
-			last_run_at          DATETIME,
-			first_failure_at     DATETIME,
-			consecutive_failures INTEGER  NOT NULL DEFAULT 0
-		);
-	`); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	// Migrate older DBs created before these columns existed. Best-effort: a
-	// "duplicate column" error on an already-migrated DB is expected and ignored.
-	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN incomplete INTEGER NOT NULL DEFAULT 0`)
-	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN cost_per_1m REAL NOT NULL DEFAULT 0`)
-	_, _ = db.Exec(`ALTER TABLE benchmark_case ADD COLUMN origin TEXT NOT NULL DEFAULT ''`)
-	// Multi-task benchmark: a per-case task column ('' = rename, retrocompat). A
-	// "duplicate column" error on an already-migrated DB is expected and ignored.
-	_, _ = db.Exec(`ALTER TABLE benchmark_case ADD COLUMN task TEXT NOT NULL DEFAULT ''`)
-	// Per-task accuracy breakdown, stored as a JSON blob so the UI can show it after
-	// a restart. Empty/legacy rows hold '' → decoded to a nil map (UI falls back to
-	// the global accuracy), so this is fully retrocompatible.
-	_, _ = db.Exec(`ALTER TABLE benchmark_result ADD COLUMN tasks TEXT NOT NULL DEFAULT ''`)
-	return &BenchmarkStore{db: db}, nil
+// NewBenchmarkStore wires the benchmark store onto the shared Postgres pool.
+// Schema is applied centrally (internal/db migrations).
+func NewBenchmarkStore(pool *sql.DB) (*BenchmarkStore, error) {
+	return &BenchmarkStore{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *BenchmarkStore) Close() error {
-	if s == nil {
-		return nil
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *BenchmarkStore) Close() error { return nil }
+
+// b2i maps a Go bool to the SMALLINT 0/1 the schema uses (pgx won't implicitly
+// cast a bool param into a smallint column).
+func b2i(b bool) int {
+	if b {
+		return 1
 	}
-	return s.db.Close()
+	return 0
 }
 
 // SaveResults replaces the stored results with a fresh run. The slice is assumed
@@ -115,7 +55,7 @@ func (s *BenchmarkStore) SaveResults(scores []SlotScore) error {
 		if _, err := tx.Exec(`
 			INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete, cost_per_1m, tasks)
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason, sc.Incomplete, sc.CostPer1M, tasksJSON); err != nil {
+		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason, b2i(sc.Incomplete), sc.CostPer1M, tasksJSON); err != nil {
 			return err
 		}
 	}
@@ -139,7 +79,7 @@ func (s *BenchmarkStore) RecordRun(fresh []SlotScore) error {
 		return err
 	}
 	defer tx.Rollback()
-	now := time.Now().UTC().Format(dbutil.TimeFormat)
+	now := time.Now().UTC()
 	for _, sc := range fresh {
 		var prev histState
 		_ = tx.QueryRow(`SELECT last_outcome, last_success_at, first_failure_at, consecutive_failures FROM benchmark_history WHERE slot_id = ?`, sc.SlotID).
@@ -168,8 +108,8 @@ func (s *BenchmarkStore) RecordRun(fresh []SlotScore) error {
 type histState struct {
 	outcome     string
 	lastError   string
-	successAt   sql.NullString
-	firstFailAt sql.NullString
+	successAt   sql.NullTime
+	firstFailAt sql.NullTime
 	consec      int
 }
 
@@ -177,11 +117,11 @@ type histState struct {
 //   - ok         → stamp last_success_at = now, clear the failure streak
 //   - incomplete → preserve last_success_at, clear the streak (cut short, not a hard error)
 //   - error      → preserve last_success_at, extend the streak (keep its start date)
-func nextHistState(prev histState, sc SlotScore, now string) histState {
+func nextHistState(prev histState, sc SlotScore, now time.Time) histState {
 	next := histState{outcome: RunOutcome(sc), successAt: prev.successAt} // success preserved by default
 	switch next.outcome {
 	case OutcomeOK:
-		next.successAt = sql.NullString{String: now, Valid: true}
+		next.successAt = sql.NullTime{Time: now, Valid: true}
 	case OutcomeError:
 		next.lastError = sc.FailureReason
 		next.consec, next.firstFailAt = extendStreak(prev, now)
@@ -194,8 +134,8 @@ func nextHistState(prev histState, sc SlotScore, now string) histState {
 // extendStreak grows the consecutive-failure counter. A streak already running
 // (prev was also an error) keeps its first_failure_at start date — backfilled to
 // now when a legacy row never recorded one; otherwise the streak begins now.
-func extendStreak(prev histState, now string) (int, sql.NullString) {
-	nowTS := sql.NullString{String: now, Valid: true}
+func extendStreak(prev histState, now time.Time) (int, sql.NullTime) {
+	nowTS := sql.NullTime{Time: now, Valid: true}
 	if prev.outcome != OutcomeError {
 		return 1, nowTS
 	}
@@ -203,7 +143,7 @@ func extendStreak(prev histState, now string) (int, sql.NullString) {
 	if base < 1 {
 		base = 1
 	}
-	if !prev.firstFailAt.Valid || prev.firstFailAt.String == "" {
+	if !prev.firstFailAt.Valid {
 		return base + 1, nowTS
 	}
 	return base + 1, prev.firstFailAt
@@ -212,15 +152,11 @@ func extendStreak(prev histState, now string) (int, sql.NullString) {
 // tsRFC3339 re-emits a nullable SQLite timestamp as RFC3339 so the frontend can
 // `new Date()` it reliably (Safari rejects the bare "YYYY-MM-DD HH:MM:SS" form).
 // Returns "" for null/empty/unparseable.
-func tsRFC3339(ns sql.NullString) string {
-	if !ns.Valid || ns.String == "" {
+func tsRFC3339(ns sql.NullTime) string {
+	if !ns.Valid || ns.Time.IsZero() {
 		return ""
 	}
-	t := dbutil.ParseTime(ns.String)
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
+	return ns.Time.UTC().Format(time.RFC3339)
 }
 
 // Results returns the last benchmark, ordered best-first by chain_order, with each
@@ -245,7 +181,7 @@ func (s *BenchmarkStore) Results() []SlotScore {
 		var sc SlotScore
 		var tasksJSON string
 		var outcome, lastErr sql.NullString
-		var successAt, runAt, firstFailAt sql.NullString
+		var successAt, runAt, firstFailAt sql.NullTime
 		var consec sql.NullInt64
 		if err := rows.Scan(&sc.SlotID, &sc.Provider, &sc.Model, &sc.Accuracy, &sc.AvgLatencyMs, &sc.Composite, &sc.Samples, &sc.FailureReason, &sc.Incomplete, &sc.CostPer1M, &tasksJSON,
 			&outcome, &lastErr, &successAt, &runAt, &firstFailAt, &consec); err == nil {
