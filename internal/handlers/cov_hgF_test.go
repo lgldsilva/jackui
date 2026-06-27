@@ -20,7 +20,7 @@ import (
 // hgFHistory spins up a throwaway SQLite-backed history store in a temp dir.
 func hgFHistory(t *testing.T) *history.Store {
 	t.Helper()
-	s, err := history.New(t.TempDir() + "/hgF_hist.db")
+	s, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatalf("history.New: %v", err)
 	}

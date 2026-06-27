@@ -4,8 +4,7 @@ import (
 	"database/sql"
 	"strings"
 	"time"
-
-	_ "modernc.org/sqlite"
+	"unicode"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
 	"github.com/lgldsilva/jackui/internal/jackett"
@@ -14,7 +13,7 @@ import (
 const queryUserClause = " AND user_id = ?"
 
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
 type CachedResult struct {
@@ -25,139 +24,43 @@ type CachedResult struct {
 	Query   string    `json:"query,omitempty"` // populated by SearchAll to show origin
 }
 
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	return s, s.migrate()
+// New wires the history store onto the shared Postgres pool. Schema is applied
+// centrally (internal/db migrations).
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() {
-	_ = s.db.Close()
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS results (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			query        TEXT NOT NULL,
-			title        TEXT NOT NULL DEFAULT '',
-			tracker      TEXT NOT NULL DEFAULT '',
-			category     TEXT NOT NULL DEFAULT '',
-			size         INTEGER NOT NULL DEFAULT 0,
-			seeders      INTEGER NOT NULL DEFAULT 0,
-			leechers     INTEGER NOT NULL DEFAULT 0,
-			age          TEXT NOT NULL DEFAULT '',
-			magnet_uri   TEXT NOT NULL DEFAULT '',
-			link         TEXT NOT NULL DEFAULT '',
-			info_hash    TEXT NOT NULL DEFAULT '',
-			publish_date TEXT NOT NULL DEFAULT '',
-			saved_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			user_id      INTEGER NOT NULL DEFAULT 0
-		);
-		CREATE INDEX IF NOT EXISTS idx_results_query    ON results(LOWER(query));
-		CREATE INDEX IF NOT EXISTS idx_results_info_hash ON results(info_hash);
-		CREATE INDEX IF NOT EXISTS idx_results_saved_at  ON results(saved_at);
-		-- idx_results_user_id is created AFTER the ALTER below — older DBs may not have user_id yet
-
-		-- FTS5 virtual table mirroring the searchable text columns of results.
-		-- content='results' means we don't duplicate data; FTS reads from results by rowid.
-		CREATE VIRTUAL TABLE IF NOT EXISTS results_fts USING fts5(
-			title, query, tracker,
-			content='results',
-			content_rowid='id',
-			tokenize='unicode61 remove_diacritics 2'
-		);
-
-		-- Sync triggers — keep FTS index aligned with results table mutations.
-		CREATE TRIGGER IF NOT EXISTS results_ai AFTER INSERT ON results BEGIN
-			INSERT INTO results_fts(rowid, title, query, tracker)
-			VALUES (new.id, new.title, new.query, new.tracker);
-		END;
-		CREATE TRIGGER IF NOT EXISTS results_ad AFTER DELETE ON results BEGIN
-			INSERT INTO results_fts(results_fts, rowid, title, query, tracker)
-			VALUES ('delete', old.id, old.title, old.query, old.tracker);
-		END;
-		CREATE TRIGGER IF NOT EXISTS results_au AFTER UPDATE ON results BEGIN
-			INSERT INTO results_fts(results_fts, rowid, title, query, tracker)
-			VALUES ('delete', old.id, old.title, old.query, old.tracker);
-			INSERT INTO results_fts(rowid, title, query, tracker)
-			VALUES (new.id, new.title, new.query, new.tracker);
-		END;
-	`)
-	if err != nil {
-		return err
-	}
-
-	// Idempotent ALTER for older DBs that pre-date the user_id column.
-	// Must happen BEFORE creating the user_id index — running against an old DB without the column would fail.
-	if !s.hasColumn("results", "user_id") {
-		if _, err := s.db.Exec(`ALTER TABLE results ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return err
-		}
-	}
-	// Now safe — column exists either from CREATE (fresh DB) or ALTER (migrated DB)
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_results_user_id ON results(user_id)`); err != nil {
-		return err
-	}
-
-	// Incognito flag — entries recorded during an incognito session.
-	// Filtered out from all read queries; deleted when the user ends their incognito session.
-	if !s.hasColumn("results", "incognito") {
-		if _, err := s.db.Exec(`ALTER TABLE results ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return err
-		}
-	}
-
-	// Backfill FTS if it's empty but results has rows (e.g., upgrading from a pre-FTS DB)
-	var ftsCount, resultsCount int
-	_ = s.db.QueryRow("SELECT count(*) FROM results_fts").Scan(&ftsCount)
-	_ = s.db.QueryRow("SELECT count(*) FROM results").Scan(&resultsCount)
-	if ftsCount == 0 && resultsCount > 0 {
-		if _, err := s.db.Exec("INSERT INTO results_fts(results_fts) VALUES('rebuild')"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// hasColumn checks whether a column exists in the given table — used for idempotent migrations.
-func (s *Store) hasColumn(table, col string) bool {
-	rows, err := s.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err == nil && n == col {
-			return true
-		}
-	}
-	return false
-}
-
-// buildFTSQuery sanitizes a user-supplied query for FTS5 MATCH.
-// Each whitespace-separated token becomes a quoted prefix term joined by implicit AND.
-// Example: `breaking bad` -> `"breaking"* "bad"*`
+// buildFTSQuery turns a user query into a Postgres to_tsquery prefix-AND string.
+// Each token becomes `tok:*` joined by ` & `, reproducing the SQLite FTS5
+// prefix-AND behaviour. Tokens are reduced to letters/digits so the to_tsquery
+// parser never sees its operators (& | ! ( ) : *) — diacritics are stripped on
+// both sides by immutable_unaccent in SQL. Example: `breaking bad` -> `breaking:* & bad:*`.
 func buildFTSQuery(input string) string {
 	fields := strings.Fields(input)
-	if len(fields) == 0 {
-		return ""
-	}
 	tokens := make([]string, 0, len(fields))
 	for _, f := range fields {
-		// Strip FTS5 special chars that aren't valid inside a quoted term
-		f = strings.ReplaceAll(f, `"`, "")
+		f = sanitizeTsToken(f)
 		if f == "" {
 			continue
 		}
-		tokens = append(tokens, `"`+f+`"*`)
+		tokens = append(tokens, f+":*")
 	}
-	return strings.Join(tokens, " ")
+	return strings.Join(tokens, " & ")
+}
+
+// sanitizeTsToken lower-cases a token and keeps only letters/digits, dropping
+// every character to_tsquery would treat as an operator.
+func sanitizeTsToken(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // Save persists Jackett results for a query, attributed to a user.
@@ -262,23 +165,21 @@ func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResul
 	var out []CachedResult
 	for rows.Next() {
 		var r CachedResult
-		var savedAt string
 		if err := rows.Scan(
 			&r.ID,
 			&r.Title, &r.Tracker, &r.Category, &r.Size,
 			&r.Seeders, &r.Leechers, &r.Age, &r.MagnetURI,
-			&r.Link, &r.InfoHash, &r.PublishDate, &savedAt,
+			&r.Link, &r.InfoHash, &r.PublishDate, &r.SavedAt,
 		); err != nil {
 			continue
 		}
-		r.SavedAt = dbutil.ParseTime(savedAt)
 		r.Cached = true
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-// SearchAll runs an FTS5 full-text search across all cached results.
+// SearchAll runs a Postgres full-text search across all cached results.
 // Filters by userID unless includeAll=true (admin override).
 func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) ([]CachedResult, error) {
 	ftsQuery := buildFTSQuery(query)
@@ -291,16 +192,16 @@ func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) 
 	q := `
 		SELECT r.id, r.title, r.tracker, r.category, r.size, r.seeders, r.leechers,
 		       r.age, r.magnet_uri, r.link, r.info_hash, r.publish_date, r.saved_at, r.query
-		FROM results_fts
-		JOIN results r ON r.id = results_fts.rowid
-		WHERE results_fts MATCH ? AND r.incognito = 0`
+		FROM results r
+		WHERE r.fts @@ to_tsquery('simple', public.immutable_unaccent(?)) AND r.incognito = 0`
 	args := []any{ftsQuery}
 	if !includeAll {
 		q += " AND r.user_id = ?"
 		args = append(args, userID)
 	}
-	q += " ORDER BY rank LIMIT ?"
-	args = append(args, limit)
+	// ts_rank DESC (higher = better) replaces FTS5's `rank` (lower = better, ASC).
+	q += " ORDER BY ts_rank(r.fts, to_tsquery('simple', public.immutable_unaccent(?))) DESC LIMIT ?"
+	args = append(args, ftsQuery, limit)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -311,12 +212,11 @@ func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) 
 	seenHash := make(map[string]bool)
 	for rows.Next() {
 		var r CachedResult
-		var savedAt string
 		if err := rows.Scan(
 			&r.ID,
 			&r.Title, &r.Tracker, &r.Category, &r.Size,
 			&r.Seeders, &r.Leechers, &r.Age, &r.MagnetURI,
-			&r.Link, &r.InfoHash, &r.PublishDate, &savedAt, &r.Query,
+			&r.Link, &r.InfoHash, &r.PublishDate, &r.SavedAt, &r.Query,
 		); err != nil {
 			continue
 		}
@@ -327,7 +227,6 @@ func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) 
 			}
 			seenHash[r.InfoHash] = true
 		}
-		r.SavedAt = dbutil.ParseTime(savedAt)
 		r.Cached = true
 		out = append(out, r)
 	}
@@ -367,11 +266,9 @@ func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, 
 	var out []Entry
 	for rows.Next() {
 		var e Entry
-		var lastSeen string
-		if err := rows.Scan(&e.Query, &e.ResultCount, &lastSeen); err != nil {
+		if err := rows.Scan(&e.Query, &e.ResultCount, &e.LastSaved); err != nil {
 			continue
 		}
-		e.LastSaved = dbutil.ParseTime(lastSeen)
 		out = append(out, e)
 	}
 	return out, rows.Err()
@@ -393,16 +290,14 @@ func (s *Store) GetResult(id int64, userID int, isAdmin bool) (*CachedResult, er
 	}
 	row := s.db.QueryRow(q, args...)
 	var r CachedResult
-	var savedAt string
 	if err := row.Scan(
 		&r.ID,
 		&r.Title, &r.Tracker, &r.Category, &r.Size,
 		&r.Seeders, &r.Leechers, &r.Age, &r.MagnetURI,
-		&r.Link, &r.InfoHash, &r.PublishDate, &savedAt, &r.Query,
+		&r.Link, &r.InfoHash, &r.PublishDate, &r.SavedAt, &r.Query,
 	); err != nil {
 		return nil, err
 	}
-	r.SavedAt = dbutil.ParseTime(savedAt)
 	r.Cached = true
 	return &r, nil
 }
@@ -420,7 +315,7 @@ func (s *Store) UpdateSeedersLeechers(id int64, seeders, leechers int) error {
 
 // Cleanup removes results older than the given duration.
 func (s *Store) Cleanup(olderThan time.Duration) error {
-	cutoff := time.Now().Add(-olderThan).Format(dbutil.TimeFormat)
+	cutoff := time.Now().Add(-olderThan)
 	_, err := s.db.Exec("DELETE FROM results WHERE saved_at < ?", cutoff)
 	return err
 }

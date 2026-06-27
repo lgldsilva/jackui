@@ -240,7 +240,7 @@ func TestBuildFTSQueryEmpty(t *testing.T) {
 
 func TestBuildFTSQueryStripsQuotes(t *testing.T) {
 	q := buildFTSQuery(`hello "world"`)
-	if q != `"hello"* "world"*` {
+	if q != `hello:* & world:*` {
 		t.Errorf("expected sanitized, got %q", q)
 	}
 }

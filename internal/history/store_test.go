@@ -1,20 +1,18 @@
 package history
 
 import (
-	"database/sql"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/jackett"
-	_ "modernc.org/sqlite"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.db")
-	s, err := New(path)
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s, err := New(pool)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -199,66 +197,3 @@ func TestCleanup(t *testing.T) {
 // Simulates the real-world failure: legacy DB has the `results` table without `user_id`;
 // reopening with the new schema must idempotently ALTER + create the index.
 // Bug caught by this: CREATE INDEX on user_id ran BEFORE the ALTER, so SQLite errored.
-func TestMigrateLegacyDBWithoutUserID(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.db")
-
-	// Step 1: hand-craft a legacy DB (no user_id column, no FTS — like a really old install)
-	{
-		legacy, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
-		if err != nil {
-			t.Fatalf("open legacy: %v", err)
-		}
-		_, err = legacy.Exec(`
-			CREATE TABLE results (
-				id           INTEGER PRIMARY KEY AUTOINCREMENT,
-				query        TEXT NOT NULL,
-				title        TEXT NOT NULL DEFAULT '',
-				tracker      TEXT NOT NULL DEFAULT '',
-				category     TEXT NOT NULL DEFAULT '',
-				size         INTEGER NOT NULL DEFAULT 0,
-				seeders      INTEGER NOT NULL DEFAULT 0,
-				leechers     INTEGER NOT NULL DEFAULT 0,
-				age          TEXT NOT NULL DEFAULT '',
-				magnet_uri   TEXT NOT NULL DEFAULT '',
-				link         TEXT NOT NULL DEFAULT '',
-				info_hash    TEXT NOT NULL DEFAULT '',
-				publish_date TEXT NOT NULL DEFAULT '',
-				saved_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-			);
-			INSERT INTO results(query, title, info_hash) VALUES('old', 'Legacy Movie', 'oldhash');
-		`)
-		if err != nil {
-			t.Fatalf("seed legacy: %v", err)
-		}
-		legacy.Close()
-	}
-
-	// Step 2: re-open with the current (new schema) code — must NOT panic, NOT error.
-	s, err := New(path)
-	if err != nil {
-		t.Fatalf("re-open after legacy schema: %v", err)
-	}
-	defer s.Close()
-
-	// Step 3: legacy row preserved (default user_id=0); FTS rebuilt
-	if !s.hasColumn("results", "user_id") {
-		t.Fatal("user_id column not added by migration")
-	}
-
-	// Step 4: new inserts with user_id work
-	if err := s.Save("new", []jackett.Result{{Title: "Fresh", InfoHash: "newhash"}}, 5, false); err != nil {
-		t.Fatalf("Save after migration: %v", err)
-	}
-	r, _ := s.Search("new", 5, false)
-	if len(r) != 1 {
-		t.Errorf("expected 1 result for user 5, got %d", len(r))
-	}
-}
-
-func TestNewInvalidPath(t *testing.T) {
-	_, err := New("/nonexistent/path/db.sqlite")
-	if err == nil {
-		t.Fatal("expected error for invalid path")
-	}
-	_ = os.Remove("/nonexistent/path/db.sqlite")
-}

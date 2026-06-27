@@ -22,7 +22,7 @@ func setAuth(c *gin.Context, userID int, isAdmin bool) {
 
 func TestGetHistory_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestGetHistory_Empty(t *testing.T) {
 
 func TestGetHistory_WithEntries(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestGetHistory_WithEntries(t *testing.T) {
 
 func TestGetHistory_AdminAll(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestGetHistory_AdminAll(t *testing.T) {
 
 func TestGetHistoryResults_MissingQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestGetHistoryResults_MissingQuery(t *testing.T) {
 
 func TestGetHistoryResults_WithQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestGetHistoryResults_WithQuery(t *testing.T) {
 
 func TestSearchCache_MissingQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestSearchCache_MissingQuery(t *testing.T) {
 
 func TestSearchCache_WithQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestSearchCache_WithQuery(t *testing.T) {
 
 func TestDeleteHistory_WithoutQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestDeleteHistory_WithoutQuery(t *testing.T) {
 
 func TestDeleteHistory_WithQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestDeleteHistory_WithQuery(t *testing.T) {
 
 func TestDeleteHistory_AdminAll(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/test.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

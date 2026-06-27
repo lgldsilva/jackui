@@ -41,7 +41,7 @@ func hgEDo(router *gin.Engine, method, path string, body []byte) *httptest.Respo
 
 func hgEHistory(t *testing.T) *history.Store {
 	t.Helper()
-	s, err := history.New(t.TempDir() + "/hist.db")
+	s, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
