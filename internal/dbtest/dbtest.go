@@ -86,6 +86,20 @@ func NewDB(t *testing.T) *sql.DB {
 	return pool
 }
 
+// SeedUsers inserts users with the given ids (idempotent) so store tests can
+// reference user_id FKs without standing up the auth store. Username is derived
+// from the id and unique.
+func SeedUsers(t *testing.T, db *sql.DB, ids ...int64) {
+	t.Helper()
+	for _, id := range ids {
+		if _, err := db.Exec(
+			`INSERT INTO users(id, username, password_hash) VALUES($1, $2, '') ON CONFLICT (id) DO NOTHING`,
+			id, fmt.Sprintf("testuser%d", id)); err != nil {
+			t.Fatalf("seed user %d: %v", id, err)
+		}
+	}
+}
+
 func uniqueSchema(t *testing.T) string {
 	name := strings.ToLower(t.Name())
 	var b strings.Builder
