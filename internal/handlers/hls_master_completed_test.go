@@ -27,7 +27,7 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHLSManager: %v", err)
 	}
-	st, err := downloads.New(filepath.Join(t.TempDir(), "dl.db"))
+	st, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatalf("downloads.New: %v", err)
 	}

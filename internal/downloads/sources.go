@@ -1,9 +1,8 @@
 package downloads
 
 import (
+	"database/sql"
 	"time"
-
-	"github.com/lgldsilva/jackui/internal/dbutil"
 )
 
 // Source lifecycle within a download's catalog of magnets.
@@ -32,19 +31,19 @@ type Source struct {
 }
 
 const srcSelect = `SELECT id, download_id, magnet, info_hash, title, tracker, seeders, size,
-	status, tries, COALESCE(last_tried, ''), created_at FROM download_sources `
+	status, tries, last_tried, created_at FROM download_sources `
 
 func scanSource(rows interface{ Scan(...any) error }) (*Source, error) {
 	s := &Source{}
-	var lastTried, createdAt string
+	var lastTried sql.NullTime
 	if err := rows.Scan(&s.ID, &s.DownloadID, &s.Magnet, &s.InfoHash, &s.Title, &s.Tracker,
-		&s.Seeders, &s.Size, &s.Status, &s.Tries, &lastTried, &createdAt); err != nil {
+		&s.Seeders, &s.Size, &s.Status, &s.Tries, &lastTried, &s.CreatedAt); err != nil {
 		return nil, err
 	}
-	if t := dbutil.ParseTime(lastTried); !t.IsZero() {
+	if lastTried.Valid {
+		t := lastTried.Time
 		s.LastTried = &t
 	}
-	s.CreatedAt = dbutil.ParseTime(createdAt)
 	return s, nil
 }
 
@@ -94,7 +93,7 @@ func (s *Store) HasSources(downloadID int) (bool, error) {
 // Returns nil when no source is ready.
 func (s *Store) NextSource(downloadID, cooldownMin int) (*Source, error) {
 	rows, err := s.db.Query(srcSelect+`WHERE download_id=? AND status!='failed' AND status!='active'
-		ORDER BY seeders DESC, COALESCE(last_tried, '') ASC, id ASC`, downloadID)
+		ORDER BY seeders DESC, last_tried ASC NULLS FIRST, id ASC`, downloadID)
 	if err != nil {
 		return nil, err
 	}

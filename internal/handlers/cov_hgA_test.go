@@ -24,7 +24,7 @@ const hgAValidHash = "bfb1741ecb8e7641158943545beb97c216158405"
 
 func hgAStore(t *testing.T) *downloads.Store {
 	t.Helper()
-	s, err := downloads.New(t.TempDir() + "/dl.db")
+	s, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

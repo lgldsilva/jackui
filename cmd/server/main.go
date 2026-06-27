@@ -567,15 +567,14 @@ func initDownloadsStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	dlPath := deps.stateDir + "/.downloads.db"
-	d, err := downloads.New(dlPath)
+	d, err := downloads.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: downloads store init failed: %v", err)
 		return
 	}
 	deps.downloadsStore = d
 	deps.addCleanup(func() { d.Close() })
-	log.Printf("Downloads: %s", dlPath)
+	log.Printf("Downloads: PostgreSQL")
 
 	// Pending-transfers store: persists move/promote copy intents so a deploy or
 	// crash mid-copy resumes them on the next boot (resume-aware copy finishes
@@ -803,7 +802,7 @@ func initWatchlistStore(deps *appDeps) {
 	}
 	deps.watchlistStore = w
 	deps.addCleanup(func() { w.Close() })
-	log.Printf("Watchlist: %s", wlPath)
+	log.Printf("Watchlist: PostgreSQL")
 	interval := time.Duration(deps.cfg.Notifications.WatchlistInterval) * time.Minute
 	if interval <= 0 {
 		interval = 15 * time.Minute
