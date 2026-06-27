@@ -203,6 +203,14 @@ func (d *appDeps) runCleanup() {
 
 func main() {
 	setupLogger()
+	// Subcommands must be handled before loadConfig (which treats os.Args[1] as
+	// the config path).
+	if len(os.Args) > 1 && os.Args[1] == "migrate-auth" {
+		if err := runMigrateAuth(os.Args[2:]); err != nil {
+			log.Fatalf("migrate-auth: %v", err)
+		}
+		return
+	}
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
 	if err := config.CheckWritable(deps.configPath); err != nil {
