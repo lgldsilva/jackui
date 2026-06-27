@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -414,35 +413,22 @@ func runPromotePlan(o *promoteOpts, p *promotePlan, job *transfer.Job) error {
 // estourar o timeout do proxy numa cópia grande). O painel de Transferências
 // mostra o progresso; a lista de downloads reflete o novo file_path ao concluir.
 func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePlan) {
-	files, bytes := 0, int64(0)
+	// Um job POR item (não um job agregado): o pool de transferências roda vários
+	// em paralelo (até defaultMaxConcurrent) e enfileira o resto, então o usuário
+	// vê o progresso por arquivo no painel e várias cópias andam ao mesmo tempo —
+	// em vez de uma fila sequencial dentro de um job único.
 	for _, p := range plans {
-		files += p.files
-		bytes += p.bytes
-	}
-	label := promoteBatchLabel(plans)
-	tr.Submit(label, "promote", files, bytes, func(job *transfer.Job) {
-		var firstErr error
-		for _, p := range plans {
+		p := p // captura por iteração
+		label := safeBaseName(p.src, p.d.Name)
+		tr.Submit(label, "promote", p.files, p.bytes, func(job *transfer.Job) {
 			if err := runPromotePlan(o, p, job); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
+				job.Fail(err)
 				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
+				return
 			}
-		}
-		if firstErr != nil {
-			job.Fail(firstErr)
-			return
-		}
-		job.Done()
-	})
-}
-
-func promoteBatchLabel(plans []*promotePlan) string {
-	if len(plans) == 1 {
-		return safeBaseName(plans[0].src, plans[0].d.Name)
+			job.Done()
+		})
 	}
-	return fmt.Sprintf("%d itens", len(plans))
 }
 
 func promoteTargetDir(o *promoteOpts) (string, error) {
