@@ -73,6 +73,19 @@ pipeline {
           env.GIT_COMMIT = scmVars.GIT_COMMIT
           env.TAG = env.GIT_COMMIT?.take(8) ?: env.BUILD_NUMBER
         }
+        // PostgreSQL sidecar for the backend tests (the stores now run on
+        // Postgres). On a dedicated docker network so the test container reaches
+        // it by name. Tuned for throwaway speed (fsync off). The test container
+        // joins this network and gets JACKUI_TEST_DATABASE_URL (see Backend test).
+        sh '''
+          docker network create jackui-ci-net >/dev/null 2>&1 || true
+          docker rm -f jackui-ci-pg >/dev/null 2>&1 || true
+          docker run -d --name jackui-ci-pg --network jackui-ci-net \
+            -e POSTGRES_USER=jackui -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=jackui \
+            postgres:16-alpine \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=300 >/dev/null
+          for i in $(seq 1 30); do docker exec jackui-ci-pg pg_isready -U jackui -d jackui >/dev/null 2>&1 && break; sleep 1; done
+        '''
       }
     }
 
@@ -80,7 +93,7 @@ pipeline {
       // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
       // exigem). GOCACHE/GOPATH em /tmp. Só ./internal/... — cmd/server importa o
       // pacote ui (//go:embed all:dist), que não compila antes do frontend build.
-      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '--platform linux/amd64 -u root -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath' } }
+      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '--platform linux/amd64 -u root --network jackui-ci-net -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath -e JACKUI_TEST_DATABASE_URL=postgres://jackui:ci@jackui-ci-pg:5432/jackui?sslmode=disable' } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
         retry(2) {
@@ -324,7 +337,10 @@ pipeline {
   }
 
   post {
-    always  { sh 'docker image prune -f >/dev/null 2>&1 || true' }
+    always  {
+      sh 'docker rm -f jackui-ci-pg >/dev/null 2>&1 || true; docker network rm jackui-ci-net >/dev/null 2>&1 || true'
+      sh 'docker image prune -f >/dev/null 2>&1 || true'
+    }
     success {
       script {
         // PR com gates verdes → o ci-bot aprova automaticamente (o Gitea não
