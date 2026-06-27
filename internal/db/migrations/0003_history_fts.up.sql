@@ -5,10 +5,20 @@
 -- function — the standard trick; the unaccent dictionary is effectively constant
 -- in practice. Pinned to public so every search_path (incl. the per-test
 -- schemas) resolves it.
-CREATE OR REPLACE FUNCTION public.immutable_unaccent(text)
-    RETURNS text
-    LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS
-$$ SELECT public.unaccent('public.unaccent', $1) $$;
+-- Created only if missing (not CREATE OR REPLACE): the test harness runs this
+-- migration concurrently across many schemas, and an unconditional replace
+-- rewrites the shared catalog row in each → "tuple concurrently updated". A
+-- guarded create is a no-op once it exists (the harness pre-creates it; in
+-- production this migration runs once and creates it).
+DO $$
+BEGIN
+    IF to_regprocedure('public.immutable_unaccent(text)') IS NULL THEN
+        CREATE FUNCTION public.immutable_unaccent(text)
+            RETURNS text
+            LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS
+        $fn$ SELECT public.unaccent('public.unaccent', $1) $fn$;
+    END IF;
+END $$;
 
 -- Generated tsvector over the searchable columns. 'simple' (no language
 -- stemming) + immutable_unaccent reproduces SQLite's unicode61 remove_diacritics
