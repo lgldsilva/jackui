@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"log"
@@ -25,6 +26,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	appdb "github.com/lgldsilva/jackui/internal/db"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/gluetun"
 	"github.com/lgldsilva/jackui/internal/handlers"
@@ -127,40 +129,41 @@ func watchForwardedPort(ctrl string, current int, restart chan<- struct{}) {
 }
 
 type appDeps struct {
-	cfg             *config.Config
-	configPath      string
-	jackettClient   *jackett.Client
-	localBrowser    *local.Browser
-	historyStore    *history.Store
-	streamSrv       *streamer.Streamer
-	streamCfg       streamer.Config
-	stateDir        string
-	libraryStore    *library.Store
-	audioMetaStore  *audiometa.Store
-	lyricsClient    *lyrics.Client
-	musicTrending   *musictrending.Client
-	playlistsStore  *playlists.Store
-	downloadsStore  *downloads.Store
-	downloadsWkr    *downloads.Worker
-	tmdbClient      *tmdb.Client
-	aiClient        *ai.Client
-	aiBench         *ai.BenchmarkStore
-	webSearch       *imagesearch.Chain
-	watchlistStore  *watchlist.Store
-	watchlistWkr    *watchlist.Worker
-	pushStore       *push.Store
-	pushSender      *push.Sender
-	subtitleClient  *subtitles.Client
-	authStore       *auth.Store
-	tokenMgr        *auth.TokenManager
-	waManager       *auth.WAManager
-	loginLockout    *auth.Lockout
-	mlr             *mailer.Mailer
-	promoteDests    []handlers.PromoteDest
-	destinations    *handlers.DestinationService
-	hlsMgr          *transcode.HLSSessionManager
-	localStream     *localstream.Registry
-	localCache      *localcache.Cache
+	cfg              *config.Config
+	configPath       string
+	db               *sql.DB // shared PostgreSQL pool (all stores)
+	jackettClient    *jackett.Client
+	localBrowser     *local.Browser
+	historyStore     *history.Store
+	streamSrv        *streamer.Streamer
+	streamCfg        streamer.Config
+	stateDir         string
+	libraryStore     *library.Store
+	audioMetaStore   *audiometa.Store
+	lyricsClient     *lyrics.Client
+	musicTrending    *musictrending.Client
+	playlistsStore   *playlists.Store
+	downloadsStore   *downloads.Store
+	downloadsWkr     *downloads.Worker
+	tmdbClient       *tmdb.Client
+	aiClient         *ai.Client
+	aiBench          *ai.BenchmarkStore
+	webSearch        *imagesearch.Chain
+	watchlistStore   *watchlist.Store
+	watchlistWkr     *watchlist.Worker
+	pushStore        *push.Store
+	pushSender       *push.Sender
+	subtitleClient   *subtitles.Client
+	authStore        *auth.Store
+	tokenMgr         *auth.TokenManager
+	waManager        *auth.WAManager
+	loginLockout     *auth.Lockout
+	mlr              *mailer.Mailer
+	promoteDests     []handlers.PromoteDest
+	destinations     *handlers.DestinationService
+	hlsMgr           *transcode.HLSSessionManager
+	localStream      *localstream.Registry
+	localCache       *localcache.Cache
 	transferTracker  *transfer.Tracker
 	pendingTransfers *transfer.Store // persisted move/promote intents → resumed on boot
 	// restart is signalled by the gluetun forwarded-port watcher when the VPN
@@ -203,6 +206,14 @@ func (d *appDeps) runCleanup() {
 
 func main() {
 	setupLogger()
+	// Subcommands must be handled before loadConfig (which treats os.Args[1] as
+	// the config path).
+	if len(os.Args) > 1 && os.Args[1] == "migrate-auth" {
+		if err := runMigrateAuth(os.Args[2:]); err != nil {
+			log.Fatalf("migrate-auth: %v", err)
+		}
+		return
+	}
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
 	if err := config.CheckWritable(deps.configPath); err != nil {
@@ -222,6 +233,7 @@ func main() {
 	deps.mlr = mailer.New(deps.cfg.SMTP)
 
 	deps.restart = make(chan struct{}, 1)
+	initDB(deps)
 	initHistoryStore(deps)
 	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg, deps.restart)
 	// Persist local-file thumbnails (and negative markers) under the stream
@@ -348,17 +360,13 @@ func loadConfig() (*config.Config, string) {
 }
 
 func initHistoryStore(deps *appDeps) {
-	dbPath := deps.cfg.DBPath
-	if dbPath == "" {
-		dbPath = "./jackui.db"
-	}
-	store, err := history.New(dbPath)
+	store, err := history.New(deps.db)
 	if err != nil {
-		log.Printf("Warning: failed to open history store at %s: %v — history disabled", dbPath, err)
+		log.Printf("Warning: failed to open history store: %v — history disabled", err)
 		return
 	}
 	deps.historyStore = store
-	log.Printf("History store: %s", dbPath)
+	log.Printf("History store: PostgreSQL")
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
@@ -430,24 +438,24 @@ func initStreamer(deps *appDeps) {
 	deps.addCleanup(func() { s.Close() })
 	log.Printf("Streamer ready: %s (idle=%s, metadata=%s)", deps.streamCfg.DataDir, deps.streamCfg.IdleTimeout, deps.streamCfg.MetadataWait)
 
-	if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(deps.stateDir)); ferr == nil {
+	if favs, ferr := streamer.NewFavorites(deps.db); ferr == nil {
 		s.SetFavorites(favs)
 		deps.addCleanup(func() { favs.Close() })
-		log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(deps.stateDir))
+		log.Printf("Favorites: PostgreSQL")
 	} else {
 		log.Printf("Warning: favorites store init failed: %v", ferr)
 	}
-	if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(deps.stateDir)); mcerr == nil {
+	if mc, mcerr := streamer.NewMetadataCache(deps.db); mcerr == nil {
 		s.SetMetadataCache(mc)
 		deps.addCleanup(func() { _ = mc.Close() })
-		log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(deps.stateDir))
+		log.Printf("Metadata cache: PostgreSQL")
 	} else {
 		log.Printf("Warning: metadata cache init failed: %v", mcerr)
 	}
-	if seeds, serr := streamer.NewSeeds(streamer.DefaultSeedsPath(deps.stateDir)); serr == nil {
+	if seeds, serr := streamer.NewSeeds(deps.db); serr == nil {
 		s.SetSeeds(seeds)
 		deps.addCleanup(func() { _ = seeds.Close() })
-		log.Printf("Seeds store: %s", streamer.DefaultSeedsPath(deps.stateDir))
+		log.Printf("Seeds store: PostgreSQL")
 		go resumeSeeding(s, seeds)
 	} else {
 		log.Printf("Warning: seeds store init failed: %v", serr)
@@ -498,15 +506,14 @@ func initLibraryStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	libPath := deps.stateDir + "/.library.db"
-	l, err := library.New(libPath)
+	l, err := library.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: library store init failed: %v", err)
 		return
 	}
 	deps.libraryStore = l
 	deps.addCleanup(func() { l.Close() })
-	log.Printf("Library: %s", libPath)
+	log.Printf("Library: PostgreSQL")
 	if mc := deps.streamSrv.MetadataCache(); mc != nil {
 		n, mErr := l.RefreshStalePrimary(func(hash string) (int, bool) {
 			meta := mc.Get(hash)
@@ -528,50 +535,47 @@ func initLibraryStore(deps *appDeps) {
 // behind a Continue-Watching page load). Optional: a failure just disables the
 // tag/cover cache (handlers fall back to live parsing), it never blocks boot.
 func initAudioMetaStore(deps *appDeps) {
-	amPath := deps.stateDir + "/.audio-metadata.db"
-	am, err := audiometa.New(amPath)
+	am, err := audiometa.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: audio metadata store init failed: %v", err)
 		return
 	}
 	deps.audioMetaStore = am
 	deps.addCleanup(func() { am.Close() })
-	log.Printf("Audio metadata: %s", amPath)
+	log.Printf("Audio metadata: PostgreSQL")
 }
 
 func initPlaylistsStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	plPath := deps.stateDir + "/.playlists.db"
-	p, err := playlists.New(plPath)
+	p, err := playlists.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: playlists store init failed: %v", err)
 		return
 	}
 	deps.playlistsStore = p
 	deps.addCleanup(func() { p.Close() })
-	log.Printf("Playlists: %s", plPath)
+	log.Printf("Playlists: PostgreSQL")
 }
 
 func initDownloadsStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	dlPath := deps.stateDir + "/.downloads.db"
-	d, err := downloads.New(dlPath)
+	d, err := downloads.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: downloads store init failed: %v", err)
 		return
 	}
 	deps.downloadsStore = d
 	deps.addCleanup(func() { d.Close() })
-	log.Printf("Downloads: %s", dlPath)
+	log.Printf("Downloads: PostgreSQL")
 
 	// Pending-transfers store: persists move/promote copy intents so a deploy or
 	// crash mid-copy resumes them on the next boot (resume-aware copy finishes
 	// only what's left). Best-effort — a failure here just disables resume.
-	if ts, err := transfer.OpenStore(deps.stateDir + "/.transfers.db"); err != nil {
+	if ts, err := transfer.OpenStore(deps.db); err != nil {
 		log.Printf("Warning: pending-transfers store init failed (resume disabled): %v", err)
 	} else {
 		deps.pendingTransfers = ts
@@ -718,8 +722,7 @@ func initTMDBClient(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	tmdbPath := deps.stateDir + "/.tmdb-cache.db"
-	tc, err := tmdb.New(deps.cfg.TMDB.APIKey, deps.cfg.TMDB.OMDbAPIKey, tmdbPath)
+	tc, err := tmdb.New(deps.cfg.TMDB.APIKey, deps.cfg.TMDB.OMDbAPIKey, deps.db)
 	if err != nil {
 		log.Printf("Warning: tmdb client init failed: %v", err)
 		return
@@ -727,9 +730,9 @@ func initTMDBClient(deps *appDeps) {
 	deps.tmdbClient = tc
 	deps.addCleanup(func() { _ = tc.Close() })
 	if deps.cfg.TMDB.APIKey != "" {
-		log.Printf("TMDB enrichment: enabled (cache: %s)", tmdbPath)
+		log.Printf("TMDB enrichment: enabled (PostgreSQL cache)")
 	} else {
-		log.Printf("TMDB enrichment: disabled (no API key) — cache prepared at %s", tmdbPath)
+		log.Printf("TMDB enrichment: disabled (no API key)")
 	}
 }
 
@@ -740,7 +743,7 @@ func initAIClient(deps *appDeps) {
 		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
 		return
 	}
-	bs, err := ai.NewBenchmarkStore(ai.DefaultBenchmarkStorePath(deps.stateDir))
+	bs, err := ai.NewBenchmarkStore(deps.db)
 	if err != nil {
 		log.Printf("Warning: ai benchmark store init failed: %v", err)
 	} else {
@@ -768,7 +771,7 @@ func initPushStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	p, err := push.New(deps.stateDir + "/.push.db")
+	p, err := push.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: push store init failed: %v", err)
 		return
@@ -781,22 +784,21 @@ func initPushStore(deps *appDeps) {
 		return
 	}
 	deps.pushSender = sender
-	log.Printf("Web Push: enabled (state=%s/.push.db)", deps.stateDir)
+	log.Printf("Web Push: enabled (PostgreSQL)")
 }
 
 func initWatchlistStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	wlPath := deps.stateDir + "/.watchlist.db"
-	w, err := watchlist.New(wlPath)
+	w, err := watchlist.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: watchlist store init failed: %v", err)
 		return
 	}
 	deps.watchlistStore = w
 	deps.addCleanup(func() { w.Close() })
-	log.Printf("Watchlist: %s", wlPath)
+	log.Printf("Watchlist: PostgreSQL")
 	interval := time.Duration(deps.cfg.Notifications.WatchlistInterval) * time.Minute
 	if interval <= 0 {
 		interval = 15 * time.Minute
@@ -844,6 +846,26 @@ func startTranscodeProbe() {
 	}()
 }
 
+// initDB opens the shared PostgreSQL pool and applies the unified schema. All
+// stores receive this pool. Fatal if DATABASE_URL is unset or unreachable.
+func initDB(deps *appDeps) {
+	if deps.cfg.DatabaseURL == "" {
+		log.Fatalf("DATABASE_URL ausente — defina JACKUI_DATABASE_URL (ou DATABASE_URL / JACKUI_PG_*) com o DSN do PostgreSQL")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := appdb.Open(ctx, deps.cfg.DatabaseURL, 60*time.Second)
+	if err != nil {
+		log.Fatalf("PostgreSQL init failed: %v", err)
+	}
+	if err := appdb.Migrate(pool); err != nil {
+		log.Fatalf("PostgreSQL migrate failed: %v", err)
+	}
+	deps.db = pool
+	deps.addCleanup(func() { _ = pool.Close() })
+	log.Printf("PostgreSQL pool ready; schema migrated")
+}
+
 func initAuth(deps *appDeps) {
 	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
 	if !deps.cfg.Auth.Enabled {
@@ -863,17 +885,13 @@ func initAuth(deps *appDeps) {
 }
 
 func initAuthStore(deps *appDeps) {
-	authDB := deps.cfg.Auth.DBPath
-	if authDB == "" {
-		authDB = "/data/auth.db"
-	}
-	authStore, err := auth.New(authDB)
+	authStore, err := auth.New(deps.db)
 	if err != nil {
 		log.Fatalf("Auth store init failed: %v", err)
 	}
 	deps.authStore = authStore
 	deps.addCleanup(func() { authStore.Close() })
-	log.Printf("Auth enabled: user store at %s", authDB)
+	log.Printf("Auth enabled: user store on PostgreSQL")
 }
 
 func initJWTSecret(deps *appDeps) {

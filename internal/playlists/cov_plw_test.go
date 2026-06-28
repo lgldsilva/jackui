@@ -1,28 +1,21 @@
 package playlists
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func plwStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(filepath.Join(t.TempDir(), "plw.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s, err := New(pool)
 	if err != nil {
 		t.Fatalf("plw New: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
 	return s
-}
-
-// New should fail when the path is not openable (a directory, not a file).
-func Test_plwNewBadPath(t *testing.T) {
-	if s, err := New(t.TempDir()); err == nil {
-		if s != nil {
-			s.Close()
-		}
-		t.Fatal("plw: expected error opening a directory as a db file")
-	}
 }
 
 // Create with empty name is rejected before touching the db.
@@ -103,15 +96,29 @@ func Test_plwAddItemValidation(t *testing.T) {
 // AddItem with a LibraryID set exercises the non-nil libraryIDArg branch and
 // is read back through getItem (LibraryID populated).
 func Test_plwAddItemWithLibraryID(t *testing.T) {
-	s := plwStore(t)
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1)
+	// A real library row so the playlist_items.library_id FK holds (this is how
+	// the handler does it — the item references an existing library entry).
+	var lib int
+	if err := pool.QueryRow(
+		`INSERT INTO library(user_id, info_hash, magnet, name) VALUES(1,'h','m','n') RETURNING id`).
+		Scan(&lib); err != nil {
+		t.Fatalf("seed library: %v", err)
+	}
+	s, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
 	p, _ := s.Create(1, "P", "")
-	lib := 42
 	it, err := s.AddItem(p.ID, 1, Item{Title: "T", Magnet: "m:x", LibraryID: &lib, FileIndex: 3}, false)
 	if err != nil {
 		t.Fatalf("plw AddItem: %v", err)
 	}
-	if it.LibraryID == nil || *it.LibraryID != 42 {
-		t.Fatalf("plw: expected LibraryID 42, got %v", it.LibraryID)
+	if it.LibraryID == nil || *it.LibraryID != lib {
+		t.Fatalf("plw: expected LibraryID %d, got %v", lib, it.LibraryID)
 	}
 	if it.FileIndex != 3 {
 		t.Fatalf("plw: expected FileIndex 3, got %d", it.FileIndex)
@@ -119,7 +126,7 @@ func Test_plwAddItemWithLibraryID(t *testing.T) {
 
 	// Items read-back also populates LibraryID (Items scan branch).
 	items, _ := s.Items(p.ID, 1, false)
-	if len(items) != 1 || items[0].LibraryID == nil || *items[0].LibraryID != 42 {
+	if len(items) != 1 || items[0].LibraryID == nil || *items[0].LibraryID != lib {
 		t.Fatalf("plw: Items did not return LibraryID, got %v", items)
 	}
 }

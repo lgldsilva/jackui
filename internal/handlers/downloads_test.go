@@ -15,7 +15,7 @@ import (
 
 func newDownloadsStore(t *testing.T) *downloads.Store {
 	t.Helper()
-	s, err := downloads.New(t.TempDir() + "/downloads.db")
+	s, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,8 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"golang.org/x/time/rate"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestStatusForLocked_Paused_Extra(t *testing.T) {
@@ -330,8 +332,7 @@ func TestReadSidecar_NonExistent_Extra(t *testing.T) {
 }
 
 func TestMetadataCacheGetSetHealth_Extra(t *testing.T) {
-	dir := t.TempDir()
-	mc, err := NewMetadataCache(filepath.Join(dir, "health.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,8 +351,7 @@ func TestMetadataCacheGetSetHealth_Extra(t *testing.T) {
 }
 
 func TestMetadataCacheGetSetArt_Extra(t *testing.T) {
-	dir := t.TempDir()
-	mc, err := NewMetadataCache(filepath.Join(dir, "art.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestMinMaxArtBytes_Extra(t *testing.T) {
 }
 
 func TestNewFavorites_Extra(t *testing.T) {
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	f, err := NewFavorites(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}

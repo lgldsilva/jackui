@@ -2,7 +2,6 @@ package watchlist
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -112,52 +111,6 @@ func TestListDue_NullNextCheckIsDue(t *testing.T) {
 	}
 	if len(lists) != 1 {
 		t.Fatalf("expected NULL next_check_at to be due, got %+v", lists)
-	}
-}
-
-func TestMigrationFromPreSchedulerSchema(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "old.db")
-	old, err := New(path)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	// Rebuild the pre-scheduler shape: drop and recreate without sched_* cols.
-	if _, err := old.db.Exec(`
-		DROP TABLE watchlists;
-		CREATE TABLE watchlists (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id      INTEGER NOT NULL,
-			query        TEXT    NOT NULL,
-			category     TEXT    NOT NULL DEFAULT '',
-			min_seeders  INTEGER NOT NULL DEFAULT 1,
-			ntfy_topic   TEXT    NOT NULL DEFAULT '',
-			last_checked DATETIME,
-			created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		INSERT INTO watchlists(user_id, query) VALUES (1, 'legacy');
-	`); err != nil {
-		t.Fatalf("rebuilding old schema: %v", err)
-	}
-	old.Close()
-
-	s, err := New(path) // re-open → migrate must add the sched columns
-	if err != nil {
-		t.Fatalf("re-open: %v", err)
-	}
-	t.Cleanup(s.Close)
-	got, err := s.Get(1, 1)
-	if err != nil {
-		t.Fatalf("Get after migration: %v", err)
-	}
-	if got.Kind != SchedInterval || got.Minutes != 0 {
-		t.Fatalf("legacy row schedule = %+v, want interval/server-default", got.Schedule)
-	}
-	if !got.NextCheckAt.IsZero() {
-		t.Fatalf("legacy NextCheckAt should be zero (NULL), got %v", got.NextCheckAt)
-	}
-	due, err := s.ListDue(time.Now())
-	if err != nil || len(due) != 1 {
-		t.Fatalf("legacy row must be due immediately: %v %+v", err, due)
 	}
 }
 

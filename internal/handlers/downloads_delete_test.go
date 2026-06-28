@@ -216,9 +216,13 @@ func TestDownloadsBatchDelete_AdminMixed(t *testing.T) {
 // the frontend can then show the error instead of silently re-showing the row.
 func TestDownloadsDelete_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newDownloadsStore(t)
+	pool := seededPool(t)
+	store, err := downloads.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "x"})
-	store.Close() // force the lookup/delete to error
+	pool.Close() // force the lookup/delete to error
 	rm := &fakeRemover{}
 
 	router := gin.New()
@@ -241,10 +245,14 @@ func TestDownloadsDelete_StoreError(t *testing.T) {
 // and the worker is never notified.
 func TestDownloadsBatchDelete_AllFailed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := newDownloadsStore(t)
+	pool := seededPool(t)
+	store, err := downloads.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	a, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "a"})
 	b, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 1, Magnet: "m", Name: "b"})
-	store.Close()
+	pool.Close()
 	rm := &fakeRemover{}
 
 	router := gin.New()

@@ -13,7 +13,7 @@ import (
 func newStreamerWithFavs(t *testing.T) *streamer.Streamer {
 	t.Helper()
 	s := streamer.NewForTesting()
-	favStore, err := streamer.NewFavorites(t.TempDir() + "/favs.db")
+	favStore, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -41,7 +41,7 @@ func hgEDo(router *gin.Engine, method, path string, body []byte) *httptest.Respo
 
 func hgEHistory(t *testing.T) *history.Store {
 	t.Helper()
-	s, err := history.New(t.TempDir() + "/hist.db")
+	s, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func hgEHistory(t *testing.T) *history.Store {
 
 func hgEFavs(t *testing.T) *streamer.FavoritesStore {
 	t.Helper()
-	f, err := streamer.NewFavorites(t.TempDir() + "/favs.db")
+	f, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func hgEFavs(t *testing.T) *streamer.FavoritesStore {
 
 func hgEDownloads(t *testing.T) *downloads.Store {
 	t.Helper()
-	s, err := downloads.New(t.TempDir() + "/dl.db")
+	s, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func hgEDownloads(t *testing.T) *downloads.Store {
 
 func hgELibrary(t *testing.T) *library.Store {
 	t.Helper()
-	s, err := library.New(t.TempDir() + "/lib.db")
+	s, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func hgELibrary(t *testing.T) *library.Store {
 
 func hgEPlaylists(t *testing.T) *playlists.Store {
 	t.Helper()
-	s, err := playlists.New(t.TempDir() + "/pl.db")
+	s, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func hgEPlaylists(t *testing.T) *playlists.Store {
 
 func hgEWatchlist(t *testing.T) *watchlist.Store {
 	t.Helper()
-	s, err := watchlist.New(t.TempDir() + "/wl.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

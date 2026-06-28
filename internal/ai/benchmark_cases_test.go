@@ -1,9 +1,10 @@
 package ai
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // The shipped dataset must stay broad and well-formed: enough cases, unique
@@ -157,7 +158,7 @@ func TestParseRenameJSONSimulatedReplies(t *testing.T) {
 }
 
 func TestStoreCasesOriginRoundtrip(t *testing.T) {
-	st, err := NewBenchmarkStore(filepath.Join(t.TempDir(), "bench.db"))
+	st, err := NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewBenchmarkStore: %v", err)
 	}
@@ -193,7 +194,7 @@ func TestStoreCasesOriginRoundtrip(t *testing.T) {
 }
 
 func TestStoreLegacySeedUpgrade(t *testing.T) {
-	st, err := NewBenchmarkStore(filepath.Join(t.TempDir(), "bench.db"))
+	st, err := NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewBenchmarkStore: %v", err)
 	}

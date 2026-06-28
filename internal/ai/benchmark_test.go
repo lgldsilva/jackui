@@ -6,10 +6,11 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/config"
@@ -765,7 +766,7 @@ func TestDiscoverViaModelsAPI_FreeTier(t *testing.T) {
 }
 
 func TestCostConfigRoundTrip(t *testing.T) {
-	st, err := NewBenchmarkStore(filepath.Join(t.TempDir(), "b.db"))
+	st, err := NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1021,7 +1022,7 @@ func TestBenchmarkStoreEdgeCases(t *testing.T) {
 }
 
 func TestBenchmarkStoreRoundTrip(t *testing.T) {
-	st, err := NewBenchmarkStore(filepath.Join(t.TempDir(), "bench.db"))
+	st, err := NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewBenchmarkStore: %v", err)
 	}

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
@@ -17,7 +19,7 @@ import (
 func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
-	pending, err := transfer.OpenStore(filepath.Join(t.TempDir(), ".transfers.db"))
+	pending, err := transfer.OpenStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +79,7 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
-	pending, err := transfer.OpenStore(filepath.Join(t.TempDir(), ".transfers.db"))
+	pending, err := transfer.OpenStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +109,7 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 
 // Kind desconhecido é descartado (não trava a fila de reconciliação).
 func Test_Reconcile_UnknownKindDropped(t *testing.T) {
-	pending, err := transfer.OpenStore(filepath.Join(t.TempDir(), ".transfers.db"))
+	pending, err := transfer.OpenStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

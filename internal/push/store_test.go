@@ -1,13 +1,16 @@
 package push
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(filepath.Join(t.TempDir(), "push.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2)
+	s, err := New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,8 +124,14 @@ func TestNotificationsFeed_TrimsToCap(t *testing.T) {
 }
 
 func TestStore_ErrorPathsOnClosedDB(t *testing.T) {
-	s := newTestStore(t)
-	s.Close()
+	// Close the underlying pool (Store.Close is a no-op now that the pool is
+	// shared/owned by main) to force the error paths.
+	pool := dbtest.NewDB(t)
+	s, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
 	if _, _, err := s.LoadOrCreateVAPID(); err == nil {
 		t.Fatal("LoadOrCreateVAPID on closed db should error")
 	}

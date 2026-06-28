@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 const sqlAndUserID = " AND user_id = ?"
@@ -49,75 +47,17 @@ type Entry struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// New wires the library store onto the shared Postgres pool. Schema is applied
+// centrally (internal/db migrations).
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() { _ = s.db.Close() }
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS library (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id             INTEGER NOT NULL,
-			info_hash           TEXT    NOT NULL,
-			magnet              TEXT    NOT NULL,
-			name                TEXT    NOT NULL,
-			primary_file_index  INTEGER NOT NULL DEFAULT 0,
-			total_size          INTEGER NOT NULL DEFAULT 0,
-			resume_seconds      REAL    NOT NULL DEFAULT 0,
-			duration_seconds    REAL    NOT NULL DEFAULT 0,
-			kind                TEXT    NOT NULL DEFAULT '',
-			last_played_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			added_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(user_id, info_hash)
-		);
-		CREATE INDEX IF NOT EXISTS idx_lib_user_played ON library(user_id, last_played_at DESC);
-		CREATE INDEX IF NOT EXISTS idx_lib_hash        ON library(info_hash);
-	`)
-	if err != nil {
-		return err
-	}
-	// Added later: track the actually-watched file (-1 = unknown). Idempotent —
-	// SQLite has no "ADD COLUMN IF NOT EXISTS", so ignore the duplicate error.
-	if _, aerr := s.db.Exec(`ALTER TABLE library ADD COLUMN last_file_index INTEGER NOT NULL DEFAULT -1`); aerr != nil &&
-		!strings.Contains(aerr.Error(), "duplicate column") {
-		return aerr
-	}
-	// Incognito flag — entries recorded during an incognito session.
-	if _, aerr := s.db.Exec(`ALTER TABLE library ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0`); aerr != nil &&
-		!strings.Contains(aerr.Error(), "duplicate column") {
-		return aerr
-	}
-	// Dismissed recommendations — titles the user explicitly ignored on Discover.
-	// Keyed by (user_id, kind, tmdb_id) so the generator can exclude them forever
-	// (otherwise the per-user rebuild would resurface the same dismissed title).
-	if _, derr := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS rec_dismissed (
-			user_id     INTEGER NOT NULL,
-			kind        TEXT    NOT NULL,
-			tmdb_id     INTEGER NOT NULL,
-			dismissed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (user_id, kind, tmdb_id)
-		);
-	`); derr != nil {
-		return derr
-	}
-	return nil
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // DismissRecommendation records that the user wants to never see this recommended
 // title again. Idempotent: re-dismissing the same (kind, tmdb_id) is a no-op
@@ -405,12 +345,11 @@ func (s *Store) DeleteAll(userID int, includeAll bool) (int64, error) {
 // scanEntry handles a single row from QueryRow.
 func scanEntry(row interface{ Scan(...any) error }) (*Entry, error) {
 	var e Entry
-	var lastPlayed, added string
 	err := row.Scan(
 		&e.ID, &e.UserID, &e.InfoHash, &e.Magnet, &e.Name,
 		&e.PrimaryFileIndex, &e.LastFileIndex, &e.TotalSize,
 		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind,
-		&lastPlayed, &added,
+		&e.LastPlayedAt, &e.AddedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -418,25 +357,20 @@ func scanEntry(row interface{ Scan(...any) error }) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.LastPlayedAt = dbutil.ParseTime(lastPlayed)
-	e.AddedAt = dbutil.ParseTime(added)
 	return &e, nil
 }
 
 // scanEntryRows reuses scanEntry on a rows iterator (separate impl because *sql.Row vs *sql.Rows).
 func scanEntryRows(rows *sql.Rows) (*Entry, error) {
 	var e Entry
-	var lastPlayed, added string
 	err := rows.Scan(
 		&e.ID, &e.UserID, &e.InfoHash, &e.Magnet, &e.Name,
 		&e.PrimaryFileIndex, &e.LastFileIndex, &e.TotalSize,
 		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind,
-		&lastPlayed, &added,
+		&e.LastPlayedAt, &e.AddedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-	e.LastPlayedAt = dbutil.ParseTime(lastPlayed)
-	e.AddedAt = dbutil.ParseTime(added)
 	return &e, nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/imagesearch"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/lyrics"
@@ -52,7 +53,7 @@ func audioMount(t *testing.T, withCover bool) (*local.Browser, *audiometa.Store)
 		t.Fatalf("write fixture: %v", err)
 	}
 	b := local.NewBrowser([]config.ExternalMount{{Name: "M", Path: dir}})
-	st, err := audiometa.New(filepath.Join(t.TempDir(), "am.db"))
+	st, err := audiometa.New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

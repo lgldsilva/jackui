@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // browserKeys fabricates a valid browser-side subscription key pair: p256dh is
@@ -86,8 +88,12 @@ func TestNotifyUser_DeliversToEndpointAndDropsGone(t *testing.T) {
 }
 
 func TestNewSender_ErrorOnClosedStore(t *testing.T) {
-	s := newTestStore(t)
-	s.Close()
+	pool := dbtest.NewDB(t)
+	s, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close() // Store.Close is a no-op; close the pool to force the error
 	if _, err := NewSender(s); err == nil {
 		t.Fatal("NewSender on closed store should error")
 	}

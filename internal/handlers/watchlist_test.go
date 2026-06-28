@@ -13,7 +13,7 @@ import (
 
 func TestWatchlistList_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestWatchlistList_Empty(t *testing.T) {
 
 func TestWatchlistCreate_NoBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestWatchlistCreate_NoBody(t *testing.T) {
 
 func TestWatchlistCreate_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestWatchlistCreate_Valid(t *testing.T) {
 
 func TestWatchlistUpdate_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestWatchlistUpdate_InvalidID(t *testing.T) {
 
 func TestWatchlistDelete_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestWatchlistDelete_InvalidID(t *testing.T) {
 
 func TestWatchlistHits_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestWatchlistHits_InvalidID(t *testing.T) {
 
 func TestWatchlistHits_NotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestWatchlistHits_NotFound(t *testing.T) {
 
 func TestWatchlistHits_WithLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestWatchlistHits_WithLimit(t *testing.T) {
 
 func TestWatchlist_FullCRUD(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func (k *recordingKicker) Kick(id int) { k.ids = append(k.ids, id) }
 
 func TestWatchlistCreate_KicksImmediateCheck(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestWatchlistCreate_KicksImmediateCheck(t *testing.T) {
 
 func TestWatchlistUpdate_PersistsSchedule(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s, err := watchlist.New(t.TempDir() + "/watchlist.db")
+	s, err := watchlist.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

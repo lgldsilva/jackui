@@ -8,12 +8,15 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/push"
 )
 
 func pushStores(t *testing.T) (*push.Store, *push.Sender) {
 	t.Helper()
-	s, err := push.New(t.TempDir() + "/push.db")
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3)
+	s, err := push.New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +122,19 @@ func TestPush_SubscribeListUnsubscribe(t *testing.T) {
 }
 
 func TestPush_ClosedStore500s(t *testing.T) {
-	store, sender := pushStores(t)
-	store.Close()
+	// Build store+sender on a live pool, then close the pool to force 500s
+	// (Store.Close is a no-op now that the pool is shared/owned by main).
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1)
+	store, err := push.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender, err := push.NewSender(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
 	r := pushRouter(store, sender)
 	if w := pushDo(r, "POST", "/api/push/unsubscribe", map[string]string{"endpoint": "https://x"}); w.Code != http.StatusInternalServerError {
 		t.Fatalf("unsubscribe on closed store = %d, want 500", w.Code)

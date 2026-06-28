@@ -24,7 +24,7 @@ const hgAValidHash = "bfb1741ecb8e7641158943545beb97c216158405"
 
 func hgAStore(t *testing.T) *downloads.Store {
 	t.Helper()
-	s, err := downloads.New(t.TempDir() + "/dl.db")
+	s, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func hgAStore(t *testing.T) *downloads.Store {
 // import handler's success path can persist a favorite.
 func hgAFavStreamer(t *testing.T) *streamer.Streamer {
 	t.Helper()
-	favs, err := streamer.NewFavorites(t.TempDir() + "/favs.db")
+	favs, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

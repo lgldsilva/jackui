@@ -1,15 +1,16 @@
 package streamer
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func ahNewStreamer(t *testing.T) (*Streamer, *MetadataCache) {
 	t.Helper()
 	s := NewForTesting()
-	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "m.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

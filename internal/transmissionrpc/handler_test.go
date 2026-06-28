@@ -7,19 +7,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func newTestStore(t *testing.T) *downloads.Store {
 	t.Helper()
-	st, err := downloads.New(filepath.Join(t.TempDir(), "d.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	st, err := downloads.New(pool)
 	if err != nil {
 		t.Fatal(err)
 	}

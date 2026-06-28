@@ -8,6 +8,8 @@ import (
 
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func relpathHash(t *testing.T, hex string) metainfo.Hash {
@@ -22,7 +24,7 @@ func relpathHash(t *testing.T, hex string) metainfo.Hash {
 func TestFileRelPath_FromMetadataCache(t *testing.T) {
 	const hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	s := NewForTesting()
-	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}

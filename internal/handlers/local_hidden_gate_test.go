@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +36,7 @@ func runLocalGate(s *streamer.Streamer, userID int, mount, path string, reveal b
 func TestLocalHiddenGate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	fav, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}
