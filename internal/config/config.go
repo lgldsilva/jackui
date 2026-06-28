@@ -20,22 +20,21 @@ type Config struct {
 		URL    string `yaml:"url"`
 		APIKey string `yaml:"api_key"`
 	} `yaml:"jackett"`
-	DownloadClients []DownloadClient     `yaml:"download_clients"`
-	Port            int                  `yaml:"port"`
-	DBPath          string               `yaml:"db_path"`
-	// DatabaseURL is the PostgreSQL DSN for the unified data store. When set it
-	// supersedes the per-store SQLite paths (DBPath/Stream.StateDir). Env:
-	// JACKUI_DATABASE_URL (preferred) or DATABASE_URL.
-	DatabaseURL string `yaml:"database_url"`
-	Stream          StreamConfig         `yaml:"stream"`
-	Subtitles       SubtitlesConfig      `yaml:"subtitles"`
-	Auth            AuthConfig           `yaml:"auth"`
-	Notifications   NotificationsConfig  `yaml:"notifications"`
-	TMDB            TMDBConfig           `yaml:"tmdb"`
-	External        ExternalConfig       `yaml:"external"`
-	AI              AIConfig             `yaml:"ai"`
-	SMTP            SMTPConfig           `yaml:"smtp"`
-	DownloadsQueue  DownloadsQueueConfig `yaml:"downloads_queue"`
+	DownloadClients []DownloadClient `yaml:"download_clients"`
+	Port            int              `yaml:"port"`
+	// DatabaseURL is the PostgreSQL DSN for the unified data store (the single
+	// source of truth for all state). Env: JACKUI_DATABASE_URL (preferred) or
+	// DATABASE_URL.
+	DatabaseURL    string               `yaml:"database_url"`
+	Stream         StreamConfig         `yaml:"stream"`
+	Subtitles      SubtitlesConfig      `yaml:"subtitles"`
+	Auth           AuthConfig           `yaml:"auth"`
+	Notifications  NotificationsConfig  `yaml:"notifications"`
+	TMDB           TMDBConfig           `yaml:"tmdb"`
+	External       ExternalConfig       `yaml:"external"`
+	AI             AIConfig             `yaml:"ai"`
+	SMTP           SMTPConfig           `yaml:"smtp"`
+	DownloadsQueue DownloadsQueueConfig `yaml:"downloads_queue"`
 	// BaseURL is the public URL of the app (e.g. https://jackui.example.com),
 	// used to build links in emails (reset/verify/invite). Falls back to the
 	// request's Origin when empty.
@@ -164,7 +163,6 @@ type StreamConfig struct {
 	DataDir         string `yaml:"data_dir"`         // where torrent pieces are stored
 	DownloadDir     string `yaml:"download_dir"`     // where completed downloads are moved (empty = stay in cache)
 	SharedDir       string `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
-	StateDir        string `yaml:"state_dir"`        // where SQLite stores live (favorites, library, etc.); empty = DataDir
 	IdleMinutes     int    `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
 	MetadataSeconds int    `yaml:"metadata_seconds"` // metadata fetch timeout
 	MaxCacheGB      int    `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
@@ -423,9 +421,9 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKETT_URL", "JACKETT_API_KEY",
 		"JACKUI_DATABASE_URL", "DATABASE_URL",
 		"JACKUI_PG_HOST", "JACKUI_PG_PORT", "JACKUI_PG_USER", "JACKUI_PG_PASSWORD", "JACKUI_PG_DB", "JACKUI_PG_SSLMODE",
-		"JACKUI_PORT", "JACKUI_DB_PATH",
+		"JACKUI_PORT",
 		"JACKUI_STREAM_DIR", "JACKUI_DOWNLOAD_DIR",
-		"JACKUI_STATE_DIR", "JACKUI_SHARED_DIR",
+		"JACKUI_SHARED_DIR",
 		"JACKUI_STREAM_MAX_GB",
 		"JACKUI_AUTH_ENABLED", "JACKUI_ADMIN_PASSWORD", "JACKUI_ADMIN_USERNAME", "JACKUI_JWT_SECRET",
 		"JACKUI_NTFY_TOPIC", "JACKUI_NTFY_URL", "JACKUI_NTFY_TOKEN",
@@ -465,17 +463,11 @@ func applyStreamEnv(cfg *Config) {
 			cfg.Port = p
 		}
 	}
-	if v := os.Getenv("JACKUI_DB_PATH"); v != "" {
-		cfg.DBPath = v
-	}
 	if v := os.Getenv("JACKUI_STREAM_DIR"); v != "" {
 		cfg.Stream.DataDir = v
 	}
 	if v := os.Getenv("JACKUI_DOWNLOAD_DIR"); v != "" {
 		cfg.Stream.DownloadDir = v
-	}
-	if v := os.Getenv("JACKUI_STATE_DIR"); v != "" {
-		cfg.Stream.StateDir = v
 	}
 	if v := os.Getenv("JACKUI_SHARED_DIR"); v != "" {
 		cfg.Stream.SharedDir = v
