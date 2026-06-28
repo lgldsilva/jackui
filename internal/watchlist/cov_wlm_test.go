@@ -164,12 +164,3 @@ func Test_wlmNtfyPosterDoError(t *testing.T) {
 		t.Fatal("wlm: expected client.Do error")
 	}
 }
-
-// TestWlmNewBadPath exercises New's migrate-failure cleanup path: a directory
-// path can't be opened as a SQLite file, so migrate() errors and New returns.
-func Test_wlmNewBadPath(t *testing.T) {
-	dir := t.TempDir() // a directory is not a valid sqlite file target
-	if _, err := New(dir); err == nil {
-		t.Fatal("wlm: expected error opening a directory as a DB")
-	}
-}

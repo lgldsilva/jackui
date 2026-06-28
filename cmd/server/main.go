@@ -796,8 +796,7 @@ func initWatchlistStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	wlPath := deps.stateDir + "/.watchlist.db"
-	w, err := watchlist.New(wlPath)
+	w, err := watchlist.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: watchlist store init failed: %v", err)
 		return
