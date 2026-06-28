@@ -1,14 +1,14 @@
 // Package dbtest provides an isolated PostgreSQL handle for store tests.
 //
-// Acquisition strategy (hybrid — see the migration plan):
-//  1. JACKUI_TEST_DATABASE_URL set → connect to that Postgres, give the test
-//     its own freshly-migrated schema, drop it on cleanup. This is the CI path
-//     (a Postgres service is attached to the test stage).
-//  2. otherwise → t.Skip with a clear message. (A future embedded-postgres
-//     fallback can slot in here for offline dev.)
+// Strategy (fast on slow disks): migrate ONE schema per test process, then make
+// each test independent by TRUNCATEing its tables (milliseconds) instead of
+// creating/migrating a fresh schema or database per test (hundreds of ms ×
+// thousands of tests → package timeouts). No test uses t.Parallel(), so within a
+// process tests run sequentially and the truncate-between-tests is safe; across
+// processes each gets its own schema (keyed by pid).
 //
-// Each test gets a private schema so tests stay independent and can run in
-// parallel against one shared server.
+//   - JACKUI_TEST_DATABASE_URL set → use that Postgres (the CI path).
+//   - otherwise → t.Skip.
 package dbtest
 
 import (
@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,12 +28,27 @@ import (
 	appdb "github.com/lgldsilva/jackui/internal/db"
 )
 
-const envURL = "JACKUI_TEST_DATABASE_URL"
+const (
+	envURL      = "JACKUI_TEST_DATABASE_URL"
+	advisoryKey = 913371
+)
 
-var schemaSeq atomic.Int64
+var (
+	procOnce     sync.Once
+	procErr      error
+	procSchema   string
+	truncateStmt string // cached "TRUNCATE a,b,... RESTART IDENTITY CASCADE"
 
-// NewDB returns a *sql.DB scoped to a private, freshly-migrated schema. The
-// schema is dropped and the pool closed via t.Cleanup. Skips the test when no
+	truncMu   sync.Mutex
+	truncated = map[*testing.T]bool{}
+
+	isoSeq atomic.Int64 // unique suffix for NewIsolatedDB schemas
+)
+
+// NewDB returns a *sql.DB scoped to this process's migrated schema. On the first
+// call within a test it TRUNCATEs all tables (re-seeding the anonymous user), so
+// each test starts clean. Returns a fresh handle each call (safe to Close in the
+// "closed pool" error-path tests without affecting other handles). Skips when no
 // test database is configured.
 func NewDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -41,41 +57,107 @@ func NewDB(t *testing.T) *sql.DB {
 		t.Skipf("%s not set; skipping (needs a PostgreSQL test database)", envURL)
 	}
 
-	schema := uniqueSchema(t)
-
-	admin, err := sql.Open("pgx", base)
-	if err != nil {
-		t.Fatalf("open admin pool: %v", err)
-	}
-	defer func() { _ = admin.Close() }()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := admin.PingContext(ctx); err != nil {
-		t.Fatalf("ping test postgres: %v", err)
-	}
-	// Drop first: schemaSeq resets per process, so a previous crashed run could
-	// have left this name behind. CASCADE clears any leftover tables.
-	if _, err := admin.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
-		t.Fatalf("drop stale schema: %v", err)
-	}
-	if _, err := admin.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", schema)); err != nil {
-		t.Fatalf("create schema: %v", err)
+	ensureProcessSchema(base)
+	if procErr != nil {
+		t.Fatalf("test schema init: %v", procErr)
 	}
 
-	dsn, err := withSearchPath(base, schema)
-	if err != nil {
-		t.Fatalf("build dsn: %v", err)
-	}
-	pool, err := sql.Open("pgx", dsn)
+	pool, err := sql.Open("pgx", withSearchPath(base, procSchema))
 	if err != nil {
 		t.Fatalf("open test pool: %v", err)
 	}
-	if err := appdb.Migrate(pool); err != nil {
-		_ = pool.Close()
-		t.Fatalf("migrate test schema: %v", err)
+	pool.SetMaxOpenConns(8)
+	t.Cleanup(func() { _ = pool.Close() })
+
+	// Clean the schema once per test (first NewDB call). Subsequent calls in the
+	// same test reuse the already-clean schema, so a test that builds several
+	// stores shares one DB (as in production) — only the closed-pool handle is
+	// per-call.
+	truncMu.Lock()
+	first := !truncated[t]
+	truncated[t] = true
+	truncMu.Unlock()
+	if first {
+		t.Cleanup(func() {
+			truncMu.Lock()
+			delete(truncated, t)
+			truncMu.Unlock()
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := pool.ExecContext(ctx, truncateStmt); err != nil {
+			t.Fatalf("truncate: %v", err)
+		}
+		// Re-seed the anonymous sentinel user (id 0) that the schema migration
+		// inserts and TRUNCATE just removed — FKs to users(id) depend on it.
+		if _, err := pool.ExecContext(ctx,
+			`INSERT INTO users(id, username, password_hash, role, status, email_verified)
+			 VALUES (0, '', '', 'guest', 'disabled', 0) ON CONFLICT (id) DO NOTHING`); err != nil {
+			t.Fatalf("reseed anon user: %v", err)
+		}
 	}
 
+	return pool
+}
+
+// NewIsolatedDB returns a pool scoped to a PRIVATE, freshly-migrated schema,
+// dropped on cleanup. Slower than NewDB (full migration per call) — use it only
+// for the rare tests that mutate the schema itself (e.g. DROP TABLE to force a
+// store error), which can't share NewDB's process-wide schema.
+func NewIsolatedDB(t *testing.T) *sql.DB {
+	t.Helper()
+	base := os.Getenv(envURL)
+	if base == "" {
+		t.Skipf("%s not set; skipping (needs a PostgreSQL test database)", envURL)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	admin, err := sql.Open("pgx", base)
+	if err != nil {
+		t.Fatalf("open admin: %v", err)
+	}
+	conn, err := admin.Conn(ctx)
+	if err != nil {
+		_ = admin.Close()
+		t.Fatalf("admin conn: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryKey); err != nil {
+		_ = conn.Close()
+		_ = admin.Close()
+		t.Fatalf("advisory lock: %v", err)
+	}
+	schema := fmt.Sprintf("dbtest_iso_p%d_%d", os.Getpid(), isoSeq.Add(1))
+	mkErr := func() error {
+		if err := createGlobals(ctx, conn); err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
+			return err
+		}
+		_, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", schema))
+		return err
+	}()
+	pool, mig := (*sql.DB)(nil), error(nil)
+	if mkErr == nil {
+		pool, mig = sql.Open("pgx", withSearchPath(base, schema))
+		if mig == nil {
+			mig = appdb.Migrate(pool)
+		}
+	}
+	_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", advisoryKey)
+	_ = conn.Close()
+	_ = admin.Close()
+	if mkErr != nil {
+		t.Fatalf("isolated schema: %v", mkErr)
+	}
+	if mig != nil {
+		if pool != nil {
+			_ = pool.Close()
+		}
+		t.Fatalf("isolated migrate: %v", mig)
+	}
+	pool.SetMaxOpenConns(4)
 	t.Cleanup(func() {
 		_ = pool.Close()
 		dropCtx, dropCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -85,15 +167,117 @@ func NewDB(t *testing.T) *sql.DB {
 			return
 		}
 		defer func() { _ = drop.Close() }()
-		_, _ = drop.ExecContext(dropCtx, fmt.Sprintf("DROP SCHEMA %q CASCADE", schema))
+		_, _ = drop.ExecContext(dropCtx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema))
 	})
-
 	return pool
 }
 
+// ensureProcessSchema creates + migrates this process's schema once. The shared
+// public objects (unaccent extension, immutable_unaccent function) are created
+// under a cross-process advisory lock; the per-process schema migration is
+// schema-local and needs no lock.
+func ensureProcessSchema(base string) {
+	procOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		admin, err := sql.Open("pgx", base)
+		if err != nil {
+			procErr = err
+			return
+		}
+		defer func() { _ = admin.Close() }()
+		if err := admin.PingContext(ctx); err != nil {
+			procErr = err
+			return
+		}
+
+		// Serialize the WHOLE per-process setup across processes with one
+		// database-global advisory lock. golang-migrate's own lock is keyed by
+		// database (not schema), and running many per-schema migrations against
+		// the same database concurrently proved unreliable (partially-created
+		// schemas). This runs once per process, so the serialization cost is tiny.
+		conn, err := admin.Conn(ctx)
+		if err != nil {
+			procErr = err
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryKey); err != nil {
+			procErr = err
+			return
+		}
+		defer func() { _, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", advisoryKey) }()
+
+		if procErr = createGlobals(ctx, conn); procErr != nil {
+			return
+		}
+
+		procSchema = fmt.Sprintf("dbtest_p%d", os.Getpid())
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", procSchema)); err != nil {
+			procErr = err
+			return
+		}
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", procSchema)); err != nil {
+			procErr = err
+			return
+		}
+
+		pool, err := sql.Open("pgx", withSearchPath(base, procSchema))
+		if err != nil {
+			procErr = err
+			return
+		}
+		defer func() { _ = pool.Close() }()
+		if procErr = appdb.Migrate(pool); procErr != nil {
+			return
+		}
+		truncateStmt, procErr = buildTruncate(ctx, pool, procSchema)
+	})
+}
+
+// createGlobals creates the shared public objects on an already-advisory-locked
+// connection (caller holds the lock).
+func createGlobals(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public`); err != nil {
+		return err
+	}
+	_, err := conn.ExecContext(ctx, `
+		CREATE OR REPLACE FUNCTION public.immutable_unaccent(text) RETURNS text
+		LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS
+		$$ SELECT public.unaccent('public.unaccent', $1) $$`)
+	return err
+}
+
+// buildTruncate assembles a single TRUNCATE over every base table in the schema
+// (except golang-migrate's bookkeeping), CASCADE so FK order doesn't matter.
+func buildTruncate(ctx context.Context, db *sql.DB, schema string) (string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT table_name FROM information_schema.tables
+		WHERE table_schema = $1 AND table_type = 'BASE TABLE' AND table_name <> 'schema_migrations'`, schema)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return "", err
+		}
+		names = append(names, fmt.Sprintf("%q.%q", schema, n))
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(names) == 0 {
+		return "SELECT 1", nil
+	}
+	return "TRUNCATE " + strings.Join(names, ", ") + " RESTART IDENTITY CASCADE", nil
+}
+
 // SeedUsers inserts users with the given ids (idempotent) so store tests can
-// reference user_id FKs without standing up the auth store. Username is derived
-// from the id and unique.
+// reference user_id FKs without standing up the auth store.
 func SeedUsers(t *testing.T, db *sql.DB, ids ...int64) {
 	t.Helper()
 	for _, id := range ids {
@@ -103,36 +287,23 @@ func SeedUsers(t *testing.T, db *sql.DB, ids ...int64) {
 			t.Fatalf("seed user %d: %v", id, err)
 		}
 	}
+	// Explicit-id inserts don't advance the IDENTITY sequence, so a later
+	// CreateUser (auto id) would collide with a seeded id. Resync past the max.
+	if _, err := db.Exec(
+		`SELECT setval(pg_get_serial_sequence('users','id'), GREATEST((SELECT MAX(id) FROM users), 1))`); err != nil {
+		t.Fatalf("resync users seq: %v", err)
+	}
 }
 
-func uniqueSchema(t *testing.T) string {
-	name := strings.ToLower(t.Name())
-	var b strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('_')
-		}
-	}
-	trimmed := b.String()
-	if len(trimmed) > 40 {
-		trimmed = trimmed[:40]
-	}
-	return fmt.Sprintf("test_%s_%d", trimmed, schemaSeq.Add(1))
-}
-
-// withSearchPath returns the DSN with the connection's search_path pinned to
-// the given schema, so migrations and queries land there (current_schema()).
-func withSearchPath(base, schema string) (string, error) {
+// withSearchPath returns the DSN with the connection's search_path pinned to the
+// schema (then public, where the extension/helpers live).
+func withSearchPath(base, schema string) string {
 	u, err := url.Parse(base)
 	if err != nil {
-		return "", err
+		return base
 	}
 	q := u.Query()
-	// Tables land in the private schema (first), extensions/helpers resolve from
-	// public (second) — mirrors production where everything lives in public.
 	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
-	return u.String(), nil
+	return u.String()
 }

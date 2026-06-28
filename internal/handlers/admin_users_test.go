@@ -231,7 +231,9 @@ func TestAdminUserSessions_ListRevokeRevokeAll(t *testing.T) {
 // dropped out from under the store (users stays intact so the :id lookup still
 // resolves), so every session query/exec fails.
 func TestAdminUserSessions_StoreErrors(t *testing.T) {
-	pool := dbtest.NewDB(t)
+	// Isolated schema: this test DROPs a table to force errors, which would
+	// break NewDB's shared per-process schema for every other test.
+	pool := dbtest.NewIsolatedDB(t)
 	store, err := auth.New(pool)
 	if err != nil {
 		t.Fatal(err)
