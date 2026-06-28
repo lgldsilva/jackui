@@ -778,7 +778,7 @@ func initPushStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	p, err := push.New(deps.stateDir + "/.push.db")
+	p, err := push.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: push store init failed: %v", err)
 		return
@@ -791,7 +791,7 @@ func initPushStore(deps *appDeps) {
 		return
 	}
 	deps.pushSender = sender
-	log.Printf("Web Push: enabled (state=%s/.push.db)", deps.stateDir)
+	log.Printf("Web Push: enabled (PostgreSQL)")
 }
 
 func initWatchlistStore(deps *appDeps) {
