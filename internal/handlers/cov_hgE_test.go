@@ -71,7 +71,7 @@ func hgEDownloads(t *testing.T) *downloads.Store {
 
 func hgELibrary(t *testing.T) *library.Store {
 	t.Helper()
-	s, err := library.New(t.TempDir() + "/lib.db")
+	s, err := library.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
