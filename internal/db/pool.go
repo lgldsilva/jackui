@@ -7,6 +7,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx driver registered as "pgx"
@@ -23,12 +25,18 @@ func Open(ctx context.Context, dsn string, maxWait time.Duration) (*sql.DB, erro
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	// Conservative pool sizing for a homeserver Postgres. Tunable later if a
-	// hot store needs more; the point now is to drop the SQLite single-writer
-	// (MaxOpenConns(1)) bottleneck.
-	pool.SetMaxOpenConns(20)
-	pool.SetMaxIdleConns(10)
+	// Conservative pool sizing for a homeserver Postgres (drops the SQLite
+	// single-writer bottleneck). Override with JACKUI_PG_MAX_CONNS for the
+	// low-resource gluetun profile. ConnMaxIdleTime releases idle connections so
+	// a quiet instance doesn't pin them against the server's max_connections.
+	maxConns := 20
+	if v, err := strconv.Atoi(os.Getenv("JACKUI_PG_MAX_CONNS")); err == nil && v > 0 {
+		maxConns = v
+	}
+	pool.SetMaxOpenConns(maxConns)
+	pool.SetMaxIdleConns(maxConns / 2)
 	pool.SetConnMaxLifetime(time.Hour)
+	pool.SetConnMaxIdleTime(5 * time.Minute)
 
 	deadline := time.Now().Add(maxWait)
 	backoff := time.Second

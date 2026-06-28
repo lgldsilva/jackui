@@ -194,8 +194,9 @@ type execer interface {
 // Tx): validate → re-queue an existing paused/failed row (GetByKey) → otherwise
 // INSERT. It returns the resulting row plus `inserted` (true only for a fresh
 // INSERT; false when an existing row was returned/re-queued). BOTH reads and
-// writes go through `x`: when `x` is an open Tx it owns the store's single
-// connection (MaxOpenConns(1)), so reading off s.db would deadlock the batch.
+// writes go through `x`: in a batch (x is an open Tx) the idempotency read must
+// SEE the rows inserted earlier in the SAME transaction, so it can't read off
+// s.db (a different connection that wouldn't see the uncommitted writes).
 func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, err error) {
 	if d.InfoHash == "" || d.Magnet == "" {
 		return nil, false, errors.New("infoHash e magnet são obrigatórios")
@@ -332,8 +333,8 @@ func (s *Store) Get(userID, id int) (*Download, error) {
 }
 
 // getWith reads a row through `x`. createOne passes the open Tx so a batch's
-// reads share the single connection the Tx holds — issuing them on s.db would
-// block forever (MaxOpenConns(1): the Tx owns the only connection).
+// idempotency read sees rows inserted earlier in the SAME transaction — reading
+// off s.db (a separate connection) wouldn't see those uncommitted writes.
 func (s *Store) getWith(x execer, userID, id int) (*Download, error) {
 	row := x.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
 	return scanRow(row)
