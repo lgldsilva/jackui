@@ -4,13 +4,6 @@ import (
 	"testing"
 )
 
-func TestNewInvalidPath(t *testing.T) {
-	_, err := New("/nonexistent/path/db.sqlite")
-	if err == nil {
-		t.Fatal("expected error for invalid path")
-	}
-}
-
 func TestCreateMissingFields(t *testing.T) {
 	s := newTestStore(t)
 	_, err := s.Create(Download{UserID: 1, Magnet: "m:abc"})
@@ -209,13 +202,6 @@ func TestCreateResumesFailed(t *testing.T) {
 	}
 }
 
-func TestNewStoreDBError(t *testing.T) {
-	_, err := New("/nonexistent\000/invalid.db")
-	if err == nil {
-		t.Skip("platform does not reject null byte paths")
-	}
-}
-
 func TestDistinctTrackersFiltered(t *testing.T) {
 	s := newTestStore(t)
 
@@ -319,13 +305,6 @@ func TestListFilteredAllSearch(t *testing.T) {
 	list, _ = s.ListFilteredAll(ListFilter{Search: "nonexistent"})
 	if len(list) != 0 {
 		t.Errorf("expected 0, got %d", len(list))
-	}
-}
-
-func TestMigrateIdempotent(t *testing.T) {
-	s := newTestStore(t)
-	if err := s.migrate(); err != nil {
-		t.Fatalf("migrate idempotent: %v", err)
 	}
 }
 

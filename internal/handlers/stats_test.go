@@ -55,8 +55,13 @@ func TestStats_LibraryError500(t *testing.T) {
 }
 
 func TestStats_DownloadsError500(t *testing.T) {
-	dl := hgEDownloads(t)
-	dl.Close()
+	// Close the underlying pool (Store.Close is a no-op now) so the query fails → 500.
+	pool := seededPool(t)
+	dl, err := downloads.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
 	r := statsRouter(nil, dl, nil, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/stats", nil))

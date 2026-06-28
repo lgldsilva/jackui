@@ -26,7 +26,7 @@ func TestLocalDeleteRemovesLinkedTorrent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dls, err := downloads.New(filepath.Join(t.TempDir(), "dl.db"))
+	dls, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

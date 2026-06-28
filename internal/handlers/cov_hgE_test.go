@@ -61,7 +61,7 @@ func hgEFavs(t *testing.T) *streamer.FavoritesStore {
 
 func hgEDownloads(t *testing.T) *downloads.Store {
 	t.Helper()
-	s, err := downloads.New(t.TempDir() + "/dl.db")
+	s, err := downloads.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
