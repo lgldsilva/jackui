@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgldsilva/jackui/internal/dbtest"
+
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/watchlist"
 )
@@ -380,7 +382,7 @@ func TestIsRenameOnlySeed(t *testing.T) {
 // reload (so the UI still shows it after a restart), and a result with no breakdown
 // (legacy) reloads with a nil Tasks map.
 func TestStoreResultTaskBreakdownRoundtrip(t *testing.T) {
-	st, err := NewBenchmarkStore(t.TempDir() + "/bench.db")
+	st, err := NewBenchmarkStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewBenchmarkStore: %v", err)
 	}
