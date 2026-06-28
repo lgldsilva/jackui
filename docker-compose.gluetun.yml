@@ -42,6 +42,17 @@ services:
       - "127.0.0.1:8989:8989"
     restart: unless-stopped
 
+  # Postgres joins the SAME network namespace as gluetun-jackui, so jackui (also
+  # in that namespace) reaches it on localhost:5432. The traffic is loopback
+  # inside the netns — it never leaves through the VPN tunnel. (DNS names like
+  # "postgres" don't resolve in a shared-namespace setup, hence localhost.)
+  postgres:
+    network_mode: "container:gluetun-jackui"
+    networks: !reset []
+    depends_on:
+      gluetun-jackui:
+        condition: service_started
+
   jackui:
     # Share the dedicated gluetun's network namespace: all JackUI traffic
     # (peers, trackers, DHT, UI) rides this VPN tunnel.
@@ -52,7 +63,11 @@ services:
     depends_on:
       gluetun-jackui:
         condition: service_started
+      postgres:
+        condition: service_healthy
     environment:
       # Tells JackUI to bind the BitTorrent peer port to Proton's forwarded port
       # (read from gluetun's control API) instead of the fixed 51469.
       - JACKUI_GLUETUN_CONTROL_URL=http://localhost:8000
+      # Same-namespace as the postgres sidecar → reach it on loopback.
+      - JACKUI_DATABASE_URL=postgres://jackui:${POSTGRES_PASSWORD}@localhost:5432/jackui?sslmode=disable
