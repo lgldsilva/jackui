@@ -71,17 +71,12 @@ services:
       - JACKETT_URL=${JACKETT_URL:-http://jackett:9117}
       - JACKETT_API_KEY=${JACKETT_API_KEY}
       - JACKUI_PORT=8989
-      # Unified PostgreSQL store (sidecar). All app state lives here now; the
-      # legacy SQLite paths below are kept only for the one-time `migrate-auth`
-      # ETL that imports the old auth.db. ⚠ Behind gluetun (prod), the override
-      # in docker-compose.gluetun.yml swaps this to localhost:5432.
+      # Unified PostgreSQL store (sidecar) — the single source of truth for all
+      # app state. ⚠ Behind gluetun (prod), the override in
+      # docker-compose.gluetun.yml swaps this to localhost:5432.
       - JACKUI_DATABASE_URL=${JACKUI_DATABASE_URL:-postgres://jackui:${POSTGRES_PASSWORD}@postgres:5432/jackui?sslmode=disable}
-      - JACKUI_DB_PATH=/data/jackui.db
+      # Piece cache (torrent pieces) lives on the LVM disk; not a database.
       - JACKUI_STREAM_DIR=/data/streams
-      # State DBs (favorites, library, downloads, tmdb-cache, etc.) live on the
-      # Portainer SSD instead of the LVM piece cache — eases I/O contention with
-      # Jackett/Ollama. The piece cache (DataDir) stays on the LVM.
-      - JACKUI_STATE_DIR=/data
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
       # HLS VOD finito (seekbar): off | hlsjs | all. Vazio = "all" (VOD para
       # TODOS os clientes, Safari/iOS nativo incluso — causa raiz do stall #61

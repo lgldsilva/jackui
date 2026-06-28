@@ -137,7 +137,6 @@ type appDeps struct {
 	historyStore     *history.Store
 	streamSrv        *streamer.Streamer
 	streamCfg        streamer.Config
-	stateDir         string
 	libraryStore     *library.Store
 	audioMetaStore   *audiometa.Store
 	lyricsClient     *lyrics.Client
@@ -235,7 +234,7 @@ func main() {
 	deps.restart = make(chan struct{}, 1)
 	initDB(deps)
 	initHistoryStore(deps)
-	deps.streamCfg, deps.stateDir = prepareStreamConfig(deps.cfg, deps.restart)
+	deps.streamCfg = prepareStreamConfig(deps.cfg, deps.restart)
 	// Persist local-file thumbnails (and negative markers) under the stream
 	// DataDir so they survive restarts instead of regenerating in /tmp.
 	handlers.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
@@ -382,7 +381,7 @@ func transmissionRPCEnabled() bool {
 	return v == "1" || v == "true"
 }
 
-func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) (streamer.Config, string) {
+func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) streamer.Config {
 	sc := streamer.Config{
 		DataDir:       cfg.Stream.DataDir,
 		IdleTimeout:   time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
@@ -421,11 +420,7 @@ func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) (streamer.
 	if sc.DataDir == "" {
 		sc.DataDir = "/data/streams"
 	}
-	stateDir := cfg.Stream.StateDir
-	if stateDir == "" {
-		stateDir = sc.DataDir
-	}
-	return sc, stateDir
+	return sc
 }
 
 func initStreamer(deps *appDeps) {
