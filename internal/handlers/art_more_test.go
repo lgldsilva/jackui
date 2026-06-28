@@ -8,13 +8,15 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func TestBuildArtQuery_FromCache(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,7 @@ func TestBuildArtQuery_FromCache(t *testing.T) {
 func TestBuildArtQuery_FallbackToNameParam(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +106,7 @@ func TestIsAudioOnlyMeta_AudioOnly(t *testing.T) {
 func TestBuildArtQuery_NilAIClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +165,7 @@ func TestResolveArt_NoCache(t *testing.T) {
 func TestResolveArt_AlreadyHasTorrentArt(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +202,7 @@ func TestResolveArt_AlreadyHasTorrentArt(t *testing.T) {
 func TestStreamArt_TMDBRedirect(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +233,7 @@ func TestStreamArt_TMDBRedirect(t *testing.T) {
 func TestStreamArt_NoContent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +255,7 @@ func TestStreamArt_NoContent(t *testing.T) {
 func TestResolveArtHandler_NoResolvers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +277,7 @@ func TestResolveArtHandler_NoResolvers(t *testing.T) {
 func TestResolveTorrentArt_ExistingRankTooHigh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +302,7 @@ func TestResolveTorrentArt_ExistingRankTooHigh(t *testing.T) {
 func TestResolveTorrentArt_TorrentNotActive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +327,7 @@ func TestResolveTorrentArt_TorrentNotActive(t *testing.T) {
 func TestResolveTMDBArt_NilClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +354,7 @@ func TestResolveTMDBArt_NilClient(t *testing.T) {
 func TestResolveTMDBArt_ExistingRankTooHigh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +381,7 @@ func TestResolveTMDBArt_ExistingRankTooHigh(t *testing.T) {
 func TestResolveWebArt_NilSearch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +408,7 @@ func TestResolveWebArt_NilSearch(t *testing.T) {
 func TestResolveWebArt_ExistingRankTooHigh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +435,7 @@ func TestResolveWebArt_ExistingRankTooHigh(t *testing.T) {
 func TestResolveFrameCapture_NegativeFileIdx(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +465,7 @@ func TestResolveFrameCapture_NegativeFileIdx(t *testing.T) {
 func TestResolveFrameCapture_AlreadyBusy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	cache, err := streamer.NewMetadataCache(t.TempDir() + "/mc.db")
+	cache, err := streamer.NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

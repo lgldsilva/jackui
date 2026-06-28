@@ -1,17 +1,15 @@
 package streamer
 
 import (
-	"database/sql"
-	"path/filepath"
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newTestCache(t *testing.T) *MetadataCache {
 	t.Helper()
-	c, err := NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	c, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -208,40 +206,6 @@ func TestMetadataCache_SetWithArt_AllEdgeCases(t *testing.T) {
 	art = c.GetArt("edgetest")
 	if art == nil || art.Source != "tmdb" {
 		t.Errorf("GetArt after SetArt = %+v", art)
-	}
-}
-
-func TestMetadataCache_ColumnExists_False(t *testing.T) {
-	c := newTestCache(t)
-	got := columnExists(c.db, "metadata", "nonexistent_column")
-	if got {
-		t.Error("expected false for nonexistent column")
-	}
-}
-
-func TestMetadataCache_ColumnExists_True(t *testing.T) {
-	c := newTestCache(t)
-	if !columnExists(c.db, "metadata", "info_hash") {
-		t.Error("expected info_hash column to exist")
-	}
-}
-
-func TestNewMetadataCache_InvalidPath(t *testing.T) {
-	_, err := NewMetadataCache("/nonexistent/foo/meta.db")
-	if err == nil {
-		t.Error("expected error for invalid path")
-	}
-}
-
-func TestMetadataCache_ColumnExists_ErrorQuery(t *testing.T) {
-	// columnExists with a bad DB connection
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "bad.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if columnExists(db, "metadata", "any") {
-		t.Error("expected false for empty DB")
 	}
 }
 

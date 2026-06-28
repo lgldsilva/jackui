@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // ─── art.go: buildImageCandidates / sortCandsByPreference pure ranking ───────
@@ -234,23 +236,15 @@ func Test_str2_resolveProbeInput_NotActive(t *testing.T) {
 
 // ─── metadata_cache.go: NewMetadataCache error + store error paths ───────────
 
-// str2NewMetadataCache opens a fresh on-disk cache for the test.
+// str2NewMetadataCache opens a fresh cache backed by an isolated Postgres schema.
 func str2NewMetadataCache(t *testing.T) *MetadataCache {
 	t.Helper()
-	c, err := NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	c, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	return c
-}
-
-// str2 opening a cache where the path is a directory makes the schema Exec fail.
-func Test_str2_NewMetadataCache_BadPath(t *testing.T) {
-	dir := t.TempDir() // the dir itself can't be opened as a sqlite file
-	if _, err := NewMetadataCache(dir); err == nil {
-		t.Fatal("expected NewMetadataCache to fail on a directory path")
-	}
 }
 
 // str2 Get returns nil when the row's files JSON is corrupted (Unmarshal error
@@ -303,13 +297,12 @@ func Test_str2_MetadataCache_SetGet_RoundTrip(t *testing.T) {
 // str2 after Close, Set/SetArt/SetHealth all hit the Exec-on-closed-db error
 // branch (they return error rather than panicking).
 func Test_str2_MetadataCache_WritesAfterClose_Error(t *testing.T) {
-	c, err := NewMetadataCache(filepath.Join(t.TempDir(), "closed.db"))
+	pool := dbtest.NewDB(t)
+	c, err := NewMetadataCache(pool)
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	_ = pool.Close()
 	if err := c.Set(&TorrentInfo{InfoHash: "h", Name: "n"}); err == nil {
 		t.Error("expected Set to error after Close")
 	}
@@ -357,22 +350,17 @@ func Test_str2_DefaultPaths(t *testing.T) {
 	}
 }
 
-// ─── favorites.go: NewFavorites error + store error paths after Close ────────
+// ─── favorites.go: store error paths after the pool is closed ────────────────
 
-// str2 opening a favorites store at a directory path fails the schema Exec.
-func Test_str2_NewFavorites_BadPath(t *testing.T) {
-	if _, err := NewFavorites(t.TempDir()); err == nil {
-		t.Fatal("expected NewFavorites to fail on a directory path")
-	}
-}
-
-// str2 after Close, the query-based reads/writes hit their error branches.
+// str2 after the pool closes, the query-based reads/writes hit their error branches.
 func Test_str2_Favorites_OpsAfterClose_Error(t *testing.T) {
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3)
+	f, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}
-	f.Close()
+	_ = pool.Close()
 
 	if _, err := f.List(1, false, false); err == nil {
 		t.Error("expected List to error after Close")
@@ -394,17 +382,6 @@ func Test_str2_Favorites_OpsAfterClose_Error(t *testing.T) {
 	}
 	if _, err := f.GetFolder(1, 1); err == nil {
 		t.Error("expected GetFolder to error after Close")
-	}
-}
-
-// str2 hasColumn against an existing/missing column on a live store.
-func Test_str2_Favorites_hasColumn(t *testing.T) {
-	f := newTestFavorites(t)
-	if !f.hasColumn("favorites", "name") {
-		t.Error("expected favorites.name to exist")
-	}
-	if f.hasColumn("favorites", "nope_str2") {
-		t.Error("did not expect favorites.nope_str2 to exist")
 	}
 }
 

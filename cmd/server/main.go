@@ -442,24 +442,24 @@ func initStreamer(deps *appDeps) {
 	deps.addCleanup(func() { s.Close() })
 	log.Printf("Streamer ready: %s (idle=%s, metadata=%s)", deps.streamCfg.DataDir, deps.streamCfg.IdleTimeout, deps.streamCfg.MetadataWait)
 
-	if favs, ferr := streamer.NewFavorites(streamer.DefaultFavoritesPath(deps.stateDir)); ferr == nil {
+	if favs, ferr := streamer.NewFavorites(deps.db); ferr == nil {
 		s.SetFavorites(favs)
 		deps.addCleanup(func() { favs.Close() })
-		log.Printf("Favorites: %s", streamer.DefaultFavoritesPath(deps.stateDir))
+		log.Printf("Favorites: PostgreSQL")
 	} else {
 		log.Printf("Warning: favorites store init failed: %v", ferr)
 	}
-	if mc, mcerr := streamer.NewMetadataCache(streamer.DefaultMetadataCachePath(deps.stateDir)); mcerr == nil {
+	if mc, mcerr := streamer.NewMetadataCache(deps.db); mcerr == nil {
 		s.SetMetadataCache(mc)
 		deps.addCleanup(func() { _ = mc.Close() })
-		log.Printf("Metadata cache: %s", streamer.DefaultMetadataCachePath(deps.stateDir))
+		log.Printf("Metadata cache: PostgreSQL")
 	} else {
 		log.Printf("Warning: metadata cache init failed: %v", mcerr)
 	}
-	if seeds, serr := streamer.NewSeeds(streamer.DefaultSeedsPath(deps.stateDir)); serr == nil {
+	if seeds, serr := streamer.NewSeeds(deps.db); serr == nil {
 		s.SetSeeds(seeds)
 		deps.addCleanup(func() { _ = seeds.Close() })
-		log.Printf("Seeds store: %s", streamer.DefaultSeedsPath(deps.stateDir))
+		log.Printf("Seeds store: PostgreSQL")
 		go resumeSeeding(s, seeds)
 	} else {
 		log.Printf("Warning: seeds store init failed: %v", serr)

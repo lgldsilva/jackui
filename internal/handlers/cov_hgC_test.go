@@ -206,7 +206,7 @@ func Test_hgC_DropTorrentFromStreamer_InvalidHashNoName(t *testing.T) {
 
 func Test_hgC_DropTorrentFromStreamer_WithNameAndFavorites(t *testing.T) {
 	s := streamer.NewForTesting()
-	favs, err := streamer.NewFavorites(t.TempDir() + "/favs.db")
+	favs, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

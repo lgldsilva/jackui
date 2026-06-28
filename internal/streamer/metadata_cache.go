@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // MetadataCache persists TorrentInfo snapshots keyed by info_hash so the UI can
@@ -21,7 +20,7 @@ import (
 // immutable per info_hash so we can keep entries forever — only the on-demand
 // torrent client load takes any time at all.
 type MetadataCache struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
 // CachedMeta is the minimal shape we cache (a strict subset of TorrentInfo).
@@ -80,71 +79,14 @@ func ArtSourceRank(source string) int {
 	}
 }
 
-func NewMetadataCache(path string) (*MetadataCache, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS metadata (
-			info_hash  TEXT PRIMARY KEY,
-			name       TEXT NOT NULL,
-			total_size INTEGER NOT NULL DEFAULT 0,
-			files      TEXT NOT NULL DEFAULT '[]',
-			primary_file INTEGER NOT NULL DEFAULT -1,
-			cached_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		)
-	`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	// Art columns added in a later version — migrate idempotently so existing
-	// caches keep working. Each is a no-op once the column exists.
-	for col, ddl := range map[string]string{
-		"art_source":        `ALTER TABLE metadata ADD COLUMN art_source TEXT NOT NULL DEFAULT ''`,
-		"art_path":          `ALTER TABLE metadata ADD COLUMN art_path TEXT NOT NULL DEFAULT ''`,
-		"poster_url":        `ALTER TABLE metadata ADD COLUMN poster_url TEXT NOT NULL DEFAULT ''`,
-		"tmdb_id":           `ALTER TABLE metadata ADD COLUMN tmdb_id INTEGER NOT NULL DEFAULT 0`,
-		"imdb_id":           `ALTER TABLE metadata ADD COLUMN imdb_id TEXT NOT NULL DEFAULT ''`,
-		"health_seeders":    `ALTER TABLE metadata ADD COLUMN health_seeders INTEGER NOT NULL DEFAULT -1`,
-		"health_peers":      `ALTER TABLE metadata ADD COLUMN health_peers INTEGER NOT NULL DEFAULT -1`,
-		"health_checked_at": `ALTER TABLE metadata ADD COLUMN health_checked_at DATETIME`,
-		"art_checked_at":    `ALTER TABLE metadata ADD COLUMN art_checked_at DATETIME`,
-	} {
-		if !columnExists(db, "metadata", col) {
-			if _, err := db.Exec(ddl); err != nil {
-				db.Close()
-				return nil, err
-			}
-		}
-	}
-	return &MetadataCache{db: db}, nil
+// NewMetadataCache wires the metadata cache onto the shared Postgres pool.
+// Schema is applied centrally (internal/db migrations).
+func NewMetadataCache(pool *sql.DB) (*MetadataCache, error) {
+	return &MetadataCache{db: dbutil.Wrap(pool)}, nil
 }
 
-// columnExists reports whether a table already has a column, so ADD COLUMN
-// migrations stay idempotent (SQLite has no "ADD COLUMN IF NOT EXISTS").
-func columnExists(db *sql.DB, table, column string) bool {
-	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if rows.Scan(&name) == nil && name == column {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *MetadataCache) Close() error {
-	if m == nil {
-		return nil
-	}
-	return m.db.Close()
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (m *MetadataCache) Close() error { return nil }
 
 // Get returns a cached snapshot or nil if not present. Never returns error for
 // "not found" — the caller treats nil as "no cache" and falls through to the
@@ -155,12 +97,11 @@ func (m *MetadataCache) Get(infoHash string) *CachedMeta {
 	}
 	row := m.db.QueryRow(`SELECT name, total_size, files, primary_file, cached_at FROM metadata WHERE info_hash = ?`, infoHash)
 	var cm CachedMeta
-	var filesJSON, cachedAt string
-	if err := row.Scan(&cm.Name, &cm.TotalSize, &filesJSON, &cm.PrimaryFile, &cachedAt); err != nil {
+	var filesJSON string
+	if err := row.Scan(&cm.Name, &cm.TotalSize, &filesJSON, &cm.PrimaryFile, &cm.CachedAt); err != nil {
 		return nil
 	}
 	cm.InfoHash = infoHash
-	cm.CachedAt = dbutil.ParseTime(cachedAt)
 	if err := json.Unmarshal([]byte(filesJSON), &cm.Files); err != nil {
 		return nil
 	}
@@ -213,7 +154,7 @@ func (m *MetadataCache) GetArt(infoHash string) *CachedArt {
 
 // SetArt persists a resolved thumbnail. Uses a column set disjoint from Set()
 // so it neither requires nor clobbers the metadata snapshot — an art-only row
-// (name='') is created if the torrent's metadata hasn't been cached yet.
+// (name=”) is created if the torrent's metadata hasn't been cached yet.
 func (m *MetadataCache) SetArt(infoHash string, art *CachedArt) error {
 	if m == nil || art == nil {
 		return nil
@@ -245,19 +186,15 @@ func (m *MetadataCache) ArtNegativeFresh(infoHash string, ttl time.Duration) boo
 		return false
 	}
 	var source string
-	var checkedAt sql.NullString
+	var checkedAt sql.NullTime
 	row := m.db.QueryRow(`SELECT art_source, art_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
 	if err := row.Scan(&source, &checkedAt); err != nil {
 		return false
 	}
-	if source != ArtSourceNone || !checkedAt.Valid {
+	if source != ArtSourceNone || !checkedAt.Valid || checkedAt.Time.IsZero() {
 		return false
 	}
-	t := dbutil.ParseTime(checkedAt.String)
-	if t.IsZero() {
-		return false
-	}
-	return time.Since(t) < ttl
+	return time.Since(checkedAt.Time) < ttl
 }
 
 // CachedHealth is the last-known swarm health for a torrent, persisted so a card
@@ -276,18 +213,18 @@ func (m *MetadataCache) GetHealth(infoHash string) *CachedHealth {
 	}
 	row := m.db.QueryRow(`SELECT health_seeders, health_peers, health_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
 	var seeders, peers int
-	var checkedAt sql.NullString
+	var checkedAt sql.NullTime
 	if err := row.Scan(&seeders, &peers, &checkedAt); err != nil {
 		return nil
 	}
-	if !checkedAt.Valid || checkedAt.String == "" {
+	if !checkedAt.Valid {
 		return nil // row exists but health never probed
 	}
 	return &CachedHealth{
 		Seeders:   seeders,
 		Peers:     peers,
 		Available: seeders > 0 || peers > 0,
-		CheckedAt: dbutil.ParseTime(checkedAt.String),
+		CheckedAt: checkedAt.Time,
 	}
 }
 

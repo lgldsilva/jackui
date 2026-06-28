@@ -9,7 +9,27 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
+
+// newStreamerWithClosedFavs returns a streamer whose favorites store sits on an
+// already-closed pool, so every query errors — the way the old SQLite tests used
+// store.Close() (now a no-op) to force the handlers' 500 paths.
+func newStreamerWithClosedFavs(t *testing.T) *streamer.Streamer {
+	t.Helper()
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	favStore, err := streamer.NewFavorites(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pool.Close()
+	s := streamer.NewForTesting()
+	s.SetFavorites(favStore)
+	return s
+}
 
 func TestFoldersList_WithStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -265,9 +285,7 @@ func TestApplyFolderPatch_OnlyMove(t *testing.T) {
 
 func TestFoldersList_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s := newStreamerWithFavs(t)
-	// Close the store to cause an error
-	s.Favorites().Close()
+	s := newStreamerWithClosedFavs(t)
 
 	router := gin.New()
 	router.GET("/api/stream/favorites/folders", FoldersList(s))
@@ -283,8 +301,7 @@ func TestFoldersList_StoreError(t *testing.T) {
 
 func TestFolderCreate_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s := newStreamerWithFavs(t)
-	s.Favorites().Close()
+	s := newStreamerWithClosedFavs(t)
 
 	router := gin.New()
 	router.POST("/api/stream/favorites/folders", FolderCreate(s))
@@ -302,8 +319,7 @@ func TestFolderCreate_StoreError(t *testing.T) {
 
 func TestFolderDelete_StoreError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	s := newStreamerWithFavs(t)
-	s.Favorites().Close()
+	s := newStreamerWithClosedFavs(t)
 
 	router := gin.New()
 	router.DELETE("/api/stream/favorites/folders/:id", FolderDelete(s))

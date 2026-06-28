@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // cov_str4_test.go — cobertura adicional para utilitários SEM torrent real:
@@ -18,7 +20,9 @@ import (
 
 func str4NewFavorites(t *testing.T) *FavoritesStore {
 	t.Helper()
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "str4_fav.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	f, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatalf("str4 NewFavorites: %v", err)
 	}
@@ -28,7 +32,7 @@ func str4NewFavorites(t *testing.T) *FavoritesStore {
 
 func str4NewCache(t *testing.T) *MetadataCache {
 	t.Helper()
-	c, err := NewMetadataCache(filepath.Join(t.TempDir(), "str4_meta.db"))
+	c, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("str4 NewMetadataCache: %v", err)
 	}
@@ -169,21 +173,6 @@ func Test_str4_MetadataCache_GetArt_EmptySource(t *testing.T) {
 	}
 }
 
-// columnExists: coluna existente → true; ausente → false; tabela inexistente
-// (query err / sem linhas) → false.
-func Test_str4_ColumnExists(t *testing.T) {
-	c := str4NewCache(t)
-	if !columnExists(c.db, "metadata", "info_hash") {
-		t.Error("expected info_hash column to exist")
-	}
-	if columnExists(c.db, "metadata", "str4_no_such_col") {
-		t.Error("did not expect bogus column")
-	}
-	if columnExists(c.db, "str4_no_such_table", "x") {
-		t.Error("did not expect column on missing table")
-	}
-}
-
 // Nil-receiver: todos os métodos devem ser no-ops seguros.
 func Test_str4_MetadataCache_NilReceiver(t *testing.T) {
 	var c *MetadataCache
@@ -229,20 +218,6 @@ func Test_str4_ArtSourceRank(t *testing.T) {
 }
 
 // ───── favorites ─────
-
-// hasColumn: existente → true; ausente → false; tabela inexistente → false.
-func Test_str4_Favorites_HasColumn(t *testing.T) {
-	f := str4NewFavorites(t)
-	if !f.hasColumn("favorites", "magnet") {
-		t.Error("expected magnet column")
-	}
-	if f.hasColumn("favorites", "str4_ghost") {
-		t.Error("did not expect ghost column")
-	}
-	if f.hasColumn("str4_no_table", "x") {
-		t.Error("did not expect column on missing table")
-	}
-}
 
 // List de store nil → erro ErrFavoritesUnavail.
 func Test_str4_Favorites_List_NilStore(t *testing.T) {

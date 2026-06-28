@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +12,8 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/tracker/udp"
 	"github.com/anacrolix/torrent/types/infohash"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func scrapeTestHash() metainfo.Hash {
@@ -149,7 +150,7 @@ func TestCanProbeHealth(t *testing.T) {
 // previous snapshot with zeros (private result whose trackers didn't answer).
 func TestProbeHealth_NoMagnetKeepsSnapshot(t *testing.T) {
 	s := NewForTesting()
-	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "m.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +252,7 @@ func TestProbeHealth_UsesScrape(t *testing.T) {
 	tr := fakeScrapeTracker(t, hash, 123, 9)
 
 	s := NewForTesting()
-	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "meta.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -232,7 +231,7 @@ func TestFavoriteSeedEntries_NilStreamerIsNil(t *testing.T) {
 
 func TestFavoriteSeedEntries_ListsNamesPerUser(t *testing.T) {
 	s := streamer.NewForTesting()
-	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "favs.db"))
+	fav, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}

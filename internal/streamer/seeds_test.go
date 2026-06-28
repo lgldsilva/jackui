@@ -1,15 +1,16 @@
 package streamer
 
 import (
-	"path/filepath"
+	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
-	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newSeedsForTest(t *testing.T) *SeedsStore {
 	t.Helper()
-	s, err := NewSeeds(filepath.Join(t.TempDir(), "seeds.db"))
+	s, err := NewSeeds(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewSeeds: %v", err)
 	}

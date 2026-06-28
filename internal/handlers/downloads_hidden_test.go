@@ -41,7 +41,7 @@ func newDLHiddenFixture(t *testing.T) *dlHiddenFixture {
 	perUserDir := t.TempDir()
 
 	s := streamer.NewForTesting()
-	fav, err := streamer.NewFavorites(filepath.Join(t.TempDir(), "fav.db"))
+	fav, err := streamer.NewFavorites(seededPool(t))
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}

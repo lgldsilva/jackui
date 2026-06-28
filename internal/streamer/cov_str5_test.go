@@ -6,12 +6,16 @@ import (
 	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // str5NewFavorites opens a fresh, throwaway FavoritesStore for a test.
 func str5NewFavorites(t *testing.T) *FavoritesStore {
 	t.Helper()
-	f, err := NewFavorites(filepath.Join(t.TempDir(), "str5-fav.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	f, err := NewFavorites(pool)
 	if err != nil {
 		t.Fatalf("NewFavorites: %v", err)
 	}
@@ -22,7 +26,7 @@ func str5NewFavorites(t *testing.T) *FavoritesStore {
 // str5NewCache opens a fresh, throwaway MetadataCache for a test.
 func str5NewCache(t *testing.T) *MetadataCache {
 	t.Helper()
-	mc, err := NewMetadataCache(filepath.Join(t.TempDir(), "str5-meta.db"))
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
@@ -181,23 +185,6 @@ func Test_str5_SaveArtBytes_RoundTrip(t *testing.T) {
 	}
 	if string(got) != "str5-art-bytes" {
 		t.Errorf("round-trip mismatch: got %q", got)
-	}
-}
-
-// ───── Constructor error paths: opening a DB inside a non-existent directory ─────
-
-func Test_str5_NewFavorites_OpenError(t *testing.T) {
-	// modernc.org/sqlite errors when the parent directory does not exist.
-	bad := filepath.Join(t.TempDir(), "str5-missing-dir", "fav.db")
-	if _, err := NewFavorites(bad); err == nil {
-		t.Error("expected NewFavorites to error for unwritable path")
-	}
-}
-
-func Test_str5_NewMetadataCache_OpenError(t *testing.T) {
-	bad := filepath.Join(t.TempDir(), "str5-missing-dir", "meta.db")
-	if _, err := NewMetadataCache(bad); err == nil {
-		t.Error("expected NewMetadataCache to error for unwritable path")
 	}
 }
 

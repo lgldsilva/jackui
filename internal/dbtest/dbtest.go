@@ -54,6 +54,11 @@ func NewDB(t *testing.T) *sql.DB {
 	if err := admin.PingContext(ctx); err != nil {
 		t.Fatalf("ping test postgres: %v", err)
 	}
+	// Drop first: schemaSeq resets per process, so a previous crashed run could
+	// have left this name behind. CASCADE clears any leftover tables.
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
+		t.Fatalf("drop stale schema: %v", err)
+	}
 	if _, err := admin.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
