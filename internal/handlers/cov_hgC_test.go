@@ -64,7 +64,7 @@ func Test_hgC_SearchSSE_FullFlow(t *testing.T) {
 	srv := hgCJackettServer(t)
 	client := jackett.New(srv.URL, "key")
 
-	store, err := history.New(t.TempDir() + "/hist.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func Test_hgC_SearchSSE_ListIndexersError(t *testing.T) {
 
 func Test_hgC_EmitCachedResults_WithStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/hist.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func Test_hgC_EmitCachedResults_WithStore(t *testing.T) {
 
 func Test_hgC_EmitCachedResults_SkipsWhenIndexersScoped(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/hist.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

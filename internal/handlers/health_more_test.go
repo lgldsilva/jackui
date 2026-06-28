@@ -27,7 +27,7 @@ func TestHealth_Handler(t *testing.T) {
 
 func TestStatus_Handler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := history.New(t.TempDir() + "/status.db")
+	store, err := history.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

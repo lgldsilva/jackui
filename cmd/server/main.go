@@ -360,17 +360,13 @@ func loadConfig() (*config.Config, string) {
 }
 
 func initHistoryStore(deps *appDeps) {
-	dbPath := deps.cfg.DBPath
-	if dbPath == "" {
-		dbPath = "./jackui.db"
-	}
-	store, err := history.New(dbPath)
+	store, err := history.New(deps.db)
 	if err != nil {
-		log.Printf("Warning: failed to open history store at %s: %v — history disabled", dbPath, err)
+		log.Printf("Warning: failed to open history store: %v — history disabled", err)
 		return
 	}
 	deps.historyStore = store
-	log.Printf("History store: %s", dbPath)
+	log.Printf("History store: PostgreSQL")
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
