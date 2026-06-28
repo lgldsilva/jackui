@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 // --- minimal ID3v2.3 builder: lets the parser tests stay hermetic (no ffmpeg,
@@ -127,7 +129,7 @@ func TestReadCoverNone(t *testing.T) {
 }
 
 func TestStoreRoundTripAndStale(t *testing.T) {
-	st, err := New(filepath.Join(t.TempDir(), "am.db"))
+	st, err := New(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

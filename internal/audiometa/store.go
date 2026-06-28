@@ -4,7 +4,6 @@ import (
 	"database/sql"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 // Store caches parsed audio tags in a DEDICATED SQLite file (.audio-metadata.db).
@@ -23,51 +22,17 @@ import (
 // absolute paths; AllowedUsers gate visibility) BEFORE reading/writing the cache.
 // Never expose a lookup that bypasses that resolution.
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-// New opens (creating if needed) the audio-metadata cache at path.
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// New wires the audio-metadata cache onto the shared Postgres pool. Schema is
+// applied centrally (internal/db migrations).
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() {
-	if s != nil && s.db != nil {
-		_ = s.db.Close()
-	}
-}
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS audio_metadata (
-			file_path     TEXT    PRIMARY KEY,
-			title         TEXT    NOT NULL DEFAULT '',
-			artist        TEXT    NOT NULL DEFAULT '',
-			album         TEXT    NOT NULL DEFAULT '',
-			album_artist  TEXT    NOT NULL DEFAULT '',
-			genre         TEXT    NOT NULL DEFAULT '',
-			year          INTEGER NOT NULL DEFAULT 0,
-			track_number  INTEGER NOT NULL DEFAULT 0,
-			disc_number   INTEGER NOT NULL DEFAULT 0,
-			has_cover     INTEGER NOT NULL DEFAULT 0,
-			last_mod      INTEGER NOT NULL DEFAULT 0,
-			updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_audio_album ON audio_metadata(album);
-		CREATE INDEX IF NOT EXISTS idx_audio_artist ON audio_metadata(artist);
-	`)
-	return err
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // Get returns the cached tags for absPath IFF the cached row's last_mod matches
 // the file's current modtime (incremental invalidation: a re-rip / promote that
