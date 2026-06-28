@@ -81,7 +81,7 @@ func hgELibrary(t *testing.T) *library.Store {
 
 func hgEPlaylists(t *testing.T) *playlists.Store {
 	t.Helper()
-	s, err := playlists.New(t.TempDir() + "/pl.db")
+	s, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}

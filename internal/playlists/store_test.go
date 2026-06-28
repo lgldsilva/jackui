@@ -1,13 +1,16 @@
 package playlists
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := New(filepath.Join(t.TempDir(), "pl.db"))
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s, err := New(pool)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

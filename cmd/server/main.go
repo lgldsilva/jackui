@@ -554,15 +554,14 @@ func initPlaylistsStore(deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
-	plPath := deps.stateDir + "/.playlists.db"
-	p, err := playlists.New(plPath)
+	p, err := playlists.New(deps.db)
 	if err != nil {
 		log.Printf("Warning: playlists store init failed: %v", err)
 		return
 	}
 	deps.playlistsStore = p
 	deps.addCleanup(func() { p.Close() })
-	log.Printf("Playlists: %s", plPath)
+	log.Printf("Playlists: PostgreSQL")
 }
 
 func initDownloadsStore(deps *appDeps) {
@@ -582,7 +581,7 @@ func initDownloadsStore(deps *appDeps) {
 	// Pending-transfers store: persists move/promote copy intents so a deploy or
 	// crash mid-copy resumes them on the next boot (resume-aware copy finishes
 	// only what's left). Best-effort — a failure here just disables resume.
-	if ts, err := transfer.OpenStore(deps.stateDir + "/.transfers.db"); err != nil {
+	if ts, err := transfer.OpenStore(deps.db); err != nil {
 		log.Printf("Warning: pending-transfers store init failed (resume disabled): %v", err)
 	} else {
 		deps.pendingTransfers = ts

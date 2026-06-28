@@ -1,12 +1,13 @@
 package transfer
 
 import (
-	"path/filepath"
 	"testing"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
 func TestStoreAddListRemove(t *testing.T) {
-	s, err := OpenStore(filepath.Join(t.TempDir(), ".transfers.db"))
+	s, err := OpenStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestStoreNilSafe(t *testing.T) {
 
 // Remove(0) é no-op (id 0 = store estava nil quando Add foi chamado).
 func TestStoreRemoveZero(t *testing.T) {
-	s, err := OpenStore(filepath.Join(t.TempDir(), ".transfers.db"))
+	s, err := OpenStore(dbtest.NewDB(t))
 	if err != nil {
 		t.Fatal(err)
 	}

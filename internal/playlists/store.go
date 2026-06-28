@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -44,53 +43,17 @@ type Item struct {
 }
 
 type Store struct {
-	db *sql.DB
+	db *dbutil.DB
 }
 
-func New(path string) (*Store, error) {
-	db, err := sql.Open(dbutil.DriverName, path+dbutil.PragmaWAL+dbutil.PragmaFK+dbutil.PragmaBusy5s)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return s, nil
+// New wires the playlists store onto the shared Postgres pool. Schema is applied
+// centrally (internal/db migrations).
+func New(pool *sql.DB) (*Store, error) {
+	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-func (s *Store) Close() { _ = s.db.Close() }
-
-func (s *Store) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS playlists (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id     INTEGER NOT NULL,
-			name        TEXT    NOT NULL,
-			description TEXT    NOT NULL DEFAULT '',
-			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_pl_user ON playlists(user_id);
-
-		CREATE TABLE IF NOT EXISTS playlist_items (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			playlist_id INTEGER NOT NULL,
-			position    INTEGER NOT NULL,
-			library_id  INTEGER,
-			title       TEXT    NOT NULL,
-			magnet      TEXT    NOT NULL,
-			info_hash   TEXT    NOT NULL DEFAULT '',
-			file_index  INTEGER NOT NULL DEFAULT 0,
-			added_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
-		);
-		CREATE INDEX IF NOT EXISTS idx_pi_playlist_pos ON playlist_items(playlist_id, position);
-	`)
-	return err
-}
+// Close is a no-op: the shared pool's lifecycle is owned by main.
+func (s *Store) Close() {}
 
 // ─── Playlists ─────────────────────────────────────────────────────────────
 
@@ -99,14 +62,14 @@ func (s *Store) Create(userID int, name, description string) (*Playlist, error) 
 	if name == "" {
 		return nil, errors.New("name is required")
 	}
-	res, err := s.db.Exec(
-		`INSERT INTO playlists(user_id, name, description) VALUES(?, ?, ?)`,
+	var id int64
+	err := s.db.QueryRow(
+		`INSERT INTO playlists(user_id, name, description) VALUES(?, ?, ?) RETURNING id`,
 		userID, name, description,
-	)
+	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return s.Get(int(id), userID, false)
 }
 
@@ -130,12 +93,9 @@ func (s *Store) List(userID int, includeAll bool) ([]Playlist, error) {
 	out := []Playlist{}
 	for rows.Next() {
 		var p Playlist
-		var c, u string
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &c, &u, &p.ItemCount); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt, &p.ItemCount); err != nil {
 			continue
 		}
-		p.CreatedAt = dbutil.ParseTime(c)
-		p.UpdatedAt = dbutil.ParseTime(u)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -152,16 +112,13 @@ func (s *Store) Get(id, userID int, includeAll bool) (*Playlist, error) {
 		args = append(args, userID)
 	}
 	var p Playlist
-	var c, u string
-	err := s.db.QueryRow(q, args...).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &c, &u)
+	err := s.db.QueryRow(q, args...).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	p.CreatedAt = dbutil.ParseTime(c)
-	p.UpdatedAt = dbutil.ParseTime(u)
 	return &p, nil
 }
 
@@ -230,15 +187,15 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 		libraryIDArg = *item.LibraryID
 	}
 
-	res, err := tx.Exec(
+	var id int64
+	err = tx.QueryRow(
 		`INSERT INTO playlist_items(playlist_id, position, library_id, title, magnet, info_hash, file_index)
-		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES(?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 		playlistID, nextPos, libraryIDArg, item.Title, item.Magnet, item.InfoHash, item.FileIndex,
-	)
+	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	_, err = tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID)
 	if err != nil {
 		return nil, err
@@ -265,16 +222,14 @@ func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 	for rows.Next() {
 		var it Item
 		var libID sql.NullInt64
-		var added string
 		if err := rows.Scan(&it.ID, &it.PlaylistID, &it.Position, &libID,
-			&it.Title, &it.Magnet, &it.InfoHash, &it.FileIndex, &added); err != nil {
+			&it.Title, &it.Magnet, &it.InfoHash, &it.FileIndex, &it.AddedAt); err != nil {
 			continue
 		}
 		if libID.Valid {
 			v := int(libID.Int64)
 			it.LibraryID = &v
 		}
-		it.AddedAt = dbutil.ParseTime(added)
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -359,11 +314,10 @@ func (s *Store) ownsPlaylist(playlistID, userID int, includeAll bool) bool {
 func (s *Store) getItem(id int) (*Item, error) {
 	var it Item
 	var libID sql.NullInt64
-	var added string
 	err := s.db.QueryRow(`
 		SELECT id, playlist_id, position, library_id, title, magnet, info_hash, file_index, added_at
 		FROM playlist_items WHERE id = ?`, id).Scan(
-		&it.ID, &it.PlaylistID, &it.Position, &libID, &it.Title, &it.Magnet, &it.InfoHash, &it.FileIndex, &added,
+		&it.ID, &it.PlaylistID, &it.Position, &libID, &it.Title, &it.Magnet, &it.InfoHash, &it.FileIndex, &it.AddedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -372,6 +326,5 @@ func (s *Store) getItem(id int) (*Item, error) {
 		v := int(libID.Int64)
 		it.LibraryID = &v
 	}
-	it.AddedAt = dbutil.ParseTime(added)
 	return &it, nil
 }

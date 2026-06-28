@@ -2,18 +2,32 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/playlists"
 )
 
+// seededPool returns a fresh test schema with the given user ids seeded (1,2,3
+// by default), so handler tests can insert user-owned rows under the FKs.
+func seededPool(t *testing.T, ids ...int64) *sql.DB {
+	t.Helper()
+	pool := dbtest.NewDB(t)
+	if len(ids) == 0 {
+		ids = []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	}
+	dbtest.SeedUsers(t, pool, ids...)
+	return pool
+}
+
 func TestPlaylistsList_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +51,7 @@ func TestPlaylistsList_Empty(t *testing.T) {
 
 func TestPlaylistsCreate_MissingName(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +73,7 @@ func TestPlaylistsCreate_MissingName(t *testing.T) {
 
 func TestPlaylistsCreate_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +95,7 @@ func TestPlaylistsCreate_Valid(t *testing.T) {
 
 func TestPlaylistsGet_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +114,7 @@ func TestPlaylistsGet_InvalidID(t *testing.T) {
 
 func TestPlaylistsGet_NotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +133,7 @@ func TestPlaylistsGet_NotFound(t *testing.T) {
 
 func TestPlaylistsUpdate_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +155,7 @@ func TestPlaylistsUpdate_InvalidID(t *testing.T) {
 
 func TestPlaylistsDelete_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +174,7 @@ func TestPlaylistsDelete_InvalidID(t *testing.T) {
 
 func TestPlaylistsAddItem_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +193,7 @@ func TestPlaylistsAddItem_InvalidID(t *testing.T) {
 
 func TestPlaylistsAddItem_NoBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +213,7 @@ func TestPlaylistsAddItem_NoBody(t *testing.T) {
 
 func TestPlaylistsRemoveItem_InvalidID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +234,7 @@ func TestPlaylistsRemoveItem_InvalidID(t *testing.T) {
 
 func TestPlaylistsReorderItem_InvalidPosition(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +254,7 @@ func TestPlaylistsReorderItem_InvalidPosition(t *testing.T) {
 
 func TestPlaylists_FullCRUD(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store, err := playlists.New(t.TempDir() + "/playlists.db")
+	store, err := playlists.New(seededPool(t))
 	if err != nil {
 		t.Fatal(err)
 	}
