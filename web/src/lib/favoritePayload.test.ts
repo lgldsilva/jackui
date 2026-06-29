@@ -77,10 +77,12 @@ describe('buildFavoritePayload', () => {
     expect(p.magnet).toBe(magnetFromInfoHash(HASH))
   })
 
-  it('returns an empty name-only payload when the resolver fails and nothing else exists', async () => {
+  it('keeps the raw .torrent link as the magnet when the resolver fails and there is no infoHash', async () => {
+    // Recoverable favorite beats an inert one: streamAdd re-resolves a .torrent
+    // /magnetdownload URL at Play time, and favHasValidMagnet accepts http(s).
     const resolver: TorrentLinkResolver = async () => { throw new Error('dead link') }
     const p = await buildFavoritePayload({ link: 'http://x/t.torrent' }, resolver)
-    expect(p).toEqual({ infoHash: '', magnet: '', source: 'none' })
+    expect(p).toEqual({ infoHash: '', magnet: 'http://x/t.torrent', source: 'link' })
   })
 
   it('synthesizes a magnet for a bare infoHash without magnet or link', async () => {

@@ -55,7 +55,8 @@ export function magnetFromInfoHash(infoHash: string): string {
  *  1. the result's own magnet;
  *  2. backend conversion of the `.torrent` link (resolver injected for tests);
  *  3. magnet synthesized from a bare infoHash;
- *  4. empty (name-only favorite — unchanged legacy behavior).
+ *  4. the raw `.torrent` link as the magnet (recoverable — streamAdd re-resolves);
+ *  5. empty (name-only favorite — only when there's no link either).
  * A resolver failure (dead link, offline indexer) falls through to 3/4 instead
  * of throwing: a partially-linked favorite beats an aborted action.
  */
@@ -82,6 +83,13 @@ export async function buildFavoritePayload(
   }
   if (result.infoHash) {
     return { infoHash: result.infoHash, magnet: magnetFromInfoHash(result.infoHash), source: 'infoHash' }
+  }
+  // Last resort: keep the raw .torrent link as the magnet. favHasValidMagnet
+  // accepts http(s), and streamAdd re-resolves a .torrent/magnetdownload URL at
+  // Play time — so a transient conversion failure leaves a RECOVERABLE favorite
+  // instead of an inert one. Only 'none' when there's truly nothing to store.
+  if (result.link) {
+    return { infoHash: result.infoHash || '', magnet: result.link, source: 'link' }
   }
   return { infoHash: '', magnet: '', source: 'none' }
 }

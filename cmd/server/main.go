@@ -447,6 +447,7 @@ func initStreamer(deps *appDeps) {
 	} else {
 		log.Printf("Warning: metadata cache init failed: %v", mcerr)
 	}
+	go recoverFavorites(s, deps.jackettClient)
 	if seeds, serr := streamer.NewSeeds(deps.db); serr == nil {
 		s.SetSeeds(seeds)
 		deps.addCleanup(func() { _ = seeds.Close() })
@@ -455,6 +456,51 @@ func initStreamer(deps *appDeps) {
 	} else {
 		log.Printf("Warning: seeds store init failed: %v", serr)
 	}
+}
+
+// recoverFavoritesLimit caps the camada-3 (Jackett re-search) re-links per boot.
+const recoverFavoritesLimit = 25
+
+// recoverFavorites repairs favorites whose magnet went missing (the inert-row
+// bug). Layers 1-2 are deterministic, network-free and always run. Layer 3
+// re-searches the remainder on Jackett (best-effort, bounded) unless
+// JACKUI_RECOVER_FAVORITES=0 or Jackett is unconfigured.
+func recoverFavorites(s *streamer.Streamer, jc *jackett.Client) {
+	favs := s.Favorites()
+	if favs == nil {
+		return
+	}
+	if n, err := favs.ReconcileMagnets(); err != nil {
+		log.Printf("favorites recovery (deterministic) failed: %v", err)
+	} else if n > 0 {
+		log.Printf("favorites recovery: re-linked %d magnet(s) from info_hash/metadata", n)
+	}
+	if os.Getenv("JACKUI_RECOVER_FAVORITES") == "0" || jc == nil {
+		return
+	}
+	if n, err := favs.RecoverViaSearch(jackettMagnetSearcher{jc}, recoverFavoritesLimit); err != nil {
+		log.Printf("favorites recovery (Jackett re-search) failed: %v", err)
+	} else if n > 0 {
+		log.Printf("favorites recovery: re-linked %d magnet(s) via Jackett re-search", n)
+	}
+}
+
+// jackettMagnetSearcher adapts the Jackett client to streamer.MagnetSearcher for
+// the camada-3 favorites recovery.
+type jackettMagnetSearcher struct{ c *jackett.Client }
+
+func (a jackettMagnetSearcher) SearchByName(name string) ([]streamer.MagnetMatch, error) {
+	res, err := a.c.Search(name, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]streamer.MagnetMatch, 0, len(res))
+	for _, r := range res {
+		out = append(out, streamer.MagnetMatch{
+			Title: r.Title, Magnet: r.MagnetURI, InfoHash: r.InfoHash, Seeders: r.Seeders,
+		})
+	}
+	return out, nil
 }
 
 // resumeSeeding re-adds every persisted seed-tracker torrent on boot so seeding

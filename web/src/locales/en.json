@@ -350,5 +350,8 @@
     "kind_tv": "Show",
     "kind_movie": "Movie",
     "reused_title": "Reused the existing folder \"{{folder}}\""
+  },
+  "favorites": {
+    "resolve_failed": "Could not resolve a magnet for this result. Try again or open the card to resolve it."
   }
 }
