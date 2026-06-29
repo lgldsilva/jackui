@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
+import i18n from '../lib/i18n'
 import { playHref, anchorNavProps, swallowClick } from '../lib/cardNav'
 import QualityBadges from './QualityBadges'
 import SeedBadge from './SeedBadge'
@@ -115,9 +116,18 @@ async function handleToggleFavorite(
     } finally {
       setFavResolving(false)
     }
-    if (payload.source === 'link') {
-      // Backfill the conversion so Play/Magnet/.torrent on this card reuse it
-      // (same mutation resolveMagnetIfNeeded already does).
+    if (payload.source === 'none') {
+      // Nothing to link (no magnet, no infoHash, no .torrent link): saving would
+      // create an inert favorite that can never Play. Revert + tell the user
+      // instead of silently persisting a dead row.
+      setFavOpt(wasFavorited)
+      alert(i18n.t('favorites.resolve_failed'))
+      return
+    }
+    if (payload.source === 'link' && payload.magnet.startsWith('magnet:')) {
+      // Backfill the resolved magnet so Play/Magnet/.torrent on this card reuse it
+      // (same mutation resolveMagnetIfNeeded already does). Skip when the payload
+      // kept the raw .torrent link — result.link already drives Play in that case.
       result.magnetUri = payload.magnet
       result.infoHash = payload.infoHash
     }
