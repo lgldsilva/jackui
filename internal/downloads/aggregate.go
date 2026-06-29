@@ -539,7 +539,9 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	w.streamer.UnregisterDownload(name)
 	job.Done()
 	log.Printf("downloads: completed group %s %q (%d files)", g.Key, name, len(movers))
-	go w.reseedAfterCompletion(g.Members[0])
+	// Whole-torrent groups skip AI-rename (renamed=false): the rename chain targets
+	// a single media file, not a tree — so there's no moved-file handle to release.
+	go w.reseedAfterCompletion(g.Members[0], false)
 	body := fmt.Sprintf("%s · %d arquivos · %.2f MB", name, len(movers), float64(total)/1048576)
 	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
 }

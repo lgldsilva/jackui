@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -78,8 +79,11 @@ func TestAIRenameCompleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w.aiRenameCompleted(*d, cur)
+	newDst := w.aiRenameCompleted(*d, cur)
 
+	if newDst == "" {
+		t.Fatal("aiRenameCompleted should return the new path when it moves the file")
+	}
 	if fileExists(cur) {
 		t.Error("source should have been moved out of the per-torrent folder")
 	}
@@ -87,7 +91,76 @@ func TestAIRenameCompleted(t *testing.T) {
 	if got.FilePath == cur || got.FilePath == "" {
 		t.Errorf("FilePath should point to the new organized path, got %q", got.FilePath)
 	}
+	if got.FilePath != newDst {
+		t.Errorf("returned path %q should match the persisted FilePath %q", newDst, got.FilePath)
+	}
 	if !fileExists(got.FilePath) {
 		t.Errorf("renamed file should exist at %q", got.FilePath)
+	}
+}
+
+// aiRenameCompleted returns "" (a no-op signal) when the destination would equal
+// the source — the caller relies on that to decide whether a stale torrent handle
+// must be released.
+func TestAIRenameCompleted_NoopReturnsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	aiClient := ai.New(config.AIConfig{
+		Enabled:   true,
+		Providers: map[string]config.AIProvider{"test": {BaseURL: srv.URL}},
+		Chain:     []config.AIChainSlot{{Provider: "test", Model: "m"}},
+	})
+	store := newTestStore(t)
+	downloadDir := t.TempDir()
+	w := NewWorker(WorkerConfig{
+		Store:       store,
+		Streamer:    streamer.NewForTesting(),
+		DataDir:     t.TempDir(),
+		DownloadDir: downloadDir,
+		AIClient:    aiClient,
+	})
+	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "x"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// A path that already sits where the rename chain would place it: missing on
+	// disk, so GeneratePreview/Stat fail and the function must no-op with "".
+	cur := filepath.Join(downloadDir, "missing", "missing.mkv")
+	if got := w.aiRenameCompleted(*d, cur); got != "" {
+		t.Errorf("expected empty path for a no-op rename, got %q", got)
+	}
+}
+
+// reseedAfterCompletion must release the torrent handle for a NON-seed download
+// whose file was just renamed (renamed=true) — otherwise the moved file's inode
+// keeps pinning RSS. With renamed=false it must NOT drop (nothing moved).
+func TestReseedAfterCompletion_RenamedNonSeedDropsHandle(t *testing.T) {
+	hashHex := "00112233445566778899aabbccddeeff00112233"
+	cases := []struct {
+		name      string
+		renamed   bool
+		wantDrops int
+	}{
+		{"renamed releases the stale handle", true, 1},
+		{"not renamed leaves the torrent alone", false, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := NewWorker(WorkerConfig{
+				Store:    newTestStore(t),
+				Streamer: streamer.NewForTesting(), // no seed-trackers → MatchesSeedTrackerCached=false
+				DataDir:  t.TempDir(),
+			})
+			var drops []metainfo.Hash
+			w.drop = func(h metainfo.Hash) { drops = append(drops, h) }
+
+			w.reseedAfterCompletion(Download{UserID: 1, InfoHash: hashHex, Name: "x"}, tc.renamed)
+
+			if len(drops) != tc.wantDrops {
+				t.Fatalf("got %d drops, want %d", len(drops), tc.wantDrops)
+			}
+		})
 	}
 }
