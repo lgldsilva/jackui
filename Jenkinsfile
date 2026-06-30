@@ -193,8 +193,7 @@ pipeline {
                   -Dsonar.go.coverage.reportPaths=coverage.out \
                   -Dsonar.tests=. -Dsonar.test.inclusions="**/*_test.go,web/**/*.test.ts,web/**/*.test.tsx,web/**/*.spec.ts,web/**/*.spec.tsx" \
                   -Dsonar.coverage.exclusions="web/**,cmd/**,electron/**" \
-                  -Dsonar.scm.disabled=true \
-                  -Dsonar.qualitygate.wait=false || ret=$?
+                   -Dsonar.scm.disabled=true || ret=$?
                 # Causa raiz: o .sonar-scanner (cache, mantido entre builds de
                 # propósito) e o coverage.out ficam dono=root no workspace montado.
                 # Devolvemos a posse ao jenkins (uid 1000) AQUI, dentro do container
