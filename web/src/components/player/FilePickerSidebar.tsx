@@ -28,6 +28,7 @@ type FilePickerSidebarProps = {
   readonly setFileSizeDesc: (v: boolean) => void
   readonly setSidebarOpen: (v: boolean) => void
   readonly setPreviewFileIdx: (v: number | null) => void
+  readonly onDownloadFolder?: (file: TorrentInfo['files'][number]) => void
 }
 
 type FileView = 'list' | 'tree'
@@ -55,6 +56,7 @@ export function FilePickerSidebar({
   setFileSizeDesc,
   setSidebarOpen,
   setPreviewFileIdx,
+  onDownloadFolder,
 }: FilePickerSidebarProps) {
   const { t } = useTranslation()
   // Default: remember the last choice; first time = Lista (don't surprise
@@ -225,6 +227,7 @@ export function FilePickerSidebar({
           parseEpisode={parseEpisode}
           playFile={playFile}
           setPreviewFileIdx={setPreviewFileIdx}
+          onDownloadFolder={onDownloadFolder}
         />
       ) : (
         <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
@@ -246,6 +249,7 @@ export function FilePickerSidebar({
               parseEpisode={parseEpisode}
               playFile={playFile}
               setPreviewFileIdx={setPreviewFileIdx}
+              onDownloadFolder={onDownloadFolder}
             />
           ))}
           {reveal.hasMore && (
