@@ -1,4 +1,13 @@
 {
+  "files": {
+    "to_download": "Arquivos pra baixar",
+    "selected": "{{n}}/{{total}} selecionados",
+    "all": "Todos",
+    "none": "Nenhum",
+    "filter_placeholder": "Filtrar (ex: s04e03)",
+    "no_match": "Nenhum arquivo com esse filtro",
+    "download_folder": "Baixar esta pasta"
+  },
   "nav": {
     "search": "Buscar",
     "discover": "Em alta",

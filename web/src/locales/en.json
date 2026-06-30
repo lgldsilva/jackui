@@ -1,4 +1,13 @@
 {
+  "files": {
+    "to_download": "Files to download",
+    "selected": "{{n}}/{{total}} selected",
+    "all": "All",
+    "none": "None",
+    "filter_placeholder": "Filter (e.g. s04e03)",
+    "no_match": "No files match that filter",
+    "download_folder": "Download this folder"
+  },
   "nav": {
     "search": "Search",
     "discover": "Trending",
