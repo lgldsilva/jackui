@@ -45,6 +45,17 @@ function defaultSelected(files: StreamFile[]): Set<number> {
   return sel
 }
 
+// Seleção inicial dos arquivos resolvidos: a pré-seleção explícita (ex: a pasta
+// vinda do player) tem prioridade, filtrada contra o que realmente resolveu
+// (defensivo: cache vs streamAdd); cai na heurística se vazia/ausente.
+function pickInitialSelection(files: StreamFile[], initial?: readonly number[]): Set<number> {
+  if (initial) {
+    const preset = new Set(files.filter(f => initial.includes(f.index)).map(f => f.index))
+    if (preset.size > 0) return preset
+  }
+  return defaultSelected(files)
+}
+
 async function downloadInternal(
   result: SearchResult,
   files: StreamFile[] | null,
@@ -190,13 +201,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       if ((info?.files?.length ?? 0) > 0) {
         const resolved = info!.files ?? []
         setFiles(resolved)
-        // Pré-seleção explícita (ex: pasta vinda do player) tem prioridade;
-        // filtramos contra os arquivos realmente resolvidos (defensivo: cache
-        // vs streamAdd) e caímos na heurística se o filtro esvaziar.
-        const preset = initialFileIndices
-          ? new Set(resolved.filter(f => initialFileIndices.includes(f.index)).map(f => f.index))
-          : null
-        setSelectedFiles(preset && preset.size > 0 ? preset : defaultSelected(resolved))
+        setSelectedFiles(pickInitialSelection(resolved, initialFileIndices))
       } else if (!filesError) {
         setFilesError('Metadata não disponível ainda — o worker vai resolver depois.')
       }
