@@ -21,8 +21,9 @@ export type DownloadEntry = {
   bytesDownloaded: number
   progress: number
   downRate?: number
-  upRate?: number     // bytes/sec de upload (seeding), preenchido pelo backend
-  seeders?: number    // seeders ao vivo do swarm, preenchido pelo backend
+  upRate?: number          // bytes/sec de upload (seeding), preenchido pelo backend
+  bytesUploaded?: number   // total enviado nesta sessão (reseta no re-add), preenchido pelo backend
+  seeders?: number         // seeders ao vivo do swarm, preenchido pelo backend
   eta?: number
   startedAt?: string | null
   completedAt?: string | null

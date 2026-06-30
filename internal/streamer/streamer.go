@@ -425,16 +425,21 @@ type FileInfo struct {
 
 // TorrentInfo is the JSON-friendly view returned to the frontend.
 type TorrentInfo struct {
-	InfoHash    string     `json:"infoHash"`
-	Name        string     `json:"name"`
-	TotalSize   int64      `json:"totalSize"`
-	Files       []FileInfo `json:"files"`
-	Peers       int        `json:"peers"`
-	Seeders     int        `json:"seeders"`
-	DownRate    int64      `json:"downRate"` // bytes/sec, sampled between polls
-	UpRate      int64      `json:"upRate"`   // bytes/sec, sampled between polls
-	Progress    float64    `json:"progress"`
-	PrimaryFile int        `json:"primaryFile"` // suggested video file index
+	InfoHash  string     `json:"infoHash"`
+	Name      string     `json:"name"`
+	TotalSize int64      `json:"totalSize"`
+	Files     []FileInfo `json:"files"`
+	Peers     int        `json:"peers"`
+	Seeders   int        `json:"seeders"`
+	DownRate  int64      `json:"downRate"` // bytes/sec, sampled between polls
+	UpRate    int64      `json:"upRate"`   // bytes/sec, sampled between polls
+	// Cumulative payload byte counters. BytesDownloaded is the completed bytes of
+	// the selected pieces; BytesUploaded is what we've served this SESSION (the
+	// anacrolix counter resets when the torrent is re-added — e.g. after a restart).
+	BytesDownloaded int64   `json:"bytesDownloaded"`
+	BytesUploaded   int64   `json:"bytesUploaded"`
+	Progress        float64 `json:"progress"`
+	PrimaryFile     int     `json:"primaryFile"` // suggested video file index
 	// Status is one of "downloading", "paused", "seeding", "complete".
 	// Surfaced for the Transmission-style downloads UI.
 	Status string `json:"status,omitempty"`
@@ -1089,21 +1094,23 @@ func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 // 778-file pack walks every file under the client lock, so enriching the
 // downloads list via Get made GET /api/downloads take many SECONDS (worse under
 // active-download lock contention). The list only needs the per-torrent
-// rate/seeders, so this skips the O(files) loop → O(1) per torrent. ok=false
-// when the torrent isn't active.
-func (s *Streamer) LiveStats(hash metainfo.Hash) (down, up int64, seeders int, ok bool) {
+// rate/seeders, so this skips the O(files) loop → O(1) per torrent. uploaded is
+// the cumulative bytes served THIS session (anacrolix BytesWrittenData; resets on
+// re-add). ok=false when the torrent isn't active.
+func (s *Streamer) LiveStats(hash metainfo.Hash) (down, up, uploaded int64, seeders int, ok bool) {
 	now := time.Now()
 	s.mu.Lock()
 	e, exists := s.active[hash]
 	if !exists {
 		s.mu.Unlock()
-		return 0, 0, 0, false
+		return 0, 0, 0, 0, false
 	}
 	e.lastAccess = now
 	down, up = sampleRateLocked(e, now)
 	t := e.t
 	s.mu.Unlock()
-	return down, up, t.Stats().ConnectedSeeders, true
+	st := t.Stats()
+	return down, up, st.BytesWrittenData.Int64(), st.ConnectedSeeders, true
 }
 
 // Peers returns a snapshot of the currently-connected peers of an active
@@ -1663,14 +1670,17 @@ func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
 	s.mu.Lock()
 	dn, up := sampleRateLocked(e, time.Now())
 	s.mu.Unlock()
+	st := t.Stats()
 	info := &TorrentInfo{
-		InfoHash:  t.InfoHash().HexString(),
-		Name:      t.Name(),
-		TotalSize: t.Length(),
-		Peers:     t.Stats().TotalPeers,
-		Seeders:   t.Stats().ConnectedSeeders,
-		DownRate:  dn,
-		UpRate:    up,
+		InfoHash:        t.InfoHash().HexString(),
+		Name:            t.Name(),
+		TotalSize:       t.Length(),
+		Peers:           st.TotalPeers,
+		Seeders:         st.ConnectedSeeders,
+		DownRate:        dn,
+		UpRate:          up,
+		BytesDownloaded: t.BytesCompleted(),
+		BytesUploaded:   st.BytesWrittenData.Int64(),
 	}
 
 	if t.Length() > 0 {

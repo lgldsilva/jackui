@@ -26,7 +26,7 @@ import {
   LocalMount, localMounts, buildLocalHash, SearchResult,
   streamAdd, streamAddTorrentFile, WHOLE_TORRENT_FILE_INDEX
 } from '../api/client'
-import { formatRate, formatDurationShort, formatBytesPair } from '../lib/format'
+import { formatRate, formatDurationShort, formatBytesPair, formatBytes } from '../lib/format'
 import { localBrowseHref } from '../lib/localBrowse'
 import { newPendingDeletes, markDeleted, clearDeleted, reconcile } from '../lib/downloadsReconcile'
 import { applyDownloadSort } from '../lib/downloadSort'
@@ -2403,6 +2403,9 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
           <span className="text-text-primary font-medium">
             {formatBytesPair(d.bytesDownloaded, d.fileSize)}
             <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
+            {(d.bytesUploaded ?? 0) > 0 && (
+              <span className="text-text-muted ml-2" title="Enviado nesta sessão (seedando)">↑ {formatBytes(d.bytesUploaded ?? 0)}</span>
+            )}
           </span>
           {!isCompleted && !isFailed && etaText && (
             <span className="flex items-center gap-1 text-text-muted">

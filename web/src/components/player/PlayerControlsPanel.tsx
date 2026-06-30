@@ -341,8 +341,8 @@ export function PlayerControlsPanel({
           </button>
           <button
             onClick={handleRequestFullscreen}
-            title="Tela cheia"
-            className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg transition-colors sm:hidden"
+            title="Tela cheia (F)"
+            className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg transition-colors"
           >
             <Maximize2 className="w-3.5 h-3.5" />
             Fullscreen
