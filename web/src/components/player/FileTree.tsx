@@ -19,6 +19,7 @@ type FileTreeProps = {
   readonly parseEpisode: (path: string) => string | null
   readonly playFile: (idx: number) => void
   readonly setPreviewFileIdx: (v: number | null) => void
+  readonly onDownloadFolder?: (file: TorrentInfo['files'][number]) => void
 }
 
 const INDENT_PX = 14
@@ -51,6 +52,7 @@ export function FileTree({
   parseEpisode,
   playFile,
   setPreviewFileIdx,
+  onDownloadFolder,
 }: FileTreeProps) {
   const root = useMemo(
     () => buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter }),
@@ -158,6 +160,7 @@ export function FileTree({
             parseEpisode={parseEpisode}
             playFile={playFile}
             setPreviewFileIdx={setPreviewFileIdx}
+            onDownloadFolder={onDownloadFolder}
             treeItemProps={{
               role: 'treeitem',
               'aria-selected': selected,
