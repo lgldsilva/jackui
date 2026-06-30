@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
 func TestMoveFileWithFallback(t *testing.T) {
@@ -130,6 +132,68 @@ func TestAIRenameCompleted_NoopReturnsEmpty(t *testing.T) {
 	cur := filepath.Join(downloadDir, "missing", "missing.mkv")
 	if got := w.aiRenameCompleted(*d, cur); got != "" {
 		t.Errorf("expected empty path for a no-op rename, got %q", got)
+	}
+}
+
+// runCompletionMove must AI-rename the file BEFORE reseeding (the leak fix): the
+// rename moves the file and the reseed must reopen on the FINAL path. End-to-end,
+// with a non-seed torrent, that also means the stale handle is dropped exactly
+// once after the rename. Covers the rename-before-reseed ordering in
+// runCompletionMove that no prior test exercised (whole-torrent rows skip rename).
+func TestRunCompletionMove_RenamesBeforeReseed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	aiClient := ai.New(config.AIConfig{
+		Enabled:   true,
+		Providers: map[string]config.AIProvider{"test": {BaseURL: srv.URL}},
+		Chain:     []config.AIChainSlot{{Provider: "test", Model: "m"}},
+	})
+	store := newTestStore(t)
+	dataDir := t.TempDir()
+	downloadDir := t.TempDir()
+	tr := transfer.New()
+	w := NewWorker(WorkerConfig{
+		Store: store, Streamer: streamer.NewForTesting(),
+		DataDir: dataDir, DownloadDir: downloadDir, Tracker: tr, AIClient: aiClient,
+	})
+	w.moveBackoff = time.Millisecond
+	var drops []metainfo.Hash
+	w.drop = func(h metainfo.Hash) { drops = append(drops, h) }
+
+	const hashHex = "00112233445566778899aabbccddeeff00112233"
+	const name = "Inception.2010.1080p.BluRay.x264.mkv"
+	d, err := store.Create(Download{
+		UserID: 1, InfoHash: hashHex, FileIndex: 0,
+		Magnet: "magnet:?xt=urn:btih:" + hashHex, Name: name, FileSize: 5,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Stage the finished file in the cache as the worker's move source.
+	if err := os.WriteFile(filepath.Join(dataDir, name), []byte("movie"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	job := tr.Start(name, "download-move", 1, 5)
+	w.runCompletionMove(*d, name, []string{name}, false, 5, job)
+
+	got, _ := store.Get(1, d.ID)
+	if got.Status != StatusCompleted {
+		t.Fatalf("status = %q, want completed", got.Status)
+	}
+	// The row's path was moved into a Plex-style dir (rename ran), not left at the
+	// raw per-torrent folder, and the file exists there.
+	if !fileExists(got.FilePath) {
+		t.Errorf("renamed file should exist at %q", got.FilePath)
+	}
+	if filepath.Base(filepath.Dir(got.FilePath)) == name {
+		t.Errorf("file should have been renamed out of the raw %q folder, got %q", name, got.FilePath)
+	}
+	// Non-seed + renamed → reseedAfterCompletion drops the stale handle once.
+	if len(drops) != 1 {
+		t.Errorf("expected exactly 1 handle drop after rename, got %d", len(drops))
 	}
 }
 
