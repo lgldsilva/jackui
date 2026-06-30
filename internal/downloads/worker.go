@@ -972,18 +972,34 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	}
 	job.Done()
 	log.Printf("downloads: completed #%d %q", d.ID, name)
-	// Seed-tracker content keeps seeding from its NEW (bulk) home instead of going
-	// idle: the download torrent still points at the now-moved cache file, so we
-	// swap it onto the relocated storage. Status is `completed` + file_path=bulk by
-	// now, so EnsureActive's relocatedStorage resolves to the real file.
-	go w.reseedAfterCompletion(d)
+	body := fmt.Sprintf("%s · %.2f MB", name, float64(total)/1048576)
+	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
+	// ORDER MATTERS: AI-rename BEFORE reseed. Both touch the same on-disk file —
+	// the rename moves it, the reseed reopens the torrent on it. Running them
+	// concurrently (the old `go ...; go ...`) raced: the reseed reopened the
+	// torrent pointing at the cache/bulk path, then the rename moved the file out
+	// from under it, leaving anacrolix holding an fd+mmap on the now-(deleted)
+	// inode — the kernel can't reclaim those pages, so a single 2 GB file pinned
+	// ~1.8 GB of RSS until the process dropped the torrent or restarted. Renaming
+	// first (and persisting the new path via SetFilePath) lets the reseed's
+	// relocatedStorage resolve the FINAL location. Runs inline: runCompletionMove
+	// is already off the tick loop, in its own goroutine.
+	renamed := false
 	// AI auto-rename (Plex-style) when configured. Whole-torrent rows skip it:
 	// the rename chain targets ONE media file, not a tree of N files.
 	if w.aiClient != nil && dst != "" && !whole {
-		go w.aiRenameCompleted(d, dst)
+		if nd := w.aiRenameCompleted(d, dst); nd != "" {
+			d.FilePath = nd
+			renamed = true
+		}
 	}
-	body := fmt.Sprintf("%s · %.2f MB", name, float64(total)/1048576)
-	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
+	// Seed-tracker content keeps seeding from its NEW (bulk/renamed) home instead
+	// of going idle: the download torrent still points at the now-moved cache file,
+	// so we swap it onto the relocated storage. Status is `completed` + file_path
+	// updated by now, so EnsureActive's relocatedStorage resolves to the real file.
+	// For non-seed downloads that were renamed, reseedAfterCompletion still drops
+	// the torrent so the stale handle on the moved file is released.
+	w.reseedAfterCompletion(d, renamed)
 }
 
 // reseedAfterCompletion re-activates a just-completed download from its new bulk
@@ -991,8 +1007,10 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 // that drove the download still has cache-rooted storage pointing at the file we
 // just moved away, so Drop + EnsureActive swaps it onto the relocated storage
 // (anacrolix verifies the bulk file and seeds — no re-download). No-op when the
-// tracker isn't a seed-tracker.
-func (w *Worker) reseedAfterCompletion(d Download) {
+// tracker isn't a seed-tracker — EXCEPT that when the file was just renamed
+// (`renamed`), it still Drops the torrent so the fd/mmap it holds on the moved
+// file is released (otherwise the (deleted) inode keeps pinning RSS).
+func (w *Worker) reseedAfterCompletion(d Download, renamed bool) {
 	if d.InfoHash == "" {
 		return
 	}
@@ -1001,6 +1019,12 @@ func (w *Worker) reseedAfterCompletion(d Download) {
 		return
 	}
 	if !w.streamer.MatchesSeedTrackerCached(h) {
+		if renamed {
+			// Not a seed-tracker, but the file was just moved by AI-rename: the
+			// download torrent still holds an fd/mmap on the old path. Drop it so
+			// the (deleted) inode stops pinning RSS. No EnsureActive — we don't seed.
+			w.dropTorrent(h)
+		}
 		return
 	}
 	w.streamer.Drop(h)
@@ -1533,10 +1557,13 @@ func isPadPath(torrentName, rel string) bool {
 
 // aiRenameCompleted re-organizes a completed download into a Plex-style path
 // under downloadDir, using the AI+TMDB rename chain — the same one the promote
-// flow uses. Runs in its own goroutine (off the tick loop) and is best-effort:
-// any failure leaves the file where moveCompletedFile already put it. Only
-// invoked when an AI client is configured ("se a IA estiver disponível").
-func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
+// flow uses. Runs off the tick loop and is best-effort: any failure leaves the
+// file where moveCompletedFile already put it. Only invoked when an AI client is
+// configured ("se a IA estiver disponível"). Returns the new path on success, or
+// "" when nothing was moved (no-op preview, error, or destination == source), so
+// the caller knows whether the file was relocated and a stale torrent handle on
+// the old path must be released.
+func (w *Worker) aiRenameCompleted(d Download, currentPath string) string {
 	base := w.downloadDir
 	if w.resolveUsername != nil {
 		if u := w.resolveUsername(d.UserID); u != "" {
@@ -1547,16 +1574,16 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
 	defer cancel()
 	preview, err := renamer.GeneratePreview(ctx, w.aiClient, w.tmdbClient, filepath.Base(currentPath))
 	if err != nil || preview == nil || preview.TargetPath == "" {
-		return
+		return ""
 	}
 	targetRel := renamer.ResolveTargetConflict(base, preview.TargetPath)
 	newDst := filepath.Join(base, targetRel)
 	if newDst == currentPath {
-		return
+		return ""
 	}
 	if err := os.MkdirAll(filepath.Dir(newDst), 0o755); err != nil {
 		log.Printf("downloads: AI-rename mkdir #%d: %v", d.ID, err)
-		return
+		return ""
 	}
 	var size int64
 	if st, e := os.Stat(currentPath); e == nil {
@@ -1566,17 +1593,18 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) {
 	if err := moveFileProgress(job.Context(), currentPath, newDst, job.AddBytesFunc()); err != nil {
 		job.Fail(err)
 		log.Printf("downloads: AI-rename move #%d: %v", d.ID, err)
-		return
+		return ""
 	}
 	job.FileDone()
 	job.Done()
 	if err := w.store.SetFilePath(d.UserID, d.ID, newDst); err != nil {
 		log.Printf("downloads: AI-rename set path #%d: %v", d.ID, err)
-		return
+		return ""
 	}
 	// The per-torrent folder moveCompletedFile created is now empty — tidy it.
 	_ = os.Remove(filepath.Dir(currentPath))
 	log.Printf("downloads: AI-renamed #%d → %s", d.ID, newDst)
+	return newDst
 }
 
 // moveFileWithFallback renames src→dst, falling back to copy+remove across
