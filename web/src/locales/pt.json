@@ -350,5 +350,8 @@
     "kind_tv": "Série",
     "kind_movie": "Filme",
     "reused_title": "Reaproveitou a pasta existente \"{{folder}}\""
+  },
+  "favorites": {
+    "resolve_failed": "Não foi possível resolver o magnet deste resultado. Tente novamente ou abra o card para resolver."
   }
 }
