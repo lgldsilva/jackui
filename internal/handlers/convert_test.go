@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -148,22 +150,97 @@ func TestValidateFetchScheme_HTTPS(t *testing.T) {
 	}
 }
 
-func TestDownloadAndParseTorrent_InvalidScheme(t *testing.T) {
-	_, _, cerr := downloadAndParseTorrent("file:///etc/passwd")
+func TestResolveTorrentToMagnet_InvalidScheme(t *testing.T) {
+	res, cerr := resolveTorrentToMagnet("file:///etc/passwd")
 	if cerr == nil {
 		t.Error("expected error for file:// scheme")
 	}
+	if res != nil {
+		t.Errorf("resolution should be nil on error, got %+v", res)
+	}
 }
 
-func TestDownloadAndParseTorrent_BogusHost(t *testing.T) {
+func TestResolveTorrentToMagnet_BogusHost(t *testing.T) {
 	// 192.0.2.1 é TEST-NET-1 (RFC 5737), garantidamente irrouteável — a busca
 	// SEMPRE falha (timeout/conn refused), nunca retorna um torrent válido.
-	mi, magnet, cerr := downloadAndParseTorrent("http://192.0.2.1/nonexistent.torrent")
+	res, cerr := resolveTorrentToMagnet("http://192.0.2.1/nonexistent.torrent")
 	if cerr == nil {
 		t.Fatal("host irrouteável deveria retornar erro, veio nil")
 	}
-	if mi != nil || magnet != "" {
-		t.Errorf("no erro, metainfo/magnet deveriam ser zero: mi=%v magnet=%q", mi, magnet)
+	if res != nil {
+		t.Errorf("no erro, resolution deveria ser nil: %+v", res)
+	}
+}
+
+// TestResolveTorrentToMagnet_MagnetRedirect locks the core fix: a Jackett-style
+// /dl/magnetdownload link answers with a 302 → magnet:, which the converter must
+// capture (not try to dial the magnet scheme and 502). Guard for #favorites bug.
+// withLoopbackClient swaps ssrfSafeClient for a permissive one (the SSRF dialer
+// guard blocks 127.0.0.1, where httptest listens) while keeping the manual-follow
+// CheckRedirect. Restores on cleanup.
+func withLoopbackClient(t *testing.T) {
+	t.Helper()
+	old := ssrfSafeClient
+	ssrfSafeClient = &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	t.Cleanup(func() { ssrfSafeClient = old })
+}
+
+func TestResolveTorrentToMagnet_MagnetRedirect(t *testing.T) {
+	withLoopbackClient(t)
+	const hash = "c9a513e47317cd4a8ce2e2f2a2974acbd734ebb3"
+	magnet := "magnet:?xt=urn:btih:" + hash + "&dn=Some+Release&tr=udp%3A%2F%2Ftracker.example%3A1337"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", magnet)
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	res, cerr := resolveTorrentToMagnet(srv.URL + "/dl/magnetdownload")
+	if cerr != nil {
+		t.Fatalf("magnet redirect should resolve, got error: %+v", cerr)
+	}
+	if res.infoHash != hash {
+		t.Errorf("infoHash = %q, want %q", res.infoHash, hash)
+	}
+	if !strings.HasPrefix(res.magnet, "magnet:?xt=urn:btih:"+hash) {
+		t.Errorf("magnet = %q, want captured magnet", res.magnet)
+	}
+	if res.name != "Some Release" {
+		t.Errorf("name = %q, want %q (from dn)", res.name, "Some Release")
+	}
+}
+
+// TestResolveTorrentToMagnet_FollowsHTTPRedirect ensures an http→http(s) redirect
+// is followed manually and the final .torrent body parsed.
+func TestResolveTorrentToMagnet_FollowsHTTPRedirect(t *testing.T) {
+	withLoopbackClient(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dl", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "/real.torrent") // relative — resolved against request URL
+		w.WriteHeader(http.StatusFound)
+	})
+	mux.HandleFunc("/real.torrent", func(w http.ResponseWriter, _ *http.Request) {
+		piece := metainfo.HashBytes([]byte("zzzz"))
+		infoBytes, _ := bencode.Marshal(metainfo.Info{
+			Name: "Solo.mkv", PieceLength: 1 << 14, Pieces: piece[:], Length: 4,
+		})
+		mi := &metainfo.MetaInfo{InfoBytes: infoBytes, Announce: "http://tracker.example/announce"}
+		_ = mi.Write(w)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	res, cerr := resolveTorrentToMagnet(srv.URL + "/dl")
+	if cerr != nil {
+		t.Fatalf("http redirect should be followed, got error: %+v", cerr)
+	}
+	if !strings.HasPrefix(res.magnet, "magnet:?xt=urn:btih:") {
+		t.Errorf("magnet = %q, want a built magnet from the parsed .torrent", res.magnet)
 	}
 }
 
