@@ -47,8 +47,8 @@ pipeline {
     // checkout — com skipDefaultCheckout(true) o env.GIT_COMMIT ainda é null
     // aqui no startup, e cair no BUILD_NUMBER geraria tag numérica que o regex
     // de retenção (^[0-9a-f]{8,40}$) não casa → tags vazariam pra sempre.
-    SONAR_HOST  = 'http://192.168.0.100:9100'
-    DT_API      = 'http://192.168.0.100:8081'
+    SONAR_HOST  = 'http://10.228.143.12:9100'
+    DT_API      = 'http://10.228.143.12:8081'
     GITEA_API   = 'http://192.168.0.100:3000/api/v1'
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
@@ -153,7 +153,7 @@ pipeline {
     stage('SonarQube') {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
-        withCredentials([string(credentialsId: 'jackui-sonar-token', variable: 'SONAR_TOKEN')]) {
+        withCredentials([string(credentialsId: 'jackui-sonar-token-arm', variable: 'SONAR_TOKEN')]) {
           sh '''
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
             docker run --rm --user 0 --platform linux/amd64 -e SONAR_TOKEN -e SONAR_HOST -v "$HOST_WS":/usr/src -w /usr/src \
@@ -208,7 +208,7 @@ pipeline {
     stage('SBOM → Dependency-Track') {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
       steps {
-        withCredentials([usernamePassword(credentialsId: 'jackui-dt', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
+        withCredentials([usernamePassword(credentialsId: 'jackui-dt-arm', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
             HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
             rm -rf .cdx-src && mkdir -p .cdx-src
