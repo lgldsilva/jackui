@@ -155,7 +155,7 @@ pipeline {
       steps {
         withCredentials([string(credentialsId: 'jackui-sonar-token-arm', variable: 'SONAR_TOKEN')]) {
           sh '''
-            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
+            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/storage/dev/jenkins/data#')
             docker run --rm --user 0 --platform linux/amd64 -e SONAR_TOKEN -e SONAR_HOST -v "$HOST_WS":/usr/src -w /usr/src \
               eclipse-temurin:21 \
               sh -c '
@@ -210,7 +210,7 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-dt-arm', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
           sh '''
-            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/home/lgldsilva/docker/jenkins/data#')
+            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/storage/dev/jenkins/data#')
             rm -rf .cdx-src && mkdir -p .cdx-src
             git archive --format=tar HEAD | tar -x -C .cdx-src
             # cdxgen roda --user 0 e monta .cdx-src em /src: o bom.json (e o tar
