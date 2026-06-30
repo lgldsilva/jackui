@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { X, Play, Loader2, AlertCircle, FileVideo, Download, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy, Home } from 'lucide-react'
+import { X, Play, Loader2, AlertCircle, FileVideo, Download, Upload, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy, Home } from 'lucide-react'
 import {
   SearchResult,
   TorrentInfo,
@@ -205,6 +205,8 @@ function renderTorrentInfoModal(props: {
       <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
       <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
       {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
+      {(info.bytesDownloaded ?? 0) > 0 && <Row icon={<Download className="w-3.5 h-3.5" />} label="Baixado">{formatSize(info.bytesDownloaded ?? 0)}{pct && ` · ${pct}`}</Row>}
+      {((info.bytesUploaded ?? 0) > 0 || (info.upRate ?? 0) > 0) && <Row icon={<Upload className="w-3.5 h-3.5" />} label="Enviado">{formatSize(info.bytesUploaded ?? 0)}{(info.upRate ?? 0) > 0 ? ` · ${formatRate(info.upRate)}` : ''}</Row>}
       {info.stalled && (info.downRate ?? 0) === 0 && <Row icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />} label="Transferência">aguardando dados…</Row>}
       {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
       {globalThis.electronAPI ? (

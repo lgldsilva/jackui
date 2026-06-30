@@ -59,6 +59,7 @@ func (uc userCache) get(store *auth.Store, userID int) string {
 // so every selected file of one torrent shares them.
 type liveStats struct {
 	down, up int64
+	uploaded int64 // cumulative bytes served this session (anacrolix BytesWrittenData)
 	seeders  int
 }
 
@@ -79,6 +80,7 @@ func enrichETA(d *downloads.Download, s *streamer.Streamer) {
 // live, not stored, so they can't be ORDER BY'd in SQL).
 func applyLive(d *downloads.Download, st liveStats) {
 	d.DownRate, d.UpRate, d.Seeders = st.down, st.up, st.seeders
+	d.BytesUploaded = st.uploaded
 	if st.down <= 0 {
 		return
 	}
@@ -129,11 +131,11 @@ func liveStatsOf(s *streamer.Streamer, infoHash string) (liveStats, bool) {
 	// LiveStats (not Get) — Get→buildInfo is O(files) and a multi-file pack
 	// (Morgpie: 778 files) made enriching the list take many seconds under load.
 	// LiveStats is O(1) per torrent: just the cached rate sample + Stats().
-	down, up, seeders, ok := s.LiveStats(h)
+	down, up, uploaded, seeders, ok := s.LiveStats(h)
 	if !ok {
 		return liveStats{}, false
 	}
-	return liveStats{down: down, up: up, seeders: seeders}, true
+	return liveStats{down: down, up: up, uploaded: uploaded, seeders: seeders}, true
 }
 
 // markPromoted sets Promoted=true for completed downloads whose FilePath is

@@ -241,6 +241,10 @@ export type TorrentInfo = {
   seeders: number
   downRate: number
   upRate: number
+  // Cumulative payload byte counters. bytesUploaded is per-SESSION (resets when
+  // the torrent is re-added). Absent on older callers → treat as 0.
+  bytesDownloaded?: number
+  bytesUploaded?: number
   progress: number
   primaryFile: number
   // Optional fields populated by ActiveList / Get when the user has interacted
