@@ -23,7 +23,9 @@
 //     'jackui-ci-bot' (secret text — token do ci-bot p/ aprovar PRs).
 
 pipeline {
-  agent any
+  // Em PR (CHANGE_ID setado) o build roda no AGENTE ARM (oci-ampere-1, offload de CPU); na main
+  // continua no controller built-in (intocado — deploy depende da GPU/docker.sock locais).
+  agent { label env.CHANGE_ID ? 'arm64' : 'built-in' }
 
   options {
     timestamps()
@@ -49,7 +51,7 @@ pipeline {
     // de retenção (^[0-9a-f]{8,40}$) não casa → tags vazariam pra sempre.
     SONAR_HOST  = 'http://10.228.143.12:9100'
     DT_API      = 'http://10.228.143.12:8081'
-    GITEA_API   = 'http://192.168.0.100:3000/api/v1'
+    GITEA_API   = 'https://gitea.raspberrypi.lan/api/v1'   // hostname via NPM/CA: alcançável do controller E do agente ARM (o ci-bot approve roda no nó do build)
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
 
@@ -93,7 +95,8 @@ pipeline {
       // Roda como root p/ instalar ffmpeg (os testes de transcode/streamer o
       // exigem). GOCACHE/GOPATH em /tmp. Só ./internal/... — cmd/server importa o
       // pacote ui (//go:embed all:dist), que não compila antes do frontend build.
-      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args '--platform linux/amd64 -u root --network jackui-ci-net -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath -e JACKUI_TEST_DATABASE_URL=postgres://jackui:ci@jackui-ci-pg:5432/jackui?sslmode=disable' } }
+      // PR roda no ARM -> nativo arm64 (sem --platform, senão QEMU); main força amd64 (casa com o deploy GPU).
+      agent { docker { image 'golang:1.26-alpine'; reuseNode true; args "${env.CHANGE_ID ? '' : '--platform linux/amd64'} -u root --network jackui-ci-net -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath -e JACKUI_TEST_DATABASE_URL=postgres://jackui:ci@jackui-ci-pg:5432/jackui?sslmode=disable" } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
         retry(2) {
@@ -116,7 +119,7 @@ pipeline {
     }
 
     stage('Frontend build') {
-      agent { docker { image 'node:24-alpine'; reuseNode true; args '--platform linux/amd64 -e HOME=/tmp -e npm_config_cache=/tmp/.npm' } }
+      agent { docker { image 'node:24-alpine'; reuseNode true; args "${env.CHANGE_ID ? '' : '--platform linux/amd64'} -e HOME=/tmp -e npm_config_cache=/tmp/.npm" } }
       steps {
         dir('web') {
           sh 'npm ci'
