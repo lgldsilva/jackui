@@ -51,7 +51,7 @@ pipeline {
     // de retenção (^[0-9a-f]{8,40}$) não casa → tags vazariam pra sempre.
     SONAR_HOST  = 'http://10.228.143.12:9100'
     DT_API      = 'http://10.228.143.12:8081'
-    GITEA_API   = 'http://192.168.0.100:3000/api/v1'
+    GITEA_API   = 'https://gitea.raspberrypi.lan/api/v1'   // hostname via NPM/CA: alcançável do controller E do agente ARM (o ci-bot approve roda no nó do build)
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
 
