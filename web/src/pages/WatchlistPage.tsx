@@ -5,6 +5,7 @@ import NavHeader from '../components/NavHeader'
 import Thumbnail from '../components/Thumbnail'
 import SeedBadge from '../components/SeedBadge'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import DownloadModal from '../components/DownloadModal'
 import WatchlistForm from '../components/WatchlistForm'
 import { schedSummary } from '../components/ScheduleEditor'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
@@ -29,6 +30,7 @@ export default function WatchlistPage() {
   const [hits, setHits] = useState<WatchlistHit[]>([])
   const [hitFilter, setHitFilter] = useState('')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
+  const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   const { t, i18n } = useTranslation()
@@ -238,7 +240,10 @@ export default function WatchlistPage() {
         result={contentsTarget}
         onClose={() => setContentsTarget(null)}
         onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
+        onDownload={(r) => { setContentsTarget(null); setDownloadTarget(r) }}
       />
+
+      <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
     </div>
   )
 }

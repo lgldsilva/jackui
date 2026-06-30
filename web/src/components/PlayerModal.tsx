@@ -28,13 +28,13 @@ import {
   libraryGet,
   libraryUpdateResume,
   LibraryEntry,
-  downloadCreate,
   downloadLocalFileDirect,
   classifyCategory,
   isLocalHash,
   localSubtrackBlobURL,
 } from '../api/client'
 import { formatRate } from '../lib/format'
+import { parentDir, filesUnderDir } from '../lib/treeSelect'
 import { usePersistedState } from '../lib/storage'
 import { clientLog } from '../lib/diag'
 import { useScrollLock } from '../lib/useScrollLock'
@@ -55,6 +55,7 @@ import { computeFilePickerState } from './player/filePickerVisibility'
 import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
+import DownloadModal from './DownloadModal'
 import { PlaylistTracksSidebar } from './player/PlaylistTracksSidebar'
 import { PlayerControlsPanel } from './player/PlayerControlsPanel'
 import { SimpleAudioPlayer } from './player/SimpleAudioPlayer'
@@ -500,36 +501,42 @@ export default function PlayerModal({
   // on render without duplicating state when the user reopens the player.
   const [previewFileIdx, setPreviewFileIdx] = useState<number | null>(null)
 
-  // Server-side background download state
-  const [serverDownloadLoading, setServerDownloadLoading] = useState(false)
-  const [serverDownloadSuccess, setServerDownloadSuccess] = useState(false)
+  // Server-side background download state. Loading/success ficam falsos agora
+  // que o botão abre o modal unificado (em vez de baixar direto) — mantidos pra
+  // não mexer na interface do PlayerControlsPanel.
+  const [serverDownloadLoading] = useState(false)
+  const [serverDownloadSuccess] = useState(false)
+  // Alvo do modal de download aninhado (destino + seleção); indices pré-seleciona.
+  const [playerDownload, setPlayerDownload] = useState<{ result: SearchResult; indices?: number[] } | null>(null)
 
-  const handleServerDownload = async () => {
-    if (!info || selectedFile < 0) return
-    // Local/rclone files have no magnet — building one from the `local-…`
-    // pseudo-hash makes the torrent client throw "error parsing infohash".
-    // The UI shows LocalCacheButton for these instead; guard defensively.
-    if (isLocalHash(info.infoHash)) return
-    setServerDownloadLoading(true)
-    try {
-      const magnet = result?.magnetUri || `magnet:?xt=urn:btih:${info.infoHash}`
-      const file = info.files[selectedFile]
-      await downloadCreate({
-        infoHash: info.infoHash,
-        fileIndex: selectedFile,
-        magnet,
-        name: file.path.split('/').pop() || info.name,
-        filePath: file.path,
-        fileSize: file.size,
-      })
-      setServerDownloadSuccess(true)
-      setTimeout(() => setServerDownloadSuccess(false), 3000)
-    } catch (err: any) {
-      alert(err.message || 'Erro ao iniciar download no servidor')
-    } finally {
-      setServerDownloadLoading(false)
+  // Constrói o SearchResult pro modal a partir do info/result atuais. null pra
+  // arquivos locais (sem magnet — o torrent client não os aceita; usam LocalCacheButton).
+  const buildDownloadResult = useCallback((): SearchResult | null => {
+    if (!info || isLocalHash(info.infoHash)) return null
+    const magnet = result?.magnetUri || `magnet:?xt=urn:btih:${info.infoHash}`
+    if (result) return { ...result, magnetUri: magnet, infoHash: info.infoHash, title: result.title || info.name }
+    return {
+      title: info.name, tracker: '', categoryId: 0, category: '', size: 0, seeders: 0,
+      leechers: 0, age: '', magnetUri: magnet, link: '', infoHash: info.infoHash, publishDate: '',
     }
+  }, [info, result])
+
+  // "Cache no servidor": abre o modal pré-selecionando o arquivo em reprodução.
+  const handleServerDownload = () => {
+    const r = buildDownloadResult()
+    if (!r) return
+    setPlayerDownload({ result: r, indices: selectedFile >= 0 ? [selectedFile] : undefined })
   }
+
+  // 📁↓ por arquivo: baixar a pasta inteira (recursiva) daquele arquivo. Abre o
+  // modal com todos os arquivos da pasta pré-selecionados.
+  const downloadFolderFromPlayer = useCallback((file: TorrentInfo['files'][number]) => {
+    const r = buildDownloadResult()
+    if (!r || !info) return
+    const dir = parentDir(file.path)
+    const indices = dir ? filesUnderDir(info.files, dir).map(f => f.index) : [file.index]
+    setPlayerDownload({ result: r, indices })
+  }, [buildDownloadResult, info])
   // Local (Electron) download with automatic categorization
   const [localDownloadLoading, setLocalDownloadLoading] = useState(false)
   const [overrideCategory, setOverrideCategory] = useState<string | null>(null)
@@ -1766,6 +1773,7 @@ export default function PlayerModal({
             setFileSizeDesc={setFileSizeDesc}
             setSidebarOpen={setSidebarOpen}
             setPreviewFileIdx={setPreviewFileIdx}
+            onDownloadFolder={isLocalHash(info.infoHash) ? undefined : downloadFolderFromPlayer}
           />
         )}
 
@@ -1926,6 +1934,23 @@ export default function PlayerModal({
           />
         )
       })()}
+      {/* Download modal aninhado (📁↓ por arquivo / "cache no servidor"). A
+          barreira de propagação evita que o Escape/clique-fora do Sheet borbulhe
+          pro shell do player (que minimizaria). nested → lockScroll=false + z-[70]. */}
+      {playerDownload && (
+        <div
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => e.stopPropagation()}
+          role="presentation"
+        >
+          <DownloadModal
+            result={playerDownload.result}
+            initialFileIndices={playerDownload.indices}
+            nested
+            onClose={() => setPlayerDownload(null)}
+          />
+        </div>
+      )}
       {hoverThumb.popover}
     </div>
   )

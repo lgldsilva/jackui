@@ -1,5 +1,5 @@
 import { forwardRef, memo } from 'react'
-import { Play, Eye } from 'lucide-react'
+import { Play, Eye, FolderDown } from 'lucide-react'
 import { TorrentInfo, streamThumbnailURL } from '../../api/client'
 import { detectViewerKind } from '../viewer/viewerKind'
 import { useHoverThumb } from '../FileThumbHover'
@@ -27,6 +27,9 @@ type FileRowProps = {
   readonly indentStyle?: React.CSSProperties
   // role="treeitem" wiring for the tree; the flat list leaves it undefined.
   readonly treeItemProps?: React.HTMLAttributes<HTMLButtonElement>
+  // "Baixar a pasta inteira deste arquivo" — só aparece quando o pai oferece e o
+  // arquivo está dentro de uma pasta (torrents enormes com centenas de arquivos).
+  readonly onDownloadFolder?: (file: TorrentInfo['files'][number]) => void
 }
 
 function fileBtnClass(selected: boolean, isPlayable: boolean, canPreview: boolean, ext: boolean): string {
@@ -46,11 +49,12 @@ function fileBtnClass(selected: boolean, isPlayable: boolean, canPreview: boolea
 // so the analyzer sees every field is consumed — the generic form hid the usage
 // and tripped S6767 (prop defined but never used).
 function FileRowImpl(
-  { file: f, infoHash, selected, hoverThumb, parseEpisode, playFile, setPreviewFileIdx, displayName, indentStyle, treeItemProps }: FileRowProps,
+  { file: f, infoHash, selected, hoverThumb, parseEpisode, playFile, setPreviewFileIdx, displayName, indentStyle, treeItemProps, onDownloadFolder }: FileRowProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
   const ep = parseEpisode(f.path)
   const extra = FILE_EXTRA_RE.test(f.path)
+  const inFolder = f.path.includes('/')
   const isPlayable = f.isVideo || FILE_AUDIO_RE.test(f.path)
   const previewKind = isPlayable ? 'unknown' : detectViewerKind(f.path)
   const canPreview = previewKind !== 'unknown'
@@ -98,7 +102,22 @@ function FileRowImpl(
       </span>
       <span className="flex items-center justify-between gap-2 min-w-0">
         <span className="truncate">{displayName}</span>
-        <span className="text-text-muted flex-shrink-0 text-[10px] tabular-nums">{formatSize(f.size)}</span>
+        <span className="flex items-center gap-1.5 flex-shrink-0">
+          {onDownloadFolder && inFolder && (
+            // Span (não button) pra não aninhar <button> dentro da row-button.
+            <span
+              role="button"
+              tabIndex={-1}
+              title="Baixar esta pasta"
+              aria-label="Baixar esta pasta"
+              onClick={e => { e.stopPropagation(); onDownloadFolder(f) }}
+              className="p-1 -m-1 rounded hover:bg-surface-tertiary text-text-muted hover:text-blue-400 transition-colors"
+            >
+              <FolderDown className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <span className="text-text-muted text-[10px] tabular-nums">{formatSize(f.size)}</span>
+        </span>
       </span>
     </button>
   )

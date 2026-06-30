@@ -18,6 +18,9 @@ type Props = {
   readonly onClose: () => void
   readonly onPlayFile: (result: SearchResult, fileIndex: number) => void
   readonly onAddFileToPlaylist?: (result: SearchResult, fileIndex: number, fileTitle: string) => void
+  // Quando presente, "Baixar todos" roteia pro modal unificado (destino +
+  // seleção de arquivos) em vez de enfileirar o torrent inteiro direto.
+  readonly onDownload?: (result: SearchResult) => void
 }
 
 function formatSize(bytes: number): string {
@@ -117,10 +120,24 @@ function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; rea
 // sentinel — the worker aggregates the progress of every file). Own component:
 // keeps the async confirm/queue flow out of the main modal function (Sonar
 // S3776 cognitive-complexity gate).
-function DownloadAllButton({ info, result }: { readonly info: TorrentInfo; readonly result: SearchResult }) {
+function DownloadAllButton({ info, result, onDownload }: { readonly info: TorrentInfo; readonly result: SearchResult; readonly onDownload?: (result: SearchResult) => void }) {
   const [busy, setBusy] = useState(false)
   const confirm = useConfirm()
   const { t } = useTranslation()
+  // Roteia pro modal unificado quando o pai oferece (destino + seleção); senão
+  // mantém o fluxo legado (confirma + enfileira o torrent inteiro direto).
+  if (onDownload) {
+    return (
+      <button
+        onClick={() => onDownload(result)}
+        title="Baixar (escolher destino e arquivos)"
+        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30 transition-colors"
+      >
+        <Download className="w-3 h-3" />
+        Baixar
+      </button>
+    )
+  }
   const run = async () => {
     const ok = await confirm({
       title: 'Baixar torrent completo',
@@ -152,7 +169,7 @@ function DownloadAllButton({ info, result }: { readonly info: TorrentInfo; reado
   )
 }
 
-export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist }: Props) {
+export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist, onDownload }: Props) {
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -255,7 +272,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               <span>
                 {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
               </span>
-              <DownloadAllButton info={info} result={result} />
+              <DownloadAllButton info={info} result={result} onDownload={onDownload} />
             </div>
           )}
 
