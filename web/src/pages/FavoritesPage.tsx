@@ -1,13 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff, RefreshCw } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
-  resolveTorrentInfo, queueAllTorrentFiles,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden, favoriteSetFolder,
   streamImport, SearchResult,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
+import DownloadModal from '../components/DownloadModal'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import Thumbnail from '../components/Thumbnail'
 import SeedBadge from '../components/SeedBadge'
@@ -21,7 +20,7 @@ import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { useRevealHidden } from '../lib/reveal'
 import { newTabProps, playHref } from '../lib/cardNav'
-import { formatDate, formatBytes } from '../lib/format'
+import { formatDate } from '../lib/format'
 import { SortKey, SortDir, sortFavorites } from '../lib/favSort'
 
 type FolderNode = {
@@ -233,9 +232,8 @@ export default function FavoritesPage() {
   const [revealHidden] = useRevealHidden()
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
-  const { t } = useTranslation()
-  // Nome do favorito cujo "Baixar tudo" está resolvendo metadata/enfileirando.
-  const [dlAllBusy, setDlAllBusy] = useState<string | null>(null)
+  // Favorito sendo enviado ao modal de download (destino + seleção de arquivos).
+  const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
   // pra trocar de pasta no celular).
   const [folderSheetOpen, setFolderSheetOpen] = useState(false)
@@ -442,30 +440,14 @@ export default function FavoritesPage() {
     playSingle(favToResult(f))
   }
 
-  // "Baixar tudo": resolve o metadata (cache → streamAdd), confirma com a
-  // contagem/tamanho reais e enfileira o torrent INTEIRO como UM download.
-  const downloadAllFavorite = async (fav: StreamFavorite) => {
+  // "Baixar": abre o modal unificado (destino + seleção de arquivos/árvore),
+  // como na busca. Antes baixava o torrent inteiro direto, sem perguntar nada.
+  const downloadFavorite = (fav: StreamFavorite) => {
     if (!favHasValidMagnet(fav)) {
       alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar o download.')
       return
     }
-    setDlAllBusy(fav.name)
-    try {
-      const info = await resolveTorrentInfo(fav.magnet, fav.infoHash)
-      const ok = await confirm({
-        title: 'Baixar torrent completo',
-        message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatBytes(info.totalSize)}) de "${fav.name}"?`,
-        confirmLabel: 'Baixar tudo',
-        destructive: false,
-      })
-      if (!ok) return
-      await queueAllTorrentFiles(info, fav.magnet, fav.name)
-      alert(t('downloads.whole_torrent_queued', { count: info.files.length, size: formatBytes(info.totalSize) }))
-    } catch (err: any) {
-      alert(`Falha ao preparar o download: ${err?.response?.data?.error || err.message || err}`)
-    } finally {
-      setDlAllBusy(null)
-    }
+    setDownloadTarget(favToResult(fav))
   }
 
   const openContents = (f: StreamFavorite) => {
@@ -803,20 +785,19 @@ export default function FavoritesPage() {
                       <Play className="w-3.5 h-3.5" />
                       Play
                     </button>
-                    {/* Download the WHOLE torrent — every file goes to the
-                        background queue (per-file model), no need to open the
-                        contents and pick one by one. */}
+                    {/* Baixar — abre o modal unificado (destino + seleção de
+                        arquivos/árvore), igual à busca/histórico. */}
                     <button
-                      onClick={e => { e.stopPropagation(); downloadAllFavorite(fav) }}
-                      disabled={!fav.magnet || dlAllBusy === fav.name}
-                      title="Baixar torrent completo (todos os arquivos)"
+                      onClick={e => { e.stopPropagation(); downloadFavorite(fav) }}
+                      disabled={!fav.magnet}
+                      title="Baixar (escolher destino e arquivos)"
                       className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
                         fav.magnet
                           ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30'
                           : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
                       }`}
                     >
-                      {dlAllBusy === fav.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                      <Download className="w-3.5 h-3.5" />
                     </button>
                     {/* Details/contents — view files + torrent details without
                         committing to play (consistent with search/history). */}
@@ -986,7 +967,11 @@ export default function FavoritesPage() {
         result={contentsTarget}
         onClose={() => setContentsTarget(null)}
         onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
+        onDownload={(r) => { setContentsTarget(null); setDownloadTarget(r) }}
       />
+
+      {/* Download modal — destino + seleção de arquivos (árvore), igual à busca. */}
+      <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
 
       {/* Dropdown de pastas no mobile — navega entre pastas sem a sidebar. */}
       <Sheet

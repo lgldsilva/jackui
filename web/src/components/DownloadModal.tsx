@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Download, Loader2, Clock, Server, FileVideo, FileAudio, FileText, AlertCircle, Check } from 'lucide-react'
+import { Download, Loader2, Clock, Server } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
@@ -7,8 +7,8 @@ import {
 } from '../api/client'
 import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
-import { formatBytes } from '../lib/format'
 import DownloadDestinationPicker from './DownloadDestinationPicker'
+import { FileSelectionSection } from './files/FileSelectionSection'
 
 // Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
 // as opposed to handing the torrent to an external qBittorrent/Transmission.
@@ -43,14 +43,6 @@ function defaultSelected(files: StreamFile[]): Set<number> {
     sel.add(biggest.index)
   }
   return sel
-}
-
-function fileIcon(f: StreamFile) {
-  if (f.isVideo) return <FileVideo className="w-4 h-4 text-green-400 flex-shrink-0" />
-  if (/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(f.path)) {
-    return <FileAudio className="w-4 h-4 text-purple-400 flex-shrink-0" />
-  }
-  return <FileText className="w-4 h-4 text-text-muted flex-shrink-0" />
 }
 
 async function downloadInternal(
@@ -108,26 +100,19 @@ async function downloadInternal(
 type DownloadModalProps = {
   readonly result: SearchResult | null
   readonly onClose: () => void
+  // Pré-seleção opcional (ex: "baixar esta pasta" no player passa os índices da
+  // pasta). Quando ausente, o modal aplica a heurística defaultSelected.
+  readonly initialFileIndices?: readonly number[]
+  // Modal aninhado (dentro do player): não trava o scroll de novo (o player já
+  // segura o lock; useScrollLock não é refcounted) e sobe o z-index.
+  readonly nested?: boolean
 }
 
 const KEY_CLIENT = 'lastClientId'
 const KEY_PATH = 'lastSavePath'
 const KEY_RECENT_PATHS = 'recentSavePaths'
 
-// Toast discreto do auto-download (quando o único destino é o interno — sem modal de escolha).
-function AutoDownloadToast({ error, success }: { readonly error: string; readonly success: boolean }) {
-  let body
-  if (error) body = <><AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" /><span>{error}</span></>
-  else if (success) body = <><Check className="w-4 h-4 text-green-400 flex-shrink-0" /><span>Adicionado aos Downloads</span></>
-  else body = <><Loader2 className="w-4 h-4 animate-spin text-green-400 flex-shrink-0" /><span>Enviando para Downloads…</span></>
-  return (
-    <div className="fixed bottom-4 right-4 z-[80] flex items-center gap-2 px-4 py-3 rounded-xl border border-default bg-surface-secondary text-sm text-text-primary shadow-lg">
-      {body}
-    </div>
-  )
-}
-
-export default function DownloadModal({ result, onClose }: DownloadModalProps) {
+export default function DownloadModal({ result, onClose, initialFileIndices, nested }: DownloadModalProps) {
   const [clients, setClients] = useState<DownloadClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
   const [savePath, setSavePath] = useState('')
@@ -146,17 +131,13 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   // Chosen destination for the internal download (#16); empty = default dir.
   const [dest, setDest] = useState<{ destBase: string; destSubdir: string }>({ destBase: '', destSubdir: '' })
   const pathInputRef = useRef<HTMLInputElement>(null)
-  // Auto-skip: sem clientes externos, o único destino é o interno — não faz
-  // sentido abrir o modal de escolha. Baixamos direto (torrent inteiro) e
-  // mostramos só um toast. clientsLoaded evita o flash do modal enquanto carrega.
+  // clientsLoaded evita o flash do modal enquanto a lista de clientes carrega.
   const [clientsLoaded, setClientsLoaded] = useState(false)
-  const autoStartedRef = useRef(false)
 
   useEffect(() => {
     if (!result) return
 
     setClientsLoaded(false)
-    autoStartedRef.current = false
     setError('')
     setSuccess(false)
     setFiles(null)
@@ -207,8 +188,15 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
       }
       if (cancelled) return
       if ((info?.files?.length ?? 0) > 0) {
-        setFiles(info!.files ?? [])
-        setSelectedFiles(defaultSelected(info!.files ?? []))
+        const resolved = info!.files ?? []
+        setFiles(resolved)
+        // Pré-seleção explícita (ex: pasta vinda do player) tem prioridade;
+        // filtramos contra os arquivos realmente resolvidos (defensivo: cache
+        // vs streamAdd) e caímos na heurística se o filtro esvaziar.
+        const preset = initialFileIndices
+          ? new Set(resolved.filter(f => initialFileIndices.includes(f.index)).map(f => f.index))
+          : null
+        setSelectedFiles(preset && preset.size > 0 ? preset : defaultSelected(resolved))
       } else if (!filesError) {
         setFilesError('Metadata não disponível ainda — o worker vai resolver depois.')
       }
@@ -217,23 +205,6 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, selectedClientId])
-
-  // Único destino = interno → baixa o torrent inteiro direto, sem abrir o modal.
-  useEffect(() => {
-    if (!result || !clientsLoaded || clients.length > 0 || autoStartedRef.current) return
-    autoStartedRef.current = true
-    void (async () => {
-      setLoading(true)
-      setError('')
-      const err = await downloadInternal(result, null, new Set(), streamAdd, downloadCreate)
-      setLoading(false)
-      if (err) { setError(err); setTimeout(onClose, 5000); return }
-      save(KEY_CLIENT, INTERNAL_ID)
-      setSuccess(true)
-      setTimeout(onClose, 1400)
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, clientsLoaded, clients.length])
 
   const handleDownload = async () => {
     if (!result) return
@@ -266,8 +237,6 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
   }
 
   if (!result) return null
-  // Sem clientes externos: nenhuma escolha a fazer — auto-download direto + toast, sem modal.
-  if (clientsLoaded && clients.length === 0) return <AutoDownloadToast error={error} success={success} />
   // Ainda decidindo (carregando clientes) — não pisca o modal.
   if (!clientsLoaded) return null
 
@@ -276,6 +245,8 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
       open
       onClose={onClose}
       size="lg"
+      lockScroll={!nested}
+      zClass={nested ? 'z-[70]' : undefined}
       title="Enviar para Download"
       icon={<Download className="w-4 h-4 text-green-500 flex-shrink-0" />}
       footer={
@@ -329,35 +300,6 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
               inteiro pro cliente, sem como filtrar arquivos. */}
           {selectedClientId === INTERNAL_ID && (
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-text-primary">
-                  Arquivos pra baixar
-                  {files && (
-                    <span className="text-xs text-text-muted font-normal ml-2">
-                      {selectedFiles.size}/{files.length} selecionados
-                    </span>
-                  )}
-                </label>
-                {(files?.length ?? 0) > 1 && (
-                  <div className="flex gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedFiles(new Set((files ?? []).map(f => f.index)))}
-                      className="text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300"
-                    >
-                      Todos
-                    </button>
-                    <span className="text-text-muted">·</span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedFiles(new Set())}
-                      className="text-text-secondary hover:text-text-primary"
-                    >
-                      Nenhum
-                    </button>
-                  </div>
-                )}
-              </div>
               {filesLoading && (
                 <div className="flex items-center gap-2 text-xs text-text-muted py-2">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -370,35 +312,11 @@ export default function DownloadModal({ result, onClose }: DownloadModalProps) {
                 </p>
               )}
               {(files?.length ?? 0) > 0 && (
-                <ul className="bg-surface border border-default rounded-lg max-h-56 overflow-y-auto divide-y divide-default">
-                  {(files ?? []).map(f => {
-                    const checked = selectedFiles.has(f.index)
-                    const toggle = () => {
-                      const next = new Set(selectedFiles)
-                      if (checked) next.delete(f.index); else next.add(f.index)
-                      setSelectedFiles(next)
-                    }
-                    return (
-                      <li key={f.index} className="px-3 py-2 hover:bg-surface-secondary/40">
-                        <label className="flex items-center gap-2.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={toggle}
-                          className="accent-cyan-500 flex-shrink-0"
-                        />
-                        {fileIcon(f)}
-                        <span className="flex-1 min-w-0 text-sm text-text-primary truncate" title={f.path}>
-                          {f.path}
-                        </span>
-                        <span className="text-xs text-text-muted flex-shrink-0">
-                          {formatBytes(f.size)}
-                        </span>
-                        </label>
-                      </li>
-                    )
-                  })}
-                </ul>
+                <FileSelectionSection
+                  files={files ?? []}
+                  selected={selectedFiles}
+                  onChange={setSelectedFiles}
+                />
               )}
             </div>
           )}

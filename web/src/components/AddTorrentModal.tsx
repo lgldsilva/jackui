@@ -2,7 +2,6 @@ import { useState, useRef, DragEvent, useEffect } from 'react'
 import {
   UploadCloud, Link2, Loader2, AlertCircle, Trash2,
   ChevronDown, ChevronUp, CheckCircle2, Server, Clock,
-  FileVideo, FileAudio, FileText
 } from 'lucide-react'
 import {
   streamAdd, streamAddTorrentFile, streamMetadata,
@@ -14,6 +13,7 @@ import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 import { uid } from '../lib/uid'
+import { FileSelectionSection } from './files/FileSelectionSection'
 
 type Props = {
   readonly isOpen: boolean
@@ -54,14 +54,6 @@ function defaultSelected(files: StreamFile[]): Set<number> {
     sel.add(biggest.index)
   }
   return sel
-}
-
-function fileIcon(f: StreamFile) {
-  if (f.isVideo) return <FileVideo className="w-4 h-4 text-green-400 flex-shrink-0" />
-  if (/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(f.path)) {
-    return <FileAudio className="w-4 h-4 text-purple-400 flex-shrink-0" />
-  }
-  return <FileText className="w-4 h-4 text-text-muted flex-shrink-0" />
 }
 
 function renderItemStatus(item: TorrentItem) {
@@ -310,31 +302,10 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     setItems(prev => prev.map(item => item.id === id ? { ...item, expanded: !item.expanded } : item))
   }
 
-  const handleFileToggle = (itemId: string, fileIndex: number) => {
-    setItems(prev => prev.map(item => {
-      if (item.id !== itemId) return item
-      const nextSelected = new Set(item.selectedFiles)
-      if (nextSelected.has(fileIndex)) {
-        nextSelected.delete(fileIndex)
-      } else {
-        nextSelected.add(fileIndex)
-      }
-      return { ...item, selectedFiles: nextSelected }
-    }))
-  }
-
-  const handleSelectAllFiles = (itemId: string, allIndices: number[]) => {
-    setItems(prev => prev.map(item => {
-      if (item.id !== itemId) return item
-      return { ...item, selectedFiles: new Set(allIndices) }
-    }))
-  }
-
-  const handleSelectNoFiles = (itemId: string) => {
-    setItems(prev => prev.map(item => {
-      if (item.id !== itemId) return item
-      return { ...item, selectedFiles: new Set() }
-    }))
+  // FileSelectionSection já calcula o próximo Set (toggle de arquivo OU de pasta
+  // recursiva, "Todos"/"Nenhum"); aqui só persistimos no item certo.
+  const updateItemSelection = (itemId: string, next: Set<number>) => {
+    setItems(prev => prev.map(item => item.id === itemId ? { ...item, selectedFiles: next } : item))
   }
 
   const handleConfirmDownloads = async () => {
@@ -618,56 +589,13 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
                       {/* Expandable files checklist (only for internal downloads) */}
                       {item.expanded && (item.files?.length ?? 0) > 0 && selectedClientId === INTERNAL_ID && (
-                        <div className="border-t border-default bg-surface-elevated/60 p-3 space-y-2">
-                          <div className="flex items-center justify-between text-xs px-1">
-                            <span className="text-text-secondary font-medium">Lista de Arquivos</span>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleSelectAllFiles(item.id, item.files!.map(f => f.index))}
-                                className="text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 font-semibold"
-                              >
-                                Todos
-                              </button>
-                              <span className="text-text-muted">•</span>
-                              <button
-                                type="button"
-                                onClick={() => handleSelectNoFiles(item.id)}
-                                className="text-text-muted hover:text-text-primary font-semibold"
-                              >
-                                Nenhum
-                              </button>
-                            </div>
-                          </div>
-                          
-                          <ul className="border border-default rounded-lg max-h-44 overflow-y-auto divide-y divide-default bg-surface/60">
-                            {(item.files ?? []).map(f => {
-                              const isChecked = item.selectedFiles.has(f.index)
-                              const toggle = () => handleFileToggle(item.id, f.index)
-                              return (
-                                <li 
-                                  key={f.index} 
-                                  className="px-2.5 py-1.5 hover:bg-surface-secondary/40 text-xs"
-                                >
-                                  <label className="flex items-center gap-2 cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={toggle}
-                                    className="accent-cyan-500 flex-shrink-0"
-                                  />
-                                  {fileIcon(f)}
-                                  <span className="flex-1 min-w-0 text-text-primary truncate" title={f.path}>
-                                    {f.path}
-                                  </span>
-                                  <span className="text-text-muted flex-shrink-0 font-mono">
-                                    {formatBytes(f.size)}
-                                  </span>
-                                  </label>
-                                </li>
-                              )
-                            })}
-                          </ul>
+                        <div className="border-t border-default bg-surface-elevated/60 p-3">
+                          <FileSelectionSection
+                            files={item.files ?? []}
+                            selected={item.selectedFiles}
+                            onChange={next => updateItemSelection(item.id, next)}
+                            label="Lista de Arquivos"
+                          />
                         </div>
                       )}
                     </div>
