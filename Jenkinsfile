@@ -261,18 +261,28 @@ pipeline {
                 docker run --rm --user 0 -e FETCH_LICENSE=false --entrypoint sh \
                   -v "$HOST_WS/.cdx-src":/src -w /src "$CDXGEN_IMAGE" \
                   -c 'cdxgen --spec-version 1.6 -r -t go -t javascript -o /src/bom.json . ; chown -R 1000:1000 /src 2>/dev/null || true' || true
+                # DT upload is BEST-EFFORT and must NEVER redden the build (the SBOM stage is
+                # off the critical path — see the header). Every curl gets --max-time so an
+                # unreachable/slow Dependency-Track can't hang the ARM node, and the whole
+                # block is guarded so a login failure (empty JWT) or upload error just warns.
                 if [ -s .cdx-src/bom.json ]; then
-                  JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
-                    --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
-                  printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
-                    "$(base64 -w0 .cdx-src/bom.json)" > dt-payload.json
-                  curl -sk -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
-                    -H 'Content-Type: application/json' --data-binary @dt-payload.json \
-                    -w '\n[DT upload HTTP %{http_code}]\n'
+                  JWT=$(curl -sk --max-time 20 -X POST "$DT_API/api/v1/user/login" \
+                    --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS" || true)
+                  if [ -n "$JWT" ]; then
+                    printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
+                      "$(base64 -w0 .cdx-src/bom.json)" > dt-payload.json
+                    curl -sk --max-time 60 -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
+                      -H 'Content-Type: application/json' --data-binary @dt-payload.json \
+                      -w '\n[DT upload HTTP %{http_code}]\n' || echo 'AVISO: upload do BOM pro DT falhou (não-gate) — verifique o Dependency-Track'
+                  else
+                    echo 'AVISO: login no Dependency-Track falhou/vazio (não-gate) — cheque a credencial jackui-dt-arm ou se o DT está no ar; pulando upload'
+                  fi
                 else
                   echo 'bom.json vazio/ausente — cdxgen falhou; pulando upload pro DT'
                 fi
                 rm -rf .cdx-src dt-payload.json
+                # Best-effort stage: succeed regardless of the DT outcome above.
+                true
               '''
             }
           }
