@@ -776,6 +776,14 @@ func (h *Handler) methodSessionGet() rpcResponse {
 	// the header we sent on the 409, or a fresh one when auth is disabled).
 	sessionID := h.generateSessionID(dir)
 
+	peerPort := 51469
+	if h.streamer != nil {
+		p := h.streamer.ListenPort()
+		if p > 0 {
+			peerPort = p
+		}
+	}
+
 	return successResp(map[string]interface{}{
 		"version":                              "4.1.1",
 		"rpc-version":                          19,
@@ -790,7 +798,7 @@ func (h *Handler) methodSessionGet() rpcResponse {
 		"cache-size-mb":                        4,
 		"seedRatioLimit":                       2.0,
 		"seedRatioLimited":                     false,
-		"peer-port":                            51469,
+		"peer-port":                            peerPort,
 		"peer-port-random-on-start":            false,
 		"peer-limit-global":                    200,
 		"peer-limit-per-torrent":               50,
