@@ -5,6 +5,7 @@ import NavHeader from '../components/NavHeader'
 import TrailerModal from '../components/TrailerModal'
 import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendation, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
 import { groupRecommendations, removeRec, RecGroup } from '../lib/recsGroup'
+import { dedupeMatches } from '../lib/dedupeMatches'
 import { usePersistedState } from '../lib/storage'
 import { useQueryParam, useEnumQueryParam } from '../lib/useQueryState'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
@@ -251,13 +252,15 @@ export default function DiscoverPage() {
   // Personalized recommendations from the watched library (loaded once, best-
   // effort). Empty → the section just doesn't render.
   useEffect(() => {
-    tmdbRecommendations().then(setRecs).catch(() => setRecs([]))
+    // Dedupe by (kind, tmdbId) so no two cards share a React key even if the
+    // server (or a response cached before the dedupe fix) returns a repeat.
+    tmdbRecommendations().then(l => setRecs(dedupeMatches(l))).catch(() => setRecs([]))
   }, [])
 
   // Trending / discover list — refetched whenever the year/genre filter changes.
   useEffect(() => {
     setItems(null)
-    tmdbTrending({ year, genre }).then(setItems).catch(() => setItems([]))
+    tmdbTrending({ year, genre }).then(l => setItems(dedupeMatches(l))).catch(() => setItems([]))
   }, [year, genre])
 
   const openSearch = (m: TmdbMatch) => {

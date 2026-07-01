@@ -46,7 +46,31 @@ func (c *Client) Discover(ctx context.Context, year, genre int) ([]Match, error)
 	}
 	all := append(movies, shows...)
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Popularity > all[j].Popularity })
-	return all, nil
+	// Dedupe AFTER sorting so the surviving copy is the most-popular one. TMDB
+	// paginates /discover by popularity.desc, whose ranking shifts between HTTP
+	// calls, so the same title can land on more than one page.
+	return dedupeMatches(all), nil
+}
+
+// dedupeMatches drops repeated titles (same Kind+TmdbID), keeping the first
+// occurrence. TMDB's paginated endpoints can return the same item on more than
+// one page (the popularity ranking shifts between requests); a duplicate would
+// otherwise reach the UI as two cards sharing one React key ("kind-tmdbId"),
+// which corrupts reconciliation and visibly duplicates cards. Returns a fresh
+// slice (never mutates the input). Note: movie and tv share a numeric id space
+// in TMDB, so the Kind is part of the key.
+func dedupeMatches(in []Match) []Match {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]Match, 0, len(in))
+	for _, m := range in {
+		k := m.Kind + ":" + strconv.Itoa(m.TmdbID)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, m)
+	}
+	return out
 }
 
 func (c *Client) discoverKind(ctx context.Context, kind string, year, genre int) ([]Match, error) {

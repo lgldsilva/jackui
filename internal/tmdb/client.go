@@ -324,6 +324,10 @@ func (c *Client) fetchTrending(ctx context.Context) ([]Match, error) {
 		}
 		all = append(all, items...)
 	}
+	// Dedupe before annotating direction: /trending/all/week can repeat a title
+	// across pages (the weekly ranking shifts between HTTP calls), and a repeat
+	// would reach the UI as two cards sharing one React key ("kind-tmdbId").
+	all = dedupeMatches(all)
 	c.applyTrendingDirection(all)
 	return all, nil
 }
