@@ -87,6 +87,10 @@ type AIProvider struct {
 	// can't be discovered (Google — its /models has no pricing). Empty → the default.
 	// Update this instead of the code when a provider ships/reprices a free model.
 	FreeModels []string `yaml:"free_models,omitempty"`
+	// RPM caps requests-per-minute to this provider so a burst benchmark doesn't trip a
+	// free-tier rate limit and leave models "incomplete". 0 → the built-in default (see
+	// defaultProviderModels; Google's free tier is ~30/min). Set high to disable throttling.
+	RPM int `yaml:"rpm,omitempty"`
 }
 
 type AIChainSlot struct {
@@ -1014,17 +1018,29 @@ func matchNonEmbedding(models []string) string {
 var defaultProviderModels = map[string]struct {
 	preferred []string
 	free      []string
+	rpm       int // default requests/min cap (0 = unthrottled); set for free tiers that burst-limit
 }{
 	"opencode":   {preferred: []string{"deepseek-v4-flash-free"}},
 	"groq":       {preferred: []string{"llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"}},
 	"openrouter": {preferred: []string{"meta-llama/llama-3.3-70b-instruct:free"}},
 	"ollama":     {preferred: []string{"llama3.1:8b", "gemma3:4b", "llama3.2:3b", "mistral:7b"}},
-	"google":     {free: []string{"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"}},
+	// Google's free tier is ~30 req/min (flash-lite); throttle so a burst benchmark
+	// completes instead of tripping 429s and marking Gemini incomplete.
+	"google": {free: []string{"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"}, rpm: 30},
 }
 
 // DefaultFreeModels exposes the built-in free-id fallback for a provider (used by the ai
 // package when a provider's config sets no FreeModels override).
 func DefaultFreeModels(provider string) []string { return defaultProviderModels[provider].free }
+
+// EffectiveRPM returns the requests/min cap for a provider: the config override (configRPM)
+// when > 0, else the built-in default (0 = unthrottled). Used by the ai client to pace calls.
+func EffectiveRPM(provider string, configRPM int) int {
+	if configRPM > 0 {
+		return configRPM
+	}
+	return defaultProviderModels[provider].rpm
+}
 
 // preferredModels / freeModels return the effective list for a provider: the config
 // override when set, else the built-in default.
