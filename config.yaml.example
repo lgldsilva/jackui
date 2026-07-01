@@ -25,3 +25,21 @@ download_clients:
     username: ""
     password: ""
     default: false
+
+# AI title identification (OPCIONAL). Normalmente basta exportar as chaves por env
+# (GROQ_API_KEY / OPENROUTER_API_KEY / OPENCODE_API_KEY / GEMINI_API_KEY / OLLAMA_BASE_URL):
+# a chain é auto-semeada e o benchmark reordena por score. A seção abaixo só é necessária
+# para SOBRESCREVER as escolhas padrão de modelo (elas têm defaults no código):
+# ai:
+#   providers:
+#     groq:
+#       # preferred_models: ordem de preferência do pick default deste provider (a ORDEM da
+#       # chain continua vindo do benchmark; isto só decide QUAL modelo o provider oferece).
+#       preferred_models: [llama-3.1-8b-instant, llama-3.3-70b-versatile]
+#     ollama:
+#       preferred_models: [llama3.1:8b, gemma3:4b]
+#     google:
+#       # free_models: lista fixa de ids FREE do Gemini (o /models do Google não expõe pricing).
+#       # Atualize aqui quando o Google mudar o free tier — nunca inclua modelos pagos (pro/3.5).
+#       free_models: [gemini-2.5-flash-lite, gemini-2.5-flash]
+#   max_cost_per_1m: 0        # 0 = só testa/adota modelos grátis no benchmark
