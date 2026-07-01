@@ -83,6 +83,9 @@ type Client struct {
 	// override or built-in default), cached so isFreeModel can gate Gemini's per-model
 	// free tier — which its /models can't reveal. See config.DefaultFreeModels.
 	googleFree []string
+	// limiter paces calls per provider to respect free-tier requests/min caps (nil when
+	// no provider is throttled). Set in New from each provider's effective RPM.
+	limiter *providerLimiter
 }
 
 // CostConfig holds the knobs that drive the value-based score: the benchmark cost
@@ -154,6 +157,14 @@ func New(cfg config.AIConfig) *Client {
 	} else {
 		c.googleFree = config.DefaultFreeModels("google")
 	}
+	// Per-provider requests/min caps (config override, else built-in default) → limiter.
+	rpm := map[string]int{}
+	for name, p := range cfg.Providers {
+		if r := config.EffectiveRPM(name, p.RPM); r > 0 {
+			rpm[name] = r
+		}
+	}
+	c.limiter = newProviderLimiter(rpm)
 	c.SetCostConfig(CostConfig{MaxCostPer1M: cfg.MaxCostPer1M, KWhPrice: cfg.ElectricityPricePerKWh, LocalWatts: cfg.LocalPowerWatts})
 	for _, s := range cfg.Chain {
 		if s.Disabled {
@@ -580,6 +591,11 @@ func (c *Client) chat(ctx context.Context, s Slot, system, user string, jsonMode
 		req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	}
 
+	// Respect the provider's requests/min cap BEFORE starting the clock, so the throttle
+	// wait isn't charged to the model's measured latency. No-op for unthrottled providers.
+	if e := c.limiter.reserve(ctx, s.Provider); e != nil {
+		return "", 0, 0, e
+	}
 	start := time.Now()
 	resp, doErr := c.http.Do(req)
 	latency = time.Since(start)
