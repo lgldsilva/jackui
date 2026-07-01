@@ -111,14 +111,17 @@ export default function AIBenchmarkCard() {
     })
     if (!ok) return
     setRunning(true); setMsg('')
+    setServerRunning(true); pollStatus()
     try {
       const results = await runAIBenchmark(selectedProvider || undefined)
       setStatus(s => s ? { ...s, results } : s)
       setMsg(`Benchmark${providerLabel} concluído — chain adotada pelo melhor score.`)
+      setServerRunning(false); stopPolling()
     } catch (e: any) {
       const serverErr = e?.response?.data?.error
       if (serverErr) {
         setMsg(serverErr)
+        setServerRunning(false); stopPolling()
       } else {
         // No response reached us (proxy/browser gave up) — the run itself keeps
         // going server-side by design. Check the tracker instead of assuming
@@ -162,13 +165,39 @@ export default function AIBenchmarkCard() {
   // be clicked LATER (even a day after) so the retry lands outside the limit window.
   const runIncomplete = async () => {
     setRunningIncomplete(true); setMsg('')
+    setServerRunning(true); pollStatus()
     try {
       const results = await runAIBenchmarkIncomplete()
       setStatus(s => s ? { ...s, results } : s)
       const left = results.filter(needsRerun).length
       setMsg(left > 0 ? `Faltantes re-rodados — ${left} ainda incompleto(s) (tente fora da janela do rate limit).` : 'Faltantes re-rodados — todos completos agora.')
+      setServerRunning(false); stopPolling()
     } catch (e: any) {
-      setMsg(e?.response?.data?.error || 'Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+      const serverErr = e?.response?.data?.error
+      if (serverErr) {
+        setMsg(serverErr)
+        setServerRunning(false); stopPolling()
+      } else {
+        // No response reached us (proxy/browser gave up) — the run itself keeps
+        // going server-side by design. Check the tracker instead of assuming
+        // it died, and start following it if it's still active.
+        try {
+          const s = await aiBenchmarkStatus()
+          if (s.running) {
+            setMsg('A requisição expirou, mas o benchmark continua rodando no servidor — acompanhando o progresso…')
+            setServerRunning(true)
+            pollStatus()
+          } else {
+            setMsg('Falha ao rodar o benchmark.')
+            setServerRunning(false)
+            stopPolling()
+          }
+        } catch {
+          setMsg('Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+          setServerRunning(false)
+          stopPolling()
+        }
+      }
     } finally { setRunningIncomplete(false) }
   }
 
