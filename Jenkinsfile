@@ -44,8 +44,12 @@ pipeline {
   }
 
   environment {
-    REGISTRY    = '192.168.0.100:3000'
-    IMAGE       = "192.168.0.100:3000/lgldsilva/jackui"
+    // Gitea (git + container registry) migrou do homeserver p/ o oracle-desktop.
+    // Aponta pelo hostname (NPM/CA, roteado pro host atual + listado nos
+    // insecure-registries do daemon) em vez do IP de LAN — sobrevive a futuras
+    // migrações: só o proxy repontaria. Mesmo hostname que GITEA_API/SBOM já usam.
+    REGISTRY    = 'gitea.raspberrypi.lan'
+    IMAGE       = "gitea.raspberrypi.lan/lgldsilva/jackui"
     // TAG (git-sha8) é definido no stage 'Limpeza + Checkout', DEPOIS do
     // checkout — com skipDefaultCheckout(true) o env.GIT_COMMIT ainda é null
     // aqui no startup, e cair no BUILD_NUMBER geraria tag numérica que o regex
@@ -233,9 +237,9 @@ pipeline {
             // só pro `git archive`. rm defensivo antes: restos root de um cdxgen anterior
             // são chownados de volta no fim, mas varremos por segurança.
             sh 'rm -rf .cdx-src bom.json dt-payload.json 2>/dev/null || true'
-            // NÃO usar `checkout scm`: o job single-branch 'jackui' aponta o SCM pro IP de
-            // LAN 192.168.0.100:3000, INALCANÇÁVEL dos nós ARM (cloud, via WireGuard). Checa
-            // pelo hostname gitea.raspberrypi.lan, que o agente ARM resolve pro NPM via
+            // NÃO usar `checkout scm`: o SCM do job aponta pro Gitea via hostname, mas os
+            // nós ARM (cloud, via WireGuard) dependem do mesmo hostname resolvido pelo NPM.
+            // Checa explicitamente por gitea.raspberrypi.lan, que o agente ARM resolve via
             // extra_hosts (cert da CA interna confiado pela imagem) — mesmo caminho que os
             // builds de PR já usam no ARM. Fixa o SHA exato do build (env.GIT_COMMIT, setado
             // no 'Limpeza + Checkout' do built-in) pra o SBOM casar com o que foi deployado.
@@ -364,7 +368,7 @@ pipeline {
               echo "Tag $SEMVER já existe — nada a publicar."
             else
               git tag "$SEMVER"
-              if git push "http://$GITEA_USER:$GITEA_TOKEN@192.168.0.100:3000/lgldsilva/jackui.git" "refs/tags/$SEMVER"; then
+              if git -c http.sslVerify=false push "https://$GITEA_USER:$GITEA_TOKEN@gitea.raspberrypi.lan/lgldsilva/jackui.git" "refs/tags/$SEMVER"; then
                 echo "Tag $SEMVER publicada no Gitea."
               else
                 echo "aviso: push da tag $SEMVER falhou (deploy já concluído; só não registrou a tag)."
@@ -380,7 +384,7 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GU', passwordVariable: 'GT')]) {
           sh '''
-            API=http://192.168.0.100:3000/api/v1
+            API=https://gitea.raspberrypi.lan/api/v1
             curl -sk -u "$GU:$GT" "$API/packages/lgldsilva?type=container&limit=100" \
               | docker run -i --rm ghcr.io/jqlang/jq:latest -r \
                   '[.[] | select(.name=="jackui" and (.version|test("^[0-9a-f]{8,40}$")))] | sort_by(.created_at) | reverse | .[2:][].version' \
