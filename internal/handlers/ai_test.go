@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ func TestGetAIBenchmark_NilClientNilStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/ai/benchmark", nil)
 
-	GetAIBenchmark(nil, nil)(c)
+	GetAIBenchmark(nil, nil, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -46,7 +47,7 @@ func TestGetAIBenchmark_WithStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/ai/benchmark", nil)
 
-	GetAIBenchmark(nil, store)(c)
+	GetAIBenchmark(nil, store, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -152,7 +153,7 @@ func TestRunAIBenchmark_NilClient(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/ai/benchmark", nil)
 
-	RunAIBenchmark(nil, nil)(c)
+	RunAIBenchmark(nil, nil, nil)(c)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503; body: %s", w.Code, w.Body.String())
@@ -230,7 +231,7 @@ func TestRunAIBenchmarkIncomplete_NilClient(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/ai/benchmark/rerun-incomplete", nil)
-	RunAIBenchmarkIncomplete(nil, nil)(c)
+	RunAIBenchmarkIncomplete(nil, nil, nil)(c)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
 	}
@@ -249,7 +250,7 @@ func TestRunAIBenchmarkIncomplete_NilStore(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/ai/benchmark/rerun-incomplete", nil)
-	RunAIBenchmarkIncomplete(client, nil)(c)
+	RunAIBenchmarkIncomplete(client, nil, nil)(c)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", w.Code)
 	}
@@ -286,7 +287,7 @@ func TestRunAIBenchmarkIncomplete_RerunsIncomplete(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/ai/benchmark/rerun-incomplete", nil)
-	RunAIBenchmarkIncomplete(client, store)(c)
+	RunAIBenchmarkIncomplete(client, store, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -326,7 +327,7 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark", nil)
-		RunAIBenchmark(client, store)(c)
+		RunAIBenchmark(client, store, nil)(c)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
@@ -337,7 +338,7 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark?provider=groq&model=m", nil)
-		RunAIBenchmark(client, store)(c)
+		RunAIBenchmark(client, store, nil)(c)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
@@ -348,7 +349,7 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark?provider=groq", nil)
-		RunAIBenchmark(client, store)(c)
+		RunAIBenchmark(client, store, nil)(c)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
@@ -359,7 +360,7 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest("POST", "/api/ai/benchmark?model=m", nil)
-		RunAIBenchmark(client, store)(c)
+		RunAIBenchmark(client, store, nil)(c)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 		}
@@ -386,5 +387,114 @@ func TestPersistBenchmarkRun(t *testing.T) {
 	pool.Close()
 	if _, err := persistBenchmarkRun(store, scores, "", ""); err == nil {
 		t.Fatal("expected an error from a closed store")
+	}
+}
+
+func TestBenchmarkRunTracker_StartFinishStop(t *testing.T) {
+	tr := NewBenchmarkRunTracker()
+	if running, _ := tr.Status(); running {
+		t.Fatal("a fresh tracker must report not running")
+	}
+	if tr.Stop() {
+		t.Fatal("stopping an idle tracker should report nothing to stop")
+	}
+
+	cancelled := false
+	if !tr.start(func() { cancelled = true }) {
+		t.Fatal("start on an idle tracker should succeed")
+	}
+	if running, _ := tr.Status(); !running {
+		t.Fatal("expected running=true after start")
+	}
+	if tr.start(func() {}) {
+		t.Fatal("a second start while one is active must be rejected")
+	}
+	if !tr.Stop() {
+		t.Fatal("Stop should succeed while a run is active")
+	}
+	if !cancelled {
+		t.Fatal("Stop must invoke the stored cancel func")
+	}
+
+	tr.finish()
+	if running, _ := tr.Status(); running {
+		t.Fatal("expected running=false after finish")
+	}
+}
+
+// TestRunAIBenchmark_RejectsConcurrentRun: a second POST while one run is
+// already tracked must be rejected with 409, not spawn a competing run against
+// the same (serialized) local Ollama queue.
+func TestRunAIBenchmark_RejectsConcurrentRun(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := ai.New(config.AIConfig{
+		Enabled:   true,
+		Providers: map[string]config.AIProvider{"groq": {BaseURL: "http://x"}},
+		Chain:     []config.AIChainSlot{{ID: "groq:m", Provider: "groq", Model: "m"}},
+	})
+	tracker := NewBenchmarkRunTracker()
+	_, busyCancel := context.WithCancel(context.Background())
+	defer busyCancel()
+	if !tracker.start(busyCancel) {
+		t.Fatal("setup: start should succeed on a fresh tracker")
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/api/ai/benchmark", nil)
+	RunAIBenchmark(client, nil, tracker)(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCancelAIBenchmark covers both branches: nothing running → 404, and an
+// active run → 200 + the tracked cancel func actually invoked.
+func TestCancelAIBenchmark(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	CancelAIBenchmark(NewBenchmarkRunTracker())(c)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("idle tracker: status = %d, want 404", w.Code)
+	}
+
+	tracker := NewBenchmarkRunTracker()
+	cancelled := false
+	tracker.start(func() { cancelled = true })
+
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	CancelAIBenchmark(tracker)(c2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("active tracker: status = %d, want 200", w2.Code)
+	}
+	if !cancelled {
+		t.Fatal("cancel endpoint must invoke the tracked cancel func")
+	}
+}
+
+// TestGetAIBenchmark_ReportsRunning: the Settings card needs this to show a
+// running/cancel state even after ITS OWN request already timed out client-side
+// (the run keeps going server-side by design — see RunAIBenchmark).
+func TestGetAIBenchmark_ReportsRunning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tracker := NewBenchmarkRunTracker()
+	tracker.start(func() {})
+	defer tracker.finish()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/ai/benchmark", nil)
+	GetAIBenchmark(nil, nil, tracker)(c)
+
+	var resp aiStatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal("invalid JSON:", err)
+	}
+	if !resp.Running || resp.StartedAt == "" {
+		t.Fatalf("expected running=true with a startedAt, got %+v", resp)
 	}
 }

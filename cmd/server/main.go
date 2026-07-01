@@ -147,6 +147,7 @@ type appDeps struct {
 	tmdbClient       *tmdb.Client
 	aiClient         *ai.Client
 	aiBench          *ai.BenchmarkStore
+	aiBenchRun       *handlers.BenchmarkRunTracker
 	webSearch        *imagesearch.Chain
 	watchlistStore   *watchlist.Store
 	watchlistWkr     *watchlist.Worker
@@ -784,6 +785,7 @@ func initAIClient(deps *appDeps) {
 		log.Printf("AI title identification: disabled (no chain) — using regex title cleaning")
 		return
 	}
+	deps.aiBenchRun = handlers.NewBenchmarkRunTracker()
 	bs, err := ai.NewBenchmarkStore(deps.db)
 	if err != nil {
 		log.Printf("Warning: ai benchmark store init failed: %v", err)
@@ -1255,9 +1257,10 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		adminAPI.GET("/mounts", handlers.MountsGet(deps.cfg))
 		adminAPI.PUT("/mounts", handlers.MountsUpdate(deps.cfg, deps.configPath, deps.localBrowser))
 		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
-		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench))
-		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench))
-		adminAPI.POST("/ai/benchmark/rerun-incomplete", handlers.RunAIBenchmarkIncomplete(deps.aiClient, deps.aiBench))
+		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench, deps.aiBenchRun))
+		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench, deps.aiBenchRun))
+		adminAPI.POST("/ai/benchmark/cancel", handlers.CancelAIBenchmark(deps.aiBenchRun))
+		adminAPI.POST("/ai/benchmark/rerun-incomplete", handlers.RunAIBenchmarkIncomplete(deps.aiClient, deps.aiBench, deps.aiBenchRun))
 		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
 		adminAPI.PUT("/ai/settings", handlers.PutAICostConfig(deps.aiClient, deps.aiBench))
 

@@ -135,6 +135,45 @@ func compositeScore(accuracy float64, avgLatencyMs int64, costPer1M float64) flo
 	return accuracy / math.Sqrt(seconds) / (1 + cost)
 }
 
+// reliabilityPriorMean/Weight tune reliableAccuracy: a Bayesian shrinkage that
+// pulls a low-sample accuracy toward a conservative prior, as if `reliabilityPriorWeight`
+// extra "phantom" cases had scored `reliabilityPriorMean`. A model cut short by a
+// rate limit after only 5 calls and a lucky 5/5 would otherwise rank as
+// confidently as one that proved itself over the full ~80-case set — this
+// discounts that noise without needing to know the full case count.
+const (
+	reliabilityPriorMean   = 0.5
+	reliabilityPriorWeight = 15.0
+)
+
+// reliableAccuracy is the accuracy value RANKING should use — never the one
+// shown to the user (SlotScore.Accuracy stays the raw measured value; only
+// compositeScore's input is adjusted). More samples means less pull toward the
+// prior; a full ~80-case run is barely affected, a 5-sample run is pulled hard.
+func reliableAccuracy(accuracy float64, samples int) float64 {
+	if samples <= 0 {
+		return 0
+	}
+	n := float64(samples)
+	return (accuracy*n + reliabilityPriorMean*reliabilityPriorWeight) / (n + reliabilityPriorWeight)
+}
+
+// RankBefore orders two results BEST FIRST for the live chain and the Settings
+// table. A slot that ran the FULL case set always outranks one left Incomplete
+// (cut short by a rate limit) regardless of raw composite — an incomplete run's
+// accuracy comes from a small, cherry-picked-by-timing sample and isn't
+// comparable to a model that was actually put through the whole set. Within the
+// same completeness tier, composite (which already folds in reliableAccuracy)
+// decides. This fixes a real production case: a model with 69% accuracy over 12
+// rate-limited samples out-ranked one with 99% over a complete 84-sample run,
+// purely because it happened to also be fast.
+func RankBefore(a, b SlotScore) bool {
+	if a.Incomplete != b.Incomplete {
+		return !a.Incomplete
+	}
+	return a.Composite > b.Composite
+}
+
 // tokenRe collapses every run of non-letter/non-digit characters into a single
 // space. Unicode-aware (\p{L}/\p{N}) so non-Latin titles still tokenize instead
 // of being erased (the old [^a-z0-9] regex zeroed any CJK/Cyrillic title).
@@ -294,6 +333,48 @@ func (c *Client) Run(ctx context.Context, cases []BenchmarkCase) []SlotScore {
 // breaker) so a parked model still gets measured. Used with the configured chain
 // AND with discovered local Ollama models.
 func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCase) []SlotScore {
+	return c.RunSlotsProgress(ctx, slots, cases, nil)
+}
+
+// RunSlotsProgress is RunSlots plus an optional onResult callback invoked as SOON
+// as each slot finishes scoring (not just once the whole batch completes). The
+// caller can use it to persist results incrementally — a long run with several
+// local Ollama models (each with a warmup that can take minutes) would otherwise
+// keep the store empty until every slot finishes, losing all progress if the run
+// is aborted or times out partway through. onResult may be called concurrently
+// from multiple goroutines (cloud slots run in parallel) — the caller must be
+// safe for that.
+// localSlotFloor is the minimum time a local slot's own sub-context gets,
+// regardless of how the remaining run budget divides up: enough to cover a
+// cold VRAM load (warmupTimeout) plus a handful of real cases. Below this, a
+// slot deep in the queue would get a sliver too short to ever produce a usable
+// sample even when the overall run still has time left.
+const localSlotFloor = warmupTimeout + 2*time.Minute
+
+// localSlotContext bounds ONE local model's turn in the sequential queue to a
+// fair share of whatever time is left on the run — remainingSlots INCLUDES the
+// one about to run. Without this, the first slow/stuck local model can consume
+// the entire shared deadline and leave every slot still queued behind it with
+// zero time, an instant "context deadline exceeded" before even attempting a
+// call (the exact failure mode a large local fleet produced in production).
+// context.WithTimeout already clamps to the parent's real deadline when it's
+// sooner, so requesting more than what's actually left is harmless — this only
+// ever shortens a slot's turn, never extends the overall run past ctx's own
+// deadline.
+func localSlotContext(ctx context.Context, remainingSlots int) (context.Context, context.CancelFunc) {
+	if remainingSlots < 1 {
+		remainingSlots = 1
+	}
+	share := localSlotFloor
+	if dl, ok := ctx.Deadline(); ok {
+		if fair := time.Until(dl) / time.Duration(remainingSlots); fair > share {
+			share = fair
+		}
+	}
+	return context.WithTimeout(ctx, share)
+}
+
+func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore {
 	if len(cases) == 0 {
 		cases = AllDefaultBenchmarkCases()
 	}
@@ -317,21 +398,41 @@ func (c *Client) RunSlots(ctx context.Context, slots []Slot, cases []BenchmarkCa
 		go func(i int, s Slot) {
 			defer wg.Done()
 			results[i] = c.scoreSlot(ctx, s, cases, false)
+			if onResult != nil {
+				onResult(results[i])
+			}
 		}(i, s)
 	}
-	// Local models: a single goroutine drains them sequentially (with warmup).
+	// Local models: a single goroutine drains them sequentially (with warmup),
+	// each capped to a FAIR SHARE of the run's remaining time (see
+	// localSlotContext) so one slow/stuck model can't starve every local model
+	// still queued behind it.
+	localTotal := 0
+	for _, s := range slots {
+		if s.Local {
+			localTotal++
+		}
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		done := 0
 		for i, s := range slots {
-			if s.Local {
-				results[i] = c.scoreSlot(ctx, s, cases, true)
+			if !s.Local {
+				continue
+			}
+			slotCtx, slotCancel := localSlotContext(ctx, localTotal-done)
+			results[i] = c.scoreSlot(slotCtx, s, cases, true)
+			slotCancel()
+			done++
+			if onResult != nil {
+				onResult(results[i])
 			}
 		}
 	}()
 	wg.Wait()
 
-	sort.SliceStable(results, func(i, j int) bool { return results[i].Composite > results[j].Composite })
+	sort.SliceStable(results, func(i, j int) bool { return RankBefore(results[i], results[j]) })
 	return results
 }
 
@@ -386,7 +487,7 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 		// Latency is the median over the USABLE replies across all tasks.
 		score.Tasks, score.Accuracy = t.taskBreakdown()
 		score.AvgLatencyMs = medianDuration(t.lats).Milliseconds()
-		score.Composite = compositeScore(score.Accuracy, score.AvgLatencyMs, score.CostPer1M)
+		score.Composite = compositeScore(reliableAccuracy(score.Accuracy, score.Samples), score.AvgLatencyMs, score.CostPer1M)
 	} else if paymentFail {
 		score.Composite = -1
 	}
@@ -1007,7 +1108,7 @@ func (c *Client) RerunIncomplete(ctx context.Context, prev []SlotScore, cases []
 	for _, id := range order {
 		out = append(out, byID[id])
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Composite > out[j].Composite })
+	sort.SliceStable(out, func(i, j int) bool { return RankBefore(out[i], out[j]) })
 	return out, fresh
 }
 
@@ -1018,7 +1119,7 @@ func (c *Client) AdoptBenchmark(scores []SlotScore) {
 			ranked = append(ranked, s)
 		}
 	}
-	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Composite > ranked[j].Composite })
+	sort.SliceStable(ranked, func(i, j int) bool { return RankBefore(ranked[i], ranked[j]) })
 	defs := make([]config.AIChainSlot, 0, len(ranked))
 	for _, s := range ranked {
 		defs = append(defs, config.AIChainSlot{ID: s.SlotID, Provider: s.Provider, Model: s.Model})

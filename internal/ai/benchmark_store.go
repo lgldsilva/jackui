@@ -81,25 +81,85 @@ func (s *BenchmarkStore) RecordRun(fresh []SlotScore) error {
 	defer tx.Rollback()
 	now := time.Now().UTC()
 	for _, sc := range fresh {
-		var prev histState
-		_ = tx.QueryRow(`SELECT last_outcome, last_success_at, first_failure_at, consecutive_failures FROM benchmark_history WHERE slot_id = ?`, sc.SlotID).
-			Scan(&prev.outcome, &prev.successAt, &prev.firstFailAt, &prev.consec)
-		next := nextHistState(prev, sc, now)
-		if _, err := tx.Exec(`
-			INSERT INTO benchmark_history(slot_id, last_outcome, last_error, last_success_at, last_run_at, first_failure_at, consecutive_failures)
-			VALUES(?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(slot_id) DO UPDATE SET
-				last_outcome = excluded.last_outcome,
-				last_error = excluded.last_error,
-				last_success_at = excluded.last_success_at,
-				last_run_at = excluded.last_run_at,
-				first_failure_at = excluded.first_failure_at,
-				consecutive_failures = excluded.consecutive_failures
-		`, sc.SlotID, next.outcome, next.lastError, next.successAt, now, next.firstFailAt, next.consec); err != nil {
+		if err := recordOneHistory(tx, sc, now); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// RecordOne is RecordRun for a single freshly-measured score, in its own
+// transaction — used to update the durable history incrementally, one slot at a
+// time, as a benchmark run progresses (see UpsertResult).
+func (s *BenchmarkStore) RecordOne(sc SlotScore) error {
+	if s == nil {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := recordOneHistory(tx, sc, time.Now().UTC()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func recordOneHistory(tx *dbutil.Tx, sc SlotScore, now time.Time) error {
+	var prev histState
+	_ = tx.QueryRow(`SELECT last_outcome, last_success_at, first_failure_at, consecutive_failures FROM benchmark_history WHERE slot_id = ?`, sc.SlotID).
+		Scan(&prev.outcome, &prev.successAt, &prev.firstFailAt, &prev.consec)
+	next := nextHistState(prev, sc, now)
+	_, err := tx.Exec(`
+		INSERT INTO benchmark_history(slot_id, last_outcome, last_error, last_success_at, last_run_at, first_failure_at, consecutive_failures)
+		VALUES(?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(slot_id) DO UPDATE SET
+			last_outcome = excluded.last_outcome,
+			last_error = excluded.last_error,
+			last_success_at = excluded.last_success_at,
+			last_run_at = excluded.last_run_at,
+			first_failure_at = excluded.first_failure_at,
+			consecutive_failures = excluded.consecutive_failures
+	`, sc.SlotID, next.outcome, next.lastError, next.successAt, now, next.firstFailAt, next.consec)
+	return err
+}
+
+// UpsertResult writes/updates a single slot's result row immediately, without
+// touching the rest of the table — unlike SaveResults (delete-all + reinsert,
+// meant for the FINAL, fully-ordered set). Used to persist progress AS EACH slot
+// finishes during a run, so a benchmark that stops partway (timeout, restart)
+// still has whatever was measured so far, instead of an all-or-nothing write at
+// the end. chain_order is left at its current value (or 0 for a new row) — the
+// closing SaveResults call re-derives the real best-first order once the whole
+// run completes.
+func (s *BenchmarkStore) UpsertResult(sc SlotScore) error {
+	if s == nil {
+		return nil
+	}
+	tasksJSON := ""
+	if len(sc.Tasks) > 0 {
+		if b, err := json.Marshal(sc.Tasks); err == nil {
+			tasksJSON = string(b)
+		}
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete, cost_per_1m, tasks)
+		VALUES(?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+		ON CONFLICT(slot_id) DO UPDATE SET
+			provider = excluded.provider,
+			model = excluded.model,
+			accuracy = excluded.accuracy,
+			avg_latency_ms = excluded.avg_latency_ms,
+			composite = excluded.composite,
+			samples = excluded.samples,
+			failure_reason = excluded.failure_reason,
+			incomplete = excluded.incomplete,
+			cost_per_1m = excluded.cost_per_1m,
+			tasks = excluded.tasks,
+			updated_at = now()
+	`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, sc.Samples, sc.FailureReason, b2i(sc.Incomplete), sc.CostPer1M, tasksJSON)
+	return err
 }
 
 // histState is one slot's durable run history (prior state on read, computed next
