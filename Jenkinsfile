@@ -319,11 +319,16 @@ pipeline {
             stage('Deploy (local)') {
               steps {
                 // Deploy local via docker.sock (sem SSH): pull, retag e sobe o compose no host.
+                // O compose do jackui agora é INCLUÍDO no projeto vpn-gateway (o jackui/postgres
+                // usam network_mode: service:gluetun + depends_on gluetun healthy — recuperação
+                // nativa de netns órfã). Por isso o hand-file NÃO roda mais standalone (o gluetun
+                // vive nele); o deploy mira o projeto unificado. `--force-recreate jackui` só troca
+                // a imagem do jackui; gluetun/postgres seguem de pé (o depends_on garante a ordem).
                 sh '''
                   set -e
                   docker pull ${IMAGE}:nvidia
                   docker tag ${IMAGE}:nvidia jackui:nvidia
-                  docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui
+                  docker compose -f /portainer/Files/AppData/Config/vpn-gateway/docker-compose.yml up -d --force-recreate jackui
                   docker image prune -f >/dev/null 2>&1 || true
                 '''
               }
