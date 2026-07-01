@@ -1256,6 +1256,7 @@ export default function SearchPage() {
           setContentsTarget(null)
           playSingle(r, fileIdx)
         }}
+        onDownload={(r) => { setContentsTarget(null); setDownloadTarget(r) }}
         onAddFileToPlaylist={(r, fileIdx, title) => {
           setContentsTarget(null)
           setPlaylistTargetFile({ index: fileIdx, title })

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info, Download as DownloadIcon, MoreVertical } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
-import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult, downloadCreate } from '../api/client'
+import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
 import TorrentContentsModal from '../components/TorrentContentsModal'
+import DownloadModal from '../components/DownloadModal'
 import SeedBadge from '../components/SeedBadge'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -24,6 +25,9 @@ export default function LibraryPage() {
   useScrollRestoration(!loading)
   const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
+  // Item enviado ao modal de download (destino + seleção). `indices` pré-seleciona
+  // o arquivo que estava sendo assistido.
+  const [dl, setDl] = useState<{ result: SearchResult; indices?: number[] } | null>(null)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
 
@@ -75,22 +79,11 @@ export default function LibraryPage() {
     publishDate: '',
   })
 
-  const handleDownload = async (e: LibraryEntry) => {
+  // Abre o modal unificado (destino + seleção), pré-selecionando o arquivo que
+  // estava sendo assistido. Antes enfileirava direto e redirecionava p/ /downloads.
+  const handleDownload = (e: LibraryEntry) => {
     const fileIndex = e.lastFileIndex >= 0 ? e.lastFileIndex : e.primaryFileIndex
-    try {
-      await downloadCreate({
-        infoHash: e.infoHash,
-        fileIndex,
-        magnet: e.magnet,
-        name: e.name,
-        filePath: e.name,
-        fileSize: e.totalSize,
-      })
-      // Navigate to downloads page so the user sees the queue
-      globalThis.location.href = '/downloads'
-    } catch {
-      alert('Falha ao enfileirar o download')
-    }
+    setDl({ result: entryToResult(e), indices: fileIndex >= 0 ? [fileIndex] : undefined })
   }
 
   const handlePlay = (e: LibraryEntry) => {
@@ -172,7 +165,10 @@ export default function LibraryPage() {
         result={contentsTarget}
         onClose={() => setContentsTarget(null)}
         onPlayFile={(r, fileIdx) => { setContentsTarget(null); playSingle(r, fileIdx) }}
+        onDownload={(r) => { setContentsTarget(null); setDl({ result: r }) }}
       />
+
+      <DownloadModal result={dl?.result ?? null} initialFileIndices={dl?.indices} onClose={() => setDl(null)} />
     </div>
   )
 }
