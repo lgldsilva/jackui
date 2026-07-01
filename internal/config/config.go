@@ -411,6 +411,7 @@ func applyDownloadsQueueEnv(cfg *Config) {
 var maskedEnvKeys = map[string]bool{
 	"JACKETT_API_KEY": true, "JACKUI_ADMIN_PASSWORD": true, "JACKUI_JWT_SECRET": true,
 	"JACKUI_SMTP_PASS": true, "GROQ_API_KEY": true, "OPENROUTER_API_KEY": true,
+	"OPENCODE_API_KEY": true, "GEMINI_API_KEY": true,
 	"TMDB_API_KEY": true, "OMDB_API_KEY": true, "JACKUI_NTFY_TOKEN": true,
 	// DSNs carry the DB password.
 	"JACKUI_DATABASE_URL": true, "DATABASE_URL": true, "JACKUI_PG_PASSWORD": true,
@@ -431,7 +432,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_SMTP_HOST", "JACKUI_SMTP_PORT", "JACKUI_SMTP_USER", "JACKUI_SMTP_PASS", "JACKUI_SMTP_FROM",
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
-		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
+		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "GEMINI_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
 		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB", "JACKUI_LOCAL_CACHE_GB", "JACKUI_HLS_VOD_MODE", "JACKUI_MAX_GPU_TRANSCODES",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
@@ -706,6 +707,10 @@ func applyAIEnv(cfg *Config) {
 	applyAIProviderEnv(cfg, "GROQ_API_KEY", "groq", "https://api.groq.com/openai/v1")
 	applyAIProviderEnv(cfg, "OPENROUTER_API_KEY", "openrouter", "https://openrouter.ai/api/v1")
 	applyAIProviderEnv(cfg, "OPENCODE_API_KEY", "opencode", "https://opencode.ai/zen/v1")
+	// Google Gemini via its OpenAI-compatible endpoint. The free tier (flash / flash-lite:
+	// 1500 req/day, 1M TPM) is more than enough for title identification, and the model is
+	// strong at structured JSON extraction — so it goes at the TOP of the default chain.
+	applyAIProviderEnv(cfg, "GEMINI_API_KEY", "google", "https://generativelanguage.googleapis.com/v1beta/openai/")
 	applyOllamaEnv(cfg)
 
 	if v := os.Getenv("JACKUI_AI_MAX_COST_PER_1M"); v != "" {
@@ -772,11 +777,36 @@ func autoSeedChain(cfg *Config) {
 }
 
 func (cfg *Config) buildDefaultChain() []AIChainSlot {
+	// This order is a BOOTSTRAP only, NOT a quality ranking — it just lists whatever has
+	// credentials. No provider is privileged by position: the benchmark scores every model
+	// and AdoptBenchmark reorders the live chain best-first (by composite), so the SCORE
+	// decides who runs first, never a hardcoded pick here. (Measured: Groq's llama-3.1-8b
+	// beats Gemini on this task by speed at equal accuracy — but that comes out of the
+	// benchmark, it isn't wired in.)
 	var chain []AIChainSlot
 	chain = cfg.appendOpenCodeSlot(chain)
 	chain = cfg.appendGroqSlot(chain)
 	chain = cfg.appendOpenRouterSlot(chain)
+	chain = cfg.appendGoogleSlot(chain)
 	chain = cfg.appendOllamaSlots(chain)
+	return chain
+}
+
+// appendGoogleSlot adds a FREE Gemini model as an available chain slot (its position is
+// bootstrap only — the benchmark ranks it; see buildDefaultChain). The pick is dynamic
+// within the free set — pickFreeGoogleModel intersects what /models actually serves with
+// freeGoogleModels — so it adapts to the account's catalog and NEVER selects a paid model
+// (Google's free tier isn't discoverable; see freeGoogleModels). Adds nothing when
+// discovery fails or no free model is served (same graceful no-op as the other providers);
+// the chain walk + breaker then fall through to the next provider.
+func (cfg *Config) appendGoogleSlot(chain []AIChainSlot) []AIChainSlot {
+	p, ok := cfg.AI.Providers["google"]
+	if !ok || p.APIKey == "" {
+		return chain
+	}
+	if m := pickFreeGoogleModel(fetchModels(p.BaseURL, p.APIKey)); m != "" {
+		chain = append(chain, AIChainSlot{ID: "google-" + m, Provider: "google", Model: m})
+	}
 	return chain
 }
 
@@ -828,7 +858,11 @@ func (cfg *Config) appendOllamaSlots(chain []AIChainSlot) []AIChainSlot {
 		return chain
 	}
 	models := fetchModels(p.BaseURL, "")
-	if m := pickModel(models, "qwen2.5:7b", "llama3.2:3b", "llama3.1:8b", "mistral:7b"); m != "" {
+	// Prefer models that are actually good at instruction-following + JSON on an 8GB
+	// Pascal GPU (measured: llama3.1:8b is the all-round best, gemma3:4b fast+accurate).
+	// Deliberately NOT reasoning models (qwen3/deepseek-r1): their <think> chains burn the
+	// maxOutputTokens budget before emitting the JSON, so they fail this extraction task.
+	if m := pickModel(models, "llama3.1:8b", "gemma3:4b", "llama3.2:3b", "mistral:7b"); m != "" {
 		chain = append(chain, AIChainSlot{ID: "ollama-" + m, Provider: "ollama", Model: m})
 	}
 	for _, m := range models {
@@ -954,6 +988,50 @@ func matchNonEmbedding(models []string) string {
 	for _, m := range models {
 		if !strings.Contains(strings.ToLower(m), "embedding") {
 			return m
+		}
+	}
+	return ""
+}
+
+// freeGoogleModels are the Gemini ids on Google's FREE tier, in preference order
+// (best first). UNLIKE every other provider, Google's free-tier membership can't be
+// discovered: its OpenAI /models endpoint exposes no pricing (OpenRouter's does), and
+// the id doesn't reveal it — gemini-2.5-flash is free but gemini-3.5-flash is PAID. So
+// this is a pinned "table of facts", the SINGLE place to update when Google changes
+// tiers (see https://ai.google.dev/gemini-api/docs/rate-limits). Anything absent (pro,
+// premium/newer flash) is treated as paid, so we never pick or benchmark a costly model
+// by accident. The model PICK stays dynamic — pickFreeGoogleModel only keeps ids the
+// account actually serves.
+var freeGoogleModels = []string{
+	"gemini-2.5-flash-lite",
+	"gemini-2.5-flash",
+	"gemini-2.0-flash",
+}
+
+// IsFreeGoogleModel reports whether a Google model id is on the free tier (exact match,
+// so a paid look-alike like gemini-3.5-flash is never treated as free). Single source of
+// truth, also consulted by the ai package's isFreeModel.
+func IsFreeGoogleModel(model string) bool {
+	for _, id := range freeGoogleModels {
+		if model == id {
+			return true
+		}
+	}
+	return false
+}
+
+// pickFreeGoogleModel returns the most-preferred FREE Gemini model that the account
+// actually serves (intersect the discovered list with freeGoogleModels). Dynamic within
+// the free set: it adapts to whatever Google currently exposes and never returns a paid
+// model. Empty when discovery failed or no free model is available (→ no Google slot).
+func pickFreeGoogleModel(discovered []string) string {
+	have := make(map[string]bool, len(discovered))
+	for _, m := range discovered {
+		have[m] = true
+	}
+	for _, id := range freeGoogleModels {
+		if have[id] {
+			return id
 		}
 	}
 	return ""
