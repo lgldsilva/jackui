@@ -233,7 +233,17 @@ pipeline {
             // só pro `git archive`. rm defensivo antes: restos root de um cdxgen anterior
             // são chownados de volta no fim, mas varremos por segurança.
             sh 'rm -rf .cdx-src bom.json dt-payload.json 2>/dev/null || true'
-            checkout scm
+            // NÃO usar `checkout scm`: o job single-branch 'jackui' aponta o SCM pro IP de
+            // LAN 192.168.0.100:3000, INALCANÇÁVEL dos nós ARM (cloud, via WireGuard). Checa
+            // pelo hostname gitea.raspberrypi.lan, que o agente ARM resolve pro NPM via
+            // extra_hosts (cert da CA interna confiado pela imagem) — mesmo caminho que os
+            // builds de PR já usam no ARM. Fixa o SHA exato do build (env.GIT_COMMIT, setado
+            // no 'Limpeza + Checkout' do built-in) pra o SBOM casar com o que foi deployado.
+            checkout([$class: 'GitSCM',
+              branches: [[name: env.GIT_COMMIT]],
+              userRemoteConfigs: [[url: 'https://gitea.raspberrypi.lan/lgldsilva/jackui.git',
+                                   credentialsId: 'jackui-gitea']]
+            ])
             withCredentials([usernamePassword(credentialsId: 'jackui-dt-arm', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
               sh '''
                 # No agente ARM o workspace mapeia /home/jenkins/agent -> /storage/dev/jenkins-agent
