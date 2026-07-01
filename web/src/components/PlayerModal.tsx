@@ -537,6 +537,17 @@ export default function PlayerModal({
     const indices = dir ? filesUnderDir(info.files, dir).map(f => f.index) : [file.index]
     setPlayerDownload({ result: r, indices })
   }, [buildDownloadResult, info])
+
+  // 📁↓ na linha da pasta (árvore): baixa a pasta inteira, recursivamente. O
+  // node.path é o caminho real (mesmo em folders single-child colapsados), então
+  // filesUnderDir casa tudo sob ele. Abre o modal com esses arquivos pré-marcados.
+  const downloadDirFromPlayer = useCallback((dirPath: string) => {
+    const r = buildDownloadResult()
+    if (!r || !info) return
+    const indices = filesUnderDir(info.files, dirPath).map(f => f.index)
+    if (indices.length === 0) return
+    setPlayerDownload({ result: r, indices })
+  }, [buildDownloadResult, info])
   // Local (Electron) download with automatic categorization
   const [localDownloadLoading, setLocalDownloadLoading] = useState(false)
   const [overrideCategory, setOverrideCategory] = useState<string | null>(null)
@@ -1774,6 +1785,7 @@ export default function PlayerModal({
             setSidebarOpen={setSidebarOpen}
             setPreviewFileIdx={setPreviewFileIdx}
             onDownloadFolder={isLocalHash(info.infoHash) ? undefined : downloadFolderFromPlayer}
+            onDownloadDir={isLocalHash(info.infoHash) ? undefined : downloadDirFromPlayer}
           />
         )}
 

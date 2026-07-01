@@ -29,6 +29,7 @@ type FilePickerSidebarProps = {
   readonly setSidebarOpen: (v: boolean) => void
   readonly setPreviewFileIdx: (v: number | null) => void
   readonly onDownloadFolder?: (file: TorrentInfo['files'][number]) => void
+  readonly onDownloadDir?: (dirPath: string) => void
 }
 
 type FileView = 'list' | 'tree'
@@ -57,6 +58,7 @@ export function FilePickerSidebar({
   setSidebarOpen,
   setPreviewFileIdx,
   onDownloadFolder,
+  onDownloadDir,
 }: FilePickerSidebarProps) {
   const { t } = useTranslation()
   // Default: remember the last choice; first time = Lista (don't surprise
@@ -81,24 +83,32 @@ export function FilePickerSidebar({
     `${info.infoHash}|${fileFilter}|${fileTypeFilter}|${fileSortBySize}|${fileSizeDesc}`,
   )
 
+  // A estrutura de arquivos é estável por torrent — key no infoHash (não em
+  // info.files, cuja referência muda a cada poll de progresso de 2s).
   const selectedPath = useMemo(() => {
     const f = info.files.find(x => x.index === selectedFile)
     return f?.path ?? null
-  }, [info.files, selectedFile])
+  }, [info.infoHash, selectedFile])
 
   // When the tree is the active view, auto-expand the path to the selected file
   // (or the first file when none is selected). Filter changes rebuild the tree,
   // so re-derive the reveal set against the CURRENT filter too.
+  //
+  // Dep no info.infoHash (NÃO info.files): o poll de 2s recria info.files, e
+  // depender dele reabria a cada tick a pasta do item em reprodução — desfazendo
+  // a navegação do usuário. Assim só roda ao abrir a árvore / mudar filtro / trocar
+  // de item (selectedPath), e o setExpanded só cria Set novo quando algo muda.
   useEffect(() => {
     if (view !== 'tree' || !treeable) return
     const tree = buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter })
     const reveal = pathsToExpand(tree, selectedPath)
     setExpanded(prev => {
+      let changed = false
       const next = new Set(prev)
-      for (const p of reveal) next.add(p)
-      return next
+      for (const p of reveal) if (!next.has(p)) { next.add(p); changed = true }
+      return changed ? next : prev
     })
-  }, [view, treeable, info.files, fileFilter, fileTypeFilter, selectedPath])
+  }, [view, treeable, info.infoHash, fileFilter, fileTypeFilter, selectedPath])
 
   const viewBtnClass = (active: boolean) =>
     `flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors ${
@@ -228,6 +238,7 @@ export function FilePickerSidebar({
           playFile={playFile}
           setPreviewFileIdx={setPreviewFileIdx}
           onDownloadFolder={onDownloadFolder}
+          onDownloadDir={onDownloadDir}
         />
       ) : (
         <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
