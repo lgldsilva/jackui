@@ -41,6 +41,9 @@ describe('lastSuccessLabel', () => {
   it('vazio para linha legada sem histórico algum', () => {
     expect(lastSuccessLabel(mk({ samples: 3 }))).toBe('')
   })
+  it('vazio para "incomplete" com score real — não é "nunca deu certo"', () => {
+    expect(lastSuccessLabel(mk({ lastOutcome: 'incomplete', samples: 4, composite: 0.7 }))).toBe('')
+  })
 })
 
 describe('persistenceLabel', () => {

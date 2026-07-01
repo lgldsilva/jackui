@@ -1058,3 +1058,78 @@ func TestBenchmarkStoreRoundTrip(t *testing.T) {
 		t.Fatalf("results wrong: %+v", res)
 	}
 }
+
+// TestRankBeforeCompleteBeatsIncomplete is the regression for a real production
+// case: a model with 69% accuracy over 12 rate-limited (incomplete) samples
+// out-ranked one with 99% over a complete 84-sample run, purely by being fast.
+// A complete run must always outrank an incomplete one regardless of composite.
+func TestRankBeforeCompleteBeatsIncomplete(t *testing.T) {
+	complete := SlotScore{SlotID: "thorough", Composite: 0.6, Incomplete: false}
+	incomplete := SlotScore{SlotID: "lucky-and-fast", Composite: 1.5, Incomplete: true}
+	if !RankBefore(complete, incomplete) {
+		t.Fatal("a complete run must rank before an incomplete one even with a lower composite")
+	}
+	if RankBefore(incomplete, complete) {
+		t.Fatal("an incomplete run must not rank before a complete one")
+	}
+}
+
+func TestRankBeforeSameTierFallsBackToComposite(t *testing.T) {
+	a := SlotScore{SlotID: "a", Composite: 0.8, Incomplete: false}
+	b := SlotScore{SlotID: "b", Composite: 0.5, Incomplete: false}
+	if !RankBefore(a, b) || RankBefore(b, a) {
+		t.Fatal("within the same completeness tier, the higher composite should rank first")
+	}
+}
+
+// TestReliableAccuracyShrinksLowSamples: a handful of lucky samples shouldn't
+// carry the same weight as a full run — the adjusted value should sit well
+// below the raw accuracy for a small sample and barely move for a large one.
+func TestReliableAccuracyShrinksLowSamples(t *testing.T) {
+	small := reliableAccuracy(1.0, 5)
+	large := reliableAccuracy(0.99, 84)
+	if small >= 0.9 {
+		t.Fatalf("a 5-sample perfect score should be discounted well below raw, got %.3f", small)
+	}
+	if large <= 0.9 || large >= 0.99 {
+		t.Fatalf("an 84-sample score should stay close to raw accuracy, got %.3f", large)
+	}
+	if reliableAccuracy(0.5, 0) != 0 {
+		t.Fatal("zero samples must not produce a positive ranking score")
+	}
+}
+
+// TestLocalSlotContextFairShare: with plenty of time left and several slots
+// still queued, a single slot's turn should be bounded well under the full
+// remaining budget — not allowed to consume all of it and starve the rest.
+func TestLocalSlotContextFairShare(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	slotCtx, slotCancel := localSlotContext(parent, 5)
+	defer slotCancel()
+	dl, ok := slotCtx.Deadline()
+	if !ok {
+		t.Fatal("expected a bounded deadline")
+	}
+	if left := time.Until(dl); left >= 15*time.Minute {
+		t.Fatalf("one of 5 queued slots got %v, should be a fair share of the 20min budget, not nearly all of it", left)
+	}
+}
+
+// TestLocalSlotContextNeverExceedsParent: asking for a generous floor must
+// never extend the deadline PAST what the parent context already allows.
+func TestLocalSlotContextNeverExceedsParent(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	slotCtx, slotCancel := localSlotContext(parent, 1)
+	defer slotCancel()
+	dl, ok := slotCtx.Deadline()
+	if !ok {
+		t.Fatal("expected a bounded deadline")
+	}
+	if left := time.Until(dl); left > 30*time.Second {
+		t.Fatalf("slot context must not outlive its parent, got %v left", left)
+	}
+}

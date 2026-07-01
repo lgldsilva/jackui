@@ -21,12 +21,15 @@ export function runStatus(s: AISlotScore): RunStatus {
   return 'unknown'
 }
 
-// lastSuccessLabel: "último OK: 3h atrás" style. Reads 'nunca deu certo' when the
-// model has a recorded outcome but never succeeded; empty when there's no history
-// at all (legacy rows stay quiet instead of claiming a misleading "nunca").
+// lastSuccessLabel: "último OK: 3h atrás" style. Reads 'nunca deu certo' only for
+// a genuine hard failure (zero usable replies) with no prior success; empty when
+// there's no history at all (legacy rows stay quiet instead of claiming a
+// misleading "nunca") OR the last run was 'incomplete' — cut short by a rate
+// limit, but it can still have scored real samples (composite > 0), so labeling
+// it "nunca deu certo" would contradict the score shown right next to it.
 export function lastSuccessLabel(s: AISlotScore): string {
   if (s.lastSuccessAt) return `último OK: ${formatDate(s.lastSuccessAt)}`
-  if (s.lastOutcome) return 'nunca deu certo'
+  if (runStatus(s) === 'error') return 'nunca deu certo'
   return ''
 }
 

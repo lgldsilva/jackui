@@ -622,6 +622,10 @@ export type AIStatus = {
   cases: AIBenchmarkCase[]
   cost: AICostConfig
   providers?: string[]
+  running?: boolean   // a benchmark run is in flight right now (may have been started
+                       // from another tab, or from a request that already timed out
+                       // client-side — the run keeps going server-side regardless)
+  startedAt?: string   // RFC3339; present only when running
 }
 
 export const aiBenchmarkStatus = async (): Promise<AIStatus> => {
@@ -649,6 +653,12 @@ export const saveAICostConfig = async (cost: AICostConfig): Promise<AICostConfig
 export const runAIBenchmarkIncomplete = async (): Promise<AISlotScore[]> => {
   const { data } = await api.post<{ results: AISlotScore[] }>('/ai/benchmark/rerun-incomplete')
   return data.results || []
+}
+// Stops whichever benchmark run is currently in flight (see AIStatus.running).
+// Whatever was already measured before the cancel is kept — the backend saves
+// each slot's result as it finishes, not just at the end of the whole run.
+export const cancelAIBenchmark = async (): Promise<void> => {
+  await api.post('/ai/benchmark/cancel')
 }
 export const saveAICases = async (cases: AIBenchmarkCase[]): Promise<AIBenchmarkCase[]> => {
   const { data } = await api.put<{ cases: AIBenchmarkCase[] }>('/ai/benchmark/cases', { cases })
