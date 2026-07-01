@@ -990,7 +990,7 @@ export default function FavoritesPage() {
       <Sheet
         open={folderSheetOpen}
         onClose={() => setFolderSheetOpen(false)}
-        title="Pastas"
+        title={<>Pastas{revealHidden && <Eye className="inline w-3.5 h-3.5 ml-1 text-amber-400" aria-label="ocultas visíveis" />}</>}
         icon={<Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />}
         size="sm"
       >
@@ -1041,9 +1041,14 @@ export default function FavoritesPage() {
               >
                 <Folder className="w-4 h-4 text-text-muted flex-shrink-0" />
                 <span className="flex-1 text-left truncate">{folder.name}</span>
+                {folder.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="pasta oculta" />}
                 <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId === folder.id).length}</span>
               </button>
-              {/* Ações da categoria — subpasta / renomear / excluir */}
+              {/* Ações da categoria — ocultar / subpasta / renomear / excluir.
+                  Pastas ocultas só aparecem aqui com o modo revelado ativo. */}
+              <button onClick={() => void handleToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? 'Mostrar pasta' : 'Ocultar pasta'} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
+                {folder.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              </button>
               <button onClick={() => void handleCreateSub(folder.id)} title="Nova subpasta" className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
                 <FolderPlus className="w-4 h-4" />
               </button>
