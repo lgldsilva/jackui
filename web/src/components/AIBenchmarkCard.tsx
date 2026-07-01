@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Loader2, Play, Save, Cpu, RefreshCw } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Loader2, Play, Save, Cpu, RefreshCw, Square } from 'lucide-react'
 import {
-  aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, saveAICases, saveAICostConfig,
+  aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, cancelAIBenchmark, saveAICases, saveAICostConfig,
   AIStatus, AICostConfig,
 } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
@@ -34,13 +34,48 @@ export default function AIBenchmarkCard() {
   const [msg, setMsg] = useState('')
   const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [runningSlotId, setRunningSlotId] = useState<string | null>(null)
+  // serverRunning tracks the BACKEND's run tracker — distinct from `running`
+  // (this tab's own in-flight POST). A run keeps going server-side even after
+  // this tab's request errors out (proxy/browser timeout) or after a reload,
+  // so this is what actually decides whether "Cancelar" should show.
+  const [serverRunning, setServerRunning] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopPolling = () => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+  }
+  // pollStatus refreshes results/running every few seconds while a run is in
+  // flight — the backend saves each slot's result AS IT FINISHES (not just at
+  // the end), so this surfaces live progress instead of a blank table until
+  // the whole batch completes.
+  const pollStatus = () => {
+    stopPolling()
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await aiBenchmarkStatus()
+        setStatus(prev => prev ? { ...prev, results: s.results || prev.results } : prev)
+        setServerRunning(!!s.running)
+        if (!s.running) {
+          stopPolling()
+          setMsg('Benchmark concluído em segundo plano — resultados atualizados.')
+        }
+      } catch { /* transient poll error — try again next tick */ }
+    }, 5000)
+  }
+  useEffect(() => stopPolling, [])
 
   const emptyCost: AICostConfig = { maxCostPer1M: 0, kwhPrice: 0, localWatts: 250 }
   useEffect(() => {
     aiBenchmarkStatus()
       // Normalize: the Go backend marshals empty slices as null, which would
       // crash status.chain.map / status.results.length downstream.
-      .then(s => { s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [], cost: s.cost || emptyCost, providers: s.providers || [] }; setStatus(s); setCasesText(casesToText(s.cases)); setCost(s.cost) })
+      .then(s => {
+        s = { ...s, chain: s.chain || [], results: s.results || [], cases: s.cases || [], cost: s.cost || emptyCost, providers: s.providers || [] }
+        setStatus(s); setCasesText(casesToText(s.cases)); setCost(s.cost)
+        // A run may still be going from before this page load (another tab, or
+        // a reload after this tab's own request timed out) — pick it back up.
+        if (s.running) { setServerRunning(true); pollStatus() }
+      })
       .catch(() => setStatus({ enabled: false, chain: [], results: [], cases: [], cost: emptyCost, providers: [] }))
   }, [])
 
@@ -81,8 +116,46 @@ export default function AIBenchmarkCard() {
       setStatus(s => s ? { ...s, results } : s)
       setMsg(`Benchmark${providerLabel} concluído — chain adotada pelo melhor score.`)
     } catch (e: any) {
-      setMsg(e?.response?.data?.error || 'Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+      const serverErr = e?.response?.data?.error
+      if (serverErr) {
+        setMsg(serverErr)
+      } else {
+        // No response reached us (proxy/browser gave up) — the run itself keeps
+        // going server-side by design. Check the tracker instead of assuming
+        // it died, and start following it if it's still active.
+        try {
+          const s = await aiBenchmarkStatus()
+          if (s.running) {
+            setMsg('A requisição expirou, mas o benchmark continua rodando no servidor — acompanhando o progresso…')
+            setServerRunning(true)
+            pollStatus()
+          } else {
+            setMsg('Falha ao rodar o benchmark.')
+          }
+        } catch {
+          setMsg('Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+        }
+      }
     } finally { setRunning(false) }
+  }
+
+  // handleCancel stops whatever benchmark run is currently tracked server-side
+  // (started by this tab or another). Whatever was already measured stays
+  // saved — the backend persists each slot's result as it finishes.
+  const handleCancel = async () => {
+    try {
+      await cancelAIBenchmark()
+      setMsg('Benchmark cancelado — o que já tinha sido medido foi mantido.')
+    } catch {
+      setMsg('Nada para cancelar (o benchmark já tinha terminado).')
+    } finally {
+      stopPolling()
+      setServerRunning(false)
+      try {
+        const s = await aiBenchmarkStatus()
+        setStatus(prev => prev ? { ...prev, results: s.results || prev.results } : prev)
+      } catch { /* best-effort refresh */ }
+    }
   }
 
   // Re-runs ONLY the models left incomplete (cases cut by a rate limit). Meant to
@@ -134,7 +207,7 @@ export default function AIBenchmarkCard() {
     } finally { setRunningSlotId(null) }
   }
 
-  const busy = running || runningIncomplete || !!runningSlotId
+  const busy = running || runningIncomplete || !!runningSlotId || serverRunning
   const incompleteCount = status.results.filter(needsRerun).length
 
   return (
@@ -176,6 +249,15 @@ export default function AIBenchmarkCard() {
             {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             {running ? 'Rodando…' : 'Rodar benchmark'}
           </button>
+          {serverRunning && (
+            <button
+              onClick={handleCancel}
+              title="Interrompe o benchmark em execução — o que já foi medido fica salvo."
+              className="flex items-center gap-1.5 text-sm bg-red-900/40 hover:bg-red-900/60 border border-red-800 text-red-200 rounded-lg px-3 py-1.5"
+            >
+              <Square className="w-4 h-4" /> Cancelar
+            </button>
+          )}
         </div>
       </div>
 
