@@ -883,7 +883,7 @@ func (c *Client) discoverViaModelsAPI(ctx context.Context, name string, p config
 		// a numeric price is blended; absent pricing (OpenCode Zen) is UNKNOWN.
 		var cost float64
 		known := true
-		if isFreeModel(name, m.ID) {
+		if c.isFreeModel(name, m.ID) {
 			cost = 0
 		} else {
 			cost, known = modelCostPer1M(m.Pricing.Prompt, m.Pricing.Completion)
@@ -999,7 +999,7 @@ func (c *Client) healProvider(provider string) {
 		return
 	}
 	if !providerHas {
-		kept = append(kept, pickReplacementSlot(provider, ids, p))
+		kept = append(kept, c.pickReplacementSlot(provider, ids, p))
 	}
 	c.slots = kept
 }
@@ -1030,7 +1030,7 @@ func filterSlotsByAvail(slots []Slot, provider string, avail map[string]bool) ([
 	return kept, dropped, providerHas
 }
 
-func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slot {
+func (c *Client) pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slot {
 	repl := ids[0]
 	if provider == "openrouter" {
 		for _, id := range ids {
@@ -1042,7 +1042,7 @@ func pickReplacementSlot(provider string, ids []string, p config.AIProvider) Slo
 	}
 	base := strings.TrimRight(p.BaseURL, "/")
 	cost := -1.0
-	if isFreeModel(provider, repl) {
+	if c.isFreeModel(provider, repl) {
 		cost = 0
 	}
 	log.Printf("ai: self-heal — added %s replacement %q (untested; run the benchmark to re-optimize)", provider, repl)
