@@ -1042,12 +1042,21 @@ func (cfg *Config) freeModels(provider string) []string {
 	return defaultProviderModels[provider].free
 }
 
+// normalizeGoogleModel strips Google's "models/" id prefix. Its OpenAI-compat /models
+// endpoint lists ids as "models/gemini-2.5-flash", but the chat endpoint accepts the bare
+// "gemini-2.5-flash" too — so we compare on the bare form to match freeGoogleModels
+// (otherwise discovery/seeding would never recognize a free Gemini and skip it entirely).
+func normalizeGoogleModel(id string) string {
+	return strings.TrimPrefix(id, "models/")
+}
+
 // IsFreeGoogleModel reports whether a Google model id is on the free tier, given the
-// effective free list (exact match, so a paid look-alike like gemini-3.5-flash is never
-// treated as free). Pure — callers pass the config-or-default list.
+// effective free list (exact match on the prefix-normalized id, so a paid look-alike like
+// gemini-3.5-flash is never treated as free). Pure — callers pass the config-or-default list.
 func IsFreeGoogleModel(model string, free []string) bool {
+	model = normalizeGoogleModel(model)
 	for _, id := range free {
-		if model == id {
+		if normalizeGoogleModel(id) == model {
 			return true
 		}
 	}
@@ -1055,15 +1064,16 @@ func IsFreeGoogleModel(model string, free []string) bool {
 }
 
 // pickFreeGoogleModel returns the most-preferred FREE Gemini model the account actually
-// serves (intersect discovered with the free list). Dynamic within the free set; never
-// returns a paid model. Empty when discovery failed or no free model is available.
+// serves (intersect discovered with the free list, comparing on the prefix-normalized id).
+// Dynamic within the free set; never returns a paid model. Returns the free-list id (bare,
+// which the chat endpoint accepts). Empty when discovery failed or no free model is served.
 func pickFreeGoogleModel(discovered, free []string) string {
 	have := make(map[string]bool, len(discovered))
 	for _, m := range discovered {
-		have[m] = true
+		have[normalizeGoogleModel(m)] = true
 	}
 	for _, id := range free {
-		if have[id] {
+		if have[normalizeGoogleModel(id)] {
 			return id
 		}
 	}

@@ -44,6 +44,26 @@ func TestPickFreeGoogleModel(t *testing.T) {
 	}
 }
 
+// TestGoogleModelsPrefixNormalized guards the real-world bug: Google's /models lists ids
+// as "models/gemini-2.5-flash", which must still be recognized as free and pickable — the
+// exact-match would otherwise skip Google entirely.
+func TestGoogleModelsPrefixNormalized(t *testing.T) {
+	free := DefaultFreeModels("google")
+	// Prefixed free id is still detected as free.
+	if !IsFreeGoogleModel("models/gemini-2.5-flash", free) {
+		t.Error("prefixed models/gemini-2.5-flash should be free")
+	}
+	// A prefixed paid model is still NOT free.
+	if IsFreeGoogleModel("models/gemini-3.5-flash", free) {
+		t.Error("prefixed paid gemini-3.5-flash must not be free")
+	}
+	// Discovery returns prefixed ids → pick must still find the free model.
+	discovered := []string{"models/gemini-3.5-flash", "models/gemini-2.5-pro", "models/gemini-2.5-flash"}
+	if got := pickFreeGoogleModel(discovered, free); got != "gemini-2.5-flash" {
+		t.Errorf("pick from prefixed discovery: want gemini-2.5-flash, got %q", got)
+	}
+}
+
 // TestConfigOverridesModelDefaults confirms the externalized config wins over the
 // built-in defaults for both the preferred picks and the free list.
 func TestConfigOverridesModelDefaults(t *testing.T) {
