@@ -4,9 +4,10 @@
 //  • PULL REQUEST  → só os GATES: backend test + frontend tsc/test/build. Se passar,
 //    o ci-bot aprova o PR automaticamente (post success). Sem deploy/Sonar/SBOM
 //    (SonarQube Community não faz análise de PR; o gate completo roda na main).
-//  • main (merge)  → pipeline completo: test → frontend → SonarQube (quality
-//    gate) → SBOM→Dependency-Track → build NATIVO amd64 no alvo (SSH) + push no
-//    registry do Gitea → Trivy → deploy no raspberrypi-srv → retenção de tags.
+//  • main (merge)  → pipeline completo: test → frontend → SonarQube (quality gate)
+//    → EM PARALELO { SBOM→Dependency-Track no ARM (nativo, offload do homeserver) ||
+//    build amd64 local + push no Gitea → Trivy → deploy } → publica tag + retenção.
+//    O SBOM/cdxgen (~lento) saiu do caminho crítico: roda no ARM sobrepondo o build.
 //
 // Compat: num job single-branch legado (sem BRANCH_NAME) os stages de entrega
 // ainda rodam (a condição trata BRANCH_NAME==null como "main"), então a migração
@@ -51,6 +52,11 @@ pipeline {
     // de retenção (^[0-9a-f]{8,40}$) não casa → tags vazariam pra sempre.
     SONAR_HOST  = 'http://10.228.143.12:9100'
     DT_API      = 'http://10.228.143.12:8081'
+    // cdxgen PINADO por digest (imutável): a tag :latest do cdxgen segue o master e
+    // re-puxaria a cada build. Este é o manifesto arm64, pré-cacheado nos DOIS nós ARM
+    // -> o stage SBOM não paga pull. Atualizar: puxar :latest num nó ARM, pegar o novo
+    // RepoDigest (docker inspect --format '{{index .RepoDigests 0}}') e trocar aqui.
+    CDXGEN_IMAGE = 'ghcr.io/cyclonedx/cdxgen@sha256:d3c4515fd3624488039cf62bbeb806532beabe85e099dd1ea09a72d5f722b7bd'
     GITEA_API   = 'https://gitea.raspberrypi.lan/api/v1'   // hostname via NPM/CA: alcançável do controller E do agente ARM (o ci-bot approve roda no nó do build)
     DOCKERFILE  = 'Dockerfile.nvidia'   // variante GPU do deploy padrão
   }
@@ -207,88 +213,113 @@ pipeline {
       }
     }
 
-    stage('SBOM → Dependency-Track') {
+    // Depois do gate (Sonar), a ENTREGA (build/scan/deploy, no built-in com GPU +
+    // docker.sock locais) roda EM PARALELO com o SBOM (que foi pro ARM). Antes o
+    // SBOM/cdxgen (~20min) ficava no caminho crítico ANTES do build; agora sai do
+    // homeserver (offload pro ARM ocioso) e SOBREPÕE o build em vez de somar. O SBOM
+    // não é gate (cdxgen roda com `|| true`; upload pro DT não derruba o build), então
+    // paralelizar e jogar num nó separado é seguro. Os `when` migraram pro stage-pai;
+    // os filhos herdam. O Dockerfile.nvidia é self-contained (builda front+back do
+    // source), então a Entrega só precisa do checkout — não de artefato dos gates.
+    stage('Entrega + SBOM (paralelo)') {
       when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'jackui-dt-arm', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
-          sh '''
-            HOST_WS=$(printf '%s' "$PWD" | sed 's#^/var/jenkins_home#/storage/dev/jenkins/data#')
-            rm -rf .cdx-src && mkdir -p .cdx-src
-            git archive --format=tar HEAD | tar -x -C .cdx-src
-            # cdxgen roda --user 0 e monta .cdx-src em /src: o bom.json (e o tar
-            # extraído) nascem dono=root no workspace. O `rm -rf .cdx-src` lá embaixo
-            # roda no shell de fora (jenkins, uid 1000) e NÃO apaga arquivo root →
-            # .cdx-src/bom.json persistiria e quebraria o checkout do próximo build.
-            # Por isso o entrypoint sobrescrito faz o chown 1000 do /src antes de sair,
-            # garantindo que o `rm` de fora consiga limpar.
-            docker run --rm --user 0 --platform linux/amd64 --entrypoint sh \
-              -v "$HOST_WS/.cdx-src":/src -w /src ghcr.io/cyclonedx/cdxgen:latest \
-              -c 'cdxgen --spec-version 1.6 -r -o /src/bom.json . ; chown -R 1000:1000 /src 2>/dev/null || true' || true
-            if [ -s .cdx-src/bom.json ]; then
-              JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
-                --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
-              printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
-                "$(base64 -w0 .cdx-src/bom.json)" > dt-payload.json
-              curl -sk -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
-                -H 'Content-Type: application/json' --data-binary @dt-payload.json \
-                -w '\n[DT upload HTTP %{http_code}]\n'
-            else
-              echo 'bom.json vazio/ausente — cdxgen falhou; pulando upload pro DT'
-            fi
-            rm -rf .cdx-src dt-payload.json
-          '''
+      parallel {
+        // ───── SBOM no ARM (nativo arm64), FORA do caminho crítico ─────
+        stage('SBOM → Dependency-Track (arm64)') {
+          agent { label 'arm64' }
+          steps {
+            // Workspace próprio no agente ARM (skipDefaultCheckout é global) — este
+            // ramo roda em paralelo com a entrega no built-in, então faz o SEU checkout,
+            // só pro `git archive`. rm defensivo antes: restos root de um cdxgen anterior
+            // são chownados de volta no fim, mas varremos por segurança.
+            sh 'rm -rf .cdx-src bom.json dt-payload.json 2>/dev/null || true'
+            checkout scm
+            withCredentials([usernamePassword(credentialsId: 'jackui-dt-arm', usernameVariable: 'DT_USER', passwordVariable: 'DT_PASS')]) {
+              sh '''
+                # No agente ARM o workspace mapeia /home/jenkins/agent -> /storage/dev/jenkins-agent
+                # no host (bind do serviço swarm). O `docker run -v` fala com o docker.sock do
+                # ARM, então a ORIGEM do volume tem que ser o path do HOST, não o do container.
+                HOST_WS=$(printf '%s' "$PWD" | sed 's#^/home/jenkins/agent#/storage/dev/jenkins-agent#')
+                rm -rf .cdx-src && mkdir -p .cdx-src
+                git archive --format=tar HEAD | tar -x -C .cdx-src
+                # cdxgen NATIVO arm64 (sem --platform -> sem QEMU). FETCH_LICENSE=false corta a
+                # resolução de licenças pela rede (o maior gargalo do cdxgen); -t go/javascript
+                # escopa a análise aos 2 ecossistemas do repo em vez de sondar tudo. Imagem
+                # PINADA por digest (env CDXGEN_IMAGE), pré-cacheada nos nós ARM -> zero re-pull.
+                # cdxgen roda --user 0 -> bom.json/.cdx-src nascem dono=root; o entrypoint chowna
+                # de volta p/ 1000 antes de sair, senão o checkout do próximo build não limpa.
+                docker run --rm --user 0 -e FETCH_LICENSE=false --entrypoint sh \
+                  -v "$HOST_WS/.cdx-src":/src -w /src "$CDXGEN_IMAGE" \
+                  -c 'cdxgen --spec-version 1.6 -r -t go -t javascript -o /src/bom.json . ; chown -R 1000:1000 /src 2>/dev/null || true' || true
+                if [ -s .cdx-src/bom.json ]; then
+                  JWT=$(curl -sk -X POST "$DT_API/api/v1/user/login" \
+                    --data-urlencode "username=$DT_USER" --data-urlencode "password=$DT_PASS")
+                  printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
+                    "$(base64 -w0 .cdx-src/bom.json)" > dt-payload.json
+                  curl -sk -X PUT "$DT_API/api/v1/bom" -H "Authorization: Bearer $JWT" \
+                    -H 'Content-Type: application/json' --data-binary @dt-payload.json \
+                    -w '\n[DT upload HTTP %{http_code}]\n'
+                else
+                  echo 'bom.json vazio/ausente — cdxgen falhou; pulando upload pro DT'
+                fi
+                rm -rf .cdx-src dt-payload.json
+              '''
+            }
+          }
         }
-      }
-    }
 
-    stage('Build & Push (amd64 nativo, local)') {
-      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
-      steps {
-        // Jenkins roda NO hub amd64 com docker.sock montado: build/push direto,
-        // sem SSH (antes fazia ssh ao alvo quando o Jenkins era remoto no Oracle ARM).
-        withCredentials([
-          usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')
-        ]) {
-          sh '''
-            set -e
-            echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
-            docker build -f $DOCKERFILE \
-              --build-arg BUILD_TIMESTAMP=$(date +%s) \
-              --build-arg GIT_COMMIT=$GIT_COMMIT \
-              --build-arg APP_VERSION=${SEMVER:-$TAG} \
-              -t $IMAGE:$TAG -t $IMAGE:nvidia .
-            docker push $IMAGE:$TAG
-            docker push $IMAGE:nvidia
-            docker logout $REGISTRY
-          '''
+        // ───── ENTREGA no built-in (GPU + docker.sock locais): build → scan → deploy ─────
+        stage('Entrega') {
+          stages {
+            stage('Build & Push (amd64 nativo, local)') {
+              steps {
+                // Jenkins roda NO hub amd64 com docker.sock montado: build/push direto,
+                // sem SSH (antes fazia ssh ao alvo quando o Jenkins era remoto no Oracle ARM).
+                withCredentials([
+                  usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')
+                ]) {
+                  sh '''
+                    set -e
+                    echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
+                    docker build -f $DOCKERFILE \
+                      --build-arg BUILD_TIMESTAMP=$(date +%s) \
+                      --build-arg GIT_COMMIT=$GIT_COMMIT \
+                      --build-arg APP_VERSION=${SEMVER:-$TAG} \
+                      -t $IMAGE:$TAG -t $IMAGE:nvidia .
+                    docker push $IMAGE:$TAG
+                    docker push $IMAGE:nvidia
+                    docker logout $REGISTRY
+                  '''
+                }
+              }
+            }
+
+            stage('Trivy') {
+              steps {
+                sh '''
+                  TRIVY="docker run --rm --platform linux/amd64 -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
+                  echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
+                  $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
+                  echo "=== Trivy: gate (falha em CRITICAL) ==="
+                  $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:nvidia
+                '''
+              }
+            }
+
+            stage('Deploy (local)') {
+              steps {
+                // Deploy local via docker.sock (sem SSH): pull, retag e sobe o compose no host.
+                sh '''
+                  set -e
+                  docker pull ${IMAGE}:nvidia
+                  docker tag ${IMAGE}:nvidia jackui:nvidia
+                  docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui
+                  docker image prune -f >/dev/null 2>&1 || true
+                '''
+              }
+            }
+          }
         }
-      }
-    }
-
-    stage('Trivy') {
-      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
-      steps {
-        sh '''
-          TRIVY="docker run --rm --platform linux/amd64 -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
-          echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
-          $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
-          echo "=== Trivy: gate (falha em CRITICAL) ==="
-          $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:nvidia
-        '''
-      }
-    }
-
-    stage('Deploy (local)') {
-      when { anyOf { branch 'main'; expression { return env.BRANCH_NAME == null } } }
-      steps {
-        // Deploy local via docker.sock (sem SSH): pull, retag e sobe o compose no host.
-        sh '''
-          set -e
-          docker pull ${IMAGE}:nvidia
-          docker tag ${IMAGE}:nvidia jackui:nvidia
-          docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml up -d --force-recreate jackui
-          docker image prune -f >/dev/null 2>&1 || true
-        '''
       }
     }
 
