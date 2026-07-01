@@ -492,6 +492,19 @@ export default function FavoritesPage() {
     setFavs(favs.map(f => f.name === favoriteName ? { ...f, folderId } : f))
   }
 
+  // Versões prompt-based pro sheet do mobile (sem a sidebar/edição inline do
+  // desktop): criar pasta raiz e renomear via prompt nativo (usável no iOS).
+  const handleCreateRootPrompt = async () => {
+    const name = prompt('Nome da nova pasta:')?.trim()
+    if (!name) return
+    const f = await folderCreate(name, null)
+    setFolders([...folders, f])
+  }
+  const handleRenamePrompt = (folder: FavoriteFolder) => {
+    const name = prompt('Renomear pasta:', folder.name)
+    if (name != null) void handleRename(folder.id, name)
+  }
+
   // ─── Multi-select (move several favorites to a folder at once) ─────────────
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const toggleSelected = (name: string) => {
@@ -981,6 +994,15 @@ export default function FavoritesPage() {
         icon={<Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />}
         size="sm"
       >
+        {/* Criar/editar/excluir categorias direto no mobile (a sidebar com isso
+            é hidden md:block). */}
+        <button
+          onClick={handleCreateRootPrompt}
+          className="w-full flex items-center justify-center gap-2 mb-2 px-3 min-h-[44px] rounded-lg text-sm bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30 hover:bg-pink-500/25 transition-colors"
+        >
+          <FolderPlus className="w-4 h-4 flex-shrink-0" />
+          Nova pasta
+        </button>
         <ul className="flex flex-col gap-1">
           <li>
             <button
@@ -1007,17 +1029,29 @@ export default function FavoritesPage() {
             </button>
           </li>
           {flattenTree(tree).map(({ folder, depth }) => (
-            <li key={folder.id}>
+            <li key={folder.id} className={`flex items-center rounded-lg transition-colors ${
+              viewMode === folder.id ? 'bg-pink-500/15 border border-pink-500/30' : 'border border-transparent hover:bg-surface-tertiary'
+            }`}>
               <button
                 onClick={() => { setViewMode(folder.id); setSelectedFolderId(folder.id); setFolderSheetOpen(false) }}
-                className={`w-full flex items-center gap-2 min-h-[44px] rounded-lg text-sm transition-colors ${
-                  viewMode === folder.id ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
+                className={`flex-1 min-w-0 flex items-center gap-2 min-h-[44px] text-sm text-left ${
+                  viewMode === folder.id ? 'text-pink-700 dark:text-pink-200' : 'text-text-primary'
                 }`}
-                style={{ paddingLeft: `${12 + depth * 16}px`, paddingRight: '12px' }}
+                style={{ paddingLeft: `${12 + depth * 16}px` }}
               >
                 <Folder className="w-4 h-4 text-text-muted flex-shrink-0" />
                 <span className="flex-1 text-left truncate">{folder.name}</span>
                 <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId === folder.id).length}</span>
+              </button>
+              {/* Ações da categoria — subpasta / renomear / excluir */}
+              <button onClick={() => void handleCreateSub(folder.id)} title="Nova subpasta" className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
+                <FolderPlus className="w-4 h-4" />
+              </button>
+              <button onClick={() => handleRenamePrompt(folder)} title="Renomear" className="p-2 text-text-muted hover:text-text-primary flex-shrink-0">
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button onClick={() => void handleDeleteFolder(folder.id)} title="Excluir" className="p-2 pr-3 text-text-muted hover:text-red-400 flex-shrink-0">
+                <Trash2 className="w-4 h-4" />
               </button>
             </li>
           ))}
