@@ -79,6 +79,10 @@ type Client struct {
 	// cost is the runtime-tunable cost config (ceiling + energy tariff/watts),
 	// swapped atomically so the Settings UI can update it live without a restart.
 	cost atomic.Pointer[CostConfig]
+	// googleFree is the effective free-tier id list for the "google" provider (config
+	// override or built-in default), cached so isFreeModel can gate Gemini's per-model
+	// free tier — which its /models can't reveal. See config.DefaultFreeModels.
+	googleFree []string
 }
 
 // CostConfig holds the knobs that drive the value-based score: the benchmark cost
@@ -143,6 +147,13 @@ func New(cfg config.AIConfig) *Client {
 		// local models loading into VRAM).
 		http: &http.Client{Timeout: 130 * time.Second},
 	}
+	// Effective Google free-tier list: provider override, else the built-in default.
+	// Cached before resolveSlot (which calls isFreeModel) runs.
+	if p, ok := cfg.Providers["google"]; ok && len(p.FreeModels) > 0 {
+		c.googleFree = p.FreeModels
+	} else {
+		c.googleFree = config.DefaultFreeModels("google")
+	}
 	c.SetCostConfig(CostConfig{MaxCostPer1M: cfg.MaxCostPer1M, KWhPrice: cfg.ElectricityPricePerKWh, LocalWatts: cfg.LocalPowerWatts})
 	for _, s := range cfg.Chain {
 		if s.Disabled {
@@ -171,7 +182,7 @@ func (c *Client) resolveSlot(id, provider, model string) (Slot, bool) {
 	// No pricing data for a chain model — we can only tell free (0) from unknown
 	// (-1, a paid model we can't price → excluded from the benchmark).
 	cost := -1.0
-	if isFreeModel(provider, model) {
+	if c.isFreeModel(provider, model) {
 		cost = 0
 	}
 	return Slot{ID: id, Provider: provider, Model: model, BaseURL: strings.TrimRight(p.BaseURL, "/"), apiKey: p.APIKey, Free: cost == 0, Local: localModel(provider, model), CostPer1M: cost}, true
@@ -387,14 +398,15 @@ func parseRetryAfter(v string) time.Duration {
 // provider (Groq's free tier, local Ollama), or its id carries a free marker
 // (:free / -free). The single source of truth for "safe to benchmark/adopt without
 // spending" — used by discovery, FreeOnly, and adoption.
-func isFreeModel(provider, model string) bool {
+func (c *Client) isFreeModel(provider, model string) bool {
 	if freeTierProviders[provider] {
 		return true
 	}
 	// Google's free tier can't be discovered (no pricing in /models, not in the id) —
-	// config owns the pinned free-id list; anything not on it is treated as paid.
+	// gate against the effective free-id list (config override or default), so anything
+	// not on it (pro, gemini-3.5-flash) is treated as paid.
 	if provider == "google" {
-		return config.IsFreeGoogleModel(model)
+		return config.IsFreeGoogleModel(model, c.googleFree)
 	}
 	return strings.HasSuffix(model, ":free") || strings.HasSuffix(model, "-free")
 }
