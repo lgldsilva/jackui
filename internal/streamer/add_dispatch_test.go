@@ -36,7 +36,7 @@ func TestDetectMagnetWithLeadingWhitespace(t *testing.T) {
 func TestDetectHTTPURL(t *testing.T) {
 	for _, src := range []string{
 		"https://tracker.example/file.torrent?apikey=xxx",
-		"http://192.168.0.100:9117/dl/yts/x/y.torrent",
+		"http://192.168.1.50:9117/dl/yts/x/y.torrent",
 	} {
 		lower := strings.ToLower(src)
 		if !(strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")) {

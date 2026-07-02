@@ -183,7 +183,7 @@ the `isMediaPath` whitelist so `<video>` can use `?token=`.
 **Decision.** Build the production image **natively** on the target architecture, not
 by emulating amd64 on the arm64 CI host.
 
-**Why (the receipt).** The CI host (oracle-desktop) is arm64; emulating amd64 builds
+**Why (the receipt).** The CI host was arm64 at the time; emulating amd64 builds
 under qemu OOM-killed the build. Separately, qemu binfmt is **not auto-registered after
 a reboot**, which breaks any `docker run --platform linux/amd64` stage (e.g. the Sonar
 scanner) until it's re-registered.
@@ -338,4 +338,4 @@ software decode. The NVENC *encode* still runs on the GPU. (#349)
 - [ ] Don't run unbounded `-hwaccel cuda` decoders — cap them and spill to software decode
       (recover from CUDA-OOM) so the Nth concurrent stream doesn't fail.
 - [ ] Don't add a prod env var only to the repo compose — prod is a hand-maintained
-      compose (NOT a Portainer stack); edit the server-side file or it won't take effect.
+      compose file on the server; edit it too or the change won't take effect.

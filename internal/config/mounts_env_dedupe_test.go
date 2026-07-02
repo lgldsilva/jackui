@@ -9,7 +9,7 @@ import (
 func TestApplyExternalMountsEnv_NormalizedPathDedupe(t *testing.T) {
 	cfg := &Config{}
 	cfg.External.Mounts = []ExternalMount{
-		{Name: "Downloads", Path: "/downloads", AllowedUsers: []string{"luiz"}},
+		{Name: "Downloads", Path: "/downloads", AllowedUsers: []string{"alice"}},
 	}
 	// Trailing slash + surrounding spaces must still match the saved path.
 	t.Setenv("JACKUI_EXTERNAL_MOUNTS", "Downloads: /downloads/ ")
@@ -27,7 +27,7 @@ func TestApplyExternalMountsEnv_NormalizedPathDedupe(t *testing.T) {
 func TestApplyExternalMountsEnv_CaseInsensitiveNameDedupe(t *testing.T) {
 	cfg := &Config{}
 	cfg.External.Mounts = []ExternalMount{
-		{Name: "Downloads", Path: "/data/dl", AllowedUsers: []string{"luiz"}},
+		{Name: "Downloads", Path: "/data/dl", AllowedUsers: []string{"alice"}},
 	}
 	t.Setenv("JACKUI_EXTERNAL_MOUNTS", "downloads:/other/path,Extra:/extra")
 
