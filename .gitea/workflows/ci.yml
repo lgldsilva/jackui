@@ -26,7 +26,7 @@ jobs:
           PGPORT: 5433
         # act_runner: o healthcheck do service é gerido pelo runner; o host é "postgres".
     env:
-      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@localhost:5433/jackui?sslmode=disable
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@127.0.0.1:5433/jackui?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go
