@@ -457,6 +457,19 @@ func TestBuildTranscodeArgsWithSubBurn(t *testing.T) {
 	if !strings.Contains(joined, "-filter_complex") {
 		t.Errorf("expected filter_complex for sub burn, got %s", joined)
 	}
+	// Exactly ONE video map, and it must be the filtergraph output. Mapping the
+	// raw 0:v:0 alongside [v] shipped a second (clean) video track that players
+	// picked over the burned one (audit #411).
+	if strings.Contains(joined, "-map 0:v:0") {
+		t.Errorf("burn path must not map the raw video track, got %s", joined)
+	}
+	if !strings.Contains(joined, "-map [v]") {
+		t.Errorf("burn path must map the filtergraph output [v], got %s", joined)
+	}
+	videoMaps := strings.Count(joined, "-map [v]") + strings.Count(joined, "-map 0:v")
+	if videoMaps != 1 {
+		t.Errorf("expected exactly 1 video map, got %d in %s", videoMaps, joined)
+	}
 }
 
 func TestBuildTranscodeArgsWithHWDecode(t *testing.T) {

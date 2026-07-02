@@ -1,4 +1,5 @@
 import { AlertCircle, Subtitles, Check, Cpu, Volume2, Flame } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { StreamProbe, SidecarSubtitle } from '../../api/client'
 import { audioTrackTitle, subBtnClass } from './playerFormat'
 
@@ -41,6 +42,7 @@ export function EmbeddedTracksPanel({
   setSubActive,
   setAutoSource,
 }: EmbeddedTracksPanelProps) {
+  const { t } = useTranslation()
   return (
     <div className="px-3 sm:px-4 py-3 border-b border-default flex flex-col gap-3">
       {/* Audio tracks — clicking a non-default triggers transcoded remux */}
@@ -191,29 +193,28 @@ export function EmbeddedTracksPanel({
               // sem rótulo), o "??" deixa 34 faixas idênticas — usa o título, ou
               // um ordinal "Faixa N" pra serem ao menos distinguíveis.
               const subLabel = s.language ? s.language.toUpperCase() : (s.title || `Faixa ${i + 1}`)
+              // Legendas image-based (PGS/DVD) exigiriam burn-in, que o caminho
+              // HLS atual descarta (o encoder roda -sn, sem overlay) — selecioná-las
+              // só silenciava a legenda. Desabilitado até o burn existir no HLS (#411).
               return (
                 <button
                   key={s.index}
+                  disabled={s.image}
                   onClick={() => {
+                    if (s.image) return
                     clearCustomSub()
-                    if (s.image) {
-                      // Image sub → burn-in (forces video re-encode)
-                      setBurnSubTrack(s.index)
-                      setEmbeddedSub(null)
-                    } else {
-                      // Text sub → extract as VTT
-                      setEmbeddedSub(s.index)
-                      setBurnSubTrack(null)
-                      setSubActive(null)
-                      setAutoSource('embedded')
-                    }
+                    // Text sub → extract as VTT
+                    setEmbeddedSub(s.index)
+                    setBurnSubTrack(null)
+                    setSubActive(null)
+                    setAutoSource('embedded')
                   }}
                   title={
                     s.image
-                      ? `${s.codec} (imagem) — burn-in via FFmpeg, vai forçar transcode do vídeo`
+                      ? `${s.codec} — ${t('player.burnUnsupported')}`
                       : s.title || s.codec
                   }
-                  className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)}`}
+                  className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)} ${s.image ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {subLabel}
                   <span className="text-text-muted ml-1">{s.codec}</span>
