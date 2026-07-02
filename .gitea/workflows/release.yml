@@ -95,6 +95,9 @@ jobs:
   deliver:
     needs: [sonar]            # ← só entrega se o GATE passou
     runs-on: [self-hosted, deploy]   # homeserver: amd64 nativo + GPU + docker.sock
+    env:
+      REGISTRY: "${{ vars.REGISTRY || 'gitea.raspberrypi.lan' }}"
+      IMAGE: "${{ vars.REGISTRY || 'gitea.raspberrypi.lan' }}/lgldsilva/jackui"
     steps:
       - uses: actions/checkout@v4
       - name: semver
@@ -106,27 +109,23 @@ jobs:
             --build-arg GIT_COMMIT=${{ github.sha }} \
             --build-arg APP_VERSION=${{ steps.ver.outputs.semver }} \
             -t $IMAGE:${{ github.sha }} -t $IMAGE:nvidia .
-        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
       - name: Trivy (gate CRITICAL, imagem LOCAL, ANTES do push)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
             image --scanners vuln --no-progress --ignore-unfixed \
             --severity CRITICAL --exit-code 1 $IMAGE:nvidia
-        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
       - name: push (só após Trivy OK)
         run: |
-          echo "${{ secrets.REGISTRY_TOKEN }}" | docker login ${{ vars.REGISTRY }} -u lgldsilva --password-stdin
+          echo "${{ secrets.REGISTRY_TOKEN }}" | docker login $REGISTRY -u lgldsilva --password-stdin
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:nvidia
-          docker logout ${{ vars.REGISTRY }}
-        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
+          docker logout $REGISTRY
       - name: deploy (docker.sock local; compose de prod atrás do gluetun)
         run: |
           docker pull $IMAGE:nvidia
           docker tag $IMAGE:nvidia jackui:nvidia
           docker compose -f "${{ secrets.PROD_COMPOSE }}" up -d --force-recreate jackui
-        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
       - name: Publicar tag de versão Git
         env:
           SEMVER: ${{ steps.ver.outputs.semver }}
