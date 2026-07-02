@@ -45,6 +45,8 @@ jobs:
         run: go test -coverprofile=coverage.out ./internal/...
       - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)
         uses: actions/upload-artifact@v3
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
         with:
           name: go-coverage
           path: coverage.out
