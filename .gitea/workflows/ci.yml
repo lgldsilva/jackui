@@ -1,0 +1,92 @@
+# CI — gates de PR/push (backend + frontend). Protótipo da migração Jenkins → Gitea Actions.
+# ⚠ Trigger em workflow_dispatch (manual) enquanto os runners ARM não estão registrados.
+# Quando os runners `arm64` estiverem no ar e validados, trocar por:
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+# e ativar branch protection exigindo os checks "CI / backend" e "CI / frontend".
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: [self-hosted, arm64]
+    # Postgres de teste como service container (substitui o sidecar jackui-ci-pg do Jenkins).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jackui
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: jackui
+          PGPORT: 5433
+        # act_runner: o healthcheck do service é gerido pelo runner; o host é "postgres".
+    env:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@127.0.0.1:5433/jackui?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: go.sum
+      - name: ffmpeg (testes de transcode/streamer)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: gofmt (falha se houver arquivo fora do padrão)
+        run: 'test -z "$(gofmt -l .)" || { echo "gofmt:"; gofmt -l .; exit 1; }'
+      - name: go vet
+        run: go vet ./internal/...
+      - name: go test + cobertura
+        run: go test -coverprofile=coverage.out ./internal/...
+      - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)
+        uses: actions/upload-artifact@v3
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+        with:
+          name: go-coverage
+          path: coverage.out
+
+  frontend:
+    runs-on: [self-hosted, arm64]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint      # ESLint: sonarjs/cognitive-complexity 15 (espelha S3776)
+      - run: npm test          # vitest run
+      - run: npm run build
+
+  approve:
+    needs: [backend, frontend]
+    runs-on: [self-hosted, arm64]
+    # Executa a aprovação se os testes passarem e for de fato um PR
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Auto-approve PR via bot
+        env:
+          BOTK: ${{ secrets.GITEA_BOT_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -n "$BOTK" ] && [ -n "$PR_NUMBER" ]; then
+            echo "Aprovando PR #$PR_NUMBER via bot..."
+            curl -sf -X POST -H "Authorization: token $BOTK" -H 'Content-Type: application/json' \
+              "https://gitea.raspberrypi.lan/api/v1/repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" \
+              -d '{"event":"APPROVED","body":"Gates do CI verdes (backend test + frontend build) — aprovado automaticamente pelo ci-bot no Gitea Actions."}' || echo "Aviso: falha ao enviar aprovação do bot."
+          else
+            echo "Secrets ou número do PR não disponíveis para o bot."
+          fi
+

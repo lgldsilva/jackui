@@ -136,7 +136,7 @@ func TestLocalSubtitleExtract_CacheHit(t *testing.T) {
 // No cache copy + slow mount → background extraction kicks off and the request
 // returns 503 {code:"extracting"} instead of blocking.
 func TestLocalSubtitleExtract_BackgroundExtracting(t *testing.T) {
-	r, cache, _, _ := subExtractRouter(t)
+	r, cache, abs, st := subExtractRouter(t)
 	defer cache.Close()
 
 	w := httptest.NewRecorder()
@@ -146,6 +146,15 @@ func TestLocalSubtitleExtract_BackgroundExtracting(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "extracting") {
 		t.Errorf("503 body should carry code=extracting, got %s", w.Body.String())
+	}
+
+	// Aguarda o job de extração em background terminar para liberar o arquivo no TempDir
+	vttPath := localSubVTTPath(cache, abs, st, 3)
+	for i := 0; i < 300; i++ {
+		if _, extracting := subExtractJobs.Load(vttPath); !extracting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
