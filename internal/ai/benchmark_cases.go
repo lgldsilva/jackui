@@ -103,9 +103,9 @@ var DefaultBenchmarkCases = markDefault([]BenchmarkCase{
 	{Raw: "Metallica - Discography (1983-2016) [320kbps]", Expect: "Metallica"},
 
 	// ── Adult: studio.YY.MM.DD.performer.scene — must keep performer+scene ──
-	{Raw: "Brazzers.24.03.15.Angela.White.Wet.And.Wild.XXX.1080p.MP4-XXX", Expect: "Brazzers - Angela White - Wet And Wild"},
-	{Raw: "SexArt.23.11.02.Lika.Star.Morning.Coffee.XXX.2160p.MP4-WRB", Expect: "SexArt - Lika Star - Morning Coffee"},
-	{Raw: "PlayboyPlus.22.07.19.Gloria.Sol.Natural.Beauty.XXX.1080p", Expect: "PlayboyPlus - Gloria Sol - Natural Beauty"},
+	{Raw: "StudioA.24.03.15.Jane.Doe.Wet.And.Wild.XXX.1080p.MP4-XXX", Expect: "StudioA - Jane Doe - Wet And Wild"},
+	{Raw: "ArtHouse.23.11.02.Mary.Major.Morning.Coffee.XXX.2160p.MP4-WRB", Expect: "ArtHouse - Mary Major - Morning Coffee"},
+	{Raw: "GlamourPlus.22.07.19.Anna.Bloggs.Natural.Beauty.XXX.1080p", Expect: "GlamourPlus - Anna Bloggs - Natural Beauty"},
 
 	// ── Site-tag prefixes ────────────────────────────────────────────────────
 	{Raw: "www.Torrenting.com - The.Batman.2022.1080p.WEBRip.x264-YIFY", Expect: "The Batman - 2022"},
