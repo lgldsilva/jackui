@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/localcache"
@@ -53,6 +54,20 @@ func TestLocalCacheFolder_EnqueuesPlayableRecursive(t *testing.T) {
 	}
 	if resp.Queued != 2 {
 		t.Fatalf("queued=%d want 2 (the two media files, txt skipped)", resp.Queued)
+	}
+
+	// Espera que as cópias em background terminem para liberar o TempDir
+	ready := false
+	for i := 0; i < 300; i++ {
+		if cache.StatusFor("Test", "ep01.mkv").Status == "ready" &&
+			cache.StatusFor("Test", "S02/ep02.mp4").Status == "ready" {
+			ready = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("arquivos do folder não terminaram de ser copiados para o cache")
 	}
 }
 
