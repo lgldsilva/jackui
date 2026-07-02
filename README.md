@@ -2,9 +2,11 @@
 
 A self-hosted **torrent streaming media server** — search, stream a torrent to your browser *before it finishes downloading*, transcode on the fly with hardware acceleration, and watch (Safari included, via HLS). Go backend, React UI embedded in a single binary, runs in Docker.
 
-![status](https://img.shields.io/badge/status-active-success) ![go](https://img.shields.io/badge/Go-1.22+-00ADD8) ![license](https://img.shields.io/badge/license-MIT-blue)
+![status](https://img.shields.io/badge/status-active-success) ![go](https://img.shields.io/badge/Go-1.25+-00ADD8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > JackUI started as a visual front-end for [Jackett](https://github.com/Jackett/Jackett) and grew into a full media server: find a release, start playing it while it downloads, and let the server transcode incompatible codecs to something your browser can play. No "wait for the download to finish", no separate transcoding box.
+>
+> JackUI is an independent project — it is **not affiliated with or endorsed by Jackett**.
 
 > [!NOTE]
 > The web UI is internationalised (react-i18next): Portuguese and English ship today (`web/src/locales/{pt,en}.json`). This README and the developer docs are in English.
@@ -172,6 +174,12 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 | [docs/CICD.md](docs/CICD.md) | Build pipeline, quality gates, deploy |
 | [docs/RCLONE.md](docs/RCLONE.md) | Tuning rclone/Google-Drive mounts for streaming (cache, chunking, read-ahead) |
 
+## Legal
+
+JackUI is a **neutral tool**: it searches indexers you configure and streams/downloads content over the BitTorrent protocol. It does not host, index, or distribute any content by itself, and it ships with no indexers or trackers configured.
+
+You are solely responsible for what you search for, download, stream, and share with it. Make sure your use complies with the laws of your jurisdiction and with the rights of content owners. The authors and contributors do not condone copyright infringement and provide this software without any warranty (see [LICENSE](LICENSE)).
+
 ## License
 
-MIT.
+[MIT](LICENSE).
