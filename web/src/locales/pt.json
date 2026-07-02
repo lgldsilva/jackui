@@ -322,7 +322,8 @@
       "infuse_hint": "Abrir o stream no app Infuse local (iOS/macOS/Apple TV)",
       "copy_url": "Copiar URL",
       "copy_url_hint": "Copiar a URL direta do stream para colar em qualquer outro tocador"
-    }
+    },
+    "burnUnsupported": "Legenda de imagem (PGS/DVD) — burn-in ainda não é suportado no caminho HLS atual; use uma legenda de texto ou externa (#411)"
   },
   "reclassify": {
     "title_folder": "Reclassificar pasta via IA",
