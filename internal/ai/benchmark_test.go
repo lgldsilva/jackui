@@ -131,6 +131,18 @@ func TestCompositeLatencyPenaltyIsGentle(t *testing.T) {
 	}
 }
 
+// TestCompositeAccuracyDominatesLatency guards the squared-accuracy lever: at a realistic
+// gap, a more-accurate-but-slower model must out-rank a less-accurate-faster one. Uses the
+// exact prod numbers that motivated it (99%@1303ms should beat 88%@846ms) — if someone
+// drops the square, the faster-but-sloppier model wins and this fails.
+func TestCompositeAccuracyDominatesLatency(t *testing.T) {
+	accurate := compositeScore(0.99, 1303, 0)  // qwen2.5-coder:7b
+	fastSloppy := compositeScore(0.88, 846, 0) // llama3.2:3b (faster, 11pts less accurate)
+	if accurate <= fastSloppy {
+		t.Fatalf("99%%@1303ms (%.3f) must out-rank 88%%@846ms (%.3f) — accuracy should dominate", accurate, fastSloppy)
+	}
+}
+
 // ── Property-based tests ─────────────────────────────────────────────────────
 
 // TestPropCheaperScoresHigher: at equal accuracy/latency, a cheaper model (incl.
@@ -1087,6 +1099,23 @@ func TestRankBeforeCompleteBeatsIncomplete(t *testing.T) {
 	}
 	if RankBefore(incomplete, complete) {
 		t.Fatal("an incomplete run must not rank before a complete one")
+	}
+}
+
+// TestRankBeforeWellCoveredIncompleteRanksOnMerit: an incomplete run that still covered
+// most cases (≥70%) is trustworthy and ranks on composite — a rate-limited free model at
+// 99% shouldn't be buried under a complete-but-mediocre one. A SPARSE incomplete run
+// (few cases) stays demoted.
+func TestRankBeforeWellCoveredIncompleteRanksOnMerit(t *testing.T) {
+	wellCovered := SlotScore{SlotID: "gemini", Composite: 1.2, Incomplete: true, Completeness: 0.8}
+	completeMediocre := SlotScore{SlotID: "meh", Composite: 0.6, Incomplete: false}
+	if !RankBefore(wellCovered, completeMediocre) {
+		t.Fatal("a well-covered (0.8) high-composite incomplete run should out-rank a complete but lower-composite one")
+	}
+	// A sparsely-measured run stays demoted below the complete one despite high composite.
+	sparse := SlotScore{SlotID: "lucky", Composite: 1.9, Incomplete: true, Completeness: 0.2}
+	if !RankBefore(completeMediocre, sparse) {
+		t.Fatal("a sparse (0.2) run must stay demoted below a complete one")
 	}
 }
 

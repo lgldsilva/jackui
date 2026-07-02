@@ -80,6 +80,11 @@ type SlotScore struct {
 	// rate-limit window. A model fully tested (even if some cases failed hard) is
 	// NOT incomplete.
 	Incomplete bool `json:"incomplete,omitempty"`
+	// Completeness is the fraction of cases (0..1) that produced a scored result. 1.0 for a
+	// full run; lower when cases were skipped (rate limit). RankBefore uses it to demote only
+	// SPARSELY-measured runs, not a run that covered most cases at high accuracy. 0 on legacy
+	// rows persisted before this field existed — RankBefore falls back to Incomplete there.
+	Completeness float64 `json:"completeness,omitempty"`
 	// History fields are OUTPUT-ONLY: they're populated by BenchmarkStore.Results
 	// from the durable benchmark_history table (NOT by a live RunSlots measurement,
 	// which has no past to look at). They answer "did this run succeed or error,
@@ -119,13 +124,16 @@ func RunOutcome(s SlotScore) string {
 	}
 }
 
-// compositeScore ranks a model by VALUE: quality ÷ (latency^p × cost factor). Title
+// compositeScore ranks a model by VALUE: quality² ÷ (latency^p × cost factor). Title
 // identification is a BACKGROUND job (it runs once per item, off the request path), so
-// accuracy should dominate and latency is only a tiebreaker — a model that's a bit
-// slower but more accurate should win. The latency penalty therefore uses the CUBE ROOT
-// (p = 1/3), gentler than the old sqrt: a 10× slower model is penalized ~2.15× instead of
-// ~3.16×, so a correct-but-slow model isn't buried by a fast-but-sloppy one. A 0.3s floor
-// stops a sub-300ms call from inflating the score.
+// accuracy should DOMINATE — a wrong title mis-files media, while a slower call is
+// invisible. Two levers make accuracy dominate latency:
+//   - accuracy is SQUARED, so a small accuracy gap outweighs a large speed gap. Measured
+//     example that motivated this: an 88%@846ms model was out-ranking a 99%@1303ms one on
+//     speed alone; squaring flips it (0.88²/∛0.846=0.82 < 0.99²/∛1.30=0.90), so the more
+//     accurate model wins — which is what you want for correctness-critical extraction.
+//   - the latency penalty is the CUBE ROOT (p = 1/3), gentler than sqrt: a 10× slower
+//     model is penalized ~2.15× not ~3.16×. A 0.3s floor stops a sub-300ms call inflating.
 //
 // Cost (USD per 1M tokens, blended) enters as a (1 + cost) divisor: free models
 // (cost 0) divide by 1 — no penalty — and every dollar/1M pushes the score down.
@@ -136,7 +144,7 @@ func RunOutcome(s SlotScore) string {
 func compositeScore(accuracy float64, avgLatencyMs int64, costPer1M float64) float64 {
 	seconds := math.Max(0.3, float64(avgLatencyMs)/1000.0)
 	cost := math.Max(0, costPer1M)
-	return accuracy / math.Cbrt(seconds) / (1 + cost)
+	return accuracy * accuracy / math.Cbrt(seconds) / (1 + cost)
 }
 
 // reliabilityPriorMean/Weight tune reliableAccuracy: a Bayesian shrinkage that
@@ -171,9 +179,21 @@ func reliableAccuracy(accuracy float64, samples int) float64 {
 // decides. This fixes a real production case: a model with 69% accuracy over 12
 // rate-limited samples out-ranked one with 99% over a complete 84-sample run,
 // purely because it happened to also be fast.
+//
+// The tier is COMPLETENESS-graded, not binary: a run that covered most cases
+// (Completeness ≥ rankCompletenessFloor) is trustworthy and ranks on composite, so a
+// free model that a rate limit cut at 80% but scored 99% isn't buried under mediocre
+// full runs. Only a SPARSELY-measured run (few cases → its accuracy is noise) is
+// demoted. Legacy rows have Completeness 0, so `!Incomplete` still gates them as before.
+const rankCompletenessFloor = 0.7
+
+func trustworthy(s SlotScore) bool {
+	return !s.Incomplete || s.Completeness >= rankCompletenessFloor
+}
+
 func RankBefore(a, b SlotScore) bool {
-	if a.Incomplete != b.Incomplete {
-		return !a.Incomplete
+	if ta, tb := trustworthy(a), trustworthy(b); ta != tb {
+		return ta
 	}
 	return a.Composite > b.Composite
 }
@@ -474,6 +494,9 @@ func (c *Client) scoreSlot(ctx context.Context, s Slot, cases []BenchmarkCase, w
 	// Incomplete = some cases were transiently skipped (didn't reach the full set).
 	// Not for a paid no-balance abort (re-running won't help).
 	score.Incomplete = !paymentFail && t.scored < len(cases)
+	if len(cases) > 0 {
+		score.Completeness = float64(t.scored) / float64(len(cases))
+	}
 	// Local models aren't free — price their energy (latency × tokens × power ×
 	// tariff) so a slow/power-hungry local ranks below a fast cloud-free one. No-op
 	// unless a tariff is configured.
