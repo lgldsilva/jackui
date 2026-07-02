@@ -1,8 +1,8 @@
 package downloads
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"syscall"

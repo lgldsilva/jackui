@@ -403,7 +403,6 @@ func moveIntoUserSubdir(mountAbs, user, name string) (moved bool, err error) {
 	return true, nil
 }
 
-
 func hasPathTraversal(relPath string) bool {
 	if relPath == "" {
 		return false

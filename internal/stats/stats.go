@@ -28,8 +28,8 @@ type LibraryAgg struct {
 	Titles         int            `json:"titles"`
 	Completed      int            `json:"completed"`
 	InProgress     int            `json:"inProgress"`
-	WatchSeconds   float64        `json:"watchSeconds"` // accumulated playback position (approximation: rewatches don't add)
-	ByKind         map[string]int `json:"byKind"`       // "video" | "audio" | "other"
+	WatchSeconds   float64        `json:"watchSeconds"`   // accumulated playback position (approximation: rewatches don't add)
+	ByKind         map[string]int `json:"byKind"`         // "video" | "audio" | "other"
 	PlaysByWeekday [7]int         `json:"playsByWeekday"` // 0 = Sunday, local time
 	PlaysByHour    [24]int        `json:"playsByHour"`    // local time
 	AddedByMonth   []MonthCount   `json:"addedByMonth"`   // last 6 months, chronological

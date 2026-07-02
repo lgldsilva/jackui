@@ -1,27 +1,28 @@
-// JackUI — pipeline CI/CD (Jenkins @ oracle-desktop).
+// JackUI — pipeline CI/CD (Jenkins multibranch no home server amd64, docker.sock local).
 //
 // Dois modos (multibranch):
-//  • PULL REQUEST  → só os GATES: backend test + frontend tsc/test/build. Se passar,
-//    o ci-bot aprova o PR automaticamente (post success). Sem deploy/Sonar/SBOM
+//  • PULL REQUEST  → só os GATES: gofmt/vet + backend test + frontend tsc/lint/test/build.
+//    Se passar, o ci-bot aprova o PR automaticamente (post success). Sem deploy/Sonar/SBOM
 //    (SonarQube Community não faz análise de PR; o gate completo roda na main).
-//  • main (merge)  → pipeline completo: test → frontend → SonarQube (quality gate)
-//    → EM PARALELO { SBOM→Dependency-Track no ARM (nativo, offload do homeserver) ||
-//    build amd64 local + push no Gitea → Trivy → deploy } → publica tag + retenção.
+//  • main (merge)  → pipeline completo: gates → SonarQube (quality gate) → EM PARALELO
+//    { SBOM→Dependency-Track no ARM (nativo, offload do homeserver) || build amd64 local
+//    → Trivy (gate PRÉ-push) → push no Gitea → deploy } → publica tag + retenção.
 //    O SBOM/cdxgen (~lento) saiu do caminho crítico: roda no ARM sobrepondo o build.
 //
 // Compat: num job single-branch legado (sem BRANCH_NAME) os stages de entrega
 // ainda rodam (a condição trata BRANCH_NAME==null como "main"), então a migração
 // pro multibranch não derruba o deploy no intervalo.
 //
-// O Jenkins host (oracle-desktop) é arm64 e o alvo (raspberrypi-srv) é amd64;
-// como o alvo é o único consumidor, o build roda LÁ nativamente (sem qemu/OOM).
+// A config do Sonar (projectKey/exclusions/coverage/qualitygate.wait) vive em
+// sonar-project.properties — FONTE ÚNICA; aqui só entram host/token/executáveis.
+// O deploy roda LOCAL via docker.sock (sem SSH).
 //
 // Pré-requisitos no Jenkins (ver docs/CICD.md):
-//   - Plugins: Docker Pipeline, Credentials Binding, Git, SSH Agent, Gitea.
-//   - Agent com /var/run/docker.sock (o controller no oracle-desktop já tem).
-//   - Credenciais: 'jackui-sonar-token' (secret text), 'jackui-dt' (user/pass),
-//     'jackui-gitea' (user/pass, write:package), 'jackui-deploy' (ssh key),
-//     'jackui-ci-bot' (secret text — token do ci-bot p/ aprovar PRs).
+//   - Plugins: Docker Pipeline, Credentials Binding, Git, Gitea.
+//   - Controller amd64 com /var/run/docker.sock montado; agente 'arm64' p/ PRs + SBOM.
+//   - Credenciais: 'jackui-sonar-token-arm' (secret text), 'jackui-dt-arm' (user/pass),
+//     'jackui-gitea' (user/pass, write:package), 'jackui-ci-bot' (secret text — aprova PRs),
+//     'telegram-bot-token' + 'telegram-chat-id' (secret text — notificações).
 
 pipeline {
   // Em PR (CHANGE_ID setado) o build roda no AGENTE ARM (oci-ampere-1, offload de CPU); na main
@@ -109,6 +110,16 @@ pipeline {
       agent { docker { image 'golang:1.26-alpine'; reuseNode true; args "${env.CHANGE_ID ? '' : '--platform linux/amd64'} -u root --network jackui-ci-net -e GOCACHE=/tmp/.gocache -e GOPATH=/tmp/.gopath -e JACKUI_TEST_DATABASE_URL=postgres://jackui:ci@jackui-ci-pg:5432/jackui?sslmode=disable" } }
       steps {
         sh 'apk add --no-cache ffmpeg >/dev/null'
+        // Gates baratos primeiro — formatação e vet. Só ./internal no vet: cmd/server
+        // importa o pacote ui (//go:embed all:dist) que não compila antes do frontend
+        // build (mesmo motivo do go test abaixo).
+        sh '''
+          UNFMT=$(gofmt -l .)
+          if [ -n "$UNFMT" ]; then
+            echo "gofmt: arquivos fora do padrão (rode gofmt -w .):"; echo "$UNFMT"; exit 1
+          fi
+        '''
+        sh 'go vet ./internal/...'
         retry(2) {
           sh 'go test -coverprofile=coverage.out ./internal/...'
         }
@@ -134,6 +145,7 @@ pipeline {
         dir('web') {
           sh 'npm ci'
           sh 'npx tsc --noEmit'
+          sh 'npm run lint'      // ESLint (sonarjs/cognitive-complexity 15 = S3776) — pega no PR o que o Sonar só pegaria na main
           sh 'npm test'          // vitest run — pega regressões de funções puras (group, parser, etc.)
           sh 'npm run build'
         }
@@ -191,19 +203,16 @@ pipeline {
                 # como rodamos --user 0, ele nasceria dono=root no workspace e
                 # quebraria o checkout do próximo build. Em /tmp ele some com o
                 # container e nunca toca o workspace.
+                # Config do projeto (projectKey/sources/exclusions/coverage/scm/
+                # qualitygate.wait) vem TODA de sonar-project.properties — fonte
+                # única; editar lá vale pro CI e pro `make sonar-scan`. Aqui só o
+                # que é do AMBIENTE (host, token, node, workdir).
                 ret=0
                 ./.sonar-scanner/bin/sonar-scanner \
                   -Dsonar.host.url=$SONAR_HOST \
                   -Dsonar.token=$SONAR_TOKEN \
                   -Dsonar.nodejs.executable=$NODE_BIN \
-                  -Dsonar.working.directory=/tmp/.scannerwork \
-                  -Dsonar.projectKey=jackui \
-                  -Dsonar.sources=. \
-                  -Dsonar.exclusions="**/node_modules/**,**/dist/**,**/ui/dist/**,**/vendor/**,electron/**,**/streamer/streams/**" \
-                  -Dsonar.go.coverage.reportPaths=coverage.out \
-                  -Dsonar.tests=. -Dsonar.test.inclusions="**/*_test.go,web/**/*.test.ts,web/**/*.test.tsx,web/**/*.spec.ts,web/**/*.spec.tsx" \
-                  -Dsonar.coverage.exclusions="web/**,cmd/**,electron/**" \
-                   -Dsonar.scm.disabled=true || ret=$?
+                  -Dsonar.working.directory=/tmp/.scannerwork || ret=$?
                 # Causa raiz: o .sonar-scanner (cache, mantido entre builds de
                 # propósito) e o coverage.out ficam dono=root no workspace montado.
                 # Devolvemos a posse ao jenkins (uid 1000) AQUI, dentro do container
@@ -295,38 +304,53 @@ pipeline {
         // ───── ENTREGA no built-in (GPU + docker.sock locais): build → scan → deploy ─────
         stage('Entrega') {
           stages {
-            stage('Build & Push (amd64 nativo, local)') {
+            stage('Build (amd64 nativo, local)') {
               steps {
-                // Jenkins roda NO hub amd64 com docker.sock montado: build/push direto,
-                // sem SSH (antes fazia ssh ao alvo quando o Jenkins era remoto no Oracle ARM).
+                // Jenkins roda NO hub amd64 com docker.sock montado: build direto,
+                // sem SSH. O push foi movido para DEPOIS do gate do Trivy — uma
+                // imagem com CRITICAL não pode entrar no registry nem avançar a
+                // tag móvel :nvidia (achado #412 da auditoria).
+                sh '''
+                  set -e
+                  docker build -f $DOCKERFILE \
+                    --build-arg BUILD_TIMESTAMP=$(date +%s) \
+                    --build-arg GIT_COMMIT=$GIT_COMMIT \
+                    --build-arg APP_VERSION=${SEMVER:-$TAG} \
+                    -t $IMAGE:$TAG -t $IMAGE:nvidia .
+                '''
+              }
+            }
+
+            stage('Trivy (gate pré-push)') {
+              steps {
+                // Escaneia a imagem LOCAL via docker.sock (antes puxava do registry —
+                // por isso o push precisava vir primeiro). Trivy PINADO por digest:
+                // o scanner que DECIDE o gate não pode flutuar com :latest.
+                // Atualizar: docker pull aquasec/trivy:latest && docker inspect
+                // --format '{{index .RepoDigests 0}}' aquasec/trivy:latest.
+                sh '''
+                  TRIVY="docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f image --scanners vuln --no-progress --ignore-unfixed"
+                  echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
+                  $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
+                  echo "=== Trivy: gate (falha em CRITICAL) ==="
+                  $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:nvidia
+                '''
+              }
+            }
+
+            stage('Push') {
+              steps {
                 withCredentials([
                   usernamePassword(credentialsId: 'jackui-gitea', usernameVariable: 'GITEA_USER', passwordVariable: 'GITEA_TOKEN')
                 ]) {
                   sh '''
                     set -e
                     echo "$GITEA_TOKEN" | docker login $REGISTRY -u "$GITEA_USER" --password-stdin
-                    docker build -f $DOCKERFILE \
-                      --build-arg BUILD_TIMESTAMP=$(date +%s) \
-                      --build-arg GIT_COMMIT=$GIT_COMMIT \
-                      --build-arg APP_VERSION=${SEMVER:-$TAG} \
-                      -t $IMAGE:$TAG -t $IMAGE:nvidia .
                     docker push $IMAGE:$TAG
                     docker push $IMAGE:nvidia
                     docker logout $REGISTRY
                   '''
                 }
-              }
-            }
-
-            stage('Trivy') {
-              steps {
-                sh '''
-                  TRIVY="docker run --rm --platform linux/amd64 -e TRIVY_INSECURE=true aquasec/trivy:latest image --platform linux/amd64 --scanners vuln --no-progress --ignore-unfixed"
-                  echo "=== Trivy: relatório HIGH+CRITICAL (informativo) ==="
-                  $TRIVY --severity HIGH,CRITICAL $IMAGE:nvidia || true
-                  echo "=== Trivy: gate (falha em CRITICAL) ==="
-                  $TRIVY --severity CRITICAL --exit-code 1 $IMAGE:nvidia
-                '''
               }
             }
 

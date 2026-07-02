@@ -32,11 +32,11 @@ func TestAggregate_Empty(t *testing.T) {
 func TestAggregate_CompletedInProgressAndWatchSeconds(t *testing.T) {
 	played := now.Add(-time.Hour)
 	entries := []library.Entry{
-		entry("video", 95, 100, played, now),    // completed (≥90%)
-		entry("video", 30, 100, played, now),    // in progress
-		entry("video", 0, 100, played, now),     // untouched
-		entry("video", 120, 100, played, now),   // resume past the end → capped at duration, completed
-		entry("audio", 50, 0, played, now),      // no duration known → counts resume, not completed
+		entry("video", 95, 100, played, now),  // completed (≥90%)
+		entry("video", 30, 100, played, now),  // in progress
+		entry("video", 0, 100, played, now),   // untouched
+		entry("video", 120, 100, played, now), // resume past the end → capped at duration, completed
+		entry("audio", 50, 0, played, now),    // no duration known → counts resume, not completed
 	}
 	agg := Aggregate(entries, now, utc)
 	if agg.Titles != 5 {
@@ -84,8 +84,8 @@ func TestAggregate_WeekdayAndHourBuckets(t *testing.T) {
 
 func TestAggregate_AddedByMonthWindow(t *testing.T) {
 	entries := []library.Entry{
-		entry("video", 0, 0, now, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),  // current month
-		entry("video", 0, 0, now, time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)), // oldest in window
+		entry("video", 0, 0, now, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),   // current month
+		entry("video", 0, 0, now, time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC)),  // oldest in window
 		entry("video", 0, 0, now, time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC)), // outside window → ignored
 	}
 	agg := Aggregate(entries, now, utc)

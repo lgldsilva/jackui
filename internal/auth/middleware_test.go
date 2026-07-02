@@ -27,11 +27,11 @@ func TestIsMediaPath(t *testing.T) {
 		}
 	}
 	notMedia := []string{
-		"/api/search",   // axios, sends Bearer
-		"/api/config",   // sensitive — token must NOT be allowed in query
+		"/api/search", // axios, sends Bearer
+		"/api/config", // sensitive — token must NOT be allowed in query
 		"/api/download",
 		"/api/library/1",
-		"/api/stream",   // exact, no trailing slash
+		"/api/stream", // exact, no trailing slash
 	}
 	for _, p := range notMedia {
 		if isMediaPath(p) {

@@ -10,9 +10,9 @@ import (
 func TestCurrentDirOf(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Movies/2024/Inception.mkv", filepath.Join("Movies", "2024")},
-		{"Inception.mkv", ""},   // at mount root → no dir hint
-		{"", ""},                // empty
-		{".", ""},               // sentinel
+		{"Inception.mkv", ""}, // at mount root → no dir hint
+		{"", ""},              // empty
+		{".", ""},             // sentinel
 		{"a/b/c/d.mkv", filepath.Join("a", "b", "c")},
 	}
 	for _, tc := range cases {

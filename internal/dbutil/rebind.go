@@ -14,7 +14,7 @@ import (
 // driver sees is dialect-correct.
 //
 // `?` inside single-quoted string literals is left untouched. The scan toggles
-// an in-string flag on every `'`; an escaped `''` inside a literal toggles
+// an in-string flag on every `'`; an escaped `”` inside a literal toggles
 // twice, so the flag stays correct. The project has no `?` inside SQL literals
 // today, but the guard keeps Rebind safe if one is ever added.
 func Rebind(query string) string {
