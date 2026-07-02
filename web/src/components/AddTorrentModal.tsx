@@ -79,7 +79,7 @@ function renderItemStatus(item: TorrentItem) {
   </span>
 }
 
-async function confirmDownloads(
+async function confirmDownloads( // NOSONAR: complexidade cognitiva rastreada no refactor de god-components (auditoria #417)
   readyItems: TorrentItem[],
   selectedClientId: string,
   savePath: string,

@@ -155,6 +155,7 @@ export function FileTree({
                   title="Baixar esta pasta"
                   aria-label="Baixar esta pasta"
                   onClick={e => { e.stopPropagation(); onDownloadDir(row.node.path) }}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDownloadDir(row.node.path) } }}
                   className="p-1 -m-1 rounded hover:bg-surface-tertiary text-text-muted hover:text-blue-400 transition-colors flex-shrink-0"
                 >
                   <FolderDown className="w-3.5 h-3.5" />

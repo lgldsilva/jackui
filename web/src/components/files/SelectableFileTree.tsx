@@ -181,6 +181,7 @@ function DirSelectRow({ node, expanded, indent, tri, rowIdx, tabbable, onExpand,
       role="treeitem"
       aria-expanded={expanded}
       aria-checked={ariaChecked}
+      aria-selected={tri === 'all'}
       data-row-idx={rowIdx}
       tabIndex={tabbable ? 0 : -1}
       style={indent}
@@ -215,20 +216,21 @@ type FileRowProps = {
 function FileSelectRow({ node, indent, checked, rowIdx, tabbable, onToggleSel, onKeyDown, onFocus }: FileRowProps) {
   const f = node.file
   return (
-    <label
+    <div
       role="treeitem"
       aria-selected={checked}
       data-row-idx={rowIdx}
       tabIndex={tabbable ? 0 : -1}
       style={indent}
+      onClick={onToggleSel}
       onKeyDown={onKeyDown}
       onFocus={onFocus}
       className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-surface-secondary/40 cursor-pointer outline-none focus:ring-1 focus:ring-cyan-500/50"
     >
-      <input type="checkbox" checked={checked} onChange={onToggleSel} className="accent-cyan-500 flex-shrink-0" />
+      <input type="checkbox" checked={checked} readOnly tabIndex={-1} className="accent-cyan-500 flex-shrink-0" />
       {fileIcon(f)}
       <span className="flex-1 min-w-0 text-sm text-text-primary truncate" title={f.path}>{node.name}</span>
       <span className="text-xs text-text-muted flex-shrink-0">{formatBytes(f.size)}</span>
-    </label>
+    </div>
   )
 }

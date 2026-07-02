@@ -26,8 +26,8 @@ export function useRevealHidden(): [boolean, (next: boolean) => void] {
   const [on, setOn] = useState<boolean>(revealed)
   useEffect(() => {
     const handler = (e: Event) => setOn(!!(e as CustomEvent<boolean>).detail)
-    globalThis.addEventListener(EVT, handler as EventListener)
-    return () => globalThis.removeEventListener(EVT, handler as EventListener)
+    globalThis.addEventListener(EVT, handler)
+    return () => globalThis.removeEventListener(EVT, handler)
   }, [])
   return [on, setRevealHidden]
 }
