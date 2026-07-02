@@ -883,7 +883,7 @@ export default function PlayerModal({
     }
     const diag = videoDiagnostic()
     clientLog('warn', 'player', 'video onError fired', diag)
-    setLastErrorDiag(diag as Record<string, unknown>)
+    setLastErrorDiag(diag)
     if (transcodeFallbackAttempted || forceH264 || !caps) {
       handleNoFallback(diag)
       return
@@ -1631,7 +1631,7 @@ export default function PlayerModal({
             It still scrolls when EQ/lyrics expand past the height. */}
         <div className={audioMode && minimized
           ? 'flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 min-w-0 lg:flex-nowrap lg:gap-x-4 lg:px-4'
-          : `flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden ${audioMode ? 'lg:justify-center' : ''}`}>
+          : ['flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden', audioMode ? 'lg:justify-center' : ''].join(' ')}>
         {/* Player de áudio simplificado ou vídeo completo. Áudio usa <audio>
             controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
             Vídeo mantém o player existente com HLS/transcode. */}

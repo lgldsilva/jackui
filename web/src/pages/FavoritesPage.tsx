@@ -67,7 +67,7 @@ async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW
       let bin = ''
       const CHUNK = 0x8000
       for (let i = 0; i < bytes.length; i += CHUNK) {
-        bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+        bin += String.fromCodePoint(...bytes.subarray(i, i + CHUNK))
       }
       await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
       ok++

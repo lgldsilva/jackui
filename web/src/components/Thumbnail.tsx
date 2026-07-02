@@ -82,7 +82,7 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
           // If the TMDB poster URL 404s (rare but happens after deletions),
           // swap the <img> for the fallback icon by hiding it — the icon
           // sibling sits underneath with absolute positioning.
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+          onError={(e) => { e.currentTarget.style.display = 'none' }}
         />
       ) : null}
       {/* Fallback layer: shown while waiting OR when no match was found.

@@ -89,7 +89,9 @@ export function useAirPlay(videoRef: RefObject<HTMLVideoElement | null>, srcKey:
   const [active, setActive] = useState(false)
 
   useEffect(() => {
-    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null
+    // NOSONAR: a assertion carrega os métodos webkit* (WebKitAirPlayVideo é interface
+    // standalone, não merge em HTMLVideoElement) — o tsc precisa dela; S4325 é falso-positivo.
+    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null // NOSONAR
     if (!el || typeof el.webkitShowPlaybackTargetPicker !== 'function') return
     const onAvail = (e: Event) => setAvailable((e as WebKitAvailabilityEvent).availability === 'available')
     const onWireless = () => setActive(!!el.webkitCurrentPlaybackTargetIsWireless)
@@ -102,7 +104,7 @@ export function useAirPlay(videoRef: RefObject<HTMLVideoElement | null>, srcKey:
   }, [videoRef, srcKey])
 
   const show = () => {
-    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null
+    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null // NOSONAR: idem :92 (métodos webkit*, S4325 falso-positivo)
     el?.webkitShowPlaybackTargetPicker?.()
   }
 

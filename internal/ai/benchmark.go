@@ -398,7 +398,7 @@ func localSlotContext(ctx context.Context, remainingSlots int) (context.Context,
 	return context.WithTimeout(ctx, share)
 }
 
-func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore {
+func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore { // NOSONAR: complexidade cognitiva rastreada no refactor de god-files (auditoria #416)
 	if len(cases) == 0 {
 		cases = AllDefaultBenchmarkCases()
 	}
