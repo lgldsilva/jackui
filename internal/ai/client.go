@@ -388,8 +388,15 @@ func parseRetryAfter(v string) time.Duration {
 // (:free / -free). The single source of truth for "safe to benchmark/adopt without
 // spending" — used by discovery, FreeOnly, and adoption.
 func isFreeModel(provider, model string) bool {
-	return freeTierProviders[provider] ||
-		strings.HasSuffix(model, ":free") || strings.HasSuffix(model, "-free")
+	if freeTierProviders[provider] {
+		return true
+	}
+	// Google's free tier can't be discovered (no pricing in /models, not in the id) —
+	// config owns the pinned free-id list; anything not on it is treated as paid.
+	if provider == "google" {
+		return config.IsFreeGoogleModel(model)
+	}
+	return strings.HasSuffix(model, ":free") || strings.HasSuffix(model, "-free")
 }
 
 // FreeOnly drops paid models (a metered provider without a free marker) so the
