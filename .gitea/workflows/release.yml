@@ -9,7 +9,8 @@
 # SonarQube Community NÃO faz análise de PR → o gate roda só no push da main (igual hoje).
 name: Release
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   # Reexecuta os gates no contexto da main (mesma lógica do ci.yml).
@@ -110,3 +111,53 @@ jobs:
           docker tag $IMAGE:nvidia jackui:nvidia
           docker compose -f "${{ secrets.PROD_COMPOSE }}" up -d --force-recreate jackui
         env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
+      - name: Publicar tag de versão Git
+        env:
+          SEMVER: ${{ steps.ver.outputs.semver }}
+          GITEA_USER: "lgldsilva"
+          GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$SEMVER" ]; then
+            git config --global user.name "Gitea Actions"
+            git config --global user.email "actions@gitea.raspberrypi.lan"
+            if git rev-parse "refs/tags/$SEMVER" >/dev/null 2>&1; then
+              echo "Tag $SEMVER já existe — nada a publicar."
+            else
+              git tag "$SEMVER"
+              git -c http.sslVerify=false push "https://$GITEA_USER:$GITEA_TOKEN@gitea.raspberrypi.lan/lgldsilva/jackui.git" "refs/tags/$SEMVER" || echo "Aviso: push da tag falhou."
+            fi
+          fi
+      - name: Limpeza de versões de pacotes antigas
+        env:
+          GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: bash scripts/cleanup-packages.sh || echo "Aviso: falha na limpeza de pacotes."
+      - name: Notificar sucesso no Telegram
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEMVER: ${{ steps.ver.outputs.semver }}
+        run: |
+          if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+            MSG="✅ JackUI ${SEMVER:-} deployado com sucesso via Gitea Actions\nCommit: $(echo ${{ github.sha }} | cut -c1-7)"
+            curl -sf -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+              --data-urlencode "chat_id=$TG_CHAT" \
+              --data-urlencode "text=$MSG" > /dev/null || echo "Aviso: notificação Telegram falhou."
+          fi
+
+  notify-failure:
+    needs: [backend, frontend, sonar, deliver]
+    runs-on: [self-hosted, arm64]
+    if: failure()
+    steps:
+      - name: Notificar falha no Telegram
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
+            MSG="❌ JackUI: Build ou Deploy FALHOU no Gitea Actions.\nCommit: $(echo ${{ github.sha }} | cut -c1-7)"
+            curl -sf -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
+              --data-urlencode "chat_id=$TG_CHAT" \
+              --data-urlencode "text=$MSG" > /dev/null || echo "Aviso: notificação Telegram falhou."
+          fi
+

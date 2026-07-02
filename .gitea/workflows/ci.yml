@@ -8,7 +8,9 @@
 # e ativar branch protection exigindo os checks "CI / backend" e "CI / frontend".
 name: CI
 on:
-  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
 
 jobs:
   backend:
@@ -43,7 +45,7 @@ jobs:
         run: go vet ./internal/...
       - name: go test + cobertura
         run: go test -coverprofile=coverage.out ./internal/...
-      - name: Publica coverage.out (para o job do Sonar em release.yml)
+      - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)
         uses: actions/upload-artifact@v3
         with:
           name: go-coverage
@@ -68,3 +70,24 @@ jobs:
       - run: npm run lint      # ESLint: sonarjs/cognitive-complexity 15 (espelha S3776)
       - run: npm test          # vitest run
       - run: npm run build
+
+  approve:
+    needs: [backend, frontend]
+    runs-on: [self-hosted, arm64]
+    # Executa a aprovação se os testes passarem e for de fato um PR
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Auto-approve PR via bot
+        env:
+          BOTK: ${{ secrets.GITEA_BOT_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -n "$BOTK" ] && [ -n "$PR_NUMBER" ]; then
+            echo "Aprovando PR #$PR_NUMBER via bot..."
+            curl -sf -X POST -H "Authorization: token $BOTK" -H 'Content-Type: application/json' \
+              "https://gitea.raspberrypi.lan/api/v1/repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" \
+              -d '{"event":"APPROVED","body":"Gates do CI verdes (backend test + frontend build) — aprovado automaticamente pelo ci-bot no Gitea Actions."}' || echo "Aviso: falha ao enviar aprovação do bot."
+          else
+            echo "Secrets ou número do PR não disponíveis para o bot."
+          fi
+
