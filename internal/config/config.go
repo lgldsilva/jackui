@@ -79,6 +79,14 @@ type AIConfig struct {
 type AIProvider struct {
 	BaseURL string `yaml:"base_url"` // OpenAI-compatible base, e.g. https://api.groq.com/openai/v1
 	APIKey  string `yaml:"api_key"`  // bearer token; empty for keyless backends (ollama)
+	// PreferredModels overrides the built-in pick order for this provider's default chain
+	// slot (empty → the defaultProviderModels fallback). It only biases WHICH model this
+	// provider offers pre-benchmark; the chain ORDER is always the benchmark's job.
+	PreferredModels []string `yaml:"preferred_models,omitempty"`
+	// FreeModels overrides the pinned free-tier id list for providers whose free tier
+	// can't be discovered (Google — its /models has no pricing). Empty → the default.
+	// Update this instead of the code when a provider ships/reprices a free model.
+	FreeModels []string `yaml:"free_models,omitempty"`
 }
 
 type AIChainSlot struct {
@@ -804,7 +812,7 @@ func (cfg *Config) appendGoogleSlot(chain []AIChainSlot) []AIChainSlot {
 	if !ok || p.APIKey == "" {
 		return chain
 	}
-	if m := pickFreeGoogleModel(fetchModels(p.BaseURL, p.APIKey)); m != "" {
+	if m := pickFreeGoogleModel(fetchModels(p.BaseURL, p.APIKey), cfg.freeModels("google")); m != "" {
 		chain = append(chain, AIChainSlot{ID: "google-" + m, Provider: "google", Model: m})
 	}
 	return chain
@@ -819,7 +827,7 @@ func (cfg *Config) appendOpenCodeSlot(chain []AIChainSlot) []AIChainSlot {
 	// Prefer a free Zen model; fall through to matchFreeModel (any "-free"). Never
 	// default to a paid frontier model (e.g. "big-pickle") — Zen bills credits per
 	// call and the default slot is also what the benchmark runs.
-	m := pickModel(models, "deepseek-v4-flash-free")
+	m := pickModel(models, cfg.preferredModels("opencode")...)
 	if m != "" {
 		chain = append(chain, AIChainSlot{ID: "zen-" + m, Provider: "opencode", Model: m})
 	}
@@ -832,7 +840,7 @@ func (cfg *Config) appendGroqSlot(chain []AIChainSlot) []AIChainSlot {
 		return chain
 	}
 	models := fetchModels(p.BaseURL, p.APIKey)
-	m := pickModel(models, "llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768")
+	m := pickModel(models, cfg.preferredModels("groq")...)
 	if m != "" {
 		chain = append(chain, AIChainSlot{ID: "groq-" + m, Provider: "groq", Model: m})
 	}
@@ -845,7 +853,7 @@ func (cfg *Config) appendOpenRouterSlot(chain []AIChainSlot) []AIChainSlot {
 		return chain
 	}
 	models := fetchModels(p.BaseURL, p.APIKey)
-	m := pickModel(models, "meta-llama/llama-3.3-70b-instruct:free")
+	m := pickModel(models, cfg.preferredModels("openrouter")...)
 	if m != "" {
 		chain = append(chain, AIChainSlot{ID: "or-" + m, Provider: "openrouter", Model: m})
 	}
@@ -858,11 +866,11 @@ func (cfg *Config) appendOllamaSlots(chain []AIChainSlot) []AIChainSlot {
 		return chain
 	}
 	models := fetchModels(p.BaseURL, "")
-	// Prefer models that are actually good at instruction-following + JSON on an 8GB
-	// Pascal GPU (measured: llama3.1:8b is the all-round best, gemma3:4b fast+accurate).
-	// Deliberately NOT reasoning models (qwen3/deepseek-r1): their <think> chains burn the
-	// maxOutputTokens budget before emitting the JSON, so they fail this extraction task.
-	if m := pickModel(models, "llama3.1:8b", "gemma3:4b", "llama3.2:3b", "mistral:7b"); m != "" {
+	// Default prefers models good at instruction-following + JSON on an 8GB Pascal GPU
+	// (measured: llama3.1:8b best all-round, gemma3:4b fast+accurate) and avoids reasoning
+	// models (qwen3/deepseek-r1) whose <think> burns the maxOutputTokens budget before the
+	// JSON. Overridable via the ollama provider's preferred_models. See defaultProviderModels.
+	if m := pickModel(models, cfg.preferredModels("ollama")...); m != "" {
 		chain = append(chain, AIChainSlot{ID: "ollama-" + m, Provider: "ollama", Model: m})
 	}
 	for _, m := range models {
@@ -993,26 +1001,52 @@ func matchNonEmbedding(models []string) string {
 	return ""
 }
 
-// freeGoogleModels are the Gemini ids on Google's FREE tier, in preference order
-// (best first). UNLIKE every other provider, Google's free-tier membership can't be
-// discovered: its OpenAI /models endpoint exposes no pricing (OpenRouter's does), and
-// the id doesn't reveal it — gemini-2.5-flash is free but gemini-3.5-flash is PAID. So
-// this is a pinned "table of facts", the SINGLE place to update when Google changes
-// tiers (see https://ai.google.dev/gemini-api/docs/rate-limits). Anything absent (pro,
-// premium/newer flash) is treated as paid, so we never pick or benchmark a costly model
-// by accident. The model PICK stays dynamic — pickFreeGoogleModel only keeps ids the
-// account actually serves.
-var freeGoogleModels = []string{
-	"gemini-2.5-flash-lite",
-	"gemini-2.5-flash",
-	"gemini-2.0-flash",
+// defaultProviderModels holds the built-in model-selection defaults per provider AS DATA
+// (not string literals scattered through the append*Slot funcs). `preferred` is the pick
+// order for a provider's default chain slot; `free` is the pinned free-tier id list for
+// providers whose free tier can't be discovered. A provider's config (PreferredModels /
+// FreeModels) overrides either; these are only the fallback. Editing model choices lives
+// here (or in config.yaml), one place — the chain ORDER is still the benchmark's job.
+//
+// Google's `free` needs pinning because its OpenAI /models exposes no pricing (OpenRouter's
+// does) and the id doesn't reveal the tier — gemini-2.5-flash is free but gemini-3.5-flash
+// is PAID. Anything absent is treated as paid, so we never pick/benchmark a costly model.
+var defaultProviderModels = map[string]struct {
+	preferred []string
+	free      []string
+}{
+	"opencode":   {preferred: []string{"deepseek-v4-flash-free"}},
+	"groq":       {preferred: []string{"llama-3.1-8b-instant", "llama-3.3-70b-versatile", "mixtral-8x7b-32768"}},
+	"openrouter": {preferred: []string{"meta-llama/llama-3.3-70b-instruct:free"}},
+	"ollama":     {preferred: []string{"llama3.1:8b", "gemma3:4b", "llama3.2:3b", "mistral:7b"}},
+	"google":     {free: []string{"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"}},
 }
 
-// IsFreeGoogleModel reports whether a Google model id is on the free tier (exact match,
-// so a paid look-alike like gemini-3.5-flash is never treated as free). Single source of
-// truth, also consulted by the ai package's isFreeModel.
-func IsFreeGoogleModel(model string) bool {
-	for _, id := range freeGoogleModels {
+// DefaultFreeModels exposes the built-in free-id fallback for a provider (used by the ai
+// package when a provider's config sets no FreeModels override).
+func DefaultFreeModels(provider string) []string { return defaultProviderModels[provider].free }
+
+// preferredModels / freeModels return the effective list for a provider: the config
+// override when set, else the built-in default.
+func (cfg *Config) preferredModels(provider string) []string {
+	if p, ok := cfg.AI.Providers[provider]; ok && len(p.PreferredModels) > 0 {
+		return p.PreferredModels
+	}
+	return defaultProviderModels[provider].preferred
+}
+
+func (cfg *Config) freeModels(provider string) []string {
+	if p, ok := cfg.AI.Providers[provider]; ok && len(p.FreeModels) > 0 {
+		return p.FreeModels
+	}
+	return defaultProviderModels[provider].free
+}
+
+// IsFreeGoogleModel reports whether a Google model id is on the free tier, given the
+// effective free list (exact match, so a paid look-alike like gemini-3.5-flash is never
+// treated as free). Pure — callers pass the config-or-default list.
+func IsFreeGoogleModel(model string, free []string) bool {
+	for _, id := range free {
 		if model == id {
 			return true
 		}
@@ -1020,16 +1054,15 @@ func IsFreeGoogleModel(model string) bool {
 	return false
 }
 
-// pickFreeGoogleModel returns the most-preferred FREE Gemini model that the account
-// actually serves (intersect the discovered list with freeGoogleModels). Dynamic within
-// the free set: it adapts to whatever Google currently exposes and never returns a paid
-// model. Empty when discovery failed or no free model is available (→ no Google slot).
-func pickFreeGoogleModel(discovered []string) string {
+// pickFreeGoogleModel returns the most-preferred FREE Gemini model the account actually
+// serves (intersect discovered with the free list). Dynamic within the free set; never
+// returns a paid model. Empty when discovery failed or no free model is available.
+func pickFreeGoogleModel(discovered, free []string) string {
 	have := make(map[string]bool, len(discovered))
 	for _, m := range discovered {
 		have[m] = true
 	}
-	for _, id := range freeGoogleModels {
+	for _, id := range free {
 		if have[id] {
 			return id
 		}
