@@ -61,6 +61,10 @@ jobs:
     runs-on: [self-hosted, arm64]
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: actions/download-artifact@v3
         env:
           NODE_TLS_REJECT_UNAUTHORIZED: "0"
@@ -71,11 +75,11 @@ jobs:
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
         run: |
-          docker run --rm -e SONAR_HOST_URL -e SONAR_TOKEN \
-            -v "$PWD":/usr/src -w /usr/src \
-            sonarsource/sonar-scanner-cli:latest \
-            -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.token=$SONAR_TOKEN
+          npx -y sonar-scanner \
+            -Dsonar.host.url=$SONAR_HOST_URL \
+            -Dsonar.token=$SONAR_TOKEN
 
   sbom:
     needs: [backend, frontend]
