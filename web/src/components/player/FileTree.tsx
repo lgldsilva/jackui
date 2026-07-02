@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, FolderDown } from 'lucide-react'
 import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
 import { FileRow } from './FileRow'
@@ -20,6 +20,7 @@ type FileTreeProps = {
   readonly playFile: (idx: number) => void
   readonly setPreviewFileIdx: (v: number | null) => void
   readonly onDownloadFolder?: (file: TorrentInfo['files'][number]) => void
+  readonly onDownloadDir?: (dirPath: string) => void
 }
 
 const INDENT_PX = 14
@@ -53,10 +54,14 @@ export function FileTree({
   playFile,
   setPreviewFileIdx,
   onDownloadFolder,
+  onDownloadDir,
 }: FileTreeProps) {
+  // Key no infoHash (não info.files): a estrutura de arquivos é estável por
+  // torrent, mas o poll de progresso de 2s recria info.files — depender dele
+  // rebuildava a árvore inteira a cada tick (re-render desnecessário).
   const root = useMemo(
     () => buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter }),
-    [info.files, fileFilter, fileTypeFilter],
+    [info.infoHash, fileFilter, fileTypeFilter],
   )
   // Total de arquivos elegíveis (nas pastas abertas), sem cap — só pra CONTAR
   // (não renderiza): montar o array é barato; o que pesa é montar os <button>.
@@ -141,6 +146,20 @@ export function FileTree({
                 ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0 text-amber-500/80" />
                 : <Folder className="w-3.5 h-3.5 flex-shrink-0 text-amber-500/80" />}
               <span className="truncate flex-1 font-medium">{row.node.name}</span>
+              {onDownloadDir && (
+                // Span (não button) pra não aninhar <button> dentro da row-button.
+                // stopPropagation pra baixar em vez de expandir/recolher a pasta.
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  title="Baixar esta pasta"
+                  aria-label="Baixar esta pasta"
+                  onClick={e => { e.stopPropagation(); onDownloadDir(row.node.path) }}
+                  className="p-1 -m-1 rounded hover:bg-surface-tertiary text-text-muted hover:text-blue-400 transition-colors flex-shrink-0"
+                >
+                  <FolderDown className="w-3.5 h-3.5" />
+                </span>
+              )}
               <span className="text-text-muted flex-shrink-0 text-[10px] tabular-nums">{count}</span>
             </button>
           )
