@@ -131,6 +131,18 @@ func TestCompositeLatencyPenaltyIsGentle(t *testing.T) {
 	}
 }
 
+// TestCompositeAccuracyDominatesLatency guards the squared-accuracy lever: at a realistic
+// gap, a more-accurate-but-slower model must out-rank a less-accurate-faster one. Uses the
+// exact prod numbers that motivated it (99%@1303ms should beat 88%@846ms) — if someone
+// drops the square, the faster-but-sloppier model wins and this fails.
+func TestCompositeAccuracyDominatesLatency(t *testing.T) {
+	accurate := compositeScore(0.99, 1303, 0)  // qwen2.5-coder:7b
+	fastSloppy := compositeScore(0.88, 846, 0) // llama3.2:3b (faster, 11pts less accurate)
+	if accurate <= fastSloppy {
+		t.Fatalf("99%%@1303ms (%.3f) must out-rank 88%%@846ms (%.3f) — accuracy should dominate", accurate, fastSloppy)
+	}
+}
+
 // ── Property-based tests ─────────────────────────────────────────────────────
 
 // TestPropCheaperScoresHigher: at equal accuracy/latency, a cheaper model (incl.
