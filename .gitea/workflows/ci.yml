@@ -1,0 +1,70 @@
+# CI — gates de PR/push (backend + frontend). Protótipo da migração Jenkins → Gitea Actions.
+# ⚠ Trigger em workflow_dispatch (manual) enquanto os runners ARM não estão registrados.
+# Quando os runners `arm64` estiverem no ar e validados, trocar por:
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+# e ativar branch protection exigindo os checks "CI / backend" e "CI / frontend".
+name: CI
+on:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: [self-hosted, arm64]
+    # Postgres de teste como service container (substitui o sidecar jackui-ci-pg do Jenkins).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jackui
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: jackui
+        # act_runner: o healthcheck do service é gerido pelo runner; o host é "postgres".
+    env:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@postgres:5432/jackui?sslmode=disable
+    container:
+      image: golang:1.26-alpine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            /go/pkg/mod
+            /root/.cache/go-build
+          key: go-${{ hashFiles('go.sum') }}
+      - name: ffmpeg (testes de transcode/streamer)
+        run: apk add --no-cache ffmpeg
+      - name: gofmt (falha se houver arquivo fora do padrão)
+        run: 'test -z "$(gofmt -l .)" || { echo "gofmt:"; gofmt -l .; exit 1; }'
+      - name: go vet
+        run: go vet ./internal/...
+      - name: go test + cobertura
+        run: go test -coverprofile=coverage.out ./internal/...
+      - name: Publica coverage.out (para o job do Sonar em release.yml)
+        uses: actions/upload-artifact@v3
+        with:
+          name: go-coverage
+          path: coverage.out
+
+  frontend:
+    runs-on: [self-hosted, arm64]
+    defaults:
+      run:
+        working-directory: web
+    container:
+      image: node:24-alpine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: web/node_modules
+          key: npm-${{ hashFiles('web/package-lock.json') }}
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint      # ESLint: sonarjs/cognitive-complexity 15 (espelha S3776)
+      - run: npm test          # vitest run
+      - run: npm run build

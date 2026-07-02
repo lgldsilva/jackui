@@ -1,0 +1,112 @@
+# RELEASE — pipeline completo da main (Sonar gate → SBOM ‖ build/scan/push/deploy).
+# ⚠ Protótipo: trigger manual até os runners estarem registrados. Ativar depois com:
+#   on:
+#     push:
+#       branches: [main]
+#
+# Diferença-chave vs Jenkins: `needs:` torna a ordem EXPLÍCITA — o deploy NÃO roda
+# se o gate do Sonar falhar (fim do "silent skip deploy" que nos mordeu).
+# SonarQube Community NÃO faz análise de PR → o gate roda só no push da main (igual hoje).
+name: Release
+on:
+  workflow_dispatch:
+
+jobs:
+  # Reexecuta os gates no contexto da main (mesma lógica do ci.yml).
+  backend:
+    runs-on: [self-hosted, arm64]
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: jackui, POSTGRES_PASSWORD: ci, POSTGRES_DB: jackui }
+    env:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@postgres:5432/jackui?sslmode=disable
+    container: { image: golang:1.26-alpine }
+    steps:
+      - uses: actions/checkout@v4
+      - run: apk add --no-cache ffmpeg
+      - run: 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
+      - run: go vet ./internal/...
+      - run: go test -coverprofile=coverage.out ./internal/...
+      - uses: actions/upload-artifact@v3
+        with: { name: go-coverage, path: coverage.out }
+
+  frontend:
+    runs-on: [self-hosted, arm64]
+    defaults: { run: { working-directory: web } }
+    container: { image: node:24-alpine }
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  sonar:
+    needs: [backend, frontend]
+    runs-on: [self-hosted, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v3
+        with: { name: go-coverage }
+      # Config vem TODA de sonar-project.properties (fonte única, incl. qualitygate.wait=true).
+      # Aqui só o ambiente. O scanner FALHA o job se o quality gate reprovar.
+      - name: SonarQube analysis + gate
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          docker run --rm -e SONAR_HOST_URL -e SONAR_TOKEN \
+            -v "$PWD":/usr/src -w /usr/src \
+            sonarsource/sonar-scanner-cli:latest \
+            -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.token=$SONAR_TOKEN
+
+  sbom:
+    needs: [backend, frontend]
+    runs-on: [self-hosted, arm64]
+    continue-on-error: true   # best-effort: NUNCA derruba o build (igual hoje)
+    steps:
+      - uses: actions/checkout@v4
+      - name: cdxgen → Dependency-Track
+        env:
+          DT_API: ${{ secrets.DT_API }}
+          DT_USER: ${{ secrets.DT_USER }}
+          DT_PASS: ${{ secrets.DT_PASS }}
+        run: bash scripts/sbom-upload.sh || true   # extrair do Jenkinsfile p/ script versionado
+
+  deliver:
+    needs: [sonar]            # ← só entrega se o GATE passou
+    runs-on: [self-hosted, deploy]   # homeserver: amd64 nativo + GPU + docker.sock
+    steps:
+      - uses: actions/checkout@v4
+      - name: semver
+        id: ver
+        run: echo "semver=$(bash scripts/semver.sh)" >> "$GITHUB_OUTPUT"
+      - name: docker build (nvidia, amd64 nativo)
+        run: |
+          docker build -f Dockerfile.nvidia \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg APP_VERSION=${{ steps.ver.outputs.semver }} \
+            -t $IMAGE:${{ github.sha }} -t $IMAGE:nvidia .
+        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
+      - name: Trivy (gate CRITICAL, imagem LOCAL, ANTES do push)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+            image --scanners vuln --no-progress --ignore-unfixed \
+            --severity CRITICAL --exit-code 1 $IMAGE:nvidia
+        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
+      - name: push (só após Trivy OK)
+        run: |
+          echo "${{ secrets.REGISTRY_TOKEN }}" | docker login ${{ vars.REGISTRY }} -u lgldsilva --password-stdin
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:nvidia
+          docker logout ${{ vars.REGISTRY }}
+        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
+      - name: deploy (docker.sock local; compose de prod atrás do gluetun)
+        run: |
+          docker pull $IMAGE:nvidia
+          docker tag $IMAGE:nvidia jackui:nvidia
+          docker compose -f "${{ secrets.PROD_COMPOSE }}" up -d --force-recreate jackui
+        env: { IMAGE: "${{ vars.REGISTRY }}/lgldsilva/jackui" }
