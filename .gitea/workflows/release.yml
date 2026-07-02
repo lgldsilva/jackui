@@ -19,9 +19,9 @@ jobs:
     services:
       postgres:
         image: postgres:16
-        env: { POSTGRES_USER: jackui, POSTGRES_PASSWORD: ci, POSTGRES_DB: jackui }
+        env: { POSTGRES_USER: jackui, POSTGRES_PASSWORD: ci, POSTGRES_DB: jackui, PGPORT: 5433 }
     env:
-      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@postgres:5432/jackui?sslmode=disable
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@localhost:5433/jackui?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go
