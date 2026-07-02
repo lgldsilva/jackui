@@ -22,10 +22,15 @@ jobs:
         env: { POSTGRES_USER: jackui, POSTGRES_PASSWORD: ci, POSTGRES_DB: jackui }
     env:
       JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@postgres:5432/jackui?sslmode=disable
-    container: { image: golang:1.26-alpine }
     steps:
       - uses: actions/checkout@v4
-      - run: apk add --no-cache ffmpeg
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+          cache-dependency-path: go.sum
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
       - run: go vet ./internal/...
       - run: go test -coverprofile=coverage.out ./internal/...
@@ -35,9 +40,14 @@ jobs:
   frontend:
     runs-on: [self-hosted, arm64]
     defaults: { run: { working-directory: web } }
-    container: { image: node:24-alpine }
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
