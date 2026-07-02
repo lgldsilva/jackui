@@ -140,7 +140,8 @@ jobs:
       - name: Limpeza de versões de pacotes antigas
         env:
           GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-        run: bash scripts/cleanup-packages.sh || echo "Aviso: falha na limpeza de pacotes."
+        run: |
+          bash scripts/cleanup-packages.sh || echo "Aviso: falha na limpeza de pacotes."
       - name: Notificar sucesso no Telegram
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
