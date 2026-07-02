@@ -1102,6 +1102,23 @@ func TestRankBeforeCompleteBeatsIncomplete(t *testing.T) {
 	}
 }
 
+// TestRankBeforeWellCoveredIncompleteRanksOnMerit: an incomplete run that still covered
+// most cases (≥70%) is trustworthy and ranks on composite — a rate-limited free model at
+// 99% shouldn't be buried under a complete-but-mediocre one. A SPARSE incomplete run
+// (few cases) stays demoted.
+func TestRankBeforeWellCoveredIncompleteRanksOnMerit(t *testing.T) {
+	wellCovered := SlotScore{SlotID: "gemini", Composite: 1.2, Incomplete: true, Completeness: 0.8}
+	completeMediocre := SlotScore{SlotID: "meh", Composite: 0.6, Incomplete: false}
+	if !RankBefore(wellCovered, completeMediocre) {
+		t.Fatal("a well-covered (0.8) high-composite incomplete run should out-rank a complete but lower-composite one")
+	}
+	// A sparsely-measured run stays demoted below the complete one despite high composite.
+	sparse := SlotScore{SlotID: "lucky", Composite: 1.9, Incomplete: true, Completeness: 0.2}
+	if !RankBefore(completeMediocre, sparse) {
+		t.Fatal("a sparse (0.2) run must stay demoted below a complete one")
+	}
+}
+
 func TestRankBeforeSameTierFallsBackToComposite(t *testing.T) {
 	a := SlotScore{SlotID: "a", Composite: 0.8, Incomplete: false}
 	b := SlotScore{SlotID: "b", Composite: 0.5, Incomplete: false}
