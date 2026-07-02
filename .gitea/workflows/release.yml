@@ -74,6 +74,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           NODE_TLS_REJECT_UNAUTHORIZED: "0"
         run: |
+          echo "192.168.0.100 sonar.raspberrypi.lan" | sudo tee -a /etc/hosts || echo "192.168.0.100 sonar.raspberrypi.lan" >> /etc/hosts || true
           npx -y sonarqube-scanner \
             -Dsonar.host.url=https://sonar.raspberrypi.lan \
             -Dsonar.token=$SONAR_TOKEN
