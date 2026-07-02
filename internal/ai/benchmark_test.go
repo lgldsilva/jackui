@@ -115,6 +115,22 @@ func TestCompositeScoreFavorsFastAccurate(t *testing.T) {
 	}
 }
 
+// TestCompositeLatencyPenaltyIsGentle guards the softening: a 10× slower model at equal
+// accuracy must be penalized by the CUBE root (~2.15×), not the old sqrt (~3.16×). This
+// keeps latency a tiebreaker rather than a dominant factor for this background task —
+// if someone reverts to sqrt, this fails.
+func TestCompositeLatencyPenaltyIsGentle(t *testing.T) {
+	fast := compositeScore(1.0, 400, 0)  // 0.4s
+	slow := compositeScore(1.0, 4000, 0) // 4.0s → 10× slower
+	ratio := fast / slow
+	if ratio > 2.5 {
+		t.Fatalf("latency penalty too harsh for a background task: 10× slower dropped the score %.2fx (want ≲cbrt(10)≈2.15, sqrt(10)≈3.16 would fail)", ratio)
+	}
+	if ratio <= 1.0 {
+		t.Fatalf("slower must still score lower (ratio %.2f)", ratio)
+	}
+}
+
 // ── Property-based tests ─────────────────────────────────────────────────────
 
 // TestPropCheaperScoresHigher: at equal accuracy/latency, a cheaper model (incl.

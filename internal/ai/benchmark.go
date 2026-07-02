@@ -119,9 +119,13 @@ func RunOutcome(s SlotScore) string {
 	}
 }
 
-// compositeScore ranks a model by VALUE: quality ÷ (√latency × cost factor). The
-// sqrt softens the latency penalty so a slightly slower but more accurate model
-// can still win; a 0.3s floor stops a sub-300ms call from inflating the score.
+// compositeScore ranks a model by VALUE: quality ÷ (latency^p × cost factor). Title
+// identification is a BACKGROUND job (it runs once per item, off the request path), so
+// accuracy should dominate and latency is only a tiebreaker — a model that's a bit
+// slower but more accurate should win. The latency penalty therefore uses the CUBE ROOT
+// (p = 1/3), gentler than the old sqrt: a 10× slower model is penalized ~2.15× instead of
+// ~3.16×, so a correct-but-slow model isn't buried by a fast-but-sloppy one. A 0.3s floor
+// stops a sub-300ms call from inflating the score.
 //
 // Cost (USD per 1M tokens, blended) enters as a (1 + cost) divisor: free models
 // (cost 0) divide by 1 — no penalty — and every dollar/1M pushes the score down.
@@ -132,7 +136,7 @@ func RunOutcome(s SlotScore) string {
 func compositeScore(accuracy float64, avgLatencyMs int64, costPer1M float64) float64 {
 	seconds := math.Max(0.3, float64(avgLatencyMs)/1000.0)
 	cost := math.Max(0, costPer1M)
-	return accuracy / math.Sqrt(seconds) / (1 + cost)
+	return accuracy / math.Cbrt(seconds) / (1 + cost)
 }
 
 // reliabilityPriorMean/Weight tune reliableAccuracy: a Bayesian shrinkage that
@@ -685,10 +689,14 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 	return false
 }
 
-// DiscoverOllamaModels queries the local Ollama (/api/tags) for installed models
-// and returns a Slot per model that isn't already in the chain — so the benchmark
-// can test EVERY local model, not just the one wired into the chain. Cloud models
-// aren't listed by /api/tags (they're remote), so they stay explicit in config.
+// DiscoverOllamaModels queries the local Ollama (/api/tags) for models it serves and
+// returns a Slot per model that isn't already in the chain — so the benchmark can test
+// EVERY available model, not just the one wired into the chain. This includes Ollama
+// CLOUD models (the "-cloud" suffix): recent Ollama registers them locally and lists
+// them in /api/tags, so they're discovered here too (ollamaCanComplete keeps them —
+// /api/show for a remote model doesn't report capabilities, and on doubt we keep). They
+// resolve as Free (the ollama provider is free-tier) but non-Local (see localModel), so
+// the benchmark parallelizes them instead of serializing on the single GPU.
 func (c *Client) DiscoverOllamaModels(ctx context.Context) []Slot {
 	// Find the ollama provider's base URL from the chain.
 	var base, key string
