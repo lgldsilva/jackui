@@ -78,7 +78,7 @@ jobs:
     steps:
       - name: Auto-approve PR via bot
         env:
-          BOTK: ${{ secrets.GITEA_BOT_TOKEN }}
+          BOTK: ${{ secrets.REGISTRY_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           if [ -n "$BOTK" ] && [ -n "$PR_NUMBER" ]; then
