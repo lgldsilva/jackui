@@ -15,7 +15,7 @@ Jenkins @ home server (amd64, /var/run/docker.sock mounted)
    ├─ SonarQube           (quality gate, -Dsonar.qualitygate.wait=true)
    ├─ SBOM → Dependency-Track  (cdxgen → DT upload)
    ├─ Build & Push        (docker build on the local amd64 daemon (docker.sock),
-   │                       pushes gitea.raspberrypi.lan/lgldsilva/jackui:nvidia)
+   │                       pushes <registry-host>/<owner>/jackui:nvidia)
    ├─ Trivy               (fails on CRITICAL, --ignore-unfixed)
    ├─ Deploy              (local docker.sock: pull + retag +
    │                       docker compose -f <hand-file> up -d --force-recreate jackui)
@@ -24,9 +24,9 @@ Jenkins @ home server (amd64, /var/run/docker.sock mounted)
 
 Secrets come from **Jenkins credentials**, never the repo: `jackui-sonar-token`,
 `jackui-dt` (Dependency-Track), `jackui-gitea` (registry, needs `write:package`),
-`jackui-ci-bot` (PR approval). The Gitea registry / Sonar / DT live on
-**oracle-desktop** (`10.228.143.12`); the build + deploy run **locally** on the
-amd64 home-server Jenkins via `docker.sock` (no SSH).
+`jackui-ci-bot` (PR approval). The Gitea registry / Sonar / DT live on a
+separate host; the build + deploy run **locally** on the amd64 Jenkins host
+via `docker.sock` (no SSH).
 
 ## Build & deploy run locally (amd64, docker.sock)
 
@@ -44,14 +44,12 @@ The `Deploy` stage runs on the local daemon:
 ```bash
 docker pull  ${IMAGE}:nvidia
 docker tag   ${IMAGE}:nvidia jackui:nvidia
-docker compose -f /portainer/Files/AppData/Config/jackui/docker-compose.yml \
+docker compose -f <prod-config-dir>/docker-compose.yml \
   up -d --force-recreate jackui
 ```
 
 > [!IMPORTANT]
-> **It is NOT a Portainer stack.** Despite the `/portainer/Files/AppData/Config/...`
-> path, the Portainer API does **not** list jackui — that path is just a directory
-> convention. Production is plain `docker compose up -d --force-recreate` against a
+> Production is plain `docker compose up -d --force-recreate` against a
 > **hand-maintained** compose file on the host, separate from the repo's
 > `docker-compose.yml`. Jenkins only swaps the **image** (`pull` + retag + `up -d`); it
 > does **not** copy the repo compose. So **any new env var / volume / port from the repo
@@ -86,11 +84,11 @@ Because these live in the hand-file, **a repo change to defaults won't move prod
 1. **Jenkins** — plugins: Docker Pipeline, Gitea. Controller needs `/var/run/docker.sock`.
    Create a Pipeline / Multibranch job pointing at the Gitea repo (uses the root
    `Jenkinsfile`). Add the credentials listed above.
-2. **Gitea webhook** — Repo → Settings → Webhooks → `https://jenkins.raspberrypi.lan/gitea-webhook/post`
+2. **Gitea webhook** — Repo → Settings → Webhooks → `https://<jenkins-host>/gitea-webhook/post`
    (Push + Pull Request events).
-3. **Registry login on the target** — `docker login gitea.raspberrypi.lan` on
-   raspberrypi-srv so the deploy can pull.
-4. **Server compose** — point the image at `gitea.raspberrypi.lan/lgldsilva/jackui:nvidia`.
+3. **Registry login on the target** — `docker login <registry-host>` on the prod
+   host so the deploy can pull.
+4. **Server compose** — point the image at `<registry-host>/<owner>/jackui:nvidia`.
 
 ## Quality gates that BREAK the build
 

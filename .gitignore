@@ -67,3 +67,6 @@ electron/version.json
 *.icns
 *.ico
 /server
+
+# ai-jail sandbox config (local AI tooling, not for the repo)
+.ai-jail

@@ -24,13 +24,13 @@ tokens) são preservados na virada; o resto nasce vazio.
 
 ## Deploy em PROD (atrás do gluetun — hand-file)
 
-⚠ Em prod o compose é **hand-maintained** em
-`/portainer/Files/AppData/Config/jackui/docker-compose.yml` e o Jenkins **só
-troca a imagem** — mudanças de compose/env NÃO chegam por CI. Edite à mão:
+⚠ Em prod o compose é **hand-maintained** em `<prod-config-dir>/docker-compose.yml`
+e o Jenkins **só troca a imagem** — mudanças de compose/env NÃO chegam por CI.
+Edite à mão:
 
 1. Faça backup do auth.db: `cp .../jackui/auth.db auth.db.bak-$(date +%F)`.
-2. Defina `POSTGRES_PASSWORD` (guarde no Vault) e `JACKUI_PG_DIR` (SSD, não a
-   LVM do piece cache).
+2. Defina `POSTGRES_PASSWORD` (guarde no seu gerenciador de segredos) e
+   `JACKUI_PG_DIR` (SSD, não o volume do piece cache).
 3. Adicione o serviço `postgres` no formato do overlay gluetun (mesmo netns):
    `network_mode: "container:gluetun-jackui"`, sem `networks`, `depends_on:
    gluetun-jackui: service_started`, healthcheck `pg_isready`, volume
@@ -41,7 +41,7 @@ troca a imagem** — mudanças de compose/env NÃO chegam por CI. Edite à mão:
    (loopback no netns do gluetun — NÃO passa pela VPN).
 5. Suba só o Postgres e espere o initdb:
    ```
-   cd /portainer/Files/AppData/Config/jackui
+   cd <prod-config-dir>
    docker compose up -d postgres && docker compose ps   # aguarde "healthy"
    ```
 6. Rode a ETL do auth (no netns do gluetun, destino localhost:5432):
