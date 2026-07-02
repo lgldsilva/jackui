@@ -112,6 +112,7 @@ jobs:
       - name: Trivy (gate CRITICAL, imagem LOCAL, ANTES do push)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v /tmp/trivy-cache:/root/.cache/ \
             aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
             image --scanners vuln --no-progress --ignore-unfixed \
             --severity CRITICAL --exit-code 1 $IMAGE:nvidia
