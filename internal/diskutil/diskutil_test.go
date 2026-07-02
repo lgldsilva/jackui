@@ -24,14 +24,14 @@ func TestUsage_BadPath(t *testing.T) {
 
 func TestParentDisk(t *testing.T) {
 	cases := map[string]string{
-		"sdc1":       "sdc",
-		"sda12":      "sda",
-		"vdb1":       "vdb",
-		"nvme0n1p2":  "nvme0n1",
-		"mmcblk0p1":  "mmcblk0",
-		"sdc":        "", // already a whole disk
-		"nvme0n1":    "", // whole disk (no pN)
-		"nvme0n1p":   "", // malformed → no parent
+		"sdc1":      "sdc",
+		"sda12":     "sda",
+		"vdb1":      "vdb",
+		"nvme0n1p2": "nvme0n1",
+		"mmcblk0p1": "mmcblk0",
+		"sdc":       "", // already a whole disk
+		"nvme0n1":   "", // whole disk (no pN)
+		"nvme0n1p":  "", // malformed → no parent
 	}
 	for in, want := range cases {
 		if got := parentDisk(in); got != want {

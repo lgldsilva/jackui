@@ -12,7 +12,7 @@ import (
 
 // Video is one YouTube trailer/teaser attached to a TMDB title.
 type Video struct {
-	Key      string `json:"key"`  // YouTube video id
+	Key      string `json:"key"` // YouTube video id
 	Name     string `json:"name"`
 	Type     string `json:"type"` // "Trailer" | "Teaser"
 	Official bool   `json:"official"`

@@ -10,32 +10,32 @@ Gitea (push to main / PR)
    │ webhook  (currently flaky → builds are often triggered manually / SCM poll)
    ▼
 Jenkins @ home server (amd64, /var/run/docker.sock mounted)
-   ├─ Backend test        (golang:1.26-alpine, --platform linux/amd64)
-   ├─ Frontend build      (node:24-alpine)
-   ├─ SonarQube           (quality gate, -Dsonar.qualitygate.wait=true)
+   ├─ Backend test        (gofmt -l gate + go vet + go test, golang:1.26-alpine)
+   ├─ Frontend build      (node:24-alpine — tsc + eslint + vitest + build)
+   ├─ SonarQube           (quality gate; config única em sonar-project.properties,
+   │                       incl. sonar.qualitygate.wait=true)
    ├─ SBOM → Dependency-Track  (cdxgen → DT upload)
-   ├─ Build & Push        (docker build on the local amd64 daemon (docker.sock),
-   │                       pushes <registry-host>/<owner>/jackui:nvidia)
-   ├─ Trivy               (fails on CRITICAL, --ignore-unfixed)
+   ├─ Build               (docker build on the local amd64 daemon (docker.sock))
+   ├─ Trivy               (gate PRÉ-push: scans the LOCAL image via docker.sock,
+   │                       fails on CRITICAL, --ignore-unfixed, pinned by digest)
+   ├─ Push                (<registry-host>/<owner>/jackui:nvidia — only after Trivy OK)
    ├─ Deploy              (local docker.sock: pull + retag +
    │                       docker compose -f <hand-file> up -d --force-recreate jackui)
    └─ Old-tag cleanup     (prune old registry tags)
 ```
 
-Secrets come from **Jenkins credentials**, never the repo: `jackui-sonar-token`,
-`jackui-dt` (Dependency-Track), `jackui-gitea` (registry, needs `write:package`),
-`jackui-ci-bot` (PR approval). The Gitea registry / Sonar / DT live on a
-separate host; the build + deploy run **locally** on the amd64 Jenkins host
-via `docker.sock` (no SSH).
+Secrets come from **Jenkins credentials**, never the repo: `jackui-sonar-token-arm`,
+`jackui-dt-arm` (Dependency-Track), `jackui-gitea` (registry, needs `write:package`),
+`jackui-ci-bot` (PR approval), `telegram-bot-token` + `telegram-chat-id`
+(notifications). The Gitea registry / Sonar / DT live on a separate host; the
+build + deploy run **locally** on the amd64 Jenkins host via `docker.sock` (no SSH).
 
 ## Build & deploy run locally (amd64, docker.sock)
 
 Jenkins runs **on the amd64 home server** with `/var/run/docker.sock` mounted, so the
 `docker build`, `docker push` and the deploy all talk to the local daemon directly —
-**no SSH, no cross-arch emulation**. (The Jenkinsfile header comments still describe
-the old arm64-controller-over-SSH model — that's stale; the stages run local.) The
-`--platform linux/amd64` flags on the Sonar/Trivy/test containers are no-ops on the
-amd64 host (no qemu/binfmt needed).
+**no SSH, no cross-arch emulation**. The `--platform linux/amd64` flags on the
+Sonar/test containers are no-ops on the amd64 host (no qemu/binfmt needed).
 
 ## Deploy mechanism
 
@@ -92,11 +92,17 @@ Because these live in the hand-file, **a repo change to defaults won't move prod
 
 ## Quality gates that BREAK the build
 
-- **SonarQube**: `-Dsonar.qualitygate.wait=true`. New-code conditions: `new_coverage ≥ 80`,
+- **gofmt / go vet** (backend stage): `gofmt -l` must be empty; `go vet ./internal/...`.
+- **ESLint** (frontend stage): `npm run lint` — `sonarjs/cognitive-complexity` at 15
+  (mirrors Sonar S3776) with a legacy-file baseline in `web/eslint.config.mjs`.
+- **SonarQube**: `sonar.qualitygate.wait=true` (in `sonar-project.properties`, the
+  single source of Sonar config). New-code conditions: `new_coverage ≥ 80`,
   `new_violations = 0`, `new_duplicated_lines_density ≤ 3`. Coverage excludes
   `web/**`, `cmd/**`, `electron/**` (UI/glue, no unit tests).
-- **Trivy**: `--severity CRITICAL --exit-code 1 --ignore-unfixed` (a CVE with no fix
-  doesn't block; it also prints HIGH for visibility).
+- **Trivy** (pre-push): scans the locally-built image via `docker.sock`, pinned by
+  digest; `--severity CRITICAL --exit-code 1 --ignore-unfixed` (a CVE with no fix
+  doesn't block; it also prints HIGH for visibility). Only after it passes does the
+  image get pushed — a CRITICAL never reaches the registry or the moving `:nvidia` tag.
 - **Dependency-Track**: SBOM upload; DT policies can be promoted to a gate later.
 
 ## Running the gates locally (no Jenkins)
@@ -105,13 +111,19 @@ Validate by the diff **before** pushing — a CI cycle is ~12 min, a failed gate
 prod deploy is expensive.
 
 ```bash
+# format + vet (same gate as CI)
+gofmt -l . && go vet ./internal/...
+
 # build + tests + coverage
 go build ./... && go test ./internal/... -coverprofile=/tmp/c.out
 go tool cover -func=/tmp/c.out | tail -1
-cd web && npx tsc --noEmit && npm run build && cd ..
+cd web && npx tsc --noEmit && npm run lint && npm run build && cd ..
 
-# new-code complexity/violations on YOUR diff only (mirrors Sonar "new code")
+# new-code complexity/violations on YOUR diff only (mirrors Sonar "new code";
+# config committed in .golangci.yml)
 golangci-lint run --new-from-rev=gitea/main ./...   # gocognit + gocritic + staticcheck
 ```
 
-`make sonar-scan` reproduces the Sonar step; the rest mirrors the `Jenkinsfile`.
+`make sonar-scan` runs the REAL Sonar gate (same `sonar-project.properties`,
+`sonar.qualitygate.wait=true` — it fails when the quality gate fails); the rest
+mirrors the `Jenkinsfile`.

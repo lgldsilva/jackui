@@ -195,10 +195,10 @@ func extractToken(c *gin.Context) string {
 //   - /api/local/sidecar       local-file sidecar (.srt/.vtt) read by <track>
 //   - /api/local/subtrack      local-file embedded subtitle extracted to VTT for <track>
 //   - /api/search/stream       EventSource (SSE) search — EventSource has no way
-//                              to set headers, so the token must ride the query.
+//     to set headers, so the token must ride the query.
 //   - /api/preview/*           universal viewer: comic pages, EPUB chapter
-//                              iframes and archive-inner images load via
-//                              <img>/<iframe>, headerless by nature.
+//     iframes and archive-inner images load via
+//     <img>/<iframe>, headerless by nature.
 func isMediaPath(path string) bool {
 	return strings.HasPrefix(path, "/api/stream/") ||
 		strings.HasPrefix(path, "/api/preview/") ||

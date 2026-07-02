@@ -101,5 +101,5 @@ func uintToHex16(n uint64) string {
 
 type erroringReader struct{}
 
-func (e *erroringReader) Read(p []byte) (int, error)              { return 0, io.ErrUnexpectedEOF }
+func (e *erroringReader) Read(p []byte) (int, error)                   { return 0, io.ErrUnexpectedEOF }
 func (e *erroringReader) Seek(offset int64, whence int) (int64, error) { return 0, nil }

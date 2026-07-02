@@ -39,9 +39,9 @@ func SubtitlesSearch(c *subtitles.Client) gin.HandlerFunc {
 
 // SubtitlesAuto handles GET /api/subtitles/auto/:hash/:file?langs=pt-BR,pt
 // Stremio-style flow:
-//   1. Computes the OpenSubtitles file hash from the streaming torrent (waits up to ~30s)
-//   2. Searches OpenSubtitles by hash (frame-exact match) AND by title (fallback)
-//   3. Returns merged + ranked results — hash matches first
+//  1. Computes the OpenSubtitles file hash from the streaming torrent (waits up to ~30s)
+//  2. Searches OpenSubtitles by hash (frame-exact match) AND by title (fallback)
+//  3. Returns merged + ranked results — hash matches first
 func SubtitlesAuto(s *streamer.Streamer, c *subtitles.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		hashStr := ctx.Param("hash")

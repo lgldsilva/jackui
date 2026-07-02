@@ -41,8 +41,8 @@ func TestSchedulePlan_RespectsMaxActive(t *testing.T) {
 
 func TestSchedulePlan_HighPriorityPromotedFirst(t *testing.T) {
 	items := []Download{
-		qd(1, StatusQueued, PriorityLow, 100, 0),  // waiting longest but low
-		qd(2, StatusQueued, PriorityHigh, 1, 0),   // just queued but high
+		qd(1, StatusQueued, PriorityLow, 100, 0), // waiting longest but low
+		qd(2, StatusQueued, PriorityHigh, 1, 0),  // just queued but high
 		qd(3, StatusQueued, PriorityNormal, 50, 0),
 	}
 	want := schedulePlan(items, SchedSettings{MaxActive: 1}, schedNow)
@@ -79,8 +79,8 @@ func TestSchedulePlan_AgingLiftsStarvedLowWhenSlotFree(t *testing.T) {
 	// With a free slot and aging on, a long-waiting LOW should outrank a
 	// freshly-queued NORMAL for promotion.
 	items := []Download{
-		qd(1, StatusQueued, PriorityLow, 600, 0),   // 10h waiting
-		qd(2, StatusQueued, PriorityNormal, 1, 0),  // just queued
+		qd(1, StatusQueued, PriorityLow, 600, 0),  // 10h waiting
+		qd(2, StatusQueued, PriorityNormal, 1, 0), // just queued
 	}
 	st := SchedSettings{MaxActive: 1, AgingStepMin: 60, AgingCap: 150}
 	want := schedulePlan(items, st, schedNow)

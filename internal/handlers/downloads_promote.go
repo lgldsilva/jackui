@@ -629,4 +629,3 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 		c.Status(http.StatusNoContent)
 	}
 }
-
