@@ -481,9 +481,9 @@ async function localStreamInfo(hash: string): Promise<TorrentInfo> {
 }
 
 // localResolvedURL returns the cached URL with auth token attached, or empty
-// string if not yet resolved. Used by all the streamFileURL/streamHLSMasterURL/
-// streamTranscodeURL builders when the hash is a local pseudo-hash — they all
-// converge to the same URL (the server decided direct vs HLS in /api/local/play).
+// string if not yet resolved. Used by the streamFileURL/streamHLSMasterURL
+// builders when the hash is a local pseudo-hash — they all converge to the
+// same URL (the server decided direct vs HLS in /api/local/play).
 export function localResolvedURL(hash: string, tokenOverride?: string): string {
   const url = localPlayableURLCache.get(hash)
   return url ? withToken(url, tokenOverride) : ''
@@ -1170,23 +1170,6 @@ export const transcodeCapabilities = async (refresh = false): Promise<TranscodeC
     `/transcode/capabilities${refresh ? '?refresh=1' : ''}`,
   )
   return data
-}
-
-export type TranscodeOpts = {
-  audio?: number      // absolute audio stream index
-  video?: 'h264' | 'hevc' | '' // force re-encode to this codec
-  acodec?: 'aac' | '' // force audio re-encode
-  burn?: number       // burn-in subtitle track index (forces video re-encode)
-}
-
-export const streamTranscodeURL = (hash: string, fileIdx: number, opts: TranscodeOpts, tokenOverride?: string): string => {
-  if (isLocalHash(hash)) return localResolvedURL(hash, tokenOverride)
-  const p = new URLSearchParams()
-  if (opts.audio !== undefined) p.set('audio', String(opts.audio))
-  if (opts.video) p.set('video', opts.video)
-  if (opts.acodec) p.set('acodec', opts.acodec)
-  if (opts.burn !== undefined) p.set('burn', String(opts.burn))
-  return withToken(`/api/stream/transcode/${hash}/${fileIdx}?${p}`, tokenOverride)
 }
 
 /**
