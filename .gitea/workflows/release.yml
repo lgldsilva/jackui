@@ -99,7 +99,11 @@ jobs:
       REGISTRY: "${{ vars.REGISTRY || 'gitea.raspberrypi.lan' }}"
       IMAGE: "${{ vars.REGISTRY || 'gitea.raspberrypi.lan' }}/lgldsilva/jackui"
     steps:
+      # fetch-depth: 0 traz TODAS as tags — sem elas o semver.sh não acha a última
+      # (ex. v0.78.5) e cai no fallback v0.0.1 (tela Sobre mostrava version=v0.0.1).
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: semver
         id: ver
         run: echo "semver=$(bash scripts/semver.sh)" >> "$GITHUB_OUTPUT"
