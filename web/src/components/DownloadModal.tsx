@@ -56,13 +56,16 @@ function pickInitialSelection(files: StreamFile[], initial?: readonly number[]):
   return defaultSelected(files)
 }
 
+type DownloadDest = { destBase: string; destSubdir: string }
+const EMPTY_DEST: DownloadDest = { destBase: '', destSubdir: '' }
+
 async function downloadInternal(
   result: SearchResult,
   files: StreamFile[] | null,
   selectedFiles: Set<number>,
   streamAdd: (source: string) => Promise<any>,
   downloadCreate: (opts: any) => Promise<any>,
-  dest: { destBase: string; destSubdir: string } = { destBase: '', destSubdir: '' },
+  dest: DownloadDest = EMPTY_DEST,
 ): Promise<string | null> {
   let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
   let infoHash = result.infoHash || hashFromMagnet(magnet)
