@@ -11,7 +11,7 @@ import (
 )
 
 func TestStripAPIKey(t *testing.T) {
-	in := "http://127.0.0.1:9117/dl/idx/?jackett_apikey=keep&apikey=SECRET&path=abc&file=x"
+	in := "http://192.168.1.50:9117/dl/idx/?jackett_apikey=keep&apikey=SECRET&path=abc&file=x"
 	out := stripAPIKey(in)
 	if strings.Contains(out, "apikey=SECRET") {
 		t.Fatalf("apikey leaked: %q", out)
