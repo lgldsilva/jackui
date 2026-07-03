@@ -183,6 +183,16 @@ func (w *Worker) processLists(lists []Watchlist) {
 	}
 }
 
+// newHit is a previously-unseen result gathered during one worker pass. Hits
+// are buffered so the pass notifies ONCE (see notifyHits) instead of per result.
+type newHit struct {
+	title   string
+	seeders int
+	size    int64
+	magnet  string
+	auto    bool // enqueued into the downloads queue this pass
+}
+
 func (w *Worker) processOne(ctx context.Context, wl *Watchlist) {
 	// Re-arm BEFORE searching: a failing Jackett must not leave the item "due"
 	// forever, or every scheduler tick would retry it. last_checked therefore
@@ -196,20 +206,31 @@ func (w *Worker) processOne(ctx context.Context, wl *Watchlist) {
 		log.Printf("watchlist[%d]: jackett search failed: %v", wl.ID, err)
 		return
 	}
-	topic := w.resolveTopic(wl)
-	// The first pass after create (or after a query edit) only seeds the
-	// "seen" baseline: auto-downloading the entire current result set of a
-	// fresh query would flood the queue with releases the user already had
-	// the chance to pick manually.
+	// The first pass after create (or after a query edit) ONLY seeds the "seen"
+	// baseline — it neither auto-downloads nor notifies. Otherwise saving a
+	// watchlist would immediately dump its entire current result set (hundreds
+	// of releases) on the user, ignoring the schedule they picked; from here on
+	// only genuinely NEW releases are surfaced, on schedule.
+	baseline := wl.LastChecked.IsZero()
 	autoBudget := maxAutoPerPass
-	if wl.LastChecked.IsZero() {
+	if baseline {
 		autoBudget = 0
 	}
+	var hits []newHit
 	for _, r := range results {
-		if w.processOneResult(ctx, wl, topic, r, autoBudget > 0) {
+		h, isNew := w.recordResult(wl, r, autoBudget > 0)
+		if !isNew {
+			continue
+		}
+		if h.auto {
 			autoBudget--
 		}
+		hits = append(hits, h)
 	}
+	if baseline || len(hits) == 0 {
+		return
+	}
+	w.notifyHits(ctx, wl, hits)
 }
 
 func (w *Worker) resolveTopic(wl *Watchlist) string {
@@ -219,41 +240,85 @@ func (w *Worker) resolveTopic(wl *Watchlist) string {
 	return w.defaultTopic
 }
 
-// processOneResult handles a single Jackett result; returns true when the hit
-// was auto-enqueued into the downloads queue (consuming auto-download budget).
-func (w *Worker) processOneResult(ctx context.Context, wl *Watchlist, topic string, r jackett.Result, allowAuto bool) bool {
-	if r.Seeders < wl.MinSeeders {
-		return false
-	}
-	if r.InfoHash == "" {
-		return false
+// recordResult marks one result as seen and, when the pass allows it, auto-
+// downloads it. It returns the buffered hit plus whether the result was
+// previously unseen; notification is deferred to notifyHits so an entire pass
+// emits a single aggregated message instead of one alert per result.
+func (w *Worker) recordResult(wl *Watchlist, r jackett.Result, allowAuto bool) (newHit, bool) {
+	if r.Seeders < wl.MinSeeders || r.InfoHash == "" {
+		return newHit{}, false
 	}
 	isNew, err := w.store.MarkSeen(wl.ID, r.InfoHash, r.Title, pickMagnet(r), r.Seeders, r.Size)
 	if err != nil {
 		log.Printf("watchlist[%d]: MarkSeen failed: %v", wl.ID, err)
-		return false
+		return newHit{}, false
 	}
 	if !isNew {
-		return false
+		return newHit{}, false
 	}
 	auto := w.maybeAutoDownload(wl, r, allowAuto)
-	body := fmt.Sprintf("%d seeders · %s", r.Seeders, humanSize(r.Size))
-	if auto {
-		body = "⬇ na fila de downloads · " + body
-	}
+	return newHit{title: r.Title, seeders: r.Seeders, size: r.Size, magnet: pickMagnet(r), auto: auto}, true
+}
+
+// notifyHits emits ONE notification per pass covering every new hit. A single
+// release keeps its own title + magnet; several collapse into a summary that
+// names the watchlist and lists the first few releases — the user gets one
+// alert per watch, not one per result.
+func (w *Worker) notifyHits(ctx context.Context, wl *Watchlist, hits []newHit) {
+	title, body, magnet := aggregateHits(wl, hits)
 	// Per-user channel (in-app feed + Web Push) — independent of ntfy topics.
 	if w.userNotifier != nil {
-		if err := w.userNotifier.NotifyUser(ctx, wl.UserID, r.Title, body, pickMagnet(r)); err != nil {
+		if err := w.userNotifier.NotifyUser(ctx, wl.UserID, title, body, magnet); err != nil {
 			log.Printf("watchlist[%d]: user notify failed: %v", wl.ID, err)
 		}
 	}
+	topic := w.resolveTopic(wl)
 	if topic == "" || w.notifier == nil {
-		return auto
+		return
 	}
-	if err := w.notifier.Notify(ctx, topic, r.Title, body, pickMagnet(r)); err != nil {
+	if err := w.notifier.Notify(ctx, topic, title, body, magnet); err != nil {
 		log.Printf("watchlist[%d]: notify failed: %v", wl.ID, err)
 	}
-	return auto
+}
+
+// maxHitList caps how many release titles an aggregated summary spells out
+// before collapsing the remainder into a "+N" line, so a burst of hits can't
+// produce a wall-of-text push.
+const maxHitList = 6
+
+// aggregateHits renders a pass's notification. One hit reads exactly as before
+// (release title + "S seeders · size", flagged when queued) so single-result
+// alerts and their magnet action are unchanged. Multiple hits collapse into a
+// summary titled by the watchlist query; it carries no single magnet (the push
+// deep-links to /watchlist instead).
+func aggregateHits(wl *Watchlist, hits []newHit) (title, body, magnet string) {
+	if len(hits) == 1 {
+		h := hits[0]
+		body = fmt.Sprintf("%d seeders · %s", h.seeders, humanSize(h.size))
+		if h.auto {
+			body = "⬇ na fila de downloads · " + body
+		}
+		return h.title, body, h.magnet
+	}
+	autoCount := 0
+	for _, h := range hits {
+		if h.auto {
+			autoCount++
+		}
+	}
+	lines := make([]string, 0, maxHitList+1)
+	for i, h := range hits {
+		if i >= maxHitList {
+			lines = append(lines, fmt.Sprintf("… e mais %d", len(hits)-maxHitList))
+			break
+		}
+		lines = append(lines, "• "+h.title)
+	}
+	body = strings.Join(lines, "\n")
+	if autoCount > 0 {
+		body = fmt.Sprintf("⬇ %d na fila de downloads\n", autoCount) + body
+	}
+	return fmt.Sprintf("%s: %d novos resultados", wl.Query, len(hits)), body, ""
 }
 
 // maybeAutoDownload enqueues the hit when the watchlist opted in and the

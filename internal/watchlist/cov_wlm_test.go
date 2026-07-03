@@ -18,7 +18,7 @@ func (wlmErrSearcher) Search(query, category string, indexers []string) ([]jacke
 	return nil, context.DeadlineExceeded
 }
 
-// wlmErrNotifier always returns an error — exercises processOneResult's notify
+// wlmErrNotifier always returns an error — exercises notifyHits's notify
 // failure branch (the error is logged, not returned).
 type wlmErrNotifier struct{ called int32 }
 
@@ -53,7 +53,8 @@ func Test_wlmRunOnceListAllError(t *testing.T) {
 // does not abort the pass and the notifier was actually invoked.
 func Test_wlmNotifyFailureIsSwallowed(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("q", "", 1, "topic"))
+	wl, _ := s.Create(1, params("q", "", 1, "topic"))
+	primeChecked(t, s, wl.ID) // past the silent baseline so the notify path actually runs
 	searcher := &fakeSearcher{results: []jackett.Result{
 		{InfoHash: "h1", Title: "M", MagnetURI: "magnet:h1", Seeders: 9, Size: 4096},
 	}}

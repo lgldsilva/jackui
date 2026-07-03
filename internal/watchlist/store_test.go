@@ -27,6 +27,16 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+// primeChecked marks a watchlist as already checked so the NEXT worker pass is a
+// real (notifying) pass rather than the silent baseline seed — the create-time
+// first pass only records "seen" and never notifies.
+func primeChecked(t *testing.T, s *Store, id int) {
+	t.Helper()
+	if err := s.MarkChecked(id, time.Now()); err != nil {
+		t.Fatalf("primeChecked: %v", err)
+	}
+}
+
 func TestCreateAndGet(t *testing.T) {
 	s := newTestStore(t)
 	w, err := s.Create(1, params("test query", "2000", 5, "mytopic"))
@@ -241,7 +251,8 @@ func (n *recorderNotifier) Notify(ctx context.Context, topic, title, body, magne
 
 func TestWorker_RunOnce(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("test", "", 1, "mytopic"))
+	wl, _ := s.Create(1, params("test", "", 1, "mytopic"))
+	primeChecked(t, s, wl.ID) // past the silent baseline: this pass must notify
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie 1", MagnetURI: "magnet:abc", Seeders: 10, Size: 1000},
@@ -281,7 +292,8 @@ func TestWorker_RunOnce_NoWatchlists(t *testing.T) {
 
 func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("test", "", 5, ""))
+	wl, _ := s.Create(1, params("test", "", 5, ""))
+	primeChecked(t, s, wl.ID) // real pass: the filter, not the baseline, must drop it
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie", MagnetURI: "magnet:abc", Seeders: 3, Size: 1000},
@@ -297,7 +309,8 @@ func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 
 func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("test", "", 1, ""))
+	wl, _ := s.Create(1, params("test", "", 1, ""))
+	primeChecked(t, s, wl.ID) // real pass: the missing info-hash, not the baseline, drops it
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{Title: "No hash", MagnetURI: "magnet:xyz", Seeders: 10, Size: 1000},
@@ -313,7 +326,8 @@ func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 
 func TestWorker_RunOnce_ResolveTopic_Fallback(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("test", "", 1, ""))
+	wl, _ := s.Create(1, params("test", "", 1, ""))
+	primeChecked(t, s, wl.ID) // past the silent baseline: this pass must notify
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
 			{InfoHash: "abc", Title: "Movie", MagnetURI: "magnet:abc", Seeders: 10, Size: 1000},
