@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { ArrowUpCircle, Folder, Loader2, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
 import { LocalEntry, downloadPromoteBrowse, localPromote, fetchPromoteDestinations, PromoteDestination, localPromotePreview, PromotePreviewEntry } from '../api/client'
 import { Sheet } from './Sheet'
@@ -21,6 +22,7 @@ type Props = {
  * arquivos, destino e renomeação IA escolhidos uma única vez).
  */
 export default function LocalPromoteModal({ mount, entries, onClose, onPromoted }: Props) {
+  const { t } = useTranslation()
   const [dests, setDests] = useState<PromoteDestination[]>([])
   const [selectedBase, setSelectedBase] = useState('')
   const [path, setPath] = useState('')
@@ -60,7 +62,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
     setError('')
     downloadPromoteBrowse(path, selectedBase || undefined)
       .then(r => setDirs(r.dirs))
-      .catch(e => setError(e?.response?.data?.error || e.message || 'Erro listando subpastas'))
+      .catch(e => setError(e?.response?.data?.error || e.message || t('local.promote.listError')))
       .finally(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, batchKey, selectedBase])
@@ -77,7 +79,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
     setError('')
     localPromotePreview(mount, primary.path, finalTarget, selectedBase || undefined, paths)
       .then(r => { if (!cancelled) setPreviews(r.previews) })
-      .catch(e => { if (!cancelled) setError(e?.response?.data?.error || e.message || 'Erro gerando preview IA') })
+      .catch(e => { if (!cancelled) setError(e?.response?.data?.error || e.message || t('local.promote.previewError')) })
       .finally(() => { if (!cancelled) setPreviewLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,7 +100,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
   if (!open || !primary) return null
 
   const currentDest = dests.find(d => d.path === selectedBase) || dests[0]
-  const destLabel = currentDest?.name || 'Biblioteca'
+  const destLabel = currentDest?.name || t('local.promote.libraryDefault')
 
   const handlePromote = async () => {
     setSubmitting(true)
@@ -112,14 +114,14 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
       if (r.failed > 0) {
         // Partial success: keep the modal open with a summary; refresh so the
         // ones that did move disappear from the list.
-        setError(`${r.moved} de ${count} movido(s) · ${r.failed} com erro`)
+        setError(t('local.promote.partialResult', { moved: r.moved, total: count, failed: r.failed }))
         onPromoted()
       } else {
         onPromoted()
         onClose()
       }
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao promover')
+      setError(e?.response?.data?.error || e.message || t('local.promote.promoteError'))
     } finally {
       clearTimeout(t1)
       clearTimeout(t2)
@@ -134,7 +136,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
       open
       onClose={onClose}
       size="lg"
-      title={count > 1 ? `Promover ${count} arquivos locais` : 'Promover arquivo local'}
+      title={count > 1 ? t('local.promote.titleMulti', { count }) : t('local.promote.titleSingle')}
       icon={<ArrowUpCircle className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
       footer={
         <div className="flex items-center gap-2 justify-end">
@@ -143,7 +145,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
             disabled={submitting}
             className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded"
           >
-            Cancelar
+            {t('local.cancel')}
           </button>
           <button
             onClick={handlePromote}
@@ -151,7 +153,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
             className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
           >
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
-            {count > 1 ? `Promover ${count}` : 'Promover'}
+            {count > 1 ? t('local.promote.promoteBtnCount', { count }) : t('local.promote.promoteBtn')}
           </button>
         </div>
       }
@@ -160,11 +162,11 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
         <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-default bg-surface/40">
           {count > 1 ? (
             <p className="text-xs text-text-secondary">
-              <span className="text-text-primary font-semibold">{count}</span> arquivos selecionados — mesmo destino para todos
+              <Trans i18nKey="local.promote.selectedSameDest" values={{ count }} components={{ b: <span className="text-text-primary font-semibold" /> }} />
             </p>
           ) : (
             <p className="text-xs text-text-secondary truncate" title={primary.name}>
-              Origem: <span className="text-text-primary font-mono">{primary.name}</span>
+              <Trans i18nKey="local.promote.sourceLabel" values={{ name: primary.name }} components={{ mono: <span className="text-text-primary font-mono" /> }} />
             </p>
           )}
         </div>
@@ -233,7 +235,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
         <div className="py-4 min-h-[150px]">
           {(() => {
             if (loading) return <div className="flex items-center justify-center py-8 text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>
-            if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
+            if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-4">{t('local.promote.noSubfolders')}</p>
             return <ul className="space-y-1">{dirs.map(d => (
               <li key={d}>
                 <button onClick={() => setPath(path ? `${path}/${d}` : d)}
@@ -254,7 +256,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
               type="text"
               value={newFolder}
               onChange={e => setNewFolder(e.target.value)}
-              placeholder="Nova subpasta (opcional)"
+              placeholder={t('local.newSubfolder')}
               className="flex-1 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
             />
           </label>
@@ -268,7 +270,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
             />
             <span className="flex items-center gap-1.5 text-cyan-700 dark:text-cyan-300 font-semibold bg-cyan-500/15 dark:bg-cyan-950/40 border border-cyan-500/30 dark:border-cyan-800/50 px-2 py-0.5 rounded-full text-xs">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              Renomear e Organizar via IA (Plex style)
+              {t('local.renameOrganizeAI')}
             </span>
           </label>
 
@@ -276,24 +278,24 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
             <div className="mt-1 border border-cyan-500/30 dark:border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
               <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
-                Visualização do Destino Organizado{count > 1 ? ` — ${count} arquivos` : ''}:
+                {count > 1 ? t('local.promote.previewTitleCount', { count }) : t('local.promote.previewTitle')}
               </h3>
 {(() => {
-                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>Analisando nomes com IA...</span></div>
-                if (previews.length === 0) return <p className="text-xs text-text-muted text-center py-2">Nenhum preview gerado.</p>
+                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>{t('local.promote.analyzing')}</span></div>
+                if (previews.length === 0) return <p className="text-xs text-text-muted text-center py-2">{t('local.promote.noPreview')}</p>
                 return <div className="space-y-2 divide-y divide-default">{previews.map((p, index) => (
                   <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
-                    <div className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>De: {p.originalName}</div>
+                    <div className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>{t('local.promote.fromName', { name: p.originalName })}</div>
                     {p.error ? (
-                      <div className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">Erro: {p.error}</div>
+                      <div className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">{t('local.promote.previewRowError', { error: p.error })}</div>
                     ) : (
                       <div className="flex items-start gap-1.5 bg-emerald-500/10 dark:bg-emerald-950/10 border border-emerald-500/30 dark:border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-700 dark:text-emerald-300">
                         <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                         <div className="font-mono text-[11px] break-all leading-tight">
-                          <span className="text-text-muted">Para: </span>
+                          <span className="text-text-muted">{t('local.promote.toLabel')}</span>
                           <span className="font-semibold text-emerald-700 dark:text-emerald-400">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
                           <span className="text-text-primary font-bold">{p.targetPath.split('/').pop()}</span>
-                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">{p.kind === 'tv' ? 'Série' : 'Filme'}</span>
+                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">{p.kind === 'tv' ? t('local.promote.kindTv') : t('local.promote.kindMovie')}</span>
                         </div>
                       </div>
                     )}
@@ -306,8 +308,8 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
           <div className="text-xs text-text-muted flex items-start gap-1.5">
             <FolderOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
             <span>
-              Destino: <span className="text-text-primary font-mono">{destLabel}/{finalTarget || ''}</span>
-              {!finalTarget && <span className="text-text-muted"> (raiz)</span>}
+              <Trans i18nKey="local.destinationLabel" values={{ dest: `${destLabel}/${finalTarget || ''}` }} components={{ mono: <span className="text-text-primary font-mono" /> }} />
+              {!finalTarget && <span className="text-text-muted">{t('local.rootSuffix')}</span>}
             </span>
           </div>
 

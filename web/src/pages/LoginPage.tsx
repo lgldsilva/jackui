@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Loader2, AlertCircle, KeyRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { isPasskeySupported } from '../api/client'
 
 export default function LoginPage() {
+  const { t } = useTranslation()
   const { login, loginWithPasskey } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
@@ -29,9 +31,9 @@ export default function LoginPage() {
       // Account has MFA → ask for the 6-digit code and resubmit.
       if (err?.response?.data?.mfaRequired) {
         setMfaStep(true)
-        setError(totp ? 'Código inválido, tente de novo.' : '')
+        setError(totp ? t('login.invalid_code') : '')
       } else {
-        setError(err?.response?.data?.error || err.message || 'Falha no login')
+        setError(err?.response?.data?.error || err.message || t('login.login_failed'))
       }
     } finally {
       setLoading(false)
@@ -40,7 +42,7 @@ export default function LoginPage() {
 
   const passkeyLogin = async () => {
     if (!username) {
-      setError('Informe o usuário para entrar com passkey.')
+      setError(t('login.passkey_need_user'))
       return
     }
     setLoading(true)
@@ -51,9 +53,9 @@ export default function LoginPage() {
     } catch (err: any) {
       // A user cancelling the browser prompt throws NotAllowedError — treat as silent.
       if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {
-        setError('Autenticação por passkey cancelada.')
+        setError(t('login.passkey_cancelled'))
       } else {
-        setError(err?.response?.data?.error || err.message || 'Falha na passkey')
+        setError(err?.response?.data?.error || err.message || t('login.passkey_failed'))
       }
     } finally {
       setLoading(false)
@@ -75,7 +77,7 @@ export default function LoginPage() {
           className="bg-surface-secondary border border-default rounded-2xl p-6 flex flex-col gap-4 shadow-elevated"
         >
           <div>
-            <label htmlFor="login-username" className="block text-sm text-text-secondary mb-1.5">Usuário</label>
+            <label htmlFor="login-username" className="block text-sm text-text-secondary mb-1.5">{t('login.username')}</label>
             <input
               id="login-username"
               type="text"
@@ -89,7 +91,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label htmlFor="login-password" className="block text-sm text-text-secondary mb-1.5">Senha</label>
+            <label htmlFor="login-password" className="block text-sm text-text-secondary mb-1.5">{t('login.password')}</label>
             <input
               id="login-password"
               type="password"
@@ -103,7 +105,7 @@ export default function LoginPage() {
 
           {mfaStep && (
             <div>
-              <label htmlFor="login-totp" className="block text-sm text-text-secondary mb-1.5">Código MFA ou de recuperação</label>
+              <label htmlFor="login-totp" className="block text-sm text-text-secondary mb-1.5">{t('login.mfa_label')}</label>
               <input
                 id="login-totp"
                 type="text"
@@ -111,10 +113,10 @@ export default function LoginPage() {
                 autoComplete="one-time-code"
                 value={totp}
                 onChange={e => setTotp(e.target.value.slice(0, 14))}
-                placeholder="000000 ou xxxx-xxxx"
+                placeholder={t('login.mfa_placeholder')}
                 className="input-field tracking-widest text-center font-mono"
               />
-              <p className="text-[11px] text-text-muted mt-1">Use o código do app autenticador ou um código de recuperação.</p>
+              <p className="text-[11px] text-text-muted mt-1">{t('login.mfa_hint')}</p>
             </div>
           )}
 
@@ -125,7 +127,7 @@ export default function LoginPage() {
               onChange={e => setRemember(e.target.checked)}
               className="w-4 h-4 accent-green-500"
             />
-            {' '}Lembrar de mim por 30 dias
+            {' '}{t('login.remember_me')}
           </label>
 
           {error && (
@@ -141,7 +143,7 @@ export default function LoginPage() {
             className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
-            Entrar
+            {t('login.sign_in')}
           </button>
 
           {isPasskeySupported() && (
@@ -152,18 +154,18 @@ export default function LoginPage() {
               className="btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <KeyRound className="w-4 h-4" />
-              Entrar com passkey
+              {t('login.sign_in_passkey')}
             </button>
           )}
 
           <div className="flex items-center justify-between text-xs">
-            <button type="button" onClick={() => nav('/register')} className="text-text-secondary hover:text-green-400">Criar conta</button>
-            <button type="button" onClick={() => nav('/forgot-password')} className="text-text-secondary hover:text-green-400">Esqueci a senha</button>
+            <button type="button" onClick={() => nav('/register')} className="text-text-secondary hover:text-green-400">{t('login.create_account')}</button>
+            <button type="button" onClick={() => nav('/forgot-password')} className="text-text-secondary hover:text-green-400">{t('login.forgot_password')}</button>
           </div>
         </form>
 
         <p className="text-center text-xs text-text-muted mt-4">
-          JackUI — interface visual para Jackett + streaming de torrents
+          {t('login.tagline')}
         </p>
       </div>
     </div>

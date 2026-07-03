@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { CopyCheck, Loader2, Trash2, AlertCircle } from 'lucide-react'
 import { Sheet } from '../Sheet'
 import { localDuplicates, localDeleteDuplicates, DuplicateGroup } from '../../api/client'
@@ -16,6 +17,7 @@ type DuplicatesModalProps = {
 // delete. Manual selection by design — nothing is pre-checked — with a helper
 // that marks every copy except the first in each group ("keep one").
 export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesModalProps) {
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [groups, setGroups] = useState<DuplicateGroup[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -28,7 +30,7 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
     setError('')
     localDuplicates(mount, path)
       .then(g => { if (!cancelled) setGroups(g) })
-      .catch(e => { if (!cancelled) setError(e?.response?.data?.error || e?.message || 'Erro ao buscar duplicados') })
+      .catch(e => { if (!cancelled) setError(e?.response?.data?.error || e?.message || t('local.duplicates.fetchError')) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [mount, path])
@@ -51,10 +53,9 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
     sum + g.files.filter(f => selected.has(f.path)).reduce((s, f) => s + f.size, 0), 0)
 
   // Footer summary — built without a nested ternary (Sonar S3358).
-  const plural = selected.size === 1 ? '' : 's'
   const selectionSummary = selected.size > 0
-    ? `${selected.size} selecionado${plural} · libera ${formatSize(reclaimable)}`
-    : 'Nenhum selecionado'
+    ? t('local.duplicates.selectionSummary', { count: selected.size, size: formatSize(reclaimable) })
+    : t('local.duplicates.noneSelected')
 
   const doDelete = async () => {
     if (selected.size === 0) return
@@ -65,7 +66,7 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
       onDeleted(deleted)
       onClose()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Erro ao apagar duplicados')
+      setError(e?.response?.data?.error || e?.message || t('local.duplicates.deleteError'))
       setDeleting(false)
     }
   }
@@ -75,7 +76,7 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
       open
       onClose={onClose}
       size="2xl"
-      title="Limpar duplicados"
+      title={t('local.duplicates.title')}
       icon={<CopyCheck className="w-4 h-4 text-purple-400" />}
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -88,7 +89,7 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
             className="inline-flex items-center gap-1.5 text-sm bg-red-500/15 hover:bg-red-500/25 disabled:opacity-40 text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
           >
             {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-            Apagar selecionados
+            {t('local.duplicates.deleteSelected')}
           </button>
         </div>
       }
@@ -96,8 +97,8 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
       {loading && (
         <div className="flex flex-col items-center justify-center py-12 text-text-secondary gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
-          <span className="text-sm">Comparando conteúdo dos arquivos…</span>
-          <span className="text-xs text-text-muted">Em mounts de rede (rclone) isto pode demorar.</span>
+          <span className="text-sm">{t('local.duplicates.comparing')}</span>
+          <span className="text-xs text-text-muted">{t('local.duplicates.comparingHint')}</span>
         </div>
       )}
 
@@ -109,7 +110,7 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
 
       {!loading && !error && groups.length === 0 && (
         <div className="text-center py-12 text-text-secondary text-sm">
-          Nenhum arquivo duplicado encontrado nesta pasta.
+          {t('local.duplicates.empty')}
         </div>
       )}
 
@@ -117,13 +118,13 @@ export function DuplicatesModal({ mount, path, onClose, onDeleted }: DuplicatesM
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <span className="text-xs text-text-secondary">
-              {groups.length} grupo{groups.length === 1 ? '' : 's'} de duplicados (mesmo conteúdo, nomes diferentes)
+              {t('local.duplicates.groupsCount', { count: groups.length })}
             </span>
             <button
               onClick={selectExtras}
               className="text-xs bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border border-strong px-2.5 py-1 rounded-lg transition-colors"
             >
-              Marcar extras (manter 1 por grupo)
+              {t('local.duplicates.markExtras')}
             </button>
           </div>
           {groups.map(g => (
@@ -143,10 +144,11 @@ function GroupCard({ group, selected, onToggle }: {
   readonly selected: Set<string>
   readonly onToggle: (path: string) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="border border-default rounded-lg overflow-hidden">
       <div className="bg-surface-tertiary/40 px-3 py-1.5 text-xs text-text-secondary">
-        {group.files.length} cópias · {formatSize(group.size)} cada
+        {t('local.duplicates.copiesEach', { count: group.files.length, size: formatSize(group.size) })}
       </div>
       <div className="flex flex-col divide-y divide-default/40">
         {group.files.map(f => (
@@ -155,7 +157,7 @@ function GroupCard({ group, selected, onToggle }: {
               type="checkbox"
               checked={selected.has(f.path)}
               onChange={() => onToggle(f.path)}
-              aria-label={`Selecionar cópia ${f.name}`}
+              aria-label={t('local.duplicates.selectCopy', { name: f.name })}
               className="flex-shrink-0 accent-red-500"
             />
             <div className="min-w-0 flex-1">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info, Download as DownloadIcon, MoreVertical } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
@@ -32,6 +33,7 @@ export default function LibraryPage() {
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   const { notify } = useToast()
+  const { t } = useTranslation()
 
   const [revealHidden] = useRevealHidden()
 
@@ -44,19 +46,19 @@ export default function LibraryPage() {
   useEffect(() => { reload() }, [revealHidden])
 
   const handleRemoveOne = async (e: LibraryEntry) => {
-    const ok = await confirm({ title: 'Remover', message: `Remover "${e.name}" do Continuar Assistindo?`, confirmLabel: 'Remover', destructive: true })
+    const ok = await confirm({ title: t('library.remove'), message: t('library.removeMessage', { name: e.name }), confirmLabel: t('library.remove'), destructive: true })
     if (!ok) return
     // Optimistic: drop locally, rollback if server says no
     const prev = entries
     setEntries(entries.filter(x => x.id !== e.id))
-    try { await libraryDelete(e.id) } catch { setEntries(prev); notify('Falha ao remover', 'error') }
+    try { await libraryDelete(e.id) } catch { setEntries(prev); notify(t('library.removeFailed'), 'error') }
   }
   const handleClearAll = async () => {
-    const ok = await confirm({ title: 'Limpar tudo', message: `Apagar TODOS os ${entries.length} itens do Continuar Assistindo? Posições salvas serão perdidas.`, confirmLabel: 'Apagar tudo', destructive: true })
+    const ok = await confirm({ title: t('library.clearAll'), message: t('library.clearAllMessage', { count: entries.length }), confirmLabel: t('library.clearAllConfirm'), destructive: true })
     if (!ok) return
     const prev = entries
     setEntries([])
-    try { await libraryDeleteAll() } catch { setEntries(prev); notify('Falha ao limpar', 'error') }
+    try { await libraryDeleteAll() } catch { setEntries(prev); notify(t('library.clearFailed'), 'error') }
   }
 
   const filtered = entries.filter(e => {
@@ -109,28 +111,28 @@ export default function LibraryPage() {
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-            <LibraryIcon className="w-5 h-5 text-purple-400" /> Continue Assistindo
+            <LibraryIcon className="w-5 h-5 text-purple-400" /> {t('library.title')}
           </h1>
           <div className="flex items-center gap-1 text-xs flex-wrap">
             <button
               onClick={() => setFilter('recent')}
               className={filter === 'recent' ? 'btn-primary' : 'btn-secondary'}
-            >Recentes</button>
+            >{t('library.filterRecent')}</button>
             <button
               onClick={() => setFilter('unfinished')}
               className={filter === 'unfinished' ? 'btn-primary' : 'btn-secondary'}
-            >Não terminados</button>
+            >{t('library.filterUnfinished')}</button>
             <button
               onClick={() => setFilter('finished')}
               className={filter === 'finished' ? 'btn-primary' : 'btn-secondary'}
-            >Concluídos</button>
+            >{t('library.filterFinished')}</button>
             {entries.length > 0 && (
               <button
                 onClick={handleClearAll}
                 className="btn-secondary !text-red-400 hover:!bg-red-900/30 flex items-center gap-1 ml-2"
-                title="Apagar todos os itens do Continuar Assistindo"
+                title={t('library.clearAllTooltip')}
               >
-                <Trash2 className="w-3.5 h-3.5" /> Limpar tudo
+                <Trash2 className="w-3.5 h-3.5" /> {t('library.clearAll')}
               </button>
             )}
           </div>
@@ -138,7 +140,7 @@ export default function LibraryPage() {
 
         {(() => {
           if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
-          if (filtered.length === 0) return <div className="text-center py-20 text-text-muted"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada por aqui ainda</p><p className="text-xs mt-2">Assista algo no player — vai aparecer aqui pra continuar depois.</p></div>
+          if (filtered.length === 0) return <div className="text-center py-20 text-text-muted"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>{t('library.emptyTitle')}</p><p className="text-xs mt-2">{t('library.emptyHint')}</p></div>
           return (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filtered.map(e => {
@@ -190,6 +192,7 @@ type LibraryCardProps = {
 }
 
 function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDetails, onDownload }: LibraryCardProps) {
+  const { t } = useTranslation()
   const { ref, match } = useThumbnail<HTMLDivElement>(entry.name)
   const [artFailed, setArtFailed] = useState(false)
   const isMobile = useIsMobile()
@@ -241,8 +244,8 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
           No desktop fica oculto: as ações de hover abaixo bastam. */}
       <button
         onClick={(ev) => { ev.stopPropagation(); setMenuOpen(true) }}
-        title="Ações"
-        aria-label="Ações"
+        title={t('library.actions')}
+        aria-label={t('library.actions')}
         className="sm:hidden absolute top-1 right-1 z-20 flex items-center justify-center min-w-[44px] min-h-[44px] rounded-full text-text-primary hover:bg-surface/60 transition-colors"
       >
         <MoreVertical className="w-5 h-5" />
@@ -251,7 +254,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
           click propagation so it doesn't start playback. */}
       <button
         onClick={(ev) => { ev.stopPropagation(); onRemove() }}
-        title="Remover do Continuar Assistindo"
+        title={t('library.removeTooltip')}
         className="hidden sm:block absolute -top-2.5 -right-2.5 z-20 p-1 rounded-full bg-surface-tertiary text-text-secondary hover:text-red-400 hover:bg-surface-secondary border border-strong shadow transition-colors"
       >
         <X className="w-3.5 h-3.5" />
@@ -260,14 +263,14 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
       <div className="hidden sm:flex absolute top-1.5 left-1.5 z-10 items-center gap-1">
         <button
           onClick={(ev) => { ev.stopPropagation(); onDetails() }}
-          title="Ver arquivos e detalhes"
+          title={t('library.filesTooltip')}
           className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-surface/85 text-text-primary hover:bg-surface text-[10px] transition-colors"
         >
-          <Info className="w-3.5 h-3.5" /> Arquivos
+          <Info className="w-3.5 h-3.5" /> {t('library.files')}
         </button>
         <button
           onClick={(ev) => { ev.stopPropagation(); onDownload() }}
-          title="Baixar arquivo completo em background"
+          title={t('library.downloadTooltip')}
           className="flex items-center gap-1 px-1.5 py-1 rounded-full bg-surface/85 text-cyan-700 dark:text-cyan-300 hover:bg-surface text-[10px] transition-colors"
         >
           <DownloadIcon className="w-3.5 h-3.5" />
@@ -329,7 +332,7 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
           </div>
           <p className="text-[10px] text-text-muted flex items-center gap-1">
             <Clock className="w-3 h-3" />
-            {isDone ? 'Concluído' : `Faltam ${formatDuration(remaining)}`}
+            {isDone ? t('library.done') : t('library.remaining', { time: formatDuration(remaining) })}
           </p>
         </>
       )}
@@ -348,25 +351,25 @@ function LibraryCard({ entry, ratio, remaining, isDone, onPlay, onRemove, onDeta
           onClick={() => { setMenuOpen(false); onPlay() }}
           className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-text-primary hover:bg-surface-tertiary transition-colors"
         >
-          <Play className="w-4 h-4 text-green-400 flex-shrink-0" /> Reproduzir
+          <Play className="w-4 h-4 text-green-400 flex-shrink-0" /> {t('library.play')}
         </button>
         <button
           onClick={() => { setMenuOpen(false); onDetails() }}
           className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-text-primary hover:bg-surface-tertiary transition-colors"
         >
-          <Info className="w-4 h-4 flex-shrink-0" /> Arquivos e detalhes
+          <Info className="w-4 h-4 flex-shrink-0" /> {t('library.filesAndDetails')}
         </button>
         <button
           onClick={() => { setMenuOpen(false); onDownload() }}
           className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-cyan-700 dark:text-cyan-300 hover:bg-surface-tertiary transition-colors"
         >
-          <DownloadIcon className="w-4 h-4 flex-shrink-0" /> Baixar em background
+          <DownloadIcon className="w-4 h-4 flex-shrink-0" /> {t('library.downloadBackground')}
         </button>
         <button
           onClick={() => { setMenuOpen(false); onRemove() }}
           className="flex items-center gap-3 px-3 min-h-[44px] rounded-lg text-sm text-red-400 hover:bg-red-900/30 transition-colors"
         >
-          <Trash2 className="w-4 h-4 flex-shrink-0" /> Apagar
+          <Trash2 className="w-4 h-4 flex-shrink-0" /> {t('library.delete')}
         </button>
       </div>
     </Sheet>

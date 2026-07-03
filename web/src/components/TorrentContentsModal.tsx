@@ -124,19 +124,19 @@ function DownloadAllButton({ info, result, onDownload }: { readonly info: Torren
     return (
       <button
         onClick={() => onDownload(result)}
-        title="Baixar (escolher destino e arquivos)"
+        title={t('downloads.torrentContents.downloadPickTitle')}
         className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30 transition-colors"
       >
         <Download className="w-3 h-3" />
-        Baixar
+        {t('downloads.torrentContents.download')}
       </button>
     )
   }
   const run = async () => {
     const ok = await confirm({
-      title: 'Baixar torrent completo',
-      message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatBytesOrDash(info.totalSize)})?`,
-      confirmLabel: 'Baixar todos',
+      title: t('downloads.torrentContents.downloadAllTitle'),
+      message: t('downloads.torrentContents.downloadAllMessage', { count: info.files.length, size: formatBytesOrDash(info.totalSize) }),
+      confirmLabel: t('downloads.torrentContents.downloadAllConfirm'),
       destructive: false,
     })
     if (!ok) return
@@ -154,16 +154,17 @@ function DownloadAllButton({ info, result, onDownload }: { readonly info: Torren
     <button
       onClick={run}
       disabled={busy}
-      title="Baixar torrent completo (todos os arquivos)"
+      title={t('downloads.torrentContents.downloadAllTitleBtn')}
       className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30 transition-colors disabled:opacity-50"
     >
       {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-      Baixar todos
+      {t('downloads.torrentContents.downloadAll')}
     </button>
   )
 }
 
 export default function TorrentContentsModal({ result, onClose, onPlayFile, onAddFileToPlaylist, onDownload }: Props) {
+  const { t } = useTranslation()
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -205,13 +206,13 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
     // NOTE: sortBySize/sizeDesc are intentionally NOT reset — they persist
     // (shared with the player) so the chosen order sticks across torrents.
     streamAdd(pickTorrentSource(result))
-      .then(t => { if (!cancelled) setInfo(t) })
-      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || 'Falha ao carregar conteúdo') })
+      .then(info => { if (!cancelled) setInfo(info) })
+      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || t('downloads.torrentContents.loadFailed')) })
       .finally(() => { if (!cancelled) setLoading(false) })
     // NOTE: we don't streamDrop here — the torrent stays in the cache so a follow-up
     // Play action starts streaming instantly without re-fetching metadata.
     return () => { cancelled = true }
-  }, [result])
+  }, [result, t])
 
   if (!result) return null
 
@@ -234,7 +235,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
         open
         onClose={onClose}
         size="2xl"
-        title="Conteúdo do torrent"
+        title={t('downloads.torrentContents.title')}
         icon={<FolderOpen className="w-4 h-4 text-blue-400 flex-shrink-0" />}
       >
         {/* Title bar — cola no topo do corpo (compensa o p-4 do Sheet) e rola
@@ -264,7 +265,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           {info && (
             <div className="text-xs text-text-muted mt-1 flex items-center gap-2 flex-wrap">
               <span>
-                {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatBytesOrDash(info.totalSize)}
+                {t('downloads.torrentContents.filesSize', { count: info.files.length, size: formatBytesOrDash(info.totalSize) })}
               </span>
               <DownloadAllButton info={info} result={result} onDownload={onDownload} />
             </div>
@@ -282,11 +283,11 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
               {info.peers > 0 && (
                 <span className="flex items-center gap-1 text-blue-400">
                   <Activity className="w-3 h-3" />
-                  {info.peers} peer{info.peers === 1 ? '' : 's'} · {info.seeders ?? 0} seed{(info.seeders ?? 0) === 1 ? 'er' : 'ers'}
+                  {t('downloads.torrentContents.peersSeeds', { peers: info.peers, seeders: info.seeders ?? 0 })}
                 </span>
               )}
               {(info.progress ?? 0) > 0 && (info.progress ?? 0) < 1 && (
-                <span className="text-text-secondary">{((info.progress ?? 0) * 100).toFixed(1)}% baixado</span>
+                <span className="text-text-secondary">{t('downloads.torrentContents.percentDownloaded', { pct: ((info.progress ?? 0) * 100).toFixed(1) })}</span>
               )}
             </div>
           )}
@@ -294,26 +295,26 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           {/* Details — visible without playing. Only rows with data render, so
               synthetic results (favorites/library) just show fewer. */}
           <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-            <DetailRow icon={<Tag className="w-3.5 h-3.5" />} label="Categoria" value={result.category} />
-            <DetailRow icon={<Server className="w-3.5 h-3.5" />} label="Tracker" value={result.tracker} />
+            <DetailRow icon={<Tag className="w-3.5 h-3.5" />} label={t('downloads.torrentContents.category')} value={result.category} />
+            <DetailRow icon={<Server className="w-3.5 h-3.5" />} label={t('downloads.torrentContents.tracker')} value={result.tracker} />
             <DetailRow
               icon={<Users className="w-3.5 h-3.5" />}
-              label="Seeds/Leech"
+              label={t('downloads.torrentContents.seedsLeech')}
               value={(result.seeders || info?.seeders) ? `${info?.seeders ?? result.seeders} / ${result.leechers ?? 0}` : undefined}
             />
             <DetailRow
               icon={<Calendar className="w-3.5 h-3.5" />}
-              label="Publicado"
+              label={t('downloads.torrentContents.published')}
               value={result.publishDate ? new Date(result.publishDate).toLocaleDateString() : result.age}
             />
             {result.infoHash && (
               <div className="flex items-center gap-2 min-w-0 sm:col-span-2">
                 <span className="text-text-muted flex-shrink-0"><Hash className="w-3.5 h-3.5" /></span>
-                <span className="text-text-muted flex-shrink-0">Hash:</span>
+                <span className="text-text-muted flex-shrink-0">{t('downloads.torrentContents.hash')}</span>
                 <span className="text-text-secondary font-mono truncate min-w-0" title={result.infoHash}>{result.infoHash}</span>
                 <button
                   onClick={() => copyHash(result.infoHash)}
-                  title="Copiar info hash"
+                  title={t('downloads.torrentContents.copyHash')}
                   className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -332,15 +333,15 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           {loading && (
             <div className="flex flex-col items-center justify-center py-12 text-text-secondary">
               <Loader2 className="w-8 h-8 animate-spin mb-3" />
-              <p>Carregando metadados do torrent...</p>
-              <p className="text-xs text-text-muted mt-1">Pode levar até 60s pra novos torrents</p>
+              <p>{t('downloads.torrentContents.loading')}</p>
+              <p className="text-xs text-text-muted mt-1">{t('downloads.torrentContents.loadingHint')}</p>
             </div>
           )}
 
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
               <p className="flex items-center gap-2 text-red-400 font-medium">
-                <AlertCircle className="w-4 h-4" /> Erro
+                <AlertCircle className="w-4 h-4" /> {t('downloads.torrentContents.error')}
               </p>
               <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
             </div>
@@ -355,17 +356,17 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                       type="text"
                       value={filter}
                       onChange={e => setFilter(e.target.value)}
-                      placeholder="Filtrar arquivos..."
+                      placeholder={t('downloads.torrentContents.filterPlaceholder')}
                       className="input-field text-sm"
                       autoFocus
                     />
                   )}
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {([
-                      { key: 'all' as const, label: 'Todos', count: info!.files.length },
-                      { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
-                      { key: 'audio' as const, label: 'Áudio', count: typeCounts.audio },
-                      { key: 'other' as const, label: 'Outros', count: typeCounts.other },
+                      { key: 'all' as const, label: t('downloads.torrentContents.typeAll'), count: info!.files.length },
+                      { key: 'video' as const, label: t('downloads.torrentContents.typeVideo'), count: typeCounts.video },
+                      { key: 'audio' as const, label: t('downloads.torrentContents.typeAudio'), count: typeCounts.audio },
+                      { key: 'other' as const, label: t('downloads.torrentContents.typeOther'), count: typeCounts.other },
                     ])
                       .filter(o => o.key === 'all' || o.count > 0)
                       .map(o => (
@@ -390,17 +391,17 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         if (v === 'default') { setSortBySize(false); setSizeDesc(true) }
                         else { setSortBySize(true); setSizeDesc(v === 'size-desc') }
                       }}
-                      title="Ordenar arquivos"
-                      aria-label="Ordenar arquivos"
+                      title={t('downloads.torrentContents.sortFiles')}
+                      aria-label={t('downloads.torrentContents.sortFiles')}
                       className={`px-2 py-1 rounded-lg text-xs border transition-colors cursor-pointer focus:outline-none ${
                         sortBySize
                           ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/40'
                           : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
                       }`}
                     >
-                      <option value="default">Ordem do torrent</option>
-                      <option value="size-desc">Maior primeiro</option>
-                      <option value="size-asc">Menor primeiro</option>
+                      <option value="default">{t('downloads.torrentContents.sortTorrentOrder')}</option>
+                      <option value="size-desc">{t('downloads.torrentContents.sortLargest')}</option>
+                      <option value="size-asc">{t('downloads.torrentContents.sortSmallest')}</option>
                     </select>
                   </div>
                 </div>
@@ -408,7 +409,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
               <div className="flex flex-col gap-1">
                 {sortedFiles.length === 0 ? (
-                  <p className="text-sm text-text-muted text-center py-6">Nenhum arquivo casa com o filtro</p>
+                  <p className="text-sm text-text-muted text-center py-6">{t('downloads.torrentContents.noFilesMatch')}</p>
                 ) : (
                   sortedFiles.map(f => {
                     const ep = parseEpisode(f.path)
@@ -418,8 +419,8 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                     // dead, disabled row.
                     const viewable = !playable && !!info?.infoHash && detectViewerKind(f.path) !== 'unknown'
                     let rowTitle: string | undefined
-                    if (playable) rowTitle = 'Reproduzir esse arquivo'
-                    else if (viewable) rowTitle = 'Visualizar esse arquivo'
+                    if (playable) rowTitle = t('downloads.torrentContents.playFile')
+                    else if (viewable) rowTitle = t('downloads.torrentContents.viewFile')
                     const filePct = f.size > 0 && (f.downloaded ?? 0) > 0
                       ? Math.min(100, ((f.downloaded ?? 0) / f.size) * 100)
                       : null
@@ -459,7 +460,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                             className={`flex items-center gap-2 flex-1 min-w-0 text-left ${playable || viewable ? 'cursor-pointer' : 'cursor-default'}`}
                           >
                             {fileTypeIcon(f)}
-                            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label="visualizável" />}
+                            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label={t('downloads.torrentContents.viewable')} />}
                             {ep && (
                               <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0">
                                 {ep}
@@ -478,7 +479,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                                 hoverThumb.hide()
                                 onPlayFile(result, f.index)
                               }}
-                              title="Reproduzir esse arquivo"
+                              title={t('downloads.torrentContents.playFile')}
                               className="p-1.5 rounded-lg text-green-400 hover:bg-green-500/15 transition-colors"
                             >
                               <Play className="w-4 h-4 fill-current" />
@@ -489,7 +490,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                                   hoverThumb.hide()
                                   onAddFileToPlaylist(result, f.index, f.path)
                                 }}
-                                title="Adicionar esse arquivo a uma playlist"
+                                title={t('downloads.torrentContents.addToPlaylist')}
                                 className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-500/15 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100"
                               >
                                 <ListPlus className="w-4 h-4" />
@@ -518,7 +519,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
 
           {info?.files?.length === 0 && (
             <p className="text-sm text-text-muted text-center py-6">
-              Esse torrent está vazio ou ainda não tem metadados disponíveis
+              {t('downloads.torrentContents.empty')}
             </p>
           )}
         </>

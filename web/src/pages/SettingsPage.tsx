@@ -105,7 +105,7 @@ export default function SettingsPage() {
     setLoading(true)
     getConfig()
       .then(setConfig)
-      .catch(() => setError('Falha ao carregar configuracoes'))
+      .catch(() => setError(t('settings.config_load_failed')))
       .finally(() => setLoading(false))
   }, [isAdmin])
 
@@ -164,8 +164,8 @@ export default function SettingsPage() {
   }
 
   const connectionMsg = testResult === 'success'
-    ? 'Conexão OK'
-    : 'Falha na conexão' + (testMsg ? `: ${testMsg}` : '')
+    ? t('settings.conn_ok')
+    : t('settings.conn_failed') + (testMsg ? `: ${testMsg}` : '')
 
   if (loading) {
     return (
@@ -179,7 +179,7 @@ export default function SettingsPage() {
   if (isAdmin && !config) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <p className="text-red-400">{error || 'Erro ao carregar configuracoes'}</p>
+        <p className="text-red-400">{error || t('settings.config_load_failed')}</p>
       </div>
     )
   }
@@ -219,7 +219,7 @@ export default function SettingsPage() {
               : 'bg-red-500/10 border border-red-500/30 text-red-400'
           }`}>
             {saveResult === 'success' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-            {saveResult === 'success' ? t('settings.success') : 'Erro ao salvar configuracoes'}
+            {saveResult === 'success' ? t('settings.success') : t('settings.config_save_error')}
           </div>
         )}
 
@@ -241,13 +241,13 @@ export default function SettingsPage() {
           <>
           <section className="card flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-text-primary">Clientes de Download</h2>
+              <h2 className="text-lg font-semibold text-text-primary">{t('settings.download_clients')}</h2>
               <button onClick={handleAddClient} className="btn-primary flex items-center gap-2 text-sm py-1.5">
-                <Plus className="w-4 h-4" /> Adicionar
+                <Plus className="w-4 h-4" /> {t('settings.add')}
               </button>
             </div>
             {config.downloadClients.length === 0 && (
-              <p className="text-text-muted text-sm text-center py-4">Nenhum cliente configurado.</p>
+              <p className="text-text-muted text-sm text-center py-4">{t('settings.no_clients')}</p>
             )}
             <div className="flex flex-col gap-2">
               {config.downloadClients.map((client, i) => (
@@ -256,16 +256,16 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-text-primary truncate">{client.name}</span>
                       {client.default && (
-                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full border border-green-500/30">padrao</span>
+                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full border border-green-500/30">{t('settings.default_badge')}</span>
                       )}
                     </div>
                     <div className="text-xs text-text-secondary truncate mt-0.5">{client.type} — {client.url}</div>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {!client.default && (
-                      <button onClick={() => handleSetDefault(i)} className="text-xs text-text-secondary hover:text-green-400 px-2 py-1 rounded">Padrao</button>
+                      <button onClick={() => handleSetDefault(i)} className="text-xs text-text-secondary hover:text-green-400 px-2 py-1 rounded">{t('settings.set_default')}</button>
                     )}
-                    <button onClick={() => handleEditClient(client, i)} className="text-xs btn-secondary py-1 px-2">Editar</button>
+                    <button onClick={() => handleEditClient(client, i)} className="text-xs btn-secondary py-1 px-2">{t('settings.edit')}</button>
                     <button onClick={() => handleDeleteClient(i)} className="text-red-400 hover:text-red-500 dark:hover:text-red-300 p-1 rounded"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -281,18 +281,18 @@ export default function SettingsPage() {
         {activeTab === 'stream' && config && (
           <>
             <section className="card flex flex-col gap-4">
-              <h2 className="text-lg font-semibold text-text-primary">Servidor</h2>
+              <h2 className="text-lg font-semibold text-text-primary">{t('settings.server')}</h2>
               <div>
-                <label htmlFor="server-port-stream" className="block text-sm font-medium text-text-primary mb-1.5">Porta</label>
+                <label htmlFor="server-port-stream" className="block text-sm font-medium text-text-primary mb-1.5">{t('settings.port')}</label>
                 <input id="server-port-stream" type="number" value={config.port}
                   onChange={e => setConfig({ ...config, port: Number.parseInt(e.target.value) || 8989 })}
                   className="input-field w-32" min={1} max={65535} />
               </div>
             </section>
             {/* Performance do streamer (banda/memória/storage/peers) — feature #43. */}
-            <ErrorBoundary title="Erro no card de performance"><StreamSettingsCard /></ErrorBoundary>
+            <ErrorBoundary title={t('settings.error_perf_card')}><StreamSettingsCard /></ErrorBoundary>
             <TranscodeCapabilitiesCard />
-            <ErrorBoundary title="Erro no monitor de transcode"><ActiveTranscodesCard /></ErrorBoundary>
+            <ErrorBoundary title={t('settings.error_transcode_card')}><ActiveTranscodesCard /></ErrorBoundary>
             <StreamCacheCard />
           </>
         )}
@@ -302,29 +302,29 @@ export default function SettingsPage() {
 
         {/* ════════ GUIA IA ════════ */}
         {activeTab === 'ia' && (
-          <ErrorBoundary title="Erro no card IA"><AIBenchmarkCard /></ErrorBoundary>
+          <ErrorBoundary title={t('settings.error_ai_card')}><AIBenchmarkCard /></ErrorBoundary>
         )}
       </main>
 
       {/* Client edit modal */}
       {editingClient && (
         <Sheet open onClose={() => setEditingClient(null)} size="md"
-          title={editingIndex === null ? 'Novo Cliente' : 'Editar Cliente'}
+          title={editingIndex === null ? t('settings.new_client') : t('settings.edit_client')}
           footer={
             <div className="flex gap-3">
-              <button onClick={() => setEditingClient(null)} className="btn-secondary flex-1">Cancelar</button>
-              <button onClick={handleSaveClient} disabled={!editingClient.name || !editingClient.url} className="btn-primary flex-1 disabled:opacity-50">Salvar</button>
+              <button onClick={() => setEditingClient(null)} className="btn-secondary flex-1">{t('settings.cancel')}</button>
+              <button onClick={handleSaveClient} disabled={!editingClient.name || !editingClient.url} className="btn-primary flex-1 disabled:opacity-50">{t('settings.save')}</button>
             </div>
           }>
           <div className="flex flex-col gap-4">
             <div>
-              <label htmlFor="dc-name" className="block text-sm font-medium text-text-primary mb-1.5">Nome</label>
+              <label htmlFor="dc-name" className="block text-sm font-medium text-text-primary mb-1.5">{t('settings.name')}</label>
               <input id="dc-name" type="text" value={editingClient.name}
                 onChange={e => setEditingClient({ ...editingClient, name: e.target.value })}
                 placeholder="qBittorrent Local" className="input-field" />
             </div>
             <div>
-              <label htmlFor="dc-type" className="block text-sm font-medium text-text-primary mb-1.5">Tipo</label>
+              <label htmlFor="dc-type" className="block text-sm font-medium text-text-primary mb-1.5">{t('settings.type')}</label>
               <select id="dc-type" value={editingClient.type}
                 onChange={e => setEditingClient({ ...editingClient, type: e.target.value })}
                 className="input-field">
@@ -340,13 +340,13 @@ export default function SettingsPage() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label htmlFor="dc-user" className="block text-sm font-medium text-text-primary mb-1.5">Usuario</label>
+                <label htmlFor="dc-user" className="block text-sm font-medium text-text-primary mb-1.5">{t('settings.username')}</label>
                 <input id="dc-user" type="text" value={editingClient.username}
                   onChange={e => setEditingClient({ ...editingClient, username: e.target.value })}
                   placeholder="admin" className="input-field" />
               </div>
               <div>
-                <label htmlFor="dc-pass" className="block text-sm font-medium text-text-primary mb-1.5">Senha</label>
+                <label htmlFor="dc-pass" className="block text-sm font-medium text-text-primary mb-1.5">{t('settings.password')}</label>
                 <input id="dc-pass" type="password" value={editingClient.password}
                   onChange={e => setEditingClient({ ...editingClient, password: e.target.value })}
                   placeholder="••••••••" className="input-field" />
@@ -356,7 +356,7 @@ export default function SettingsPage() {
               <input type="checkbox" checked={editingClient.default}
                 onChange={e => setEditingClient({ ...editingClient, default: e.target.checked })}
                 className="w-4 h-4 accent-green-500" />
-              <span className="text-sm text-text-primary">Cliente padrao</span>
+              <span className="text-sm text-text-primary">{t('settings.default_client')}</span>
             </label>
           </div>
         </Sheet>

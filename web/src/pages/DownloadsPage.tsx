@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+import { useTranslation, Trans } from 'react-i18next'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
   Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Info,
@@ -218,7 +218,7 @@ export default function DownloadsPage() {
       const torrentFiles = files.filter(f => f.name.endsWith('.torrent'))
       
       if (torrentFiles.length === 0) {
-        notify('Por favor, arraste apenas arquivos com a extensão .torrent ou links magnet', 'error')
+        notify(t('downloads.page.dropOnlyTorrentOrMagnet'), 'error')
         return
       }
 
@@ -447,7 +447,7 @@ export default function DownloadsPage() {
     try { await downloadSetPriority(id, priority); await load() } finally { setBusyID(null) }
   }
   const onDelete = async (id: number) => {
-    if (!await confirm({ title: 'Remover download?', message: 'Parar e remover este download da fila? A sessão de streaming/transcode aberta pelo Play também é encerrada.', confirmLabel: 'Remover', destructive: true })) return
+    if (!await confirm({ title: t('downloads.page.removeDownloadTitle'), message: t('downloads.page.removeDownloadMessage'), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     const target = items.find(x => x.id === id)
     setBusyID(id)
     // OPTIMISTIC: hide the row immediately and shield it from in-flight polls.
@@ -501,7 +501,7 @@ export default function DownloadsPage() {
     const targets = items.filter(d => selected.has(d.id))
     const ids = targets.map(d => d.id)
     if (ids.length === 0) return
-    if (!await confirm({ title: 'Remover downloads?', message: `Parar e remover ${ids.length} download(s) da lista? Sessões de streaming/transcode abertas pelo Play também são encerradas.`, confirmLabel: 'Remover', destructive: true })) return
+    if (!await confirm({ title: t('downloads.page.removeDownloadsTitle'), message: t('downloads.page.removeDownloadsMessage', { count: ids.length }), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     setBulkBusy(true)
     await runBatchDelete(ids, targets)
     setBulkBusy(false)
@@ -522,7 +522,7 @@ export default function DownloadsPage() {
       const failed = res.failed ?? []
       if (failed.length > 0) {
         clearDeleted(pendingDeletesRef.current, failed) // let the survivors come back into view
-        notify(`Falha ao remover ${failed.length} download(s) (#${failed.join(', #')}).`, 'error')
+        notify(t('downloads.page.removeFailed', { count: failed.length, ids: failed.join(', #') }), 'error')
       }
       await load(); await loadTorrents()
       setSelected(new Set())
@@ -540,8 +540,11 @@ export default function DownloadsPage() {
   const onPromoted = (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => {
     setPromoteTargets(null)
     if (result.failed.length > 0) {
-      notify(`${result.promoted.length} promovido(s), ${result.failed.length} falha(s): ` +
-        result.failed.map(f => `#${f.id}: ${f.error}`).join('; '), 'error')
+      notify(t('downloads.page.promoteResult', {
+        promoted: result.promoted.length,
+        failed: result.failed.length,
+        details: result.failed.map(f => `#${f.id}: ${f.error}`).join('; '),
+      }), 'error')
     }
     // Limpa seleção dos que deram certo
     if (result.promoted.length > 0) {
@@ -556,7 +559,7 @@ export default function DownloadsPage() {
     void loadTorrents()
   }
   const onStopSeed = async (id: number, name: string) => {
-    if (!await confirm({ title: 'Parar de seedar?', message: `Parar de seedar "${name}"? O arquivo permanece no lugar.`, confirmLabel: 'Parar', destructive: true })) return
+    if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedMessage', { name }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBusyID(id)
     try { await downloadStopSeed(id); await load(); await loadTorrents() }
     finally { setBusyID(null) }
@@ -567,14 +570,14 @@ export default function DownloadsPage() {
   const onDeleteMany = async (ds: DownloadEntry[]) => {
     const ids = ds.map(d => d.id)
     if (ids.length === 0) return
-    if (!await confirm({ title: 'Remover torrent?', message: `Remover ${ids.length} arquivo(s) deste torrent da lista? Os arquivos no disco NÃO são apagados.`, confirmLabel: 'Remover', destructive: true })) return
+    if (!await confirm({ title: t('downloads.page.removeTorrentTitle'), message: t('downloads.page.removeTorrentFilesMessage', { count: ids.length }), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     setBulkBusy(true)
     await runBatchDelete(ids, ds)
     setBulkBusy(false)
   }
   const onStopSeedMany = async (ds: DownloadEntry[]) => {
     if (ds.length === 0) return
-    if (!await confirm({ title: 'Parar de seedar?', message: `Parar de seedar ${ds.length} arquivo(s) deste torrent? Os arquivos permanecem no lugar.`, confirmLabel: 'Parar', destructive: true })) return
+    if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedManyMessage', { count: ds.length }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBulkBusy(true)
     try { await Promise.all(ds.map(d => downloadStopSeed(d.id).catch(() => {}))); await load(); await loadTorrents() }
     finally { setBulkBusy(false) }
@@ -599,7 +602,7 @@ export default function DownloadsPage() {
     try { await streamSetPriority(hash, priority); await loadTorrents() } finally { setBusyHash(null) }
   }
   const onTorrentDelete = async (hash: string) => {
-    if (!await confirm({ title: 'Remover torrent?', message: 'Parar e remover este torrent da fila de streaming?', confirmLabel: 'Remover', destructive: true })) return
+    if (!await confirm({ title: t('downloads.page.removeTorrentTitle'), message: t('downloads.page.removeStreamingTorrentMessage'), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     setBusyHash(hash)
     try { await streamDrop(hash); await loadTorrents() } finally { setBusyHash(null) }
   }
@@ -608,12 +611,12 @@ export default function DownloadsPage() {
     try {
       const down = limitDownKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitDownKB) * 1024))
       const up = limitUpKB.trim() === '' ? 0 : Math.max(0, Math.round(Number(limitUpKB) * 1024))
-      if (!Number.isFinite(down) || !Number.isFinite(up)) { setLimitsMsg('Valores inválidos'); return }
+      if (!Number.isFinite(down) || !Number.isFinite(up)) { setLimitsMsg(t('downloads.page.invalidValues')); return }
       await streamSetLimits({ down, up })
-      setLimitsMsg('Limites aplicados')
+      setLimitsMsg(t('downloads.page.limitsApplied'))
       await loadLimits()
       globalThis.setTimeout(() => { if (mountedRef.current) setLimitsMsg('') }, 2500)
-    } catch { setLimitsMsg('Falha ao salvar') } finally { setLimitsSaving(false) }
+    } catch { setLimitsMsg(t('downloads.page.saveFailed')) } finally { setLimitsSaving(false) }
   }
 
   // ─── Derived data ─────────────────────────────────────────────────────────
@@ -669,9 +672,9 @@ export default function DownloadsPage() {
   }
   const doRemoveCompleted = async () => {
     const ok = await confirm({
-      title: 'Remover concluídos?',
-      message: `Remover ${completedDownloads.length} download(s) concluído(s)? Os arquivos no disco NÃO serão apagados.`,
-      confirmLabel: 'Remover',
+      title: t('downloads.page.removeCompletedTitle'),
+      message: t('downloads.page.removeCompletedMessage', { count: completedDownloads.length }),
+      confirmLabel: t('downloads.page.remove'),
       destructive: true,
     })
     if (!ok) return
@@ -729,12 +732,11 @@ export default function DownloadsPage() {
   const downloadingNowCount = countTorrents(items.filter(d => d.status === 'downloading'))
   const queuedCount = countTorrents(items.filter(d => d.status === 'queued'))
   let queueSubtitle: string | undefined
-  if (queuedCount > 0) queueSubtitle = `${queuedCount} na fila`
-  else if (seedingCount > 0) queueSubtitle = `${seedingCount} semeando`
-  const activePlural = activeCount === 1 ? '' : 's'
+  if (queuedCount > 0) queueSubtitle = t('downloads.page.queuedCount', { count: queuedCount })
+  else if (seedingCount > 0) queueSubtitle = t('downloads.page.seedingCount', { count: seedingCount })
   const activeValue = maxActive > 0
-    ? `${downloadingNowCount}/${maxActive} ativos`
-    : `${activeCount} ativo${activePlural}`
+    ? t('downloads.page.activeOfMax', { current: downloadingNowCount, max: maxActive })
+    : t('downloads.page.activeCount', { count: activeCount })
 
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
@@ -781,14 +783,14 @@ export default function DownloadsPage() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      aria-label="Gerenciador de downloads — arraste arquivos .torrent ou links magnet"
+      aria-label={t('downloads.page.sectionAriaLabel')}
       className="relative min-h-screen bg-surface"
     >
       {isDraggingPage && (
         <div className="fixed inset-0 z-50 bg-surface-elevated/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-cyan-500/50 m-4 rounded-3xl pointer-events-none transition-all duration-300 animate-pulse">
           <UploadCloud className="w-16 h-16 text-cyan-400 mb-4 animate-bounce" />
-          <h2 className="text-xl font-bold text-text-primary mb-1">Solte seus arquivos .torrent aqui!</h2>
-          <p className="text-sm text-text-secondary">ou links magnet arrastados para iniciar o carregamento</p>
+          <h2 className="text-xl font-bold text-text-primary mb-1">{t('downloads.page.dropOverlayTitle')}</h2>
+          <p className="text-sm text-text-secondary">{t('downloads.page.dropOverlaySubtitle')}</p>
         </div>
       )}
 
@@ -798,7 +800,7 @@ export default function DownloadsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard
             icon={<ArrowDownCircle className="w-5 h-5" />}
-            label="Download"
+            label={t('downloads.page.statDownload')}
             value={formatRate(totalDown)}
             gradient="from-emerald-500/20 to-teal-500/10"
             iconColor="text-emerald-400"
@@ -806,7 +808,7 @@ export default function DownloadsPage() {
           />
           <StatCard
             icon={<ArrowUpCircle className="w-5 h-5" />}
-            label="Upload"
+            label={t('downloads.page.statUpload')}
             value={formatRate(totalUp)}
             gradient="from-violet-500/20 to-purple-500/10"
             iconColor="text-violet-400"
@@ -814,14 +816,14 @@ export default function DownloadsPage() {
           />
           <StatCard
             icon={<Users className="w-5 h-5" />}
-            label="Peers"
+            label={t('downloads.page.statPeers')}
             value={String(totalPeers)}
             gradient="from-blue-500/20 to-cyan-500/10"
             iconColor="text-blue-400"
           />
           <StatCard
             icon={<Activity className="w-5 h-5" />}
-            label="Fila"
+            label={t('downloads.page.statQueue')}
             value={activeValue}
             subtitle={queueSubtitle}
             gradient="from-amber-500/20 to-orange-500/10"
@@ -836,31 +838,31 @@ export default function DownloadsPage() {
             {downloadsByStatus.downloading.length > 0 && (
               <span className="flex items-center gap-1">
                 <Download className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="text-text-primary font-medium">{downloadsByStatus.downloading.length}</span> baixando
+                <Trans i18nKey="downloads.page.quickDownloading" values={{ count: downloadsByStatus.downloading.length }} components={{ b: <span className="text-text-primary font-medium" /> }} />
               </span>
             )}
             {downloadsByStatus.paused.length > 0 && (
               <span className="flex items-center gap-1">
                 <Pause className="w-3.5 h-3.5 text-text-secondary" />
-                <span className="text-text-primary font-medium">{downloadsByStatus.paused.length}</span> pausados
+                <Trans i18nKey="downloads.page.quickPaused" values={{ count: downloadsByStatus.paused.length }} components={{ b: <span className="text-text-primary font-medium" /> }} />
               </span>
             )}
             {completedDownloads.length > 0 && (
               <span className="flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-                <span className="text-text-primary font-medium">{completedDownloads.length}</span> concluídos
+                <Trans i18nKey="downloads.page.quickCompleted" values={{ count: completedDownloads.length }} components={{ b: <span className="text-text-primary font-medium" /> }} />
               </span>
             )}
             {downloadsByStatus.failed.length > 0 && (
               <span className="flex items-center gap-1">
                 <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                <span className="text-text-primary font-medium">{downloadsByStatus.failed.length}</span> com erro
+                <Trans i18nKey="downloads.page.quickFailed" values={{ count: downloadsByStatus.failed.length }} components={{ b: <span className="text-text-primary font-medium" /> }} />
               </span>
             )}
             {stalledCount > 0 && (
               <span className="flex items-center gap-1 text-amber-400">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                <span className="font-medium">{stalledCount}</span> travados
+                <Trans i18nKey="downloads.page.quickStalled" values={{ count: stalledCount }} components={{ b: <span className="font-medium" /> }} />
               </span>
             )}
           </div>
@@ -873,27 +875,27 @@ export default function DownloadsPage() {
                 <button
                   onClick={doResumeAll}
                   disabled={bulkBusy}
-                  title="Iniciar todos os downloads e torrents pausados"
+                  title={t('downloads.page.startAllTitle')}
                   className="flex items-center gap-1.5 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg transition-colors"
                 >
-                  <Play className="w-3 h-3" /> Iniciar todos
+                  <Play className="w-3 h-3" /> {t('downloads.page.startAll')}
                 </button>
                 <button
                   onClick={doPauseAll}
                   disabled={bulkBusy}
-                  title="Pausar todos os downloads e torrents ativos"
+                  title={t('downloads.page.pauseAllTitle')}
                   className="flex items-center gap-1.5 text-xs bg-surface-secondary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary border border-default px-3 py-1.5 rounded-lg transition-colors"
                 >
-                  <Pause className="w-3 h-3" /> Pausar todos
+                  <Pause className="w-3 h-3" /> {t('downloads.page.pauseAll')}
                 </button>
                 {completedDownloads.length > 0 && (
                   <button
                     onClick={doRemoveCompleted}
                     disabled={bulkBusy}
-                    title="Remover da fila todos os downloads concluídos (arquivos não são apagados)"
+                    title={t('downloads.page.removeCompletedBtnTitle')}
                     className="flex items-center gap-1.5 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg transition-colors"
                   >
-                    <Trash2 className="w-3 h-3" /> Remover concluídos
+                    <Trash2 className="w-3 h-3" /> {t('downloads.page.removeCompleted')}
                   </button>
                 )}
                 {downloadsByStatus.failed.length > 0 && (
@@ -923,7 +925,7 @@ export default function DownloadsPage() {
                 disabled={bulkBusy}
                 className="sm:hidden flex items-center gap-1.5 text-xs px-3 min-h-[44px] rounded-lg border border-default bg-surface-secondary text-text-primary disabled:opacity-50"
               >
-                <MoreHorizontal className="w-4 h-4" /> Ações
+                <MoreHorizontal className="w-4 h-4" /> {t('downloads.page.actions')}
               </button>
             </>
           )}
@@ -938,7 +940,7 @@ export default function DownloadsPage() {
                 type="text"
                 value={filterSearch}
                 onChange={e => setFilterSearch(e.target.value)}
-                placeholder="Buscar por nome ou caminho..."
+                placeholder={t('downloads.page.searchPlaceholder')}
                 className="w-full bg-surface-secondary/80 border border-default rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 transition-colors"
               />
               {filterSearch && (
@@ -956,7 +958,7 @@ export default function DownloadsPage() {
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              Filtros
+              {t('downloads.page.filters')}
               {(filterStatus || filterTracker || filterCategory) && (
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
               )}
@@ -973,12 +975,12 @@ export default function DownloadsPage() {
                   onChange={e => setFilterStatus(e.target.value)}
                   className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                 >
-                  <option value="">Todos os status</option>
-                  <option value="downloading">Baixando</option>
-                  <option value="paused">Pausado</option>
-                  <option value="queued">Na fila</option>
-                  <option value="completed">Concluído</option>
-                  <option value="failed">Falhou</option>
+                  <option value="">{t('downloads.page.filterAllStatus')}</option>
+                  <option value="downloading">{t('downloads.page.statusDownloading')}</option>
+                  <option value="paused">{t('downloads.page.statusPaused')}</option>
+                  <option value="queued">{t('downloads.page.statusQueued')}</option>
+                  <option value="completed">{t('downloads.page.statusCompleted')}</option>
+                  <option value="failed">{t('downloads.page.statusFailed')}</option>
                 </select>
                 {availableTrackers.length > 0 && (
                   <select
@@ -986,9 +988,9 @@ export default function DownloadsPage() {
                     onChange={e => setFilterTracker(e.target.value)}
                     className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                   >
-                    <option value="">Todos os trackers</option>
-                    {availableTrackers.map(t => (
-                      <option key={t} value={t}>{t}</option>
+                    <option value="">{t('downloads.page.filterAllTrackers')}</option>
+                    {availableTrackers.map(tr => (
+                      <option key={tr} value={tr}>{tr}</option>
                     ))}
                   </select>
                 )}
@@ -998,7 +1000,7 @@ export default function DownloadsPage() {
                     onChange={e => setFilterCategory(e.target.value)}
                     className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                   >
-                    <option value="">Todas as categorias</option>
+                    <option value="">{t('downloads.page.filterAllCategories')}</option>
                     {availableCategories.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
@@ -1010,7 +1012,7 @@ export default function DownloadsPage() {
                     onChange={e => setFilterUserId(e.target.value)}
                     className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                   >
-                    <option value="">Todos os usuários</option>
+                    <option value="">{t('downloads.page.filterAllUsers')}</option>
                     {availableUsers.map(u => (
                       <option key={u.id} value={String(u.id)}>{u.username}</option>
                     ))}
@@ -1021,28 +1023,28 @@ export default function DownloadsPage() {
               {/* Ordenar — grupo próprio, separado por divisória; Limpar à direita. */}
               <div className="flex items-center gap-2 flex-wrap border-t border-default/50 pt-3">
                 <span className="text-xs text-text-muted flex items-center gap-1.5 flex-shrink-0">
-                  <ArrowDownWideNarrow className="w-3.5 h-3.5" /> Ordenar
+                  <ArrowDownWideNarrow className="w-3.5 h-3.5" /> {t('downloads.page.sort')}
                 </span>
                 <select
                   value={sortCol}
                   onChange={e => setSortCol(e.target.value)}
                   className="flex-1 min-w-[140px] sm:flex-none bg-surface border border-default rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-cyan-500/50"
                 >
-                  <option value="created_at">Data</option>
-                  <option value="name">Nome</option>
-                  <option value="size">Tamanho</option>
-                  <option value="progress">Progresso</option>
-                  <option value="downRate">Velocidade ↓</option>
-                  <option value="upRate">Velocidade ↑</option>
-                  <option value="seeders">Seeds</option>
-                  <option value="status">Status</option>
-                  <option value="tracker">Tracker</option>
-                  <option value="category">Categoria</option>
+                  <option value="created_at">{t('downloads.page.sortDate')}</option>
+                  <option value="name">{t('downloads.page.sortName')}</option>
+                  <option value="size">{t('downloads.page.sortSize')}</option>
+                  <option value="progress">{t('downloads.page.sortProgress')}</option>
+                  <option value="downRate">{t('downloads.page.sortDownSpeed')}</option>
+                  <option value="upRate">{t('downloads.page.sortUpSpeed')}</option>
+                  <option value="seeders">{t('downloads.page.sortSeeds')}</option>
+                  <option value="status">{t('downloads.page.sortStatus')}</option>
+                  <option value="tracker">{t('downloads.page.sortTracker')}</option>
+                  <option value="category">{t('downloads.page.sortCategory')}</option>
                 </select>
                 <button
                   onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
-                  title={sortDir === 'asc' ? 'Crescente' : 'Decrescente'}
-                  aria-label="Inverter ordem"
+                  title={sortDir === 'asc' ? t('downloads.page.ascending') : t('downloads.page.descending')}
+                  aria-label={t('downloads.page.invertOrder')}
                   className="flex-shrink-0 bg-surface border border-default rounded-lg px-2 py-1.5 text-text-primary hover:text-cyan-600 dark:hover:text-cyan-300 hover:border-cyan-500/40 transition-colors"
                 >
                   {sortDir === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
@@ -1051,7 +1053,7 @@ export default function DownloadsPage() {
                   onClick={() => setQuery({ status: null, tracker: null, cat: null, q: null, uid: null, sort: null, dir: null })}
                   className="ml-auto text-xs text-text-muted hover:text-text-primary px-2 py-1 flex-shrink-0"
                 >
-                  Limpar
+                  {t('downloads.page.clear')}
                 </button>
               </div>
             </div>
@@ -1062,12 +1064,12 @@ export default function DownloadsPage() {
         <div className="flex items-center justify-between border-b border-default/60 flex-wrap gap-3">
           <div className="flex items-center gap-0.5 overflow-x-auto">
             {([
-              { key: 'all'         as Tab, label: 'Todos',      icon: <ListFilter className="w-3.5 h-3.5" /> },
-              { key: 'downloading' as Tab, label: 'Baixando',   icon: <Zap className="w-3.5 h-3.5" /> },
-              { key: 'paused'      as Tab, label: 'Pausados',   icon: <Pause className="w-3.5 h-3.5" /> },
-              { key: 'completed'   as Tab, label: 'Concluídos', icon: <CheckSquare className="w-3.5 h-3.5" /> },
-              { key: 'failed'      as Tab, label: 'Erro',       icon: <AlertCircle className="w-3.5 h-3.5" /> },
-              { key: 'network'     as Tab, label: 'Rede',       icon: <Wifi className="w-3.5 h-3.5" /> },
+              { key: 'all'         as Tab, label: t('downloads.page.tabAll'),         icon: <ListFilter className="w-3.5 h-3.5" /> },
+              { key: 'downloading' as Tab, label: t('downloads.page.tabDownloading'), icon: <Zap className="w-3.5 h-3.5" /> },
+              { key: 'paused'      as Tab, label: t('downloads.page.tabPaused'),      icon: <Pause className="w-3.5 h-3.5" /> },
+              { key: 'completed'   as Tab, label: t('downloads.page.tabCompleted'),   icon: <CheckSquare className="w-3.5 h-3.5" /> },
+              { key: 'failed'      as Tab, label: t('downloads.page.tabFailed'),      icon: <AlertCircle className="w-3.5 h-3.5" /> },
+              { key: 'network'     as Tab, label: t('downloads.page.tabNetwork'),     icon: <Wifi className="w-3.5 h-3.5" /> },
             ]).map(tab => (
               <button
                 key={tab.key}
@@ -1104,7 +1106,7 @@ export default function DownloadsPage() {
                 }`}
               >
                 <Users className="w-4 h-4" />
-                {showAllUsers ? 'Todos usuários' : 'Meus downloads'}
+                {showAllUsers ? t('downloads.page.allUsers') : t('downloads.page.myDownloads')}
               </button>
             )}
             {!isGuest && (
@@ -1115,7 +1117,7 @@ export default function DownloadsPage() {
                 }}
                 className="flex items-center gap-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-white px-4 py-2 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10 mb-2 md:mb-0"
               >
-                <Plus className="w-4 h-4" /> Adicionar Torrent / Magnet
+                <Plus className="w-4 h-4" /> {t('downloads.page.addTorrentMagnet')}
               </button>
             )}
           </div>
@@ -1262,7 +1264,7 @@ export default function DownloadsPage() {
       <Sheet
         open={bulkSheetOpen}
         onClose={() => setBulkSheetOpen(false)}
-        title="Ações"
+        title={t('downloads.page.actions')}
         size="sm"
       >
         <div className="flex flex-col gap-2">
@@ -1271,14 +1273,14 @@ export default function DownloadsPage() {
             disabled={bulkBusy}
             className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 disabled:opacity-50"
           >
-            <Play className="w-4 h-4" /> Iniciar todos
+            <Play className="w-4 h-4" /> {t('downloads.page.startAll')}
           </button>
           <button
             onClick={() => { setBulkSheetOpen(false); void doPauseAll() }}
             disabled={bulkBusy}
             className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-surface-tertiary/60 text-text-primary border border-default disabled:opacity-50"
           >
-            <Pause className="w-4 h-4" /> Pausar todos
+            <Pause className="w-4 h-4" /> {t('downloads.page.pauseAll')}
           </button>
           {completedDownloads.length > 0 && (
             <button
@@ -1286,7 +1288,7 @@ export default function DownloadsPage() {
               disabled={bulkBusy}
               className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
             >
-              <Trash2 className="w-4 h-4" /> Remover concluídos ({completedDownloads.length})
+              <Trash2 className="w-4 h-4" /> {t('downloads.page.removeCompletedCount', { count: completedDownloads.length })}
             </button>
           )}
           {downloadsByStatus.failed.length > 0 && (
@@ -1317,35 +1319,35 @@ export default function DownloadsPage() {
           style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
           className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-surface-secondary border border-cyan-500/40 shadow-2xl rounded-full px-4 py-2 backdrop-blur"
         >
-          <span className="text-sm text-text-primary font-medium whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
+          <span className="text-sm text-text-primary font-medium whitespace-nowrap">{t('downloads.page.selectedCount', { count: selected.size })}</span>
           <div className="w-px h-5 bg-surface-tertiary" />
           <button
             onClick={onBatchPause}
             disabled={bulkBusy}
             className="flex items-center gap-1 text-xs bg-surface-tertiary/60 hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-3 py-1 rounded-full transition-colors"
           >
-            <Pause className="w-3 h-3" /> Pausar
+            <Pause className="w-3 h-3" /> {t('downloads.page.pause')}
           </button>
           <button
             onClick={onBatchResume}
             disabled={bulkBusy}
             className="flex items-center gap-1 text-xs bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-700 dark:text-emerald-300 px-3 py-1 rounded-full transition-colors"
           >
-            <Play className="w-3 h-3" /> Retomar
+            <Play className="w-3 h-3" /> {t('downloads.page.resume')}
           </button>
           <button
             onClick={onPromoteSelected}
             className="flex items-center gap-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 px-3 py-1 rounded-full transition-colors"
           >
             <ArrowUpCircle className="w-3 h-3" />
-            Promover
+            {t('downloads.page.promote')}
           </button>
           <button
             onClick={onBatchDelete}
             disabled={bulkBusy}
             className="flex items-center gap-1 text-xs bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 text-red-700 dark:text-red-300 px-3 py-1 rounded-full transition-colors"
           >
-            <Trash2 className="w-3 h-3" /> Remover
+            <Trash2 className="w-3 h-3" /> {t('downloads.page.remove')}
           </button>
           <div className="w-px h-5 bg-surface-tertiary" />
           <SelectAllButton
@@ -1384,6 +1386,7 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
   readonly onInspect: (d: DownloadEntry) => void
   readonly openLocalFor: (d: DownloadEntry) => (() => void) | undefined
 }) {
+  const { t } = useTranslation()
   const empty = torrents.length === 0 && downloads.length === 0 && torrentsLoaded && !loading
   const isLoading = (!torrentsLoaded || (loading && downloads.length === 0)) && torrents.length === 0 && downloads.length === 0
 
@@ -1392,15 +1395,15 @@ function ActiveTab({ torrents, downloads, torrentsLoaded, loading, busyHash, bus
       {isLoading && (
         <div className="flex items-center gap-2 text-text-secondary py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" />
-          <span className="text-sm">Carregando...</span>
+          <span className="text-sm">{t('downloads.page.loading')}</span>
         </div>
       )}
 
       {empty && (
         <EmptyState
           icon={<Zap className="w-12 h-12" />}
-          title="Nenhuma transferência ativa"
-          description={'Inicie um streaming ou use o botão "Baixar no Servidor" no player para enfileirar downloads.'}
+          title={t('downloads.page.noActiveTransfer')}
+          description={t('downloads.page.noActiveTransferDesc')}
         />
       )}
 
@@ -1536,17 +1539,18 @@ function CompletedGroupActions({ onPromote, onStopSeed, onDelete, busy }: {
   readonly onDelete: () => void
   readonly busy: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <>
-      <button onClick={onPromote} disabled={busy} title="Promover todos" className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50">
+      <button onClick={onPromote} disabled={busy} title={t('downloads.page.promoteAll')} className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/10 disabled:opacity-50">
         <ArrowUpCircle className="w-4 h-4" />
       </button>
       {onStopSeed && (
-        <button onClick={onStopSeed} disabled={busy} title="Parar de seedar todos" className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
+        <button onClick={onStopSeed} disabled={busy} title={t('downloads.page.stopSeedAll')} className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
           <Pause className="w-4 h-4" />
         </button>
       )}
-      <button onClick={onDelete} disabled={busy} title="Remover torrent da lista" className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+      <button onClick={onDelete} disabled={busy} title={t('downloads.page.removeTorrentFromList')} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
         <Trash2 className="w-4 h-4" />
       </button>
     </>
@@ -1564,23 +1568,24 @@ function ActiveGroupActions({ paused, onPause, onResume, onRetryFailed, onDelete
   readonly onDelete: () => void
   readonly busy: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <>
       {onRetryFailed && (
-        <button onClick={onRetryFailed} disabled={busy} title="Tentar novamente (todos com erro)" className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50">
+        <button onClick={onRetryFailed} disabled={busy} title={t('downloads.page.retryAllFailed')} className="p-1.5 rounded-lg text-amber-400 hover:bg-amber-500/10 disabled:opacity-50">
           <RotateCcw className="w-4 h-4" />
         </button>
       )}
       {paused ? (
-        <button onClick={onResume} disabled={busy} title="Retomar torrent" className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50">
+        <button onClick={onResume} disabled={busy} title={t('downloads.page.resumeTorrent')} className="p-1.5 rounded-lg text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50">
           <Play className="w-4 h-4" />
         </button>
       ) : (
-        <button onClick={onPause} disabled={busy} title="Pausar torrent" className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
+        <button onClick={onPause} disabled={busy} title={t('downloads.page.pauseTorrent')} className="p-1.5 rounded-lg text-text-secondary hover:bg-surface-tertiary disabled:opacity-50">
           <Pause className="w-4 h-4" />
         </button>
       )}
-      <button onClick={onDelete} disabled={busy} title="Remover torrent da lista" className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
+      <button onClick={onDelete} disabled={busy} title={t('downloads.page.removeTorrentFromList')} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-50">
         <Trash2 className="w-4 h-4" />
       </button>
     </>
@@ -1600,6 +1605,7 @@ function DownloadGroupCard({
   readonly actions: React.ReactNode
   readonly renderFile: (d: DownloadEntry) => React.ReactNode
 }) {
+  const { t } = useTranslation()
   // Filtro/ordenação interno do torrent (só multi-arquivo chega aqui). Default
   // 'all' + nome asc preserva o comportamento anterior (ordem natural por nome).
   const [statusFilter, setStatusFilter] = useState<GroupFileStatusFilter>('all')
@@ -1622,10 +1628,10 @@ function DownloadGroupCard({
           {expanded ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-text-secondary" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-text-secondary" />}
           <Folder className="w-4 h-4 flex-shrink-0 text-emerald-400" />
           <span className="font-semibold text-text-primary text-sm truncate" title={group.name}>{group.name}</span>
-          <span className="text-[11px] text-text-muted flex-shrink-0">{group.files.length} arquivos</span>
+          <span className="text-[11px] text-text-muted flex-shrink-0">{t('downloads.whole_torrent_files', { count: group.files.length })}</span>
           {group.seeding && (
             <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 flex-shrink-0">
-              <ArrowUpCircle className="w-3 h-3" />Semeando
+              <ArrowUpCircle className="w-3 h-3" />{t('downloads.page.seeding')}
             </span>
           )}
         </button>
@@ -1652,7 +1658,7 @@ function DownloadGroupCard({
             onSort={onSort}
           />
           {view.length === 0 ? (
-            <p className="text-xs text-text-muted text-center py-3">Nenhum arquivo com esse filtro.</p>
+            <p className="text-xs text-text-muted text-center py-3">{t('downloads.page.noFilesFilter')}</p>
           ) : (
             <div className="flex flex-col gap-2">{view.map(renderFile)}</div>
           )}
@@ -1702,6 +1708,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
   readonly openLocalFor: (d: DownloadEntry) => (() => void) | undefined
   readonly loading?: boolean
 }) {
+  const { t } = useTranslation()
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) => setExpandedGroups(prev => {
     const next = new Set(prev)
@@ -1819,22 +1826,22 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       {!torrentsLoaded && (
         <div className="flex items-center gap-2 text-text-secondary py-12 justify-center">
           <Loader2 className="w-5 h-5 animate-spin" />
-          <span className="text-sm">Carregando...</span>
+          <span className="text-sm">{t('downloads.page.loading')}</span>
         </div>
       )}
 
       {torrentsLoaded && empty && (
         <EmptyState
           icon={<ArrowUpCircle className="w-12 h-12" />}
-          title="Nada semeando ou completo"
-          description="Torrents concluídos e em seed aparecerão aqui."
+          title={t('downloads.page.nothingSeedingOrComplete')}
+          description={t('downloads.page.nothingSeedingOrCompleteDesc')}
         />
       )}
 
       {/* Baixando agora */}
       {showOthers && downloadingGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label={`Baixando agora (${downloadingGroups.length})`} color="text-cyan-400" />}
+          {showHeaders && <GroupHeader icon={<Loader2 className="w-3.5 h-3.5" />} label={t('downloads.page.sectionDownloadingNow', { count: downloadingGroups.length })} color="text-cyan-400" />}
           {downloadingGroups.map(renderActiveGroup)}
         </>
       )}
@@ -1842,7 +1849,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       {/* Na fila */}
       {showOthers && queuedGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={`Na fila (${queuedGroups.length})`} color="text-text-muted" />}
+          {showHeaders && <GroupHeader icon={<Clock className="w-3.5 h-3.5" />} label={t('downloads.page.sectionQueued', { count: queuedGroups.length })} color="text-text-muted" />}
           {queuedGroups.map(renderActiveGroup)}
         </>
       )}
@@ -1850,7 +1857,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       {/* Semeando (torrents de streaming + grupos completed com torrent live) */}
       {showSeeding && seedingCount > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label="Semeando" color="text-emerald-400" />}
+          {showHeaders && <GroupHeader icon={<ArrowUpCircle className="w-3.5 h-3.5" />} label={t('downloads.page.seeding')} color="text-emerald-400" />}
           {streamingOnly.map(t => (
             <TorrentCard
               key={t.infoHash}
@@ -1870,7 +1877,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       {/* No disco (concluído, seed parado) */}
       {showOnDisk && onDiskGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label="No disco" color="text-text-muted" />}
+          {showHeaders && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label={t('downloads.page.onDisk')} color="text-text-muted" />}
           {onDiskGroups.map(renderCompletedGroup)}
         </>
       )}
@@ -1878,7 +1885,7 @@ function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busy
       {/* Pausados / falhos */}
       {showOthers && otherGroups.length > 0 && (
         <>
-          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label={`Pausados / erro (${otherGroups.length})`} color="text-text-muted" />}
+          {showHeaders && <GroupHeader icon={<Pause className="w-3.5 h-3.5" />} label={t('downloads.page.sectionPausedError', { count: otherGroups.length })} color="text-text-muted" />}
           {otherGroups.map(renderActiveGroup)}
         </>
       )}
@@ -1904,25 +1911,26 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
   readonly totalUp: number
   readonly totalPeers: number
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-6">
       {/* Live network overview */}
       <div className="rounded-xl border border-default/50 bg-card dark:bg-gradient-to-br dark:from-gray-800/80 dark:to-gray-900/80 backdrop-blur-sm p-6">
         <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider flex items-center gap-2 mb-5">
           <Wifi className="w-4 h-4 text-cyan-400" />
-          Monitoramento em Tempo Real
+          {t('downloads.page.realtimeMonitoring')}
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-text-muted">Download atual</span>
+            <span className="text-xs text-text-muted">{t('downloads.page.currentDownload')}</span>
             <span className="text-2xl font-bold text-emerald-400">{formatRate(totalDown)}</span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-text-muted">Upload atual</span>
+            <span className="text-xs text-text-muted">{t('downloads.page.currentUpload')}</span>
             <span className="text-2xl font-bold text-violet-400">{formatRate(totalUp)}</span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-xs text-text-muted">Peers conectados</span>
+            <span className="text-xs text-text-muted">{t('downloads.page.connectedPeers')}</span>
             <span className="text-2xl font-bold text-blue-400">{totalPeers}</span>
           </div>
         </div>
@@ -1932,21 +1940,21 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
       <div className="rounded-xl border border-default/50 bg-card dark:bg-gradient-to-br dark:from-gray-800/60 dark:to-gray-900/60 backdrop-blur-sm p-6">
         <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider flex items-center gap-2 mb-5">
           <Gauge className="w-4 h-4 text-amber-400" />
-          Limites de Velocidade
+          {t('downloads.page.speedLimits')}
         </h3>
         <p className="text-xs text-text-muted mb-4">
-          Defina limites em KB/s. Deixe em branco ou 0 para ilimitado.
+          {t('downloads.page.speedLimitsHint')}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
           <div className="flex flex-col gap-2">
             <label className="text-xs text-text-secondary flex items-center gap-1.5">
               <ArrowDownCircle className="w-3.5 h-3.5 text-emerald-400" />
-              Limite de download (KB/s)
+              {t('downloads.page.downloadLimit')}
             </label>
             <input
               type="number"
               min={0}
-              placeholder="Ilimitado"
+              placeholder={t('downloads.page.unlimited')}
               value={limitDownKB}
               onChange={e => setLimitDownKB(e.target.value)}
               className="bg-surface/80 border border-default rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all"
@@ -1955,12 +1963,12 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
           <div className="flex flex-col gap-2">
             <label className="text-xs text-text-secondary flex items-center gap-1.5">
               <ArrowUpCircle className="w-3.5 h-3.5 text-violet-400" />
-              Limite de upload (KB/s)
+              {t('downloads.page.uploadLimit')}
             </label>
             <input
               type="number"
               min={0}
-              placeholder="Ilimitado"
+              placeholder={t('downloads.page.unlimited')}
               value={limitUpKB}
               onChange={e => setLimitUpKB(e.target.value)}
               className="bg-surface/80 border border-default rounded-lg px-3 py-2.5 text-text-primary text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
@@ -1974,10 +1982,10 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
             className="flex items-center gap-2 text-sm bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-50 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 px-5 py-2 rounded-lg transition-all font-medium"
           >
             {limitsSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Aplicar limites
+            {t('downloads.page.applyLimits')}
           </button>
           {limitsMsg && (
-            <span className={`text-sm font-medium ${limitsMsg.includes('aplicados') ? 'text-emerald-400' : 'text-red-400'}`}>
+            <span className={`text-sm font-medium ${limitsMsg === t('downloads.page.limitsApplied') ? 'text-emerald-400' : 'text-red-400'}`}>
               {limitsMsg}
             </span>
           )}
@@ -2005,15 +2013,16 @@ type TorrentCardProps = {
   readonly onPlay?: () => void
 }
 
-function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay }: TorrentCardProps) {
-  const pct = Math.max(0, Math.min(1, t.progress || 0)) * 100
-  const status = t.status || (pct >= 100 ? 'complete' : 'downloading')
+function TorrentCard({ t: torrent, busy, onPause, onResume, onPriority, onDelete, onPlay }: TorrentCardProps) {
+  const { t } = useTranslation()
+  const pct = Math.max(0, Math.min(1, torrent.progress || 0)) * 100
+  const status = torrent.status || (pct >= 100 ? 'complete' : 'downloading')
   const isPaused = status === 'paused'
   const isSeeding = status === 'seeding'
   const isComplete = status === 'complete'
 
-  const eta = computeTorrentETA(t)
-  const priority: StreamPriority = (t.priority as StreamPriority) || 'normal'
+  const eta = computeTorrentETA(torrent)
+  const priority: StreamPriority = (torrent.priority as StreamPriority) || 'normal'
 
   // Card border/glow color based on state
   let borderClass: string
@@ -2047,14 +2056,14 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay 
     `}>
       {/* Top row: name + badges */}
       <div className="min-w-0">
-        <h3 className="font-semibold text-text-primary text-sm leading-snug [overflow-wrap:anywhere]" title={t.name}>
-          {t.name || t.infoHash}
+        <h3 className="font-semibold text-text-primary text-sm leading-snug [overflow-wrap:anywhere]" title={torrent.name}>
+          {torrent.name || torrent.infoHash}
         </h3>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
           <KindBadge kind="streaming" />
           <TorrentStatusBadge status={status} />
         </div>
-        <p className="text-[11px] text-text-muted truncate mt-0.5 font-mono" title={t.infoHash}>{t.infoHash}</p>
+        <p className="text-[11px] text-text-muted truncate mt-0.5 font-mono" title={torrent.infoHash}>{torrent.infoHash}</p>
       </div>
 
       {/* Live rate chips — destaque pro Down/Up/Peers de CADA torrent. Eram
@@ -2064,28 +2073,28 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay 
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-            t.downRate > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
+            torrent.downRate > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
           }`}
-          title="Velocidade de download deste torrent"
+          title={t('downloads.page.torrentDownSpeed')}
         >
           <ArrowDownCircle className="w-3.5 h-3.5" />
-          {formatRate(t.downRate)}
+          {formatRate(torrent.downRate)}
         </span>
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
-            t.upRate > 0 ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30' : 'text-text-muted'
+            torrent.upRate > 0 ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30' : 'text-text-muted'
           }`}
-          title="Velocidade de upload deste torrent"
+          title={t('downloads.page.torrentUpSpeed')}
         >
           <ArrowUpCircle className="w-3.5 h-3.5" />
-          {formatRate(t.upRate)}
+          {formatRate(torrent.upRate)}
         </span>
         <span
           className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20 font-mono tabular-nums"
-          title="Peers conectados / Seeders no swarm"
+          title={t('downloads.page.peersSeedersSwarm')}
         >
           <Users className="w-3.5 h-3.5" />
-          {t.peers}{(t.seeders ?? 0) > 0 && <span className="text-text-muted"> / {t.seeders}</span>}
+          {torrent.peers}{(torrent.seeders ?? 0) > 0 && <span className="text-text-muted"> / {torrent.seeders}</span>}
         </span>
       </div>
 
@@ -2100,7 +2109,7 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay 
         {/* Stats row — bytes/% + ETA. Velocidades subiram para os chips acima. */}
         <div className="flex items-center justify-between mt-2 text-xs text-text-secondary gap-3 flex-wrap">
           <span className="text-text-primary font-medium">
-            {formatBytesPair(Math.round((t.totalSize || 0) * (t.progress || 0)), t.totalSize)}
+            {formatBytesPair(Math.round((torrent.totalSize || 0) * (torrent.progress || 0)), torrent.totalSize)}
             <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
           </span>
           {eta && (
@@ -2116,31 +2125,31 @@ function TorrentCard({ t, busy, onPause, onResume, onPriority, onDelete, onPlay 
         {/* Ver arquivos / tocar: abre o player pelo info_hash (resolve o arquivo
             principal e lista os demais). Disponível assim que há algo no cache —
             inclusive quando completo/semeando, que antes só tinha pausar/parar. */}
-        {onPlay && t.progress > 0 && (
-          <ActionButton onClick={onPlay} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5 fill-current" />} label="Ver arquivos" title="Abre o player: toca o arquivo principal e lista os demais do torrent" />
+        {onPlay && torrent.progress > 0 && (
+          <ActionButton onClick={onPlay} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5 fill-current" />} label={t('downloads.page.viewFiles')} title={t('downloads.page.viewFilesTitle')} />
         )}
         {isPaused ? (
-          <ActionButton onClick={onResume} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5" />} label="Retomar" title="Retoma o torrent de onde parou" />
+          <ActionButton onClick={onResume} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5" />} label={t('downloads.page.resumeAction')} title={t('downloads.page.resumeTorrentTitle')} />
         ) : (
-          <ActionButton onClick={onPause} disabled={busy || isComplete} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" title="Pausa o torrent (retomável; o que já baixou fica no cache)" />
+          <ActionButton onClick={onPause} disabled={busy || isComplete} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label={t('downloads.page.pause')} title={t('downloads.page.pauseTorrentTitle')} />
         )}
 
         <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-          <span className="text-text-muted">Prioridade:</span>
+          <span className="text-text-muted">{t('downloads.page.priority')}</span>
           <select
             value={priority}
             onChange={e => onPriority(e.target.value as StreamPriority)}
             disabled={busy}
             className="bg-surface-secondary border border-default rounded-lg px-2 py-1 text-text-primary text-xs disabled:opacity-50 focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer"
           >
-            <option value="low">Baixa</option>
-            <option value="normal">Normal</option>
-            <option value="high">Alta</option>
+            <option value="low">{t('downloads.page.priorityLow')}</option>
+            <option value="normal">{t('downloads.page.priorityNormal')}</option>
+            <option value="high">{t('downloads.page.priorityHigh')}</option>
           </select>
         </label>
 
         {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-text-muted" />}
-        <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label="Parar" title="Encerra e remove o torrent do streaming (diferente de Pausar; o cache já baixado não é apagado)" className="ml-auto" />
+        <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label={t('downloads.page.stop')} title={t('downloads.page.stopStreamingTitle')} className="ml-auto" />
       </div>
     </div>
   )
@@ -2209,7 +2218,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
   const isActive = d.status === 'downloading' || d.status === 'queued'
   const isStalled = d.status === 'downloading' && (d.downRate ?? 0) === 0 && d.bytesDownloaded < d.fileSize
 
-  const etaText = computeETA(d)
+  const etaText = computeETA(d, t)
   const borderClass = downloadBorderClass(isCompleted, isFailed, isPaused, isMoving)
   const barGradient = downloadBarGradient(isCompleted, isFailed, isPaused, isMoving)
 
@@ -2227,7 +2236,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             checked={!!selected}
             onChange={onToggleSelected}
             className="mt-1 accent-cyan-500 flex-shrink-0"
-            title="Selecionar para ações em lote"
+            title={t('downloads.page.selectForBatch')}
           />
         )}
         <div className="min-w-0 flex-1">
@@ -2245,19 +2254,19 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
               </span>
             )}
             {d.status === 'queued' && (d.queuePosition ?? 0) > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-tertiary/50 text-text-secondary border border-strong/50 font-medium" title="Posição na fila">
-                {d.queuePosition}º na fila
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-surface-tertiary/50 text-text-secondary border border-strong/50 font-medium" title={t('downloads.page.queuePositionTitle')}>
+                {t('downloads.page.queuePosition', { n: d.queuePosition })}
               </span>
             )}
             <PriorityBadge priority={d.priority} />
             {isStalled && (
-              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30" title="Sem progresso — sem peers/seeds. Após o limite vai pro fim da fila.">
-                <AlertTriangle className="w-3 h-3" /> Sem seed{(d.stalls ?? 0) > 0 ? ` (${d.stalls}×)` : ''}
+              <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30" title={t('downloads.page.stalledTitle')}>
+                <AlertTriangle className="w-3 h-3" /> {(d.stalls ?? 0) > 0 ? t('downloads.page.noSeedCount', { count: d.stalls }) : t('downloads.page.noSeed')}
               </span>
             )}
             {d.status === 'completed' && (
               <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
-                <HardDrive className="w-3 h-3 text-emerald-400" /> no disco
+                <HardDrive className="w-3 h-3 text-emerald-400" /> {t('downloads.page.onDiskBadge')}
               </span>
             )}
             {d.username && (
@@ -2279,7 +2288,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
               live.downRate > 0 ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'text-text-muted'
             }`}
-            title="Download deste torrent"
+            title={t('downloads.page.torrentDownload')}
           >
             <ArrowDownCircle className="w-3.5 h-3.5" />
             {formatRate(live.downRate)}
@@ -2288,14 +2297,14 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
               live.upRate > 0 ? 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/30' : 'text-text-muted'
             }`}
-            title="Upload deste torrent (seedando)"
+            title={t('downloads.page.torrentUploadSeeding')}
           >
             <ArrowUpCircle className="w-3.5 h-3.5" />
             {formatRate(live.upRate)}
           </span>
           <span
             className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20 font-mono tabular-nums"
-            title="Peers conectados / Seeders no swarm"
+            title={t('downloads.page.peersSeedersSwarm')}
           >
             <Users className="w-3.5 h-3.5" />
             {live.peers}{(live.seeders ?? 0) > 0 && <span className="text-text-muted"> / {live.seeders}</span>}
@@ -2316,7 +2325,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             {formatBytesPair(d.bytesDownloaded, d.fileSize)}
             <span className="text-text-muted ml-1">({pct.toFixed(1)}%)</span>
             {(d.bytesUploaded ?? 0) > 0 && (
-              <span className="text-text-muted ml-2" title="Enviado nesta sessão (seedando)">↑ {formatBytes(d.bytesUploaded ?? 0)}</span>
+              <span className="text-text-muted ml-2" title={t('downloads.page.uploadedThisSession')}>↑ {formatBytes(d.bytesUploaded ?? 0)}</span>
             )}
           </span>
           {!isCompleted && !isFailed && etaText && (
@@ -2325,13 +2334,13 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             </span>
           )}
           {isMoving && (
-            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-300 text-xs font-medium" title="Baixou tudo; agora movendo os arquivos para o destino final (veja o progresso no painel de Transferências).">
-              <Loader2 className="w-3 h-3 animate-spin" /> Movendo arquivos…
+            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-300 text-xs font-medium" title={t('downloads.page.movingTitle')}>
+              <Loader2 className="w-3 h-3 animate-spin" /> {t('downloads.page.movingFiles')}
             </span>
           )}
           {isCompleted && (
             <span className="flex items-center gap-1 text-green-400 text-xs font-medium">
-              <CheckCircle2 className="w-3 h-3" /> Concluído
+              <CheckCircle2 className="w-3 h-3" /> {t('downloads.page.completed')}
             </span>
           )}
         </div>
@@ -2353,27 +2362,27 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             disabled={busy}
             variant="success"
             icon={<Play className="w-3.5 h-3.5 fill-current" />}
-            label="Tocar"
+            label={t('downloads.page.play')}
           />
         )}
         {!isGuest && isActive && (
-          <ActionButton onClick={onPause} disabled={busy} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label="Pausar" title="Pausa o download (retomável; mantém o que já baixou)" />
+          <ActionButton onClick={onPause} disabled={busy} variant="neutral" icon={<Pause className="w-3.5 h-3.5" />} label={t('downloads.page.pause')} title={t('downloads.page.pauseDownloadTitle')} />
         )}
         {!isGuest && (isPaused || isFailed) && (
-          <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? 'Tentar novamente' : 'Resumir'} />
+          <ActionButton onClick={onResume} disabled={busy} variant="info" icon={<Play className="w-3.5 h-3.5" />} label={isFailed ? t('downloads.page.retry') : t('downloads.page.resumeAction')} />
         )}
         {!isGuest && isActive && onSetPriority && (
           <label className="flex items-center gap-1.5 text-xs text-text-secondary">
-            <span className="text-text-muted">Prioridade:</span>
+            <span className="text-text-muted">{t('downloads.page.priority')}</span>
             <select
               value={d.priority || 'normal'}
               onChange={e => onSetPriority(e.target.value as DownloadPriority)}
               disabled={busy}
               className="bg-surface-secondary border border-default rounded-lg px-2 py-1 text-text-primary text-xs disabled:opacity-50 focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
             >
-              <option value="low">Baixa</option>
-              <option value="normal">Normal</option>
-              <option value="high">Alta</option>
+              <option value="low">{t('downloads.page.priorityLow')}</option>
+              <option value="normal">{t('downloads.page.priorityNormal')}</option>
+              <option value="high">{t('downloads.page.priorityHigh')}</option>
             </select>
           </label>
         )}
@@ -2383,7 +2392,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             disabled={busy}
             variant="info"
             icon={<ArrowUpCircle className="w-3.5 h-3.5" />}
-            label="Promover"
+            label={t('downloads.page.promote')}
           />
         )}
         {!isGuest && isCompleted && onStopSeed && (
@@ -2392,7 +2401,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             disabled={busy}
             variant="neutral"
             icon={<Pause className="w-3.5 h-3.5" />}
-            label="Parar de seedar"
+            label={t('downloads.page.stopSeed')}
           />
         )}
         {isCompleted && onOpenLocal && (
@@ -2401,8 +2410,8 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             disabled={busy}
             variant="info"
             icon={<Folder className="w-3.5 h-3.5" />}
-            label="Abrir no local"
-            title="Abre o navegador de arquivos na pasta deste download"
+            label={t('downloads.page.openLocal')}
+            title={t('downloads.page.openLocalTitle')}
           />
         )}
         {onInspect && (
@@ -2411,7 +2420,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             disabled={busy}
             variant="neutral"
             icon={<Info className="w-3.5 h-3.5" />}
-            label="Detalhes"
+            label={t('downloads.page.details')}
           />
         )}
         {!isGuest && (
@@ -2420,7 +2429,7 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
             disabled={busy}
             variant="danger"
             icon={<Trash2 className="w-3.5 h-3.5" />}
-            label={isCompleted ? 'Remover da lista' : 'Cancelar'}
+            label={isCompleted ? t('downloads.page.removeFromList') : t('downloads.page.cancel')}
             className="ml-auto"
           />
         )}
@@ -2453,10 +2462,10 @@ function computeTorrentETA(t: TorrentInfo): string {
   return `~${formatDurationShort(sec)}`
 }
 
-function computeETA(d: DownloadEntry): string {
+function computeETA(d: DownloadEntry, t: (key: string, opts?: Record<string, unknown>) => string): string {
   // Prefer backend-computed ETA (more accurate — uses live swarm rate)
   if (d.eta && d.eta > 0) {
-    return `~${formatDurationShort(d.eta)} restantes`
+    return t('downloads.page.etaRemaining', { time: formatDurationShort(d.eta) })
   }
   if (!d.startedAt || d.fileSize <= 0 || d.bytesDownloaded <= 0) return ''
   if (d.bytesDownloaded >= d.fileSize) return ''
@@ -2468,5 +2477,5 @@ function computeETA(d: DownloadEntry): string {
   if (rate <= 0) return ''
   const remainingSec = (d.fileSize - d.bytesDownloaded) / rate
   if (!Number.isFinite(remainingSec) || remainingSec <= 0) return ''
-  return `~${formatDurationShort(remainingSec)} restantes`
+  return t('downloads.page.etaRemaining', { time: formatDurationShort(remainingSec) })
 }

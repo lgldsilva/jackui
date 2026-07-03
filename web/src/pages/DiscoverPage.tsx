@@ -145,6 +145,7 @@ function RecTopic({ group, collapsed, onToggle, renderCard }: {
   readonly onToggle: () => void
   readonly renderCard: (r: TmdbRecommendation) => React.ReactNode
 }) {
+  const { t } = useTranslation()
   // group.key (e.g. "because:the matrix") may carry spaces/colons — not valid in
   // an HTML id token, which would break the aria-controls reference. Slugify it.
   const regionId = `rectopic-${group.key.replace(/[^a-z0-9]+/gi, '-')}`
@@ -158,7 +159,7 @@ function RecTopic({ group, collapsed, onToggle, renderCard }: {
         onClick={onToggle}
         aria-expanded={!collapsed}
         aria-controls={regionId}
-        title={collapsed ? `Expandir "${group.label}"` : `Recolher "${group.label}"`}
+        title={collapsed ? t('discover.expand_topic', { label: group.label }) : t('discover.collapse_topic', { label: group.label })}
         className="flex items-center gap-2 text-left text-sm font-medium text-text-secondary hover:text-text-primary transition-colors w-full"
       >
         <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
@@ -291,7 +292,7 @@ export default function DiscoverPage() {
         {recGroups.length > 0 && (
           <section className="flex flex-col gap-4">
             <h2 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-              <Wand2 className="w-5 h-5 text-green-400" /> Recomendado pra você
+              <Wand2 className="w-5 h-5 text-green-400" /> {t('discover.recommended')}
             </h2>
             {recGroups.map(group => (
               <RecTopic

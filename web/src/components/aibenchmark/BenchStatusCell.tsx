@@ -1,13 +1,14 @@
+import { useTranslation } from 'react-i18next'
 import { CheckCircle2, XCircle, AlertTriangle, MinusCircle, type LucideIcon } from 'lucide-react'
 import type { AISlotScore } from '../../api/client'
 import { needsRerun } from './benchSort'
 import { runStatus, lastSuccessLabel, persistenceLabel, absoluteDateTime, type RunStatus } from './benchHistory'
 
-const STATUS_META: Record<RunStatus, { label: string; cls: string; Icon: LucideIcon }> = {
-  ok: { label: 'OK', cls: 'text-green-400', Icon: CheckCircle2 },
-  error: { label: 'erro', cls: 'text-red-400', Icon: XCircle },
-  incomplete: { label: 'incompleto', cls: 'text-amber-400', Icon: AlertTriangle },
-  unknown: { label: '—', cls: 'text-text-muted', Icon: MinusCircle },
+const STATUS_META: Record<RunStatus, { labelKey: string; cls: string; Icon: LucideIcon }> = {
+  ok: { labelKey: 'ai.status_ok', cls: 'text-green-400', Icon: CheckCircle2 },
+  error: { labelKey: 'ai.status_error', cls: 'text-red-400', Icon: XCircle },
+  incomplete: { labelKey: 'ai.status_incomplete', cls: 'text-amber-400', Icon: AlertTriangle },
+  unknown: { labelKey: 'ai.status_unknown', cls: 'text-text-muted', Icon: MinusCircle },
 }
 
 // BenchStatusCell answers, at a glance, the three things the run history adds:
@@ -15,8 +16,10 @@ const STATUS_META: Record<RunStatus, { label: string; cls: string; Icon: LucideI
 // ("erro persiste: N falhas desde …"), and when did it last succeed ("último OK:
 // …"). Shared by the desktop table row and the mobile card so both stay in sync.
 export default function BenchStatusCell({ s }: Readonly<{ s: AISlotScore }>) {
+  const { t } = useTranslation()
   const status = runStatus(s)
-  const { label, cls, Icon } = STATUS_META[status]
+  const { labelKey, cls, Icon } = STATUS_META[status]
+  const label = t(labelKey)
   const persist = persistenceLabel(s)
   const lastOK = lastSuccessLabel(s)
   // Prefer the live failure (current results row); fall back to the durable
@@ -30,7 +33,7 @@ export default function BenchStatusCell({ s }: Readonly<{ s: AISlotScore }>) {
       <span className={`inline-flex items-center gap-1 ${cls}`} title={absoluteDateTime(s.lastRunAt)}>
         <Icon className="w-3.5 h-3.5 shrink-0" />
         <span>{label}</span>
-        {showFaltante && <span className="text-amber-400">· faltante</span>}
+        {showFaltante && <span className="text-amber-400">· {t('ai.missing')}</span>}
       </span>
       {persist && (
         <span className="text-red-400/90 break-words" title={absoluteDateTime(s.firstFailureAt)}>{persist}</span>

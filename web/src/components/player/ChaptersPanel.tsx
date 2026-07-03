@@ -1,4 +1,5 @@
 import { ListVideo, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { MediaChapter } from '../../api/client'
 
 type ChaptersPanelProps = {
@@ -48,6 +49,7 @@ export function ChapterNavButtons({ chapters, currentTime, onSeek }: {
   readonly currentTime: number
   readonly onSeek: (sec: number) => void
 }) {
+  const { t } = useTranslation()
   const { prevSec, nextSec } = chapterSeekTargets(chapters, currentTime)
   const btn = 'flex items-center text-sm sm:text-xs bg-surface-tertiary hover:bg-surface-secondary text-text-secondary hover:text-text-primary border border-default px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0'
   return (
@@ -55,7 +57,7 @@ export function ChapterNavButtons({ chapters, currentTime, onSeek }: {
       <button
         onClick={() => { if (prevSec !== null) onSeek(prevSec) }}
         disabled={prevSec === null}
-        title="Capítulo anterior"
+        title={t('player.chapters.prev')}
         className={btn}
       >
         <ChevronsLeft className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
@@ -63,7 +65,7 @@ export function ChapterNavButtons({ chapters, currentTime, onSeek }: {
       <button
         onClick={() => { if (nextSec !== null) onSeek(nextSec) }}
         disabled={nextSec === null}
-        title="Próximo capítulo"
+        title={t('player.chapters.next')}
         className={btn}
       >
         <ChevronsRight className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
@@ -77,19 +79,20 @@ export function ChapterNavButtons({ chapters, currentTime, onSeek }: {
 // <track kind="chapters">, because the HLS transcode strips embedded chapters —
 // the same list then works for both direct-play and HLS.
 export function ChaptersPanel({ chapters, currentTime, onSeek, formatTime }: ChaptersPanelProps) {
+  const { t } = useTranslation()
   const activeIdx = activeChapterIndex(chapters, currentTime)
   return (
     <div className="px-3 sm:px-4 py-3 border-b border-default flex flex-col gap-1.5">
       <p className="text-xs text-text-muted mb-0.5 flex items-center gap-2">
         <ListVideo className="w-3 h-3" />
-        Capítulos ({chapters.length})
+        {t('player.chapters.title', { count: chapters.length })}
       </p>
       <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
         {chapters.map((ch, i) => (
           <button
             key={ch.index}
             onClick={() => onSeek(ch.startSec)}
-            title={`Ir para ${formatTime(ch.startSec)}`}
+            title={t('player.chapters.seekTo', { time: formatTime(ch.startSec) })}
             className={`flex items-center gap-2 text-left text-[11px] px-2 py-1 rounded border transition-colors ${
               i === activeIdx
                 ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30'
@@ -97,7 +100,7 @@ export function ChaptersPanel({ chapters, currentTime, onSeek, formatTime }: Cha
             }`}
           >
             <span className="tabular-nums text-text-muted flex-shrink-0">{formatTime(ch.startSec)}</span>
-            <span className="min-w-0 truncate">{ch.title || `Capítulo ${i + 1}`}</span>
+            <span className="min-w-0 truncate">{ch.title || t('player.chapters.chapterN', { n: i + 1 })}</span>
           </button>
         ))}
       </div>

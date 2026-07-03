@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SlidersHorizontal, Loader2, Save, AlertTriangle, Zap } from 'lucide-react'
 import {
   getStreamSettings,
@@ -91,16 +92,17 @@ function NumberField(props: Readonly<{
 }
 
 function Badge({ kind }: Readonly<{ kind: 'live' | 'restart' }>) {
+  const { t } = useTranslation()
   if (kind === 'live') {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-green-400 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">
-        <Zap className="w-2.5 h-2.5" />ao vivo
+        <Zap className="w-2.5 h-2.5" />{t('stream.badge_live')}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
-      <AlertTriangle className="w-2.5 h-2.5" />requer reinício
+      <AlertTriangle className="w-2.5 h-2.5" />{t('stream.badge_restart')}
     </span>
   )
 }
@@ -115,6 +117,7 @@ function SectionTitle({ title, badge }: Readonly<{ title: string; badge: 'live' 
 }
 
 export default function StreamSettingsCard() {
+  const { t } = useTranslation()
   const [form, setForm] = useState<Form | null>(null)
   const [defaults, setDefaults] = useState<StreamSettingsDefaults | null>(null)
   const [loading, setLoading] = useState(true)
@@ -144,8 +147,8 @@ export default function StreamSettingsCard() {
       const { restartRequired } = await updateStreamSettings(toPayload(form))
       setNotice(
         restartRequired
-          ? 'Salvo. Algumas mudanças (storage/conexões/cache) só valem após reiniciar o container.'
-          : 'Salvo e aplicado ao vivo.',
+          ? t('stream.saved_restart')
+          : t('stream.saved_live'),
       )
     } catch (e: unknown) {
       setError(errMessage(e))
@@ -158,12 +161,12 @@ export default function StreamSettingsCard() {
     return (
       <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" />
-        Carregando configurações do streamer...
+        {t('stream.loading')}
       </div>
     )
   }
   if (error && !form) {
-    return <div className="card text-red-400 text-sm">Streaming indisponível: {error}</div>
+    return <div className="card text-red-400 text-sm">{t('stream.unavailable', { error })}</div>
   }
   if (!form || !defaults) return null
 
@@ -171,25 +174,25 @@ export default function StreamSettingsCard() {
     <div className="card flex flex-col gap-5">
       <div className="flex items-center gap-2">
         <SlidersHorizontal className="w-5 h-5 text-green-500" />
-        <h2 className="text-lg font-semibold text-text-primary">Streamer &amp; Performance</h2>
+        <h2 className="text-lg font-semibold text-text-primary">{t('stream.title')}</h2>
       </div>
 
       {/* Banda — ao vivo */}
       <div className="flex flex-col gap-3">
-        <SectionTitle title="Banda" badge="live" />
+        <SectionTitle title={t('stream.band')} badge="live" />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <NumberField label="Download" value={form.downMbps} onChange={(n) => set('downMbps', n)}
-            placeholder="0 = ilimitado" suffix="MB/s" />
-          <NumberField label="Upload" value={form.upMbps} onChange={(n) => set('upMbps', n)}
-            placeholder="0 = ilimitado" suffix="MB/s" />
+          <NumberField label={t('stream.download')} value={form.downMbps} onChange={(n) => set('downMbps', n)}
+            placeholder={t('stream.unlimited_placeholder')} suffix="MB/s" />
+          <NumberField label={t('stream.upload')} value={form.upMbps} onChange={(n) => set('upMbps', n)}
+            placeholder={t('stream.unlimited_placeholder')} suffix="MB/s" />
         </div>
       </div>
 
       {/* Seed contínuo por tracker — ao vivo */}
       <div className="flex flex-col gap-3">
-        <SectionTitle title="Seed contínuo por tracker" badge="live" />
+        <SectionTitle title={t('stream.seed_tracker_title')} badge="live" />
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-text-secondary">Trackers para manter seedando (um por linha)</span>
+          <span className="text-xs text-text-secondary">{t('stream.seed_trackers_label')}</span>
           <textarea
             value={form.seedTrackersText}
             onChange={(e) => set('seedTrackersText', e.target.value)}
@@ -199,46 +202,43 @@ export default function StreamSettingsCard() {
             className="input-field font-mono text-sm min-h-[80px]"
           />
           <span className="text-[11px] text-text-muted">
-            Torrents cujo announce casa qualquer linha (substring, sem diferenciar maiúsculas) NÃO são dropados
-            após o uso — continuam no swarm enviando, e voltam a seedar sozinhos após reiniciar. Ideal pra trackers
-            privados onde o ratio importa. Vazio = ninguém é mantido (comportamento padrão). Públicos seguem sendo
-            dropados normalmente.
+            {t('stream.seed_trackers_help')}
           </span>
         </label>
       </div>
 
       {/* Memória / leitura — ao vivo */}
       <div className="flex flex-col gap-3">
-        <SectionTitle title="Memória de leitura (readahead)" badge="live" />
-        <NumberField label="Readahead por stream" value={form.readaheadMB} onChange={(n) => set('readaheadMB', n)}
+        <SectionTitle title={t('stream.readahead_title')} badge="live" />
+        <NumberField label={t('stream.readahead_label')} value={form.readaheadMB} onChange={(n) => set('readaheadMB', n)}
           placeholder={defaults.readaheadMB} suffix="MB"
-          hint="Buffer lido à frente por sessão. Maior = playback mais suave em rede/disco lento, porém mais RAM por stream. Vale no próximo play." />
+          hint={t('stream.readahead_hint')} />
       </div>
 
       {/* Cache — requer reinício */}
       <div className="flex flex-col gap-3">
-        <SectionTitle title="Cache em disco" badge="restart" />
-        <NumberField label="Limite do cache" value={form.maxCacheGB} onChange={(n) => set('maxCacheGB', n)}
-          placeholder="0 = ilimitado" suffix="GB"
-          hint="Ao ultrapassar, entradas inativas mais antigas são removidas (favoritos protegidos)." />
+        <SectionTitle title={t('stream.cache_disk_title')} badge="restart" />
+        <NumberField label={t('stream.cache_limit_label')} value={form.maxCacheGB} onChange={(n) => set('maxCacheGB', n)}
+          placeholder={t('stream.unlimited_placeholder')} suffix="GB"
+          hint={t('stream.cache_limit_hint')} />
       </div>
 
       {/* Avançado / hardware — requer reinício */}
       <div className="flex flex-col gap-3">
-        <SectionTitle title="Avançado (hardware/peers)" badge="restart" />
+        <SectionTitle title={t('stream.advanced_title')} badge="restart" />
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-text-secondary">Backend de storage</span>
+          <span className="text-xs text-text-secondary">{t('stream.storage_backend')}</span>
           <select
             value={form.storageBackend}
             onChange={(e) => set('storageBackend', e.target.value as StorageBackend)}
             className="input-field min-h-[44px]"
           >
-            <option value="file">file — grava direto no disco (padrão)</option>
-            <option value="mmap">mmap — mapeia em memória (page cache; seek mais rápido)</option>
+            <option value="file">{t('stream.storage_file')}</option>
+            <option value="mmap">{t('stream.storage_mmap')}</option>
           </select>
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <NumberField label="Conexões por torrent" value={form.maxConnsPerTorrent} onChange={(n) => set('maxConnsPerTorrent', n)}
+          <NumberField label={t('stream.conns_per_torrent')} value={form.maxConnsPerTorrent} onChange={(n) => set('maxConnsPerTorrent', n)}
             placeholder={defaults.maxConnsPerTorrent} />
           <NumberField label="Half-open" value={form.halfOpenConns} onChange={(n) => set('halfOpenConns', n)}
             placeholder={defaults.halfOpenConns} />
@@ -247,7 +247,7 @@ export default function StreamSettingsCard() {
           <NumberField label="Piece hashers (CPU)" value={form.pieceHashers} onChange={(n) => set('pieceHashers', n)}
             placeholder={defaults.pieceHashers} />
         </div>
-        <p className="text-[11px] text-text-muted">Campo em 0 = usar o default da biblioteca (mostrado no placeholder).</p>
+        <p className="text-[11px] text-text-muted">{t('stream.field_zero_hint')}</p>
       </div>
 
       {/* Footer: save + feedback */}
@@ -261,7 +261,7 @@ export default function StreamSettingsCard() {
           className="btn-primary flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-50"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Salvar
+          {t('stream.save')}
         </button>
       </div>
     </div>

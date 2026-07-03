@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Pencil, Loader2, AlertCircle } from 'lucide-react'
 import { LocalEntry, localRename } from '../api/client'
 import { Sheet } from './Sheet'
@@ -15,6 +16,7 @@ type Props = {
 // torrent. O input pré-seleciona o "stem" (nome sem extensão) pra editar o
 // título sem mexer no ".mkv".
 export default function RenameModal({ mount, entry, onClose, onRenamed }: Props) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -54,7 +56,7 @@ export default function RenameModal({ mount, entry, onClose, onRenamed }: Props)
       onRenamed()
       onClose()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao renomear')
+      setError(e?.response?.data?.error || e.message || t('downloads.rename.errorGeneric'))
     } finally {
       setSubmitting(false)
     }
@@ -65,7 +67,7 @@ export default function RenameModal({ mount, entry, onClose, onRenamed }: Props)
       open
       onClose={onClose}
       size="sm"
-      title={entry.isDir ? 'Renomear pasta' : 'Renomear arquivo'}
+      title={entry.isDir ? t('downloads.rename.renameFolder') : t('downloads.rename.renameFile')}
       icon={<Pencil className="w-4 h-4 text-amber-400 flex-shrink-0" />}
     >
       <div className="flex flex-col gap-3 pb-1">
@@ -75,12 +77,12 @@ export default function RenameModal({ mount, entry, onClose, onRenamed }: Props)
           value={name}
           onChange={e => setName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') handleRename() }}
-          placeholder="Novo nome"
+          placeholder={t('downloads.rename.placeholder')}
           className="w-full bg-surface-tertiary border border-strong rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-amber-500"
         />
 
         {invalid && trimmed !== '' && (
-          <p className="text-xs text-amber-400">O nome não pode conter "/" ou "\".</p>
+          <p className="text-xs text-amber-400">{t('downloads.rename.invalidName')}</p>
         )}
 
         {error && (
@@ -91,7 +93,7 @@ export default function RenameModal({ mount, entry, onClose, onRenamed }: Props)
 
         <div className="flex items-center gap-2 justify-end">
           <button onClick={onClose} disabled={submitting} className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded">
-            Cancelar
+            {t('downloads.rename.cancel')}
           </button>
           <button
             onClick={handleRename}
@@ -99,7 +101,7 @@ export default function RenameModal({ mount, entry, onClose, onRenamed }: Props)
             className="flex items-center gap-2 text-sm bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-50 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-4 py-1.5 rounded transition-colors"
           >
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />}
-            Renomear
+            {t('downloads.rename.submit')}
           </button>
         </div>
       </div>
