@@ -262,7 +262,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		setSSEHeaders(c)
 
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		enricher := buildEnricher(favs, dls, userID, includeAll)
 
 		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, indexers, enricher)
