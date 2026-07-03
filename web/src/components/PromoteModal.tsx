@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
 import { DownloadEntry, downloadPromoteBrowse, downloadPromoteBatch, fetchPromoteDestinations, PromoteDestination, downloadPromotePreview, PromotePreviewEntry } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
+import { errMessage } from '../lib/errMessage'
 
 type Props = {
   readonly items: DownloadEntry[] | null
@@ -98,7 +99,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
     onClose()
     downloadPromoteBatch(ids, opts)
       .then(onPromoted)
-      .catch((e: unknown) => alert(`Erro ao promover: ${e instanceof Error ? e.message : String(e)}`))
+      .catch((e: unknown) => alert(`Erro ao promover: ${errMessage(e)}`))
   }
 
   const breadcrumb = path.split('/').filter(Boolean)

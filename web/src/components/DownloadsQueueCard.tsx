@@ -5,6 +5,7 @@ import {
   updateDownloadsQueueSettings,
   DownloadsQueueSettings,
 } from '../api/client'
+import { errMessage } from '../lib/errMessage'
 
 // NumberField: touch-friendly numeric input (>=44px, 16px to avoid iOS zoom).
 function NumberField(props: Readonly<{
@@ -53,7 +54,7 @@ export default function DownloadsQueueCard() {
   useEffect(() => {
     getDownloadsQueueSettings()
       .then(setForm)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(errMessage(e)))
       .finally(() => setLoading(false))
   }, [])
 
@@ -69,7 +70,7 @@ export default function DownloadsQueueCard() {
       await updateDownloadsQueueSettings(form)
       setNotice('Salvo e aplicado ao vivo.')
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errMessage(e))
     } finally {
       setSaving(false)
     }

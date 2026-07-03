@@ -77,6 +77,7 @@ import FilePreviewModal from '../components/FilePreviewModal'
 import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
 import { previewRawURL } from '../api/preview'
 import { matchesEntryStatus, type LocalStatusFilter } from '../lib/localFilter'
+import { errMessage } from '../lib/errMessage'
 
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
@@ -640,7 +641,7 @@ export default function LocalPage() {
       }
       setPromoteEntries(files)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Erro ao varrer as pastas selecionadas'
+      const msg = errMessage(e)
       setError(msg)
     } finally {
       setBatchRunning(false)
@@ -651,7 +652,7 @@ export default function LocalPage() {
     localMounts()
       .then(setMounts)
       .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : 'Erro ao carregar mounts'
+        const msg = errMessage(e)
         setError(msg)
       })
   }, [])
@@ -691,7 +692,7 @@ export default function LocalPage() {
       })
       .catch((e: unknown) => {
         if (seq !== reqSeq.current) return
-        const msg = e instanceof Error ? e.message : 'Erro ao listar diretorio'
+        const msg = errMessage(e)
         setError(msg)
         setEntries([])
       })
