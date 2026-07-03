@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -111,106 +110,15 @@ func resolveLocalProbeFile(c *gin.Context, b *local.Browser, mount, path string)
 func runLocalFFProbe(c *gin.Context, abs string) (streamer.ProbeResult, bool) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffprobe",
-		ffHideBanner, ffLogLevel, "error",
-		"-of", "json",
-		"-show_streams",
-		"-show_format",
-		"-show_chapters",
-		"-i", abs,
-	)
-	out, err := cmd.Output()
-	if err != nil && len(out) == 0 {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "ffprobe: " + err.Error()})
-		return streamer.ProbeResult{}, false
-	}
-	result, perr := parseFFProbeStreams(out)
-	if perr != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": perr.Error()})
+	// Unified probe: same ffprobe invocation + parser as the torrent path
+	// (streamer.Probe), so /api/local/probe returns exactly the shape /stream/probe
+	// does — no duplicate decoder to drift.
+	result, err := streamer.ProbeLocal(ctx, abs)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return streamer.ProbeResult{}, false
 	}
 	return result, true
-}
-
-// parseFFProbeStreams decodes ffprobe's JSON into the same ProbeResult shape
-// the torrent path returns (streamer.Probe).
-func parseFFProbeStreams(out []byte) (streamer.ProbeResult, error) {
-	var parsed struct {
-		Streams []struct {
-			Index       int               `json:"index"`
-			CodecType   string            `json:"codec_type"`
-			CodecName   string            `json:"codec_name"`
-			Channels    int               `json:"channels"`
-			Tags        map[string]string `json:"tags"`
-			Disposition struct {
-				Default int `json:"default"`
-				Forced  int `json:"forced"`
-			} `json:"disposition"`
-		} `json:"streams"`
-		Chapters []struct {
-			ID        int               `json:"id"`
-			StartTime string            `json:"start_time"`
-			EndTime   string            `json:"end_time"`
-			Tags      map[string]string `json:"tags"`
-		} `json:"chapters"`
-		Format struct {
-			Duration string `json:"duration"`
-		} `json:"format"`
-	}
-	if err := json.Unmarshal(out, &parsed); err != nil {
-		return streamer.ProbeResult{}, fmt.Errorf("decode ffprobe: %w", err)
-	}
-	result := streamer.ProbeResult{
-		Audio:     []streamer.Track{},
-		Subtitles: []streamer.Track{},
-		Chapters:  []streamer.Chapter{},
-	}
-	for _, ch := range parsed.Chapters {
-		c := streamer.Chapter{Index: ch.ID}
-		if s, perr := strconv.ParseFloat(ch.StartTime, 64); perr == nil {
-			c.StartSec = s
-		}
-		if e, perr := strconv.ParseFloat(ch.EndTime, 64); perr == nil {
-			c.EndSec = e
-		}
-		if ch.Tags != nil {
-			c.Title = ch.Tags["title"]
-		}
-		result.Chapters = append(result.Chapters, c)
-	}
-	for _, st := range parsed.Streams {
-		var lang, title string
-		if st.Tags != nil {
-			lang = strings.ToLower(st.Tags["language"])
-			title = st.Tags["title"]
-		}
-		t := streamer.Track{
-			Index:    st.Index,
-			Codec:    st.CodecName,
-			Language: lang,
-			Title:    title,
-			Channels: st.Channels,
-			Default:  st.Disposition.Default == 1,
-			Forced:   st.Disposition.Forced == 1,
-		}
-		switch st.CodecType {
-		case "audio":
-			t.Type = "audio"
-			result.Audio = append(result.Audio, t)
-		case "subtitle":
-			t.Type = "subtitle"
-			// Image-based subs (PGS/VobSub) can't be transcoded to VTT for
-			// browsers — flag so the UI can grey them out.
-			t.Image = st.CodecName == "hdmv_pgs_subtitle" || st.CodecName == "dvd_subtitle" || st.CodecName == "dvb_subtitle"
-			result.Subtitles = append(result.Subtitles, t)
-		}
-	}
-	if parsed.Format.Duration != "" {
-		var d float64
-		_, _ = fmt.Sscanf(parsed.Format.Duration, "%f", &d)
-		result.DurationSec = d
-	}
-	return result, nil
 }
 
 type localSidecarSub struct {
