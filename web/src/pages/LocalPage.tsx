@@ -33,7 +33,7 @@ import {
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
-import { formatBytes } from '../lib/format'
+import { formatBytes, formatDateTime } from '../lib/format'
 import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ConfirmDialog'
@@ -100,28 +100,6 @@ function isVideo(name: string): boolean {
 
 function isAudio(name: string): boolean {
   return AUDIO_EXTS.has(extOf(name))
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let value = bytes / 1024
-  let i = 0
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024
-    i++
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[i]}`
-}
-
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso)
-    // Date + time (HH:MM) — the user wants the hour visible, not just the day.
-    return `${d.toLocaleDateString()} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
-  } catch {
-    return ''
-  }
 }
 
 // formatCount renders a directory's child count ("12 itens" / "1 item").
@@ -435,15 +413,15 @@ function EntryRow(props: EntryRowProps) {
           <span className="sm:hidden text-[11px] text-text-muted flex items-center gap-1.5">
             {e.isDir
               ? <>{formatCount(e.childCount ?? 0)}<span className="text-text-muted">·</span></>
-              : <>{formatSize(e.size)}<span className="text-text-muted">·</span></>}
-            {formatDate(e.modTime)}
+              : <>{formatBytes(e.size)}<span className="text-text-muted">·</span></>}
+            {formatDateTime(e.modTime)}
           </span>
         </span>
         {/* Tamanho (arquivo) ou quantidade de itens (pasta). */}
         <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-24">
-          {e.isDir ? formatCount(e.childCount ?? 0) : formatSize(e.size)}
+          {e.isDir ? formatCount(e.childCount ?? 0) : formatBytes(e.size)}
         </span>
-        <span className="text-xs text-text-muted w-32 text-right hidden sm:block flex-shrink-0">{formatDate(e.modTime)}</span>
+        <span className="text-xs text-text-muted w-32 text-right hidden sm:block flex-shrink-0">{formatDateTime(e.modTime)}</span>
       </button>
 
       {/* Ações por-item: desktop = botões no hover; mobile = ⋮ → Sheet. */}

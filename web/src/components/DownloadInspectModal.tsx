@@ -11,6 +11,8 @@ import {
 } from '../api/client'
 import { formatBytes, formatRate, formatBytesPair } from '../lib/format'
 import { Sheet } from './Sheet'
+import { useConfirm } from './ConfirmDialog'
+import { useToast } from './Toast'
 
 type Props = {
   readonly download: DownloadEntry | null
@@ -194,6 +196,8 @@ function renderFilesTab(
 }
 
 export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay, siblings, onAdopted }: Props) {
+  const confirm = useConfirm()
+  const { notify } = useToast()
   const [tab, setTab] = useState<Tab>('overview')
   const [details, setDetails] = useState<DownloadDetails | null>(null)
   const [loading, setLoading] = useState(false)
@@ -333,7 +337,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
 
   const handleDelete = async () => {
     if (busy) return
-    if (!confirm(`Apagar download "${d.name}"?\n\nO arquivo no disco NÃO é removido.`)) return
+    const ok = await confirm({ title: 'Apagar download', message: `Apagar download "${d.name}"? O arquivo no disco NÃO é removido.`, confirmLabel: 'Apagar', destructive: true })
+    if (!ok) return
     setBusy('delete')
     setError('')
     try {
@@ -506,7 +511,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                           onClick={async () => {
                             try {
                               await navigator.clipboard.writeText(trackerUrl)
-                              alert('Tracker copiado para a área de transferência!')
+                              notify('Tracker copiado para a área de transferência!', 'success')
                             } catch {}
                           }}
                           className="text-[10px] text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 px-2 py-0.5 border border-cyan-500/20 hover:border-cyan-500/40 rounded transition-colors flex-shrink-0"

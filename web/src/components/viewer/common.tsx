@@ -1,5 +1,9 @@
 import { Loader2, AlertCircle } from 'lucide-react'
 
+// Re-export do formatador canônico (variante com '—' para zero/ausente), que era
+// duplicado aqui. Mantém o nome `formatBytes` pros viewers que já importam daqui.
+export { formatBytesOrDash as formatBytes } from '../../lib/format'
+
 // Shared loading/error states for the viewer family — keeps each viewer free
 // of copy-pasted spinner markup.
 
@@ -20,10 +24,3 @@ export function ViewerError({ message }: { readonly message: string }) {
   )
 }
 
-export function formatBytes(bytes: number): string {
-  if (!bytes || bytes < 0) return '—'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}

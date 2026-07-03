@@ -11,8 +11,8 @@ import {
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
+import { useToast } from '../components/Toast'
 import { usePersistedState } from '../lib/storage'
-import { errMessage } from '../lib/errMessage'
 import { useEnumQueryParam, useQueryParam, useQuerySetter } from '../lib/useQueryState'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { useRevealHidden } from '../lib/reveal'
@@ -111,6 +111,7 @@ export default function DownloadsPage() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
   const confirm = useConfirm()
+  const { notify, notifyError } = useToast()
   const { t } = useTranslation()
 
   const [limitDownKB, setLimitDownKB] = useState<string>('')
@@ -204,8 +205,8 @@ export default function DownloadsPage() {
           publishDate: '',
         }
         setDownloadTarget(synthetic)
-      } catch (err: any) {
-        alert(`Erro ao processar magnet: ${err.message || err}`)
+      } catch (err: unknown) {
+        notifyError(err)
       } finally {
         setLoading(false)
       }
@@ -217,7 +218,7 @@ export default function DownloadsPage() {
       const torrentFiles = files.filter(f => f.name.endsWith('.torrent'))
       
       if (torrentFiles.length === 0) {
-        alert('Por favor, arraste apenas arquivos com a extensão .torrent ou links magnet')
+        notify('Por favor, arraste apenas arquivos com a extensão .torrent ou links magnet', 'error')
         return
       }
 
@@ -240,8 +241,8 @@ export default function DownloadsPage() {
             publishDate: '',
           }
           setDownloadTarget(synthetic)
-        } catch (err: any) {
-          alert(`Erro ao carregar torrent: ${err.message || err}`)
+        } catch (err: unknown) {
+          notifyError(err)
         } finally {
           setLoading(false)
         }
@@ -468,7 +469,7 @@ export default function DownloadsPage() {
       // sees reality instead of a silently-vanished item, and surface the error.
       clearDeleted(pendingDeletesRef.current, [id])
       await load().catch(() => {})
-      alert(`Erro ao remover download: ${errMessage(err)}`)
+      notifyError(err)
     } finally { setBusyID(null) }
   }
   // Abre o modal de promove (single ou batch). Single: passa só esse item;
@@ -521,14 +522,14 @@ export default function DownloadsPage() {
       const failed = res.failed ?? []
       if (failed.length > 0) {
         clearDeleted(pendingDeletesRef.current, failed) // let the survivors come back into view
-        alert(`Falha ao remover ${failed.length} download(s) (#${failed.join(', #')}).`)
+        notify(`Falha ao remover ${failed.length} download(s) (#${failed.join(', #')}).`, 'error')
       }
       await load(); await loadTorrents()
       setSelected(new Set())
     } catch (err) {
       clearDeleted(pendingDeletesRef.current, ids)
       await load().catch(() => {})
-      alert(`Erro ao remover downloads: ${errMessage(err)}`)
+      notifyError(err)
     }
   }
 
@@ -539,8 +540,8 @@ export default function DownloadsPage() {
   const onPromoted = (result: { promoted: DownloadEntry[]; failed: { id: number; error: string }[] }) => {
     setPromoteTargets(null)
     if (result.failed.length > 0) {
-      alert(`${result.promoted.length} promovido(s), ${result.failed.length} falha(s):\n` +
-        result.failed.map(f => `#${f.id}: ${f.error}`).join('\n'))
+      notify(`${result.promoted.length} promovido(s), ${result.failed.length} falha(s): ` +
+        result.failed.map(f => `#${f.id}: ${f.error}`).join('; '), 'error')
     }
     // Limpa seleção dos que deram certo
     if (result.promoted.length > 0) {

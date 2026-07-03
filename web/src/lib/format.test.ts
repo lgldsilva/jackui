@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   formatBytes,
+  formatBytesOrDash,
   formatRate,
   formatDuration,
+  formatDateTime,
   bytesUnit,
   formatBytesAs,
   formatBytesPair,
@@ -42,6 +44,34 @@ describe('formatBytes', () => {
     expect(formatBytes(1024)).toBe('1 KB')
     expect(formatBytes(1500)).toBe('1.46 KB')
     expect(formatBytes(1024 * 1024 * 1.5)).toBe('1.5 MB')
+  })
+})
+
+describe('formatBytesOrDash', () => {
+  it('should return a dash for zero/negative/missing values', () => {
+    expect(formatBytesOrDash(0)).toBe('—')
+    expect(formatBytesOrDash(-5)).toBe('—')
+    expect(formatBytesOrDash(Number.NaN)).toBe('—')
+  })
+
+  it('should format positive values like formatBytes', () => {
+    expect(formatBytesOrDash(500)).toBe('500 B')
+    expect(formatBytesOrDash(1024)).toBe('1 KB')
+    expect(formatBytesOrDash(1024 * 1024 * 1.5)).toBe('1.5 MB')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('should return empty string for missing/invalid input', () => {
+    expect(formatDateTime('')).toBe('')
+    expect(formatDateTime('not-a-date')).toBe('')
+  })
+
+  it('should render a date followed by an HH:MM time', () => {
+    const out = formatDateTime('2026-07-03T14:35:00Z')
+    // Locale-dependent formatting, but it must contain a date part and a HH:MM time.
+    expect(out).not.toBe('')
+    expect(out).toMatch(/\d{1,2}:\d{2}/)
   })
 })
 

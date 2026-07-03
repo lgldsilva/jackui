@@ -3,6 +3,7 @@ import { useVisiblePolling } from '../lib/useVisiblePolling'
 import { Loader2, Trash2, Zap, Server, ShieldAlert } from 'lucide-react'
 import { fetchActiveTranscodes, killTranscodeSession, HLSSessionSnapshot, GPUInfo } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
+import { useToast } from './Toast'
 import { errMessage } from '../lib/errMessage'
 
 type CodecStyle = { readonly cls: string; readonly label: string }
@@ -22,6 +23,7 @@ function sessionLabels(key: string) {
 
 export default function ActiveTranscodesCard() {
   const confirm = useConfirm()
+  const { notifyError } = useToast()
   const [sessions, setSessions] = useState<HLSSessionSnapshot[]>([])
   const [gpu, setGpu] = useState<GPUInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -57,8 +59,8 @@ export default function ActiveTranscodesCard() {
     try {
       await killTranscodeSession(key)
       await loadData(true)
-    } catch (e: any) {
-      alert('Erro ao encerrar sessão: ' + (e?.response?.data?.error || e.message))
+    } catch (e: unknown) {
+      notifyError(e)
     } finally {
       setKillingKey(null)
     }
