@@ -128,7 +128,7 @@ make deploy-auto-vpn    # same, but routes through a gluetun VPN overlay (opt-in
 > [!NOTE]
 > The author's own production instance currently runs **behind gluetun** (`network_mode: container:gluetun`, on the VPN's forwarded port — `watchForwardedPort` in `cmd/server/main.go` triggers a graceful restart to rebind when the port rotates), even though the no-VPN path is the documented default. Pick the mode that keeps your swarm healthy.
 
-CI/CD is a Jenkins multibranch job (SonarQube quality gate + Trivy + Dependency-Track), documented in [docs/CICD.md](docs/CICD.md). The deploy step runs `docker compose up -d --force-recreate` against a **hand-maintained** `docker-compose.yml` on the server (not a Portainer stack) — Jenkins only swaps the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
+CI/CD runs on **Gitea Actions** (SonarQube quality gate + Trivy + Dependency-Track), documented in [docs/CICD.md](docs/CICD.md) and [docs/gitea-actions-runners.md](docs/gitea-actions-runners.md). The deploy step runs `docker compose up -d --force-recreate` against a **hand-maintained** `docker-compose.yml` on the server (not a Portainer stack) — it only swaps the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
 
 ## Architecture
 
