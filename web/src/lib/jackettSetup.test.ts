@@ -17,7 +17,7 @@ describe('shouldPromptJackettSetup (false "Jackett não configurado" regression)
   })
 
   it('does NOT prompt when status is degraded but a real url is configured', () => {
-    expect(shouldPromptJackettSetup('down: dial tcp ...', { ok: true, jackettUrl: 'http://127.0.0.1:9117' })).toBe(false)
+    expect(shouldPromptJackettSetup('down: dial tcp ...', { ok: true, jackettUrl: 'http://192.168.1.50:9117' })).toBe(false)
   })
 
   it('never prompts when jackett is ok', () => {

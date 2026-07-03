@@ -101,25 +101,27 @@ services:
       # Caps de peers (de 50/500 da lib anacrolix) cortam buffers residentes por
       # conexão sem matar o seed/leech caseiro — JackUI já injeta 20 trackers
       # públicos, então a descoberta de peers não depende de um swarm enorme.
-      # ⚠ PROD: estes valores vivem no STACK DO PORTAINER (este bloco é a
-      # referência versionada; ao mudar em prod, edite o stack lá também).
+      # ⚠ PROD: estes valores vivem no compose hand-maintained do servidor (este
+      # bloco é a referência versionada; ao mudar em prod, edite o hand-file também).
       - GOGC=${GOGC:-75}
       - GOMEMLIMIT=${GOMEMLIMIT:-1600MiB}
       - GOMAXPROCS=${GOMAXPROCS:-2}
       - JACKUI_MAX_CONNS=${JACKUI_MAX_CONNS:-40}
       - JACKUI_PEERS_HIGH=${JACKUI_PEERS_HIGH:-200}
-      - JACKUI_DOWNLOAD_DIR=/mnt/storage/jacktrack/download
+      # Container paths below live inside the volumes mapped above; override the
+      # defaults via .env if your library layout differs.
+      - JACKUI_DOWNLOAD_DIR=${JACKUI_DOWNLOAD_DIR:-/mnt/storage/downloads}
       # Destination of the "Promote" button — moves a file from the app's private
       # area to the shared library visible to all media apps.
-      - JACKUI_SHARED_DIR=/mnt/storage/Downloads
+      - JACKUI_SHARED_DIR=${JACKUI_SHARED_DIR:-/mnt/storage/library}
       # Browsable mounts on the "Local" page (Name:/container/path,...).
-      # "Downloads" = shared (everyone sees it); "Meus downloads" = app's own area.
+      # "Library" = shared (everyone sees it); "My downloads" = app's own area.
       # The ":usersubpath" suffix isolates per user (mount/{username}/...): each one
       # only sees/writes their own subfolder. Without the suffix, the directory is
       # SHARED across all regular users (uploads/deletes visible to everyone).
-      # "Meus downloads" uses :usersubpath → loose files at the root are migrated
+      # "My downloads" uses :usersubpath → loose files at the root are migrated
       # on boot into the owner's subfolder (via the downloads DB; no owner → admin).
-      - JACKUI_EXTERNAL_MOUNTS=Downloads:/mnt/storage/Downloads,Meus downloads:/mnt/storage/jacktrack/download:usersubpath,GDrive Media:/mnt/gdrive/media
+      - JACKUI_EXTERNAL_MOUNTS=${JACKUI_EXTERNAL_MOUNTS:-Library:/mnt/storage/library,My downloads:/mnt/storage/downloads:usersubpath,Media:/mnt/gdrive/media}
       - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
       - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
       - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}
