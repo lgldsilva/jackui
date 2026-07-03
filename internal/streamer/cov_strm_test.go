@@ -3,6 +3,7 @@ package streamer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -183,7 +184,7 @@ func Test_strm_Probe_NonMediaYieldsEmpty(t *testing.T) {
 func Test_strm_resolveProbeInput_NotActive(t *testing.T) {
 	s := NewForTesting()
 	_, err := s.resolveProbeInput(metainfo.HashBytes([]byte("x")), 0, 1024)
-	if err == nil || err.Error() != ErrTorrentNotActive {
+	if err == nil || !errors.Is(err, ErrTorrentNotActive) {
 		t.Fatalf("expected %q, got %v", ErrTorrentNotActive, err)
 	}
 }
@@ -354,7 +355,7 @@ func Test_strm_ExtractSubtitle_Success(t *testing.T) {
 func Test_strm_ExtractSubtitle_NotActive(t *testing.T) {
 	s := NewForTesting()
 	_, err := s.ExtractSubtitle(context.Background(), metainfo.Hash{}, 0, 0)
-	if err == nil || err.Error() != ErrTorrentNotActive {
+	if err == nil || !errors.Is(err, ErrTorrentNotActive) {
 		t.Fatalf("expected %q, got %v", ErrTorrentNotActive, err)
 	}
 }
