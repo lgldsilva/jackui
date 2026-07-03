@@ -30,6 +30,7 @@ import { uid } from '../lib/uid'
 import { shouldPromptJackettSetup } from '../lib/jackettSetup'
 import { appendUnique, openSearchStream, type SearchStreamHandle } from '../lib/searchStream'
 import { useTranslation } from 'react-i18next'
+import { errMessage } from '../lib/errMessage'
 
 const TABS_KEY = 'searchTabs'
 const ACTIVE_KEY = 'activeTabId'
@@ -384,7 +385,7 @@ export default function SearchPage() {
       if (d.success) onSuccess()
       else setSetupError(d.error || 'Falha ao conectar — verifique a URL e a porta')
     } catch (err) {
-      setSetupError(err instanceof Error ? err.message : 'Erro ao testar conexão')
+      setSetupError(errMessage(err))
     }
     setSetupTesting(false)
   }

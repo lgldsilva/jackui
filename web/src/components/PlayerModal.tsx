@@ -63,6 +63,7 @@ import { SimpleAudioControls } from './player/SimpleAudioControls'
 import { AudioCoverArt, audioCoverURL } from './player/AudioCoverArt'
 import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
+import { errMessage } from '../lib/errMessage'
 
 type PlaylistMeta = {
   readonly name: string
@@ -569,7 +570,7 @@ export default function PlayerModal({
       const categoryArg = effectiveCategory === 'default' ? undefined : effectiveCategory
       await downloadLocalFileDirect(apiPath, name, categoryArg)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao baixar localmente')
+      alert(errMessage(err))
     } finally {
       setLocalDownloadLoading(false)
     }

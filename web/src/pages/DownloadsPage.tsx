@@ -12,6 +12,7 @@ import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
 import { usePersistedState } from '../lib/storage'
+import { errMessage } from '../lib/errMessage'
 import { useEnumQueryParam, useQueryParam, useQuerySetter } from '../lib/useQueryState'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { useRevealHidden } from '../lib/reveal'
@@ -49,12 +50,6 @@ type Tab = 'all' | 'downloading' | 'paused' | 'completed' | 'failed' | 'network'
 // Allowed tab values for the ?tab= URL param (validated by useEnumQueryParam).
 const DOWNLOAD_TABS: readonly Tab[] = ['all', 'downloading', 'paused', 'completed', 'failed', 'network']
 
-// errMessage extracts a human-readable message from an unknown thrown value
-// (axios error with a JSON {error} body, a plain Error, or anything else).
-function errMessage(err: unknown): string {
-  const ax = err as { response?: { data?: { error?: string } }; message?: string }
-  return ax?.response?.data?.error || ax?.message || String(err)
-}
 
 export default function DownloadsPage() {
   const [items, setItems] = useState<DownloadEntry[]>([])
