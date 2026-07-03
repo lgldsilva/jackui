@@ -60,8 +60,8 @@ func TestHWDecodeArgsFor(t *testing.T) {
 		{"h264_nvenc", "cuda"},
 		{"hevc_nvenc", "cuda"},
 		{"h264_qsv", "qsv"},
-		{"libx264", ""},          // CPU → software decode, no args
-		{"libx265", ""},          // CPU
+		{"libx264", ""},           // CPU → software decode, no args
+		{"libx265", ""},           // CPU
 		{"h264_videotoolbox", ""}, // not in switch → nil
 		{"", ""},
 	}
@@ -87,8 +87,8 @@ func TestVideoScaleFilter(t *testing.T) {
 		{"h264_vaapi", "scale_vaapi"},
 		{"hevc_vaapi", "scale_vaapi"},
 		{"h264_qsv", "scale_qsv"},
-		{"h264_nvenc", "format=yuv420p"},      // default branch (sw scale)
-		{"libx264", "format=yuv420p"},          // default branch
+		{"h264_nvenc", "format=yuv420p"},        // default branch (sw scale)
+		{"libx264", "format=yuv420p"},           // default branch
 		{"h264_videotoolbox", "format=yuv420p"}, // default branch
 	}
 	for _, c := range cases {

@@ -45,7 +45,7 @@ func TestReadTorrentTags_Success(t *testing.T) {
 // blockingRSC's Read blocks until done is closed — drives the timeout branch.
 type blockingRSC struct{ done chan struct{} }
 
-func (b blockingRSC) Read([]byte) (int, error) { <-b.done; return 0, io.EOF }
+func (b blockingRSC) Read([]byte) (int, error)     { <-b.done; return 0, io.EOF }
 func (blockingRSC) Seek(int64, int) (int64, error) { return 0, nil }
 func (blockingRSC) Close() error                   { return nil }
 

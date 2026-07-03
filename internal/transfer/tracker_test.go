@@ -123,7 +123,7 @@ func TestAddSkippedAdvancesProgressNotRate(t *testing.T) {
 func TestSetBytesTotalLateAndGuards(t *testing.T) {
 	tr := New()
 	j := tr.Start("late", "promote", 0, 0) // totals unknown at start
-	j.SetBytesTotal(-5)                     // negative is ignored (guard)
+	j.SetBytesTotal(-5)                    // negative is ignored (guard)
 	j.SetBytesTotal(200)
 	j.AddBytes(100)
 	if s := j.Snapshot(); s.BytesTotal != 200 || s.Progress != 0.5 {
@@ -148,7 +148,7 @@ func TestRateWindowPrunesStaleSamples(t *testing.T) {
 	j := tr.Start("move", "local-move", 0, 10000)
 	j.AddBytes(1000)
 	clk.advance(rateWindow + time.Second) // first sample falls out of the window
-	j.AddBytes(2000)                       // pruneLocked trims the stale sample (i>0)
+	j.AddBytes(2000)                      // pruneLocked trims the stale sample (i>0)
 	s := j.Snapshot()
 	if s.BytesDone != 3000 {
 		t.Fatalf("bytesDone=%d, want 3000", s.BytesDone)

@@ -445,11 +445,11 @@ func TestParseSegName(t *testing.T) {
 
 func TestFfprobePathFrom(t *testing.T) {
 	cases := map[string]string{
-		"/usr/bin/ffmpeg":      "/usr/bin/ffprobe",
-		"ffmpeg":               "ffprobe",
+		"/usr/bin/ffmpeg":       "/usr/bin/ffprobe",
+		"ffmpeg":                "ffprobe",
 		"/usr/local/bin/ffmpeg": "/usr/local/bin/ffprobe",
-		"/custom/path/ff":      "ffprobe",
-		"":                     "ffprobe",
+		"/custom/path/ff":       "ffprobe",
+		"":                      "ffprobe",
 	}
 	for input, want := range cases {
 		got := ffprobePathFrom(input)
@@ -461,11 +461,11 @@ func TestFfprobePathFrom(t *testing.T) {
 
 func TestParseRange(t *testing.T) {
 	cases := []struct {
-		header    string
-		total     int64
-		wStart    int64
-		wEnd      int64
-		wantOk    bool
+		header string
+		total  int64
+		wStart int64
+		wEnd   int64
+		wantOk bool
 	}{
 		{"bytes=0-99", 1000, 0, 99, true},
 		{"bytes=100-", 1000, 100, 999, true},
