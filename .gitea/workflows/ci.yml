@@ -20,7 +20,14 @@ jobs:
           POSTGRES_PASSWORD: ci
           POSTGRES_DB: jackui
           PGPORT: 5433
-        # act_runner: o healthcheck do service é gerido pelo runner; o host é "postgres".
+        # Health-check pra o runner só liberar os steps quando o PG aceitar
+        # conexões (o act_runner nem sempre espera; o step "aguardar Postgres"
+        # abaixo é o reforço definitivo contra "connection refused").
+        options: >-
+          --health-cmd "pg_isready -U jackui -p 5433"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
     env:
       JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@127.0.0.1:5433/jackui?sslmode=disable
     steps:
@@ -37,6 +44,12 @@ jobs:
         run: 'test -z "$(gofmt -l .)" || { echo "gofmt:"; gofmt -l .; exit 1; }'
       - name: go vet
         run: go vet ./internal/...
+      - name: aguardar Postgres aceitar conexões
+        run: |
+          for i in $(seq 1 30); do
+            (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null && { exec 3>&-; echo "postgres pronto"; break; }
+            echo "aguardando postgres ($i/30)…"; sleep 2
+          done
       - name: go test + cobertura
         run: go test -coverprofile=coverage.out ./internal/...
       - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)

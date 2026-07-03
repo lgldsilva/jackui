@@ -20,6 +20,11 @@ jobs:
       postgres:
         image: postgres:16
         env: { POSTGRES_USER: jackui, POSTGRES_PASSWORD: ci, POSTGRES_DB: jackui, PGPORT: 5433 }
+        options: >-
+          --health-cmd "pg_isready -U jackui -p 5433"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
     env:
       JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@127.0.0.1:5433/jackui?sslmode=disable
     steps:
@@ -33,6 +38,13 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
       - run: go vet ./internal/...
+      # Reforço contra "connection refused": espera o PG antes dos testes.
+      - name: aguardar Postgres aceitar conexões
+        run: |
+          for i in $(seq 1 30); do
+            (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null && { exec 3>&-; echo "postgres pronto"; break; }
+            echo "aguardando postgres ($i/30)…"; sleep 2
+          done
       - run: go test -coverprofile=coverage.out ./internal/...
       - uses: actions/upload-artifact@v3
         env:
@@ -144,16 +156,19 @@ jobs:
       - name: verificar deploy (healthz + commit) — fim do "verde-falso"
         run: |
           # docker compose up -d retorna 0 mesmo se o container morre logo após subir.
-          # Aqui falhamos o job se /status não responder ok NO COMMIT novo em até 90s.
+          # Falhamos o job se /status não responder ok NO COMMIT novo dentro da janela.
+          # Janela = 300s: o boot do jackui reconcilia (RescueStuckMoving/resumeSeeding/
+          # piece verify) e às vezes passa de 90s — antes isso dava "vermelho-falso"
+          # (deploy ia, mas o job falhava e pulava tag/cleanup/notify).
           want="${{ github.sha }}"
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             out=$(docker exec gluetun wget -qO- http://127.0.0.1:8989/status 2>/dev/null || true)
             if echo "$out" | grep -q '"status":"ok"' && echo "$out" | grep -q "$want"; then
               echo "deploy OK: $out"; exit 0
             fi
-            sleep 3
+            sleep 5
           done
-          echo "DEPLOY FALHOU: /status não reporta ok+commit $want após 90s"
+          echo "DEPLOY FALHOU: /status não reporta ok+commit $want após 300s"
           docker exec gluetun wget -qO- http://127.0.0.1:8989/status 2>/dev/null || true
           exit 1
       - name: Publicar tag de versão Git
