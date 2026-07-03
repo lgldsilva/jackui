@@ -39,7 +39,8 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
 
   const startPoll = () => {
     stopPoll()
-    pollRef.current = globalThis.setInterval(refresh, 2000)
+    // Skip the poll fetch while the tab is backgrounded (resumes on return).
+    pollRef.current = globalThis.setInterval(() => { if (!document.hidden) refresh() }, 2000)
   }
 
   const onClick = async () => {

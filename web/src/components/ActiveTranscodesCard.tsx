@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useVisiblePolling } from '../lib/useVisiblePolling'
 import { Loader2, Trash2, Zap, Server, ShieldAlert } from 'lucide-react'
 import { fetchActiveTranscodes, killTranscodeSession, HLSSessionSnapshot, GPUInfo } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
@@ -40,13 +41,8 @@ export default function ActiveTranscodesCard() {
     }
   }
 
-  useEffect(() => {
-    loadData(false)
-    const interval = setInterval(() => {
-      loadData(true)
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [])
+  useEffect(() => { loadData(false) }, [])
+  useVisiblePolling(() => loadData(true), 5000)
 
   const handleKill = async (key: string) => {
     const ok = await confirm({
