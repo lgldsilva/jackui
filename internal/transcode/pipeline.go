@@ -124,15 +124,11 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 
 	args = append(args, "-i", pipe0)
 
-	args = append(args, "-map", "0:v:0")
-	if opts.AudioTrack >= 0 {
-		args = append(args, "-map", fmt.Sprintf("0:%d", opts.AudioTrack))
-	} else {
-		args = append(args, "-map", "0:a:0?")
-	}
-	args = append(args, "-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1")
-
 	if opts.SubBurnTrack >= 0 {
+		// Burn-in: the output video is the filtergraph result ([v]) and ONLY it.
+		// Mapping 0:v:0 as well produced an MP4 with TWO video tracks — the
+		// browser's <video> played the first (the one WITHOUT the burned
+		// subtitle) after paying the full re-encode cost (audit #411).
 		args = append(args, "-filter_complex",
 			fmt.Sprintf("[0:v:0][0:%d]overlay[v]", opts.SubBurnTrack),
 			"-map", "[v]",
@@ -140,9 +136,20 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 		if opts.VideoCodec == "" {
 			opts.VideoCodec = "h264"
 		}
-	} else if transcodeVideo {
+	} else {
+		args = append(args, "-map", "0:v:0")
+	}
+	if opts.AudioTrack >= 0 {
+		args = append(args, "-map", fmt.Sprintf("0:%d", opts.AudioTrack))
+	} else {
+		args = append(args, "-map", "0:a:0?")
+	}
+	args = append(args, "-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1")
+
+	if transcodeVideo {
 		// Downscale ≤1080p + 8-bit pixel format for the chosen backend (fixes 10-bit
 		// HDR sources that the HW h264 encoders can't ingest, and keeps 4K light).
+		// (transcodeVideo is false on the burn path, which scales via the overlay.)
 		args = append(args, "-vf", videoScaleFilter(encoder))
 	}
 

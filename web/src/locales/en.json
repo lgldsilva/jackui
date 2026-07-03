@@ -322,7 +322,8 @@
       "infuse_hint": "Open the stream in the local Infuse app (iOS/macOS/Apple TV)",
       "copy_url": "Copy URL",
       "copy_url_hint": "Copy the direct stream URL to paste into any other player"
-    }
+    },
+    "burnUnsupported": "Image-based subtitle (PGS/DVD) — burn-in is not yet supported on the current HLS path; use a text or external subtitle (#411)"
   },
   "reclassify": {
     "title_folder": "Reclassify folder with AI",
