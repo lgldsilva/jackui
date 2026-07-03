@@ -1,6 +1,12 @@
 # CI/CD — JackUI
 
-Automated pipeline: **push/PR → Jenkins (on the home server, amd64) tests, scans,
+> ⚠️ **The active CI/CD is now Gitea Actions** — see [`.gitea/workflows/ci.yml`](../.gitea/workflows/ci.yml)
+> (PR gates), [`.gitea/workflows/release.yml`](../.gitea/workflows/release.yml) (build + deploy) and
+> [gitea-actions-runners.md](gitea-actions-runners.md) (runner setup). Internal hosts come from
+> Actions variables/secrets, not the repo. The Jenkins pipeline below is **legacy** (kept for
+> historical reference — the `Jenkinsfile` has been removed); the gate philosophy still applies.
+
+Legacy automated pipeline: **push/PR → Jenkins (on the home server, amd64) tests, scans,
 builds the image, pushes to the Gitea registry, and deploys via the local
 `docker.sock` (`docker compose up -d --force-recreate`).** No SSH and no Portainer
 stack — prod is a hand-maintained compose file, and the container runs behind gluetun.
