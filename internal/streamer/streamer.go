@@ -612,7 +612,6 @@ func (s *Streamer) MetainfoPath(h metainfo.Hash) string {
 
 const (
 	magnetPrefix           = "magnet:"
-	errTorrentNotActive    = "torrent não está ativo"
 	errFileIndexOutOfRange = "file index %d out of range"
 )
 
@@ -1151,7 +1150,7 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, nil, errors.New(errTorrentNotActive)
+		return nil, nil, ErrTorrentNotActive
 	}
 
 	files := e.t.Files()
@@ -1206,7 +1205,7 @@ func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New(ErrTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
@@ -1225,7 +1224,7 @@ func (s *Streamer) VerifyTorrent(hash metainfo.Hash) error {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New(ErrTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	for i, f := range e.t.Files() {
 		s.verifyFilePieces(hash, i, f)
@@ -1242,7 +1241,7 @@ func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New(ErrTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	files := e.t.Files()
 	go func() {
@@ -1270,7 +1269,7 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return errors.New(ErrTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
@@ -1712,7 +1711,7 @@ func (s *Streamer) Pause(hash metainfo.Hash) error {
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
 	if !ok {
-		return errors.New(errTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	if e.paused {
 		return nil // idempotent
@@ -1728,7 +1727,7 @@ func (s *Streamer) Resume(hash metainfo.Hash) error {
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
 	if !ok {
-		return errors.New(errTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	if !e.paused {
 		return nil
@@ -1751,7 +1750,7 @@ func (s *Streamer) SetPriority(hash metainfo.Hash, label string) error {
 	defer s.mu.Unlock()
 	e, found := s.active[hash]
 	if !found {
-		return errors.New(errTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	for _, f := range e.t.Files() {
 		f.SetPriority(prio)
@@ -1881,7 +1880,7 @@ func (s *Streamer) SetFilePriority(hash metainfo.Hash, fileIdx int, label string
 	defer s.mu.Unlock()
 	e, found := s.active[hash]
 	if !found {
-		return errors.New(errTorrentNotActive)
+		return ErrTorrentNotActive
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {

@@ -94,7 +94,7 @@ func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, "", errors.New(ErrTorrentNotActive)
+		return nil, "", ErrTorrentNotActive
 	}
 
 	cands := buildImageCandidates(e.t.Files())
