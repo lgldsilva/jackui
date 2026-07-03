@@ -686,7 +686,7 @@ True.Detective.S01.COMPLETE.1080p.BluRay.x264-DEMAND → {"title":"True Detectiv
 Central.do.Brasil.1998.NACIONAL.1080p.BluRay.x264-TROPiX → {"title":"Central do Brasil","year":1998,"kind":"movie","season":0,"episode":0,"episode_title":""}
 www.TamilMV.re - Mission.Impossible.Fallout.2018.1080p.WEB-DL → {"title":"Mission Impossible Fallout","year":2018,"kind":"movie","season":0,"episode":0,"episode_title":""}
 Daft.Punk.Random.Access.Memories.2013.FLAC.24bit → {"title":"Daft Punk - Random Access Memories","year":2013,"kind":"movie","season":0,"episode":0,"episode_title":""}
-Vixen.23.05.20.Eva.Elfie.Sun.Kissed.XXX.1080p.MP4-WRB → {"title":"Vixen - Eva Elfie - Sun Kissed","year":2023,"kind":"movie","season":0,"episode":0,"episode_title":""}`
+StudioX.23.05.20.Jane.Doe.Golden.Hour.XXX.1080p.MP4-WRB → {"title":"StudioX - Jane Doe - Golden Hour","year":2023,"kind":"movie","season":0,"episode":0,"episode_title":""}`
 
 type RenameMetadata struct {
 	Title        string `json:"title"`
