@@ -25,7 +25,7 @@ type Quality struct {
 	Proper     bool     `json:"proper,omitempty"`
 	Extended   bool     `json:"extended,omitempty"`
 	Remux      bool     `json:"remux,omitempty"`
-	Multi      bool     `json:"multi,omitempty"`     // multi-audio
+	Multi      bool     `json:"multi,omitempty"` // multi-audio
 	Dubbed     bool     `json:"dubbed,omitempty"`
 	Subbed     bool     `json:"subbed,omitempty"`
 }

@@ -15,12 +15,12 @@ import (
 // Options describes how to transcode one stream segment.
 // All fields are optional — empty means "keep original / passthrough".
 type Options struct {
-	AudioTrack    int    // absolute stream index for `-map 0:<n>` (-1 = first audio)
-	SubBurnTrack  int    // -1 = none; otherwise absolute stream index for hardsub burn-in
-	VideoCodec    string // "" = copy; "h264" / "hevc" = transcode video
-	AudioCodec    string // "" = copy; "aac" = transcode audio
-	Container     string // "mp4" | "matroska" | "webm" — default "mp4"
-	SourceVCodec  string // optional hint about source video codec (for hwaccel selection)
+	AudioTrack   int    // absolute stream index for `-map 0:<n>` (-1 = first audio)
+	SubBurnTrack int    // -1 = none; otherwise absolute stream index for hardsub burn-in
+	VideoCodec   string // "" = copy; "h264" / "hevc" = transcode video
+	AudioCodec   string // "" = copy; "aac" = transcode audio
+	Container    string // "mp4" | "matroska" | "webm" — default "mp4"
+	SourceVCodec string // optional hint about source video codec (for hwaccel selection)
 }
 
 // Run pipes an input ReadSeeker through ffmpeg with the chosen options and streams to w.
@@ -30,11 +30,11 @@ type Options struct {
 // ffmpeg, then concatenate that buffer with the rest of the stream. This catches
 // two failure modes early:
 //
-//   1) anacrolix Reader returns immediately with an error (torrent dropped,
-//      reader closed, piece 0 not available). We return 503 with a clear
-//      message instead of letting ffmpeg parse-error on EOF.
-//   2) Source bytes arrive too late and ffmpeg parses corrupt input. Pre-warm
-//      means by the time ffmpeg sees byte 0, we already have a valid prefix.
+//  1. anacrolix Reader returns immediately with an error (torrent dropped,
+//     reader closed, piece 0 not available). We return 503 with a clear
+//     message instead of letting ffmpeg parse-error on EOF.
+//  2. Source bytes arrive too late and ffmpeg parses corrupt input. Pre-warm
+//     means by the time ffmpeg sees byte 0, we already have a valid prefix.
 //
 // 256 KiB is enough to cover MKV/MP4 headers + first cluster on most files,
 // while staying small enough that the warm-up doesn't add noticeable latency

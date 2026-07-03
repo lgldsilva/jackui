@@ -15,8 +15,8 @@ import (
 // SidecarSubtitle describes a standalone subtitle file inside the torrent
 // (not embedded in the container, just next to the video).
 type SidecarSubtitle struct {
-	Index    int    `json:"index"`    // file index in torrent (use for download)
-	Path     string `json:"path"`     // full path within torrent
+	Index    int    `json:"index"` // file index in torrent (use for download)
+	Path     string `json:"path"`  // full path within torrent
 	Size     int64  `json:"size"`
 	Language string `json:"language"` // ISO-639 best-effort from filename
 	Format   string `json:"format"`   // "srt" | "vtt" | "ass" | "ssa" | "sub"

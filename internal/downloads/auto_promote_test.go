@@ -11,7 +11,7 @@ func TestPromoteDir(t *testing.T) {
 	}{
 		{"/shared", "tv-sonarr", filepath.Join("/shared", "tv-sonarr")},
 		{"/shared", "radarr", filepath.Join("/shared", "radarr")},
-		{"/shared", "", "/shared"},                                  // no category → base only
+		{"/shared", "", "/shared"},                                      // no category → base only
 		{"/shared", "a/b", filepath.Join("/shared", "a_b")},             // separators sanitized to one segment
 		{"/shared", "../escape", filepath.Join("/shared", ".._escape")}, // traversal neutralized into one literal segment
 	}

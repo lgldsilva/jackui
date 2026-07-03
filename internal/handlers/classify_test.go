@@ -22,11 +22,11 @@ func decodeCategory(t *testing.T, body []byte) CategoryResult {
 
 func TestClassifyCategory_Direct(t *testing.T) {
 	tests := []struct {
-		name      string
-		title     string
-		wantCat   string
-		wantSrc   string
-		minConf   float64
+		name    string
+		title   string
+		wantCat string
+		wantSrc string
+		minConf float64
 	}{
 		{"tv season-episode", "Some.Show.S01E02.1080p", "tv", "regex", 0.9},
 		{"movie keyword", "Great Movie 2021", "movies", "regex", 0.8},
@@ -66,9 +66,9 @@ func TestJackettCategoryToCategory(t *testing.T) {
 		"6000": "adult",
 		"8000": "books",
 		"7000": "other",
-		"5":    "tv",  // 1-digit → "5000"
-		"50":   "tv",  // <3 digits → 1-digit fallback "5000"
-		"999":  "",    // 3-digit "9990" not mapped, 1-digit "9000" not mapped
+		"5":    "tv", // 1-digit → "5000"
+		"50":   "tv", // <3 digits → 1-digit fallback "5000"
+		"999":  "",   // 3-digit "9990" not mapped, 1-digit "9000" not mapped
 		"":     "",
 	}
 	for in, want := range tests {

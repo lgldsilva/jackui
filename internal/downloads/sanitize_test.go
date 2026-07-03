@@ -13,8 +13,8 @@ func TestSanitizeFolderName(t *testing.T) {
 		"   ":                    "download",
 		".":                      "download",
 		"..":                     "download",
-		"a/b/c":                  "a_b_c",   // path separators neutralized
-		"foo\\bar":               "foo_bar", // backslash too
+		"a/b/c":                  "a_b_c",    // path separators neutralized
+		"foo\\bar":               "foo_bar",  // backslash too
 		"trailing...":            "trailing", // trailing dots stripped
 		"name.with.dots.mkv":     "name.with.dots.mkv",
 	}

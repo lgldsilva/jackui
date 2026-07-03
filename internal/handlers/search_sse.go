@@ -247,10 +247,10 @@ func startKeepAlive(c *gin.Context, state *liveSearchState) (stop func()) {
 // SearchSSE handles GET /api/search/stream — streams results via Server-Sent Events.
 //
 // Flow:
-//   1. Emit cached results from local DB (instant)
-//   2. Fan out one HTTP request per configured Jackett indexer (parallel goroutines)
-//   3. As each indexer responds, emit its results + progress event (live, ms-level)
-//   4. Save the emitted set synchronously, run the convergence pass, emit `done`
+//  1. Emit cached results from local DB (instant)
+//  2. Fan out one HTTP request per configured Jackett indexer (parallel goroutines)
+//  3. As each indexer responds, emit its results + progress event (live, ms-level)
+//  4. Save the emitted set synchronously, run the convergence pass, emit `done`
 func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.FavoritesStore, dls *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query, category, indexers := parseSearchParams(c)

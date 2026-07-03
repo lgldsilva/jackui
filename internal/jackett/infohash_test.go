@@ -13,6 +13,7 @@ import (
 //   - some omit it entirely and only ship the magnet,
 //   - some return it UPPER/mixed case,
 //   - some encode the btih in base32 (32 chars) instead of hex (40).
+//
 // Without canonicalization the SAME torrent lands in different group buckets
 // (the Map key is the raw hash) and renders as duplicate cards that both Play
 // the same magnet — exactly what the user saw searching "mandalorian".
@@ -107,16 +108,16 @@ func TestNormalizeBTIH(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{canonical, canonical},                          // already canonical
-		{strings.ToUpper(canonical), canonical},         // upper hex
-		{"  " + canonical + "\t", canonical},            // padded
-		{b32, canonical},                                // base32 → hex
-		{strings.ToLower(b32), canonical},               // lower base32 (upcased internally)
-		{"", ""},                                        // empty
-		{"deadbeef", ""},                                // too short
-		{strings.Repeat("z", 40), ""},                   // 40 chars, not hex
-		{strings.Repeat("1", 32), ""},                   // 32 chars, not valid base32
-		{strings.Repeat("a", 50), ""},                   // wrong length
+		{canonical, canonical},                  // already canonical
+		{strings.ToUpper(canonical), canonical}, // upper hex
+		{"  " + canonical + "\t", canonical},    // padded
+		{b32, canonical},                        // base32 → hex
+		{strings.ToLower(b32), canonical},       // lower base32 (upcased internally)
+		{"", ""},                                // empty
+		{"deadbeef", ""},                        // too short
+		{strings.Repeat("z", 40), ""},           // 40 chars, not hex
+		{strings.Repeat("1", 32), ""},           // 32 chars, not valid base32
+		{strings.Repeat("a", 50), ""},           // wrong length
 	}
 	for _, tc := range cases {
 		if got := normalizeBTIH(tc.in); got != tc.want {
@@ -134,9 +135,9 @@ func TestBtihFromMagnet(t *testing.T) {
 		{"magnet:?xt=urn:btih:" + canonical, canonical},
 		{"magnet:?xt=urn:btih:" + canonical + "&dn=x&tr=udp://y", canonical},
 		{"magnet:?dn=x&xt=urn:btih:" + canonical, canonical},
-		{"magnet:?dn=onlyname&tr=udp://y", ""},   // no btih param
-		{"not-a-magnet-no-question-mark", ""},    // no '?' → whole string scanned, no btih
-		{"xt=urn:btih:" + canonical, canonical},  // bare query, no '?'
+		{"magnet:?dn=onlyname&tr=udp://y", ""},  // no btih param
+		{"not-a-magnet-no-question-mark", ""},   // no '?' → whole string scanned, no btih
+		{"xt=urn:btih:" + canonical, canonical}, // bare query, no '?'
 	}
 	for _, tc := range cases {
 		if got := btihFromMagnet(tc.in); got != tc.want {

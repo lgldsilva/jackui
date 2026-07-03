@@ -283,8 +283,8 @@ func TestPriorityFromLabel(t *testing.T) {
 
 func TestLabelFromPriority(t *testing.T) {
 	cases := []struct {
-		prio  types.PiecePriority
-		want  string
+		prio types.PiecePriority
+		want string
 	}{
 		{types.PiecePriorityNone, "none"},
 		{types.PiecePriorityNormal, "low"},
@@ -878,6 +878,3 @@ func TestStreamer_PurgeVerifiedFiles_ByHash(t *testing.T) {
 		t.Error("chave de outro torrent ativo não pode ser removida")
 	}
 }
-
-
-
