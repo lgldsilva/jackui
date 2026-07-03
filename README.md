@@ -182,4 +182,4 @@ You are solely responsible for what you search for, download, stream, and share 
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE). JackUI is built on third-party components (and, as a Docker image, redistributes ffmpeg and the NVIDIA CUDA runtime) — see [THIRD_PARTY-LICENSES.md](THIRD_PARTY-LICENSES.md).
