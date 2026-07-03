@@ -4,12 +4,14 @@
 
 set -e
 
-GITEA_API="${GITEA_API:-https://gitea.raspberrypi.lan/api/v1}"
-GITEA_USER="${GITEA_USER:-lgldsilva}"
+# GITEA_API/GITEA_USER vêm do workflow (github.api_url / github.repository_owner);
+# sem default hardcoded para não vazar o host interno no repositório.
+GITEA_API="${GITEA_API}"
+GITEA_USER="${GITEA_USER}"
 GITEA_TOKEN="${GITEA_TOKEN}"
 
-if [ -z "$GITEA_TOKEN" ]; then
-  echo "Aviso: GITEA_TOKEN ausente. Pulando limpeza de pacotes."
+if [ -z "$GITEA_TOKEN" ] || [ -z "$GITEA_API" ] || [ -z "$GITEA_USER" ]; then
+  echo "Aviso: GITEA_API/GITEA_USER/GITEA_TOKEN ausente. Pulando limpeza de pacotes."
   exit 0
 fi
 
