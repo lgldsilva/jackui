@@ -4,7 +4,7 @@
 
 ## Stack
 
-- **Backend**: Go 1.22 + Gin. Streaming via `anacrolix/torrent` (BitTorrent → HTTP with Range). Transcode via ffmpeg (NVENC/VAAPI/QSV/libx264).
+- **Backend**: Go 1.25 + Gin. Streaming via `anacrolix/torrent` (BitTorrent → HTTP with Range). Transcode via ffmpeg (NVENC/VAAPI/QSV/libx264).
 - **Frontend**: React 18 + TypeScript + Vite + TailwindCSS (dark theme default; light via CSS vars in `web/src/index.css`), embedded in the binary (`//go:embed all:dist`). i18n via react-i18next (`web/src/lib/i18n.ts`, `web/src/locales/{pt,en}.json`). Pure-function tests with vitest (`web/vitest.config.mts`).
 - **Desktop** (optional): Electron wrapper in `electron/` (`make dev-electron` / `make build-electron`).
 - **Infra**: Docker on a home server via a remote context (set `DOCKER_CONTEXT`/`DEPLOY_HOST` in `.env`). The repo default (`make deploy-auto`) is no-VPN. ⚠ **Prod does NOT match that default**: the live container runs **behind gluetun** (`network_mode: container:gluetun`, port forwarded; the forwarded-port watcher restarts on rotation). The prod compose is a **hand-maintained copy** on the server that kept the gluetun overlay — see CI/CD below. Without VPN it would reach the reverse proxy (e.g. NPM) at `jackui:8989`; behind gluetun, egress and the inbound peer port go through the VPN.
