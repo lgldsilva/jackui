@@ -55,7 +55,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 | Layer | Tech |
 |---|---|
-| Backend | Go 1.22, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
+| Backend | Go 1.25, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
 | Transcode | ffmpeg (NVENC / VAAPI / QSV / libx264), HLS for Safari |
 | Frontend | React 18 + TypeScript + Vite + TailwindCSS, embedded via `//go:embed all:dist` |
 | Storage | SQLite (`modernc.org/sqlite`, pure-Go) for state; disk cache for pieces |
@@ -63,7 +63,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 ## Requirements
 
-- **Go 1.22+** and **Node 18+** (for development/building).
+- **Go 1.25+** and **Node 18+** (for development/building).
 - **ffmpeg** with the hardware encoders you intend to use (NVENC needs an NVIDIA GPU + the NVIDIA container toolkit; VAAPI/QSV need `/dev/dri`).
 - **Docker** (for deployment) and a [Jackett](https://github.com/Jackett/Jackett) instance for search.
 

@@ -28,7 +28,7 @@ services:
     image: gitea/act_runner:latest
     restart: always
     environment:
-      GITEA_INSTANCE_URL: https://gitea.raspberrypi.lan
+      GITEA_INSTANCE_URL: https://gitea.example.com   # a URL da sua instância do Gitea
       GITEA_RUNNER_REGISTRATION_TOKEN: "<REGISTRATION_TOKEN>"
       GITEA_RUNNER_NAME: "ci-ampere-1"      # ou ci-ampere-2 / deploy-homeserver
       GITEA_RUNNER_LABELS: "arm64"          # no homeserver: "deploy"
@@ -44,15 +44,19 @@ services:
 de um job resolve o path **no daemon do host**. Nos workflows, montar via o path do
 workspace que o runner expõe, ou preferir actions oficiais que já cuidam disso.
 
-⚠ **TLS interno:** os nós precisam confiar na CA do `gitea.raspberrypi.lan` (mesma
-exigência dos builds ARM atuais no Jenkins).
+⚠ **TLS interno:** se a instância usa uma CA privada, os nós precisam confiar nela
+(mesma exigência dos builds ARM atuais no Jenkins).
 
 ## Secrets/vars a criar (Settings → Actions)
 
-Secrets: `SONAR_TOKEN`, `SONAR_HOST_URL`, `DT_API`, `DT_USER`, `DT_PASS`,
+O host do próprio Gitea NÃO precisa ser configurado — os workflows o derivam de
+`github.server_url`/`github.api_url` (injetados pelo runner).
+
+Secrets: `SONAR_TOKEN`, `DT_API`, `DT_USER`, `DT_PASS`,
 `REGISTRY_TOKEN` (PAT `write:package`), `PROD_COMPOSE` (caminho do compose de prod),
 e opcional `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`.
-Vars: `REGISTRY=gitea.raspberrypi.lan`.
+Vars: `REGISTRY` (host do registry), `SONAR_HOST_URL` (URL do SonarQube) e
+`SONAR_HOSTS` (linha de `/etc/hosts` "IP hostname", se o host do Sonar não resolver via DNS no runner).
 
 ## Ativação
 

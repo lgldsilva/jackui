@@ -80,7 +80,7 @@ jobs:
           if [ -n "$BOTK" ] && [ -n "$PR_NUMBER" ]; then
             echo "Aprovando PR #$PR_NUMBER via bot..."
             curl -sf -X POST -H "Authorization: token $BOTK" -H 'Content-Type: application/json' \
-              "https://gitea.raspberrypi.lan/api/v1/repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" \
+              "${{ github.api_url }}/repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews" \
               -d '{"event":"APPROVED","body":"Gates do CI verdes (backend test + frontend build) — aprovado automaticamente pelo ci-bot no Gitea Actions."}' || echo "Aviso: falha ao enviar aprovação do bot."
           else
             echo "Secrets ou número do PR não disponíveis para o bot."

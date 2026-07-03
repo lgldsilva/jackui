@@ -72,11 +72,14 @@ jobs:
       - name: SonarQube analysis + gate
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+          # Linha de /etc/hosts p/ resolver o host do Sonar no runner (formato "IP hostname").
+          SONAR_HOSTS_ENTRY: ${{ vars.SONAR_HOSTS }}
           NODE_TLS_REJECT_UNAUTHORIZED: "0"
         run: |
-          echo "192.168.0.100 sonar.raspberrypi.lan" | sudo tee -a /etc/hosts || echo "192.168.0.100 sonar.raspberrypi.lan" >> /etc/hosts || true
+          [ -n "$SONAR_HOSTS_ENTRY" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
           npx -y sonarqube-scanner \
-            -Dsonar.host.url=https://sonar.raspberrypi.lan \
+            -Dsonar.host.url="$SONAR_HOST_URL" \
             -Dsonar.token=$SONAR_TOKEN
 
   sbom:
@@ -96,8 +99,9 @@ jobs:
     needs: [sonar]            # ← só entrega se o GATE passou
     runs-on: [self-hosted, deploy]   # homeserver: amd64 nativo + GPU + docker.sock
     env:
-      REGISTRY: "${{ vars.REGISTRY || 'gitea.raspberrypi.lan' }}"
-      IMAGE: "${{ vars.REGISTRY || 'gitea.raspberrypi.lan' }}/lgldsilva/jackui"
+      # Host do container registry — configurado em Settings → Actions → Variables (vars.REGISTRY).
+      REGISTRY: "${{ vars.REGISTRY }}"
+      IMAGE: "${{ vars.REGISTRY }}/${{ github.repository }}"
     steps:
       # fetch-depth: 0 traz TODAS as tags — sem elas o semver.sh não acha a última
       # (ex. v0.78.5) e cai no fallback v0.0.1 (tela Sobre mostrava version=v0.0.1).
@@ -155,21 +159,27 @@ jobs:
       - name: Publicar tag de versão Git
         env:
           SEMVER: ${{ steps.ver.outputs.semver }}
-          GITEA_USER: "lgldsilva"
+          GITEA_USER: ${{ github.repository_owner }}
           GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
         run: |
           if [ -n "$SEMVER" ]; then
             git config --global user.name "Gitea Actions"
-            git config --global user.email "actions@gitea.raspberrypi.lan"
+            git config --global user.email "actions@noreply.local"
             if git rev-parse "refs/tags/$SEMVER" >/dev/null 2>&1; then
               echo "Tag $SEMVER já existe — nada a publicar."
             else
               git tag "$SEMVER"
-              git -c http.sslVerify=false push "https://$GITEA_USER:$GITEA_TOKEN@gitea.raspberrypi.lan/lgldsilva/jackui.git" "refs/tags/$SEMVER" || echo "Aviso: push da tag falhou."
+              # Injeta as credenciais no host derivado de github.server_url (sem host hardcoded).
+              PUSH_URL="https://$GITEA_USER:$GITEA_TOKEN@${SERVER_URL#https://}/$REPO.git"
+              git -c http.sslVerify=false push "$PUSH_URL" "refs/tags/$SEMVER" || echo "Aviso: push da tag falhou."
             fi
           fi
       - name: Limpeza de versões de pacotes antigas
         env:
+          GITEA_API: ${{ github.api_url }}
+          GITEA_USER: ${{ github.repository_owner }}
           GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           bash scripts/cleanup-packages.sh || echo "Aviso: falha na limpeza de pacotes."

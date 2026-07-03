@@ -4,7 +4,8 @@
 
 set -e
 
-DT_API="${DT_API:-http://10.228.143.12:8081}"
+# DT_API vem do workflow (secrets.DT_API); sem default hardcoded para não vazar o host interno.
+DT_API="${DT_API}"
 DT_USER="${DT_USER}"
 DT_PASS="${DT_PASS}"
 
@@ -19,8 +20,8 @@ fi
 
 echo "=== SBOM gerado com sucesso (~$(du -h bom.json | cut -f1)) ==="
 
-if [ -z "$DT_USER" ] || [ -z "$DT_PASS" ]; then
-  echo "Aviso: Credenciais do Dependency-Track ausentes (DT_USER / DT_PASS). Pulando upload."
+if [ -z "$DT_API" ] || [ -z "$DT_USER" ] || [ -z "$DT_PASS" ]; then
+  echo "Aviso: Dependency-Track não configurado (DT_API / DT_USER / DT_PASS). Pulando upload."
   exit 0
 fi
 
