@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
@@ -89,45 +89,24 @@ type localProbe struct {
 func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	// -show_format gives format_name (e.g. "matroska,webm" or "mov,mp4,m4a,3gp,3g2,mj2"),
-	// -show_streams gives codec_name per stream. JSON is easy to parse.
-	cmd := exec.CommandContext(cctx, "ffprobe",
-		ffHideBanner, ffLogLevel, "error",
-		"-of", "json",
-		"-show_format", "-show_streams",
-		path,
-	)
-	out, err := cmd.Output()
-	if err != nil && len(out) == 0 {
-		return localProbe{}, fmt.Errorf("ffprobe: %w", err)
+	// Reuse the unified probe (streamer.ProbeLocal → parseProbeOutput) instead of
+	// a second ffprobe invocation + parser. localProbe only needs a subset:
+	// DurationSec is reused by the HLS session to skip the slow 30s seekable probe
+	// (the rclone/Drive latency win); Container/VideoCodec/AudioCodec drive the
+	// direct-vs-HLS decision.
+	res, err := streamer.ProbeLocal(cctx, path)
+	if err != nil {
+		return localProbe{}, err
 	}
-	var parsed struct {
-		Streams []struct {
-			CodecType string `json:"codec_type"`
-			CodecName string `json:"codec_name"`
-		} `json:"streams"`
-		Format struct {
-			FormatName string `json:"format_name"`
-			Duration   string `json:"duration"`
-		} `json:"format"`
-	}
-	if jerr := json.Unmarshal(out, &parsed); jerr != nil {
-		return localProbe{}, fmt.Errorf("decode ffprobe: %w", jerr)
-	}
-	// DurationSec is reused by the HLS session to skip the slow 30s seekable
-	// probe (the rclone/Drive latency win); Container drives the direct-vs-HLS
-	// decision.
 	p := localProbe{
-		DurationSec: parseDurationSec(parsed.Format.Duration),
-		Container:   firstFormatName(parsed.Format.FormatName),
+		DurationSec: res.DurationSec,
+		Container:   res.Container,
+		VideoCodec:  res.VideoCodec,
 	}
-	for _, st := range parsed.Streams {
-		if p.VideoCodec == "" && st.CodecType == "video" {
-			p.VideoCodec = strings.ToLower(st.CodecName)
-		}
-		if p.AudioCodec == "" && st.CodecType == "audio" {
-			p.AudioCodec = strings.ToLower(st.CodecName)
-		}
+	// AudioCodec is the FIRST audio stream (res.AudioCodec is the DEFAULT track,
+	// which would differ for multi-audio files) — preserve prior semantics.
+	if len(res.Audio) > 0 {
+		p.AudioCodec = strings.ToLower(res.Audio[0].Codec)
 	}
 	return p, nil
 }
