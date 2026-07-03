@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, lazy, Suspense, ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, libraryList, isLocalHash, parseLocalHash } from '../api/client'
 import { detectKind, syntheticResult } from '../lib/playable'
@@ -8,7 +8,9 @@ import { isRevealHidden } from '../lib/reveal'
 import { shouldBlockHiddenDeepLink } from '../lib/deepLinkGate'
 import { shuffledOrder } from '../lib/shuffle'
 import { savePlaylistSnapshot, loadPlaylistSnapshot, clearPlaylistSnapshot, snapshotIndexOfHash } from './player/playlistSnapshot'
-import PlayerModal from './PlayerModal'
+// Lazy so hls.js (~150KB gz) + the whole player bundle load only on first play,
+// not in the initial bundle of every page (this provider lives above the router).
+const PlayerModal = lazy(() => import('./PlayerModal'))
 
 /**
  * PlayerProvider — central authority for "what's currently playing" and "what's next".
@@ -578,6 +580,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           between full and minimized via the header button, and playback
           survives navigation since this provider lives above the router. */}
       {current && (
+        <Suspense fallback={null}>
         <PlayerModal
           key={currentKind === 'audio' ? 'audio' : 'video'}
           result={current.result}
@@ -600,6 +603,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           onHome={close}
           onProgress={(s) => { lastTimeRef.current = s }}
         />
+        </Suspense>
       )}
     </Ctx.Provider>
   )
