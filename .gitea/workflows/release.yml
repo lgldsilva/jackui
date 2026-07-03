@@ -108,6 +108,7 @@ jobs:
           docker build -f Dockerfile.nvidia \
             --build-arg GIT_COMMIT=${{ github.sha }} \
             --build-arg APP_VERSION=${{ steps.ver.outputs.semver }} \
+            --build-arg BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -t $IMAGE:${{ github.sha }} -t $IMAGE:nvidia .
       - name: Trivy (gate CRITICAL, imagem LOCAL, ANTES do push)
         run: |
@@ -122,11 +123,31 @@ jobs:
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:nvidia
           docker logout $REGISTRY
-      - name: deploy (docker.sock local; compose de prod atrás do gluetun)
+      - name: deploy (docker.sock local; recria jackui no projeto compose de prod)
         run: |
           docker pull $IMAGE:nvidia
           docker tag $IMAGE:nvidia jackui:nvidia
-          docker compose -f "${{ secrets.PROD_COMPOSE }}" up -d --force-recreate jackui
+          # PROD_COMPOSE aponta pro compose PAI (vpn-gateway), que faz `include` do jackui:
+          # o container roda no projeto "vpn-gateway", junto do gluetun (network_mode:
+          # service:gluetun). Mirar o compose standalone do jackui criava um container órfão
+          # "jackui-jackui-1" que morria (exit 1) e deixava o prod real intocado — deploy
+          # verde-falso. --no-deps recria SÓ o jackui, sem tocar gluetun/postgres.
+          docker compose -f "${{ secrets.PROD_COMPOSE }}" up -d --no-deps --force-recreate jackui
+      - name: verificar deploy (healthz + commit) — fim do "verde-falso"
+        run: |
+          # docker compose up -d retorna 0 mesmo se o container morre logo após subir.
+          # Aqui falhamos o job se /status não responder ok NO COMMIT novo em até 90s.
+          want="${{ github.sha }}"
+          for i in $(seq 1 30); do
+            out=$(docker exec gluetun wget -qO- http://127.0.0.1:8989/status 2>/dev/null || true)
+            if echo "$out" | grep -q '"status":"ok"' && echo "$out" | grep -q "$want"; then
+              echo "deploy OK: $out"; exit 0
+            fi
+            sleep 3
+          done
+          echo "DEPLOY FALHOU: /status não reporta ok+commit $want após 90s"
+          docker exec gluetun wget -qO- http://127.0.0.1:8989/status 2>/dev/null || true
+          exit 1
       - name: Publicar tag de versão Git
         env:
           SEMVER: ${{ steps.ver.outputs.semver }}

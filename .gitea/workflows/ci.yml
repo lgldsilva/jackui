@@ -1,16 +1,12 @@
-# CI — gates de PR/push (backend + frontend). Protótipo da migração Jenkins → Gitea Actions.
-# ⚠ Trigger em workflow_dispatch (manual) enquanto os runners ARM não estão registrados.
-# Quando os runners `arm64` estiverem no ar e validados, trocar por:
-#   on:
-#     pull_request:
-#     push:
-#       branches: [main]
-# e ativar branch protection exigindo os checks "CI / backend" e "CI / frontend".
+# CI — gates de Pull Request (backend + frontend + auto-approve). Migração Jenkins → Gitea Actions.
+#
+# SÓ roda em `pull_request`: os gates pertencem ao PR. O deploy (e os gates no contexto
+# da main) são do release.yml, que RE-roda backend/frontend no push da main — o Sonar
+# Community só analisa push e o job `sonar` consome o coverage.out gerado no mesmo run.
+# Manter `push: [main]` aqui duplicava backend+frontend a cada merge (o release já os roda).
 name: CI
 on:
   pull_request:
-  push:
-    branches: [main]
 
 jobs:
   backend:
