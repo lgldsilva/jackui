@@ -111,6 +111,7 @@ function FileRowImpl(
               title="Baixar esta pasta"
               aria-label="Baixar esta pasta"
               onClick={e => { e.stopPropagation(); onDownloadFolder(f) }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDownloadFolder(f) } }}
               className="p-1 -m-1 rounded hover:bg-surface-tertiary text-text-muted hover:text-blue-400 transition-colors"
             >
               <FolderDown className="w-3.5 h-3.5" />

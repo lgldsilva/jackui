@@ -35,6 +35,10 @@ type sourceSearcher interface {
 // transient swarm hiccups self-heal without the user re-queueing manually.
 const maxInitRetries = 3
 
+// logFmtSetFilePathFailed is the shared log format for a failed SetFilePath
+// (used in the 3 completion-move paths), kept as a const to avoid duplication.
+const logFmtSetFilePathFailed = "downloads: failed to set file path for download %d: %v"
+
 // QueueSettings are the live scheduling knobs the worker reads each tick. A nil
 // Settings getter (or zero values) falls back to DefaultQueueSettings.
 type QueueSettings struct {
@@ -1106,7 +1110,7 @@ func (w *Worker) tryFinalizeBulk(d Download, name string, relPaths []string, who
 			}
 		}
 		if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
-			log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+			log.Printf(logFmtSetFilePathFailed, d.ID, err)
 		}
 		w.streamer.UnregisterDownload(name)
 		log.Printf("downloads: #%d %q already in bulk (no move) → %s", d.ID, name, dst)
@@ -1428,7 +1432,7 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string, job 
 	}
 	job.FileDone()
 	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
-		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+		log.Printf(logFmtSetFilePathFailed, d.ID, err)
 	}
 	w.streamer.UnregisterDownload(torrentName)
 	log.Printf("downloads: moved #%d %q → %s", d.ID, torrentName, dst)
@@ -1458,7 +1462,7 @@ func (w *Worker) moveCompletedTorrentFiles(d Download, torrentName string, relPa
 		return "", err
 	}
 	if err := w.store.SetFilePath(d.UserID, d.ID, destDir); err != nil {
-		log.Printf("downloads: failed to set file path for download %d: %v", d.ID, err)
+		log.Printf(logFmtSetFilePathFailed, d.ID, err)
 	}
 	w.streamer.UnregisterDownload(torrentName)
 	log.Printf("downloads: moved whole torrent #%d %q (%d files) → %s", d.ID, torrentName, len(relPaths), destDir)
