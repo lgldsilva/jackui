@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useVisiblePolling } from '../../lib/useVisiblePolling'
 import { Loader2, ArrowDown, ArrowUp, Users, Lock } from 'lucide-react'
 import { PeerInfo, downloadPeers } from '../../api/downloads'
@@ -18,6 +19,7 @@ function sortPeers(peers: PeerInfo[]): PeerInfo[] {
 // montado (o pai só monta quando a aba está aberta). A lib anacrolix não expõe
 // choke/interest, então "enviando"/"recebendo" são INFERIDOS das taxas ao vivo.
 export default function PeersTab({ downloadId }: Props) {
+  const { t } = useTranslation()
   const [peers, setPeers] = useState<PeerInfo[]>([])
   const [active, setActive] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -30,11 +32,11 @@ export default function PeersTab({ downloadId }: Props) {
       setActive(d.active)
       setError('')
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Erro carregando peers')
+      setError((e as Error)?.message || t('downloads.inspect.peers.errorLoading'))
     } finally {
       setLoading(false)
     }
-  }, [downloadId])
+  }, [downloadId, t])
 
   useEffect(() => { load() }, [load])
   useVisiblePolling(load, 2000)
@@ -43,7 +45,7 @@ export default function PeersTab({ downloadId }: Props) {
     return (
       <div className="flex items-center gap-2 text-text-secondary py-8 justify-center">
         <Loader2 className="w-4 h-4 animate-spin" />
-        Carregando peers...
+        {t('downloads.inspect.peers.loading')}
       </div>
     )
   }
@@ -53,8 +55,7 @@ export default function PeersTab({ downloadId }: Props) {
   if (!active) {
     return (
       <p className="text-sm text-text-muted py-6 text-center">
-        Torrent inativo — não está no swarm no momento, então não há upload nem peers.
-        Toque ou baixe pra reativar (ou marque o tracker em Ajustes → seed contínuo).
+        {t('downloads.inspect.peers.inactive')}
       </p>
     )
   }
@@ -62,7 +63,7 @@ export default function PeersTab({ downloadId }: Props) {
     return (
       <div className="flex flex-col items-center gap-2 text-text-muted py-8">
         <Users className="w-6 h-6 opacity-50" />
-        <p className="text-sm">Nenhum peer conectado agora.</p>
+        <p className="text-sm">{t('downloads.inspect.peers.noPeers')}</p>
       </div>
     )
   }
@@ -74,19 +75,19 @@ export default function PeersTab({ downloadId }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 text-xs text-text-muted">
-        <span>{peers.length} peers</span>
-        <span className="text-emerald-600 dark:text-emerald-400">{sending} recebendo de nós</span>
-        <span>{seeders} seeders</span>
+        <span>{t('downloads.inspect.peers.peersCount', { count: peers.length })}</span>
+        <span className="text-emerald-600 dark:text-emerald-400">{t('downloads.inspect.peers.summarySending', { count: sending })}</span>
+        <span>{t('downloads.inspect.peers.seedersCount', { count: seeders })}</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-text-muted border-b border-default">
-              <th className="py-1.5 pr-2 font-medium">Peer</th>
-              <th className="py-1.5 px-2 font-medium">Disponível</th>
+              <th className="py-1.5 pr-2 font-medium">{t('downloads.inspect.peers.headerPeer')}</th>
+              <th className="py-1.5 px-2 font-medium">{t('downloads.inspect.peers.headerAvailable')}</th>
               <th className="py-1.5 px-2 font-medium text-right whitespace-nowrap"><ArrowDown className="w-3 h-3 inline" /></th>
               <th className="py-1.5 px-2 font-medium text-right whitespace-nowrap"><ArrowUp className="w-3 h-3 inline" /></th>
-              <th className="py-1.5 pl-2 font-medium">Estado</th>
+              <th className="py-1.5 pl-2 font-medium">{t('downloads.inspect.peers.headerState')}</th>
             </tr>
           </thead>
           <tbody>
@@ -97,7 +98,7 @@ export default function PeersTab({ downloadId }: Props) {
                   <div className="text-[10px] text-text-muted flex items-center gap-1">
                     {p.client && <span className="truncate max-w-[140px]" title={p.client}>{p.client}</span>}
                     {p.network && <span className="uppercase">{p.network}</span>}
-                    {p.encrypted && <Lock className="w-2.5 h-2.5" aria-label="criptografado" />}
+                    {p.encrypted && <Lock className="w-2.5 h-2.5" aria-label={t('downloads.inspect.peers.encrypted')} />}
                   </div>
                 </td>
                 <td className="py-1.5 px-2 align-top min-w-[90px]">
@@ -119,9 +120,9 @@ export default function PeersTab({ downloadId }: Props) {
                 </td>
                 <td className="py-1.5 pl-2 align-top">
                   <div className="flex flex-wrap gap-1">
-                    {p.isSeeder && <Badge cls="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">seeder</Badge>}
-                    {p.sending && <Badge cls="bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30">enviando</Badge>}
-                    {p.receiving && <Badge cls="bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30">recebendo</Badge>}
+                    {p.isSeeder && <Badge cls="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">{t('downloads.inspect.peers.badgeSeeder')}</Badge>}
+                    {p.sending && <Badge cls="bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30">{t('downloads.inspect.peers.badgeSending')}</Badge>}
+                    {p.receiving && <Badge cls="bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30">{t('downloads.inspect.peers.badgeReceiving')}</Badge>}
                   </div>
                 </td>
               </tr>
@@ -130,7 +131,7 @@ export default function PeersTab({ downloadId }: Props) {
         </table>
       </div>
       <p className="text-[10px] text-text-muted">
-        "Enviando"/"recebendo" são inferidos das taxas atuais — a lib não expõe o estado de choke/interest.
+        {t('downloads.inspect.peers.footerNote')}
       </p>
     </div>
   )

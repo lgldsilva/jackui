@@ -76,6 +76,7 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint      # ESLint: sonarjs/cognitive-complexity 15 (espelha S3776)
+      - run: npm run check:i18n # falha se houver PT acentuado hardcoded em posição de UI (#419)
       - run: npm test          # vitest run
       - run: npm run build
 

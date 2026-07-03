@@ -1,5 +1,6 @@
 import { forwardRef, memo } from 'react'
 import { Play, Eye, FolderDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { TorrentInfo, streamThumbnailURL } from '../../api/client'
 import { detectViewerKind } from '../viewer/viewerKind'
 import { useHoverThumb } from '../FileThumbHover'
@@ -52,6 +53,7 @@ function FileRowImpl(
   { file: f, infoHash, selected, hoverThumb, parseEpisode, playFile, setPreviewFileIdx, displayName, indentStyle, treeItemProps, onDownloadFolder }: FileRowProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
+  const { t } = useTranslation()
   const ep = parseEpisode(f.path)
   const extra = FILE_EXTRA_RE.test(f.path)
   const inFolder = f.path.includes('/')
@@ -93,7 +95,7 @@ function FileRowImpl(
           </span>
         )}
         {previewBadge && (
-          <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1" title="Visualizar inline">
+          <span className="text-[10px] font-mono bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded flex-shrink-0 inline-flex items-center gap-1" title={t('player.files.previewInline')}>
             <Eye className="w-3 h-3" />
             {previewBadge}
           </span>
@@ -108,8 +110,8 @@ function FileRowImpl(
             <span
               role="button"
               tabIndex={-1}
-              title="Baixar esta pasta"
-              aria-label="Baixar esta pasta"
+              title={t('player.files.downloadFolder')}
+              aria-label={t('player.files.downloadFolder')}
               onClick={e => { e.stopPropagation(); onDownloadFolder(f) }}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDownloadFolder(f) } }}
               className="p-1 -m-1 rounded hover:bg-surface-tertiary text-text-muted hover:text-blue-400 transition-colors"

@@ -1,4 +1,5 @@
 import { useState, useRef, DragEvent, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   UploadCloud, Link2, Loader2, AlertCircle, Trash2,
   ChevronDown, ChevronUp, CheckCircle2, Server, Clock,
@@ -42,6 +43,10 @@ const KEY_PATH = 'lastSavePath'
 const KEY_RECENT_PATHS = 'recentSavePaths'
 const INTERNAL_ID = '__internal__'
 
+// Minimal translate-fn signature so the module-level status renderer can format
+// with the component's `t`.
+type TFn = (key: string, opts?: Record<string, unknown>) => string
+
 const DEFAULT_MIN_BYTES = 10 * 1024 * 1024
 function defaultSelected(files: StreamFile[]): Set<number> {
   const sel = new Set<number>()
@@ -56,11 +61,11 @@ function defaultSelected(files: StreamFile[]): Set<number> {
   return sel
 }
 
-function renderItemStatus(item: TorrentItem) {
+function renderItemStatus(item: TorrentItem, t: TFn) {
   if (item.loading) {
     return <span className="text-xs text-text-muted flex items-center gap-1.5">
       <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
-      Buscando metadados...
+      {t('downloads.addTorrent.fetchingMetadata')}
     </span>
   }
   if (item.error) {
@@ -74,7 +79,7 @@ function renderItemStatus(item: TorrentItem) {
     {formatBytes(item.totalSize || 0)}
     {item.files && <>
       <span className="text-text-muted">•</span>
-      <span>{item.files.length} arquivos ({item.selectedFiles.size} selecionados)</span>
+      <span>{t('downloads.addTorrent.filesSelected', { count: item.files.length, selected: item.selectedFiles.size })}</span>
     </>}
   </span>
 }
@@ -121,6 +126,7 @@ function notifyAdded(readyItems: TorrentItem[], onAdded: (r: SearchResult) => vo
 }
 
 export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles }: Props) {
+  const { t } = useTranslation()
   const [view, setView] = useState<'drop_paste' | 'configure'>('drop_paste')
   const [magnets, setMagnets] = useState('')
   const [items, setItems] = useState<TorrentItem[]>([])
@@ -216,7 +222,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       setItems(prev => prev.map(p => p.id === item.id ? {
         ...p,
         loading: false,
-        error: err.message || 'Falha ao resolver metadados'
+        error: err.message || t('downloads.addTorrent.resolveFailed')
       } : p))
     }
   }
@@ -248,7 +254,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       if (torrentFiles.length > 0) {
         addFilesToResolve(torrentFiles)
       } else {
-        setError('Por favor, arraste apenas arquivos com a extensão .torrent')
+        setError(t('downloads.addTorrent.onlyTorrentFiles'))
       }
     }
   }
@@ -266,7 +272,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       .filter(l => l.length > 0)
 
     if (lines.length === 0) {
-      setError('Por favor, insira pelo menos um link Magnet.')
+      setError(t('downloads.addTorrent.enterMagnet'))
       return
     }
 
@@ -311,11 +317,11 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
   const handleConfirmDownloads = async () => {
     const readyItems = items.filter(item => !item.loading && !item.error)
     if (readyItems.length === 0) {
-      setError('Nenhum torrent válido para baixar.')
+      setError(t('downloads.addTorrent.noValidTorrent'))
       return
     }
     if (selectedClientId === INTERNAL_ID && readyItems.some(item => (item.files?.length ?? 0) > 0 && item.selectedFiles.size === 0)) {
-      setError('Por favor, selecione ao menos um arquivo para cada torrent ou remova-o da lista.')
+      setError(t('downloads.addTorrent.selectOnePerTorrent'))
       return
     }
 
@@ -328,7 +334,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       setSuccess(true)
       notifyAdded(readyItems, onAdded, onClose)
     } catch (err: any) {
-      setError(err.message || 'Erro ao iniciar os downloads.')
+      setError(err.message || t('downloads.addTorrent.startError'))
     } finally {
       setLoading(false)
     }
@@ -345,7 +351,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       open
       onClose={onClose}
       size="xl"
-      title={view === 'drop_paste' ? 'Adicionar Novo Torrent / Magnet' : `Configurar Downloads (${items.length})`}
+      title={view === 'drop_paste' ? t('downloads.addTorrent.title') : t('downloads.addTorrent.configureTitle', { count: items.length })}
       icon={<Link2 className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
       footer={
         <div className="flex items-center justify-between">
@@ -355,7 +361,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 onClick={() => setView('drop_paste')}
                 className="px-4 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
               >
-                Voltar
+                {t('downloads.addTorrent.back')}
               </button>
             )}
           </div>
@@ -366,7 +372,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               disabled={loading}
               className="px-4 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
             >
-              Fechar
+              {t('downloads.addTorrent.close')}
             </button>
 
             {view === 'drop_paste' ? (
@@ -375,7 +381,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 disabled={magnets.trim().length === 0}
                 className="flex items-center gap-1.5 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-white px-5 py-2 rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg shadow-cyan-500/10"
               >
-                Configurar Magnet
+                {t('downloads.addTorrent.configureMagnet')}
               </button>
             ) : (
               <button
@@ -386,10 +392,10 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Iniciando downloads...
+                    {t('downloads.addTorrent.starting')}
                   </>
                 ) : (
-                  'Confirmar Downloads'
+                  t('downloads.addTorrent.confirmDownloads')
                 )}
               </button>
             )}
@@ -408,7 +414,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
           {success && (
             <div className="flex items-start gap-2 bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg px-3 py-2.5 text-xs">
               <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span>Downloads enfileirados com sucesso!</span>
+              <span>{t('downloads.addTorrent.queuedSuccess')}</span>
             </div>
           )}
 
@@ -441,14 +447,14 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 />
                 <UploadCloud className={`w-12 h-12 ${dragActive ? 'text-cyan-400 animate-bounce' : 'text-text-muted'}`} />
                 <div className="text-center">
-                  <p className="text-sm font-medium text-text-primary">Arraste e solte um ou mais arquivos .torrent aqui</p>
-                  <p className="text-xs text-text-muted mt-1">ou clique para navegar no seu computador</p>
+                  <p className="text-sm font-medium text-text-primary">{t('downloads.addTorrent.dropTitle')}</p>
+                  <p className="text-xs text-text-muted mt-1">{t('downloads.addTorrent.dropSubtitle')}</p>
                 </div>
               </button>
 
               <div className="relative flex py-2 items-center">
                 <div className="flex-grow border-t border-default"></div>
-                <span className="flex-shrink mx-4 text-text-muted text-xs uppercase tracking-wider font-semibold">ou cole links magnet</span>
+                <span className="flex-shrink mx-4 text-text-muted text-xs uppercase tracking-wider font-semibold">{t('downloads.addTorrent.orPasteMagnet')}</span>
                 <div className="flex-grow border-t border-default"></div>
               </div>
 
@@ -457,11 +463,11 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                 <textarea
                   value={magnets}
                   onChange={e => setMagnets(e.target.value)}
-                  placeholder="Cole os links Magnet aqui (um por linha)&#10;ex: magnet:?xt=urn:btih:..."
+                  placeholder={t('downloads.addTorrent.magnetPlaceholder')}
                   className="w-full h-36 bg-surface border border-default rounded-xl px-3.5 py-2.5 text-sm text-text-primary placeholder-gray-600 focus:outline-none focus:border-cyan-500 transition-colors font-mono resize-none"
                 />
                 <p className="text-[10px] text-text-muted">
-                  Suporta múltiplos links Magnet (um em cada linha). O sistema carregará os metadados de cada um para você escolher o que baixar.
+                  {t('downloads.addTorrent.magnetHint')}
                 </p>
               </div>
             </>
@@ -472,7 +478,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-surface/60 p-4 rounded-xl border border-default/50">
                 <div>
                   <label htmlFor="download-dest" className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
-                    Destino do download
+                    {t('downloads.addTorrent.destination')}
                   </label>
                   <select
                     id="download-dest"
@@ -480,7 +486,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                     onChange={(e) => setSelectedClientId(e.target.value)}
                     className="w-full bg-surface border border-default rounded-lg px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-cyan-500 transition-colors cursor-pointer"
                   >
-                    <option value={INTERNAL_ID}>JackUI (servidor — assistir aqui)</option>
+                    <option value={INTERNAL_ID}>{t('downloads.addTorrent.internalOption')}</option>
                     {clients.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name} ({c.type})
@@ -490,7 +496,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                   {selectedClientId === INTERNAL_ID && (
                     <p className="text-[10px] text-text-muted mt-1 flex items-center gap-1">
                       <Server className="w-3 h-3 flex-shrink-0" />
-                      Baixa no servidor e aparece em Downloads.
+                      {t('downloads.addTorrent.internalHint')}
                     </p>
                   )}
 
@@ -498,7 +504,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
                 <div className={`relative ${selectedClientId === INTERNAL_ID ? 'opacity-50 pointer-events-none' : ''}`}>
                   <label htmlFor="save-path" className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
-                    Pasta de Destino <span className="text-text-muted font-normal">(opcional)</span>
+                    {t('downloads.addTorrent.destFolder')} <span className="text-text-muted font-normal">{t('downloads.addTorrent.optional')}</span>
                   </label>
                   <div className="relative">
                     <input
@@ -518,7 +524,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                         type="button"
                         onMouseDown={(e) => { e.preventDefault(); setShowRecent(s => !s) }}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                        title="Pastas recentes"
+                        title={t('downloads.addTorrent.recentFolders')}
                       >
                         <Clock className="w-4 h-4" />
                       </button>
@@ -546,7 +552,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
               {/* Resolved Torrents List */}
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-text-secondary uppercase tracking-wider">
-                  Torrents na fila para carregar ({items.length})
+                  {t('downloads.addTorrent.queuedToLoad', { count: items.length })}
                 </label>
                 <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
                   {items.map(item => (
@@ -563,7 +569,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                             {item.name}
                           </h4>
                           <div className="flex items-center gap-2.5 mt-1">
-                            {renderItemStatus(item)}
+                            {renderItemStatus(item, t)}
                           </div>
                         </div>
 
@@ -572,7 +578,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                             <button
                               onClick={() => toggleExpandItem(item.id)}
                               className="text-text-secondary hover:text-text-primary p-1 rounded-lg hover:bg-surface-secondary transition-colors"
-                              title="Configurar arquivos individuais"
+                              title={t('downloads.addTorrent.configureFiles')}
                             >
                               {item.expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                             </button>
@@ -580,7 +586,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                           <button
                             onClick={() => handleRemoveItem(item.id)}
                             className="text-text-muted hover:text-red-400 p-1 rounded-lg hover:bg-surface-secondary transition-colors"
-                            title="Remover torrent"
+                            title={t('downloads.addTorrent.removeTorrent')}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -594,7 +600,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                             files={item.files ?? []}
                             selected={item.selectedFiles}
                             onChange={next => updateItemSelection(item.id, next)}
-                            label="Lista de Arquivos"
+                            label={t('downloads.addTorrent.fileList')}
                           />
                         </div>
                       )}

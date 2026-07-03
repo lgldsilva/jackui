@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Volume2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL, isIOS } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import Hls from 'hls.js'
@@ -168,6 +169,7 @@ export function VideoPlayerElement({
   onResumeContinue,
   onResumeRestart,
 }: VideoPlayerElementProps) {
+  const { t } = useTranslation()
   // HLS (.m3u8) toca nativo só no WebKit (Safari + qualquer browser iOS). Chrome/
   // Firefox/Edge desktop precisam do hls.js pra tocar o MESMO HLS-VOD — é o que
   // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
@@ -340,10 +342,10 @@ export function VideoPlayerElement({
             kind={subtitleVttURL ? 'subtitles' : 'metadata'}
             src={subtitleVttURL || ''}
             srcLang={subtitleVttURL ? 'pt' : ''}
-            label={subtitleVttURL ? 'Português (BR)' : ''}
+            label={subtitleVttURL ? t('player.video.subtitleTrackLabel') : ''}
             default
           />
-          <track kind="captions" srcLang="pt" label="Português (BR) [CC]" />
+          <track kind="captions" srcLang="pt" label={t('player.video.captionsTrackLabel')} />
         </video>
       )}
       {videoError && renderVideoError()}

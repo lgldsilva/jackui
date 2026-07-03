@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   Info, Files, Copy, Check, RefreshCw, FileVideo, FileAudio, FileText,
   Loader2, AlertCircle, Trash2, Square,
@@ -31,32 +32,35 @@ type Props = {
 
 type Tab = 'overview' | 'files' | 'trackers' | 'peers' | 'sources' | 'actions'
 
+// Minimal translate-fn signature so the module-level render helpers can receive
+// the component's `t` without pulling the full i18next type surface.
+type TFn = (key: string, opts?: Record<string, unknown>) => string
+
 // sourceStatusBadge maps a source's lifecycle to a label + color for the list.
-function sourceStatusBadge(status: DownloadSource['status']): { label: string; cls: string } {
+function sourceStatusBadge(status: DownloadSource['status'], t: TFn): { label: string; cls: string } {
   switch (status) {
-    case 'active': return { label: 'ativa', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
-    case 'cooldown': return { label: 'aguardando', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' }
-    case 'failed': return { label: 'falhou', cls: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30' }
-    default: return { label: 'candidata', cls: 'bg-gray-600/30 text-text-primary border-strong/50' }
+    case 'active': return { label: t('downloads.inspect.sourceStatus.active'), cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
+    case 'cooldown': return { label: t('downloads.inspect.sourceStatus.cooldown'), cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' }
+    case 'failed': return { label: t('downloads.inspect.sourceStatus.failed'), cls: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30' }
+    default: return { label: t('downloads.inspect.sourceStatus.candidate'), cls: 'bg-gray-600/30 text-text-primary border-strong/50' }
   }
 }
 
-function renderSourcesTab(sources: DownloadSource[], loading: boolean): React.ReactNode {
+function renderSourcesTab(sources: DownloadSource[], loading: boolean, t: TFn): React.ReactNode {
   if (loading) {
-    return <div className="flex items-center gap-2 text-text-secondary py-8 justify-center"><Loader2 className="w-4 h-4 animate-spin" />Carregando fontes...</div>
+    return <div className="flex items-center gap-2 text-text-secondary py-8 justify-center"><Loader2 className="w-4 h-4 animate-spin" />{t('downloads.inspect.sourcesLoading')}</div>
   }
   if (sources.length === 0) {
     return (
       <p className="text-sm text-text-muted py-6 text-center">
-        Nenhuma fonte alternativa ainda. Quando a rotação automática estiver ligada e o download ficar sem seed,
-        outras fontes do mesmo conteúdo aparecerão aqui.
+        {t('downloads.inspect.sourcesEmpty')}
       </p>
     )
   }
   return (
     <ul className="flex flex-col gap-2">
       {sources.map((s) => {
-        const badge = sourceStatusBadge(s.status)
+        const badge = sourceStatusBadge(s.status, t)
         return (
           <li key={s.id} className="flex items-center gap-3 bg-surface/60 rounded-lg px-3 py-2">
             <span className={`text-[10px] px-1.5 py-0.5 rounded-md border font-medium whitespace-nowrap ${badge.cls}`}>{badge.label}</span>
@@ -64,8 +68,8 @@ function renderSourcesTab(sources: DownloadSource[], loading: boolean): React.Re
               <div className="text-sm text-text-primary truncate" title={s.title}>{s.title || s.infoHash}</div>
               <div className="text-[11px] text-text-muted flex items-center gap-2 flex-wrap">
                 <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{s.tracker || '—'}</span>
-                <span className="text-green-400">{s.seeders} seed</span>
-                {s.tries > 0 && <span>· {s.tries}× tentada</span>}
+                <span className="text-green-400">{t('downloads.inspect.sourceSeed', { count: s.seeders })}</span>
+                {s.tries > 0 && <span>{t('downloads.inspect.sourceTries', { count: s.tries })}</span>}
               </div>
             </div>
           </li>
@@ -87,14 +91,14 @@ function fileIcon(f: StreamFile, primary: boolean) {
   return <FileText className={`w-4 h-4 ${color} flex-shrink-0`} />
 }
 
-function filesTabLabel(torrent: TorrentInfo | null | undefined): string {
-  if (!torrent) return 'Arquivos'
-  return `Arquivos (${torrent.files.length})`
+function filesTabLabel(torrent: TorrentInfo | null | undefined, t: TFn): string {
+  if (!torrent) return t('downloads.inspect.tabFiles')
+  return t('downloads.inspect.tabFilesCount', { count: torrent.files.length })
 }
 
-function trackersTabLabel(trackers: readonly string[]): string {
-  if (trackers.length === 0) return 'Trackers'
-  return `Trackers (${trackers.length})`
+function trackersTabLabel(trackers: readonly string[], t: TFn): string {
+  if (trackers.length === 0) return t('downloads.inspect.tabTrackers')
+  return t('downloads.inspect.tabTrackersCount', { count: trackers.length })
 }
 
 function renderFilesTab(
@@ -106,11 +110,12 @@ function renderFilesTab(
   siblings: readonly DownloadEntry[],
   adopting: number | null,
   onAdopt: (f: StreamFile) => void,
+  t: TFn,
 ): React.ReactNode {
   if (!torrent && !syntheticFile) {
     return (
       <p className="text-xs text-text-muted italic py-2">
-        Torrent não está ativo agora — lista de arquivos não disponível. Tente fazer um recheck pra re-attach.
+        {t('downloads.inspect.filesInactive')}
       </p>
     )
   }
@@ -125,14 +130,14 @@ function renderFilesTab(
           </div>
           <div className="text-right flex-shrink-0">
             <p className="text-xs text-text-secondary">{formatBytes(syntheticFile.size)}</p>
-            <p className="text-[10px] text-green-400 uppercase tracking-wide">este download</p>
+            <p className="text-[10px] text-green-400 uppercase tracking-wide">{t('downloads.inspect.thisDownload')}</p>
           </div>
         </li>
       </ul>
     )
   }
   if (!torrent || torrent.files.length === 0) {
-    return <p className="text-xs text-text-muted italic">Sem arquivos.</p>
+    return <p className="text-xs text-text-muted italic">{t('downloads.inspect.noFiles')}</p>
   }
   const hasRow = (idx: number) => siblings.some(s => s.fileIndex === idx)
   const missing = torrent.files.filter(f => !hasRow(f.index))
@@ -143,9 +148,9 @@ function renderFilesTab(
           onClick={() => { for (const f of missing) onAdopt(f) }}
           disabled={adopting !== null}
           className="self-start flex items-center gap-1.5 text-xs bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-3 py-1.5 rounded-lg transition-colors"
-          title="Baixa (e move pra downloads ao concluir) todos os arquivos que ainda estão só em streaming"
+          title={t('downloads.inspect.downloadMissingTitle')}
         >
-          <Download className="w-3.5 h-3.5" /> Baixar os {missing.length} que faltam
+          <Download className="w-3.5 h-3.5" /> {t('downloads.inspect.downloadMissing', { count: missing.length })}
         </button>
       )}
       <ul className="bg-surface border border-default rounded-lg divide-y divide-default overflow-hidden">
@@ -175,16 +180,16 @@ function renderFilesTab(
                 <button
                   onClick={() => onAdopt(f)}
                   disabled={adopting !== null}
-                  title="Baixar este arquivo (move pra downloads ao concluir; reaproveita o que já está em cache)"
+                  title={t('downloads.inspect.adoptFileTitle')}
                   className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-cyan-500/15 hover:bg-cyan-500/25 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-2 py-1 rounded-md transition-colors"
                 >
                   {adopting === f.index ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
-                  Baixar
+                  {t('downloads.inspect.download')}
                 </button>
               ) : pct !== null && (
                 done
-                  ? <span className="text-[10px] text-emerald-400 flex-shrink-0 inline-flex items-center gap-0.5" title="Arquivo completo"><Check className="w-3 h-3" />ok</span>
-                  : <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0" title="Ainda não baixado por completo">{pct}%</span>
+                  ? <span className="text-[10px] text-emerald-400 flex-shrink-0 inline-flex items-center gap-0.5" title={t('downloads.inspect.fileComplete')}><Check className="w-3 h-3" />{t('downloads.inspect.ok')}</span>
+                  : <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0" title={t('downloads.inspect.fileIncomplete')}>{pct}%</span>
               )}
               {f.size > 0 && <span className="text-xs text-text-muted tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>}
             </li>
@@ -196,6 +201,7 @@ function renderFilesTab(
 }
 
 export default function DownloadInspectModal({ download, onClose, onMutated, onDeleted, onPromote, onPlay, siblings, onAdopted }: Props) {
+  const { t } = useTranslation()
   const confirm = useConfirm()
   const { notify } = useToast()
   const [tab, setTab] = useState<Tab>('overview')
@@ -216,14 +222,14 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       const d = await downloadDetails(download.id)
       setDetails(d)
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Erro carregando detalhes')
+      setError((e as Error)?.message || t('downloads.inspect.errorDetails'))
     } finally {
       setLoading(false)
     }
     // Key on the id, not the object: the parent now derives `download` from the 2s
     // poll, so its reference changes every tick — depending on `download` would
     // re-fetch details/sources every 2s. The id is what actually identifies the row.
-  }, [download?.id])
+  }, [download?.id, t])
 
   useEffect(() => {
     if (!download) {
@@ -298,7 +304,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       onAdopted?.()
       await refresh()
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Falha ao baixar arquivo')
+      setError((e as Error)?.message || t('downloads.inspect.errorAdopt'))
     } finally {
       setAdopting(null)
     }
@@ -314,7 +320,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       // re-busca details pra refletir reset de bytes
       await refresh()
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Recheck falhou')
+      setError((e as Error)?.message || t('downloads.inspect.errorRecheck'))
     } finally {
       setBusy(null)
     }
@@ -329,7 +335,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       onMutated?.(d)
       await refresh()
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Stop seed falhou')
+      setError((e as Error)?.message || t('downloads.inspect.errorStopSeed'))
     } finally {
       setBusy(null)
     }
@@ -337,7 +343,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
 
   const handleDelete = async () => {
     if (busy) return
-    const ok = await confirm({ title: 'Apagar download', message: `Apagar download "${d.name}"? O arquivo no disco NÃO é removido.`, confirmLabel: 'Apagar', destructive: true })
+    const ok = await confirm({ title: t('downloads.inspect.deleteTitle'), message: t('downloads.inspect.deleteMessage', { name: d.name }), confirmLabel: t('downloads.inspect.deleteConfirm'), destructive: true })
     if (!ok) return
     setBusy('delete')
     setError('')
@@ -346,7 +352,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       onDeleted?.(d.id)
       onClose()
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'Delete falhou')
+      setError((e as Error)?.message || t('downloads.inspect.errorDelete'))
       setBusy(null)
     }
   }
@@ -367,7 +373,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     priority: 'normal',
   } : null
 
-  const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon, siblings ?? [], adopting, adopt)
+  const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon, siblings ?? [], adopting, adopt, t)
 
   return (
     <Sheet
@@ -380,12 +386,12 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
         {/* Tabs — cola no topo do corpo (compensa o p-4 do Sheet) */}
         <div className="-mx-4 -mt-4 mb-4 flex border-b border-default px-2 bg-surface/40">
           {[
-            { id: 'overview' as Tab, label: 'Detalhes', icon: Info },
-            { id: 'files' as Tab, label: filesTabLabel(torrent), icon: Files },
-            { id: 'trackers' as Tab, label: trackersTabLabel(displayTrackers), icon: Globe },
-            { id: 'peers' as Tab, label: 'Peers', icon: Users },
-            { id: 'sources' as Tab, label: 'Fontes', icon: Share2 },
-            { id: 'actions' as Tab, label: 'Ações', icon: Activity },
+            { id: 'overview' as Tab, label: t('downloads.inspect.tabOverview'), icon: Info },
+            { id: 'files' as Tab, label: filesTabLabel(torrent, t), icon: Files },
+            { id: 'trackers' as Tab, label: trackersTabLabel(displayTrackers, t), icon: Globe },
+            { id: 'peers' as Tab, label: t('downloads.inspect.tabPeers'), icon: Users },
+            { id: 'sources' as Tab, label: t('downloads.inspect.tabSources'), icon: Share2 },
+            { id: 'actions' as Tab, label: t('downloads.inspect.tabActions'), icon: Activity },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -417,7 +423,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
 
           {tab === 'overview' && (
             <div className="space-y-3">
-              <Field label="Status">
+              <Field label={t('downloads.inspect.fieldStatus')}>
                 <StatusPill status={d.status} />
                 {d.error && <span className="text-red-400 text-xs ml-2">{d.error}</span>}
               </Field>
@@ -430,32 +436,32 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               <Field label="file_path">
                 <code className="text-xs text-text-primary font-mono break-all">{d.filePath || '—'}</code>
               </Field>
-              <Field label="Tamanho">
+              <Field label={t('downloads.inspect.fieldSize')}>
                 <span className="text-text-primary">{formatBytes(d.fileSize)}</span>
                 {fileStat?.exists && (
                   <span className="text-xs text-text-muted ml-2">
-                    no disco: {formatBytes(fileStat.onDisk)}
+                    {t('downloads.inspect.onDiskLabel', { size: formatBytes(fileStat.onDisk) })}
                     {sparseInfo && (
-                      <span className="ml-1.5 text-amber-400" title="Arquivo sparse — bytes alocados &lt; tamanho declarado">
-                        (sparse)
+                      <span className="ml-1.5 text-amber-400" title={t('downloads.inspect.sparseTitle')}>
+                        {t('downloads.inspect.sparse')}
                       </span>
                     )}
                   </span>
                 )}
               </Field>
-              <Field label="Progresso">
+              <Field label={t('downloads.inspect.fieldProgress')}>
                 <span className="text-text-primary">
                   {formatBytesPair(d.bytesDownloaded, d.fileSize)} ({d.fileSize > 0 ? Math.round((d.bytesDownloaded / d.fileSize) * 100) : 0}%)
                 </span>
               </Field>
               {torrent && (
                 <>
-                  <Field label="Swarm">
+                  <Field label={t('downloads.inspect.fieldSwarm')}>
                     <span className="text-text-primary">
-                      {torrent.seeders} seeders / {torrent.peers} peers
+                      {t('downloads.inspect.swarmValue', { seeders: torrent.seeders, peers: torrent.peers })}
                     </span>
                   </Field>
-                  <Field label="Velocidade">
+                  <Field label={t('downloads.inspect.fieldSpeed')}>
                     <span className="text-text-primary">
                       ↓ {formatRate(torrent.downRate)} · ↑ {formatRate(torrent.upRate)}
                     </span>
@@ -464,23 +470,23 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               )}
               {!torrent && (
                 <p className="text-xs text-text-muted italic">
-                  Torrent não está ativo no streamer agora (foi dropado pós-completed ou ainda não foi resolvido). Dados de swarm/velocidade indisponíveis.
+                  {t('downloads.inspect.torrentInactive')}
                 </p>
               )}
-              <Field label="Magnet">
+              <Field label={t('downloads.inspect.fieldMagnet')}>
                 <button
                   onClick={copyMagnet}
                   className="flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300"
                 >
                   {copiedMagnet ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copiedMagnet ? 'copiado' : 'copiar magnet'}
+                  {copiedMagnet ? t('downloads.inspect.copied') : t('downloads.inspect.copyMagnet')}
                 </button>
               </Field>
-              <Field label="Criado em">
+              <Field label={t('downloads.inspect.fieldCreated')}>
                 <span className="text-text-primary text-xs">{d.createdAt || '—'}</span>
               </Field>
               {d.completedAt && (
-                <Field label="Concluído em">
+                <Field label={t('downloads.inspect.fieldCompleted')}>
                   <span className="text-text-primary text-xs">{d.completedAt}</span>
                 </Field>
               )}
@@ -496,12 +502,12 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
             <div>
               {displayTrackers.length === 0 ? (
                 <p className="text-xs text-text-muted italic py-2 text-center">
-                  Nenhum tracker encontrado. O torrent pode ter sido adicionado via .torrent sem &tr= no magnet.
+                  {t('downloads.inspect.noTrackers')}
                 </p>
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-text-secondary mb-2">
-                    Servidores de tracker configurados para este torrent:
+                    {t('downloads.inspect.trackersConfigured')}
                   </p>
                   <ul className="bg-surface border border-default rounded-lg divide-y divide-default overflow-hidden font-mono text-xs max-h-[50vh] overflow-y-auto">
                     {displayTrackers.map(trackerUrl => (
@@ -511,12 +517,12 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
                           onClick={async () => {
                             try {
                               await navigator.clipboard.writeText(trackerUrl)
-                              notify('Tracker copiado para a área de transferência!', 'success')
+                              notify(t('downloads.inspect.trackerCopied'), 'success')
                             } catch {}
                           }}
                           className="text-[10px] text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 px-2 py-0.5 border border-cyan-500/20 hover:border-cyan-500/40 rounded transition-colors flex-shrink-0"
                         >
-                          copiar
+                          {t('downloads.inspect.copy')}
                         </button>
                       </li>
                     ))}
@@ -528,7 +534,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
           {tab === 'peers' && <PeersTab downloadId={download.id} />}
           {tab === 'sources' && (
             <div>
-              {renderSourcesTab(sources, loadingSources)}
+              {renderSourcesTab(sources, loadingSources, t)}
             </div>
           )}
           {tab === 'actions' && (
@@ -536,8 +542,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               {onPlay && fileStat?.exists && fileStat.apparent >= d.fileSize * 0.99 && (
                 <ActionRow
                   icon={Play}
-                  title="Tocar agora"
-                  desc="Assista a este arquivo completo localmente no player integrado."
+                  title={t('downloads.inspect.actionPlayTitle')}
+                  desc={t('downloads.inspect.actionPlayDesc')}
                   onClick={() => { onPlay(d); onClose() }}
                   busy={false}
                   disabled={!!busy}
@@ -546,8 +552,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               )}
               <ActionRow
                 icon={RefreshCw}
-                title="Recheck (force)"
-                desc="Re-hasha todos os pieces e reseta o progresso pro worker reconciliar com o disco. Útil quando você desconfia de corrupção."
+                title={t('downloads.inspect.actionRecheckTitle')}
+                desc={t('downloads.inspect.actionRecheckDesc')}
                 onClick={handleRecheck}
                 busy={busy === 'recheck'}
                 disabled={!!busy}
@@ -555,8 +561,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               {onPromote && d.status === 'completed' && !d.promoted && (
                 <ActionRow
                   icon={ArrowUpCircle}
-                  title="Promover"
-                  desc="Move o arquivo pra biblioteca compartilhada (JACKUI_SHARED_DIR). Opcional continuar seedando."
+                  title={t('downloads.inspect.actionPromoteTitle')}
+                  desc={t('downloads.inspect.actionPromoteDesc')}
                   onClick={() => { onPromote(d); onClose() }}
                   busy={false}
                   disabled={!!busy}
@@ -565,16 +571,16 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
               )}
               <ActionRow
                 icon={Square}
-                title="Parar de seedar"
-                desc="Dropa o torrent do streamer. O arquivo no disco permanece. Linha do download fica no DB."
+                title={t('downloads.inspect.actionStopSeedTitle')}
+                desc={t('downloads.inspect.actionStopSeedDesc')}
                 onClick={handleStopSeed}
                 busy={busy === 'stopSeed'}
                 disabled={!!busy || !torrent}
               />
               <ActionRow
                 icon={Trash2}
-                title="Apagar download"
-                desc="Remove a linha do DB. O arquivo no disco NÃO é apagado (use o promove ou apague manualmente). O torrent fica seedando se ainda estiver ativo."
+                title={t('downloads.inspect.actionDeleteTitle')}
+                desc={t('downloads.inspect.actionDeleteDesc')}
                 onClick={handleDelete}
                 busy={busy === 'delete'}
                 disabled={!!busy}

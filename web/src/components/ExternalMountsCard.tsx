@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { HardDrive, Loader2, Save, Plus, Trash2, Lock, Users, X, Search } from 'lucide-react'
 import {
   getMounts, updateMounts, adminListUsers,
@@ -14,6 +15,7 @@ function UserAccessPicker({ allUsers, selected, onToggle }: {
   readonly selected: string[]
   readonly onToggle: (username: string) => void
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const q = query.trim().toLowerCase()
@@ -23,12 +25,12 @@ function UserAccessPicker({ allUsers, selected, onToggle }: {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-text-muted">Com acesso:</span>
-        {selected.length === 0 && <span className="text-[11px] text-amber-400/80">ninguém ainda — adicione abaixo</span>}
+        <span className="text-[11px] text-text-muted">{t('mounts.with_access')}</span>
+        {selected.length === 0 && <span className="text-[11px] text-amber-400/80">{t('mounts.no_one_yet')}</span>}
         {selected.map(u => (
           <span key={u} className="inline-flex items-center gap-1 text-[11px] pl-2 pr-1 py-0.5 rounded-md bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/40">
             {u}
-            <button onClick={() => onToggle(u)} title={`Remover ${u}`} className="hover:text-blue-900 dark:hover:text-white p-0.5"><X className="w-3 h-3" /></button>
+            <button onClick={() => onToggle(u)} title={t('mounts.remove_user', { user: u })} className="hover:text-blue-900 dark:hover:text-white p-0.5"><X className="w-3 h-3" /></button>
           </span>
         ))}
       </div>
@@ -40,7 +42,7 @@ function UserAccessPicker({ allUsers, selected, onToggle }: {
             onChange={e => { setQuery(e.target.value); setOpen(true) }}
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 120)}
-            placeholder="buscar usuário para adicionar…"
+            placeholder={t('mounts.search_user_placeholder')}
             className="w-full bg-surface-secondary border border-default rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-blue-500/50"
           />
           {open && matches.length > 0 && (
@@ -93,6 +95,7 @@ function replaceAt<T>(arr: T[], i: number, next: T): T[] {
 }
 
 export default function ExternalMountsCard() {
+  const { t } = useTranslation()
   const [mounts, setMounts] = useState<MountRow[] | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -132,7 +135,7 @@ export default function ExternalMountsCard() {
     try {
       // Strip the UI-only _key before persisting.
       await updateMounts(mounts.map(({ _key: _drop, ...m }) => m))
-      setNotice('Salvo e aplicado ao vivo.')
+      setNotice(t('mounts.saved_live'))
     } catch (e: unknown) {
       setError(errMessage(e))
     } finally {
@@ -143,12 +146,12 @@ export default function ExternalMountsCard() {
   if (loading) {
     return (
       <div className="card flex items-center gap-3 text-text-secondary">
-        <Loader2 className="w-4 h-4 animate-spin" /> Carregando mounts...
+        <Loader2 className="w-4 h-4 animate-spin" /> {t('mounts.loading')}
       </div>
     )
   }
   if (error && !mounts) {
-    return <div className="card text-red-400 text-sm">Mounts indisponíveis: {error}</div>
+    return <div className="card text-red-400 text-sm">{t('mounts.unavailable', { error })}</div>
   }
   if (!mounts) return null
 
@@ -156,13 +159,13 @@ export default function ExternalMountsCard() {
     <div className="card flex flex-col gap-5">
       <div className="flex items-center gap-2">
         <HardDrive className="w-5 h-5 text-blue-400" />
-        <h2 className="text-lg font-semibold text-text-primary">Pastas externas (mounts)</h2>
+        <h2 className="text-lg font-semibold text-text-primary">{t('mounts.title')}</h2>
       </div>
       <p className="text-xs text-text-muted -mt-2">
-        Pastas montadas no servidor que aparecem na aba Local. Defina quem vê cada uma.
+        {t('mounts.subtitle')}
       </p>
 
-      {mounts.length === 0 && <p className="text-sm text-text-muted text-center py-4">Nenhum mount configurado.</p>}
+      {mounts.length === 0 && <p className="text-sm text-text-muted text-center py-4">{t('mounts.empty')}</p>}
 
       <div className="flex flex-col gap-4">
         {mounts.map((m, i) => {
@@ -173,34 +176,34 @@ export default function ExternalMountsCard() {
                 <input
                   value={m.name}
                   onChange={(e) => update(i, { name: e.target.value })}
-                  placeholder="Nome (ex: GDrive Sensitivo)"
+                  placeholder={t('mounts.name_placeholder')}
                   className="input-field min-h-[40px] flex-1"
                 />
-                <button onClick={() => removeMount(i)} title="Remover mount" className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg">
+                <button onClick={() => removeMount(i)} title={t('mounts.remove_mount')} className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
               <input
                 value={m.path}
                 onChange={(e) => update(i, { path: e.target.value })}
-                placeholder="Caminho no container (ex: /mnt/gdrive/sensitive)"
+                placeholder={t('mounts.path_placeholder')}
                 className="input-field min-h-[40px] font-mono text-xs"
               />
               <div className="flex flex-col gap-2">
-                <span className="text-xs text-text-secondary">Visibilidade</span>
+                <span className="text-xs text-text-secondary">{t('mounts.visibility')}</span>
                 <div className="flex flex-wrap gap-2">
-                  <VisButton active={vis === 'all'} onClick={() => setVisibility(i, 'all')} icon={<Users className="w-3.5 h-3.5" />} label="Todos" />
-                  <VisButton active={vis === 'restricted'} onClick={() => setVisibility(i, 'restricted')} icon={<Users className="w-3.5 h-3.5" />} label="Usuários específicos" />
-                  <VisButton active={vis === 'perUser'} onClick={() => setVisibility(i, 'perUser')} icon={<Lock className="w-3.5 h-3.5" />} label="Separado por usuário" />
+                  <VisButton active={vis === 'all'} onClick={() => setVisibility(i, 'all')} icon={<Users className="w-3.5 h-3.5" />} label={t('mounts.vis_all')} />
+                  <VisButton active={vis === 'restricted'} onClick={() => setVisibility(i, 'restricted')} icon={<Users className="w-3.5 h-3.5" />} label={t('mounts.vis_restricted')} />
+                  <VisButton active={vis === 'perUser'} onClick={() => setVisibility(i, 'perUser')} icon={<Lock className="w-3.5 h-3.5" />} label={t('mounts.vis_per_user')} />
                 </div>
               </div>
               {vis === 'restricted' && (
                 users.length === 0
-                  ? <span className="text-[11px] text-text-muted">Sem usuários para listar.</span>
+                  ? <span className="text-[11px] text-text-muted">{t('mounts.no_users')}</span>
                   : <UserAccessPicker allUsers={users} selected={m.allowedUsers ?? []} onToggle={(u) => toggleUser(i, u)} />
               )}
               {vis === 'perUser' && (
-                <p className="text-[11px] text-text-muted">Cada usuário vê e grava só no seu próprio subdiretório dentro desta pasta.</p>
+                <p className="text-[11px] text-text-muted">{t('mounts.per_user_note')}</p>
               )}
             </div>
           )
@@ -208,7 +211,7 @@ export default function ExternalMountsCard() {
       </div>
 
       <button onClick={addMount} className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 self-start">
-        <Plus className="w-4 h-4" /> Adicionar mount
+        <Plus className="w-4 h-4" /> {t('mounts.add')}
       </button>
 
       <div className="flex items-center justify-between gap-3 border-t border-default pt-4">
@@ -221,7 +224,7 @@ export default function ExternalMountsCard() {
           disabled={saving}
           className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors min-h-[44px]"
         >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvar
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {t('mounts.save')}
         </button>
       </div>
     </div>

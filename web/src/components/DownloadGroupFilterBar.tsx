@@ -1,4 +1,5 @@
 import { ArrowDownWideNarrow, ArrowUpWideNarrow } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import type {
   GroupFileStatusFilter,
   GroupFileSortKey,
@@ -18,15 +19,16 @@ export default function DownloadGroupFilterBar({
   sortDir: GroupFileSortDir
   onSort: (key: GroupFileSortKey) => void
 }>) {
+  const { t } = useTranslation()
   const chips: { key: GroupFileStatusFilter; label: string; n: number }[] = [
-    { key: 'all', label: 'Todos', n: counts.all },
-    { key: 'active', label: 'Baixando', n: counts.active },
-    { key: 'completed', label: 'Concluídos', n: counts.completed },
+    { key: 'all', label: t('downloads.groupFilter.all'), n: counts.all },
+    { key: 'active', label: t('downloads.groupFilter.downloading'), n: counts.active },
+    { key: 'completed', label: t('downloads.groupFilter.completed'), n: counts.completed },
   ]
   const sorts: { key: GroupFileSortKey; label: string }[] = [
-    { key: 'name', label: 'Nome' },
-    { key: 'size', label: 'Tamanho' },
-    { key: 'progress', label: 'Progresso' },
+    { key: 'name', label: t('downloads.groupFilter.sortName') },
+    { key: 'size', label: t('downloads.groupFilter.sortSize') },
+    { key: 'progress', label: t('downloads.groupFilter.sortProgress') },
   ]
   const DirIcon = sortDir === 'asc' ? ArrowUpWideNarrow : ArrowDownWideNarrow
 
@@ -49,14 +51,14 @@ export default function DownloadGroupFilterBar({
         ))}
       </div>
 
-      <span className="text-text-muted ml-auto">Ordenar:</span>
+      <span className="text-text-muted ml-auto">{t('downloads.groupFilter.sortLabel')}</span>
       {/* Ordenação: clicar na chave ativa alterna a direção */}
       <div className="flex items-center gap-1">
         {sorts.map((s) => (
           <button
             key={s.key}
             onClick={() => onSort(s.key)}
-            title={sortKey === s.key ? 'Inverter ordem' : `Ordenar por ${s.label}`}
+            title={sortKey === s.key ? t('downloads.groupFilter.invertOrder') : t('downloads.groupFilter.sortByTitle', { label: s.label })}
             className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full font-medium transition-colors ${
               sortKey === s.key
                 ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'

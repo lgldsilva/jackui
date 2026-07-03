@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Loader2, Play } from 'lucide-react'
 import type { AISlotScore } from '../../api/client'
 import SortableTh from '../SortableTh'
@@ -17,20 +19,20 @@ function scoreCells(s: AISlotScore) {
 
 // Short labels for the per-task accuracy breakdown chips. Unknown tasks fall back
 // to their raw id so a future task shows up without a frontend change.
-const TASK_LABELS: Record<string, string> = { rename: 'renomear', identify: 'título', schedule: 'agenda' }
+const TASK_LABEL_KEYS: Record<string, string> = { rename: 'ai.task_rename', identify: 'ai.task_identify', schedule: 'ai.task_schedule' }
 
 // taskBreakdown renders one accuracy chip per measured task (e.g. "renomear 92% ·
 // agenda 60%"). Only shown when the multi-task benchmark populated `tasks`; legacy
 // results (no breakdown) render nothing, so the table degrades gracefully.
-function taskBreakdown(s: AISlotScore) {
+function taskBreakdown(s: AISlotScore, t: TFunction) {
   if (!s.tasks) return null
   const entries = Object.entries(s.tasks)
   if (entries.length <= 1) return null // single task → the global accuracy already says it
   return (
     <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-text-muted mt-0.5">
       {entries.map(([task, ts]) => (
-        <span key={task} title={`${ts.samples} casos`}>
-          {TASK_LABELS[task] || task} <span className="tabular-nums text-text-secondary">{Math.round(ts.accuracy * 100)}%</span>
+        <span key={task} title={t('ai.task_samples', { count: ts.samples })}>
+          {TASK_LABEL_KEYS[task] ? t(TASK_LABEL_KEYS[task]) : task} <span className="tabular-nums text-text-secondary">{Math.round(ts.accuracy * 100)}%</span>
         </span>
       ))}
     </div>
@@ -41,9 +43,10 @@ type RowProps = {
   onRunSingle: (provider: string, model: string) => void
   busy: boolean
   runningSlotId: string | null
+  t: TFunction
 }
 
-function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps) {
+function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId, t }: RowProps) {
   const { acc, lat, comp, cost } = scoreCells(s)
   const isThisRunning = runningSlotId === s.slotId
   return (
@@ -54,7 +57,7 @@ function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps
           <button
             onClick={() => onRunSingle(s.provider, s.model)}
             disabled={busy}
-            title={`Rodar benchmark para ${s.model}`}
+            title={t('ai.run_single_title', { model: s.model })}
             className="p-1 text-text-muted hover:text-green-500 hover:bg-surface disabled:opacity-30 rounded-md transition-colors"
           >
             {isThisRunning ? (
@@ -65,7 +68,7 @@ function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps
           </button>
           <span className="text-text-muted text-xs font-normal">({s.provider})</span>
         </div>
-        {taskBreakdown(s)}
+        {taskBreakdown(s, t)}
       </td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{acc}</td>
       <td className="py-1.5 pr-3 text-right tabular-nums">{lat}</td>
@@ -78,7 +81,7 @@ function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps
   )
 }
 
-function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProps) {
+function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId, t }: RowProps) {
   const { acc, lat, comp, cost } = scoreCells(s)
   const isThisRunning = runningSlotId === s.slotId
   return (
@@ -87,12 +90,12 @@ function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProp
         <div>
           <div className="text-text-primary text-sm truncate">{s.model}</div>
           <div className="text-text-muted text-xs">{s.provider}</div>
-          {taskBreakdown(s)}
+          {taskBreakdown(s, t)}
         </div>
         <button
           onClick={() => onRunSingle(s.provider, s.model)}
           disabled={busy}
-          title={`Rodar benchmark para ${s.model}`}
+          title={t('ai.run_single_title', { model: s.model })}
           className="p-1 text-text-muted hover:text-green-500 hover:bg-surface disabled:opacity-30 rounded-md transition-colors"
         >
           {isThisRunning ? (
@@ -104,19 +107,19 @@ function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProp
       </div>
       <div className="grid grid-cols-4 gap-2 text-xs">
         <div>
-          <div className="text-text-muted">Acurácia</div>
+          <div className="text-text-muted">{t('ai.col_accuracy')}</div>
           <div className="tabular-nums text-text-primary">{acc}</div>
         </div>
         <div>
-          <div className="text-text-muted">Latência</div>
+          <div className="text-text-muted">{t('ai.col_latency')}</div>
           <div className="tabular-nums text-text-primary">{lat}</div>
         </div>
         <div>
-          <div className="text-text-muted">Custo</div>
+          <div className="text-text-muted">{t('ai.col_cost')}</div>
           <div className="tabular-nums text-text-secondary">{cost}</div>
         </div>
         <div>
-          <div className="text-text-muted">Score</div>
+          <div className="text-text-muted">{t('ai.col_score')}</div>
           <div className="tabular-nums font-medium text-green-400">{comp}</div>
         </div>
       </div>
@@ -129,7 +132,8 @@ function scoreCard(s: AISlotScore, { onRunSingle, busy, runningSlotId }: RowProp
 // consuming the SAME sorted list (the chosen order persists across reloads).
 export default function BenchResultsTable({ results, onRunSingle, busy, runningSlotId }: {
   results: AISlotScore[]
-} & RowProps) {
+} & Omit<RowProps, 't'>) {
+  const { t } = useTranslation()
   const sort = useTableSort<BenchSortKey>({
     defaultKey: 'score',
     defaultDir: 'desc',
@@ -140,7 +144,7 @@ export default function BenchResultsTable({ results, onRunSingle, busy, runningS
     () => sortScores(results, sort.sortKey, sort.dir),
     [results, sort.sortKey, sort.dir]
   )
-  const rowProps: RowProps = { onRunSingle, busy, runningSlotId }
+  const rowProps: RowProps = { onRunSingle, busy, runningSlotId, t }
   return (
     <>
       {/* Desktop: table */}
@@ -148,12 +152,12 @@ export default function BenchResultsTable({ results, onRunSingle, busy, runningS
         <table className="w-full text-sm">
           <thead>
             <tr className="text-text-secondary text-xs text-left">
-              <SortableTh label="Modelo" columnKey="model" sort={sort} />
-              <SortableTh label="Acurácia" columnKey="accuracy" sort={sort} align="right" />
-              <SortableTh label="Latência" columnKey="latency" sort={sort} align="right" />
-              <SortableTh label="Custo" columnKey="cost" sort={sort} align="right" />
-              <SortableTh label="Score" columnKey="score" sort={sort} align="right" />
-              <SortableTh label="Status" columnKey="failure" sort={sort} className="py-1" />
+              <SortableTh label={t('ai.col_model')} columnKey="model" sort={sort} />
+              <SortableTh label={t('ai.col_accuracy')} columnKey="accuracy" sort={sort} align="right" />
+              <SortableTh label={t('ai.col_latency')} columnKey="latency" sort={sort} align="right" />
+              <SortableTh label={t('ai.col_cost')} columnKey="cost" sort={sort} align="right" />
+              <SortableTh label={t('ai.col_score')} columnKey="score" sort={sort} align="right" />
+              <SortableTh label={t('ai.col_status')} columnKey="failure" sort={sort} className="py-1" />
             </tr>
           </thead>
           <tbody>{sorted.map(s => scoreRow(s, rowProps))}</tbody>

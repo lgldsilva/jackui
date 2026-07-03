@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { LogOut, User, Shield, ChevronDown } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 
@@ -8,6 +9,7 @@ import { useAuth } from '../auth/AuthContext'
  * than the previous onBlur+setTimeout approach which lost clicks on iOS touch.
  */
 export default function UserBadge() {
+  const { t } = useTranslation()
   const { user, logout, isAdmin, enabled } = useAuth()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -48,9 +50,9 @@ export default function UserBadge() {
             <p className="text-sm text-text-primary truncate">{user.username}</p>
             <p className="text-xs text-text-muted flex items-center gap-1">
               {isAdmin ? (
-                <><Shield className="w-3 h-3 text-yellow-400" /> Admin</>
+                <><Shield className="w-3 h-3 text-yellow-400" /> {t('misc.admin_role')}</>
               ) : (
-                <><User className="w-3 h-3" /> Usuário</>
+                <><User className="w-3 h-3" /> {t('misc.user_role')}</>
               )}
             </p>
           </div>
@@ -59,7 +61,7 @@ export default function UserBadge() {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-tertiary hover:text-red-400 transition-colors"
           >
             <LogOut className="w-3.5 h-3.5" />
-            Sair
+            {t('misc.logout')}
           </button>
         </div>
       )}

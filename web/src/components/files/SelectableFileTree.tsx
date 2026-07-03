@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronRight, ChevronDown, Folder, FolderOpen } from 'lucide-react'
 import { StreamFile } from '../../api/client'
 import {
@@ -50,6 +51,7 @@ function TriCheckbox({ state, onToggle }: { readonly state: TriState; readonly o
 // files can't mount thousands of rows, but a folder TOGGLE walks the full model
 // so it still flips every (even unrendered) descendant.
 export function SelectableFileTree({ files, selected, onChange, filter = '' }: SelectableFileTreeProps) {
+  const { t } = useTranslation()
   const root = useMemo(() => buildFileTree(files, { filter }), [files, filter])
 
   // Selection wants everything visible: start fully expanded, re-init when the
@@ -102,14 +104,14 @@ export function SelectableFileTree({ files, selected, onChange, filter = '' }: S
   }, [onChange, selected])
 
   if (rows.length === 0) {
-    return <p className="text-xs text-text-muted text-center py-3">Nenhum arquivo com esse filtro</p>
+    return <p className="text-xs text-text-muted text-center py-3">{t('downloads.fileTree.noFilesMatch')}</p>
   }
 
   return (
     <div
       ref={containerRef}
       role="tree"
-      aria-label="Seleção de arquivos"
+      aria-label={t('downloads.fileTree.ariaLabel')}
       className="bg-surface border border-default rounded-lg max-h-72 overflow-y-auto flex flex-col gap-0.5 p-1"
     >
       {rows.map((row, i) => {
@@ -153,7 +155,7 @@ export function SelectableFileTree({ files, selected, onChange, filter = '' }: S
             className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-surface-2 py-2 text-xs text-text-secondary hover:text-text-primary"
           >
             <ChevronDown className="w-3.5 h-3.5" />
-            Mostrar mais ({reveal.remaining} de {totalFiles})
+            {t('downloads.fileTree.showMore', { shown: reveal.remaining, total: totalFiles })}
           </button>
         </div>
       )}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Download, Loader2, Clock, Server } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
@@ -60,12 +61,17 @@ function pickInitialSelection(files: StreamFile[], initial?: readonly number[]):
 type DownloadDest = { destBase: string; destSubdir: string }
 const EMPTY_DEST: DownloadDest = { destBase: '', destSubdir: '' }
 
+// Minimal translate-fn signature so the module-level helper can format the
+// user-facing partial/validation messages with the component's `t`.
+type TFn = (key: string, opts?: Record<string, unknown>) => string
+
 async function downloadInternal(
   result: SearchResult,
   files: StreamFile[] | null,
   selectedFiles: Set<number>,
   streamAdd: (source: string) => Promise<any>,
   downloadCreate: (opts: any) => Promise<any>,
+  t: TFn,
   dest: DownloadDest = EMPTY_DEST,
 ): Promise<string | null> {
   let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
@@ -75,12 +81,12 @@ async function downloadInternal(
     infoHash = info.infoHash
     magnet = result.link
   }
-  if (!infoHash || !magnet) throw new Error('Sem magnet/infoHash — não dá pra baixar internamente')
+  if (!infoHash || !magnet) throw new Error('missing magnet/infoHash — cannot download internally')
 
   if ((files?.length ?? 0) > 0) {
     const all = files ?? []
     const picks = all.filter(f => selectedFiles.has(f.index))
-    if (picks.length === 0) throw new Error('Selecione ao menos um arquivo')
+    if (picks.length === 0) throw new Error(t('downloads.modal.selectAtLeastOne'))
     // Todos os arquivos marcados → UMA linha "torrent inteiro" (fileIndex=-2):
     // o anacrolix baixa o torrent inteiro via file priorities, não N downloads.
     // Um pack de 778 arquivos vira 1 linha → acaba a explosão que inflava a
@@ -104,7 +110,7 @@ async function downloadInternal(
       files: buildBatchFiles(picks),
     })
     if (res.created.length !== picks.length) {
-      return `${res.created.length}/${picks.length} enfileirados`
+      return t('downloads.modal.partialQueued', { created: res.created.length, total: picks.length })
     }
   } else {
     await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined, destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined })
@@ -128,6 +134,7 @@ const KEY_PATH = 'lastSavePath'
 const KEY_RECENT_PATHS = 'recentSavePaths'
 
 export default function DownloadModal({ result, onClose, initialFileIndices, nested }: DownloadModalProps) {
+  const { t } = useTranslation()
   const [clients, setClients] = useState<DownloadClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
   const [savePath, setSavePath] = useState('')
@@ -198,7 +205,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       if (infoHash) info = await streamMetadata(infoHash)
       if (!info && sourceForAdd) {
         try { info = await streamAdd(sourceForAdd) } catch (e) {
-          if (!cancelled) setFilesError((e as Error)?.message || 'falha ao resolver metadata')
+          if (!cancelled) setFilesError((e as Error)?.message || t('downloads.modal.metadataResolveFailed'))
         }
       }
       if (cancelled) return
@@ -207,7 +214,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
         setFiles(resolved)
         setSelectedFiles(pickInitialSelection(resolved, initialFileIndices))
       } else if (!filesError) {
-        setFilesError('Metadata não disponível ainda — o worker vai resolver depois.')
+        setFilesError(t('downloads.modal.metadataNotYet'))
       }
       setFilesLoading(false)
     })()
@@ -223,7 +230,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
 
     try {
       if (selectedClientId === INTERNAL_ID) {
-        const error = await downloadInternal(result, files, selectedFiles, streamAdd, downloadCreate, dest)
+        const error = await downloadInternal(result, files, selectedFiles, streamAdd, downloadCreate, t, dest)
         if (error) setError(error)
       } else {
         await downloadTorrent(selectedClientId, result.magnetUri || '', result.link || '', savePath || undefined)
@@ -256,12 +263,12 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       size="lg"
       lockScroll={!nested}
       zClass={nested ? 'z-[70]' : undefined}
-      title="Enviar para Download"
+      title={t('downloads.modal.title')}
       icon={<Download className="w-4 h-4 text-green-500 flex-shrink-0" />}
       footer={
         <div className="flex gap-3">
           <button onClick={onClose} className="btn-secondary flex-1">
-            Cancelar
+            {t('downloads.modal.cancel')}
           </button>
           <button
             onClick={handleDownload}
@@ -269,7 +276,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
             className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Confirmar
+            {t('downloads.modal.confirm')}
           </button>
         </div>
       }
@@ -282,7 +289,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
 
           <div>
             <label htmlFor="download-client" className="block text-sm font-medium text-text-primary mb-1.5">
-              Destino do download
+              {t('downloads.modal.destination')}
             </label>
             <select
               id="download-client"
@@ -290,7 +297,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
               onChange={(e) => setSelectedClientId(e.target.value)}
               className="input-field"
             >
-              <option value={INTERNAL_ID}>JackUI (servidor — assistir aqui)</option>
+              <option value={INTERNAL_ID}>{t('downloads.modal.internalOption')}</option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name} ({c.type})
@@ -300,7 +307,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
             {selectedClientId === INTERNAL_ID && (
               <p className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
                 <Server className="w-3 h-3" />
-                Baixa no servidor e aparece em Downloads — pronto pra assistir sem re-baixar.
+                {t('downloads.modal.internalHint')}
               </p>
             )}
           </div>
@@ -312,7 +319,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
               {filesLoading && (
                 <div className="flex items-center gap-2 text-xs text-text-muted py-2">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Carregando metadata...
+                  {t('downloads.modal.loadingMetadata')}
                 </div>
               )}
               {!filesLoading && filesError && !files && (
@@ -337,8 +344,8 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
 
           <div className={`relative ${selectedClientId === INTERNAL_ID ? 'hidden' : ''}`}>
             <label className="block text-sm font-medium text-text-primary mb-1.5">
-              Pasta de Destino{' '}
-              <span className="text-text-muted font-normal">(opcional)</span>
+              {t('downloads.modal.destFolder')}{' '}
+              <span className="text-text-muted font-normal">{t('downloads.modal.optional')}</span>
             </label>
             <div className="relative">
               <input
@@ -356,7 +363,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
                   type="button"
                   onMouseDown={(e) => { e.preventDefault(); setShowRecent(s => !s) }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                  title="Pastas recentes"
+                  title={t('downloads.modal.recentFolders')}
                 >
                   <Clock className="w-4 h-4" />
                 </button>
@@ -387,7 +394,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
           )}
           {success && (
             <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-sm rounded-lg p-3">
-              Torrent enviado com sucesso!
+              {t('downloads.modal.success')}
             </div>
           )}
       </div>

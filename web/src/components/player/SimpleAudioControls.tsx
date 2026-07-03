@@ -1,4 +1,5 @@
 import { SkipBack, SkipForward, Shuffle, Repeat } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 // SimpleAudioControls: barra de transporte MÍNIMA para o modo áudio. Só prev/next
 // (+ shuffle/repeat + posição). NÃO toca no elemento <audio> (play/pause/seek ficam
@@ -33,14 +34,15 @@ export function SimpleAudioControls({
   position,
   className = '',
 }: SimpleAudioControlsProps) {
+  const { t } = useTranslation()
   return (
     <div className={`flex items-center justify-center gap-3 sm:gap-4 py-3 ${className}`}>
       {onToggleShuffle && (
         <button
           type="button"
           onClick={onToggleShuffle}
-          title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}
-          aria-label="Aleatório"
+          title={shuffle ? t('player.controls.shuffleOn') : t('player.controls.shuffleOff')}
+          aria-label={t('player.controls.shuffle')}
           className={`${smallBtn} hover:bg-blue-500/20 ${shuffle ? 'text-green-600 dark:text-green-300' : 'text-text-muted'}`}
         >
           <Shuffle className="w-4 h-4" />
@@ -50,8 +52,8 @@ export function SimpleAudioControls({
         type="button"
         onClick={onPrev}
         disabled={!hasPrev}
-        title="Anterior"
-        aria-label="Anterior"
+        title={t('player.controls.prev')}
+        aria-label={t('player.controls.prev')}
         className={`${smallBtn} bg-blue-500/15 hover:bg-blue-500/30 text-blue-700 dark:text-blue-200`}
       >
         <SkipBack className="w-5 h-5 fill-current" />
@@ -60,8 +62,8 @@ export function SimpleAudioControls({
         type="button"
         onClick={onNext}
         disabled={!hasNext}
-        title="Próxima"
-        aria-label="Próxima"
+        title={t('player.controls.next')}
+        aria-label={t('player.controls.next')}
         className={`${smallBtn} bg-blue-500/15 hover:bg-blue-500/30 text-blue-700 dark:text-blue-200`}
       >
         <SkipForward className="w-5 h-5 fill-current" />
@@ -70,8 +72,8 @@ export function SimpleAudioControls({
         <button
           type="button"
           onClick={onCycleRepeat}
-          title={`Repeat: ${repeat}`}
-          aria-label="Repetir"
+          title={t('player.controls.repeatMode', { mode: repeat })}
+          aria-label={t('player.controls.repeat')}
           className={`${smallBtn} relative hover:bg-blue-500/20 ${repeat === 'none' ? 'text-text-muted' : 'text-green-600 dark:text-green-300'}`}
         >
           <Repeat className="w-4 h-4" />

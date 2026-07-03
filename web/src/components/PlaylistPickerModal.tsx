@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ListMusic, Plus, Check, Loader2 } from 'lucide-react'
 import {
   playlistsList, playlistsCreate, playlistsAddItem, pickTorrentSource,
@@ -18,6 +19,7 @@ type Props = {
  * Lists existing playlists + lets create a new one inline.
  */
 export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTitle }: Props) {
+  const { t } = useTranslation()
   const [lists, setLists] = useState<Playlist[]>([])
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -86,7 +88,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
       open
       onClose={onClose}
       size="lg"
-      title="Adicionar à playlist"
+      title={t('playlists.add_to_playlist_title')}
       icon={<ListMusic className="w-4 h-4 text-blue-400 flex-shrink-0" />}
     >
       <div className="flex flex-col gap-3">
@@ -102,7 +104,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
             <div className="flex flex-col gap-1 max-h-60 overflow-y-auto">
               {lists.length === 0 && !creating && (
                 <p className="text-sm text-text-muted italic text-center py-4">
-                  Você ainda não tem playlists. Crie uma abaixo.
+                  {t('playlists.picker_empty')}
                 </p>
               )}
               {lists.map(p => (
@@ -118,7 +120,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
                 >
                   <div className="min-w-0">
                     <p className="truncate">{p.name}</p>
-                    <p className="text-[10px] text-text-muted">{p.itemCount ?? 0} itens</p>
+                    <p className="text-[10px] text-text-muted">{t('playlists.items', { count: p.itemCount ?? 0 })}</p>
                   </div>
                   {added === p.id && <Check className="w-4 h-4 flex-shrink-0" />}
                 </button>
@@ -131,7 +133,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
                   onClick={() => setCreating(true)}
               className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors mt-2"
             >
-              <Plus className="w-4 h-4" /> Nova playlist
+              <Plus className="w-4 h-4" /> {t('playlists.new')}
             </button>
           )}
 
@@ -142,7 +144,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
                 type="text"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
-                placeholder="Nome da nova playlist"
+                placeholder={t('playlists.new_name_placeholder')}
                 className="input-field flex-1"
                 disabled={busy}
               />
@@ -151,7 +153,7 @@ export default function PlaylistPickerModal({ result, onClose, fileIndex, fileTi
                 disabled={busy || !newName.trim()}
                 className="btn-primary disabled:opacity-50"
               >
-                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Criar'}
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : t('playlists.create')}
               </button>
             </form>
           )}

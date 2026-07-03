@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
@@ -158,14 +159,14 @@ function RatingBadge({ tmdb }: { readonly tmdb: TmdbMatch | null }): React.React
           rel="noopener noreferrer"
           onClick={e => e.stopPropagation()}
           className="text-amber-400 ml-1 hover:underline"
-          title="Abrir no IMDb"
+          title={i18n.t('search.open_imdb')}
         >★ {tmdb.imdbRating.toFixed(1)} IMDb</a>
       )
     }
     return <span className="text-amber-400 ml-1">★ {tmdb.imdbRating.toFixed(1)} IMDb</span>
   }
   if (tmdb.voteAverage > 0) {
-    return <span className="text-amber-400 ml-1" title="Nota TMDB">★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
+    return <span className="text-amber-400 ml-1" title={i18n.t('search.tmdb_rating')}>★ {tmdb.voteAverage.toFixed(1)} TMDB</span>
   }
   return null
 }
@@ -214,7 +215,7 @@ function renderCardTitle(
           {/* p-2/-m-2 widens the touch target (~30px) for the finger without
               shifting the compact header layout — the negative margin cancels
               the padding so neighbours stay put. */}
-          <button onClick={toggleFavorite} disabled={favResolving} title={isFavorited ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`p-1.5 flex-shrink-0 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
+          <button onClick={toggleFavorite} disabled={favResolving} title={isFavorited ? i18n.t('search.unfavorite') : i18n.t('search.favorite')} className={`p-1.5 flex-shrink-0 transition-colors ${isFavorited ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}>
             {renderFavoriteIcon(favResolving, isFavorited)}
           </button>
           <span title={result.tracker} className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full truncate min-w-0 max-w-[5.5rem]">{result.tracker}</span>
@@ -222,7 +223,7 @@ function renderCardTitle(
         {result.cached && <span className="text-xs bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full whitespace-nowrap">cache</span>}
         {result.isDownloaded && (
           <span className="text-xs bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full whitespace-nowrap flex items-center gap-1">
-            <HardDriveDownload className="w-3 h-3" />Baixado
+            <HardDriveDownload className="w-3 h-3" />{i18n.t('search.downloaded')}
           </span>
         )}
       </div>
@@ -235,7 +236,7 @@ function renderCategoryBadges(result: SearchResult): React.ReactNode {
     <div className="flex items-center gap-2 text-xs text-text-secondary flex-wrap">
       {result.category && <span className="flex items-center gap-1"><Tag className="w-3 h-3" />{result.category}</span>}
       {result.alsoIn && result.alsoIn.length > 0 && (
-        <span className="flex items-center gap-1 text-indigo-400" title={`Mesmo torrent em: ${result.alsoIn.join(', ')}`}>
+        <span className="flex items-center gap-1 text-indigo-400" title={i18n.t('search.same_torrent_in', { trackers: result.alsoIn.join(', ') })}>
           <Globe className="w-3 h-3" />+{result.alsoIn.length} tracker{result.alsoIn.length === 1 ? '' : 's'}
         </span>
       )}
@@ -262,7 +263,7 @@ function renderCardStats(
       <div className="flex items-center gap-1 text-red-400">
         <TrendingDown className="w-3.5 h-3.5" /><span>{result.leechers} leech</span>
         {onRefresh && result.id !== undefined && (
-          <button onClick={(e) => { swallowClick(e); void onRefresh(result) }} disabled={!!refreshing} title={refreshedAt ? `Atualizado em ${refreshedAt}` : 'Atualizar seeders/leechers'} className="ml-1 inline-flex items-center text-text-muted hover:text-cyan-400 disabled:opacity-50 transition-colors">
+          <button onClick={(e) => { swallowClick(e); void onRefresh(result) }} disabled={!!refreshing} title={refreshedAt ? i18n.t('search.updated_at', { time: refreshedAt }) : i18n.t('search.refresh_stats')} className="ml-1 inline-flex items-center text-text-muted hover:text-cyan-400 disabled:opacity-50 transition-colors">
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         )}
@@ -300,38 +301,38 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
       {canPlay && (
           <button
             onClick={(e) => { swallowClick(e); onPlay?.(result) }}
-            title="Reproduzir no browser via stream" className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+            title={i18n.t('search.play_stream')} className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <Play className="w-3.5 h-3.5 fill-current" />Play
         </button>
       )}
       {hasSource && onExploreContents && (
-        <button onClick={(e) => { swallowClick(e); onExploreContents(result) }} title="Ver arquivos dentro do torrent" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); onExploreContents(result) }} title={i18n.t('search.explore_files')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
           <FolderOpen className="w-3.5 h-3.5" />
         </button>
       )}
       {hasSource && onAddToPlaylist && (
-        <button onClick={(e) => { swallowClick(e); onAddToPlaylist(result) }} title="Adicionar a uma playlist" className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); onAddToPlaylist(result) }} title={i18n.t('search.add_to_playlist')} className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <ListPlus className="w-3.5 h-3.5" />
         </button>
       )}
       {hasSource && (
         <div className="flex items-center gap-0.5">
-          <button onClick={(e) => { swallowClick(e); handleOpenMagnet() }} disabled={resolvingMagnet} title="Abrir com app associado (qBittorrent, etc.)" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-strong">
+          <button onClick={(e) => { swallowClick(e); handleOpenMagnet() }} disabled={resolvingMagnet} title={i18n.t('search.open_magnet')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-strong">
             {resolvingMagnet ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <Magnet className="w-3.5 h-3.5" />}Magnet
           </button>
-          <button onClick={(e) => { swallowClick(e); handleCopyMagnet() }} disabled={resolvingMagnet} title="Copiar link magnet" className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
+          <button onClick={(e) => { swallowClick(e); handleCopyMagnet() }} disabled={resolvingMagnet} title={i18n.t('search.copy_magnet')} className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
             {renderMagnetIcon(copied, resolvingMagnet)}
           </button>
         </div>
       )}
       {hasSource && (
-        <button onClick={(e) => { swallowClick(e); handleTorrentDownload() }} disabled={resolvingTorrent} title="Baixar arquivo .torrent" className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); handleTorrentDownload() }} disabled={resolvingTorrent} title={i18n.t('search.download_torrent')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
           {resolvingTorrent ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <FileDown className="w-3.5 h-3.5" />}.torrent
         </button>
       )}
       {canDownload && (
-        <button onClick={(e) => { swallowClick(e); onDownload(result) }} title="Enviar para cliente de download (qBittorrent/Deluge)" className="flex items-center gap-1 text-xs btn-primary py-1.5 px-2.5 flex-1 justify-center min-w-[80px]">
-          <ExternalLink className="w-3.5 h-3.5" />Cliente
+        <button onClick={(e) => { swallowClick(e); onDownload(result) }} title={i18n.t('search.send_to_client')} className="flex items-center gap-1 text-xs btn-primary py-1.5 px-2.5 flex-1 justify-center min-w-[80px]">
+          <ExternalLink className="w-3.5 h-3.5" />{i18n.t('search.client')}
         </button>
       )}
     </div>
@@ -339,6 +340,9 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
 }
 
 export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
+  // Subscribe to language changes so this card (and its i18n.t()-driven helpers)
+  // re-renders when the user switches locale.
+  useTranslation()
   const [copied, setCopied] = useState(false)
   const [resolvingMagnet, setResolvingMagnet] = useState(false)
   const [resolvingTorrent, setResolvingTorrent] = useState(false)
@@ -422,7 +426,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
         {...anchorNavProps(() => onPlay?.(result))}
         className={cardClass}
         style={cardTapStyle}
-        title="Tocar — Ctrl/Cmd ou clique do meio abre em nova aba"
+        title={i18n.t('search.play_new_tab')}
       >
         {cardInner}
       </a>
@@ -441,7 +445,7 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       } : undefined}
       className={cardClass}
       style={cardTapStyle}
-      title={cardClickable ? 'Toque pra ver arquivos no torrent' : undefined}
+      title={cardClickable ? i18n.t('search.tap_explore') : undefined}
       type="button"
       disabled={!cardClickable}
     >

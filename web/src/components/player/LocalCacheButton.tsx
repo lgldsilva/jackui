@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { HardDriveDownload, Loader2, Check, AlertCircle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { parseLocalHash, localCacheStart, localCacheStatus, LocalCacheStatus } from '../../api/client'
 
 // LocalCacheButton is the "cache mark" + trigger for a local/rclone file in the
@@ -8,6 +9,7 @@ import { parseLocalHash, localCacheStart, localCacheStatus, LocalCacheStatus } f
 // to local disk (queued, with progress) for instant, seekable, EIO-proof
 // playback. Idle → "Cachear"; copying → "Cacheando 42%"; ready → "Cacheado".
 export function LocalCacheButton({ hash }: { readonly hash: string }) {
+  const { t } = useTranslation()
   const loc = parseLocalHash(hash)
   const [st, setSt] = useState<LocalCacheStatus | null>(null)
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null)
@@ -64,11 +66,11 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
   const ready = status === 'ready'
   const errored = status === 'error'
 
-  let label = 'Cachear localmente'
-  if (status === 'queued') label = 'Na fila…'
-  else if (status === 'copying') label = `Cacheando ${st?.percent ?? 0}%`
-  else if (ready) label = 'Cacheado'
-  else if (errored) label = 'Erro — tentar de novo'
+  let label = t('player.localCache.cache')
+  if (status === 'queued') label = t('player.localCache.queued')
+  else if (status === 'copying') label = t('player.localCache.copying', { percent: st?.percent ?? 0 })
+  else if (ready) label = t('player.localCache.ready')
+  else if (errored) label = t('player.localCache.error')
 
   let icon = <HardDriveDownload className="w-3.5 h-3.5" />
   if (busy) icon = <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -84,7 +86,7 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
     <button
       onClick={onClick}
       disabled={busy || ready}
-      title="Baixar o arquivo inteiro pro disco local (rclone/Drive) — playback instantâneo, com seek e imune a falhas do mount"
+      title={t('player.localCache.title')}
       className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors border ${cls}`}
     >
       {icon}

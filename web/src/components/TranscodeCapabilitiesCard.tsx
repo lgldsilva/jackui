@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Cpu, RefreshCw, Loader2, Check, X, Zap } from 'lucide-react'
 import { transcodeCapabilities, TranscodeCapabilities, TranscodeEncoder } from '../api/client'
 import { errMessage } from '../lib/errMessage'
@@ -22,6 +23,7 @@ const BACKEND_COLORS: Record<string, string> = {
 }
 
 export default function TranscodeCapabilitiesCard() {
+  const { t } = useTranslation()
   const [caps, setCaps] = useState<TranscodeCapabilities | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -54,7 +56,7 @@ export default function TranscodeCapabilitiesCard() {
   }
 
   if (error) {
-    return <div className="card text-red-400 text-sm">Erro: {error}</div>
+    return <div className="card text-red-400 text-sm">{t('transcode.caps_error', { error })}</div>
   }
 
   if (!caps) return null
@@ -85,7 +87,7 @@ export default function TranscodeCapabilitiesCard() {
         <button
           onClick={() => load(true)}
           disabled={refreshing}
-          title="Re-probar (use após trocar de GPU ou driver)"
+          title={t('transcode.reprobe_title')}
           className="text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -95,12 +97,12 @@ export default function TranscodeCapabilitiesCard() {
       {/* Preferred summary */}
       <div className="bg-surface rounded-lg p-3 flex flex-col gap-1.5 text-sm">
         <div className="flex justify-between items-baseline">
-          <span className="text-text-muted text-xs">Encoder ativo (H.264):</span>
-          <span className="text-green-400 font-mono">{caps.preferred || '<nenhum>'}</span>
+          <span className="text-text-muted text-xs">{t('transcode.active_encoder_h264')}</span>
+          <span className="text-green-400 font-mono">{caps.preferred || t('transcode.none')}</span>
         </div>
         <div className="flex justify-between items-baseline">
-          <span className="text-text-muted text-xs">Encoder ativo (HEVC):</span>
-          <span className="text-green-400 font-mono">{caps.preferredHevc || '<nenhum>'}</span>
+          <span className="text-text-muted text-xs">{t('transcode.active_encoder_hevc')}</span>
+          <span className="text-green-400 font-mono">{caps.preferredHevc || t('transcode.none')}</span>
         </div>
         <div className="flex justify-between items-baseline">
           <span className="text-text-muted text-xs">FFmpeg:</span>
@@ -167,8 +169,7 @@ export default function TranscodeCapabilitiesCard() {
       </div>
 
       <p className="text-xs text-text-muted">
-        Probed em {new Date(caps.probedAt).toLocaleString('pt-BR')} •
-        Cache atualizado a cada restart, ou via botão refresh acima
+        {t('transcode.probed_note', { date: new Date(caps.probedAt).toLocaleString('pt-BR') })}
       </p>
     </div>
   )
