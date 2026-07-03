@@ -15,6 +15,7 @@ import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
+import { useToast } from '../components/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
@@ -233,6 +234,7 @@ export default function FavoritesPage() {
   const [revealHidden] = useRevealHidden()
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
+  const { notify } = useToast()
   // Favorito sendo enviado ao modal de download (destino + seleção de arquivos).
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
@@ -435,7 +437,7 @@ export default function FavoritesPage() {
 
   const playFavorite = (f: StreamFavorite) => {
     if (!favHasValidMagnet(f)) {
-      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
+      notify('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.', 'error')
       return
     }
     playSingle(favToResult(f))
@@ -445,7 +447,7 @@ export default function FavoritesPage() {
   // como na busca. Antes baixava o torrent inteiro direto, sem perguntar nada.
   const downloadFavorite = (fav: StreamFavorite) => {
     if (!favHasValidMagnet(fav)) {
-      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar o download.')
+      notify('Magnet inválido nesse favorito. Refavorite via busca para reabilitar o download.', 'error')
       return
     }
     setDownloadTarget(favToResult(fav))
@@ -453,7 +455,7 @@ export default function FavoritesPage() {
 
   const openContents = (f: StreamFavorite) => {
     if (!favHasValidMagnet(f)) {
-      alert('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.')
+      notify('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.', 'error')
       return
     }
     setContentsTarget(favToResult(f))

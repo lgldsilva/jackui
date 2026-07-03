@@ -7,7 +7,8 @@ import { detectViewerKind } from './viewer/viewerKind'
 import FilePreviewModal from './FilePreviewModal'
 import TrackerStatsList from './TrackerStatsList'
 import { useConfirm } from './ConfirmDialog'
-import { formatRate } from '../lib/format'
+import { useToast } from './Toast'
+import { formatRate, formatBytesOrDash } from '../lib/format'
 import { usePersistedState } from '../lib/storage'
 import { Sheet } from './Sheet'
 import TrailerButton from './TrailerButton'
@@ -21,14 +22,6 @@ type Props = {
   // Quando presente, "Baixar todos" roteia pro modal unificado (destino +
   // seleção de arquivos) em vez de enfileirar o torrent inteiro direto.
   readonly onDownload?: (result: SearchResult) => void
-}
-
-function formatSize(bytes: number): string {
-  if (!bytes) return '—'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 function parseEpisode(path: string): string | null {
@@ -123,6 +116,7 @@ function DetailRow({ icon, label, value }: { readonly icon: React.ReactNode; rea
 function DownloadAllButton({ info, result, onDownload }: { readonly info: TorrentInfo; readonly result: SearchResult; readonly onDownload?: (result: SearchResult) => void }) {
   const [busy, setBusy] = useState(false)
   const confirm = useConfirm()
+  const { notify, notifyError } = useToast()
   const { t } = useTranslation()
   // Roteia pro modal unificado quando o pai oferece (destino + seleção); senão
   // mantém o fluxo legado (confirma + enfileira o torrent inteiro direto).
@@ -141,7 +135,7 @@ function DownloadAllButton({ info, result, onDownload }: { readonly info: Torren
   const run = async () => {
     const ok = await confirm({
       title: 'Baixar torrent completo',
-      message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatSize(info.totalSize)})?`,
+      message: `Enfileirar ${info.files.length} arquivo${info.files.length === 1 ? '' : 's'} (${formatBytesOrDash(info.totalSize)})?`,
       confirmLabel: 'Baixar todos',
       destructive: false,
     })
@@ -149,9 +143,9 @@ function DownloadAllButton({ info, result, onDownload }: { readonly info: Torren
     setBusy(true)
     try {
       await queueAllTorrentFiles(info, pickTorrentSource(result), result.title, result.tracker || undefined, result.category || undefined)
-      alert(t('downloads.whole_torrent_queued', { count: info.files.length, size: formatSize(info.totalSize) }))
-    } catch (err: any) {
-      alert(`Falha ao enfileirar: ${err?.response?.data?.error || err.message || err}`)
+      notify(t('downloads.whole_torrent_queued', { count: info.files.length, size: formatBytesOrDash(info.totalSize) }), 'success')
+    } catch (err: unknown) {
+      notifyError(err)
     } finally {
       setBusy(false)
     }
@@ -270,7 +264,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
           {info && (
             <div className="text-xs text-text-muted mt-1 flex items-center gap-2 flex-wrap">
               <span>
-                {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatSize(info.totalSize)}
+                {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} · {formatBytesOrDash(info.totalSize)}
               </span>
               <DownloadAllButton info={info} result={result} onDownload={onDownload} />
             </div>
@@ -475,7 +469,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                               {f.path}
                             </span>
                           </button>
-                          <span className="text-xs text-text-muted flex-shrink-0 ml-2">{formatSize(f.size)}</span>
+                          <span className="text-xs text-text-muted flex-shrink-0 ml-2">{formatBytesOrDash(f.size)}</span>
 
                         {playable && (
                           <div className="flex items-center gap-1 ml-2 flex-shrink-0">

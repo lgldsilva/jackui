@@ -5,11 +5,13 @@ import { adminListUsers, adminCreateUser, adminDeleteUser, adminSetUserStatus, a
 import { useAuth } from '../auth/AuthContext'
 import AdminResetPasswordModal from './AdminResetPasswordModal'
 import AdminUserSessionsModal from './AdminUserSessionsModal'
+import { useConfirm } from './ConfirmDialog'
 
 // UsersAdminCard — admin-only user management: see everyone (with status/email),
 // approve pending accounts, disable/re-enable, delete, and create users.
 export default function UsersAdminCard() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { isAdmin, user } = useAuth()
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [err, setErr] = useState('')
@@ -30,6 +32,12 @@ export default function UsersAdminCard() {
   const act = async (fn: () => Promise<void>) => {
     setErr('')
     try { await fn(); load() } catch (e: any) { setErr(e?.response?.data?.error || 'Falha na operação') }
+  }
+
+  const deleteUser = async (u: AdminUser) => {
+    const ok = await confirm({ title: 'Excluir usuário', message: `Excluir ${u.username}?`, confirmLabel: 'Excluir', destructive: true })
+    if (!ok) return
+    act(() => adminDeleteUser(u.id))
   }
 
   const statusChip = (s: AdminUser['status']) => {
@@ -75,7 +83,7 @@ export default function UsersAdminCard() {
                     className="p-1.5 rounded text-green-400 hover:bg-green-500/15"><RotateCcw className="w-4 h-4" /></button>
                 )}
                 {u.id !== user?.id && (
-                  <button onClick={() => { if (confirm(`Excluir ${u.username}?`)) act(() => adminDeleteUser(u.id)) }} title="Excluir"
+                  <button onClick={() => deleteUser(u)} title="Excluir"
                     className="p-1.5 rounded text-text-muted hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>
                 )}
               </div>
