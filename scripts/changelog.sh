@@ -37,9 +37,11 @@ section() {
   fi
 }
 
-# BREAKING CHANGES em destaque (rodapé "BREAKING CHANGE:" no corpo de qualquer commit).
+# BREAKING CHANGES em destaque — só o FOOTER real "BREAKING CHANGE:" (início de
+# linha + ":", maiúsculas), não a frase citada em prosa (senão um commit que só
+# menciona "BREAKING CHANGE" numa explicação vira uma seção falsa no changelog).
 breaking=$(git log "$range" --no-merges --format='%B' 2>/dev/null \
-  | grep -iE 'BREAKING[ -]CHANGE' | sed -E 's/^ *BREAKING[ -]CHANGE:? */- /I' || true)
+  | grep -E '^BREAKING[ -]CHANGE:' | sed -E 's/^BREAKING[ -]CHANGE: */- /' || true)
 if [ -n "$breaking" ]; then
   printf '### ⚠️ BREAKING CHANGES\n%s\n\n' "$breaking"
 fi
