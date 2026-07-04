@@ -147,6 +147,23 @@ func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (
 	return *result, nil
 }
 
+// ProbeLocal runs ffprobe on a local file path and returns the parsed tracks,
+// chapters, duration and codec/container facts. It reuses parseProbeOutput — the
+// SAME decoder the torrent path (Probe) uses — so /api/local/* handlers share
+// ONE ffprobe invocation + parser with the torrent side instead of duplicating
+// it. The caller owns the ctx/timeout.
+func ProbeLocal(ctx context.Context, path string) (ProbeResult, error) {
+	out, err := runFFprobe(ctx, path, nil)
+	if err != nil {
+		return ProbeResult{}, err
+	}
+	result, perr := parseProbeOutput(out)
+	if perr != nil {
+		return ProbeResult{}, fmt.Errorf("decode ffprobe: %w", perr)
+	}
+	return *result, nil
+}
+
 func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		ffHideBanner, ffLogLevel, "error",
