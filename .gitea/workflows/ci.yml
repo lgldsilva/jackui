@@ -35,7 +35,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version-file: go.mod # fonte única da versão do Go (igual ao semidx)
           cache: true
           cache-dependency-path: go.sum
       - name: ffmpeg (testes de transcode/streamer)
@@ -92,8 +92,48 @@ jobs:
       - run: npm test          # vitest run
       - run: npm run build
 
+  # Gates de segurança (espelham o semidx): secret scan, CVEs em deps/stdlib e SAST.
+  # Steps `go run` portáveis; gosec pinado porque @latest exige Go >= 1.26.
+  gitleaks:
+    runs-on: [self-hosted, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run github.com/zricethezav/gitleaks/v8@latest detect --source . --no-banner --redact --exit-code 1
+
+  govulncheck:
+    runs-on: [self-hosted, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # SAST — INFORMATIVO (não-bloqueante por ora). Rodando pela 1ª vez no jackui, o
+  # gosec acusa 116 findings, a maioria inerente a um media server (G304 abrir
+  # arquivo por path, G301/G302/G306 perms de mídia, G204 ffmpeg, G401/G505 sha1
+  # de hash). Ele roda e reporta (visível no log), mas o `|| true` mantém o job
+  # VERDE (só continue-on-error deixava o status como "failure" e derrubava o
+  # combined), e ele fica FORA de `approve.needs`. A triagem dedicada dos 116
+  # (#nosec justificado + fixes reais) e a promoção a gate bloqueante estão
+  # rastreadas em #480. Difere do semidx, onde o gosec é bloqueante (codebase
+  # pequeno, 0 findings).
+  gosec:
+    runs-on: [self-hosted, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./... || true
+
   approve:
-    needs: [backend, frontend]
+    needs: [backend, frontend, gitleaks, govulncheck]
     runs-on: [self-hosted, arm64]
     # Executa a aprovação se os testes passarem e for de fato um PR
     if: github.event_name == 'pull_request'

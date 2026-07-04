@@ -1,0 +1,66 @@
+# Nightly mutation testing (gremlins) on jackui's pure business-logic packages —
+# mirrors semidx's mutation.yml. Mutation re-runs the tests per mutant, so it is
+# too slow for a per-PR gate; it runs on a schedule (and on demand) and only
+# fails if efficacy drops below a floor (a regression alarm, not a strict gate —
+# some mutants are equivalent).
+#
+# The excludes below skip packages that need infra or drive external systems, so
+# gremlins mutates only code with fast, self-contained unit tests:
+#   - DB-backed (need JACKUI_TEST_DATABASE_URL): db, dbtest, dbutil, streamer
+#   - ffmpeg / exec-driven: audiometa, transcode, localstream
+#   - HTTP handlers (httptest-driven, integration-shaped): handlers, middleware
+#   - external APIs / IO: jackett, tmdb, imagesearch, lyrics, subtitles,
+#     musictrending, watchlist, transmissionrpc, downloader, downloads, mailer,
+#     push, gluetun, preview, transfer, library, playlists, history, stats, ai
+#   - non-Go / wiring: web, electron, cmd
+# NOTE: this exclude list is a starting point — tune it as jackui's test suites
+# for these packages gain speed/coverage.
+name: Mutation (nightly)
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gremlins:
+    runs-on: [self-hosted, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gremlins unleash (business logic)
+        run: |
+          go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash \
+            --exclude-files 'internal/db/.*' \
+            --exclude-files 'internal/dbtest/.*' \
+            --exclude-files 'internal/dbutil/.*' \
+            --exclude-files 'internal/streamer/.*' \
+            --exclude-files 'internal/localstream/.*' \
+            --exclude-files 'internal/audiometa/.*' \
+            --exclude-files 'internal/transcode/.*' \
+            --exclude-files 'internal/handlers/.*' \
+            --exclude-files 'internal/middleware/.*' \
+            --exclude-files 'internal/jackett/.*' \
+            --exclude-files 'internal/tmdb/.*' \
+            --exclude-files 'internal/imagesearch/.*' \
+            --exclude-files 'internal/lyrics/.*' \
+            --exclude-files 'internal/subtitles/.*' \
+            --exclude-files 'internal/musictrending/.*' \
+            --exclude-files 'internal/watchlist/.*' \
+            --exclude-files 'internal/transmissionrpc/.*' \
+            --exclude-files 'internal/downloader/.*' \
+            --exclude-files 'internal/downloads/.*' \
+            --exclude-files 'internal/mailer/.*' \
+            --exclude-files 'internal/push/.*' \
+            --exclude-files 'internal/gluetun/.*' \
+            --exclude-files 'internal/preview/.*' \
+            --exclude-files 'internal/transfer/.*' \
+            --exclude-files 'internal/library/.*' \
+            --exclude-files 'internal/playlists/.*' \
+            --exclude-files 'internal/history/.*' \
+            --exclude-files 'internal/stats/.*' \
+            --exclude-files 'internal/ai/.*' \
+            --exclude-files 'cmd/.*' \
+            --threshold-efficacy 50
