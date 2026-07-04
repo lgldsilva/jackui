@@ -318,7 +318,7 @@ func (s *Streamer) resolveProbeInput(hash metainfo.Hash, fileIdx int, readahead 
 	e, ok := s.active[hash]
 	if !ok {
 		s.mu.Unlock()
-		return probeInput{}, errors.New(ErrTorrentNotActive)
+		return probeInput{}, ErrTorrentNotActive
 	}
 	files := e.t.Files()
 	s.mu.Unlock()
@@ -462,7 +462,7 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		e, ok := s.active[hash]
 		if !ok {
 			s.mu.Unlock()
-			return nil, errors.New(ErrTorrentNotActive)
+			return nil, ErrTorrentNotActive
 		}
 		files := e.t.Files()
 		s.mu.Unlock()

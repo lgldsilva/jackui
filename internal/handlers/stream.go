@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -831,7 +832,7 @@ func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		if err := s.SetPriority(h, req.Priority); err != nil {
 			code := http.StatusBadRequest
-			if strings.Contains(err.Error(), "não está ativo") {
+			if errors.Is(err, streamer.ErrTorrentNotActive) {
 				code = http.StatusNotFound
 			}
 			c.JSON(code, gin.H{"error": err.Error()})
@@ -862,7 +863,7 @@ func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		if err := s.SetFilePriority(h, idx, req.Priority); err != nil {
 			code := http.StatusBadRequest
-			if strings.Contains(err.Error(), "não está ativo") {
+			if errors.Is(err, streamer.ErrTorrentNotActive) {
 				code = http.StatusNotFound
 			}
 			c.JSON(code, gin.H{"error": err.Error()})

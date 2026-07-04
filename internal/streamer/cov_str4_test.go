@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -440,7 +441,7 @@ func Test_str4_ResolveProbeInput_ResolverMiss_NotActive(t *testing.T) {
 	s.SetFilePathResolver(func(_ metainfo.Hash, _ int) (string, bool) {
 		return "", false
 	})
-	if _, err := s.resolveProbeInput(metainfo.HashBytes([]byte("str4")), 0, 1024); err == nil || err.Error() != ErrTorrentNotActive {
+	if _, err := s.resolveProbeInput(metainfo.HashBytes([]byte("str4")), 0, 1024); err == nil || !errors.Is(err, ErrTorrentNotActive) {
 		t.Fatalf("expected %q, got %v", ErrTorrentNotActive, err)
 	}
 }
@@ -448,7 +449,7 @@ func Test_str4_ResolveProbeInput_ResolverMiss_NotActive(t *testing.T) {
 // Probe sem torrent ativo e sem resolver → ErrTorrentNotActive.
 func Test_str4_Probe_NotActive(t *testing.T) {
 	s := NewForTesting()
-	if _, err := s.Probe(context.Background(), metainfo.HashBytes([]byte("str4probe")), 0); err == nil || err.Error() != ErrTorrentNotActive {
+	if _, err := s.Probe(context.Background(), metainfo.HashBytes([]byte("str4probe")), 0); err == nil || !errors.Is(err, ErrTorrentNotActive) {
 		t.Fatalf("expected %q, got %v", ErrTorrentNotActive, err)
 	}
 }
@@ -474,7 +475,7 @@ func Test_str4_ExtractSubtitle_ResolverNonMedia(t *testing.T) {
 // ExtractSubtitle sem resolver e sem torrent ativo → ErrTorrentNotActive.
 func Test_str4_ExtractSubtitle_NotActive(t *testing.T) {
 	s := NewForTesting()
-	if _, err := s.ExtractSubtitle(context.Background(), metainfo.HashBytes([]byte("str4sub")), 0, 0); err == nil || err.Error() != ErrTorrentNotActive {
+	if _, err := s.ExtractSubtitle(context.Background(), metainfo.HashBytes([]byte("str4sub")), 0, 0); err == nil || !errors.Is(err, ErrTorrentNotActive) {
 		t.Fatalf("expected %q, got %v", ErrTorrentNotActive, err)
 	}
 }
