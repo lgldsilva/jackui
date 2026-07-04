@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock,
-  Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Server, Info,
+  Activity, Gauge, Users, Zap, ArrowDownCircle, ArrowUpCircle, Wifi, Info,
   Plus, UploadCloud, Search, X, SlidersHorizontal, HardDrive, AlertTriangle,
   ListFilter, Download, CheckSquare, MoreHorizontal, ChevronDown, ChevronRight, Folder,
   ArrowUp, ArrowDown, ArrowDownWideNarrow, RotateCcw,
@@ -40,6 +40,15 @@ import DownloadInspectModal from '../components/DownloadInspectModal'
 import DownloadModal from '../components/DownloadModal'
 import AddTorrentModal from '../components/AddTorrentModal'
 import { useAuth } from '../auth/AuthContext'
+import { StatCard } from '../components/downloads/StatCard'
+import { ActionButton } from '../components/downloads/ActionButton'
+import { GroupHeader } from '../components/downloads/GroupHeader'
+import { EmptyState } from '../components/downloads/EmptyState'
+import { CompletedFilterChips, type CompletedFilterKey } from '../components/downloads/CompletedFilterChips'
+import { PriorityBadge } from '../components/downloads/PriorityBadge'
+import { KindBadge } from '../components/downloads/KindBadge'
+import { TorrentStatusBadge } from '../components/downloads/TorrentStatusBadge'
+import { DownloadStatusBadge } from '../components/downloads/DownloadStatusBadge'
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1349,35 +1358,6 @@ export default function DownloadsPage() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// StatCard — one cell in the top summary dashboard
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: {
-  readonly icon: React.ReactNode
-  readonly label: string
-  readonly value: string
-  readonly subtitle?: string
-  readonly gradient: string
-  readonly iconColor: string
-  readonly pulse?: boolean
-}) {
-  return (
-    <div className={`
-      relative overflow-hidden rounded-xl border border-default/50
-      bg-gradient-to-br ${gradient} backdrop-blur-sm
-      p-4 flex flex-col gap-1
-    `}>
-      <div className="flex items-center gap-2">
-        <span className={`${iconColor} ${pulse ? 'animate-pulse' : ''}`}>{icon}</span>
-        <span className="text-xs text-text-secondary uppercase tracking-wider font-medium">{label}</span>
-      </div>
-      <span className="text-xl font-bold text-text-primary tracking-tight">{value}</span>
-      {subtitle && <span className="text-xs text-text-muted">{subtitle}</span>}
-    </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // ActiveTab — downloading/queued torrents + background downloads
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1682,46 +1662,6 @@ function DownloadGroupCard({
 }
 
 // GroupHeader — small section label above a download group (Baixando/Na fila/…).
-type CompletedFilterKey = 'all' | 'seeding' | 'ondisk'
-
-// Filtro da aba de concluídos: ver tudo, só o que está semeando ao vivo, ou só
-// o que está parado no disco. Top-level para evitar componente-no-pai (S6478).
-function CompletedFilterChips({ value, onChange, seedingN, onDiskN }: {
-  readonly value: CompletedFilterKey
-  readonly onChange: (v: CompletedFilterKey) => void
-  readonly seedingN: number
-  readonly onDiskN: number
-}) {
-  const opts: { key: CompletedFilterKey; label: string }[] = [
-    { key: 'all', label: 'Todos' },
-    { key: 'seeding', label: `Semeando (${seedingN})` },
-    { key: 'ondisk', label: `No disco (${onDiskN})` },
-  ]
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {opts.map(o => (
-        <button
-          key={o.key}
-          onClick={() => onChange(o.key)}
-          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${value === o.key
-            ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/40'
-            : 'bg-surface-secondary text-text-secondary border-default hover:text-text-primary'}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function GroupHeader({ icon, label, color }: { readonly icon: React.ReactNode; readonly label: string; readonly color: string }) {
-  return (
-    <div className={`flex items-center gap-2 text-xs font-medium uppercase tracking-wider px-1 ${color}`}>
-      {icon}{label}
-    </div>
-  )
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SeedingTab — seeding/complete torrents + completed downloads
 // Sub-divided by lifecycle: Baixando agora / Na fila / Semeando / No disco / Pausados.
@@ -2050,16 +1990,6 @@ function NetworkTab({ limitDownKB, limitUpKB, setLimitDownKB, setLimitUpKB,
 // EmptyState
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function EmptyState({ icon, title, description }: { readonly icon: React.ReactNode; readonly title: string; readonly description: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="text-text-muted mb-3">{icon}</div>
-      <h3 className="text-lg font-semibold text-text-secondary mb-1">{title}</h3>
-      <p className="text-sm text-text-muted max-w-md">{description}</p>
-    </div>
-  )
-}
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // TorrentCard — Premium redesigned streaming torrent card
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2255,20 +2185,6 @@ type DownloadCardProps = {
   readonly onSetPriority?: (priority: DownloadPriority) => void
   /** Opens the file in the local browser; undefined when it isn't under a mount. */
   readonly onOpenLocal?: () => void
-}
-
-// PriorityBadge shows the queue priority on a download card. Hidden for the
-// default (normal) so it only draws attention when the user has tuned it.
-function PriorityBadge({ priority }: { readonly priority?: DownloadPriority }) {
-  if (!priority || priority === 'normal') return null
-  const cls = priority === 'high'
-    ? 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30'
-    : 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30'
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${cls}`} title="Prioridade na fila">
-      <ArrowUpCircle className="w-3 h-3" />{priority === 'high' ? 'Alta' : 'Baixa'}
-    </span>
-  )
 }
 
 function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority, onOpenLocal }: DownloadCardProps) {
@@ -2509,90 +2425,6 @@ function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, on
         )}
       </div>
     </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Shared sub-components
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function KindBadge({ kind }: { readonly kind: 'streaming' | 'server' }) {
-  if (kind === 'streaming') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-        <Activity className="w-2.5 h-2.5" />
-        Streaming
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
-      <Server className="w-2.5 h-2.5" />
-      Servidor
-    </span>
-  )
-}
-
-function TorrentStatusBadge({ status }: { readonly status: NonNullable<TorrentInfo['status']> }) {
-  const map: Record<NonNullable<TorrentInfo['status']>, { label: string; cls: string; icon: React.ReactNode }> = {
-    downloading: { label: 'Baixando',  cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30', icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    paused:      { label: 'Pausado',   cls: 'bg-gray-500/15 text-text-primary border-strong/30',          icon: <Pause className="w-3 h-3" /> },
-    seeding:     { label: 'Semeando',  cls: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30',    icon: <ArrowUpCircle className="w-3 h-3" /> },
-    complete:    { label: 'Completo',  cls: 'bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30',       icon: <CheckCircle2 className="w-3 h-3" /> },
-  }
-  const s = map[status]
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${s.cls}`}>
-      {s.icon} {s.label}
-    </span>
-  )
-}
-
-function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['status'] }) {
-  const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {
-    queued:      { label: 'Na fila',     cls: 'bg-surface-tertiary/50 text-text-primary border-strong/50',         icon: <Clock className="w-3 h-3" /> },
-    downloading: { label: 'Baixando',    cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30',         icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    moving:      { label: 'Movendo',     cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',      icon: <Loader2 className="w-3 h-3 animate-spin" /> },
-    completed:   { label: 'Concluído',   cls: 'bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30',      icon: <CheckCircle2 className="w-3 h-3" /> },
-    failed:      { label: 'Falhou',      cls: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',            icon: <AlertCircle className="w-3 h-3" /> },
-    paused:      { label: 'Pausado',     cls: 'bg-gray-500/15 text-text-primary border-strong/30',         icon: <Pause className="w-3 h-3" /> },
-  }
-  const s = map[status]
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border font-medium ${s.cls}`}>
-      {s.icon} {s.label}
-    </span>
-  )
-}
-
-function ActionButton({ onClick, disabled, variant, icon, label, className = '', title }: {
-  readonly onClick: () => void
-  readonly disabled: boolean
-  readonly variant: 'success' | 'danger' | 'neutral' | 'info'
-  readonly icon: React.ReactNode
-  readonly label: string
-  readonly className?: string
-  readonly title?: string
-}) {
-  const styles: Record<typeof variant, string> = {
-    success: 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-    danger:  'bg-red-500/10 hover:bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30',
-    neutral: 'bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border-strong/60',
-    info:    'bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30',
-  }
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={`
-        flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-lg
-        disabled:opacity-50 transition-all duration-200 font-medium
-        ${styles[variant]} ${className}
-      `}
-    >
-      {icon} {label}
-    </button>
   )
 }
 
