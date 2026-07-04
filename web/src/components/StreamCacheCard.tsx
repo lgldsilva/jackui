@@ -5,6 +5,8 @@ import { usePlayer } from './PlayerProvider'
 import { syntheticResult } from '../lib/playable'
 import { usePersistedState } from '../lib/storage'
 import { errMessage } from '../lib/errMessage'
+import { formatBytes, formatDate } from '../lib/format'
+import { useConfirm } from './ConfirmDialog'
 
 type CacheSort = 'name' | 'size' | 'date'
 
@@ -24,26 +26,8 @@ function viewCacheEntries(entries: readonly CacheEntry[], filter: string, sortBy
   return out
 }
 
-function formatSize(bytes: number): string {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  const diffH = (Date.now() - d.getTime()) / 3_600_000
-  if (diffH < 1) return `${Math.floor(diffH * 60)}m atrás`
-  if (diffH < 24) return `${Math.floor(diffH)}h atrás`
-  if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-}
-
 export default function StreamCacheCard() {
+  const confirm = useConfirm()
   const [stats, setStats] = useState<StreamCacheStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -87,7 +71,8 @@ export default function StreamCacheCard() {
   useEffect(() => { load() }, [])
 
   const handleClearAll = async () => {
-    if (!confirm('Apagar TODOS os arquivos do cache de streaming? Isso interrompe qualquer torrent ativo.')) return
+    const ok = await confirm({ title: 'Limpar cache', message: 'Apagar TODOS os arquivos do cache de streaming? Isso interrompe qualquer torrent ativo.', confirmLabel: 'Limpar tudo', destructive: true })
+    if (!ok) return
     setBusy(true)
     try {
       await streamCacheClear()
@@ -98,10 +83,11 @@ export default function StreamCacheCard() {
   }
 
   const handleClearEntry = async (path: string, isActive: boolean) => {
-    const msg = isActive
+    const message = isActive
       ? `"${path}" está ativo. Apagar agora vai interromper o stream. Continuar?`
       : `Apagar "${path}" do cache?`
-    if (!confirm(msg)) return
+    const ok = await confirm({ title: 'Apagar do cache', message, confirmLabel: 'Apagar', destructive: true })
+    if (!ok) return
     setBusy(true)
     try {
       await streamCacheClear(path)
@@ -177,10 +163,10 @@ export default function StreamCacheCard() {
         <div className="flex items-baseline justify-between text-sm">
           <span className="text-text-secondary">
             <span className={`font-medium ${overLimit ? 'text-yellow-400' : 'text-text-primary'}`}>
-              {formatSize(stats.totalSize)}
+              {formatBytes(stats.totalSize)}
             </span>
             {stats.maxSize > 0
-              ? <span className="text-text-muted"> de {formatSize(stats.maxSize)}</span>
+              ? <span className="text-text-muted"> de {formatBytes(stats.maxSize)}</span>
               : <span className="text-text-muted"> usados (sem limite)</span>
             }
           </span>
@@ -205,14 +191,14 @@ export default function StreamCacheCard() {
         </p>
         {stats.diskTotal > 0 && (
           <p className="text-xs text-text-muted">
-            Disco: <span className="text-text-secondary">{formatSize(stats.diskFree)} livres</span> de {formatSize(stats.diskTotal)}
+            Disco: <span className="text-text-secondary">{formatBytes(stats.diskFree)} livres</span> de {formatBytes(stats.diskTotal)}
           </p>
         )}
         {stats.evictedCount > 0 && (
           <p className="text-xs text-text-muted">
             Reciclado pelo LRU:{' '}
             <span className="text-text-secondary">
-              {stats.evictedCount} {stats.evictedCount === 1 ? 'item' : 'itens'} ({formatSize(stats.evictedBytes)})
+              {stats.evictedCount} {stats.evictedCount === 1 ? 'item' : 'itens'} ({formatBytes(stats.evictedBytes)})
             </span>
             {stats.lastEvictionAt && <span> • último {formatDate(stats.lastEvictionAt)}</span>}
           </p>
@@ -281,7 +267,7 @@ export default function StreamCacheCard() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3 mt-0.5 text-xs text-text-muted">
-                  <span>{formatSize(e.size)}</span>
+                  <span>{formatBytes(e.size)}</span>
                   <span className="flex items-center gap-1">
                     <Clock className="w-2.5 h-2.5" />{formatDate(e.modTime)}
                   </span>

@@ -9,6 +9,7 @@ import DownloadModal from '../components/DownloadModal'
 import SeedBadge from '../components/SeedBadge'
 import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
+import { useToast } from '../components/Toast'
 import { useLongPress } from '../lib/useLongPress'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { formatDuration } from '../lib/format'
@@ -30,6 +31,7 @@ export default function LibraryPage() {
   const [dl, setDl] = useState<{ result: SearchResult; indices?: number[] } | null>(null)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
+  const { notify } = useToast()
 
   const [revealHidden] = useRevealHidden()
 
@@ -47,14 +49,14 @@ export default function LibraryPage() {
     // Optimistic: drop locally, rollback if server says no
     const prev = entries
     setEntries(entries.filter(x => x.id !== e.id))
-    try { await libraryDelete(e.id) } catch { setEntries(prev); alert('Falha ao remover') }
+    try { await libraryDelete(e.id) } catch { setEntries(prev); notify('Falha ao remover', 'error') }
   }
   const handleClearAll = async () => {
     const ok = await confirm({ title: 'Limpar tudo', message: `Apagar TODOS os ${entries.length} itens do Continuar Assistindo? Posições salvas serão perdidas.`, confirmLabel: 'Apagar tudo', destructive: true })
     if (!ok) return
     const prev = entries
     setEntries([])
-    try { await libraryDeleteAll() } catch { setEntries(prev); alert('Falha ao limpar') }
+    try { await libraryDeleteAll() } catch { setEntries(prev); notify('Falha ao limpar', 'error') }
   }
 
   const filtered = entries.filter(e => {

@@ -63,7 +63,7 @@ import { SimpleAudioControls } from './player/SimpleAudioControls'
 import { AudioCoverArt, audioCoverURL } from './player/AudioCoverArt'
 import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
-import { errMessage } from '../lib/errMessage'
+import { useToast } from './Toast'
 
 type PlaylistMeta = {
   readonly name: string
@@ -307,6 +307,7 @@ export default function PlayerModal({
   onHome,
   onProgress,
 }: PlayerModalProps) {
+  const { notify, notifyError } = useToast()
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -376,7 +377,7 @@ export default function PlayerModal({
     try {
       text = await file.text()
     } catch {
-      alert('Erro ao ler o arquivo de legenda.')
+      notify('Erro ao ler o arquivo de legenda.', 'error')
       return
     }
 
@@ -570,7 +571,7 @@ export default function PlayerModal({
       const categoryArg = effectiveCategory === 'default' ? undefined : effectiveCategory
       await downloadLocalFileDirect(apiPath, name, categoryArg)
     } catch (err) {
-      alert(errMessage(err))
+      notifyError(err)
     } finally {
       setLocalDownloadLoading(false)
     }
