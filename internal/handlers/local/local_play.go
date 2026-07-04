@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -215,19 +216,23 @@ func appendTokenToURL(token, base string) string {
 	return base + sep + "token=" + url.QueryEscape(token)
 }
 
-func localPlayVideoResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
+// localPlayVideoResp takes ctx + the already-parsed forceHLS hint (not the
+// *gin.Context) so the batch handler can call it from goroutines without touching
+// the shared context concurrently. LocalPlay passes c.Request.Context() +
+// c.Query("transcode")=="hls".
+func localPlayVideoResp(ctx context.Context, forceHLS bool, abs, mount, path, token string) LocalPlayResp {
 	// iOS/Safari WebKit trava em MP4 progressive servido por HTTP (estaciona em
 	// readyState 2). O cliente iOS pede transcode=hls pra vídeo local; H264/AAC vira
 	// só REMUX (sem re-encode, barato). Assim o vídeo local vai pelo MESMO caminho HLS
 	// confiável do torrent, em vez do direct/progressive que o iOS não toca.
-	if c.Query("transcode") == "hls" {
+	if forceHLS {
 		return LocalPlayResp{
 			Kind:   "hls",
 			URL:    appendTokenToURL(token, buildLocalHLSURL(mount, path)),
 			Reason: "client_forced",
 		}
 	}
-	probe, perr := probeLocalFile(c.Request.Context(), abs)
+	probe, perr := probeLocalFile(ctx, abs)
 	if perr != nil {
 		ext := strings.ToLower(filepath.Ext(path))
 		if ext == ".mp4" || ext == ".m4v" || ext == ".mov" || ext == ".webm" {
@@ -333,8 +338,10 @@ func audioExtUniversallySafe(path string) bool {
 // HLSSessionManager as video (with AudioOnly set → `-vn`). The previous code
 // force-direct-played ALL audio, which silently failed on Safari for those
 // codecs — this is the fix.
-func localPlayAudioResp(c *gin.Context, abs, mount, path, token string) LocalPlayResp {
-	probe, perr := probeLocalFile(c.Request.Context(), abs)
+// localPlayAudioResp takes ctx (not the *gin.Context) so the batch handler can
+// call it from goroutines without touching the shared context concurrently.
+func localPlayAudioResp(ctx context.Context, abs, mount, path, token string) LocalPlayResp {
+	probe, perr := probeLocalFile(ctx, abs)
 	var acodec, container string
 	if perr == nil {
 		acodec = probe.AudioCodec
@@ -367,14 +374,108 @@ func LocalPlay(b *lb.Browser, lib *library.Store) gin.HandlerFunc {
 		isAudio := isAudioByExt(path)
 		var resp LocalPlayResp
 		if isAudio {
-			resp = localPlayAudioResp(c, abs, mount, path, token)
+			resp = localPlayAudioResp(c.Request.Context(), abs, mount, path, token)
 		} else {
-			resp = localPlayVideoResp(c, abs, mount, path, token)
+			resp = localPlayVideoResp(c.Request.Context(), c.Query("transcode") == "hls", abs, mount, path, token)
 		}
 		// Track in the library so local media shows in Continue Watching and gets
 		// resume — same as torrents (StreamAdd). Best-effort; never blocks playback.
 		resp.LibraryID = upsertLocalLibrary(c, lib, mount, path, isAudio)
 		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// LocalPlayBatchItem is one file's resolution within a batch response — mirrors
+// LocalPlayResp plus the path, with a per-file Error so one unprobeable file
+// never fails the whole list.
+type LocalPlayBatchItem struct {
+	Path      string `json:"path"`
+	Kind      string `json:"kind,omitempty"`
+	URL       string `json:"url,omitempty"`
+	VCodec    string `json:"vcodec,omitempty"`
+	ACodec    string `json:"acodec,omitempty"`
+	Container string `json:"container,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+const (
+	localPlayBatchMax         = 500 // cap files per batch (ffprobe is heavy)
+	localPlayBatchConcurrency = 4   // bound parallel ffprobe
+)
+
+// LocalPlayBatch handles POST /api/local/play/batch {mount, paths:[...]} →
+// {items:[...]} — resolves direct-vs-HLS + the playable URL for MANY files in
+// ONE call, so pre-warming a playlist costs a single round-trip instead of one
+// GET /api/local/play (ffprobe) per file (the frontend N+1 when opening an
+// album). It only RESOLVES (to seed the playback URL cache); it does NOT upsert
+// the library — that stays on the actual play via GET /api/local/play.
+func LocalPlayBatch(b *lb.Browser) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Mount string   `json:"mount"`
+			Paths []string `json:"paths"`
+			// ForceHLS mirrors synthesizeLocalInfo's per-device choice (iOS forces
+			// video to HLS): applied ONLY to video files below (audio ignores it),
+			// so a pre-warmed URL matches exactly what the actual play resolves —
+			// otherwise iOS would read a cached "direct" URL and stall on video.
+			ForceHLS bool `json:"forceHLS"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || req.Mount == "" || len(req.Paths) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			return
+		}
+		if len(req.Paths) > localPlayBatchMax {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many paths"})
+			return
+		}
+		if !CheckMountAccess(b, c, req.Mount) {
+			return
+		}
+		// Extract everything from the *gin.Context ONCE — the goroutines below must
+		// not touch the shared context concurrently.
+		ctx := c.Request.Context()
+		token := localPlayToken(c)
+		username := scopeUser(c)
+
+		items := make([]LocalPlayBatchItem, len(req.Paths))
+		sem := make(chan struct{}, localPlayBatchConcurrency)
+		var wg sync.WaitGroup
+		for i, p := range req.Paths {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(i int, p string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				items[i] = resolveBatchItem(ctx, b, req.Mount, p, username, token, req.ForceHLS)
+			}(i, p)
+		}
+		wg.Wait()
+		c.JSON(http.StatusOK, gin.H{"items": items})
+	}
+}
+
+// resolveBatchItem resolves ONE file for LocalPlayBatch: scope+resolve the path,
+// stat it, then reuse the same audio/video resolvers as the single GET. Extracted
+// from the goroutine so LocalPlayBatch stays well under the cognitive-complexity
+// gate. Returns a per-file Error instead of failing the whole batch.
+func resolveBatchItem(ctx context.Context, b *lb.Browser, mount, p, username, token string, forceHLS bool) LocalPlayBatchItem {
+	abs, err := b.ResolvePathFor(mount, p, username)
+	if err != nil {
+		return LocalPlayBatchItem{Path: p, Error: err.Error()}
+	}
+	if st, serr := os.Stat(abs); serr != nil || st.IsDir() {
+		return LocalPlayBatchItem{Path: p, Error: "not found"}
+	}
+	var resp LocalPlayResp
+	if isAudioByExt(p) {
+		resp = localPlayAudioResp(ctx, abs, mount, p, token)
+	} else {
+		resp = localPlayVideoResp(ctx, forceHLS, abs, mount, p, token)
+	}
+	return LocalPlayBatchItem{
+		Path: p, Kind: resp.Kind, URL: resp.URL,
+		VCodec: resp.VCodec, ACodec: resp.ACodec, Container: resp.Container, Reason: resp.Reason,
 	}
 }
 
