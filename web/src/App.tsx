@@ -1,23 +1,27 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { load, save } from './lib/storage'
 import { isIncognito } from './lib/incognito'
 import { isStandalonePWA, shouldRestoreRoute } from './lib/routeRestore'
-import SearchPage from './pages/SearchPage'
-import SettingsPage from './pages/SettingsPage'
-import HistoryPage from './pages/HistoryPage'
-import FavoritesPage from './pages/FavoritesPage'
-import PlaylistsPage from './pages/PlaylistsPage'
-import PlaylistDetailPage from './pages/PlaylistDetailPage'
-import LibraryPage from './pages/LibraryPage'
-import DiscoverPage from './pages/DiscoverPage'
-import WatchlistPage from './pages/WatchlistPage'
-import LocalPage from './pages/LocalPage'
-import DownloadsPage from './pages/DownloadsPage'
-import StatsPage from './pages/StatsPage'
-import LoginPage from './pages/LoginPage'
-import { RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from './pages/AuthFlows'
+// Route-level code-splitting: each page loads on navigation, not up front.
+const SearchPage = lazy(() => import('./pages/SearchPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const HistoryPage = lazy(() => import('./pages/HistoryPage'))
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage'))
+const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage'))
+const PlaylistDetailPage = lazy(() => import('./pages/PlaylistDetailPage'))
+const LibraryPage = lazy(() => import('./pages/LibraryPage'))
+const DiscoverPage = lazy(() => import('./pages/DiscoverPage'))
+const WatchlistPage = lazy(() => import('./pages/WatchlistPage'))
+const LocalPage = lazy(() => import('./pages/LocalPage'))
+const DownloadsPage = lazy(() => import('./pages/DownloadsPage'))
+const StatsPage = lazy(() => import('./pages/StatsPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const RegisterPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.RegisterPage })))
+const VerifyEmailPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.VerifyEmailPage })))
+const ForgotPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.ForgotPasswordPage })))
+const ResetPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.ResetPasswordPage })))
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 import { ConfirmProvider } from './components/ConfirmDialog'
@@ -93,8 +97,17 @@ function RouteRestorer() {
   return null
 }
 
+function RouteFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <Loader2 className="w-8 h-8 animate-spin text-[var(--muted)]" />
+    </div>
+  )
+}
+
 function AppRoutes() {
   return (
+    <Suspense fallback={<RouteFallback />}>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
@@ -114,6 +127,7 @@ function AppRoutes() {
       <Route path="/local" element={<ProtectedRoute><LocalPage /></ProtectedRoute>} />
       <Route path="/downloads" element={<ProtectedRoute><DownloadsPage /></ProtectedRoute>} />
     </Routes>
+    </Suspense>
   )
 }
 
