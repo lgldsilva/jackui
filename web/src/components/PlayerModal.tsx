@@ -4,10 +4,8 @@ import { X, Play, Loader2, AlertCircle, FileVideo, Download, Upload, Users, Acti
 import {
   SearchResult,
   TorrentInfo,
-  Subtitle,
   StreamProbe,
   TranscodeCapabilities,
-  SidecarSubtitle,
   streamAdd,
   streamMetadata,
   pickTorrentSource,
@@ -19,8 +17,6 @@ import {
   isIOS,
   resolveArt,
   subtitlesEnabled,
-  subtitlesSearch,
-  subtitlesAuto,
   fetchMediaToken,
   transcodeCapabilities,
   favoriteAdd,
@@ -32,7 +28,6 @@ import {
   downloadLocalFileDirect,
   classifyCategory,
   isLocalHash,
-  localSubtrackBlobURL,
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { parentDir, filesUnderDir } from '../lib/treeSelect'
@@ -47,8 +42,9 @@ import { detectViewerKind } from './viewer/viewerKind'
 import { previewRawURL } from '../api/preview'
 import { useHoverThumb } from './FileThumbHover'
 import { Sheet } from './Sheet'
-import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useSubtitleOffset, useTrackProbe, useSubtitleChoicePersist, useHevcBackstop } from './player/playerHooks'
-import { formatSize, getSubtitleLabel, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
+import { useKeyboardShortcuts, useMediaSession, useMediaQueue, useHevcBackstop } from './player/playerHooks'
+import { formatSize, filterAndSortFiles, parseEpisodeTag, type FileType } from './player/playerFormat'
+import { useSubtitles } from './player/useSubtitles'
 import { useTrackOrder } from './player/useTrackOrder'
 import { nextTrack, prevTrack } from '../lib/trackTransport'
 import { computeMediaUrls } from './player/mediaUrls'
@@ -317,7 +313,7 @@ export default function PlayerModal({
   onProgress,
 }: PlayerModalProps) {
   const { t } = useTranslation()
-  const { notify, notifyError } = useToast()
+  const { notifyError } = useToast()
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -347,80 +343,13 @@ export default function PlayerModal({
   // collapsed behind an "Opções" toggle so the video + file list get the space
   // — the Plex/Stremio pattern. Desktop (sm+) always shows them inline.
   const [showMobileOpts, setShowMobileOpts] = useState(false)
-  // Subtitles
+  // Subtitles backend configured? (feature flag; the rest of the subtitle
+  // cluster — track state, panel, offset, custom upload — lives in useSubtitles.)
   const [subEnabled, setSubEnabled] = useState(false)
-  const [subOpen, setSubOpen] = useState(false)
-  const [subResults, setSubResults] = useState<Subtitle[]>([])
-  const [subLoading, setSubLoading] = useState(false)
-  const [subError, setSubError] = useState('')
-  const [subActive, setSubActive] = useState<string | null>(null)
-  const [subOffset, setSubOffset] = useState(0) // seconds; +/-0.1s steps
-  // True once we've restored (or decided there's nothing to restore) the saved
-  // subtitle choice for the current file. Gates the save effect so the reset on
-  // file-switch doesn't persist an empty choice before restore runs.
-  const [subRestored, setSubRestored] = useState(false)
-  const [autoSource, setAutoSource] = useState<'hash' | 'title' | 'embedded' | null>(null)
-  // Embedded tracks discovered via ffprobe
+  // Embedded audio + subtitle tracks discovered via ffprobe. Shared: drives the
+  // subtitle auto-pick (in useSubtitles) AND the audio auto-transcode + HEVC
+  // backstop below, so it stays owned here and is fed to the subtitle hook.
   const [probe, setProbe] = useState<StreamProbe | null>(null)
-  const [embeddedSub, setEmbeddedSub] = useState<number | null>(null) // selected embedded sub track index
-  const [customSubURL, setCustomSubURL] = useState<string | null>(null)
-  const [customSubName, setCustomSubName] = useState<string | null>(null)
-  // Blob URL of a LOCAL embedded sub fetched with retry — the server extracts
-  // large rclone files in the background (503 until ready), so a <track src>
-  // pointing straight at the endpoint would 502/hang. '' until extracted.
-  const [localEmbeddedVttURL, setLocalEmbeddedVttURL] = useState('')
-
-  useEffect(() => {
-    return () => {
-      setCustomSubURL(prev => {
-        if (prev) URL.revokeObjectURL(prev)
-        return null
-      })
-    }
-  }, [])
-
-  const handleCustomSubtitleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    let text: string
-    try {
-      text = await file.text()
-    } catch {
-      notify(t('player.modal.subtitleReadError'), 'error')
-      return
-    }
-
-    const vttContent = file.name.endsWith('.srt')
-      ? 'WEBVTT\n\n' + text.replaceAll(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
-      : text
-
-    setCustomSubURL(prev => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
-
-    const blob = new Blob([vttContent], { type: 'text/vtt' })
-    const url = URL.createObjectURL(blob)
-    setCustomSubURL(url)
-    setCustomSubName(file.name)
-
-    setSubActive(null)
-    setSidecarIdx(null)
-    setEmbeddedSub(null)
-    setAutoSource(null)
-  }
-
-  // Drop any uploaded custom subtitle (revoking its blob URL) when the user
-  // switches to an embedded/sidecar/external track instead.
-  const clearCustomSub = () => {
-    setCustomSubURL(prev => { if (prev) { URL.revokeObjectURL(prev) } return null })
-    setCustomSubName(null)
-  }
-
-  // Sidecar subtitle files (separate .srt/.vtt inside the torrent)
-  const [sidecars, setSidecars] = useState<SidecarSubtitle[]>([])
-  const [sidecarIdx, setSidecarIdx] = useState<number | null>(null) // selected sidecar file index
 
   // Library entry for this torrent — used for resume seek + saving position
   const [libraryEntryID, setLibraryEntryID] = useState<number | null>(null)
@@ -480,29 +409,6 @@ export default function PlayerModal({
   // playback pra 0. URLs ficam vazias até o token chegar — gate equivalente
   // ao serverReady abaixo, garantindo que o <src> só é setado uma vez.
   const [mediaToken, setMediaToken] = useState('')
-
-  // Fetch (with retry) the selected LOCAL embedded subtitle as a VTT blob. Polls
-  // while the server reports "extracting"; sets the blob when ready so the track
-  // appears without the player hanging. Revokes the previous blob on change.
-  // (Placed after mediaToken so its value is available when the effect runs.)
-  useEffect(() => {
-    setLocalEmbeddedVttURL(prev => {
-      if (prev) URL.revokeObjectURL(prev)
-      return ''
-    })
-    if (!info || !isLocalHash(info.infoHash) || embeddedSub === null) return
-    let cancelled = false
-    localSubtrackBlobURL(info.infoHash, selectedFile, embeddedSub, mediaToken, () => cancelled)
-      .then(url => {
-        if (cancelled) {
-          if (url) URL.revokeObjectURL(url)
-          return
-        }
-        if (url) setLocalEmbeddedVttURL(url)
-      })
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [info?.infoHash, selectedFile, embeddedSub, mediaToken])
 
   // Frozen snapshot of the diagnostic at the moment onVideoError fired. Used by
   // the error UI which re-renders AFTER the <video> element unmounted, so by
@@ -681,8 +587,21 @@ export default function PlayerModal({
   const prefetchedNextEpRef = useRef(false)
   const prefetchedPlaylistN1Ref = useRef(false)
   const prefetchedPlaylistN2Ref = useRef(false)
-  // Store the original (un-offset) cue timings the first time we see them
-  const origCuesRef = useRef<{ start: number; end: number }[]>([])
+
+  // Subtitle cluster (external/embedded/sidecar/custom tracks, OpenSubtitles
+  // panel, sync offset, local-embedded blob + the 3 lower-level subtitle
+  // effects). probe stays here (shared with audio-transcode/backstop) and is fed
+  // in via setProbe; the hook exposes the state/handlers the modal + controls use.
+  const subs = useSubtitles({ videoRef, info, selectedFile, serverReady, result, mediaToken, setProbe })
+  const {
+    subOpen, subResults, subLoading, subError, subActive, subOffset, autoSource,
+    embeddedSub, customSubURL, customSubName, localEmbeddedVttURL, sidecars, sidecarIdx,
+    subtitleLabel,
+    setSubOpen, setSubActive, setEmbeddedSub, setSidecarIdx, setAutoSource,
+    handleCustomSubtitleUpload, clearCustomSub, openSubtitlePanel, pickSubtitle,
+    adjustSubOffset, resetSubOffset,
+    resetSubtitles, resetSubtitlesForFile,
+  } = subs
 
   // Pede um media token (JWT TTL longo, scope="media") ao abrir o player.
   // Necessário ANTES de montar o <video src> pra que a URL não troque depois
@@ -734,17 +653,10 @@ export default function PlayerModal({
       setBufferedRanges([])
     }
     setVideoError(false)
-    setSubActive(null)
-    setSubResults([])
-    setSubError('')
-    setSubOpen(false)
-    setSubOffset(0)
-    setAutoSource(null)
+    // Subtitle-cluster reset (tracks, panel, offset, custom upload, cue snapshot)
+    // lives in the hook; probe stays owned here so it's cleared alongside.
+    resetSubtitles()
     setProbe(null)
-    setEmbeddedSub(null)
-    setSidecars([])
-    setSubRestored(false)
-    setSidecarIdx(null)
     setLibraryEntryID(null)
     setResumePosition(null)
     lastResumeSaveRef.current = 0
@@ -752,11 +664,6 @@ export default function PlayerModal({
     audioAutoRef.current = false
     setForceH264(false)
     setBurnSubTrack(null)
-    setCustomSubURL(prev => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
-    setCustomSubName(null)
     setTranscodeFallbackAttempted(false)
     prefetchedNextEpRef.current = false
     prefetchedPlaylistN1Ref.current = false
@@ -766,7 +673,6 @@ export default function PlayerModal({
     setFileTypeFilter('all')
     // fileSortBySize/fileSizeDesc persist (shared with TorrentContentsModal) —
     // intentionally NOT reset here, so the chosen order carries into the player.
-    origCuesRef.current = []
 
     // Try the cached metadata first — if the server has seen this hash before,
     // the file list + name appear instantly. streamAdd still kicks off in
@@ -1057,52 +963,6 @@ export default function PlayerModal({
     return () => { streamViewerClose(hash).catch(() => {}) }
   }, [info?.infoHash])
 
-  // Detect season/episode from title for better subtitle matches
-  const parseSeasonEpisode = (title: string): { season?: number; episode?: number; cleanQuery: string } => {
-    const match = /[Ss](\d{1,2})[Ee](\d{1,3})/.exec(title)
-    if (!match) return { cleanQuery: title }
-    return {
-      season: Number.parseInt(match[1]),
-      episode: Number.parseInt(match[2]),
-      cleanQuery: title.slice(0, match.index).trim().replaceAll(/[._]/g, ' '),
-    }
-  }
-
-  const openSubtitlePanel = async () => {
-    setSubOpen(true)
-    if (subResults.length > 0 || !result || !info) return
-    setSubLoading(true)
-    setSubError('')
-    try {
-      // Prefer hash-based auto search (frame-exact) — single API call, results ranked by relevance
-      const resp = await subtitlesAuto(info.infoHash, selectedFile, 'pt-BR,pt')
-      setSubResults(resp.results || [])
-      if (resp.osHash && !resp.hashErr) setAutoSource('hash')
-      else setAutoSource('title')
-    } catch {
-      // Fall back to plain title search if auto endpoint fails
-      try {
-        const baseTitle = info.name || result.title
-        const { season, episode, cleanQuery } = parseSeasonEpisode(baseTitle)
-        const data = await subtitlesSearch(cleanQuery || baseTitle, { season, episode, langs: 'pt-BR,pt' })
-        setSubResults(data || [])
-        setAutoSource('title')
-      } catch (error_: any) {
-        setSubError(error_?.response?.data?.error || error_.message || t('player.modal.subtitleSearchError'))
-      }
-    } finally {
-      setSubLoading(false)
-    }
-  }
-
-  const pickSubtitle = (s: Subtitle) => {
-    // Apply but keep the panel open so the active subtitle shows its ✓/highlight
-    // and the user can switch or remove it without reopening. They close it via
-    // the ✕ (or the "Legendas" toggle) when done.
-    setSubActive(s.id)
-    clearCustomSub()
-  }
-
   const handleRequestFullscreen = () => {
     const v = videoRef.current as any
     if (!v) return
@@ -1150,17 +1010,6 @@ export default function PlayerModal({
     }
   }, [])
 
-
-  // Update offset and reapply to all cues
-  const adjustSubOffset = (delta: number) => {
-    setSubOffset((prev) => Math.round((prev + delta) * 10) / 10)
-  }
-
-  const resetSubOffset = () => setSubOffset(0)
-
-  // Apply subtitle offset whenever active sub or offset changes (and reset the
-  // cue snapshot when the subtitle changes). Extracted to a hook.
-  useSubtitleOffset({ videoRef, subActive, embeddedSub, sidecarIdx, localEmbeddedVttURL, subOffset, origCuesRef })
 
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
@@ -1284,14 +1133,6 @@ export default function PlayerModal({
     maybeAutoplayNative(v)
   }
 
-  // Probe container for embedded audio + subtitle tracks (uses ffprobe on first ~16MB).
-  // Gated by serverReady so we don't fire while the torrent is still warming up —
-  // ffprobe needs a live Reader from the streamer's active map.
-  useTrackProbe({
-    info, selectedFile, serverReady, subActive, embeddedSub,
-    setProbe, setEmbeddedSub, setAutoSource, setSidecars, setSidecarIdx,
-  })
-
   // Resolve + persist a per-torrent thumbnail once playback is live. Gated by
   // serverReady so the torrent is active (embedded image / frame capture need a
   // live Reader). Idempotent server-side: skips re-processing if good art was
@@ -1314,16 +1155,6 @@ export default function PlayerModal({
   // Note: auto-search of OpenSubtitles intentionally NOT triggered here — it would burn quota.
   // Embedded subtitles auto-load (free), external ones require explicit click via "Legendas" button.
   // The hash-based search runs only on first open of the panel.
-
-  // Restore the saved subtitle choice for this file (external/embedded/sidecar
-  // + offset). Runs before the pt auto-load gets a chance (which is gated by
-  // hasSavedChoice in the probe effect), so the user's pick wins. subRestored
-  // gates the save effect below so the file-switch reset can't persist an empty
-  // choice before this runs.
-  useSubtitleChoicePersist({
-    info, selectedFile, subRestored, subActive, embeddedSub, sidecarIdx, subOffset,
-    setSubActive, setEmbeddedSub, setSidecarIdx, setSubOffset, setAutoSource, setSubRestored,
-  })
 
   // Track playback state + accumulate watch time for auto-favorite
   const handleTimeUpdate = () => {
@@ -1484,12 +1315,10 @@ export default function PlayerModal({
     setSelectedFile(idx)
     setVideoError(false)
     setLastErrorDiag(null)
-    setSidecarIdx(null)
-    setEmbeddedSub(null)
-    setSubActive(null)
+    // Per-file subtitle reset (subset — keeps search results/offset/custom pick);
+    // probe stays owned here so it's cleared alongside.
+    resetSubtitlesForFile()
     setProbe(null)
-    setSidecars([])
-    setSubRestored(false)
     watchedRef.current = 0
     lastTickRef.current = 0
     setCurrentTime(0)
@@ -1546,8 +1375,6 @@ export default function PlayerModal({
   //     we know fails. Misses still get rescued by onError/backstop fallback.
   const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe })
   const { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, directURL, encoderLabel, isTranscoded } = videoUrls
-
-  const subtitleLabel = getSubtitleLabel(embeddedSub, subActive, autoSource, subLoading)
 
   // Container/overlay attributes for the modal shell. Extracted to a nested
   // helper so the minimized-vs-fullscreen ternaries live in their own scope
