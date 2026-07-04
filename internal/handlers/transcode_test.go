@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 func TestTranscodeCapabilities_ReturnsJSON(t *testing.T) {
@@ -40,9 +41,9 @@ func TestParseIntOr(t *testing.T) {
 		{"-1", 10, -1},
 	}
 	for _, tt := range tests {
-		got := parseIntOr(tt.s, tt.def)
+		got := httpshared.ParseIntOr(tt.s, tt.def)
 		if got != tt.want {
-			t.Errorf("parseIntOr(%q, %d) = %d, want %d", tt.s, tt.def, got, tt.want)
+			t.Errorf("httpshared.ParseIntOr(%q, %d) = %d, want %d", tt.s, tt.def, got, tt.want)
 		}
 	}
 }

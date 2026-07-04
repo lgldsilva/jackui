@@ -8,6 +8,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/parser"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/subtitles"
@@ -133,10 +134,10 @@ func SubtitlesDownload(c *subtitles.Client) gin.HandlerFunc {
 			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		ctx.Header(ContentType, MIMEVTT)
+		ctx.Header(httpshared.ContentType, httpshared.MIMEVTT)
 		ctx.Header("Access-Control-Allow-Origin", "*")
 		// VTT content for a given file_id is immutable — cache aggressively in the browser
-		ctx.Header(CacheControl, "public, max-age=2592000, immutable")
+		ctx.Header(httpshared.CacheControl, "public, max-age=2592000, immutable")
 		ctx.Header("ETag", `"sub-`+fileID+`"`)
 		_, _ = ctx.Writer.Write(vtt)
 	}

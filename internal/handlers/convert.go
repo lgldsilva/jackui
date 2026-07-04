@@ -16,6 +16,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -272,7 +273,7 @@ func serveTorrentFile(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, mi 
 	defer func() { _ = f.Close() }()
 
 	filename := resolveTorrentFilename(path, h, mi)
-	c.Header(ContentType, "application/x-bittorrent")
+	c.Header(httpshared.ContentType, "application/x-bittorrent")
 	c.Header(HeaderContentDisp, fmt.Sprintf("attachment; filename=%s", url.PathEscape(filename)))
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, f)

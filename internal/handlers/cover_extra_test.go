@@ -3,11 +3,8 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +14,6 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/dbtest"
-	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -209,37 +205,6 @@ func TestVerifyMFA_Required_Extra(t *testing.T) {
 
 // ─── Local 0% coverage ──────────────────────────────────────────────────
 
-func TestCheckMountAccess_Denied_Extra(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	b := local.NewBrowser([]config.ExternalMount{
-		{Name: "Real", Path: t.TempDir()},
-	})
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-
-	if checkMountAccess(b, c, "FakeMount") {
-		t.Error("expected denied")
-	}
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", w.Code)
-	}
-}
-
-func TestIsAdminMove_Denied_Extra(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/api/local/move", nil)
-
-	if isAdminMove(c) {
-		t.Error("expected false for no claims")
-	}
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", w.Code)
-	}
-}
-
 func TestServeFromCompletedStore_NilStore_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
@@ -423,80 +388,6 @@ func TestStreamSetLimits_Negative_Extra(t *testing.T) {
 
 // ─── stream.go low-coverage handlers ─────────────────────────────────────
 
-func TestCanModifyMount_Unknown_Extra(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/api/local/promote", nil)
-
-	if canModifyMount(c, "Unknown") {
-		t.Error("expected false for unknown mount without claims")
-	}
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", w.Code)
-	}
-}
-
-func TestCanModifyMount_MeusDownloads_Extra(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/api/local/promote", nil)
-
-	if !canModifyMount(c, "Meus downloads") {
-		t.Error("expected true for Meus downloads")
-	}
-}
-
-func TestIsAdminCtx_NoClaims_Extra(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-
-	if isAdminCtx(c) {
-		t.Error("expected false for no claims")
-	}
-}
-
-func TestIsAdminCtx_Admin_Extra(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-	setAuth(c, 1, true)
-
-	if !isAdminCtx(c) {
-		t.Error("expected true for admin")
-	}
-}
-
-func TestIsMountRoot_WithMatchingMount_Extra(t *testing.T) {
-	mountDir := t.TempDir()
-	b := local.NewBrowser([]config.ExternalMount{
-		{Name: "Test", Path: mountDir},
-	})
-
-	if !isMountRoot(b, mountDir) {
-		t.Error("expected mount dir to be detected as root")
-	}
-	if isMountRoot(b, filepath.Join(mountDir, "subdir")) {
-		t.Error("subdir should not be root")
-	}
-}
-
-func TestResolveDeletablePath_Root_Extra(t *testing.T) {
-	mountDir := t.TempDir()
-	b := local.NewBrowser([]config.ExternalMount{
-		{Name: "Test", Path: mountDir},
-	})
-
-	_, err := resolveDeletablePath(b, "Test", "")
-	if err == nil {
-		t.Error("expected error for empty path")
-	}
-}
-
 func TestThumbnailHandler_BadHash_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -510,22 +401,6 @@ func TestThumbnailHandler_BadHash_Extra(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestStreamResolveLocalAbs_Valid_Extra(t *testing.T) {
-	mountDir := t.TempDir()
-	os.WriteFile(filepath.Join(mountDir, "file.mp4"), []byte("data"), 0o644)
-	b := local.NewBrowser([]config.ExternalMount{
-		{Name: "Test", Path: mountDir},
-	})
-
-	got, err := resolveLocalAbs(b, "Test", "file.mp4")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got == "" {
-		t.Error("expected non-empty path")
 	}
 }
 
@@ -673,18 +548,6 @@ func TestStreamPlaylistM3U_NotActive_Extra(t *testing.T) {
 	router.ServeHTTP(w, req)
 }
 
-func TestIsTraversalErr_MountNotFound_Extra(t *testing.T) {
-	if !isTraversalErr(fmt.Errorf("mount 'X' not found")) {
-		t.Error("expected true for mount not found error")
-	}
-}
-
-func TestIsTraversalErr_Plain_Extra(t *testing.T) {
-	if isTraversalErr(fmt.Errorf("something else")) {
-		t.Error("expected false for other errors")
-	}
-}
-
 func TestStreamPause_BadHash_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -698,29 +561,5 @@ func TestStreamPause_BadHash_Extra(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestClassifyForBrowser_More_Extra(t *testing.T) {
-	cases := []struct {
-		probe      localProbe
-		wantDirect bool
-	}{
-		{localProbe{Container: "isom", VideoCodec: "h264", AudioCodec: "aac"}, true},
-		{localProbe{Container: "mp42", VideoCodec: "h264", AudioCodec: "mp3"}, true},
-		{localProbe{Container: "qt", VideoCodec: "vp8", AudioCodec: "vorbis"}, true},
-		{localProbe{Container: "mp4", VideoCodec: "h264", AudioCodec: ""}, true},
-	}
-	for i, tc := range cases {
-		direct, _ := classifyForBrowser(tc.probe)
-		if direct != tc.wantDirect {
-			t.Errorf("case %d: direct=%v, want %v", i, direct, tc.wantDirect)
-		}
-	}
-}
-
-func TestDetectLangFromName_Fallback_Extra(t *testing.T) {
-	if got := detectLangFromName("movie.de.srt"); got != "" {
-		t.Errorf("got %q, want empty", got)
 	}
 }

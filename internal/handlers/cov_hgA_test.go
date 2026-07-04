@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -230,7 +231,7 @@ func Test_hgA_resolveTorrentB64Import_TooLarge(t *testing.T) {
 // ----------------------------------------------------------------------------
 
 func Test_hgA_BuildPromoteDests(t *testing.T) {
-	dests := BuildPromoteDests("/shared", []PromoteDest{{Name: "GDrive", Path: "/mnt/gdrive"}})
+	dests := BuildPromoteDests("/shared", []httpshared.PromoteDest{{Name: "GDrive", Path: "/mnt/gdrive"}})
 	if len(dests) != 2 {
 		t.Fatalf("len=%d want 2", len(dests))
 	}
@@ -242,26 +243,26 @@ func Test_hgA_BuildPromoteDests(t *testing.T) {
 	}
 
 	// Empty sharedDir → only the extras.
-	only := BuildPromoteDests("", []PromoteDest{{Name: "X", Path: "/x"}})
+	only := BuildPromoteDests("", []httpshared.PromoteDest{{Name: "X", Path: "/x"}})
 	if len(only) != 1 || only[0].Path != "/x" {
 		t.Errorf("empty shared dests = %+v", only)
 	}
 }
 
 func Test_hgA_resolveTargetBase(t *testing.T) {
-	dests := []PromoteDest{{Name: "Biblioteca", Path: "/shared"}, {Name: "G", Path: "/g"}}
+	dests := []httpshared.PromoteDest{{Name: "Biblioteca", Path: "/shared"}, {Name: "G", Path: "/g"}}
 
-	got, err := resolveTargetBase("", "/shared", dests)
+	got, err := httpshared.ResolveTargetBase("", "/shared", dests)
 	if err != nil || got != "/shared" {
 		t.Errorf("empty base: got=%q err=%v", got, err)
 	}
 
-	got, err = resolveTargetBase("/g", "/shared", dests)
+	got, err = httpshared.ResolveTargetBase("/g", "/shared", dests)
 	if err != nil || got != "/g" {
 		t.Errorf("matching base: got=%q err=%v", got, err)
 	}
 
-	if _, err := resolveTargetBase("/nope", "/shared", dests); err == nil {
+	if _, err := httpshared.ResolveTargetBase("/nope", "/shared", dests); err == nil {
 		t.Error("expected error for unknown base")
 	}
 }
@@ -280,17 +281,17 @@ func Test_hgA_sanitizeSubdir(t *testing.T) {
 		{"/abs/path", "", true},
 	}
 	for _, tc := range cases {
-		got, err := sanitizeSubdir(tc.in)
+		got, err := httpshared.SanitizeSubdir(tc.in)
 		if tc.wantErr && err == nil {
-			t.Errorf("sanitizeSubdir(%q) expected error", tc.in)
+			t.Errorf("httpshared.SanitizeSubdir(%q) expected error", tc.in)
 			continue
 		}
 		if !tc.wantErr {
 			if err != nil {
-				t.Errorf("sanitizeSubdir(%q) err=%v", tc.in, err)
+				t.Errorf("httpshared.SanitizeSubdir(%q) err=%v", tc.in, err)
 			}
 			if got != tc.want {
-				t.Errorf("sanitizeSubdir(%q)=%q want %q", tc.in, got, tc.want)
+				t.Errorf("httpshared.SanitizeSubdir(%q)=%q want %q", tc.in, got, tc.want)
 			}
 		}
 	}
@@ -316,10 +317,10 @@ func Test_hgA_listDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirs := listDirs(entries)
+	dirs := httpshared.ListDirs(entries)
 	// hidden dirs and files excluded; result sorted.
 	if len(dirs) != 2 || dirs[0] != "alpha" || dirs[1] != "beta" {
-		t.Errorf("listDirs = %v want [alpha beta]", dirs)
+		t.Errorf("httpshared.ListDirs = %v want [alpha beta]", dirs)
 	}
 
 	// Regression: a folder with no subdirs must return a NON-NIL slice so it
@@ -331,12 +332,12 @@ func Test_hgA_listDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	noDirs := listDirs(leafEntries)
+	noDirs := httpshared.ListDirs(leafEntries)
 	if noDirs == nil {
-		t.Error("listDirs returned nil for a subdir-less folder; want non-nil empty slice (JSON [])")
+		t.Error("httpshared.ListDirs returned nil for a subdir-less folder; want non-nil empty slice (JSON [])")
 	}
 	if b, _ := json.Marshal(noDirs); string(b) != "[]" {
-		t.Errorf("listDirs([]) marshaled to %s, want []", b)
+		t.Errorf("httpshared.ListDirs([]) marshaled to %s, want []", b)
 	}
 }
 
@@ -374,54 +375,6 @@ func Test_hgA_promoteDestPath_NoRename(t *testing.T) {
 	got := promoteDestPath(o, "movie.mkv", &targetDir)
 	if got != filepath.Join("/shared/movies", "movie.mkv") {
 		t.Errorf("got %q", got)
-	}
-}
-
-func Test_hgA_movePathJob_File(t *testing.T) {
-	src := filepath.Join(t.TempDir(), "src.bin")
-	dst := filepath.Join(t.TempDir(), "dst.bin")
-	if err := os.WriteFile(src, []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	st, _ := os.Stat(src)
-	if err := movePathJob(src, dst, st, nil, 0, 0); err != nil {
-		t.Fatalf("movePathJob file: %v", err)
-	}
-	if _, err := os.Stat(dst); err != nil {
-		t.Errorf("dst not present: %v", err)
-	}
-	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Errorf("src should be gone after move")
-	}
-}
-
-// Regressão #2105: promover um whole-torrent (file_path = DIRETÓRIO) caía no
-// caminho cross-device e tratava o diretório como arquivo único, estourando
-// "read ...: is a directory". copyDirAndRemoveJob copia a árvore inteira.
-func Test_hgA_copyDirAndRemove_Tree(t *testing.T) {
-	src := filepath.Join(t.TempDir(), "Brasiloirinha")
-	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(src, "a.mp4"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(src, "sub", "b.mp4"), []byte("yy"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	dst := filepath.Join(t.TempDir(), "out")
-	st, _ := os.Stat(src)
-	if err := copyDirAndRemoveJob(src, dst, st, nil); err != nil {
-		t.Fatalf("copyDirAndRemoveJob: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dst, "a.mp4")); err != nil {
-		t.Errorf("dst/a.mp4 ausente: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dst, "sub", "b.mp4")); err != nil {
-		t.Errorf("dst/sub/b.mp4 ausente: %v", err)
-	}
-	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Errorf("src deveria ser removido após o move da árvore")
 	}
 }
 
@@ -794,12 +747,12 @@ func Test_hgA_DownloadsPromoteBrowse_BadPath(t *testing.T) {
 func Test_hgA_DownloadsPromoteDests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/api/promote/destinations", DownloadsPromoteDests("/shared", []PromoteDest{{Name: "G", Path: "/g"}}))
+	router.GET("/api/promote/destinations", DownloadsPromoteDests("/shared", []httpshared.PromoteDest{{Name: "G", Path: "/g"}}))
 	w := hgADo(router, "GET", "/api/promote/destinations", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d want 200", w.Code)
 	}
-	var dests []PromoteDest
+	var dests []httpshared.PromoteDest
 	_ = json.Unmarshal(w.Body.Bytes(), &dests)
 	if len(dests) != 2 {
 		t.Errorf("dests=%d want 2", len(dests))

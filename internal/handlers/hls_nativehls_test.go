@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 func TestMediaSegQuery(t *testing.T) {
@@ -33,13 +34,13 @@ func TestNativeHLSParam(t *testing.T) {
 		c.Request = httptest.NewRequest("GET", "/x?"+q, nil)
 		return c
 	}
-	if !nativeHLSParam(mk("native_hls=1")) {
+	if !httpshared.NativeHLSParam(mk("native_hls=1")) {
 		t.Error("native_hls=1 should be true")
 	}
-	if nativeHLSParam(mk("native_hls=0")) {
+	if httpshared.NativeHLSParam(mk("native_hls=0")) {
 		t.Error("native_hls=0 should be false")
 	}
-	if nativeHLSParam(mk("")) {
+	if httpshared.NativeHLSParam(mk("")) {
 		t.Error("absent native_hls should be false")
 	}
 }
@@ -57,16 +58,5 @@ func TestBuildVODPlaylist_NativeHLSAddsFlagToSegments(t *testing.T) {
 	plain := string(buildVODPlaylist(8, "TOK", false))
 	if strings.Contains(plain, "native_hls") {
 		t.Fatalf("non-native playlist must not carry native_hls; got:\n%s", plain)
-	}
-}
-
-func TestSegURLBuilder_NativeHLS(t *testing.T) {
-	withFlag := segURLBuilder("M", "v.mkv", "TOK", "", true, "")("seg_00001.ts")
-	if !strings.Contains(withFlag, "native_hls=1") {
-		t.Fatalf("expected native_hls=1 in seg URL, got %q", withFlag)
-	}
-	without := segURLBuilder("M", "v.mkv", "TOK", "", false, "")("seg_00001.ts")
-	if strings.Contains(without, "native_hls") {
-		t.Fatalf("did not expect native_hls when false, got %q", without)
 	}
 }

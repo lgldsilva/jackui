@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/imagesearch"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
@@ -60,8 +61,8 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 				c.Status(http.StatusNoContent)
 				return
 			}
-			c.Header(CacheControl, CachePublicDay)
-			c.Data(http.StatusOK, MIMEJPEG, data)
+			c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
+			c.Data(http.StatusOK, httpshared.MIMEJPEG, data)
 			return
 		}
 		c.Status(http.StatusNoContent)

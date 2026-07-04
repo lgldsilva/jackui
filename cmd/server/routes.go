@@ -15,6 +15,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/gluetun"
 	"github.com/lgldsilva/jackui/internal/handlers"
+	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -351,40 +352,40 @@ func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
 }
 
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
-	api.GET("/local/mounts", handlers.LocalMounts(deps.localBrowser))
-	api.GET("/local/list", handlers.LocalList(deps.localBrowser, deps.streamSrv))
-	api.POST("/local/hidden", handlers.LocalSetHidden(deps.localBrowser, deps.streamSrv))
-	api.GET("/local/hidden", handlers.LocalListHidden(deps.streamSrv))
-	api.GET("/local/file", handlers.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
-	api.GET("/local/transfer-status", handlers.LocalTransferStatus(deps.localBrowser, deps.localStream))
-	api.POST("/local/cache", handlers.LocalCacheStart(deps.localBrowser, deps.localCache))
-	api.POST("/local/cache/folder", handlers.LocalCacheFolder(deps.localBrowser, deps.localCache))
-	api.GET("/local/cache/status", handlers.LocalCacheStatus(deps.localBrowser, deps.localCache))
-	api.DELETE("/local/cache", handlers.LocalCacheDelete(deps.localBrowser, deps.localCache))
-	api.GET("/local/thumb", handlers.LocalThumb(deps.localBrowser))
-	api.GET("/local/transcode", handlers.LocalTranscode(deps.localBrowser))
-	api.DELETE("/local/file", handlers.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/clean-empty", handlers.LocalCleanEmptyDirs(deps.localBrowser))
-	api.GET("/local/duplicates", handlers.LocalDuplicates(deps.localBrowser))
-	api.POST("/local/duplicates/delete", handlers.LocalDuplicatesDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/promote", handlers.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
-	api.POST("/local/promote/preview", handlers.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
-	api.GET("/local/walk", handlers.LocalWalk(deps.localBrowser))
-	api.POST("/local/move", handlers.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
-	api.POST("/local/rename", handlers.LocalRename(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/lock", handlers.LocalSetFolderLock(deps.localBrowser))
-	api.POST("/local/upload", handlers.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
-	api.GET("/local/play", handlers.LocalHiddenGate(deps.streamSrv), handlers.LocalPlay(deps.localBrowser, deps.libraryStore))
-	api.GET("/local/audio/meta", handlers.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
-	api.GET("/local/audio/cover", handlers.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
+	api.GET("/local/mounts", lh.LocalMounts(deps.localBrowser))
+	api.GET("/local/list", lh.LocalList(deps.localBrowser, deps.streamSrv))
+	api.POST("/local/hidden", lh.LocalSetHidden(deps.localBrowser, deps.streamSrv))
+	api.GET("/local/hidden", lh.LocalListHidden(deps.streamSrv))
+	api.GET("/local/file", lh.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
+	api.GET("/local/transfer-status", lh.LocalTransferStatus(deps.localBrowser, deps.localStream))
+	api.POST("/local/cache", lh.LocalCacheStart(deps.localBrowser, deps.localCache))
+	api.POST("/local/cache/folder", lh.LocalCacheFolder(deps.localBrowser, deps.localCache))
+	api.GET("/local/cache/status", lh.LocalCacheStatus(deps.localBrowser, deps.localCache))
+	api.DELETE("/local/cache", lh.LocalCacheDelete(deps.localBrowser, deps.localCache))
+	api.GET("/local/thumb", lh.LocalThumb(deps.localBrowser))
+	api.GET("/local/transcode", lh.LocalTranscode(deps.localBrowser))
+	api.DELETE("/local/file", lh.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/clean-empty", lh.LocalCleanEmptyDirs(deps.localBrowser))
+	api.GET("/local/duplicates", lh.LocalDuplicates(deps.localBrowser))
+	api.POST("/local/duplicates/delete", lh.LocalDuplicatesDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/promote", lh.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
+	api.POST("/local/promote/preview", lh.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
+	api.GET("/local/walk", lh.LocalWalk(deps.localBrowser))
+	api.POST("/local/move", lh.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
+	api.POST("/local/rename", lh.LocalRename(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/lock", lh.LocalSetFolderLock(deps.localBrowser))
+	api.POST("/local/upload", lh.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
+	api.GET("/local/play", lh.LocalHiddenGate(deps.streamSrv), lh.LocalPlay(deps.localBrowser, deps.libraryStore))
+	api.GET("/local/audio/meta", lh.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
+	api.GET("/local/audio/cover", lh.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
 	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
 	api.GET("/music/trending", handlers.MusicTrending(deps.musicTrending))
-	api.GET("/local/probe", handlers.LocalProbe(deps.localBrowser))
-	api.GET("/local/sidecars", handlers.LocalSidecars(deps.localBrowser))
-	api.GET("/local/sidecar", handlers.LocalSidecarRead(deps.localBrowser))
-	api.GET("/local/subtrack", handlers.LocalSubtitleExtract(deps.localBrowser, deps.localCache))
+	api.GET("/local/probe", lh.LocalProbe(deps.localBrowser))
+	api.GET("/local/sidecars", lh.LocalSidecars(deps.localBrowser))
+	api.GET("/local/sidecar", lh.LocalSidecarRead(deps.localBrowser))
+	api.GET("/local/subtrack", lh.LocalSubtitleExtract(deps.localBrowser, deps.localCache))
 	if deps.subtitleClient != nil {
-		api.GET("/local/subtitles/auto", handlers.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
+		api.GET("/local/subtitles/auto", lh.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
 	}
 }
 
@@ -439,8 +440,8 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	}
 	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	api.GET("/local/hls/index.m3u8", handlers.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
-	api.GET("/local/hls/seg", handlers.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
+	api.GET("/local/hls/index.m3u8", lh.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
+	api.GET("/local/hls/seg", lh.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
 	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
 	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))
 }

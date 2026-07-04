@@ -9,9 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -22,6 +20,8 @@ import (
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/diskutil"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
+	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
@@ -29,15 +29,8 @@ import (
 )
 
 const (
-	errSharedDirNotConfig = "JACKUI_SHARED_DIR não configurado"
-	errDownloadNotFound   = "download não encontrado"
+	errDownloadNotFound = "download não encontrado"
 )
-
-// PromoteDest represents a named promote destination (shared dir or extra).
-type PromoteDest struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-}
 
 // promoteReq é o body de POST /api/downloads/:id/promote e do batch handler.
 // targetSubdir é relativo a sharedDir; valida-se contra path traversal.
@@ -52,50 +45,13 @@ type promoteReq struct {
 
 // BuildPromoteDests returns the full list of promote destinations: sharedDir
 // is always first ("Biblioteca"), followed by any configured extras.
-func BuildPromoteDests(sharedDir string, extra []PromoteDest) []PromoteDest {
-	dests := []PromoteDest{}
+func BuildPromoteDests(sharedDir string, extra []httpshared.PromoteDest) []httpshared.PromoteDest {
+	dests := []httpshared.PromoteDest{}
 	if sharedDir != "" {
-		dests = append(dests, PromoteDest{Name: "Biblioteca", Path: sharedDir})
+		dests = append(dests, httpshared.PromoteDest{Name: "Biblioteca", Path: sharedDir})
 	}
 	dests = append(dests, extra...)
 	return dests
-}
-
-// resolveTargetBase resolves a targetBase string against the list of
-// destinations. If targetBase is empty, returns sharedDir (default). Returns
-// error if targetBase doesn't match any destination path.
-func resolveTargetBase(targetBase, sharedDir string, dests []PromoteDest) (string, error) {
-	if targetBase == "" {
-		return sharedDir, nil
-	}
-	for _, d := range dests {
-		if d.Path == targetBase {
-			return d.Path, nil
-		}
-	}
-	return "", errors.New("destino inválido: " + targetBase)
-}
-
-// sanitizeSubdir valida o subdir digitado pelo usuário pra não escapar do
-// sharedDir via "..", caminhos absolutos. Retorna o caminho limpo (Clean) ou
-// erro descritivo.
-func sanitizeSubdir(subdir string) (string, error) {
-	if subdir == "" {
-		return "", nil
-	}
-	if filepath.IsAbs(subdir) {
-		return "", errors.New("subdir não pode ser absoluto")
-	}
-	clean := filepath.Clean(subdir)
-	for _, seg := range strings.Split(clean, string(filepath.Separator)) {
-		if seg == ".." {
-			return "", errors.New("subdir não pode conter '..'")
-		}
-	}
-	if clean == "." {
-		return "", nil
-	}
-	return clean, nil
 }
 
 // DownloadsPromote handles POST /api/downloads/:id/promote — move um download
@@ -105,7 +61,7 @@ func sanitizeSubdir(subdir string) (string, error) {
 //
 // targetSubdir vazio = raiz do destino. targetBase vazio = sharedDir (default).
 // Subpastas inexistentes são criadas (os.MkdirAll). Validação anti-traversal.
-func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
+func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -113,13 +69,13 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 			return
 		}
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
+			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
 		var req promoteReq
 		_ = c.ShouldBindJSON(&req)
 
-		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+		base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -150,10 +106,10 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 //
 // Resposta: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
 // Falhas individuais não abortam o batch — cada item é tentado.
-func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
+func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
+			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
 		req, base, ok := validateBatchReq(c, sharedDir, dests)
@@ -166,7 +122,7 @@ func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClien
 	}
 }
 
-func validateBatchReq(c *gin.Context, sharedDir string, dests []PromoteDest) (*promoteReq, string, bool) {
+func validateBatchReq(c *gin.Context, sharedDir string, dests []httpshared.PromoteDest) (*promoteReq, string, bool) {
 	var req promoteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -176,7 +132,7 @@ func validateBatchReq(c *gin.Context, sharedDir string, dests []PromoteDest) (*p
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
 		return nil, "", false
 	}
-	base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+	base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return nil, "", false
@@ -215,10 +171,10 @@ func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([
 	return promoted, failed
 }
 
-func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
+			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
 		var req promoteReq
@@ -230,7 +186,7 @@ func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbCl
 			c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
 			return
 		}
-		base, err := resolveTargetBase(req.TargetBase, sharedDir, dests)
+		base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -282,18 +238,18 @@ func previewOneDownload(d *previewDeps, id int) gin.H {
 // DownloadsPromoteBrowse handles GET /api/downloads/promote/browse?path=movies&base=/mnt/gdrive/media
 // — lista subpastas em {base}/path pra alimentar o navegador da UI. base
 // vazio = sharedDir. Não expõe arquivos (só dirs).
-func DownloadsPromoteBrowse(sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromoteBrowse(sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": errSharedDirNotConfig})
+			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
-		root, err := resolveTargetBase(c.Query("base"), sharedDir, dests)
+		root, err := httpshared.ResolveTargetBase(c.Query("base"), sharedDir, dests)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		sub, err := sanitizeSubdir(c.Query("path"))
+		sub, err := httpshared.SanitizeSubdir(c.Query("path"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -304,7 +260,7 @@ func DownloadsPromoteBrowse(sharedDir string, dests []PromoteDest) gin.HandlerFu
 			c.JSON(http.StatusOK, gin.H{"dirs": []string{}, "path": sub})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"dirs": listDirs(entries), "path": sub})
+		c.JSON(http.StatusOK, gin.H{"dirs": httpshared.ListDirs(entries), "path": sub})
 	}
 }
 
@@ -313,19 +269,6 @@ func joinIfSub(root, sub string) string {
 		return root
 	}
 	return filepath.Join(root, sub)
-}
-
-func listDirs(entries []os.DirEntry) []string {
-	// Non-nil slice so a folder with no subdirs serializes as JSON [] (not null):
-	// the UI does `dirs.length` on the result, and a nil slice → null → crash.
-	dirs := []string{}
-	for _, e := range entries {
-		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			dirs = append(dirs, e.Name())
-		}
-	}
-	sort.Strings(dirs)
-	return dirs
 }
 
 type previewDeps struct {
@@ -390,7 +333,7 @@ type promotePayload struct {
 }
 
 // promotePlan é um promote validado pronto pra copiar. A validação é síncrona
-// (rápida); a cópia (movePathJob) roda depois em background — ver runPromotePlan.
+// (rápida); a cópia (lh.MovePathJob) roda depois em background — ver runPromotePlan.
 type promotePlan struct {
 	d       *downloads.Download
 	src     string
@@ -434,15 +377,15 @@ func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
 	if err := ensureTargetDir(targetDir); err != nil {
 		return nil, err
 	}
-	files, bytes := countTree(src)
+	files, bytes := lh.CountTree(src)
 	return &promotePlan{d: d, src: src, dst: dst, srcInfo: srcInfo, files: files, bytes: bytes}, nil
 }
 
 // runPromotePlan executa a cópia + pós-processamento de um plano. Roda DENTRO do
 // job de transferência (background); job pode ser nil (reporte vira no-op).
-// movePathJob trata arquivo E diretório (whole-torrent é uma pasta).
+// lh.MovePathJob trata arquivo E diretório (whole-torrent é uma pasta).
 func runPromotePlan(o *promoteOpts, p *promotePlan, job *transfer.Job) error {
-	if err := movePathJob(p.src, p.dst, p.srcInfo, job, p.files, p.bytes); err != nil {
+	if err := lh.MovePathJob(p.src, p.dst, p.srcInfo, job, p.files, p.bytes); err != nil {
 		return errors.New("mover arquivo: " + err.Error())
 	}
 	_ = o.store.SetFilePath(o.userID, p.d.ID, p.dst)
@@ -526,7 +469,7 @@ func addPendingPromote(o *promoteOpts, p *promotePlan) int64 {
 }
 
 func promoteTargetDir(o *promoteOpts) (string, error) {
-	subdir, err := sanitizeSubdir(o.targetSubdir)
+	subdir, err := httpshared.SanitizeSubdir(o.targetSubdir)
 	if err != nil {
 		return "", err
 	}
@@ -597,7 +540,7 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 // DownloadsPromoteDests handles GET /api/promote/destinations — retorna a
 // lista de destinos de promoção disponíveis (nome + path). O primeiro é
 // sempre "Biblioteca" (sharedDir), seguido pelos configurados em promote_dirs.
-func DownloadsPromoteDests(sharedDir string, dests []PromoteDest) gin.HandlerFunc {
+func DownloadsPromoteDests(sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, BuildPromoteDests(sharedDir, dests))
 	}

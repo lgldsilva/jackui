@@ -9,12 +9,15 @@ import (
 	"strconv"
 	"time"
 
+	"strings"
+
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
-	"strings"
 
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
+	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -178,7 +181,7 @@ func serveFromCompletedStore(c *gin.Context, store *downloads.Store, s *streamer
 	// Same stored-XSS guard as /api/local/file: torrent contents are hostile
 	// by default and this endpoint serves them same-origin (JWT in
 	// localStorage). HTML/SVG/JS are forced to download instead of rendering.
-	setLocalFileSecurityHeaders(c, path)
+	lh.SetLocalFileSecurityHeaders(c, path)
 	http.ServeFile(c.Writer, c.Request, path)
 	return true
 }
@@ -190,7 +193,7 @@ func serveFromStreamer(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, fi
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	setLocalFileSecurityHeaders(c, file.DisplayPath())
+	lh.SetLocalFileSecurityHeaders(c, file.DisplayPath())
 	http.ServeContent(c.Writer, c.Request, file.DisplayPath(), time.Time{}, reader)
 }
 
@@ -263,7 +266,7 @@ func buildStreamURL(c *gin.Context, h metainfo.Hash, fileIdx int) string {
 	host := c.Request.Host
 
 	token := ""
-	if h := c.Request.Header.Get(HeaderAuthorization); strings.HasPrefix(h, auth.BearerPrefix) {
+	if h := c.Request.Header.Get(httpshared.HeaderAuthorization); strings.HasPrefix(h, auth.BearerPrefix) {
 		token = strings.TrimPrefix(h, auth.BearerPrefix)
 	}
 	if token == "" {
@@ -453,13 +456,13 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 			body = raw
 		default:
 			// ASS/SSA need ffmpeg to convert — for now, just serve raw with text/plain so browsers can show it as "non-VTT"
-			c.Header(ContentType, "text/plain; charset=utf-8")
-			c.Header(CacheControl, CacheImmutable)
+			c.Header(httpshared.ContentType, "text/plain; charset=utf-8")
+			c.Header(httpshared.CacheControl, httpshared.CacheImmutable)
 			c.Writer.Write(raw)
 			return
 		}
-		c.Header(ContentType, MIMEVTT)
-		c.Header(CacheControl, CacheImmutable)
+		c.Header(httpshared.ContentType, httpshared.MIMEVTT)
+		c.Header(httpshared.CacheControl, httpshared.CacheImmutable)
 		c.Writer.Write(body)
 	}
 }
@@ -488,8 +491,8 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		c.Header(ContentType, MIMEVTT)
-		c.Header(CacheControl, "public, max-age=3600")
+		c.Header(httpshared.ContentType, httpshared.MIMEVTT)
+		c.Header(httpshared.CacheControl, "public, max-age=3600")
 		c.Writer.Write(vtt)
 	}
 }
@@ -520,8 +523,8 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		c.Header(CacheControl, CachePublicDay) // 1d browser cache
-		c.Data(http.StatusOK, MIMEJPEG, data)
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay) // 1d browser cache
+		c.Data(http.StatusOK, httpshared.MIMEJPEG, data)
 	}
 }
 
@@ -547,7 +550,7 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "no cached metadata"})
 			return
 		}
-		c.Header(CacheControl, CachePublicDay) // 1d browser cache
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay) // 1d browser cache
 		c.JSON(http.StatusOK, meta)
 	}
 }
@@ -576,8 +579,8 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		c.Header(CacheControl, "public, max-age=2592000, immutable") // 30d
-		c.Data(http.StatusOK, MIMEJPEG, data)
+		c.Header(httpshared.CacheControl, "public, max-age=2592000, immutable") // 30d
+		c.Data(http.StatusOK, httpshared.MIMEJPEG, data)
 	}
 }
 

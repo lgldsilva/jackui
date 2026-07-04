@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/mailer"
 )
 
@@ -72,7 +73,7 @@ func Register(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Hand
 func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) {
 	var req registerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidData})
+		c.JSON(http.StatusBadRequest, gin.H{"error": httpshared.ErrInvalidData})
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
