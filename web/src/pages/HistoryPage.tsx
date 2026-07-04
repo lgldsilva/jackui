@@ -579,16 +579,19 @@ export default function HistoryPage() {
       {filteredGlobal.length > 0 && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredGlobal.slice(0, globalVisible).map((result, i) => (
+            {filteredGlobal.slice(0, globalVisible).map((result, i) => {
+              const query = result.query
+              return (
               <div key={`${result.infoHash || result.link}-${i}`} className="flex flex-col gap-1">
                 <ResultCard result={result} onDownload={setDownloadTarget} onPlay={(r) => playSingle(r)} onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }} onExploreContents={setContentsTarget} onRefresh={handleRefreshResult} refreshing={result.id !== undefined && refreshingIDs.has(result.id)} refreshedAt={result.id === undefined ? null : refreshedLabels.get(result.id) ?? null} />
-                {result.query && (
-                  <button {...newTabProps(searchHref(result.query), () => { setMode('browse'); handleSelect(result.query!) })} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={t('history.viewAllResultsOf', { query: result.query })}>
-                    <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">{t('history.fromQuery', { query: result.query })}</span>
+                {query && (
+                  <button {...newTabProps(searchHref(query), () => { setMode('browse'); handleSelect(query) })} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={t('history.viewAllResultsOf', { query })}>
+                    <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">{t('history.fromQuery', { query })}</span>
                   </button>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
           {globalVisible < filteredGlobal.length && (
             <div ref={globalSentinelRef} className="text-center py-6 text-xs text-text-muted">{t('history.showingMore', { shown: globalVisible, total: filteredGlobal.length })}</div>

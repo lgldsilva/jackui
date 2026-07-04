@@ -264,16 +264,17 @@ function renderTorrentInfoModal(props: {
   )
 }
 
-function renderPlaylistBar(
-  playlist: PlaylistMeta,
-  onPrev: (() => void) | undefined,
-  onToggleShuffle: (() => void) | undefined,
-  shuffle: boolean,
-  onCycleRepeat: (() => void) | undefined,
-  repeat: 'none' | 'one' | 'all',
-  onNext: (() => void) | undefined,
-  t: TFn,
-) {
+interface PlaylistBarControls {
+  onPrev: (() => void) | undefined
+  onToggleShuffle: (() => void) | undefined
+  shuffle: boolean
+  onCycleRepeat: (() => void) | undefined
+  repeat: 'none' | 'one' | 'all'
+  onNext: (() => void) | undefined
+}
+
+function renderPlaylistBar(playlist: PlaylistMeta, controls: PlaylistBarControls, t: TFn) {
+  const { onPrev, onToggleShuffle, shuffle, onCycleRepeat, repeat, onNext } = controls
   return (
     <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-700 dark:text-blue-200 flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0">
@@ -1877,7 +1878,7 @@ export default function PlayerModal({
         {/* Top playlist bar is hidden in audio mode: the AudioTransportBar below
             already carries prev/next/shuffle/repeat + position, so showing both
             duplicated the controls above AND below the play button. */}
-        {playlist && !audioMode && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance, t)}
+        {playlist && !audioMode && renderPlaylistBar(playlist, { onPrev: onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onNext: onPlaylistAdvance }, t)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent
