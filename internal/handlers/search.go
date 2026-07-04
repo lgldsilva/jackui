@@ -83,7 +83,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 		}
 		indexers := parseIndexers(c)
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		enricher := buildEnricher(favs, dls, userID, includeAll)
 
 		liveResults, liveErr := client.Search(query, c.Query("category"), indexers)
