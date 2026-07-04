@@ -138,7 +138,7 @@ func promoteRouter(b *lb.Browser, sharedDir string) *gin.Engine {
 	r := gin.New()
 	// aiClient + tmdbClient nil → the AI path is skipped, so the override (or the
 	// plain fallback) decides the destination deterministically in tests.
-	r.POST("/api/local/promote", LocalPromote(b, nil, nil, sharedDir, nil, nil, nil, nil))
+	r.POST("/api/local/promote", LocalPromote(LocalPromoteDeps{Browser: b, SharedDir: sharedDir}))
 	return r
 }
 

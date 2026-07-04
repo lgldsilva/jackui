@@ -476,7 +476,7 @@ func Test_hgA_DownloadsPromote_InvalidID(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/:id/promote", DownloadsPromote(store, s, nil, nil, t.TempDir(), nil, nil, nil, nil))
+	router.POST("/api/downloads/:id/promote", DownloadsPromote(PromoteDeps{Store: store, Streamer: s, SharedDir: t.TempDir()}))
 
 	w := hgADo(router, "POST", "/api/downloads/notanumber/promote", []byte("{}"))
 	if w.Code != http.StatusBadRequest {
@@ -489,7 +489,7 @@ func Test_hgA_DownloadsPromote_NoSharedDir(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/:id/promote", DownloadsPromote(store, s, nil, nil, "", nil, nil, nil, nil))
+	router.POST("/api/downloads/:id/promote", DownloadsPromote(PromoteDeps{Store: store, Streamer: s}))
 
 	w := hgADo(router, "POST", "/api/downloads/1/promote", []byte("{}"))
 	if w.Code != http.StatusConflict {
@@ -502,7 +502,7 @@ func Test_hgA_DownloadsPromote_BadBase(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/:id/promote", DownloadsPromote(store, s, nil, nil, t.TempDir(), nil, nil, nil, nil))
+	router.POST("/api/downloads/:id/promote", DownloadsPromote(PromoteDeps{Store: store, Streamer: s, SharedDir: t.TempDir()}))
 
 	body, _ := json.Marshal(promoteReq{TargetBase: "/not/a/dest"})
 	w := hgADo(router, "POST", "/api/downloads/1/promote", body)
@@ -520,7 +520,7 @@ func Test_hgA_DownloadsPromote_Success(t *testing.T) {
 	d := hgACompletedDownload(t, store, srcDir, "promote_me.mkv")
 
 	router := gin.New()
-	router.POST("/api/downloads/:id/promote", DownloadsPromote(store, s, nil, nil, shared, nil, nil, nil, nil))
+	router.POST("/api/downloads/:id/promote", DownloadsPromote(PromoteDeps{Store: store, Streamer: s, SharedDir: shared}))
 
 	body, _ := json.Marshal(promoteReq{KeepSeeding: true})
 	w := hgADo(router, "POST", "/api/downloads/"+itoa(d.ID)+"/promote", body)
@@ -547,7 +547,7 @@ func Test_hgA_DownloadsPromoteBatch_NoSharedDir(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/promote", DownloadsPromoteBatch(store, s, nil, nil, "", nil, nil, nil, nil))
+	router.POST("/api/downloads/promote", DownloadsPromoteBatch(PromoteDeps{Store: store, Streamer: s}))
 
 	w := hgADo(router, "POST", "/api/downloads/promote", []byte("{}"))
 	if w.Code != http.StatusConflict {
@@ -560,7 +560,7 @@ func Test_hgA_DownloadsPromoteBatch_BadBody(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/promote", DownloadsPromoteBatch(store, s, nil, nil, t.TempDir(), nil, nil, nil, nil))
+	router.POST("/api/downloads/promote", DownloadsPromoteBatch(PromoteDeps{Store: store, Streamer: s, SharedDir: t.TempDir()}))
 
 	w := hgADo(router, "POST", "/api/downloads/promote", []byte("not json"))
 	if w.Code != http.StatusBadRequest {
@@ -573,7 +573,7 @@ func Test_hgA_DownloadsPromoteBatch_EmptyIDs(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/promote", DownloadsPromoteBatch(store, s, nil, nil, t.TempDir(), nil, nil, nil, nil))
+	router.POST("/api/downloads/promote", DownloadsPromoteBatch(PromoteDeps{Store: store, Streamer: s, SharedDir: t.TempDir()}))
 
 	body, _ := json.Marshal(promoteReq{IDs: []int{}})
 	w := hgADo(router, "POST", "/api/downloads/promote", body)
@@ -591,7 +591,7 @@ func Test_hgA_DownloadsPromoteBatch_Mixed(t *testing.T) {
 	good := hgACompletedDownload(t, store, srcDir, "ok.mkv")
 
 	router := gin.New()
-	router.POST("/api/downloads/promote", DownloadsPromoteBatch(store, s, nil, nil, shared, nil, nil, nil, nil))
+	router.POST("/api/downloads/promote", DownloadsPromoteBatch(PromoteDeps{Store: store, Streamer: s, SharedDir: shared}))
 
 	// One valid id + one bogus id → promoted 1, failed 1.
 	body, _ := json.Marshal(promoteReq{IDs: []int{good.ID, 99999}, KeepSeeding: true})
