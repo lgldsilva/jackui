@@ -396,9 +396,15 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     lastTimeRef.current = current?.initialSeek ?? 0
   }, [current?.result.infoHash, current?.fileIdx])
 
-  const playlistView: PlaylistContext | null = playlist
-    ? { name: playlist.name, items: playlist.items, currentIndex: playlist.order[playlist.position] }
-    : null
+  // Memoized so it keeps a stable identity while `playlist` doesn't change —
+  // otherwise a fresh object every render invalidated the `api` value memo
+  // during playlists, re-rendering every consumer of the player context.
+  const playlistView = useMemo<PlaylistContext | null>(
+    () => (playlist
+      ? { name: playlist.name, items: playlist.items, currentIndex: playlist.order[playlist.position] }
+      : null),
+    [playlist],
+  )
 
   const api = useMemo<PlayerAPI>(() => ({
     playSingle,
