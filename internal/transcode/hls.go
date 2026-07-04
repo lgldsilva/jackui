@@ -624,6 +624,17 @@ func (s *HLSSession) EnsureSegment(idx int) {
 	// buraco deixado por seeks dá 404 pra sempre — e o Safari, em VOD, não
 	// refetcha a playlist estática pra respawnar a sessão → playback congela.
 	if closed || idx < start || idx > s.highestSeg()+hlsForwardSeekThreshold {
+		// Guard do prefetch do HLS nativo: Safari/iOS pede um segmento MUITO à
+		// frente logo no início do play. Relançar pra servi-lo abandona o encode
+		// sequencial do seg 0 que o player realmente precisa → thrash de restart
+		// (frente/trás) + stall em t≈0 (o vídeo só destravava após ~minutos).
+		// Enquanto ainda encodando DO INÍCIO (start==0) com pouca coisa produzida,
+		// tratamos o salto grande como prefetch e deixamos o encode sequencial
+		// seguir — a posição real (baixa) do player continua sendo servida. Seek
+		// pra trás e seeks depois que o encode avançou ainda relançam normalmente.
+		if !closed && start == 0 && idx > s.highestSeg()+hlsForwardSeekThreshold && s.highestSeg() < hlsForwardSeekThreshold {
+			return
+		}
 		_ = s.RestartAt(idx)
 	}
 }
