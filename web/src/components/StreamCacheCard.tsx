@@ -233,7 +233,7 @@ export default function StreamCacheCard() {
                   : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary'
               }`}
             >
-              {col === 'size' ? t('stream.cache.sort_size') : col === 'name' ? t('stream.cache.sort_name') : t('stream.cache.sort_date')}
+              {t(`stream.cache.sort_${col}`)}
               {sortBy === col && (sortDesc ? <ArrowDownWideNarrow className="w-3 h-3" /> : <ArrowUpWideNarrow className="w-3 h-3" />)}
             </button>
           ))}

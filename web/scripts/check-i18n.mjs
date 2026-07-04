@@ -25,7 +25,7 @@ const ALLOWLIST = new Set([])
 const ACCENT = 'À-ÿ' // À-ÿ (Latin-1 acentuado, cobre pt-BR)
 const reChild = new RegExp(`>[^<>{}]*[${ACCENT}]`)
 const reAttr = new RegExp(`(?:title|placeholder|aria-label)=("|')[^"']*[${ACCENT}]`)
-const reCall = new RegExp(`(?:alert|confirm)\\([^)]*[${ACCENT}]`)
+const reCall = new RegExp(String.raw`(?:alert|confirm)\([^)]*[${ACCENT}]`)
 
 function walk(dir) {
   const out = []
@@ -52,7 +52,7 @@ function stripComments(lines) {
     while (i < line.length) {
       if (inBlock) {
         const end = line.indexOf('*/', i)
-        if (end === -1) { i = line.length; break }
+        if (end === -1) break
         i = end + 2
         inBlock = false
         continue
@@ -67,7 +67,7 @@ function stripComments(lines) {
   })
 }
 
-// Alvos: por padrão todo o src; ou os caminhos passados (arquivos/dirs) —
+// Alvos: por padrão varre o src inteiro; ou os caminhos passados (arquivos/dirs) —
 // útil pra checar só o que você acabou de mexer.
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
 let targets
