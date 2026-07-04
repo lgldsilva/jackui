@@ -713,13 +713,26 @@ func isMountRoot(b *lb.Browser, abs string) bool {
 	return false
 }
 
-func LocalPromote(b *lb.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, dls *downloads.Store, s *streamer.Streamer, tr *transfer.Tracker) gin.HandlerFunc {
+// LocalPromoteDeps bundles the dependencies of the LocalPromote handler so its
+// factory stays within the ≤7-parameter limit (S107). Injected by cmd/server.
+type LocalPromoteDeps struct {
+	Browser    *lb.Browser
+	AIClient   *ai.Client
+	TMDBClient *tmdb.Client
+	SharedDir  string
+	Dests      []httpshared.PromoteDest
+	Downloads  *downloads.Store
+	Streamer   *streamer.Streamer
+	Tracker    *transfer.Tracker
+}
+
+func LocalPromote(d LocalPromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if sharedDir == "" {
+		if d.SharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
-		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
+		req, base, ok := extractLocalPromoteReq(c, d.Browser, d.SharedDir, d.Dests)
 		if !ok {
 			return
 		}
@@ -730,20 +743,20 @@ func LocalPromote(b *lb.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, s
 		}
 		username := scopeUser(c)
 		orig := originalLocalPaths(req)
-		paths := resolveLocalPaths(b, req, username)
+		paths := resolveLocalPaths(d.Browser, req, username)
 		if len(paths) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
 			return
 		}
 		deps := &promoteDstDeps{
-			ctx: c.Request.Context(), aiClient: aiClient, tmdbClient: tmdbClient,
-			base: base, mount: req.Mount, dls: dls, s: s,
-			overrides: scopedOverrides(b, req, username),
+			ctx: c.Request.Context(), aiClient: d.AIClient, tmdbClient: d.TMDBClient,
+			base: base, mount: req.Mount, dls: d.Downloads, s: d.Streamer,
+			overrides: scopedOverrides(d.Browser, req, username),
 		}
 		// One Transfers job for the whole batch (X/Y files across all items) — the
 		// dock shows live progress while this (possibly large/cross-fs) move runs.
-		deps.job = startPromoteJob(tr, b, req, paths, username)
-		moved, errs, results := execPromoteMoves(b, deps, req.Mount, paths, orig, targetDir)
+		deps.job = startPromoteJob(d.Tracker, d.Browser, req, paths, username)
+		moved, errs, results := execPromoteMoves(d.Browser, deps, req.Mount, paths, orig, targetDir)
 		deps.job.Done()
 		// `errors` keeps the legacy {path,error} list (single-item callers);
 		// `results` is the per-item batch feedback (success/error keyed by the
