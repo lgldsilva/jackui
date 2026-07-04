@@ -51,6 +51,7 @@ export default function AIBenchmarkCard() {
   const pollStatus = () => {
     stopPolling()
     pollRef.current = setInterval(async () => {
+      if (document.hidden) return // don't poll a backgrounded tab (resumes on return)
       try {
         const s = await aiBenchmarkStatus()
         setStatus(prev => prev ? { ...prev, results: s.results || prev.results } : prev)

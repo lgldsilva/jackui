@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useVisiblePolling } from '../../lib/useVisiblePolling'
 import { Loader2, ArrowDown, ArrowUp, Users, Lock } from 'lucide-react'
 import { PeerInfo, downloadPeers } from '../../api/downloads'
 import { formatRate } from '../../lib/format'
@@ -21,30 +22,22 @@ export default function PeersTab({ downloadId }: Props) {
   const [active, setActive] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const timer = useRef<number | null>(null)
 
-  useEffect(() => {
-    let alive = true
-    const load = async () => {
-      try {
-        const d = await downloadPeers(downloadId)
-        if (!alive) return
-        setPeers(d.peers)
-        setActive(d.active)
-        setError('')
-      } catch (e: unknown) {
-        if (alive) setError((e as Error)?.message || 'Erro carregando peers')
-      } finally {
-        if (alive) setLoading(false)
-      }
-    }
-    load()
-    timer.current = window.setInterval(load, 2000)
-    return () => {
-      alive = false
-      if (timer.current) window.clearInterval(timer.current)
+  const load = useCallback(async () => {
+    try {
+      const d = await downloadPeers(downloadId)
+      setPeers(d.peers)
+      setActive(d.active)
+      setError('')
+    } catch (e: unknown) {
+      setError((e as Error)?.message || 'Erro carregando peers')
+    } finally {
+      setLoading(false)
     }
   }, [downloadId])
+
+  useEffect(() => { load() }, [load])
+  useVisiblePolling(load, 2000)
 
   if (loading && peers.length === 0) {
     return (
