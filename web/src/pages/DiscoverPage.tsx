@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
@@ -31,23 +32,24 @@ const FILTERS: readonly Filter[] = ['all', 'movie', 'tv']
 
 // DirectionBadge shows how a title moved in this week's ranking vs last week.
 function DirectionBadge({ m }: { readonly m: TmdbMatch }) {
+  const { t } = useTranslation()
   if (m.direction === 'new') {
     return (
-      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/80 text-white" title="Novo no ranking">
-        <Sparkles className="w-3 h-3" />novo
+      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/80 text-white" title={t('discover.new_rank')}>
+        <Sparkles className="w-3 h-3" />{t('discover.new_short')}
       </span>
     )
   }
   if (m.direction === 'up') {
     return (
-      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/80 text-white" title={`Subiu ${m.rankDelta ?? 0} posições`}>
+      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/80 text-white" title={t('discover.rank_up', { n: m.rankDelta ?? 0 })}>
         <TrendingUp className="w-3 h-3" />{m.rankDelta ?? ''}
       </span>
     )
   }
   if (m.direction === 'down') {
     return (
-      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-500/80 text-white" title={`Caiu ${m.rankDelta ?? 0} posições`}>
+      <span className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-red-500/80 text-white" title={t('discover.rank_down', { n: m.rankDelta ?? 0 })}>
         <TrendingDown className="w-3 h-3" />{m.rankDelta ?? ''}
       </span>
     )
@@ -68,19 +70,20 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
   readonly trailerMuted?: boolean // already probed: this title has no trailer
   readonly onDismiss?: () => void // present only on recommendation cards
 }) {
+  const { t } = useTranslation()
   return (
     <div className="group relative flex flex-col text-left rounded-lg overflow-hidden bg-surface-secondary border border-default hover:border-green-500/50 transition-colors">
       <button
         {...newTabProps(searchHref(searchQuery(m)), onClick)}
-        title={`Buscar "${m.title}"`}
-        aria-label={`Buscar "${m.title}"`}
+        title={t('discover.search_title', { title: m.title })}
+        aria-label={t('discover.search_title', { title: m.title })}
         className="absolute inset-0 z-[1]"
       />
       <div className="aspect-[2/3] bg-surface relative">
         <img src={m.posterUrl} alt={m.title} loading="lazy" className="w-full h-full object-cover" />
         <span className="absolute top-1 left-1 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-black/70 text-white">
           {m.kind === 'tv' ? <Tv className="w-3 h-3" /> : <Film className="w-3 h-3" />}
-          {m.kind === 'tv' ? 'Série' : 'Filme'}
+          {m.kind === 'tv' ? t('discover.kind_tv') : t('discover.kind_movie')}
         </span>
         {/* On recommendation cards an "ignore" (X) sits top-right. Always visible
             on touch (no hover there — the X was unreachable on mobile); hover-only
@@ -89,8 +92,8 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
         {onDismiss && (
           <button
             onClick={onDismiss}
-            title="Não recomendar isto"
-            aria-label={`Não recomendar "${m.title}"`}
+            title={t('discover.dislike')}
+            aria-label={t('discover.dislike')}
             className="absolute top-1 right-1 z-[2] flex items-center justify-center w-7 h-7 rounded-full bg-black/70 text-white opacity-100 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-red-400 transition-opacity"
           >
             <X className="w-4 h-4" />
@@ -109,8 +112,8 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
           <button
             onClick={onTrailer}
             disabled={trailerMuted}
-            title={trailerMuted ? 'Sem trailer' : 'Assistir trailer'}
-            aria-label={trailerMuted ? 'Sem trailer' : `Trailer de "${m.title}"`}
+            title={trailerMuted ? t('discover.no_trailer') : t('discover.watch_trailer')}
+            aria-label={trailerMuted ? t('discover.no_trailer') : t('discover.trailer_of', { title: m.title })}
             className={`absolute bottom-1 right-1 z-[2] flex items-center justify-center w-8 h-8 rounded-full bg-black/70 transition-colors ${trailerMuted ? 'text-white/30' : 'text-white hover:text-red-400'}`}
           >
             <Clapperboard className="w-4 h-4" />
@@ -187,6 +190,7 @@ const YEARS = (() => {
 })()
 
 export default function DiscoverPage() {
+  const { t } = useTranslation()
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
   // Filtros do Discover na URL (sobrevivem a back/forward/reload/reabrir). year e
   // genre são numéricos → glue string<->number ('' = sem filtro). filter/query
@@ -313,7 +317,7 @@ export default function DiscoverPage() {
 
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-            <Flame className="w-5 h-5 text-orange-400" /> Em alta
+            <Flame className="w-5 h-5 text-orange-400" /> {t('discover.title_trending')}
           </h1>
           <div className="flex items-center gap-2 text-xs flex-wrap">
             <div className="flex items-center gap-1">
@@ -323,7 +327,7 @@ export default function DiscoverPage() {
                   onClick={() => setFilter(f)}
                   className={filter === f ? 'btn-primary' : 'btn-secondary'}
                 >
-                  {{ all: 'Tudo', movie: 'Filmes', tv: 'Séries' }[f]}
+                  {{ all: t('discover.filter_all'), movie: t('discover.filter_movies'), tv: t('discover.filter_tv') }[f]}
                 </button>
               ))}
             </div>
@@ -331,9 +335,9 @@ export default function DiscoverPage() {
               value={year}
               onChange={e => setYear(Number(e.target.value))}
               className="bg-surface-secondary border border-default rounded-lg px-2 py-1.5 text-text-primary focus:outline-none focus:border-green-500/50"
-              title="Filtrar por ano"
+              title={t('discover.filter_year')}
             >
-              <option value={0}>Qualquer ano</option>
+              <option value={0}>{t('discover.any_year')}</option>
               {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
             {genres.length > 0 && (
@@ -341,9 +345,9 @@ export default function DiscoverPage() {
                 value={genre}
                 onChange={e => setGenre(Number(e.target.value))}
                 className="bg-surface-secondary border border-default rounded-lg px-2 py-1.5 text-text-primary focus:outline-none focus:border-green-500/50"
-                title="Filtrar por gênero"
+                title={t('discover.filter_genre')}
               >
-                <option value={0}>Qualquer gênero</option>
+                <option value={0}>{t('discover.any_genre')}</option>
                 {genres.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
             )}
@@ -358,13 +362,13 @@ export default function DiscoverPage() {
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Filtrar por título..."
+              placeholder={t('discover.filter_title')}
               className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500/50"
             />
             {query && (
               <button
                 onClick={() => setQuery('')}
-                aria-label="Limpar"
+                aria-label={t('discover.clear')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
               >
                 <X className="w-3.5 h-3.5" />
@@ -375,7 +379,7 @@ export default function DiscoverPage() {
 
 {(() => {
           if (items === null) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
-          if (items.length === 0) return <div className="text-center py-20 text-text-muted"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nada pra mostrar</p><p className="text-xs mt-2">Configure a <code className="text-text-secondary">tmdb.api_key</code> (ou <code className="text-text-secondary">TMDB_API_KEY</code>) pra ver os títulos em alta.</p></div>
+          if (items.length === 0) return <div className="text-center py-20 text-text-muted"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>{t('discover.empty_title')}</p><p className="text-xs mt-2"><Trans i18nKey="discover.empty_hint" components={{ c: <code className="text-text-secondary" /> }} /></p></div>
           return (
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {shown.map(m => (
