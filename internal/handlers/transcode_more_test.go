@@ -174,22 +174,3 @@ func TestBuildVODPlaylist_SegmentCount(t *testing.T) {
 		t.Error("expected at least seg_00002")
 	}
 }
-
-func TestBuildLocalVODPlaylist_ZeroDuration(t *testing.T) {
-	segURL := func(name string) string { return "/seg/" + name }
-	playlist := buildLocalVODPlaylist(0, segURL)
-	if len(playlist) == 0 {
-		t.Error("expected non-empty playlist")
-	}
-	if !bytes.Contains(playlist, []byte("#EXT-X-ENDLIST")) {
-		t.Error("expected EXT-X-ENDLIST")
-	}
-}
-
-func TestBuildLocalVODPlaylist_WithSegments(t *testing.T) {
-	segURL := func(name string) string { return "/hls/" + name }
-	playlist := buildLocalVODPlaylist(10, segURL)
-	if !bytes.Contains(playlist, []byte("/hls/seg_00000")) {
-		t.Error("expected segment URL in playlist")
-	}
-}

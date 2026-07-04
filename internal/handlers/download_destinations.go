@@ -10,6 +10,7 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // DownloadDestination is a writable target a user may pick for a download (#16):
@@ -28,7 +29,7 @@ type DownloadDestination struct {
 // (handlers then ignore any destBase the client sent).
 type DestinationService struct {
 	Mounts      []config.ExternalMount
-	Promote     []PromoteDest
+	Promote     []httpshared.PromoteDest
 	SharedDir   string
 	ResolveUser func(userID int) string
 }
@@ -75,7 +76,7 @@ func (ds *DestinationService) Resolve(userID int, base, subdir string) (string, 
 	}
 	for _, d := range ds.For(userID) {
 		if d.Path == base {
-			sub, err := sanitizeSubdir(subdir)
+			sub, err := httpshared.SanitizeSubdir(subdir)
 			if err != nil {
 				return "", "", err
 			}
@@ -117,7 +118,7 @@ func DownloadsDestinationBrowse(ds *DestinationService) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "destino inválido"})
 			return
 		}
-		sub, err := sanitizeSubdir(c.Query("path"))
+		sub, err := httpshared.SanitizeSubdir(c.Query("path"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -127,6 +128,6 @@ func DownloadsDestinationBrowse(ds *DestinationService) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"dirs": []string{}, "path": sub})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"dirs": listDirs(entries), "path": sub})
+		c.JSON(http.StatusOK, gin.H{"dirs": httpshared.ListDirs(entries), "path": sub})
 	}
 }

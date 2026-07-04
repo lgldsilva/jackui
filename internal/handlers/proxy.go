@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
@@ -61,7 +62,7 @@ func injectAPIKey(u *url.URL, client *jackett.Client) {
 }
 
 func proxyResponse(c *gin.Context, resp *http.Response) {
-	ct := resp.Header.Get(ContentType)
+	ct := resp.Header.Get(httpshared.ContentType)
 	if ct == "" {
 		ct = "application/x-bittorrent"
 	}
@@ -69,7 +70,7 @@ func proxyResponse(c *gin.Context, resp *http.Response) {
 	if cd == "" {
 		cd = "attachment; filename=\"download.torrent\""
 	}
-	c.Header(ContentType, ct)
+	c.Header(httpshared.ContentType, ct)
 	c.Header(HeaderContentDisp, cd)
 	c.Status(http.StatusOK)
 	io.Copy(c.Writer, resp.Body) //nolint:errcheck

@@ -19,6 +19,8 @@ import (
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
+	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/imagesearch"
 	"github.com/lgldsilva/jackui/internal/jackett"
@@ -76,7 +78,7 @@ type appDeps struct {
 	waManager        *auth.WAManager
 	loginLockout     *auth.Lockout
 	mlr              *mailer.Mailer
-	promoteDests     []handlers.PromoteDest
+	promoteDests     []httpshared.PromoteDest
 	destinations     *handlers.DestinationService
 	hlsMgr           *transcode.HLSSessionManager
 	localStream      *localstream.Registry
@@ -155,7 +157,7 @@ func main() {
 	deps.streamCfg = prepareStreamConfig(deps.cfg, deps.restart)
 	// Persist local-file thumbnails (and negative markers) under the stream
 	// DataDir so they survive restarts instead of regenerating in /tmp.
-	handlers.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
+	lh.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
 	// Dedicated cache for pre-fetching whole files from slow mounts (rclone) to
 	// local disk — instant, seekable, EIO-proof playback. LRU-capped.
 	if cache, cerr := localcache.New(filepath.Join(deps.streamCfg.DataDir, "local-cache"), deps.cfg.External.LocalCacheGB); cerr == nil {

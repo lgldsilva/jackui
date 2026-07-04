@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lgldsilva/jackui/internal/dbtest"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/dbtest"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/streamer"

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/lyrics"
 )
 
@@ -30,7 +31,7 @@ func LyricsGet(lc *lyrics.Client) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		c.Header(CacheControl, CachePublicDay)
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
 		c.JSON(http.StatusOK, lyr)
 	}
 }

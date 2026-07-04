@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/musictrending"
 )
 
@@ -23,7 +24,7 @@ func MusicTrending(mc *musictrending.Client) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "upstream error"})
 			return
 		}
-		c.Header(CacheControl, CachePublicDay)
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
 		c.JSON(http.StatusOK, gin.H{"albums": albums})
 	}
 }

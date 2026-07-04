@@ -21,6 +21,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/gluetun"
 	"github.com/lgldsilva/jackui/internal/handlers"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/library"
@@ -755,8 +756,8 @@ func initHLSManager(deps *appDeps) {
 	deps.addCleanup(hlsMgr.Stop)
 }
 
-func buildPromoteDests(cfg *config.Config) []handlers.PromoteDest {
-	dests := make([]handlers.PromoteDest, 0, len(cfg.Stream.PromoteDirs)+len(cfg.External.Mounts))
+func buildPromoteDests(cfg *config.Config) []httpshared.PromoteDest {
+	dests := make([]httpshared.PromoteDest, 0, len(cfg.Stream.PromoteDirs)+len(cfg.External.Mounts))
 	seen := map[string]bool{}
 	if cfg.Stream.SharedDir != "" {
 		seen[cfg.Stream.SharedDir] = true // added by BuildPromoteDests as "Biblioteca"
@@ -766,7 +767,7 @@ func buildPromoteDests(cfg *config.Config) []handlers.PromoteDest {
 			return
 		}
 		seen[path] = true
-		dests = append(dests, handlers.PromoteDest{Name: name, Path: path})
+		dests = append(dests, httpshared.PromoteDest{Name: name, Path: path})
 	}
 	for _, pd := range cfg.Stream.PromoteDirs {
 		add(pd.Name, pd.Path)
