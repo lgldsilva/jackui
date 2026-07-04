@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader2, Trash2, Zap, Server, ShieldAlert } from 'lucide-react'
 import { fetchActiveTranscodes, killTranscodeSession, HLSSessionSnapshot, GPUInfo } from '../api/client'
 import { useConfirm } from './ConfirmDialog'
+import { errMessage } from '../lib/errMessage'
 
 type CodecStyle = { readonly cls: string; readonly label: string }
 
@@ -34,7 +35,7 @@ export default function ActiveTranscodesCard() {
       setSessions(data.sessions || [])
       setGpu(data.gpu || null)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errMessage(e))
     } finally {
       setLoading(false)
     }
