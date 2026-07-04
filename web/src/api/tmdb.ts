@@ -18,33 +18,42 @@ export type TmdbMatch = {
   rankDelta?: number
 }
 
-// In-memory dedupe for in-flight requests + soft session cache. Server already
-// caches 30d but this prevents N visible cards from firing N parallel requests
-// for the same title.
-const tmdbInFlight = new Map<string, Promise<TmdbMatch | null>>()
+// Soft session cache. Server already caches 30d but this keeps repeated titles
+// (same card re-mounting) free within a session.
 const tmdbSessionCache = new Map<string, TmdbMatch | null>()
 
-export const tmdbMatch = async (title: string): Promise<TmdbMatch | null> => {
-  const key = title.trim().toLowerCase()
-  if (tmdbSessionCache.has(key)) return tmdbSessionCache.get(key)!
-  if (tmdbInFlight.has(key)) return tmdbInFlight.get(key)!
-  const p = (async () => {
-    try {
-      const r = await api.get<TmdbMatch>(`/tmdb/match?title=${encodeURIComponent(title)}`, { validateStatus: () => true })
-      if (r.status === 200) {
-        tmdbSessionCache.set(key, r.data)
-        return r.data
+// COALESCING: instead of N visible cards each firing a GET /tmdb/match, calls
+// within a short window (~40ms) become ONE POST /tmdb/match/batch. Preserves the
+// lazy-load (the IntersectionObserver decides WHEN each card asks; only the burst
+// is grouped) — no change needed in the 5 list pages that call tmdbMatch.
+const tmdbQueue: { title: string; resolve: (m: TmdbMatch | null) => void }[] = []
+let tmdbFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushTmdbQueue() {
+  if (tmdbFlushTimer) { clearTimeout(tmdbFlushTimer); tmdbFlushTimer = null }
+  const batch = tmdbQueue.splice(0)
+  if (batch.length === 0) return
+  const titles = [...new Set(batch.map(b => b.title))]
+  api.post<{ matches?: Record<string, TmdbMatch> }>('/tmdb/match/batch', { titles }, { validateStatus: () => true })
+    .then(r => {
+      const matches = r.status === 200 ? (r.data?.matches ?? {}) : {}
+      for (const b of batch) {
+        const m = matches[b.title] ?? null
+        tmdbSessionCache.set(b.title.trim().toLowerCase(), m)
+        b.resolve(m)
       }
-      tmdbSessionCache.set(key, null)
-      return null
-    } catch {
-      return null
-    } finally {
-      tmdbInFlight.delete(key)
-    }
-  })()
-  tmdbInFlight.set(key, p)
-  return p
+    })
+    .catch(() => { for (const b of batch) b.resolve(null) })
+}
+
+export const tmdbMatch = (title: string): Promise<TmdbMatch | null> => {
+  const key = title.trim().toLowerCase()
+  if (tmdbSessionCache.has(key)) return Promise.resolve(tmdbSessionCache.get(key)!)
+  return new Promise(resolve => {
+    tmdbQueue.push({ title, resolve })
+    if (tmdbQueue.length >= 80) flushTmdbQueue()
+    else if (!tmdbFlushTimer) tmdbFlushTimer = setTimeout(flushTmdbQueue, 40)
+  })
 }
 
 // tmdbTrending returns this week's trending movies + shows for the Discover page.

@@ -619,6 +619,46 @@ func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
+// StreamHealthBatch handles POST /api/stream/health/batch {hashes:[...]} →
+// {results:{hash:health}} — the PEEK (cheap snapshot read) for MANY torrents in
+// ONE call, so a list page resolves every SeedBadge with a single round-trip
+// instead of one GET /stream/health/:hash per card (the frontend N+1). Peek-only
+// (never probes): the expensive swarm probe stays on-demand via the single GET
+// with probe=1. The per-hash shape matches the single peek so the SeedBadge
+// consumes both identically.
+func StreamHealthBatch(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Hashes []string `json:"hashes"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.Hashes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hashes is required"})
+			return
+		}
+		if len(req.Hashes) > 300 {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many hashes"})
+			return
+		}
+		results := make(map[string]gin.H, len(req.Hashes))
+		for _, raw := range req.Hashes {
+			h, err := parseHash(raw)
+			if err != nil {
+				continue
+			}
+			snapshot, active := s.HealthSnapshot(h)
+			r := gin.H{"active": active, "refreshing": false, "known": snapshot != nil}
+			if snapshot != nil {
+				r["seeders"] = snapshot.Seeders
+				r["peers"] = snapshot.Peers
+				r["available"] = snapshot.Available
+				r["checkedAt"] = snapshot.CheckedAt
+			}
+			results[raw] = r
+		}
+		c.JSON(http.StatusOK, gin.H{"results": results})
+	}
+}
+
 // StreamTrackers handles GET /api/stream/trackers/:hash?magnet=... — per-tracker
 // swarm sizes via BEP 48 scrape, for the torrent info panel. Returns each
 // tracker's host (passkeys are never exposed) with its reported seeders/leechers

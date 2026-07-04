@@ -317,6 +317,7 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.GET("/stream/artwork/:hash/:file", handlers.StreamArtwork(deps.streamSrv))
 	api.GET("/stream/metadata/:hash", handlers.StreamMetadata(deps.streamSrv))
 	api.GET("/stream/health/:hash", handlers.StreamHealth(deps.streamSrv))
+	api.POST("/stream/health/batch", handlers.StreamHealthBatch(deps.streamSrv))
 	api.GET("/stream/trackers/:hash", handlers.StreamTrackers(deps.streamSrv))
 	api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(deps.streamSrv))
 	api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
@@ -469,6 +470,7 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 func registerTMDBRoutes(api *gin.RouterGroup, deps *appDeps) {
 	// TMDB enrichment — optional poster + overview per torrent title
 	api.GET("/tmdb/match", handlers.TmdbMatch(deps.tmdbClient))
+	api.POST("/tmdb/match/batch", handlers.TmdbMatchBatch(deps.tmdbClient))
 	api.GET("/tmdb/trending", handlers.TmdbTrending(deps.tmdbClient))
 	api.GET("/tmdb/genres", handlers.TmdbGenres(deps.tmdbClient))
 	api.GET("/tmdb/videos", handlers.TmdbVideos(deps.tmdbClient))
