@@ -1,47 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { useSearchParams } from 'react-router-dom'
 import { useQuerySetter } from '../lib/useQueryState'
 import {
-  ChevronRight,
   ChevronDown,
-  Folder,
-  FileVideo,
-  FileAudio,
-  File as FileIcon,
   HardDrive,
   HardDriveDownload,
-  Home,
   ArrowDown,
   ArrowUp,
-  Trash2,
-  ArrowUpCircle,
   FolderSync,
-  FolderInput,
   CopyCheck,
   Upload,
   Search,
-  Check,
   X,
-  Lock,
-  Unlock,
-  Users,
-  MoreVertical,
-  Eye,
-  EyeOff,
-  Pencil,
   RefreshCw,
 } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePersistedState } from '../lib/storage'
-import { formatBytes, formatDateTime } from '../lib/format'
 import { usePlayer } from '../components/PlayerProvider'
 import { useAuth } from '../auth/AuthContext'
 import { useConfirm } from '../components/ConfirmDialog'
 import { DuplicatesModal } from '../components/local/DuplicatesModal'
-import { useLongPress } from '../lib/useLongPress'
-import { useIsMobile } from '../lib/useMediaQuery'
 import { Sheet } from '../components/Sheet'
 import { BatchActionBar } from '../components/BatchActionBar'
 import LocalPromoteModal from '../components/LocalPromoteModal'
@@ -49,6 +28,11 @@ import ReclassifyFolderModal from '../components/ReclassifyFolderModal'
 import MoveFolderModal from '../components/MoveFolderModal'
 import RenameModal from '../components/RenameModal'
 import CleanEmptyButton from '../components/local/CleanEmptyButton'
+import { MountBadge, MountSpaceLabel } from '../components/local/MountBadge'
+import { Breadcrumbs } from '../components/local/Breadcrumbs'
+import { EntryRow } from '../components/local/EntryRow'
+import { isVideo, isAudio, formatCount } from '../components/local/entryFormat'
+import { useIncrementalReveal } from '../components/player/useIncrementalReveal'
 import {
   LocalEntry,
   LocalMount,
@@ -56,7 +40,6 @@ import {
   PlaylistItem,
   AdminUser,
   buildLocalHash,
-  localThumbURL,
   localList,
   localWalk,
   localMounts,
@@ -73,7 +56,6 @@ import {
 import { useRevealHidden } from '../lib/reveal'
 import { useTransfers } from '../lib/transfers'
 import FileProgressBar from '../components/FileProgressBar'
-import { newTabProps, openInNewTab, playHref } from '../lib/cardNav'
 import { mergePromoteFiles } from './localPromote'
 import FilePreviewModal from '../components/FilePreviewModal'
 import { isViewable, detectViewerKind } from '../components/viewer/viewerKind'
@@ -83,369 +65,6 @@ import { errMessage } from '../lib/errMessage'
 
 type SortKey = 'name' | 'size' | 'date'
 type KindFilter = 'all' | 'video' | 'audio' | 'other'
-
-const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts'])
-const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus'])
-
-function extOf(name: string): string {
-  const i = name.lastIndexOf('.')
-  return i === -1 ? '' : name.slice(i).toLowerCase()
-}
-
-function isVideo(name: string): boolean {
-  return VIDEO_EXTS.has(extOf(name))
-}
-
-function isAudio(name: string): boolean {
-  return AUDIO_EXTS.has(extOf(name))
-}
-
-// formatCount renders a directory's child count ("12 itens" / "1 item").
-function formatCount(n: number, t: TFunction): string {
-  return t(n === 1 ? 'local.browser.countItem' : 'local.browser.countItems', { count: n })
-}
-
-// Barra de espaço livre/total do filesystem do mount (discos físicos, rclone).
-// Some quando o backend não conseguiu medir (mount quebrado → totalBytes 0).
-// MountBadge flags a mount's visibility: 🔒 per-user (private subdir) or
-// 👥 restricted (visible only to specific users). Shared mounts get no badge.
-function MountBadge({ m }: { readonly m: LocalMount }) {
-  const { t } = useTranslation()
-  if (m.userSubpath) {
-    return <Lock className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label={t('local.mount.privateAria')} />
-  }
-  if (m.restricted) {
-    return <Users className="w-3 h-3 text-blue-400 flex-shrink-0" aria-label={t('local.mount.restrictedAria')} />
-  }
-  return null
-}
-
-function MountSpaceLabel({ m }: { readonly m: LocalMount }) {
-  const { t } = useTranslation()
-  if (!m.totalBytes || m.totalBytes <= 0) return null
-  const free = m.freeBytes ?? 0
-  const pctUsed = Math.min(100, Math.max(0, Math.round(((m.totalBytes - free) / m.totalBytes) * 100)))
-  let barColor = 'bg-green-500'
-  if (pctUsed > 90) barColor = 'bg-red-500'
-  else if (pctUsed > 75) barColor = 'bg-amber-500'
-  return (
-    <div className="px-3 pb-1 -mt-0.5">
-      <div className="h-1 rounded-full bg-surface-tertiary/80 overflow-hidden">
-        <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pctUsed}%` }} />
-      </div>
-      <p className="text-[10px] text-text-muted mt-0.5">{t('local.mount.spaceFree', { free: formatBytes(free), total: formatBytes(m.totalBytes) })}</p>
-    </div>
-  )
-}
-
-function EntryIcon({ entry, mount }: { readonly entry: LocalEntry; readonly mount: string }) {
-  const [thumbFailed, setThumbFailed] = useState(false)
-  if (entry.isDir) return <Folder className="w-5 h-5 text-blue-400 flex-shrink-0" />
-  if (isVideo(entry.name)) {
-    // Early-frame preview (lazy); falls back to the icon if the server can't
-    // decode one (204/error). Fixed 16:9 box keeps rows aligned.
-    if (thumbFailed) return <FileVideo className="w-5 h-5 text-purple-400 flex-shrink-0" />
-    return (
-      <img
-        src={localThumbURL(mount, entry.path)}
-        alt=""
-        loading="lazy"
-        onError={() => setThumbFailed(true)}
-        className="w-14 h-8 object-cover rounded bg-surface border border-default flex-shrink-0"
-      />
-    )
-  }
-  if (isAudio(entry.name)) return <FileAudio className="w-5 h-5 text-pink-400 flex-shrink-0" />
-  return <FileIcon className="w-5 h-5 text-text-secondary flex-shrink-0" />
-}
-
-function Breadcrumbs({
-  mountName,
-  path,
-  onNavigate,
-}: {
-  readonly mountName: string
-  readonly path: string
-  readonly onNavigate: (p: string) => void
-}) {
-  const { t } = useTranslation()
-  const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
-  const isMobile = useIsMobile()
-  // No mobile, paths profundos poluem a barra. Colapsa pra Home › … › atual
-  // (o … sobe um nível). No desktop mostra o caminho inteiro.
-  const collapsed = isMobile && segments.length > 2
-  const shown = collapsed ? segments.slice(-1) : segments
-
-  return (
-    <nav className="flex items-center gap-1 text-sm text-text-primary flex-wrap min-w-0">
-      <button
-        onClick={() => onNavigate('')}
-        className="flex items-center gap-1 hover:text-green-400 transition-colors min-w-0"
-      >
-        <Home className="w-4 h-4 flex-shrink-0" />
-        {/* No mobile o dropdown de mount já mostra o nome — exibir de novo aqui
-            duplicava o texto e estourava a linha por cima dos botões. */}
-        <span className="truncate hidden md:inline">{mountName}</span>
-      </button>
-      {collapsed && (
-        <span className="flex items-center gap-1 flex-shrink-0">
-          <ChevronRight className="w-4 h-4 text-text-muted" />
-          <button
-            onClick={() => onNavigate(segments.slice(0, -1).join('/'))}
-            title={t('local.browser.upLevel')}
-            className="px-1 hover:text-green-400 transition-colors"
-          >
-            …
-          </button>
-        </span>
-      )}
-      {shown.map((seg, i) => {
-        const idx = collapsed ? segments.length - 1 : i
-        const target = segments.slice(0, idx + 1).join('/')
-        const isLast = idx === segments.length - 1
-        return (
-          <span key={target} className="flex items-center gap-1 min-w-0">
-            <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0" />
-            <button
-              onClick={() => onNavigate(target)}
-              className={`hover:text-green-400 transition-colors truncate max-w-[55vw] sm:max-w-none ${
-                isLast ? 'text-text-primary font-medium' : ''
-              }`}
-            >
-              {seg}
-            </button>
-          </span>
-        )
-      })}
-    </nav>
-  )
-}
-
-type EntryRowProps = {
-  readonly entry: LocalEntry
-  readonly mount: string
-  readonly selectMode: boolean
-  readonly selected: boolean
-  readonly canManipulate: boolean
-  readonly isAdmin: boolean
-  readonly onOpen: (e: LocalEntry) => void
-  readonly onEnterSelect: (e: LocalEntry) => void
-  readonly onToggleSelect: (e: LocalEntry) => void
-  readonly onRename: (e: LocalEntry) => void
-  readonly onPromote: (e: LocalEntry) => void
-  readonly onReclassify: (e: LocalEntry) => void
-  readonly onMove: (e: LocalEntry) => void
-  readonly onLock: (e: LocalEntry) => void
-  readonly onDelete: (e: LocalEntry) => void
-  readonly hidden: boolean
-  readonly onToggleHidden: (e: LocalEntry) => void
-}
-
-// Ações por-item (promover/reclassificar/mover/apagar). No desktop aparecem no
-// hover; no mobile viram um único alvo ⋮ (>=44px) que abre um Sheet — botões
-// opacity-0, mesmo invisíveis, capturavam o toque na faixa direita da row e o
-// play não disparava (sensação de "tocar duas vezes"). Lista via map pra manter
-// a complexidade baixa e não repetir desktop/mobile.
-const ACTION_COLOR: Record<string, string> = {
-  cyan: 'text-cyan-400 hover:bg-cyan-500/10',
-  purple: 'text-purple-400 hover:bg-purple-500/10',
-  amber: 'text-amber-400 hover:bg-amber-500/10',
-  red: 'text-red-400 hover:bg-red-500/10',
-}
-type EntryAction = { key: string; icon: typeof Trash2; label: string; color: keyof typeof ACTION_COLOR; run: () => void }
-
-function EntryActions({ entry: e, isAdmin, canAct, hidden, onRename, onPromote, onReclassify, onMove, onLock, onDelete, onToggleHidden }: {
-  readonly entry: LocalEntry
-  readonly isAdmin: boolean
-  readonly canAct: boolean
-  readonly hidden: boolean
-  readonly onRename: (e: LocalEntry) => void
-  readonly onPromote: (e: LocalEntry) => void
-  readonly onReclassify: (e: LocalEntry) => void
-  readonly onMove: (e: LocalEntry) => void
-  readonly onLock: (e: LocalEntry) => void
-  readonly onDelete: (e: LocalEntry) => void
-  readonly onToggleHidden: (e: LocalEntry) => void
-}) {
-  const { t } = useTranslation()
-  const [menuOpen, setMenuOpen] = useState(false)
-  const actions: EntryAction[] = [
-    canAct && { key: 'rename', icon: Pencil, label: e.isDir ? t('local.actions.renameFolder') : t('local.actions.renameFile'), color: 'amber', run: () => onRename(e) },
-    canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: t('local.actions.promote'), color: 'cyan', run: () => onPromote(e) },
-    isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? t('local.actions.reclassifyFolder') : t('local.actions.classifyMove'), color: 'purple', run: () => onReclassify(e) },
-    isAdmin && { key: 'move', icon: FolderInput, label: t('local.actions.moveMount'), color: 'amber', run: () => onMove(e) },
-    // Lock/unlock só faz sentido em pasta: fixa-a (.keep) contra o "limpar vazias".
-    canAct && e.isDir && { key: 'lock', icon: e.locked ? Unlock : Lock, label: e.locked ? t('local.actions.unkeep') : t('local.actions.keep'), color: 'amber', run: () => onLock(e) },
-    // Hide/unhide is per-user and harmless on any mount, so it's always offered.
-    { key: 'hide', icon: hidden ? Eye : EyeOff, label: hidden ? t('local.actions.unhide') : t('local.actions.hide'), color: 'amber', run: () => onToggleHidden(e) },
-    canAct && { key: 'delete', icon: Trash2, label: e.isDir ? t('local.actions.deleteFolder') : t('local.actions.deleteFile'), color: 'red', run: () => onDelete(e) },
-  ].filter(Boolean) as EntryAction[]
-  if (actions.length === 0) return null
-
-  return (
-    <>
-      <div className="hidden sm:flex items-center gap-1.5 px-4 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-        {actions.map(a => {
-          const Icon = a.icon
-          return (
-            <button
-              key={a.key}
-              onClick={(evt) => { evt.stopPropagation(); a.run() }}
-              title={a.label}
-              className={`p-1.5 rounded-lg border border-transparent transition-all ${ACTION_COLOR[a.color]}`}
-            >
-              <Icon className="w-5 h-5" />
-            </button>
-          )
-        })}
-      </div>
-      <button
-        onClick={(evt) => { evt.stopPropagation(); setMenuOpen(true) }}
-        title={t('local.actions.menu')}
-        aria-label={t('local.actions.menu')}
-        className="sm:hidden flex-shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] text-text-secondary hover:text-text-primary"
-      >
-        <MoreVertical className="w-5 h-5" />
-      </button>
-      {menuOpen && (
-        <Sheet open onClose={() => setMenuOpen(false)} size="sm" title={e.name}>
-          <div className="flex flex-col gap-1 pb-2">
-            {actions.map(a => {
-              const Icon = a.icon
-              return (
-                <button
-                  key={a.key}
-                  onClick={() => { setMenuOpen(false); a.run() }}
-                  className={`flex items-center gap-3 px-3 min-h-[48px] rounded-lg hover:bg-surface-tertiary/40 text-left ${ACTION_COLOR[a.color].split(' ')[0]}`}
-                >
-                  <Icon className="w-5 h-5 flex-shrink-0" />
-                  <span className="text-sm">{a.label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </Sheet>
-      )}
-    </>
-  )
-}
-
-// Deep-link "tela toda" de uma row: pasta → o browser daquela pasta; arquivo
-// reproduzível → o player via ?play=local-hash. Viewables não têm rota → ''.
-function localEntryHref(e: LocalEntry, mount: string): string {
-  if (e.isDir) return `/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
-  if (e.isPlayable) return playHref(buildLocalHash(mount, e.path))
-  return ''
-}
-
-// Handlers de clique/contexto da row. Com href: middle/ctrl/cmd-click e o
-// right-click puro abrem nova aba (clique normal roda onActivate); o
-// onContextMenu ignora ctrl/cmd pra não abrir DUAS abas no macOS (lá o Ctrl+Click
-// dispara contextmenu E click, e o ctrl já cai no newTabProps.onClick). Sem href
-// (viewable/seleção): clique normal só.
-function localRowNavProps(href: string, onActivate: () => void) {
-  if (!href) return { onClick: onActivate }
-  return {
-    ...newTabProps(href, onActivate),
-    onContextMenu: (ev: React.MouseEvent) => {
-      if (ev.ctrlKey || ev.metaKey) return
-      ev.preventDefault()
-      openInNewTab(href)
-    },
-  }
-}
-
-// Uma linha da lista. Extraída pra poder usar useLongPress por item (hooks não
-// podem ser chamados dentro de um .map). Long-press entra no modo seleção.
-function EntryRow(props: EntryRowProps) {
-  const { t } = useTranslation()
-  const { entry: e, mount, selectMode, selected, canManipulate, isAdmin } = props
-  // Viewable = não-reproduzível mas com viewer universal (NFO/imagem/PDF/
-  // quadrinhos/zip/EPUB). A linha deixa de ser "morta": clique abre o preview.
-  const viewable = !e.isDir && !e.isPlayable && isViewable(e.name)
-  const clickable = e.isDir || e.isPlayable || viewable
-  const canAct = canManipulate || isAdmin
-  // contextMenu:false: right-click here opens a new tab (handled below), so the
-  // hook must NOT map onContextMenu to "enter select mode" — otherwise the
-  // {...pressHandlers} spread would shadow the new-tab handler. Touch long-press
-  // (onTouchStart) still enters select; desktop has the toolbar "Selecionar".
-  const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct, contextMenu: false })
-  const pressHandlers = selectMode || !canAct ? {} : lp
-
-  // Modo seleção não navega; senão deriva o deep-link + handlers (ver helpers).
-  const newTabHref = selectMode ? '' : localEntryHref(e, mount)
-  const onActivate = () => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))
-  const navProps = localRowNavProps(newTabHref, onActivate)
-
-  return (
-    <li className={`flex items-center justify-between group ${selected ? 'bg-green-500/10' : 'hover:bg-surface-tertiary/20'}`}>
-      <button
-        {...navProps}
-        disabled={!selectMode && !clickable}
-        {...pressHandlers}
-        className={`flex-1 min-w-0 flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-          selectMode || clickable ? 'cursor-pointer' : 'cursor-default opacity-70'
-        }`}
-      >
-        {selectMode && (
-          <span className={`flex-shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-            selected ? 'bg-green-500 border-green-500' : 'border-strong'
-          }`}>
-            {selected && <Check className="w-3.5 h-3.5 text-white" />}
-          </span>
-        )}
-        <EntryIcon entry={e} mount={mount} />
-        <span className="flex-1 min-w-0 flex flex-col gap-0.5">
-          <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere] flex items-center gap-1.5">
-            {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('local.row.hiddenAria')} />}
-            {e.locked && <Lock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('local.row.keptAria')} />}
-            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label={t('local.row.viewableAria')} />}
-            {e.incomplete && (
-              <span
-                className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
-                title={t('local.row.downloadingTitle')}
-              >
-                <HardDriveDownload className="w-3 h-3" />{t('local.row.downloading')}
-              </span>
-            )}
-            {e.name}
-          </span>
-          {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
-              direita (hidden sm:block). Sem isso a row no celular mostrava só
-              ícone + nome. */}
-          <span className="sm:hidden text-[11px] text-text-muted flex items-center gap-1.5">
-            {e.isDir
-              ? <>{formatCount(e.childCount ?? 0, t)}<span className="text-text-muted">·</span></>
-              : <>{formatBytes(e.size)}<span className="text-text-muted">·</span></>}
-            {formatDateTime(e.modTime)}
-          </span>
-        </span>
-        {/* Tamanho (arquivo) ou quantidade de itens (pasta). */}
-        <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-24">
-          {e.isDir ? formatCount(e.childCount ?? 0, t) : formatBytes(e.size)}
-        </span>
-        <span className="text-xs text-text-muted w-32 text-right hidden sm:block flex-shrink-0">{formatDateTime(e.modTime)}</span>
-      </button>
-
-      {/* Ações por-item: desktop = botões no hover; mobile = ⋮ → Sheet. */}
-      {!selectMode && (
-        <EntryActions
-          entry={e}
-          isAdmin={isAdmin}
-          canAct={canAct}
-          hidden={props.hidden}
-          onRename={props.onRename}
-          onPromote={props.onPromote}
-          onReclassify={props.onReclassify}
-          onMove={props.onMove}
-          onLock={props.onLock}
-          onDelete={props.onDelete}
-          onToggleHidden={props.onToggleHidden}
-        />
-      )}
-    </li>
-  )
-}
 
 export default function LocalPage() {
   const { t } = useTranslation()
@@ -498,11 +117,15 @@ export default function LocalPage() {
   const uploadAbortRef = useRef<AbortController | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  const updateNavigation = (newMount: string, newPath: string, replace = false) => {
+  // useCallback: os handlers passados a cada EntryRow precisam de referência
+  // estável pra que o React.memo da row funcione — sem isso, um render do pai
+  // (progresso de upload, notice, seleção de OUTRA row) recriaria os handlers e
+  // re-renderizaria TODAS as linhas.
+  const updateNavigation = useCallback((newMount: string, newPath: string, replace = false) => {
     // Atomic two-key update (mount + path) via the shared helper, which merges over
     // the live query so an active ?play= is preserved.
     setQuery({ mount: newMount || null, path: newPath || null }, { replace })
-  }
+  }, [setQuery])
 
   const { isGuest, isAdmin } = useAuth()
   // Admin "view as user": '' = own space. When set, every /api/local/* call
@@ -537,6 +160,14 @@ export default function LocalPage() {
     return [...dirs.sort(cmp), ...files.sort(cmp)]
   }, [entries, kind, statusFilter, sortKey, sortDir, search])
 
+  // Windowing: renderiza a lista em LOTES e revela mais ao rolar até o fim
+  // (sentinela + IntersectionObserver) — igual Search/Favorites. resetKey volta ao
+  // 1º lote quando muda a pasta/mount ou os filtros/ordenação/busca.
+  const reveal = useIncrementalReveal(
+    visible.length,
+    `${activeMount}|${path}|${kind}|${statusFilter}|${sortKey}|${sortDir}|${search}`,
+  )
+
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     else { setSortKey(key); setSortDir(key === 'name' ? 'asc' : 'desc') }
@@ -555,15 +186,45 @@ export default function LocalPage() {
   )
 
   const clearSelection = () => { setSelectMode(false); setSelected(new Set()) }
-  const toggleSelect = (e: LocalEntry) => setSelected((prev) => {
+  const toggleSelect = useCallback((e: LocalEntry) => setSelected((prev) => {
     const next = new Set(prev)
     if (next.has(e.path)) next.delete(e.path)
     else next.add(e.path)
     return next
-  })
-  const enterSelect = (e: LocalEntry) => { setSelectMode(true); setSelected(new Set([e.path])) }
+  }), [])
+  const enterSelect = useCallback((e: LocalEntry) => { setSelectMode(true); setSelected(new Set([e.path])) }, [])
   // "Selecionar tudo" age sobre a lista visível (respeita filtro/busca atuais).
   const selectAllVisible = () => setSelected(new Set(visible.map((e) => e.path)))
+
+  // reqSeq guards against out-of-order responses: when the user navigates
+  // quickly (or the initial mount load is still in flight), two localList calls
+  // race and the slower one could overwrite the newer result — showing stale or
+  // empty content and a flash. Only the latest request is allowed to commit.
+  const reqSeq = useRef(0)
+
+  const refresh = useCallback(() => {
+    if (!activeMount) return
+    // Sync the client module's view-as state BEFORE any local call so list +
+    // subsequent play/thumb/move/delete all hit the selected user's space.
+    setLocalViewAsUser(viewAsUser)
+    const seq = ++reqSeq.current
+    setLoading(true)
+    setError('')
+    localList(activeMount, path)
+      .then((data) => {
+        if (seq !== reqSeq.current) return
+        setEntries(data)
+      })
+      .catch((e: unknown) => {
+        if (seq !== reqSeq.current) return
+        const msg = errMessage(e)
+        setError(msg)
+        setEntries([])
+      })
+      .finally(() => {
+        if (seq === reqSeq.current) setLoading(false)
+      })
+  }, [activeMount, path, viewAsUser])
 
   const runBatchDelete = async () => {
     if (selectedEntries.length === 0) return
@@ -653,36 +314,6 @@ export default function LocalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounts, activeMount])
 
-  // reqSeq guards against out-of-order responses: when the user navigates
-  // quickly (or the initial mount load is still in flight), two localList calls
-  // race and the slower one could overwrite the newer result — showing stale or
-  // empty content and a flash. Only the latest request is allowed to commit.
-  const reqSeq = useRef(0)
-
-  const refresh = () => {
-    if (!activeMount) return
-    // Sync the client module's view-as state BEFORE any local call so list +
-    // subsequent play/thumb/move/delete all hit the selected user's space.
-    setLocalViewAsUser(viewAsUser)
-    const seq = ++reqSeq.current
-    setLoading(true)
-    setError('')
-    localList(activeMount, path)
-      .then((data) => {
-        if (seq !== reqSeq.current) return
-        setEntries(data)
-      })
-      .catch((e: unknown) => {
-        if (seq !== reqSeq.current) return
-        const msg = errMessage(e)
-        setError(msg)
-        setEntries([])
-      })
-      .finally(() => {
-        if (seq === reqSeq.current) setLoading(false)
-      })
-  }
-
   useEffect(() => {
     setNotice('') // stale "N folders removed" shouldn't linger across navigation
     refresh()
@@ -703,22 +334,22 @@ export default function LocalPage() {
 
   // Which entries in this mount are hidden — flags them + offers "Mostrar" while
   // the curtain is open (closed → they're filtered server-side, empty set is ok).
-  const loadHidden = () => {
+  const loadHidden = useCallback(() => {
     if (!activeMount) { setHiddenSet(new Set()); return }
     localListHidden()
       .then((paths) => setHiddenSet(new Set(paths.filter((p) => p.mount === activeMount).map((p) => p.path))))
       .catch(() => setHiddenSet(new Set()))
-  }
+  }, [activeMount])
   useEffect(() => {
     loadHidden()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMount, revealHidden])
 
-  const handleToggleHidden = async (e: LocalEntry) => {
+  const handleToggleHidden = useCallback(async (e: LocalEntry) => {
     await localSetHidden(activeMount, e.path, !hiddenSet.has(e.path))
     loadHidden()
     refresh()
-  }
+  }, [activeMount, hiddenSet, loadHidden, refresh])
 
   // Load the user list once for the admin "view as user" selector.
   useEffect(() => {
@@ -733,7 +364,7 @@ export default function LocalPage() {
     return () => setLocalViewAsUser('')
   }, [])
 
-  const requestDelete = async (item: LocalEntry) => {
+  const requestDelete = useCallback(async (item: LocalEntry) => {
     if (!activeMount) return
     const ok = await confirm({
       title: t('local.delete.title'),
@@ -755,7 +386,7 @@ export default function LocalPage() {
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || t('local.errors.deleteFile'))
     }
-  }
+  }, [activeMount, confirm, t, refresh])
 
   // Remove empty subfolders left behind after promoting/moving files. Low risk
   // (only deletes truly-empty dirs), so a light confirm is enough.
@@ -783,7 +414,7 @@ export default function LocalPage() {
 
   // Fixa/solta uma pasta (.keep) pra que o "limpar vazias" a mantenha mesmo sem
   // arquivos. Sem confirm — é reversível e inofensivo.
-  const handleToggleLock = async (entry: LocalEntry) => {
+  const handleToggleLock = useCallback(async (entry: LocalEntry) => {
     if (!activeMount) return
     setError('')
     try {
@@ -792,7 +423,7 @@ export default function LocalPage() {
     } catch (e: any) {
       setError(e?.response?.data?.error || e.message || t('local.errors.toggleLock'))
     }
-  }
+  }, [activeMount, refresh, t])
 
   // Cacheia a pasta inteira (recursivo) num clique — só aparece em mount
   // remoto (rclone/NFS/CIFS). O LRU do cache cuida do tamanho: copia tudo e vai
@@ -855,7 +486,7 @@ export default function LocalPage() {
     updateNavigation(activeMount, '') // jump to the root of the selected user's space
   }
 
-  const handleEntryClick = (e: LocalEntry) => {
+  const handleEntryClick = useCallback((e: LocalEntry) => {
     if (e.isDir) {
       updateNavigation(activeMount, e.path)
       return
@@ -914,7 +545,9 @@ export default function LocalPage() {
       publishDate: '',
     }
     playSingle(synthetic, 0, undefined, true)
-  }
+  }, [activeMount, path, visible, playSingle, playPlaylist, updateNavigation])
+
+  const promoteOne = useCallback((entry: LocalEntry) => setPromoteEntries([entry]), [])
 
   return (
     <div className="h-screen bg-surface flex flex-col overflow-hidden">
@@ -1203,7 +836,7 @@ export default function LocalPage() {
 
           {!loading && visible.length > 0 && (
             <ul className={`flex-1 min-h-0 overflow-y-auto divide-y divide-default bg-surface-secondary/50 rounded-xl border border-default ${selectMode ? 'pb-20' : ''}`}>
-              {visible.map((e) => (
+              {visible.slice(0, reveal.visible).map((e) => (
                 <EntryRow
                   key={e.path}
                   entry={e}
@@ -1216,7 +849,7 @@ export default function LocalPage() {
                   onEnterSelect={enterSelect}
                   onToggleSelect={toggleSelect}
                   onRename={setRenameItem}
-                  onPromote={(entry) => setPromoteEntries([entry])}
+                  onPromote={promoteOne}
                   onReclassify={setReclassifyItem}
                   onMove={setMoveItem}
                   onLock={handleToggleLock}
@@ -1225,6 +858,21 @@ export default function LocalPage() {
                   onToggleHidden={handleToggleHidden}
                 />
               ))}
+              {/* Sentinela do windowing: revela mais um lote ao rolar até aqui;
+                  o botão é o fallback (clique) — mesmo padrão de Search/Favorites. */}
+              {reveal.hasMore && (
+                <li className="px-2 pt-1 pb-2">
+                  <div ref={reveal.sentinelRef}>
+                    <button
+                      onClick={reveal.showMore}
+                      className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-surface-tertiary/60 py-2 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                      {t('player.files.showMore', { count: reveal.remaining, total: visible.length })}
+                    </button>
+                  </div>
+                </li>
+              )}
             </ul>
           )}
 
