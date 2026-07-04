@@ -55,7 +55,11 @@ jobs:
       - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)
         uses: actions/upload-artifact@v3
         env:
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          # This Node action uploads to the Gitea artifact API over TLS. Its cert is
+          # signed by the internal "Development CA"; Node ignores the OS trust store
+          # (where the act-ubuntu:ca image bakes that CA), so trust the CA explicitly
+          # instead of disabling verification. Keeps TLS verification intact.
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
         with:
           name: go-coverage
           path: coverage.out
