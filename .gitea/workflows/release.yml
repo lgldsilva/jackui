@@ -153,6 +153,24 @@ jobs:
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:nvidia
           docker logout $REGISTRY
+      # Tag + Release ANTES do deploy: o artefato já foi buildado, escaneado (Trivy)
+      # e pushado — ele É a release. Amarrar a tag ao fim do deploy fazia um flake no
+      # healthcheck de 300s (deploy ia, mas o job caía) PULAR a publicação da tag →
+      # a versão ia pra imagem mas a tag nunca saía (drift tag↔deploy). Publicar aqui
+      # elimina esse buraco. O script é idempotente e não-releasable → no-op.
+      - name: Tag + Release (Gitea) com changelog
+        env:
+          SEMVER: ${{ steps.ver.outputs.semver }}
+          GITEA_API: ${{ github.api_url }}
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          SHA: ${{ github.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        # Não-fatal: a tag/Release é best-effort e vem ANTES do deploy — um imprevisto
+        # aqui NÃO pode bloquear a entrega (o artefato já foi buildado+escaneado+pushado;
+        # a tag pode ser refeita idempotentemente num re-run).
+        run: |
+          bash scripts/publish-release.sh || echo "Aviso: publish-release falhou — deploy segue."
       - name: deploy (docker.sock local; recria jackui no projeto compose de prod)
         run: |
           docker pull $IMAGE:nvidia
@@ -181,26 +199,6 @@ jobs:
           echo "DEPLOY FALHOU: /status não reporta ok+commit $want após 300s"
           docker exec gluetun wget -qO- http://127.0.0.1:8989/status 2>/dev/null || true
           exit 1
-      - name: Publicar tag de versão Git
-        env:
-          SEMVER: ${{ steps.ver.outputs.semver }}
-          GITEA_USER: ${{ github.repository_owner }}
-          GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
-          SERVER_URL: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-        run: |
-          if [ -n "$SEMVER" ]; then
-            git config --global user.name "Gitea Actions"
-            git config --global user.email "actions@noreply.local"
-            if git rev-parse "refs/tags/$SEMVER" >/dev/null 2>&1; then
-              echo "Tag $SEMVER já existe — nada a publicar."
-            else
-              git tag "$SEMVER"
-              # Injeta as credenciais no host derivado de github.server_url (sem host hardcoded).
-              PUSH_URL="https://$GITEA_USER:$GITEA_TOKEN@${SERVER_URL#https://}/$REPO.git"
-              git -c http.sslVerify=false push "$PUSH_URL" "refs/tags/$SEMVER" || echo "Aviso: push da tag falhou."
-            fi
-          fi
       - name: Limpeza de versões de pacotes antigas
         env:
           GITEA_API: ${{ github.api_url }}
