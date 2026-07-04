@@ -20,7 +20,7 @@ export function useVisiblePolling(fn: () => void, intervalMs: number, enabled = 
     let timer: ReturnType<typeof setInterval> | null = null
 
     const tick = () => saved.current()
-    const start = () => { if (timer === null) timer = setInterval(tick, intervalMs) }
+    const start = () => { timer ??= setInterval(tick, intervalMs) }
     const stop = () => { if (timer !== null) { clearInterval(timer); timer = null } }
 
     const onVisibility = () => {
