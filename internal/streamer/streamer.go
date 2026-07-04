@@ -9,14 +9,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +23,6 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types"
-	"github.com/lgldsilva/jackui/internal/diskutil"
 	"github.com/lgldsilva/jackui/internal/httpretry"
 	"golang.org/x/time/rate"
 )
@@ -934,76 +930,6 @@ func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 	return info
 }
 
-// addFromTorrentURL handles a HTTP(S) URL that may either:
-//   - Serve a .torrent file directly (binary bencoded body)
-//   - Respond with a 301/302 redirect pointing to a magnet: URI
-//
-// The second case is what Jackett does for many providers (e.g., torrentdownload):
-// the `/dl/...` endpoint redirects to `magnet:?xt=urn:btih:...`. The default Go
-// http.Client follows the redirect and chokes on the magnet scheme.
-//
-// We detect the magnet redirect via CheckRedirect, capture the magnet URL, and
-// add via AddMagnet instead of trying to fetch.
-// isBlockedFetchIP reports whether an IP is off-limits for server-side fetches
-// (SSRF protection): loopback, private RFC1918/ULA, link-local, and the
-// unspecified address. .torrent URLs from indexers are public, so blocking
-// these doesn't hurt legitimate use but stops a caller from making the server
-// probe the internal homelab network or metadata endpoints.
-func isBlockedFetchIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
-}
-
-func newSSRFGuardedClient(jackettHost string, capturedMagnet *string) *http.Client {
-	return &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: newSSRFTransport(jackettHost),
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return checkRedirect(req, via, capturedMagnet)
-		},
-	}
-}
-
-func newSSRFTransport(jackettHost string) *http.Transport {
-	return &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return ssrfDialContext(ctx, network, addr, jackettHost)
-		},
-	}
-}
-
-func ssrfDialContext(ctx context.Context, network, addr, jackettHost string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	trusted := jackettHost != "" && host == jackettHost
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	if !trusted {
-		for _, ip := range ips {
-			if isBlockedFetchIP(ip.IP) {
-				return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
-			}
-		}
-	}
-	d := net.Dialer{}
-	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
-}
-
-func checkRedirect(req *http.Request, via []*http.Request, capturedMagnet *string) error {
-	if strings.HasPrefix(strings.ToLower(req.URL.String()), magnetPrefix) {
-		*capturedMagnet = req.URL.String()
-		return http.ErrUseLastResponse
-	}
-	if len(via) >= 10 {
-		return fmt.Errorf("too many redirects")
-	}
-	return nil
-}
-
 func (s *Streamer) injectJackettAPIKey(torrentURL string) string {
 	if s.cfg.JackettHost == "" {
 		return torrentURL
@@ -1048,6 +974,16 @@ func (s *Streamer) addFromTorrentResponse(resp *http.Response, ds *DownloadStora
 	return t, err
 }
 
+// addFromTorrentURL handles a HTTP(S) URL that may either:
+//   - Serve a .torrent file directly (binary bencoded body)
+//   - Respond with a 301/302 redirect pointing to a magnet: URI
+//
+// The second case is what Jackett does for many providers (e.g., torrentdownload):
+// the `/dl/...` endpoint redirects to `magnet:?xt=urn:btih:...`. The default Go
+// http.Client follows the redirect and chokes on the magnet scheme.
+//
+// We detect the magnet redirect via CheckRedirect, capture the magnet URL, and
+// add via AddMagnet instead of trying to fetch.
 func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	var capturedMagnet string
 
@@ -1716,87 +1652,6 @@ func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
 }
 
 // seriesEpisodeRe matches the standard "S01E03" or "s1e3" tag inside a path.
-var seriesEpisodeRe = regexp.MustCompile(`(?i)s(\d{1,2})e(\d{1,3})`)
-
-// extraTagsRe matches things that look like Featurettes / Extras / Sample / Trailer
-// — files we should NEVER pick as primary on a series torrent.
-var extraTagsRe = regexp.MustCompile(`(?i)\b(featurette|extras?|bonus|behind[\s\-]?the[\s\-]?scenes|deleted[\s\-]?scenes|making[\s\-]?of|sample|trailer|interview|gag[\s\-]?reel|outtake)s?\b`)
-
-// pickPrimaryFile chooses the file to auto-select when the user "Plays" a
-// torrent without specifying one. Picks "the most likely main content":
-//
-//  1. If 3+ files contain an S?E? pattern AND aren't tagged as extras, pick
-//     the lowest (season, episode) episode — the natural starting point for
-//     a series pack. This handles Breaking Bad-style torrents that ship with
-//     huge Featurettes that would dwarf a real episode by size.
-//  2. Else pick the largest video that isn't tagged as an extra — covers
-//     single-movie torrents and series with non-standard naming.
-//  3. Fall back to the first video, or -1 if none.
-func pickPrimaryFile(files []FileInfo) int {
-	if idx, ok := pickEpisodeStart(files); ok {
-		return idx
-	}
-	if idx, ok := pickLargestNonExtra(files); ok {
-		return idx
-	}
-	return firstVideoIndex(files)
-}
-
-func nonExtraVideos(files []FileInfo) []FileInfo {
-	var out []FileInfo
-	for _, f := range files {
-		if f.IsVideo && !extraTagsRe.MatchString(f.Path) {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-func pickEpisodeStart(files []FileInfo) (int, bool) {
-	type epHit struct{ idx, season, episode int }
-	var episodes []epHit
-	for _, f := range nonExtraVideos(files) {
-		m := seriesEpisodeRe.FindStringSubmatch(f.Path)
-		if m == nil {
-			continue
-		}
-		s, _ := strconv.Atoi(m[1])
-		e, _ := strconv.Atoi(m[2])
-		episodes = append(episodes, epHit{idx: f.Index, season: s, episode: e})
-	}
-	if len(episodes) < 3 {
-		return 0, false
-	}
-	best := episodes[0]
-	for _, ep := range episodes[1:] {
-		if ep.season < best.season || (ep.season == best.season && ep.episode < best.episode) {
-			best = ep
-		}
-	}
-	return best.idx, true
-}
-
-func pickLargestNonExtra(files []FileInfo) (int, bool) {
-	largestIdx, largestSize := -1, int64(0)
-	for _, f := range nonExtraVideos(files) {
-		if f.Size > largestSize {
-			largestIdx, largestSize = f.Index, f.Size
-		}
-	}
-	if largestIdx >= 0 {
-		return largestIdx, true
-	}
-	return 0, false
-}
-
-func firstVideoIndex(files []FileInfo) int {
-	for _, f := range files {
-		if f.IsVideo {
-			return f.Index
-		}
-	}
-	return -1
-}
 
 // gcLoop runs every minute and drops torrents idle longer than IdleTimeout.
 func (s *Streamer) gcLoop() {
@@ -1836,309 +1691,6 @@ func (s *Streamer) gcLoop() {
 			s.enforceCacheLimit()
 		}
 	}
-}
-
-// ─── Cache management ───────────────────────────────────────────────────────
-
-// CacheEntry describes one item on disk in the cache directory.
-type CacheEntry struct {
-	Path       string    `json:"path"` // relative to DataDir
-	Size       int64     `json:"size"`
-	ModTime    time.Time `json:"modTime"`
-	IsActive   bool      `json:"isActive"`   // currently being downloaded/seeded
-	IsFavorite bool      `json:"isFavorite"` // protected from eviction
-	// InfoHash is the torrent's hex-encoded SHA1 info hash. Populated when the
-	// torrent is either active or has a persisted .torrent in metainfoDir.
-	// Empty string when we can't resolve the hash — the UI hides Play in that case.
-	InfoHash string `json:"infoHash,omitempty"`
-}
-
-// CacheStats summarizes disk usage of the streaming cache.
-type CacheStats struct {
-	DataDir   string       `json:"dataDir"`
-	TotalSize int64        `json:"totalSize"`
-	MaxSize   int64        `json:"maxSize"`   // 0 = unlimited
-	NumActive int          `json:"numActive"` // currently loaded torrents
-	Entries   []CacheEntry `json:"entries"`
-	// Filesystem footprint of the disk hosting DataDir (0 = statfs unavailable).
-	DiskFree  int64 `json:"diskFree"`
-	DiskTotal int64 `json:"diskTotal"`
-	// Lifetime LRU eviction counters (since process start).
-	EvictedCount   int64      `json:"evictedCount"`
-	EvictedBytes   int64      `json:"evictedBytes"`
-	LastEvictionAt *time.Time `json:"lastEvictionAt,omitempty"`
-}
-
-// Stats walks the DataDir and returns disk usage stats.
-// "Active" entries are torrents currently loaded in memory (likely being read).
-func (s *Streamer) Stats() (*CacheStats, error) {
-	st := &CacheStats{
-		DataDir: s.cfg.DataDir,
-		MaxSize: s.cfg.MaxCacheSize,
-	}
-
-	activeNames, nameToHash, numActive := s.buildActiveMaps()
-	st.NumActive = numActive
-
-	s.augmentNameToHashFromMetainfo(nameToHash)
-
-	entries, err := os.ReadDir(s.cfg.DataDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return st, nil
-		}
-		return nil, err
-	}
-
-	for _, ent := range entries {
-		full := filepath.Join(s.cfg.DataDir, ent.Name())
-		size, mtime, err := dirSizeAndMTime(full)
-		if err != nil {
-			continue
-		}
-		st.Entries = append(st.Entries, CacheEntry{
-			Path:       ent.Name(),
-			Size:       size,
-			ModTime:    mtime,
-			IsActive:   activeNames[ent.Name()],
-			IsFavorite: s.favs != nil && s.favs.IsFavorite(ent.Name()),
-			InfoHash:   nameToHash[ent.Name()],
-		})
-		st.TotalSize += size
-	}
-
-	sort.Slice(st.Entries, func(i, j int) bool {
-		return st.Entries[i].ModTime.After(st.Entries[j].ModTime)
-	})
-
-	st.DiskFree, st.DiskTotal = diskutil.Usage(s.cfg.DataDir)
-
-	s.evictMu.Lock()
-	st.EvictedCount = s.evictedCount
-	st.EvictedBytes = s.evictedBytes
-	if !s.lastEvictionAt.IsZero() {
-		last := s.lastEvictionAt
-		st.LastEvictionAt = &last
-	}
-	s.evictMu.Unlock()
-
-	return st, nil
-}
-
-func (s *Streamer) buildActiveMaps() (map[string]bool, map[string]string, int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	activeNames := make(map[string]bool, len(s.active))
-	nameToHash := make(map[string]string, len(s.active))
-	for h, e := range s.active {
-		name := e.t.Name()
-		activeNames[name] = true
-		nameToHash[name] = h.HexString()
-	}
-	return activeNames, nameToHash, len(s.active)
-}
-
-func (s *Streamer) augmentNameToHashFromMetainfo(nameToHash map[string]string) {
-	if s.metainfoDir == "" {
-		return
-	}
-	mEnts, err := os.ReadDir(s.metainfoDir)
-	if err != nil {
-		return
-	}
-	for _, m := range mEnts {
-		if m.IsDir() || !strings.HasSuffix(m.Name(), ".torrent") {
-			continue
-		}
-		mi, err := metainfo.LoadFromFile(filepath.Join(s.metainfoDir, m.Name()))
-		if err != nil {
-			continue
-		}
-		info, err := mi.UnmarshalInfo()
-		if err != nil || info.Name == "" {
-			continue
-		}
-		if _, ok := nameToHash[info.Name]; !ok {
-			nameToHash[info.Name] = mi.HashInfoBytes().HexString()
-		}
-	}
-}
-
-// ClearAll drops every active torrent and wipes the DataDir, *except* favorites.
-// Favorites are preserved on disk; their active torrent is dropped but files remain.
-func (s *Streamer) ClearAll() error {
-	s.mu.Lock()
-	for h, e := range s.active {
-		e.t.Drop()
-		delete(s.active, h)
-	}
-	s.mu.Unlock()
-
-	entries, err := os.ReadDir(s.cfg.DataDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	for _, ent := range entries {
-		// Skip favorites + internal bookkeeping files
-		name := ent.Name()
-		if strings.HasPrefix(name, ".") {
-			continue
-		}
-		if s.favs != nil && s.favs.IsFavorite(name) {
-			continue
-		}
-		_ = os.RemoveAll(filepath.Join(s.cfg.DataDir, name))
-	}
-	return nil
-}
-
-// ClearEntry removes a specific cache entry from disk (by relative path).
-// Refuses if the entry is favorited (use Favorites().Remove first).
-// If the torrent is currently active, it is dropped first.
-func (s *Streamer) ClearEntry(name string) error {
-	if s.favs != nil && s.favs.IsFavorite(name) {
-		return fmt.Errorf("entry %q é favorito — desfavorite antes de remover", name)
-	}
-	// Drop matching active torrent if any
-	s.mu.Lock()
-	for h, e := range s.active {
-		if e.t.Name() == name {
-			e.t.Drop()
-			delete(s.active, h)
-			break
-		}
-	}
-	s.mu.Unlock()
-
-	full := filepath.Join(s.cfg.DataDir, filepath.Clean(name))
-	// Safety: refuse to delete outside DataDir
-	abs, err := filepath.Abs(full)
-	if err != nil {
-		return err
-	}
-	dirAbs, err := filepath.Abs(s.cfg.DataDir)
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(abs, dirAbs+string(os.PathSeparator)) && abs != dirAbs {
-		return fmt.Errorf("invalid path")
-	}
-	return os.RemoveAll(full)
-}
-
-// enforceCacheLimit evicts oldest inactive entries until total size <= maxSize.
-// Only inactive entries are touched — active torrents are protected.
-func (s *Streamer) enforceCacheLimit() {
-	if s.cfg.MaxCacheSize <= 0 {
-		return
-	}
-	stats, err := s.Stats()
-	if err != nil {
-		return
-	}
-	if stats.TotalSize <= s.cfg.MaxCacheSize {
-		return
-	}
-
-	// Sort oldest first (LRU based on mtime). Favorites, active torrents, and
-	// in-flight background downloads are protected from eviction.
-	inactive := make([]CacheEntry, 0, len(stats.Entries))
-	for _, e := range stats.Entries {
-		if !e.IsActive && !e.IsFavorite && !s.IsDownloadProtected(e.Path) {
-			inactive = append(inactive, e)
-		}
-	}
-	sort.Slice(inactive, func(i, j int) bool {
-		return inactive[i].ModTime.Before(inactive[j].ModTime)
-	})
-
-	s.evictCandidates(inactive, stats.TotalSize)
-}
-
-// evictCandidates deletes entries oldest-first until total size drops to/below
-// MaxCacheSize. `candidates` are the entries that looked evictable at snapshot
-// time; each is re-checked with evictionBlocked under the lock right before
-// removal, so one that became active in the gap is skipped instead of deleted.
-func (s *Streamer) evictCandidates(candidates []CacheEntry, total int64) {
-	current := total
-	for _, e := range candidates {
-		if current <= s.cfg.MaxCacheSize {
-			break
-		}
-		// Re-check under the lock: a play may have started between the Stats()
-		// snapshot and now, loading this entry into s.active. Deleting it then
-		// would kill the file out from under an active HLS transcode.
-		if s.evictionBlocked(e.Path) {
-			continue
-		}
-		log.Printf("streamer: cache over %s, evicting %s (%s, mtime=%s)",
-			fmtBytes(s.cfg.MaxCacheSize), e.Path, fmtBytes(e.Size), e.ModTime.Format(time.RFC3339))
-		if err := os.RemoveAll(filepath.Join(s.cfg.DataDir, e.Path)); err == nil {
-			current -= e.Size
-			s.recordEviction(e.Size)
-		}
-	}
-}
-
-// recordEviction bumps the lifetime eviction counters surfaced by Stats().
-func (s *Streamer) recordEviction(bytes int64) {
-	s.evictMu.Lock()
-	s.evictedCount++
-	s.evictedBytes += bytes
-	s.lastEvictionAt = time.Now()
-	s.evictMu.Unlock()
-}
-
-// dirSizeAndMTime returns the *physical* bytes allocated on disk under a path
-// (file or dir), plus the newest mtime.
-//
-// Why physical (not logical): anacrolix writes sparse files — it opens the
-// target file and writes only the bytes for completed pieces. The file's
-// logical size (info.Size()) is the **final torrent size**, but the actual
-// blocks consumed on disk grow progressively as pieces arrive.
-//
-// For cache eviction and the UI "X / Y used" indicator, what the user cares
-// about is the *real* footprint, not the logical placeholder. Reporting
-// logical size makes a 10 GB torrent look "fully cached" the moment metadata
-// is received, which is why the cache UI looked pre-allocated.
-//
-// We use the platform-specific allocated-block count when available (POSIX
-// stat.Blocks * 512) and fall back to logical size on platforms where the
-// syscall data isn't accessible.
-func dirSizeAndMTime(path string) (int64, time.Time, error) {
-	var size int64
-	var mtime time.Time
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			size += physicalBytes(info)
-		}
-		if info.ModTime().After(mtime) {
-			mtime = info.ModTime()
-		}
-		return nil
-	})
-	return size, mtime, err
-}
-
-func fmtBytes(n int64) string {
-	const k = 1024
-	if n < k {
-		return fmt.Sprintf("%d B", n)
-	}
-	units := []string{"KB", "MB", "GB", "TB"}
-	v := float64(n) / k
-	u := 0
-	for v >= k && u < len(units)-1 {
-		v /= k
-		u++
-	}
-	return fmt.Sprintf("%.2f %s", v, units[u])
 }
 
 // firstChars returns up to n characters from s — for error messages without leaking huge URLs.
@@ -2267,28 +1819,8 @@ func (s *Streamer) ResumeAll() int {
 	return n
 }
 
-// RateLimits exposes the configured global bandwidth caps in bytes/sec.
-// A value of 0 means unlimited.
-func (s *Streamer) RateLimits() (down, up int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return limiterBytes(s.dlLimiter), limiterBytes(s.upLimiter)
-}
-
 func (s *Streamer) ListenPort() int {
 	return s.cfg.ListenPort
-}
-
-// SetRateLimits updates the global download/upload bandwidth caps in bytes/sec.
-// 0 = unlimited. Takes effect immediately — anacrolix re-reads the limiter on
-// every chunk transfer.
-func (s *Streamer) SetRateLimits(down, up int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	applyLimiter(s.dlLimiter, down)
-	applyLimiter(s.upLimiter, up)
-	s.cfg.MaxDownloadRate = down
-	s.cfg.MaxUploadRate = up
 }
 
 // statusForLocked returns the Transmission-style status label. Caller holds s.mu.
@@ -2359,47 +1891,6 @@ func (s *Streamer) SetFilePriority(hash metainfo.Hash, fileIdx int, label string
 	return nil
 }
 
-// rateFromBytes converts a bytes/sec setting into a rate.Limit suitable for
-// the anacrolix limiter. 0 means unlimited (rate.Inf).
-func rateFromBytes(bps int64) rate.Limit {
-	if bps <= 0 {
-		return rate.Inf
-	}
-	return rate.Limit(bps)
-}
-
-// rateBurst picks a burst (token bucket size) appropriate for the given limit.
-// anacrolix's docstring asks for "bigger than the largest Read" — chunks are
-// at most 16 KiB plus the internal buffer of ~4 KiB, so a 64 KiB burst is
-// safe and lets short spikes through without stalling the scheduler.
-func rateBurst(bps int64) int {
-	if bps <= 0 {
-		return 1 << 16 // any non-zero burst works when limit is Inf
-	}
-	burst := int(bps / 4) // ~250ms worth of bytes
-	const minBurst = 64 * 1024
-	if burst < minBurst {
-		burst = minBurst
-	}
-	return burst
-}
-
-// applyLimiter updates an existing limiter in place — anacrolix reads it on
-// every chunk so the change is visible immediately. Setting bps<=0 means
-// unlimited (rate.Inf, large burst).
-func applyLimiter(l *rate.Limiter, bps int64) {
-	if l == nil {
-		return
-	}
-	if bps <= 0 {
-		l.SetLimit(rate.Inf)
-		l.SetBurst(1 << 16)
-		return
-	}
-	l.SetLimit(rate.Limit(bps))
-	l.SetBurst(rateBurst(bps))
-}
-
 // NewForTesting returns a Streamer with only the fields the
 // non-torrent-client-touching handlers exercise (active map, downloads
 // protection set, rate limiters). Opening a real anacrolix client requires
@@ -2414,19 +1905,6 @@ func NewForTesting() *Streamer {
 		upLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
 		verifiedFiles: make(map[string]bool),
 	}
-}
-
-// limiterBytes converts a limiter's current limit back to bytes/sec. Returns
-// 0 when the limit is rate.Inf (unlimited).
-func limiterBytes(l *rate.Limiter) int64 {
-	if l == nil {
-		return 0
-	}
-	lim := l.Limit()
-	if lim == rate.Inf {
-		return 0
-	}
-	return int64(lim)
 }
 
 // trackingReader wraps a torrent.Reader so each read refreshes lastAccess.
