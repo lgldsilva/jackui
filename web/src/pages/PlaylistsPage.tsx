@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { ListMusic, Plus, Loader2, Trash2, Clock } from 'lucide-react'
 import { playlistsList, playlistsCreate, playlistsDelete, Playlist } from '../api/client'
 import NavHeader from '../components/NavHeader'
@@ -9,6 +10,7 @@ import { useConfirm } from '../components/ConfirmDialog'
 import { formatDate } from '../lib/format'
 
 export default function PlaylistsPage() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const confirm = useConfirm()
   const [lists, setLists] = useState<Playlist[]>([])
@@ -39,7 +41,7 @@ export default function PlaylistsPage() {
   }
 
   const remove = async (p: Playlist) => {
-    const ok = await confirm({ title: 'Apagar playlist', message: `Apagar playlist "${p.name}"? Itens são removidos junto.`, confirmLabel: 'Apagar', destructive: true })
+    const ok = await confirm({ title: t('playlists.delete_title'), message: t('playlists.delete_message', { name: p.name }), confirmLabel: t('playlists.delete_confirm'), destructive: true })
     if (!ok) return
     await playlistsDelete(p.id)
     setLists(lists.filter(x => x.id !== p.id))
@@ -54,10 +56,10 @@ export default function PlaylistsPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <ListMusic className="w-5 h-5 text-blue-400" />
-            <h1 className="text-lg font-semibold text-text-primary">Playlists</h1>
+            <h1 className="text-lg font-semibold text-text-primary">{t('playlists.title')}</h1>
             {!loading && (
               <span className="text-xs text-text-muted bg-surface-secondary border border-default px-2 py-0.5 rounded-full">
-                {lists.length} {lists.length === 1 ? 'playlist' : 'playlists'}
+                {t('playlists.count', { count: lists.length })}
               </span>
             )}
           </div>
@@ -65,7 +67,7 @@ export default function PlaylistsPage() {
             onClick={() => setCreating(c => !c)}
             className="flex items-center gap-1.5 text-xs bg-green-500/20 hover:bg-green-500/30 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors"
           >
-            <Plus className="w-3.5 h-3.5" /> Nova playlist
+            <Plus className="w-3.5 h-3.5" /> {t('playlists.new')}
           </button>
         </div>
 
@@ -76,14 +78,14 @@ export default function PlaylistsPage() {
               type="text"
               value={newName}
               onChange={e => setNewName(e.target.value)}
-              placeholder="Nome da playlist..."
+              placeholder={t('playlists.name_placeholder')}
               className="input-field flex-1"
             />
             <button type="submit" disabled={!newName.trim()} className="btn-primary disabled:opacity-50">
-              Criar
+              {t('playlists.create')}
             </button>
             <button type="button" onClick={() => { setCreating(false); setNewName('') }} className="btn-secondary">
-              Cancelar
+              {t('playlists.cancel')}
             </button>
           </form>
         )}
@@ -92,7 +94,7 @@ export default function PlaylistsPage() {
 
 {(() => {
           if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
-          if (lists.length === 0) return <div className="flex flex-col items-center justify-center py-20 text-text-muted"><ListMusic className="w-16 h-16 mb-4 opacity-30" /><p className="text-xl font-medium">Nenhuma playlist ainda</p><p className="text-sm mt-2">Crie uma e adicione torrents pra tocar em sequência.</p></div>
+          if (lists.length === 0) return <div className="flex flex-col items-center justify-center py-20 text-text-muted"><ListMusic className="w-16 h-16 mb-4 opacity-30" /><p className="text-xl font-medium">{t('playlists.empty_title')}</p><p className="text-sm mt-2">{t('playlists.empty_hint')}</p></div>
           return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{lists.map(p => (
             <Link to={`/playlists/${p.id}`} key={p.id} className="card flex flex-col gap-2 hover:border-blue-500/30 group">
               <div className="flex items-start justify-between gap-2">
@@ -101,7 +103,7 @@ export default function PlaylistsPage() {
               </div>
               {p.description && <p className="text-xs text-text-muted line-clamp-2">{p.description}</p>}
               <div className="flex items-center gap-3 text-xs text-text-muted mt-auto pt-2 border-t border-default">
-                <span className="flex items-center gap-1"><ListMusic className="w-3 h-3" />{p.itemCount ?? 0} {(p.itemCount ?? 0) === 1 ? 'item' : 'itens'}</span>
+                <span className="flex items-center gap-1"><ListMusic className="w-3 h-3" />{t('playlists.items', { count: p.itemCount ?? 0 })}</span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDate(p.updatedAt)}</span>
               </div>
             </Link>

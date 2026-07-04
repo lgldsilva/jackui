@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, AlertCircle, CheckCircle2, UserPlus, KeyRound, Mail } from 'lucide-react'
 import { registerAccount, verifyEmail, forgotPassword, resetPassword } from '../api/client'
@@ -30,6 +31,7 @@ function Ok({ text }: { readonly text: string }) {
 }
 
 export function RegisterPage() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const [params] = useSearchParams()
   const invite = params.get('invite') || ''
@@ -46,30 +48,31 @@ export function RegisterPage() {
       const r = await registerAccount(username, email, password, invite)
       setDone(r.message)
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Falha no cadastro')
+      setError(err?.response?.data?.error || t('auth.register_failed'))
     } finally { setBusy(false) }
   }
 
-  if (done) return <Shell title="Cadastro criado"><Ok text={done} /><button onClick={() => nav('/login')} className="btn-primary">Ir para o login</button></Shell>
+  if (done) return <Shell title={t('auth.register_created_title')}><Ok text={done} /><button onClick={() => nav('/login')} className="btn-primary">{t('auth.go_to_login')}</button></Shell>
 
   return (
-    <Shell title={invite ? 'Criar conta (convite)' : 'Criar conta'}>
+    <Shell title={invite ? t('auth.register_invite_title') : t('auth.register_title')}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <input className="input-field" placeholder="Usuário" autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required />
-        <input className="input-field" placeholder="E-mail" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />
-        <input className="input-field" placeholder="Senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required />
-        {!invite && <p className="text-xs text-text-muted">Sem convite, sua conta fica pendente até um admin aprovar.</p>}
+        <input className="input-field" placeholder={t('auth.username')} autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required />
+        <input className="input-field" placeholder={t('auth.email')} type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />
+        <input className="input-field" placeholder={t('auth.password_min')} type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required />
+        {!invite && <p className="text-xs text-text-muted">{t('auth.pending_note')}</p>}
         {error && <Err text={error} />}
         <button type="submit" disabled={busy || !username || !email || password.length < 6} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Cadastrar
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} {t('auth.register_button')}
         </button>
-        <button type="button" onClick={() => nav('/login')} className="text-xs text-text-secondary hover:text-green-400">Já tenho conta</button>
+        <button type="button" onClick={() => nav('/login')} className="text-xs text-text-secondary hover:text-green-400">{t('auth.have_account')}</button>
       </form>
     </Shell>
   )
 }
 
 export function VerifyEmailPage() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const [params] = useSearchParams()
   const [state, setState] = useState<'busy' | 'ok' | 'err'>('busy')
@@ -77,46 +80,48 @@ export function VerifyEmailPage() {
   useEffect(() => {
     const token = params.get('token') || ''
     if (token) {
-      verifyEmail(token).then(() => { setState('ok'); setMsg('E-mail confirmado!') })
-        .catch((e: any) => { setState('err'); setMsg(e?.response?.data?.error || 'Falha ao confirmar.') })
+      verifyEmail(token).then(() => { setState('ok'); setMsg(t('auth.email_confirmed')) })
+        .catch((e: any) => { setState('err'); setMsg(e?.response?.data?.error || t('auth.confirm_failed')) })
     } else {
-      setState('err'); setMsg('Token ausente.')
+      setState('err'); setMsg(t('auth.token_missing'))
     }
   }, [])
   return (
-    <Shell title="Confirmar e-mail">
-      {state === 'busy' && <div className="flex items-center gap-2 text-text-secondary"><Loader2 className="w-4 h-4 animate-spin" /> Confirmando…</div>}
+    <Shell title={t('auth.verify_title')}>
+      {state === 'busy' && <div className="flex items-center gap-2 text-text-secondary"><Loader2 className="w-4 h-4 animate-spin" /> {t('auth.confirming')}</div>}
       {state === 'ok' && <Ok text={msg} />}
       {state === 'err' && <Err text={msg} />}
-      {state !== 'busy' && <button onClick={() => nav('/login')} className="btn-primary">Ir para o login</button>}
+      {state !== 'busy' && <button onClick={() => nav('/login')} className="btn-primary">{t('auth.go_to_login')}</button>}
     </Shell>
   )
 }
 
 export function ForgotPasswordPage() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true)
-    try { setMsg(await forgotPassword(email)) } catch { setMsg('Se o e-mail estiver cadastrado, enviamos um link.') } finally { setBusy(false) }
+    try { setMsg(await forgotPassword(email)) } catch { setMsg(t('auth.forgot_sent')) } finally { setBusy(false) }
   }
-  if (msg) return <Shell title="Recuperar senha"><Ok text={msg} /><button onClick={() => nav('/login')} className="btn-primary">Voltar ao login</button></Shell>
+  if (msg) return <Shell title={t('auth.forgot_title')}><Ok text={msg} /><button onClick={() => nav('/login')} className="btn-primary">{t('auth.back_to_login')}</button></Shell>
   return (
-    <Shell title="Recuperar senha">
+    <Shell title={t('auth.forgot_title')}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <input className="input-field" placeholder="Seu e-mail" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />
+        <input className="input-field" placeholder={t('auth.your_email')} type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required />
         <button type="submit" disabled={busy || !email} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} Enviar link
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} {t('auth.send_link')}
         </button>
-        <button type="button" onClick={() => nav('/login')} className="text-xs text-text-secondary hover:text-green-400">Voltar</button>
+        <button type="button" onClick={() => nav('/login')} className="text-xs text-text-secondary hover:text-green-400">{t('auth.back')}</button>
       </form>
     </Shell>
   )
 }
 
 export function ResetPasswordPage() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const [params] = useSearchParams()
   const token = params.get('token') || ''
@@ -127,26 +132,26 @@ export function ResetPasswordPage() {
   const [done, setDone] = useState(false)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('')
-    if (password.length < 6) { setError('Mínimo 6 caracteres.'); return }
-    if (password !== confirm) { setError('As senhas não batem.'); return }
+    if (password.length < 6) { setError(t('auth.min_6_chars')); return }
+    if (password !== confirm) { setError(t('auth.passwords_no_match')); return }
     setBusy(true)
     try { await resetPassword(token, password); setDone(true) }
-    catch (err: any) { setError(err?.response?.data?.error || 'Falha ao redefinir.') }
+    catch (err: any) { setError(err?.response?.data?.error || t('auth.reset_failed')) }
     finally { setBusy(false) }
   }
   if (token) {
-    if (done) return <Shell title="Senha redefinida"><Ok text="Pronto! Você já pode entrar." /><button onClick={() => nav('/login')} className="btn-primary">Ir para o login</button></Shell>
+    if (done) return <Shell title={t('auth.reset_done_title')}><Ok text={t('auth.reset_done_msg')} /><button onClick={() => nav('/login')} className="btn-primary">{t('auth.go_to_login')}</button></Shell>
   } else {
-    return <Shell title="Redefinir senha"><Err text="Token ausente ou inválido." /></Shell>
+    return <Shell title={t('auth.reset_title')}><Err text={t('auth.token_invalid')} /></Shell>
   }
   return (
-    <Shell title="Redefinir senha">
+    <Shell title={t('auth.reset_title')}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-        <input className="input-field" placeholder="Nova senha (≥6)" type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required />
-        <input className="input-field" placeholder="Confirmar nova senha" type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
+        <input className="input-field" placeholder={t('auth.new_password')} type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required />
+        <input className="input-field" placeholder={t('auth.confirm_password')} type="password" autoComplete="new-password" value={confirm} onChange={e => setConfirm(e.target.value)} required />
         {error && <Err text={error} />}
         <button type="submit" disabled={busy} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
-          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Redefinir
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} {t('auth.reset_button')}
         </button>
       </form>
     </Shell>

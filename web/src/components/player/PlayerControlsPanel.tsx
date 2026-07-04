@@ -1,4 +1,5 @@
 import { Loader2, Users, Activity, Subtitles, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Laptop, Download } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { TorrentInfo, Subtitle, StreamProbe, SidecarSubtitle, isLocalHash } from '../../api/client'
 import { LocalCacheButton } from './LocalCacheButton'
 import { ExternalPlayerMenu } from './ExternalPlayerMenu'
@@ -147,6 +148,7 @@ export function PlayerControlsPanel({
   handleCustomSubtitleUpload,
   pickSubtitle,
 }: PlayerControlsPanelProps) {
+  const { t } = useTranslation()
   return (
     <>
       {/* Transport row — ONE line. The native <video controls> already
@@ -179,10 +181,10 @@ export function PlayerControlsPanel({
         {/* Subtitle offset controls — only visible when sub active */}
         {subActive && (
           <div className="flex items-center gap-1 ml-auto bg-surface-secondary border border-default rounded-lg px-2 py-0.5">
-            <span className="text-[10px] text-text-muted uppercase tracking-wide mr-1">Legenda</span>
+            <span className="text-[10px] text-text-muted uppercase tracking-wide mr-1">{t('player.controls.subtitle')}</span>
             <button
               onClick={() => adjustSubOffset(-0.1)}
-              title="Atrasar legenda em 0.1s"
+              title={t('player.controls.delaySub')}
               className="text-text-secondary hover:text-blue-400 p-1 transition-colors"
             >
               <Minus className="w-3 h-3" />
@@ -192,7 +194,7 @@ export function PlayerControlsPanel({
             </span>
             <button
               onClick={() => adjustSubOffset(0.1)}
-              title="Adiantar legenda em 0.1s"
+              title={t('player.controls.advanceSub')}
               className="text-text-secondary hover:text-blue-400 p-1 transition-colors"
             >
               <Plus className="w-3 h-3" />
@@ -200,7 +202,7 @@ export function PlayerControlsPanel({
             {subOffset !== 0 && (
               <button
                 onClick={resetSubOffset}
-                title="Resetar offset"
+                title={t('player.controls.resetOffset')}
                 className="text-text-muted hover:text-text-primary p-1 transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
@@ -219,7 +221,7 @@ export function PlayerControlsPanel({
         className="sm:hidden flex items-center justify-center gap-1.5 w-full px-4 py-2.5 border-b border-default bg-surface/40 text-text-primary text-sm active:bg-surface-secondary"
       >
         {showMobileOpts ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        {showMobileOpts ? 'Ocultar opções' : 'Opções (legendas · status · baixar)'}
+        {showMobileOpts ? t('player.controls.hideOptions') : t('player.controls.showOptions')}
       </button>
 
       {/* Secondary controls — collapsed on mobile unless toggled, always
@@ -242,7 +244,7 @@ export function PlayerControlsPanel({
               <span className="text-green-400">↓</span> {formatRate(info.downRate)}
               <span className="text-yellow-400 ml-1">↑</span> {formatRate(info.upRate)}
             </span>
-            <label className="flex items-center gap-1 text-text-secondary" title="Velocidade de reprodução (pitch preservado — voz não fica robotizada)">
+            <label className="flex items-center gap-1 text-text-secondary" title={t('player.controls.speedHint')}>
               <FastForward className="w-3.5 h-3.5 text-text-muted" />
               <select
                 value={playbackSpeed}
@@ -261,7 +263,7 @@ export function PlayerControlsPanel({
             )}
             {bufferedEnd > 0 && duration > 0 && (
               <span className="text-text-secondary ml-auto">
-                Buffer: <span className="text-blue-400">{formatTime(bufferedEnd - currentTime)}</span> à frente
+                {t('player.controls.buffer')}: <span className="text-blue-400">{formatTime(bufferedEnd - currentTime)}</span> {t('player.controls.ahead')}
               </span>
             )}
           </div>
@@ -341,11 +343,11 @@ export function PlayerControlsPanel({
           </button>
           <button
             onClick={handleRequestFullscreen}
-            title="Tela cheia (F)"
+            title={t('player.controls.fullscreenTitle')}
             className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg transition-colors"
           >
             <Maximize2 className="w-3.5 h-3.5" />
-            Fullscreen
+            {t('player.controls.fullscreen')}
           </button>
           {/* External players consolidated into a single "Open in ▾" split
               button (VLC/IINA/Infuse + Copy URL). It remembers the last choice
@@ -365,11 +367,11 @@ export function PlayerControlsPanel({
                   ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                   : 'bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border-green-500/30'
               }`}
-              title="Salvar download completo no servidor (Background Download)"
+              title={t('player.controls.serverDownloadTitle')}
             >
               {serverDownloadIcon(serverDownloadLoading, serverDownloadSuccess)}
               <span>
-                {serverDownloadSuccess ? 'Adicionado!' : 'Baixar no Servidor'}
+                {serverDownloadSuccess ? t('player.controls.added') : t('player.controls.serverDownload')}
               </span>
             </button>
           )}
@@ -378,10 +380,10 @@ export function PlayerControlsPanel({
               onClick={handleLocalDownload}
               disabled={localDownloadLoading}
               className="flex items-center gap-1.5 text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 px-3 py-1.5 rounded-lg transition-colors"
-              title="Baixar para o computador local (com categorização automática)"
+              title={t('player.controls.localDownloadTitle')}
             >
               <Laptop className="w-3.5 h-3.5" />
-              {localDownloadLoading ? 'Baixando…' : 'Baixar Local'}
+              {localDownloadLoading ? t('player.controls.downloading') : t('player.controls.localDownload')}
             </button>
           )}
           <a
@@ -390,11 +392,11 @@ export function PlayerControlsPanel({
             className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-1.5 rounded-lg transition-colors"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Baixar direto</span>
-            <span className="sm:hidden">Baixar</span>
+            <span className="hidden sm:inline">{t('player.controls.downloadDirect')}</span>
+            <span className="sm:hidden">{t('player.controls.download')}</span>
           </a>
           <span className="text-xs text-text-muted ml-auto hidden sm:block">
-            {info.files.length} arquivo{info.files.length === 1 ? '' : 's'} • {formatSize(info.totalSize)}
+            {info.files.length} {info.files.length === 1 ? t('player.files.file') : t('player.files.files')} • {formatSize(info.totalSize)}
           </span>
         </div>
 
@@ -406,7 +408,7 @@ export function PlayerControlsPanel({
       <Sheet
         open={subOpen}
         onClose={() => setSubOpen(false)}
-        title="Legendas (pt-BR / pt)"
+        title={t('player.subtitles.sheetTitle')}
         icon={<Subtitles className="w-4 h-4 text-blue-400" />}
         zClass="z-[60]"
       >

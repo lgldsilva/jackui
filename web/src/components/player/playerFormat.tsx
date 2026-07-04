@@ -1,6 +1,7 @@
 import { Loader2, Check, Download } from 'lucide-react'
 import { MediaTrack } from '../../api/client'
 import { formatBytes } from '../../lib/format'
+import i18n from '../../lib/i18n'
 
 export { formatBytes as formatSize }
 
@@ -101,9 +102,9 @@ export function filterAndSortFiles<T extends SortableFile>(files: readonly T[], 
 }
 
 export function audioTrackTitle(a: MediaTrack): string {
-  let t = a.title || a.codec
-  if (a.channels) t += ` (${a.channels}ch)`
-  return `${t} — clicar transcoda via FFmpeg, perde seek`
+  let name = a.title || a.codec
+  if (a.channels) name += ` (${a.channels}ch)`
+  return `${name} ${i18n.t('player.audioTrackTranscodeHint')}`
 }
 
 export function subBtnClass(active: boolean, image: boolean | undefined): string {
@@ -118,11 +119,11 @@ export function subBtnClass(active: boolean, image: boolean | undefined): string
 // Slim time readout shown below the cover art when an audio track plays in the
 // minimized (PiP) card, so the user knows where they are without expanding.
 export function subtitleButtonTitle(enabled: boolean, source: string | null): string {
-  if (!enabled) return 'Configure OpenSubtitles API key em Settings'
-  if (source === 'embedded') return 'Legenda embutida no arquivo (sync perfeito)'
-  if (source === 'hash') return 'Legenda casada por hash do arquivo (frame-exato)'
-  if (source === 'title') return 'Legenda encontrada pelo título'
-  return 'Buscar legendas em português'
+  if (!enabled) return i18n.t('player.subtitles.configureApiKey')
+  if (source === 'embedded') return i18n.t('player.subtitles.sourceEmbedded')
+  if (source === 'hash') return i18n.t('player.subtitles.sourceHash')
+  if (source === 'title') return i18n.t('player.subtitles.sourceTitle')
+  return i18n.t('player.subtitles.searchPt')
 }
 
 export function subtitleBtnClass(active: string | null, embedded: number | null, source: string | null, enabled: boolean): string {
@@ -141,8 +142,8 @@ export function serverDownloadIcon(loading: boolean, success: boolean): React.Re
 }
 
 export function getSubtitleLabel(embeddedSub: number | null, subActive: string | null, autoSource: string | null, subLoading: boolean): string {
-  if (embeddedSub !== null) return 'Legenda embutida'
-  if (subActive) return autoSource === 'hash' ? 'Legenda ✓ hash' : 'Legenda ativa'
-  if (subLoading) return 'Buscando...'
-  return 'Legendas'
+  if (embeddedSub !== null) return i18n.t('player.subtitles.labelEmbedded')
+  if (subActive) return autoSource === 'hash' ? i18n.t('player.subtitles.labelHash') : i18n.t('player.subtitles.labelActive')
+  if (subLoading) return i18n.t('player.subtitles.labelLoading')
+  return i18n.t('player.subtitles.labelDefault')
 }

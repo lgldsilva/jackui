@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FolderX, ChevronDown, Home, MapPin } from 'lucide-react'
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
 // dela) ou o mount inteiro (desde a raiz). Na raiz vira um botão simples — as
 // duas opções dariam no mesmo. O menu fecha ao clicar fora / Esc.
 export default function CleanEmptyButton({ atRoot, onClean }: Props) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -32,18 +34,18 @@ export default function CleanEmptyButton({ atRoot, onClean }: Props) {
 
   if (atRoot) {
     return (
-      <button onClick={() => onClean('root')} title="Remover todas as subpastas vazias deste mount" className={btnClass}>
+      <button onClick={() => onClean('root')} title={t('local.clean.rootTitle')} className={btnClass}>
         <FolderX className="w-4 h-4" />
-        <span className="hidden sm:inline">Limpar vazias</span>
+        <span className="hidden sm:inline">{t('local.clean.button')}</span>
       </button>
     )
   }
 
   return (
     <div ref={ref} className="relative flex-shrink-0">
-      <button onClick={() => setOpen(o => !o)} title="Remover subpastas vazias" className={btnClass}>
+      <button onClick={() => setOpen(o => !o)} title={t('local.clean.menuTitle')} className={btnClass}>
         <FolderX className="w-4 h-4" />
-        <span className="hidden sm:inline">Limpar vazias</span>
+        <span className="hidden sm:inline">{t('local.clean.button')}</span>
         <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
       </button>
       {open && (
@@ -53,14 +55,14 @@ export default function CleanEmptyButton({ atRoot, onClean }: Props) {
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-tertiary/60 text-left"
           >
             <MapPin className="w-4 h-4 text-text-muted flex-shrink-0" />
-            Limpar só nesta pasta
+            {t('local.clean.here')}
           </button>
           <button
             onClick={() => { setOpen(false); onClean('root') }}
             className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-tertiary/60 text-left"
           >
             <Home className="w-4 h-4 text-text-muted flex-shrink-0" />
-            Limpar o mount inteiro
+            {t('local.clean.wholeMount')}
           </button>
         </div>
       )}

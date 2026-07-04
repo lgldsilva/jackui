@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useSearchParams } from 'react-router-dom'
 import { useQuerySetter } from '../lib/useQueryState'
 import {
@@ -85,10 +87,6 @@ type KindFilter = 'all' | 'video' | 'audio' | 'other'
 const VIDEO_EXTS = new Set(['.mp4', '.m4v', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mpeg', '.mpg', '.ts', '.m2ts'])
 const AUDIO_EXTS = new Set(['.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.opus'])
 
-// Sufixo de plural PT em uma só linha — evita ternários aninhados dentro de
-// template strings de notificação (Sonar S3358).
-const plural = (n: number) => (n === 1 ? '' : 's')
-
 function extOf(name: string): string {
   const i = name.lastIndexOf('.')
   return i === -1 ? '' : name.slice(i).toLowerCase()
@@ -103,8 +101,8 @@ function isAudio(name: string): boolean {
 }
 
 // formatCount renders a directory's child count ("12 itens" / "1 item").
-function formatCount(n: number): string {
-  return `${n} ${n === 1 ? 'item' : 'itens'}`
+function formatCount(n: number, t: TFunction): string {
+  return t(n === 1 ? 'local.browser.countItem' : 'local.browser.countItems', { count: n })
 }
 
 // Barra de espaço livre/total do filesystem do mount (discos físicos, rclone).
@@ -112,16 +110,18 @@ function formatCount(n: number): string {
 // MountBadge flags a mount's visibility: 🔒 per-user (private subdir) or
 // 👥 restricted (visible only to specific users). Shared mounts get no badge.
 function MountBadge({ m }: { readonly m: LocalMount }) {
+  const { t } = useTranslation()
   if (m.userSubpath) {
-    return <Lock className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label="privado por usuário" />
+    return <Lock className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label={t('local.mount.privateAria')} />
   }
   if (m.restricted) {
-    return <Users className="w-3 h-3 text-blue-400 flex-shrink-0" aria-label="restrito a usuários específicos" />
+    return <Users className="w-3 h-3 text-blue-400 flex-shrink-0" aria-label={t('local.mount.restrictedAria')} />
   }
   return null
 }
 
 function MountSpaceLabel({ m }: { readonly m: LocalMount }) {
+  const { t } = useTranslation()
   if (!m.totalBytes || m.totalBytes <= 0) return null
   const free = m.freeBytes ?? 0
   const pctUsed = Math.min(100, Math.max(0, Math.round(((m.totalBytes - free) / m.totalBytes) * 100)))
@@ -133,7 +133,7 @@ function MountSpaceLabel({ m }: { readonly m: LocalMount }) {
       <div className="h-1 rounded-full bg-surface-tertiary/80 overflow-hidden">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pctUsed}%` }} />
       </div>
-      <p className="text-[10px] text-text-muted mt-0.5">{formatBytes(free)} livres de {formatBytes(m.totalBytes)}</p>
+      <p className="text-[10px] text-text-muted mt-0.5">{t('local.mount.spaceFree', { free: formatBytes(free), total: formatBytes(m.totalBytes) })}</p>
     </div>
   )
 }
@@ -168,6 +168,7 @@ function Breadcrumbs({
   readonly path: string
   readonly onNavigate: (p: string) => void
 }) {
+  const { t } = useTranslation()
   const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
   const isMobile = useIsMobile()
   // No mobile, paths profundos poluem a barra. Colapsa pra Home › … › atual
@@ -191,7 +192,7 @@ function Breadcrumbs({
           <ChevronRight className="w-4 h-4 text-text-muted" />
           <button
             onClick={() => onNavigate(segments.slice(0, -1).join('/'))}
-            title="Subir um nível"
+            title={t('local.browser.upLevel')}
             className="px-1 hover:text-green-400 transition-colors"
           >
             …
@@ -266,17 +267,18 @@ function EntryActions({ entry: e, isAdmin, canAct, hidden, onRename, onPromote, 
   readonly onDelete: (e: LocalEntry) => void
   readonly onToggleHidden: (e: LocalEntry) => void
 }) {
+  const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const actions: EntryAction[] = [
-    canAct && { key: 'rename', icon: Pencil, label: e.isDir ? 'Renomear pasta' : 'Renomear arquivo', color: 'amber', run: () => onRename(e) },
-    canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: 'Promover / Organizar via IA', color: 'cyan', run: () => onPromote(e) },
-    isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? 'Reclassificar pasta via IA (Plex)' : 'Classificar e mover via IA', color: 'purple', run: () => onReclassify(e) },
-    isAdmin && { key: 'move', icon: FolderInput, label: 'Mover para outro mount', color: 'amber', run: () => onMove(e) },
+    canAct && { key: 'rename', icon: Pencil, label: e.isDir ? t('local.actions.renameFolder') : t('local.actions.renameFile'), color: 'amber', run: () => onRename(e) },
+    canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: t('local.actions.promote'), color: 'cyan', run: () => onPromote(e) },
+    isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? t('local.actions.reclassifyFolder') : t('local.actions.classifyMove'), color: 'purple', run: () => onReclassify(e) },
+    isAdmin && { key: 'move', icon: FolderInput, label: t('local.actions.moveMount'), color: 'amber', run: () => onMove(e) },
     // Lock/unlock só faz sentido em pasta: fixa-a (.keep) contra o "limpar vazias".
-    canAct && e.isDir && { key: 'lock', icon: e.locked ? Unlock : Lock, label: e.locked ? 'Não manter (liberar p/ limpar vazias)' : 'Manter pasta (não limpar mesmo vazia)', color: 'amber', run: () => onLock(e) },
+    canAct && e.isDir && { key: 'lock', icon: e.locked ? Unlock : Lock, label: e.locked ? t('local.actions.unkeep') : t('local.actions.keep'), color: 'amber', run: () => onLock(e) },
     // Hide/unhide is per-user and harmless on any mount, so it's always offered.
-    { key: 'hide', icon: hidden ? Eye : EyeOff, label: hidden ? 'Mostrar (tirar do oculto)' : 'Ocultar', color: 'amber', run: () => onToggleHidden(e) },
-    canAct && { key: 'delete', icon: Trash2, label: e.isDir ? 'Apagar pasta permanentemente' : 'Apagar permanentemente', color: 'red', run: () => onDelete(e) },
+    { key: 'hide', icon: hidden ? Eye : EyeOff, label: hidden ? t('local.actions.unhide') : t('local.actions.hide'), color: 'amber', run: () => onToggleHidden(e) },
+    canAct && { key: 'delete', icon: Trash2, label: e.isDir ? t('local.actions.deleteFolder') : t('local.actions.deleteFile'), color: 'red', run: () => onDelete(e) },
   ].filter(Boolean) as EntryAction[]
   if (actions.length === 0) return null
 
@@ -299,8 +301,8 @@ function EntryActions({ entry: e, isAdmin, canAct, hidden, onRename, onPromote, 
       </div>
       <button
         onClick={(evt) => { evt.stopPropagation(); setMenuOpen(true) }}
-        title="Ações"
-        aria-label="Ações"
+        title={t('local.actions.menu')}
+        aria-label={t('local.actions.menu')}
         className="sm:hidden flex-shrink-0 flex items-center justify-center min-w-[44px] min-h-[44px] text-text-secondary hover:text-text-primary"
       >
         <MoreVertical className="w-5 h-5" />
@@ -356,6 +358,7 @@ function localRowNavProps(href: string, onActivate: () => void) {
 // Uma linha da lista. Extraída pra poder usar useLongPress por item (hooks não
 // podem ser chamados dentro de um .map). Long-press entra no modo seleção.
 function EntryRow(props: EntryRowProps) {
+  const { t } = useTranslation()
   const { entry: e, mount, selectMode, selected, canManipulate, isAdmin } = props
   // Viewable = não-reproduzível mas com viewer universal (NFO/imagem/PDF/
   // quadrinhos/zip/EPUB). A linha deixa de ser "morta": clique abre o preview.
@@ -394,15 +397,15 @@ function EntryRow(props: EntryRowProps) {
         <EntryIcon entry={e} mount={mount} />
         <span className="flex-1 min-w-0 flex flex-col gap-0.5">
           <span className="text-text-primary font-medium line-clamp-2 [overflow-wrap:anywhere] flex items-center gap-1.5">
-            {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="oculto" />}
-            {e.locked && <Lock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="mantida (não limpa)" />}
-            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label="visualizável" />}
+            {props.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('local.row.hiddenAria')} />}
+            {e.locked && <Lock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('local.row.keptAria')} />}
+            {viewable && <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" aria-label={t('local.row.viewableAria')} />}
             {e.incomplete && (
               <span
                 className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
-                title="Download em andamento (arquivos .part) — ainda não finalizado"
+                title={t('local.row.downloadingTitle')}
               >
-                <HardDriveDownload className="w-3 h-3" />baixando
+                <HardDriveDownload className="w-3 h-3" />{t('local.row.downloading')}
               </span>
             )}
             {e.name}
@@ -412,14 +415,14 @@ function EntryRow(props: EntryRowProps) {
               ícone + nome. */}
           <span className="sm:hidden text-[11px] text-text-muted flex items-center gap-1.5">
             {e.isDir
-              ? <>{formatCount(e.childCount ?? 0)}<span className="text-text-muted">·</span></>
+              ? <>{formatCount(e.childCount ?? 0, t)}<span className="text-text-muted">·</span></>
               : <>{formatBytes(e.size)}<span className="text-text-muted">·</span></>}
             {formatDateTime(e.modTime)}
           </span>
         </span>
         {/* Tamanho (arquivo) ou quantidade de itens (pasta). */}
         <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-24">
-          {e.isDir ? formatCount(e.childCount ?? 0) : formatBytes(e.size)}
+          {e.isDir ? formatCount(e.childCount ?? 0, t) : formatBytes(e.size)}
         </span>
         <span className="text-xs text-text-muted w-32 text-right hidden sm:block flex-shrink-0">{formatDateTime(e.modTime)}</span>
       </button>
@@ -445,6 +448,7 @@ function EntryRow(props: EntryRowProps) {
 }
 
 export default function LocalPage() {
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const setQuery = useQuerySetter()
   const [mounts, setMounts] = useState<LocalMount[]>([])
@@ -564,9 +568,9 @@ export default function LocalPage() {
   const runBatchDelete = async () => {
     if (selectedEntries.length === 0) return
     const ok = await confirm({
-      title: 'Apagar permanentemente?',
-      message: `Tem certeza que deseja apagar ${selectedEntries.length} ${selectedEntries.length === 1 ? 'item' : 'itens'}? Esta ação é irreversível. O torrent vinculado (se houver) também é removido: download, pieces no cache e favorito.`,
-      confirmLabel: 'Apagar',
+      title: t('local.delete.title'),
+      message: t('local.delete.batchMessage', { items: formatCount(selectedEntries.length, t) }),
+      confirmLabel: t('local.delete.confirm'),
       destructive: true,
     })
     if (!ok) return
@@ -574,7 +578,7 @@ export default function LocalPage() {
     setError('')
     const results = await Promise.allSettled(selectedEntries.map((e) => localDelete(activeMount, e.path)))
     const failed = results.filter((r) => r.status === 'rejected').length
-    if (failed > 0) setError(`${failed} de ${selectedEntries.length} itens não puderam ser apagados.`)
+    if (failed > 0) setError(t('local.delete.batchFailed', { failed, total: selectedEntries.length }))
     setBatchRunning(false)
     clearSelection()
     refresh()
@@ -614,7 +618,7 @@ export default function LocalPage() {
       const expanded = dirs.length > 0 ? await expandDirsToMediaFiles(dirs) : []
       const files = mergePromoteFiles(looseFiles, expanded)
       if (files.length === 0) {
-        setError('Nenhum arquivo de mídia encontrado nas pastas selecionadas.')
+        setError(t('local.promote.noMediaInFolders'))
         return
       }
       setPromoteEntries(files)
@@ -732,17 +736,15 @@ export default function LocalPage() {
   const requestDelete = async (item: LocalEntry) => {
     if (!activeMount) return
     const ok = await confirm({
-      title: 'Apagar permanentemente?',
+      title: t('local.delete.title'),
       message: (
-        <>
-          Tem certeza que deseja apagar <span className="text-red-400 font-medium">"{item.name}"</span>? Esta ação é
-          irreversível e excluirá o {item.isDir ? 'diretório' : 'arquivo'} de forma permanente no servidor.
-          <span className="block mt-2 text-xs text-amber-400/80">
-            O torrent vinculado (se houver) também será removido: registro do download, pieces no cache e marcação de favorito.
-          </span>
-        </>
+        <Trans
+          i18nKey="local.delete.singleMessage"
+          values={{ name: item.name, kind: item.isDir ? t('local.delete.dir') : t('local.delete.file') }}
+          components={{ hl: <span className="text-red-400 font-medium" />, note: <span className="block mt-2 text-xs text-amber-400/80" /> }}
+        />
       ),
-      confirmLabel: 'Apagar',
+      confirmLabel: t('local.delete.confirm'),
       destructive: true,
     })
     if (!ok) return
@@ -751,7 +753,7 @@ export default function LocalPage() {
       await localDelete(activeMount, item.path)
       refresh()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao apagar arquivo')
+      setError(e?.response?.data?.error || e.message || t('local.errors.deleteFile'))
     }
   }
 
@@ -763,19 +765,19 @@ export default function LocalPage() {
     if (!activeMount) return
     const target = scope === 'root' ? '' : path
     const ok = await confirm({
-      title: 'Limpar pastas vazias?',
-      message: <>Remover todas as subpastas vazias a partir de <span className="text-text-primary font-medium">"{target || activeMount}"</span>? Pastas mantidas (cadeado) e arquivos não são afetados.</>,
-      confirmLabel: 'Limpar',
+      title: t('local.clean.confirmTitle'),
+      message: <Trans i18nKey="local.clean.confirmMessage" values={{ target: target || activeMount }} components={{ hl: <span className="text-text-primary font-medium" /> }} />,
+      confirmLabel: t('local.clean.confirmLabel'),
     })
     if (!ok) return
     setError('')
     setNotice('')
     try {
       const { cleaned } = await localCleanEmptyDirs(activeMount, target)
-      setNotice(cleaned > 0 ? `${cleaned} pasta${plural(cleaned)} vazia${plural(cleaned)} removida${plural(cleaned)}.` : 'Nenhuma pasta vazia encontrada.')
+      setNotice(cleaned > 0 ? t('local.clean.removedNotice', { count: cleaned }) : t('local.clean.noneFound'))
       refresh()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao limpar pastas vazias')
+      setError(e?.response?.data?.error || e.message || t('local.errors.cleanEmpty'))
     }
   }
 
@@ -788,7 +790,7 @@ export default function LocalPage() {
       await localSetFolderLock(activeMount, entry.path, !entry.locked)
       refresh()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao alterar manutenção da pasta')
+      setError(e?.response?.data?.error || e.message || t('local.errors.toggleLock'))
     }
   }
 
@@ -802,10 +804,10 @@ export default function LocalPage() {
     try {
       const { queued } = await localCacheFolder(activeMount, path)
       setNotice(queued > 0
-        ? `${queued} arquivo${plural(queued)} enfileirado${plural(queued)} para o cache local.`
-        : 'Nenhum arquivo de mídia para cachear nesta pasta.')
+        ? t('local.cache.queuedNotice', { count: queued })
+        : t('local.cache.noMedia'))
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao cachear pasta')
+      setError(e?.response?.data?.error || e.message || t('local.errors.cacheFolder'))
     }
   }
 
@@ -832,9 +834,9 @@ export default function LocalPage() {
       refresh()
     } catch (err: any) {
       if (controller.signal.aborted) {
-        setUploadError('Upload cancelado.')
+        setUploadError(t('local.upload.canceled'))
       } else {
-        setUploadError(err?.response?.data?.error || err?.message || 'Erro ao enviar arquivo')
+        setUploadError(err?.response?.data?.error || err?.message || t('local.errors.upload'))
       }
       setUpload(null)
     } finally {
@@ -923,11 +925,11 @@ export default function LocalPage() {
             não rouba altura nem força scroll horizontal de chips. */}
         <aside className="hidden md:block md:w-56 flex-shrink-0 md:overflow-y-auto">
           <h2 className="text-xs uppercase tracking-wider text-text-muted mb-2 md:mb-3">
-            Mounts
+            {t('local.mounts')}
           </h2>
           {mounts.length === 0 ? (
             <><p className="text-sm text-text-muted">
-              Nenhum mount configurado. Adicione em <code>config.yaml</code>:
+              <Trans i18nKey="local.noMountsConfigured" components={{ c: <code /> }} />
             </p>
             <code className="block mt-2 p-2 bg-surface-secondary rounded text-xs">
                 external:{'\n'}  mounts:{'\n'}    - name: HD Externo{'\n'}      path: /mnt/external
@@ -959,20 +961,20 @@ export default function LocalPage() {
 
           {canViewAsUser && (
             <div className="mt-5 md:mt-6">
-              <h2 className="text-xs uppercase tracking-wider text-text-muted mb-2">Ver como</h2>
+              <h2 className="text-xs uppercase tracking-wider text-text-muted mb-2">{t('local.viewAs')}</h2>
               <select
                 value={viewAsUser}
                 onChange={(e) => handleViewAsUser(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg text-sm bg-surface-secondary border border-default text-text-primary focus:border-green-500/50 focus:outline-none"
               >
-                <option value="">Meu espaço (admin)</option>
+                <option value="">{t('local.mySpace')}</option>
                 {adminUsers.map((u) => (
                   <option key={u.id} value={u.username}>{u.username}</option>
                 ))}
               </select>
               {viewAsUser && (
                 <p className="mt-1.5 text-[11px] text-amber-400/80">
-                  Vendo o espaço de <strong>{viewAsUser}</strong>
+                  <Trans i18nKey="local.viewingSpaceOf" values={{ user: viewAsUser }} components={{ b: <strong /> }} />
                 </p>
               )}
             </div>
@@ -1001,20 +1003,20 @@ export default function LocalPage() {
               <button
                 onClick={refresh}
                 disabled={loading}
-                title="Recarregar a lista de arquivos"
+                title={t('local.reloadTitle')}
                 className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-surface-tertiary/60 hover:bg-surface-tertiary disabled:opacity-50 text-text-primary border border-strong px-3 py-1.5 rounded-lg transition-colors font-medium"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">Recarregar</span>
+                <span className="hidden sm:inline">{t('local.reload')}</span>
               </button>
               {activeMountObj?.cacheable && (
                 <button
                   onClick={requestCacheFolder}
-                  title="Baixar todos os arquivos de mídia desta pasta para o cache local (playback instantâneo, com seek e imune a falhas do mount)"
+                  title={t('local.cacheFolderTitle')}
                   className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-green-500/15 hover:bg-green-500/25 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
                 >
                   <HardDriveDownload className="w-4 h-4" />
-                  <span className="hidden sm:inline">Cachear pasta</span>
+                  <span className="hidden sm:inline">{t('local.cacheFolder')}</span>
                 </button>
               )}
               {(canManipulate || isAdmin) && (
@@ -1029,31 +1031,31 @@ export default function LocalPage() {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={!!upload}
-                    title="Enviar arquivo para esta pasta"
+                    title={t('local.uploadTitle')}
                     className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-green-500/15 hover:bg-green-500/25 disabled:opacity-50 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
                   >
                     <Upload className="w-4 h-4" />
-                    <span className="hidden sm:inline">Upload</span>
+                    <span className="hidden sm:inline">{t('local.uploadButton')}</span>
                   </button>
                   <CleanEmptyButton atRoot={!path} onClean={requestCleanEmptyDirs} />
                   <button
                     onClick={() => setShowDuplicates(true)}
-                    title="Encontrar arquivos com conteúdo idêntico (nomes diferentes) e apagar as cópias"
+                    title={t('local.duplicatesTitle')}
                     className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-surface-tertiary/60 hover:bg-surface-tertiary text-text-primary border border-strong px-3 py-1.5 rounded-lg transition-colors font-medium"
                   >
                     <CopyCheck className="w-4 h-4" />
-                    <span className="hidden sm:inline">Duplicados</span>
+                    <span className="hidden sm:inline">{t('local.duplicatesButton')}</span>
                   </button>
                 </>
               )}
               {isAdmin && (
                 <button
                   onClick={() => setReclassifyItem({ name: path ? path.split('/').pop() || path : activeMount, path, isDir: true, size: 0, modTime: '', isPlayable: false })}
-                  title="Reclassificar e organizar esta pasta via IA (estilo Plex), mantendo o vínculo com o torrent"
+                  title={t('local.reclassifyTitle')}
                   className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-lg transition-colors font-medium"
                 >
                   <FolderSync className="w-4 h-4" />
-                  <span className="hidden sm:inline">Reclassificar pasta</span>
+                  <span className="hidden sm:inline">{t('local.reclassifyButton')}</span>
                 </button>
               )}
               </div>
@@ -1094,13 +1096,13 @@ export default function LocalPage() {
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Buscar arquivo..."
+                    placeholder={t('local.searchPlaceholder')}
                     className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500/50"
                   />
                   {search && (
                     <button
                       onClick={() => setSearch('')}
-                      aria-label="Limpar busca"
+                      aria-label={t('local.clearSearch')}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-1"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -1112,7 +1114,7 @@ export default function LocalPage() {
                     onClick={() => setSelectMode(true)}
                     className="flex-shrink-0 text-sm px-3 min-h-[44px] sm:min-h-0 sm:py-1.5 rounded-lg border border-default text-text-primary hover:bg-surface-tertiary transition-colors"
                   >
-                    Selecionar
+                    {t('local.select')}
                   </button>
                 )}
               </div>
@@ -1122,7 +1124,7 @@ export default function LocalPage() {
                   rótulo, e ficava confuso. No desktop voltam pra uma linha. */}
               <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-text-muted sm:hidden mr-0.5">Tipo:</span>
+                  <span className="text-text-muted sm:hidden mr-0.5">{t('local.typeLabel')}</span>
                   {(['all', 'video', 'audio', 'other'] as KindFilter[]).map((k) => (
                     <button
                       key={k}
@@ -1133,13 +1135,13 @@ export default function LocalPage() {
                           : 'text-text-secondary border-default hover:border-strong'
                       }`}
                     >
-                      {{ all: 'Todos', video: 'Vídeo', audio: 'Áudio', other: 'Outros' }[k]}
+                      {t(`local.kind.${k}`)}
                     </button>
                   ))}
                 </div>
                 <span className="mx-1 h-4 w-px bg-surface-tertiary hidden sm:block" />
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-text-muted sm:hidden mr-0.5">Status:</span>
+                  <span className="text-text-muted sm:hidden mr-0.5">{t('local.statusLabel')}</span>
                   {(['all', 'downloading', 'done'] as LocalStatusFilter[]).map((s) => (
                     <button
                       key={s}
@@ -1150,13 +1152,13 @@ export default function LocalPage() {
                           : 'text-text-secondary border-default hover:border-strong'
                       }`}
                     >
-                      {{ all: 'Todos', downloading: 'Baixando', done: 'Concluído' }[s]}
+                      {t(`local.status.${s}`)}
                     </button>
                   ))}
                 </div>
                 <span className="mx-1 h-4 w-px bg-surface-tertiary hidden sm:block" />
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-text-muted mr-0.5">Ordenar:</span>
+                  <span className="text-text-muted mr-0.5">{t('local.sortLabel')}</span>
                   {(['name', 'size', 'date'] as SortKey[]).map((k) => (
                     <button
                       key={k}
@@ -1167,7 +1169,7 @@ export default function LocalPage() {
                           : 'text-text-secondary border-default hover:border-strong'
                       }`}
                     >
-                      {{ name: 'Nome', size: 'Tamanho', date: 'Data' }[k]}
+                      {t(`local.sort.${k}`)}
                       {sortKey === k && (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
                     </button>
                   ))}
@@ -1185,17 +1187,17 @@ export default function LocalPage() {
           {notice && (
             <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-3">
               <span>{notice}</span>
-              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-500 dark:hover:text-emerald-300 text-xs">Fechar</button>
+              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-500 dark:hover:text-emerald-300 text-xs">{t('local.close')}</button>
             </div>
           )}
 
           {loading && (
-            <div className="text-text-muted text-sm">Carregando...</div>
+            <div className="text-text-muted text-sm">{t('local.loading')}</div>
           )}
 
           {!loading && !error && activeMount && visible.length === 0 && (
             <div className="text-text-muted text-sm">
-              {entries.length === 0 ? 'Pasta vazia' : 'Nenhum arquivo com esse filtro'}
+              {entries.length === 0 ? t('local.emptyFolder') : t('local.noFilterMatch')}
             </div>
           )}
 
@@ -1287,8 +1289,7 @@ export default function LocalPage() {
               path={path}
               onClose={() => setShowDuplicates(false)}
               onDeleted={(n) => {
-                const s = plural(n)
-                setNotice(n > 0 ? `${n} duplicado${s} removido${s}.` : 'Nenhum arquivo removido.')
+                setNotice(n > 0 ? t('local.duplicates.removedNotice', { count: n }) : t('local.duplicates.noneRemoved'))
                 refresh()
               }}
             />
@@ -1316,7 +1317,7 @@ export default function LocalPage() {
       <Sheet
         open={mountSheetOpen}
         onClose={() => setMountSheetOpen(false)}
-        title="Mounts"
+        title={t('local.mounts')}
         icon={<HardDrive className="w-4 h-4 text-green-400 flex-shrink-0" />}
         size="sm"
       >
@@ -1341,13 +1342,13 @@ export default function LocalPage() {
         </ul>
         {canViewAsUser && (
           <div className="mt-4 pt-4 border-t border-default">
-            <h3 className="text-xs uppercase tracking-wider text-text-muted mb-2">Ver como</h3>
+            <h3 className="text-xs uppercase tracking-wider text-text-muted mb-2">{t('local.viewAs')}</h3>
             <select
               value={viewAsUser}
               onChange={(e) => { handleViewAsUser(e.target.value); setMountSheetOpen(false) }}
               className="w-full px-3 py-2 rounded-lg text-base bg-surface-secondary border border-default text-text-primary focus:border-green-500/50 focus:outline-none"
             >
-              <option value="">Meu espaço (admin)</option>
+              <option value="">{t('local.mySpace')}</option>
               {adminUsers.map((u) => (
                 <option key={u.id} value={u.username}>{u.username}</option>
               ))}

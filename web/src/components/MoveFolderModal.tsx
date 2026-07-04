@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { Sheet } from './Sheet'
@@ -15,6 +16,7 @@ type Props = {
 }
 
 export default function MoveFolderModal({ mount, entry, entries, onClose, onMoved }: Props) {
+  const { t } = useTranslation()
   // Unifica os dois modos: lista de itens a mover (1 no modo single, N no lote).
   let items: readonly LocalEntry[] = []
   if (entries && entries.length > 0) items = entries
@@ -81,14 +83,14 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       if (failed.length === items.length) {
         const first = failed[0]
-        setError(first.reason?.response?.data?.error || first.reason?.message || 'Erro ao mover')
+        setError(first.reason?.response?.data?.error || first.reason?.message || t('local.move.error'))
         return
       }
-      if (failed.length > 0) setError(`${failed.length} de ${items.length} itens não puderam ser movidos.`)
+      if (failed.length > 0) setError(t('local.move.partialFailed', { failed: failed.length, total: items.length }))
       setDone(true)
       onMoved()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || 'Erro ao mover')
+      setError(e?.response?.data?.error || e.message || t('local.move.error'))
     } finally {
       setSubmitting(false)
     }
@@ -104,7 +106,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
       open
       onClose={onClose}
       size="lg"
-      title="Mover para…"
+      title={t('local.move.title')}
       icon={<FolderInput className="w-4 h-4 text-cyan-400 flex-shrink-0" />}
     >
       <>
@@ -112,11 +114,11 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         <div className="-mx-4 -mt-4 px-4 py-2.5 border-b border-default bg-surface/40">
           {isBatch ? (
             <p className="text-xs text-text-secondary">
-              De: <span className="text-text-primary font-medium">{items.length} itens</span> em <span className="text-text-primary font-mono">{mount}</span>
+              <Trans i18nKey="local.move.fromBatch" values={{ count: items.length, mount }} components={{ b: <span className="text-text-primary font-medium" />, mono: <span className="text-text-primary font-mono" /> }} />
             </p>
           ) : (
             <p className="text-xs text-text-secondary truncate" title={singlePath}>
-              De: <span className="text-text-primary font-mono">{mount} / {singlePath}</span>
+              <Trans i18nKey="local.move.fromSingle" values={{ loc: `${mount} / ${singlePath}` }} components={{ mono: <span className="text-text-primary font-mono" /> }} />
             </p>
           )}
         </div>
@@ -124,7 +126,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
         {done ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 py-8 px-6">
             <CheckCircle2 className="w-10 h-10 text-green-400" />
-            <p className="text-base font-semibold text-text-primary">Movimentação iniciada</p>
+            <p className="text-base font-semibold text-text-primary">{t('local.move.started')}</p>
             <p className="text-sm text-text-secondary font-mono truncate max-w-xs">
               {dstMount} / {finalPath || ''}
             </p>
@@ -148,14 +150,14 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
               </div>
             ) : (
               <p className="text-xs text-text-muted text-center max-w-xs">
-                Acompanhe o progresso no painel de Transferências (canto inferior). A lista atualiza ao concluir.
+                {t('local.move.trackHint')}
               </p>
             )}
             <button
               onClick={onClose}
               className="mt-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-5 py-2 rounded transition-colors"
             >
-              Fechar
+              {t('local.close')}
             </button>
           </div>
         ) : (
@@ -203,7 +205,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
             <div className="min-h-[150px] py-3">
               {(() => {
                 if (dirsLoading) return <div className="flex items-center justify-center py-8 text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>
-                if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-6">Sem subpastas — mover aqui na raiz.</p>
+                if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-6">{t('local.move.noSubfoldersHere')}</p>
                 return <ul className="space-y-0.5">{dirs.map(d => (
                   <li key={d.name}>
                     <button onClick={() => setBrowsePath(browsePath ? `${browsePath}/${d.name}` : d.name)}
@@ -226,18 +228,18 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                   type="text"
                   value={newFolder}
                   onChange={e => setNewFolder(e.target.value)}
-                  placeholder="Nova subpasta (opcional)"
+                  placeholder={t('local.newSubfolder')}
                   className="flex-1 min-w-0 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500"
                 />
               </label>
 
               <div className="text-xs text-text-muted">
-                Destino: <span className="text-text-primary font-mono">{dstMount}/{finalPath || ''}</span>
+                <Trans i18nKey="local.destinationLabel" values={{ dest: `${dstMount}/${finalPath || ''}` }} components={{ mono: <span className="text-text-primary font-mono" /> }} />
               </div>
 
               {isSameLoc && !cleanNew && (
                 <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5">
-                  Destino é igual à localização atual — escolha outra pasta.
+                  {t('local.move.sameLocation')}
                 </p>
               )}
 
@@ -249,7 +251,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
 
               <div className="flex items-center gap-2 justify-end">
                 <button onClick={onClose} disabled={submitting} className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded">
-                  Cancelar
+                  {t('local.cancel')}
                 </button>
                 <button
                   onClick={handleMove}
@@ -257,7 +259,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
                   className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
                 >
                   {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderInput className="w-3.5 h-3.5" />}
-                  Mover aqui
+                  {t('local.move.moveHere')}
                 </button>
               </div>
             </div>

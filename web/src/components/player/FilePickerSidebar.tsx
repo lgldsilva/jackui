@@ -128,14 +128,14 @@ export function FilePickerSidebar({
       <button
         type="button"
         onClick={() => setSidebarOpen(false)}
-        title="Esconder lista de arquivos"
+        title={t('player.files.hideList')}
         className="w-full flex items-center justify-between gap-2 px-3 py-2 border-b border-default flex-shrink-0 text-left cursor-pointer hover:bg-surface-tertiary/40 transition-colors"
       >
         <p className="text-xs text-text-secondary flex items-center gap-2 min-w-0">
           <FileVideo className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
           <span className="truncate">
-            {filteredFiles.length}{filterLower ? ` / ${info.files.length}` : ''} arquivo{filteredFiles.length === 1 ? '' : 's'}
-            {videoFiles.length > 0 && <span className="text-blue-400"> · {videoFiles.length} vídeo{videoFiles.length === 1 ? '' : 's'}</span>}
+            {filteredFiles.length}{filterLower ? ` / ${info.files.length}` : ''} {filteredFiles.length === 1 ? t('player.files.file') : t('player.files.files')}
+            {videoFiles.length > 0 && <span className="text-blue-400"> · {videoFiles.length} {videoFiles.length === 1 ? t('player.files.video') : t('player.files.videos')}</span>}
           </span>
         </p>
         <span className="text-text-muted p-1 flex-shrink-0 pointer-events-none">
@@ -148,17 +148,17 @@ export function FilePickerSidebar({
             type="text"
             value={fileFilter}
             onChange={e => setFileFilter(e.target.value)}
-            placeholder="Filtrar (ex: s04e03)"
+            placeholder={t('player.files.filterPlaceholder')}
             className="w-full bg-surface border border-default rounded px-3 py-2 sm:py-1 text-sm sm:text-xs text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500"
           />
         </div>
       )}
       <div className="px-3 py-2 border-b border-default flex-shrink-0 flex items-center gap-1.5 flex-wrap">
         {([
-          { key: 'all' as const, label: 'Todos', count: info.files.length },
-          { key: 'video' as const, label: 'Vídeo', count: typeCounts.video },
-          { key: 'audio' as const, label: 'Áudio', count: typeCounts.audio },
-          { key: 'other' as const, label: 'Outros', count: typeCounts.other },
+          { key: 'all' as const, label: t('player.files.typeAll'), count: info.files.length },
+          { key: 'video' as const, label: t('player.files.typeVideo'), count: typeCounts.video },
+          { key: 'audio' as const, label: t('player.files.typeAudio'), count: typeCounts.audio },
+          { key: 'other' as const, label: t('player.files.typeOther'), count: typeCounts.other },
         ])
           .filter(o => o.key === 'all' || o.count > 0)
           .map(o => (
@@ -210,17 +210,17 @@ export function FilePickerSidebar({
               if (v === 'default') { setFileSortBySize(false); setFileSizeDesc(true) }
               else { setFileSortBySize(true); setFileSizeDesc(v === 'size-desc') }
             }}
-            title="Ordenar arquivos"
-            aria-label="Ordenar arquivos"
+            title={t('player.files.sort')}
+            aria-label={t('player.files.sort')}
             className={`px-2 py-1 rounded text-[11px] border transition-colors cursor-pointer focus:outline-none ${
               fileSortBySize
                 ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/40'
                 : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary/60'
             }`}
           >
-            <option value="default">Ordem do torrent</option>
-            <option value="size-desc">Maior primeiro</option>
-            <option value="size-asc">Menor primeiro</option>
+            <option value="default">{t('player.files.sortDefault')}</option>
+            <option value="size-desc">{t('player.files.sortLargest')}</option>
+            <option value="size-asc">{t('player.files.sortSmallest')}</option>
           </select>
         )}
       </div>
@@ -244,7 +244,7 @@ export function FilePickerSidebar({
         <div className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]">
           {filteredFiles.length === 0 && (
             <p className="text-xs text-text-muted text-center py-3">
-              {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
+              {fileFilter ? t('player.files.noMatch', { filter: fileFilter }) : t('player.files.noneWithFilter')}
             </p>
           )}
           {filteredFiles.slice(0, reveal.visible).map(f => (
@@ -270,7 +270,7 @@ export function FilePickerSidebar({
                 className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-surface-2 py-2 text-xs text-text-secondary hover:text-text-primary"
               >
                 <ChevronDown className="w-3.5 h-3.5" />
-                Mostrar mais ({reveal.remaining} de {filteredFiles.length})
+                {t('player.files.showMore', { count: reveal.remaining, total: filteredFiles.length })}
               </button>
             </div>
           )}

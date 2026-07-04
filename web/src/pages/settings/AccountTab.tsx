@@ -78,8 +78,8 @@ export default function AccountTab() {
 
   return (
     <>
-      <ErrorBoundary title="Erro no card Conta"><AccountCard /></ErrorBoundary>
-      <ErrorBoundary title="Erro no card Usuários"><UsersAdminCard /></ErrorBoundary>
+      <ErrorBoundary title={t('settings.error_account_card')}><AccountCard /></ErrorBoundary>
+      <ErrorBoundary title={t('settings.error_users_card')}><UsersAdminCard /></ErrorBoundary>
 
       {/* Sessions modal trigger */}
       <section className="card">

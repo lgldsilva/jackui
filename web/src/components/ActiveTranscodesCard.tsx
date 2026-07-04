@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useVisiblePolling } from '../lib/useVisiblePolling'
 import { Loader2, Trash2, Zap, Server, ShieldAlert } from 'lucide-react'
 import { fetchActiveTranscodes, killTranscodeSession, HLSSessionSnapshot, GPUInfo } from '../api/client'
@@ -14,14 +16,15 @@ function codecStyle(codec: string): CodecStyle {
   return { cls: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 border-yellow-500/20', label: 'CPU SW' }
 }
 
-function sessionLabels(key: string) {
+function sessionLabels(key: string, t: TFunction) {
   const parts = key.split('-')
   const displayKey = parts.length > 0 ? parts[0].slice(0, 8) + '...' : key
-  const fileIndex = parts.length > 1 ? ` (Arq: ${parts[1]})` : ''
+  const fileIndex = parts.length > 1 ? t('transcode.file_short', { index: parts[1] }) : ''
   return { displayKey, fileIndex }
 }
 
 export default function ActiveTranscodesCard() {
+  const { t } = useTranslation()
   const confirm = useConfirm()
   const { notifyError } = useToast()
   const [sessions, setSessions] = useState<HLSSessionSnapshot[]>([])
@@ -49,9 +52,9 @@ export default function ActiveTranscodesCard() {
 
   const handleKill = async (key: string) => {
     const ok = await confirm({
-      title: 'Encerrar transcode',
-      message: 'Deseja realmente derrubar e encerrar esta sessão de transcodificação? O player do usuário irá parar.',
-      confirmLabel: 'Encerrar',
+      title: t('transcode.kill_title'),
+      message: t('transcode.kill_message'),
+      confirmLabel: t('transcode.kill_confirm'),
       destructive: true,
     })
     if (!ok) return
@@ -70,7 +73,7 @@ export default function ActiveTranscodesCard() {
     return (
       <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
-        Carregando monitoramento de transcode e GPU...
+        {t('transcode.loading')}
       </div>
     )
   }
@@ -85,12 +88,12 @@ export default function ActiveTranscodesCard() {
       <div className="flex items-center justify-between border-b border-default/60 pb-3">
         <div className="flex items-center gap-2">
           <Server className="w-5 h-5 text-cyan-400" />
-          <h2 className="text-lg font-semibold text-text-primary">Transcode & Uso de GPU</h2>
+          <h2 className="text-lg font-semibold text-text-primary">{t('transcode.title')}</h2>
         </div>
         {sessions.length > 0 && (
           <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 animate-pulse">
             <Zap className="w-3 h-3 text-amber-400" />
-            {sessions.length} {sessions.length === 1 ? 'sessão ativa' : 'sessões ativas'}
+            {sessions.length} {sessions.length === 1 ? t('transcode.session_active') : t('transcode.sessions_active')}
           </span>
         )}
       </div>
@@ -100,7 +103,7 @@ export default function ActiveTranscodesCard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-surface/60 border border-default rounded-xl p-4">
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-text-secondary">
-              <span>Uso da GPU ({gpu.type === 'nvidia' ? 'NVIDIA' : 'Intel/AMD VAAPI'}):</span>
+              <span>{t('transcode.gpu_usage', { type: gpu.type === 'nvidia' ? 'NVIDIA' : 'Intel/AMD VAAPI' })}</span>
               <span className="font-bold text-text-primary">{gpu.gpu}%</span>
             </div>
             <div className="w-full bg-surface-secondary rounded-full h-2 overflow-hidden">
@@ -114,7 +117,7 @@ export default function ActiveTranscodesCard() {
           {gpu.type === 'nvidia' && gpu.vramTotal !== undefined && gpu.vramUsed !== undefined && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-text-secondary">
-                <span>Uso de Memória de Vídeo (VRAM):</span>
+                <span>{t('transcode.vram_usage')}</span>
                 <span className="font-bold text-text-primary">
                   {gpu.vramUsed} MB / {gpu.vramTotal} MB ({vramPercent.toFixed(0)}%)
                 </span>
@@ -133,12 +136,12 @@ export default function ActiveTranscodesCard() {
       {/* Sessions list */}
       <div className="flex flex-col gap-2">
         <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
-          Sessões de Transcode HLS
+          {t('transcode.sessions_hls')}
         </h3>
-        
+
         {sessions.length === 0 && (
           <p className="text-sm text-text-muted py-4 text-center bg-surface/20 rounded-xl border border-dashed border-default/40">
-            Nenhuma sessão de transcodificação ativa no momento.
+            {t('transcode.no_sessions')}
           </p>
         )}
 
@@ -149,16 +152,16 @@ export default function ActiveTranscodesCard() {
               <table className="w-full text-sm text-left border-collapse">
                 <thead>
                   <tr className="border-b border-default text-xs text-text-muted font-medium">
-                    <th className="py-2 px-3">Sessão / Arquivo</th>
-                    <th className="py-2 px-3">Codificador</th>
-                    <th className="py-2 px-3">Buffer (.ts)</th>
-                    <th className="py-2 px-3">Iniciado</th>
-                    <th className="py-2 px-3 text-right">Ação</th>
+                    <th className="py-2 px-3">{t('transcode.col_session')}</th>
+                    <th className="py-2 px-3">{t('transcode.col_encoder')}</th>
+                    <th className="py-2 px-3">{t('transcode.col_buffer')}</th>
+                    <th className="py-2 px-3">{t('transcode.col_started')}</th>
+                    <th className="py-2 px-3 text-right">{t('transcode.col_action')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-default">
                   {sessions.map(s => {
-                    const { displayKey, fileIndex } = sessionLabels(s.key)
+                    const { displayKey, fileIndex } = sessionLabels(s.key, t)
                     const codec = codecStyle(s.codec)
                     return (
                       <tr key={s.key} className="hover:bg-surface-secondary/30 transition-colors group">
@@ -183,7 +186,7 @@ export default function ActiveTranscodesCard() {
                           <button
                             onClick={() => handleKill(s.key)}
                             disabled={killingKey === s.key}
-                            title="Derrubar Sessão (Kill)"
+                            title={t('transcode.kill_session_title')}
                             className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
                           >
                             {killingKey === s.key ? (
@@ -203,7 +206,7 @@ export default function ActiveTranscodesCard() {
             {/* Mobile: stacked cards */}
             <div className="flex flex-col gap-2 sm:hidden">
               {sessions.map(s => {
-                const { displayKey, fileIndex } = sessionLabels(s.key)
+                const { displayKey, fileIndex } = sessionLabels(s.key, t)
                 const codec = codecStyle(s.codec)
                 return (
                   <div key={s.key} className="rounded-xl border border-default bg-surface/40 p-3 flex flex-col gap-2">
@@ -217,7 +220,7 @@ export default function ActiveTranscodesCard() {
                       <button
                         onClick={() => handleKill(s.key)}
                         disabled={killingKey === s.key}
-                        title="Derrubar Sessão (Kill)"
+                        title={t('transcode.kill_session_title')}
                         className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
                       >
                         {killingKey === s.key ? (
@@ -245,7 +248,7 @@ export default function ActiveTranscodesCard() {
       {error && (
         <div className="flex items-center gap-2 p-3 text-xs rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
           <ShieldAlert className="w-4 h-4 text-red-400 flex-shrink-0" />
-          <span>Erro ao consultar transcodes: {error}</span>
+          <span>{t('transcode.query_error', { error })}</span>
         </div>
       )}
     </div>

@@ -61,9 +61,9 @@ export default function WatchlistPage() {
   }
   const removeOne = async (id: number) => {
     const ok = await confirm({
-      title: 'Apagar watchlist',
-      message: 'Apagar essa watchlist? Todos os registros de "já visto" serão perdidos.',
-      confirmLabel: 'Apagar',
+      title: t('watchlist.delete_title'),
+      message: t('watchlist.delete_message'),
+      confirmLabel: t('watchlist.delete_confirm'),
       destructive: true,
     })
     if (!ok) return
@@ -92,7 +92,7 @@ export default function WatchlistPage() {
       <button
         onClick={() => playHit(h)}
         className="flex items-center justify-center w-11 h-11 sm:w-auto sm:h-auto sm:p-1 flex-shrink-0 rounded-lg text-green-400 hover:text-green-500 dark:hover:text-green-300 hover:bg-green-500/10 sm:hover:bg-transparent transition-colors"
-        title="Reproduzir"
+        title={t('watchlist.play')}
       >
         <Play className="w-4 h-4" />
       </button>
@@ -101,7 +101,7 @@ export default function WatchlistPage() {
         <button
           onClick={() => openContents(h)}
           className="text-text-primary truncate block w-full text-left hover:text-green-400 transition-colors"
-          title="Ver conteúdo e detalhes"
+          title={t('watchlist.view_contents')}
         >
           {h.title}
         </button>
@@ -112,13 +112,13 @@ export default function WatchlistPage() {
               <DownloadCloud className="w-3 h-3" /> {t('watchlist.auto_badge')}
             </span>
           )}
-          <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString('pt-BR')}</span>
+          <span>{formatBytes(h.size)} · {new Date(h.seenAt).toLocaleString(i18n.language)}</span>
         </p>
       </div>
       <button
         onClick={() => copyMagnet(h.magnet)}
         className="flex items-center justify-center w-11 h-11 sm:w-auto sm:h-auto sm:p-1 flex-shrink-0 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-tertiary/40 sm:hover:bg-transparent transition-colors"
-        title="Copiar magnet"
+        title={t('watchlist.copy_magnet')}
       >
         <Copy className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
       </button>
@@ -136,10 +136,10 @@ export default function WatchlistPage() {
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
-            <Bell className="w-5 h-5 text-amber-400" /> Watchlists
+            <Bell className="w-5 h-5 text-amber-400" /> {t('watchlist.title')}
           </h1>
           <button onClick={() => setCreating(true)} className="btn-primary flex items-center gap-1.5 text-sm">
-            <Plus className="w-4 h-4" /> Nova
+            <Plus className="w-4 h-4" /> {t('watchlist.new')}
           </button>
         </div>
 
@@ -155,7 +155,7 @@ export default function WatchlistPage() {
 
 {(() => {
           if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
-          if (lists.length === 0) return <div className="text-center py-20 text-text-muted"><Bell className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>Nenhuma watchlist ainda</p><p className="text-xs mt-2">Crie uma para receber push quando novos torrents aparecerem.</p></div>
+          if (lists.length === 0) return <div className="text-center py-20 text-text-muted"><Bell className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>{t('watchlist.empty_title')}</p><p className="text-xs mt-2">{t('watchlist.empty_hint')}</p></div>
           return (
           <div className="flex flex-col gap-2">
             {lists.map(w => (
@@ -173,14 +173,14 @@ export default function WatchlistPage() {
                               <DownloadCloud className="w-3.5 h-3.5" /> {autoFilterSummary(w, t('watchlist.auto_badge'))}
                             </span>
                           )}
-                          {w.category && <span>Categoria: <span className="text-text-primary font-mono">{w.category}</span></span>}
-                          <span>Mín. seeders: <span className="text-text-primary">{w.minSeeders}</span></span>
-                          <span>Topic: <span className="text-text-primary font-mono">{w.ntfyTopic || '(padrão)'}</span></span>
+                          {w.category && <span>{t('watchlist.category_label')} <span className="text-text-primary font-mono">{w.category}</span></span>}
+                          <span>{t('watchlist.min_seeders_label')} <span className="text-text-primary">{w.minSeeders}</span></span>
+                          <span>{t('watchlist.topic_label')} <span className="text-text-primary font-mono">{w.ntfyTopic || t('watchlist.topic_default')}</span></span>
                           <span className="flex items-center gap-1 text-amber-400/90">
                             <CalendarClock className="w-3 h-3" /> {schedSummary(t, w)}
                           </span>
                           {w.lastChecked && !w.lastChecked.startsWith('0001-') && (
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(w.lastChecked).toLocaleString('pt-BR')}</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(w.lastChecked).toLocaleString(i18n.language)}</span>
                           )}
                           {w.nextCheckAt && !w.nextCheckAt.startsWith('0001-') && (
                             <span className="flex items-center gap-1">
@@ -191,9 +191,9 @@ export default function WatchlistPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <button onClick={() => toggleHits(w.id)} className="btn-secondary text-xs min-h-[44px] sm:min-h-0 px-3 sm:px-2.5">
-                          {w.hitCount || 0} hits
+                          {t('watchlist.hits_count', { count: w.hitCount || 0 })}
                         </button>
-                        <button onClick={() => setEditingID(w.id)} className="text-xs text-text-secondary hover:text-text-primary min-h-[44px] sm:min-h-0 px-3 py-1 flex items-center">Editar</button>
+                        <button onClick={() => setEditingID(w.id)} className="text-xs text-text-secondary hover:text-text-primary min-h-[44px] sm:min-h-0 px-3 py-1 flex items-center">{t('watchlist.edit')}</button>
                         <button onClick={() => removeOne(w.id)} className="flex items-center justify-center text-text-muted hover:text-red-400 w-11 h-11 sm:w-auto sm:h-auto sm:p-1"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </div>
@@ -207,11 +207,11 @@ export default function WatchlistPage() {
                               type="text"
                               value={hitFilter}
                               onChange={e => setHitFilter(e.target.value)}
-                              placeholder="Filtrar por título..."
+                              placeholder={t('watchlist.filter_by_title')}
                               className="w-full bg-surface-secondary/80 border border-default rounded-lg pl-9 pr-9 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-amber-500/50 transition-colors"
                             />
                             {hitFilter && (
-                              <button onClick={() => setHitFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 text-text-muted hover:text-text-primary" title="Limpar">
+                              <button onClick={() => setHitFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 text-text-muted hover:text-text-primary" title={t('watchlist.clear')}>
                                 <X className="w-3.5 h-3.5" />
                               </button>
                             )}
@@ -222,7 +222,7 @@ export default function WatchlistPage() {
                             <p className="text-xs text-text-muted text-center py-3">{t('watchlist.hits_empty')}</p>
                           )}
                           {hits.length > 0 && filteredHits.length === 0 && (
-                            <p className="text-xs text-text-muted text-center py-3">Nenhum hit corresponde ao filtro.</p>
+                            <p className="text-xs text-text-muted text-center py-3">{t('watchlist.no_hit_match')}</p>
                           )}
                           {filteredHits.map(h => renderHitItem(h))}
                         </div>

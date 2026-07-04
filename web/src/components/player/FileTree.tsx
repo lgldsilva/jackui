@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Folder, FolderOpen, FolderDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { TorrentInfo } from '../../api/client'
 import { useHoverThumb } from '../FileThumbHover'
 import { FileRow } from './FileRow'
@@ -56,6 +57,7 @@ export function FileTree({
   onDownloadFolder,
   onDownloadDir,
 }: FileTreeProps) {
+  const { t } = useTranslation()
   // Key no infoHash (não info.files): a estrutura de arquivos é estável por
   // torrent, mas o poll de progresso de 2s recria info.files — depender dele
   // rebuildava a árvore inteira a cada tick (re-render desnecessário).
@@ -109,7 +111,7 @@ export function FileTree({
   if (rows.length === 0) {
     return (
       <p className="text-xs text-text-muted text-center py-3">
-        {fileFilter ? `Nenhum arquivo bate com "${fileFilter}"` : 'Nenhum arquivo com esse filtro'}
+        {fileFilter ? t('player.files.noMatch', { filter: fileFilter }) : t('player.files.noneWithFilter')}
       </p>
     )
   }
@@ -118,7 +120,7 @@ export function FileTree({
     <div
       ref={containerRef}
       role="tree"
-      aria-label="Árvore de arquivos"
+      aria-label={t('player.files.treeLabel')}
       className="flex flex-col gap-1 px-1 py-2 overflow-y-auto min-h-0 flex-1 lg:flex-none lg:max-h-[60vh]"
     >
       {rows.map((row, i) => {
@@ -152,8 +154,8 @@ export function FileTree({
                 <span
                   role="button"
                   tabIndex={-1}
-                  title="Baixar esta pasta"
-                  aria-label="Baixar esta pasta"
+                  title={t('player.files.downloadFolder')}
+                  aria-label={t('player.files.downloadFolder')}
                   onClick={e => { e.stopPropagation(); onDownloadDir(row.node.path) }}
                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDownloadDir(row.node.path) } }}
                   className="p-1 -m-1 rounded hover:bg-surface-tertiary text-text-muted hover:text-blue-400 transition-colors flex-shrink-0"
@@ -200,7 +202,7 @@ export function FileTree({
             className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-surface-2 py-2 text-xs text-text-secondary hover:text-text-primary"
           >
             <ChevronDown className="w-3.5 h-3.5" />
-            Mostrar mais ({reveal.remaining} de {totalFiles})
+            {t('player.files.showMore', { count: reveal.remaining, total: totalFiles })}
           </button>
         </div>
       )}

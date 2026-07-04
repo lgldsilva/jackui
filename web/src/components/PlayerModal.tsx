@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X, Play, Loader2, AlertCircle, FileVideo, Download, Upload, Users, Activity, Check, Maximize2, Minimize2, Cpu, Heart, ChevronLeft, ChevronRight, ListMusic, Shuffle, Repeat, EyeOff, Eye, Info, Hash, Server, Copy, Home } from 'lucide-react'
 import {
   SearchResult,
@@ -64,6 +65,10 @@ import { AudioCoverArt, audioCoverURL } from './player/AudioCoverArt'
 import { useAudioDirectUrl } from './player/useAudioDirectUrl'
 import { usePlaylistTracks } from './player/usePlaylistTracks'
 import { useToast } from './Toast'
+
+// The translate fn type (react-i18next's TFunction), shared with the module-level
+// render helpers below (they aren't components, so they receive `t` as a param).
+type TFn = ReturnType<typeof useTranslation>['t']
 
 type PlaylistMeta = {
   readonly name: string
@@ -134,32 +139,33 @@ function renderPlayerHeader(props: {
   headerRef: React.RefObject<HTMLDivElement>
   fullViewport?: boolean
   onHome?: () => void
+  t: TFn
 }) {
-  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef, fullViewport, onHome } = props
+  const { minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo, headerRef, fullViewport, onHome, t } = props
   if (minimized) return null
   return (
     <div ref={headerRef} className="flex items-center justify-between px-4 pb-4 pt-statusbar sm:!pt-4 border-b border-default flex-shrink-0 touch-pan-y">
       <h2 className="text-base font-semibold text-text-primary flex items-center gap-2 min-w-0">
         <Play className="w-4 h-4 text-green-500 flex-shrink-0" />
         <span className="truncate">{info?.name || result.title}</span>
-        {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={`Encoder: ${caps.preferred}`}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
+        {isTranscoded && caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0" title={t('player.modal.encoderTitle', { encoder: caps.preferred })}><Cpu className="w-2.5 h-2.5" />{encoderLabel}</span>}
         {isTranscoded && !caps?.preferred && <span className="text-[10px] bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded flex items-center gap-1 flex-shrink-0"><Cpu className="w-2.5 h-2.5" />GPU</span>}
       </h2>
       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-        {info && <button onClick={onShowInfo} title="Informações do torrent" className="text-text-secondary hover:text-text-primary transition-colors"><Info className="w-5 h-5" /></button>}
-        {info && <button onClick={toggleFavorite} title={isFavorite ? 'Remover dos favoritos' : 'Marcar como favorito'} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
-        <button onClick={() => setIncognito(!incognito)} title={incognito ? 'Modo incógnito ativo' : 'Ativar modo incógnito'} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-500 dark:hover:text-amber-300' : 'text-text-secondary hover:text-text-primary'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+        {info && <button onClick={onShowInfo} title={t('player.modal.torrentInfo')} className="text-text-secondary hover:text-text-primary transition-colors"><Info className="w-5 h-5" /></button>}
+        {info && <button onClick={toggleFavorite} title={isFavorite ? t('player.modal.removeFavorite') : t('player.modal.addFavorite')} className={`transition-colors ${isFavorite ? 'text-pink-400 hover:text-pink-500 dark:hover:text-pink-300' : 'text-text-muted hover:text-pink-400'}`}><Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} /></button>}
+        <button onClick={() => setIncognito(!incognito)} title={incognito ? t('player.modal.incognitoActive') : t('player.modal.incognitoEnable')} className={`transition-colors ${incognito ? 'text-amber-400 hover:text-amber-500 dark:hover:text-amber-300' : 'text-text-secondary hover:text-text-primary'}`}>{incognito ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
         {fullViewport
           ? (
             // Deep-link tab dedicated to playback: the only navigation affordance
             // is a single Home button (no minimize/PiP — there's nothing behind).
-            <button onClick={() => (onHome ?? onClose)()} title="Voltar para a Home" className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors">
+            <button onClick={() => (onHome ?? onClose)()} title={t('player.modal.backHome')} className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors">
               <Home className="w-5 h-5" />
             </button>
           )
           : (
             <>
-              <button onClick={() => setMinimized(m => !m)} title={minimized ? 'Expandir player' : 'Minimizar'} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
+              <button onClick={() => setMinimized(m => !m)} title={minimized ? t('player.modal.expand') : t('player.modal.minimize')} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
               <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
             </>
           )}
@@ -183,8 +189,9 @@ function renderTorrentInfoModal(props: {
   setOverrideCategory: (v: string | null) => void
   handleClassifyCategory: () => void
   classifyingCat: boolean
+  t: TFn
 }) {
-  const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied, effectiveCategory, setOverrideCategory, handleClassifyCategory, classifyingCat } = props
+  const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied, effectiveCategory, setOverrideCategory, handleClassifyCategory, classifyingCat, t } = props
   const pct = info.progress === undefined ? null : `${(info.progress * 100).toFixed(1)}%`
   const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
     <div className="flex items-start gap-2 py-1.5 border-b border-default/40 last:border-0">
@@ -199,55 +206,55 @@ function renderTorrentInfoModal(props: {
       zClass="z-[60]"
       lockScroll={false}
       size="md"
-      title="Informações do torrent"
+      title={t('player.modal.torrentInfo')}
       icon={<Info className="w-4 h-4 text-blue-400 flex-shrink-0" />}
     >
-      <Row icon={<FileVideo className="w-3.5 h-3.5" />} label="Nome">{info.name || result.title}</Row>
-      {info.name && info.name !== result.title && <Row label="Release">{result.title}</Row>}
-      <Row icon={<Download className="w-3.5 h-3.5" />} label="Tamanho">{formatSize(info.totalSize)} · {info.files.length} arquivo{info.files.length === 1 ? '' : 's'}</Row>
-      <Row icon={<Users className="w-3.5 h-3.5" />} label="Seeds / Peers">{info.seeders ?? 0} / {info.peers ?? 0}</Row>
-      {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label="Velocidade">{formatRate(info.downRate)}{pct && ` · ${pct} baixado`}</Row>}
-      {(info.bytesDownloaded ?? 0) > 0 && <Row icon={<Download className="w-3.5 h-3.5" />} label="Baixado">{formatSize(info.bytesDownloaded ?? 0)}{pct && ` · ${pct}`}</Row>}
-      {((info.bytesUploaded ?? 0) > 0 || (info.upRate ?? 0) > 0) && <Row icon={<Upload className="w-3.5 h-3.5" />} label="Enviado">{formatSize(info.bytesUploaded ?? 0)}{(info.upRate ?? 0) > 0 ? ` · ${formatRate(info.upRate)}` : ''}</Row>}
-      {info.stalled && (info.downRate ?? 0) === 0 && <Row icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />} label="Transferência">aguardando dados…</Row>}
-      {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label="Tracker">{result.tracker}</Row>}
+      <Row icon={<FileVideo className="w-3.5 h-3.5" />} label={t('player.modal.info.name')}>{info.name || result.title}</Row>
+      {info.name && info.name !== result.title && <Row label={t('player.modal.info.release')}>{result.title}</Row>}
+      <Row icon={<Download className="w-3.5 h-3.5" />} label={t('player.modal.info.size')}>{formatSize(info.totalSize)} · {info.files.length} {info.files.length === 1 ? t('player.files.file') : t('player.files.files')}</Row>
+      <Row icon={<Users className="w-3.5 h-3.5" />} label={t('player.modal.info.seedsPeers')}>{info.seeders ?? 0} / {info.peers ?? 0}</Row>
+      {(info.downRate ?? 0) > 0 && <Row icon={<Activity className="w-3.5 h-3.5" />} label={t('player.modal.info.speed')}>{formatRate(info.downRate)}{pct && ` · ${t('player.modal.info.pctDownloaded', { pct })}`}</Row>}
+      {(info.bytesDownloaded ?? 0) > 0 && <Row icon={<Download className="w-3.5 h-3.5" />} label={t('player.modal.info.downloaded')}>{formatSize(info.bytesDownloaded ?? 0)}{pct && ` · ${pct}`}</Row>}
+      {((info.bytesUploaded ?? 0) > 0 || (info.upRate ?? 0) > 0) && <Row icon={<Upload className="w-3.5 h-3.5" />} label={t('player.modal.info.uploaded')}>{formatSize(info.bytesUploaded ?? 0)}{(info.upRate ?? 0) > 0 ? ` · ${formatRate(info.upRate)}` : ''}</Row>}
+      {info.stalled && (info.downRate ?? 0) === 0 && <Row icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />} label={t('player.modal.info.transfer')}>{t('player.modal.info.awaitingData')}</Row>}
+      {result.tracker && <Row icon={<Server className="w-3.5 h-3.5" />} label={t('player.modal.info.tracker')}>{result.tracker}</Row>}
       {globalThis.electronAPI ? (
-        <Row label="Categoria">
+        <Row label={t('player.modal.info.category')}>
           <div className="flex items-center gap-1.5">
             <select
               className="bg-surface-tertiary text-text-primary text-xs rounded px-2 py-1 border border-strong"
               value={effectiveCategory}
               onChange={(e) => setOverrideCategory(e.target.value === 'default' ? null : e.target.value)}
             >
-              <option value="default">{result?.category || 'Auto'}</option>
-              <option value="movies">Filmes</option>
-              <option value="tv">Séries</option>
-              <option value="music">Música</option>
-              <option value="games">Jogos</option>
-              <option value="software">Software</option>
-              <option value="adult">Adulto</option>
-              <option value="books">Livros</option>
-              <option value="other">Outros</option>
+              <option value="default">{result?.category || t('player.modal.category.auto')}</option>
+              <option value="movies">{t('player.modal.category.movies')}</option>
+              <option value="tv">{t('player.modal.category.tv')}</option>
+              <option value="music">{t('player.modal.category.music')}</option>
+              <option value="games">{t('player.modal.category.games')}</option>
+              <option value="software">{t('player.modal.category.software')}</option>
+              <option value="adult">{t('player.modal.category.adult')}</option>
+              <option value="books">{t('player.modal.category.books')}</option>
+              <option value="other">{t('player.modal.category.other')}</option>
             </select>
             <button
               onClick={handleClassifyCategory}
               disabled={classifyingCat}
               className="text-[10px] bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded"
-              title="Detectar categoria automaticamente (IA)"
+              title={t('player.modal.category.detectAI')}
             >
-              {classifyingCat ? '…' : 'IA'}
+              {classifyingCat ? '…' : t('player.modal.category.ai')}
             </button>
           </div>
         </Row>
       ) : (
-        result.category && <Row label="Categoria">{result.category}</Row>
+        result.category && <Row label={t('player.modal.info.category')}>{result.category}</Row>
       )}
-      {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label="Encoder">{encoderLabel || 'GPU'}</Row>}
+      {isTranscoded && <Row icon={<Cpu className="w-3.5 h-3.5" />} label={t('player.modal.info.encoder')}>{encoderLabel || 'GPU'}</Row>}
       {info.infoHash && (
-        <Row icon={<Hash className="w-3.5 h-3.5" />} label="Info hash">
+        <Row icon={<Hash className="w-3.5 h-3.5" />} label={t('player.modal.info.infoHash')}>
           <span className="flex items-center gap-2 min-w-0">
             <span className="font-mono text-xs truncate min-w-0">{info.infoHash}</span>
-            <button onClick={onCopyHash} title="Copiar" className="flex-shrink-0 text-text-muted hover:text-text-primary">
+            <button onClick={onCopyHash} title={t('player.modal.copy')} className="flex-shrink-0 text-text-muted hover:text-text-primary">
               {hashCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </span>
@@ -265,22 +272,23 @@ function renderPlaylistBar(
   onCycleRepeat: (() => void) | undefined,
   repeat: 'none' | 'one' | 'all',
   onNext: (() => void) | undefined,
+  t: TFn,
 ) {
   return (
     <div className="flex items-center justify-between gap-2 px-4 py-2 bg-blue-500/10 border-b border-blue-500/30 text-xs text-blue-700 dark:text-blue-200 flex-shrink-0">
       <div className="flex items-center gap-2 min-w-0">
         <ListMusic className="w-3.5 h-3.5 flex-shrink-0" />
         <span className="font-medium truncate">{playlist.name}</span>
-        <span className="text-blue-400/80 flex-shrink-0">· {playlist.currentIndex + 1} de {playlist.items.length}</span>
+        <span className="text-blue-400/80 flex-shrink-0">· {t('player.modal.ofCount', { current: playlist.currentIndex + 1, total: playlist.items.length })}</span>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={onPrev} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-white" title="Item anterior da playlist"><ChevronLeft className="w-4 h-4" /></button>
-        <button onClick={onToggleShuffle} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-700 dark:text-green-300' : 'text-blue-700/60 dark:text-blue-200/60'} hover:text-blue-900 dark:hover:text-white`} title={shuffle ? 'Shuffle: ON' : 'Shuffle: OFF'}><Shuffle className="w-3.5 h-3.5" /></button>
-        <button onClick={onCycleRepeat} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-700/60 dark:text-blue-200/60' : 'text-green-700 dark:text-green-300'} hover:text-blue-900 dark:hover:text-white relative`} title={`Repeat: ${repeat}`}>
+        <button onClick={onPrev} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-white" title={t('player.modal.prevItem')}><ChevronLeft className="w-4 h-4" /></button>
+        <button onClick={onToggleShuffle} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${shuffle ? 'text-green-700 dark:text-green-300' : 'text-blue-700/60 dark:text-blue-200/60'} hover:text-blue-900 dark:hover:text-white`} title={shuffle ? t('player.controls.shuffleOn') : t('player.controls.shuffleOff')}><Shuffle className="w-3.5 h-3.5" /></button>
+        <button onClick={onCycleRepeat} className={`flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 ${repeat === 'none' ? 'text-blue-700/60 dark:text-blue-200/60' : 'text-green-700 dark:text-green-300'} hover:text-blue-900 dark:hover:text-white relative`} title={t('player.controls.repeatMode', { mode: repeat })}>
           <Repeat className="w-3.5 h-3.5" />
           {repeat === 'one' && <span className="absolute bottom-0.5 right-0.5 text-[8px] font-bold text-green-700 dark:text-green-300">1</span>}
         </button>
-        <button onClick={onNext} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-white" title="Próximo item da playlist"><ChevronRight className="w-4 h-4" /></button>
+        <button onClick={onNext} className="flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded hover:bg-blue-500/20 text-blue-700 dark:text-blue-200 hover:text-blue-900 dark:hover:text-white" title={t('player.modal.nextItem')}><ChevronRight className="w-4 h-4" /></button>
       </div>
     </div>
   )
@@ -307,6 +315,7 @@ export default function PlayerModal({
   onHome,
   onProgress,
 }: PlayerModalProps) {
+  const { t } = useTranslation()
   const { notify, notifyError } = useToast()
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
@@ -377,7 +386,7 @@ export default function PlayerModal({
     try {
       text = await file.text()
     } catch {
-      notify('Erro ao ler o arquivo de legenda.', 'error')
+      notify(t('player.modal.subtitleReadError'), 'error')
       return
     }
 
@@ -781,7 +790,7 @@ export default function PlayerModal({
         // Streamer now has the torrent active — unblock <video src>.
         setServerReady(true)
       })
-      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || 'Falha ao iniciar stream') })
+      .catch(err => { if (!cancelled) setError(err?.response?.data?.error || err.message || t('player.modal.streamStartFailed')) })
       .finally(() => { if (!cancelled) setLoading(false) })
 
     // Check whether subtitles backend is configured
@@ -906,7 +915,7 @@ export default function PlayerModal({
       <div className="mt-3 text-[10px] text-text-muted font-mono space-y-0.5">
         <div>MediaError: <span className="text-yellow-400">{codeName}</span> {diag.errorMsg ? `· ${diag.errorMsg}` : ''}</div>
         <div>ready={diag.readyState ?? '—'} net={diag.networkState ?? '—'} {diag.isTranscoded ? '· transcode ON' : '· direct play'}{diag.transcodeFallbackAttempted ? ' · fallback tried' : ''}</div>
-        <div className="text-text-muted">Full log: filtre por "[player]" no console</div>
+        <div className="text-text-muted">{t('player.modal.fullLogHint')}</div>
       </div>
     )
   }
@@ -928,7 +937,7 @@ export default function PlayerModal({
           onClick={() => setVideoError(false)}
           className="mt-4 text-xs text-green-400 hover:underline"
         >
-          Tentar de novo
+          {t('player.modal.tryAgain')}
         </button>
       </div>
     )
@@ -1078,7 +1087,7 @@ export default function PlayerModal({
         setSubResults(data || [])
         setAutoSource('title')
       } catch (error_: any) {
-        setSubError(error_?.response?.data?.error || error_.message || 'Erro ao buscar legendas')
+        setSubError(error_?.response?.data?.error || error_.message || t('player.modal.subtitleSearchError'))
       }
     } finally {
       setSubLoading(false)
@@ -1801,21 +1810,21 @@ export default function PlayerModal({
             {/* Mobile (and tablet up to lg): full-width bar */}
             <button
               onClick={() => setSidebarOpen(true)}
-              title="Mostrar lista de arquivos"
+              title={t('player.modal.showFileList')}
               className="lg:hidden flex items-center justify-center gap-2 w-full px-4 py-2 border-t border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary text-xs flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4 rotate-90" />
-              Mostrar lista de arquivos ({aggregateMode ? playlist.items.length : pickerState.fileCount})
+              {t('player.modal.showFileListCount', { count: aggregateMode ? playlist.items.length : pickerState.fileCount })}
             </button>
             {/* lg+: vertical strip on the right edge */}
             <button
               onClick={() => setSidebarOpen(true)}
-              title="Mostrar lista de arquivos"
+              title={t('player.modal.showFileList')}
               className="hidden lg:flex flex-col items-center justify-center w-8 border-l border-default bg-surface-elevated hover:bg-surface-tertiary text-text-secondary hover:text-text-primary flex-shrink-0"
             >
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] [writing-mode:vertical-rl] rotate-180 mt-2">
-                Arquivos ({aggregateMode ? playlist.items.length : pickerState.fileCount})
+                {t('player.modal.filesCount', { count: aggregateMode ? playlist.items.length : pickerState.fileCount })}
               </span>
             </button>
           </>
@@ -1839,7 +1848,7 @@ export default function PlayerModal({
             minimized, which previously left the little card with NO way back to the
             full player. This bar restores the expand + close affordances. */}
         {minimized && (
-          <div ref={miniBarRef} className="flex flex-col flex-shrink-0 bg-surface/80 border-b border-default touch-pan-y" title="Arraste pra cima pra expandir">
+          <div ref={miniBarRef} className="flex flex-col flex-shrink-0 bg-surface/80 border-b border-default touch-pan-y" title={t('player.modal.dragUpToExpand')}>
             {/* Grabber — sinaliza arrastar-pra-expandir (igual ao bottom-sheet). Sem
                 onClick na faixa: no iOS um toque/arrasto disparava expand espúrio
                 ("vai pra local nenhum"); expandir é só pelo gesto swipe-up ou o botão. */}
@@ -1847,13 +1856,13 @@ export default function PlayerModal({
             <div className="flex items-center justify-between gap-2 px-2 py-1">
               <span className="text-[11px] text-text-primary truncate min-w-0 px-1" title={info?.name || result.title}>{info?.name || result.title}</span>
               <div className="flex items-center gap-0.5 flex-shrink-0">
-                <button onClick={(e) => { e.stopPropagation(); setMinimized(false) }} title="Expandir player" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
-                <button onClick={(e) => { e.stopPropagation(); onClose() }} title="Fechar" className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
+                <button onClick={(e) => { e.stopPropagation(); setMinimized(false) }} title={t('player.modal.expand')} className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><Maximize2 className="w-4 h-4" /></button>
+                <button onClick={(e) => { e.stopPropagation(); onClose() }} title={t('player.modal.close')} className="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/60"><X className="w-4 h-4" /></button>
               </div>
             </div>
           </div>
         )}
-        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo: () => setShowInfo(true), headerRef, fullViewport, onHome })}
+        {renderPlayerHeader({ minimized, info, result, isTranscoded, caps, encoderLabel, isFavorite, toggleFavorite, incognito, setIncognito, setMinimized, onClose, onShowInfo: () => setShowInfo(true), headerRef, fullViewport, onHome, t })}
         {!minimized && showInfo && info && renderTorrentInfoModal({
           info, result, isTranscoded, encoderLabel,
           onClose: () => setShowInfo(false),
@@ -1863,11 +1872,12 @@ export default function PlayerModal({
           setOverrideCategory,
           handleClassifyCategory,
           classifyingCat,
+          t,
         })}
         {/* Top playlist bar is hidden in audio mode: the AudioTransportBar below
             already carries prev/next/shuffle/repeat + position, so showing both
             duplicated the controls above AND below the play button. */}
-        {playlist && !audioMode && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance)}
+        {playlist && !audioMode && renderPlaylistBar(playlist, onPlaylistPrevious, onToggleShuffle, shuffle, onCycleRepeat, repeat, onPlaylistAdvance, t)}
 
         {/* Content. min-h-0 + flex-1 lets the inner active-stream block manage
             its own scroll regions (main column + sidebar) without the parent
@@ -1880,8 +1890,8 @@ export default function PlayerModal({
           {loading && !info && (
             <div className="flex flex-col items-center justify-center py-16 text-text-secondary">
               <Loader2 className="w-10 h-10 animate-spin mb-4 text-green-500" />
-              <p className="font-medium">Conectando ao swarm...</p>
-              <p className="text-xs text-text-muted mt-2">Primeira vez nesse torrent — buscando peers</p>
+              <p className="font-medium">{t('player.overlays.connectingSwarm')}</p>
+              <p className="text-xs text-text-muted mt-2">{t('player.modal.firstTimePeers')}</p>
             </div>
           )}
           {/* Slim inline indicator: cached file list visible, swarm still warming up.
@@ -1890,7 +1900,7 @@ export default function PlayerModal({
           {loading && info && !serverReady && (
             <div className="px-4 py-1.5 text-xs text-blue-700 dark:text-blue-300 bg-blue-500/10 border-b border-blue-500/30 flex items-center gap-2 flex-shrink-0">
               <Loader2 className="w-3 h-3 animate-spin" />
-              Metadados em cache — conectando ao swarm em segundo plano...
+              {t('player.modal.cachedMetaConnecting')}
             </div>
           )}
 
@@ -1899,11 +1909,11 @@ export default function PlayerModal({
             <div className="m-5 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
               <p className="flex items-center gap-2 text-red-400 font-medium">
                 <AlertCircle className="w-4 h-4" />
-                Erro ao iniciar stream
+                {t('player.modal.streamError')}
               </p>
               <p className="text-sm text-red-700 dark:text-red-300 mt-1">{error}</p>
               <p className="text-xs text-text-muted mt-3">
-                Causas comuns: torrent sem seeders, metadados não obtidos a tempo, ou magnet inválido.
+                {t('player.modal.streamErrorHint')}
               </p>
             </div>
           )}
@@ -1918,10 +1928,10 @@ export default function PlayerModal({
             <div className="m-5 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl transition-opacity">
               <p className="flex items-center gap-2 text-yellow-400 font-medium">
                 <AlertCircle className="w-4 h-4" />
-                Nenhum arquivo de vídeo encontrado
+                {t('player.modal.noVideoFile')}
               </p>
               <p className="text-xs text-text-muted mt-2">
-                Este torrent contém {info.files.length} arquivo(s) mas nenhum é de vídeo reconhecido (.mp4, .mkv, .avi, etc.)
+                {t('player.modal.noVideoDetail', { count: info.files.length })}
               </p>
             </div>
           )}

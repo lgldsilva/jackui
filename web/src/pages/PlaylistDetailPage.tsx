@@ -106,16 +106,16 @@ export default function PlaylistDetailPage() {
               <textarea
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                placeholder="Descrição (opcional)"
+                placeholder={t('playlists.description_placeholder')}
                 rows={2}
                 className="input-field text-sm"
               />
               <div className="flex gap-2">
                 <button onClick={saveMeta} className="btn-primary flex items-center gap-1.5">
-                  <Check className="w-4 h-4" /> Salvar
+                  <Check className="w-4 h-4" /> {t('playlists.save')}
                 </button>
                 <button onClick={() => { setEditing(false); setName(playlist.name); setDescription(playlist.description) }} className="btn-secondary">
-                  Cancelar
+                  {t('playlists.cancel')}
                 </button>
               </div>
             </>
@@ -137,7 +137,7 @@ export default function PlaylistDetailPage() {
                   </button>
                 )}
                 <button onClick={() => setEditing(true)} className="btn-secondary flex items-center gap-1.5">
-                  <Pencil className="w-4 h-4" /> Editar
+                  <Pencil className="w-4 h-4" /> {t('playlists.edit')}
                 </button>
               </div>
             </div>
@@ -147,8 +147,8 @@ export default function PlaylistDetailPage() {
         {items.length === 0 ? (
           <div className="card flex flex-col items-center justify-center gap-3 py-16 text-text-muted">
             <ListMusic className="w-12 h-12 text-text-muted" />
-            <p className="text-base font-medium text-text-secondary">Playlist vazia</p>
-            <p className="text-xs mt-2">Use &quot;Adicionar à playlist&quot; nos cards de busca pra adicionar torrents aqui.</p>
+            <p className="text-base font-medium text-text-secondary">{t('playlists.empty_playlist')}</p>
+            <p className="text-xs mt-2">{t('playlists.empty_playlist_hint')}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -172,8 +172,8 @@ export default function PlaylistDetailPage() {
                   <button
                     onClick={(e) => { e.stopPropagation(); moveTo(idx, idx - 1) }}
                     disabled={idx === 0}
-                    title="Mover para cima"
-                    aria-label="Mover para cima"
+                    title={t('playlists.move_up')}
+                    aria-label={t('playlists.move_up')}
                     className="flex items-center justify-center w-11 h-[22px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:hover:text-text-secondary"
                   >
                     <ChevronUp className="w-4 h-4" />
@@ -181,8 +181,8 @@ export default function PlaylistDetailPage() {
                   <button
                     onClick={(e) => { e.stopPropagation(); moveTo(idx, idx + 1) }}
                     disabled={idx === items.length - 1}
-                    title="Mover para baixo"
-                    aria-label="Mover para baixo"
+                    title={t('playlists.move_down')}
+                    aria-label={t('playlists.move_down')}
                     className="flex items-center justify-center w-11 h-[22px] text-text-secondary hover:text-text-primary disabled:opacity-30 disabled:hover:text-text-secondary"
                   >
                     <ChevronDown className="w-4 h-4" />
@@ -208,16 +208,16 @@ export default function PlaylistDetailPage() {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); startAt(idx) }}
-                  title="Reproduzir a partir deste item"
-                  aria-label="Reproduzir a partir deste item"
+                  title={t('playlists.play_from_here')}
+                  aria-label={t('playlists.play_from_here')}
                   className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-green-400 hover:text-green-500 dark:hover:text-green-300 flex-shrink-0"
                 >
                   <Play className="w-4 h-4" />
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); removeItem(it) }}
-                  title="Remover da playlist"
-                  aria-label="Remover da playlist"
+                  title={t('playlists.remove_item')}
+                  aria-label={t('playlists.remove_item')}
                   className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-text-muted hover:text-red-400 flex-shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -231,8 +231,8 @@ export default function PlaylistDetailPage() {
   } else {
     mainContent = (
       <div className="text-center py-20 text-text-muted">
-        <p>Playlist não encontrada</p>
-        <Link to="/playlists" className="text-green-400 mt-2 inline-block">Voltar</Link>
+        <p>{t('playlists.not_found')}</p>
+        <Link to="/playlists" className="text-green-400 mt-2 inline-block">{t('playlists.back')}</Link>
       </div>
     )
   }
@@ -248,10 +248,10 @@ export default function PlaylistDetailPage() {
         <button
           onClick={() => nav('/playlists')}
           className="self-start flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
-          title="Voltar para playlists"
+          title={t('playlists.back_to_playlists')}
         >
           <ArrowLeft className="w-4 h-4" />
-          Voltar para playlists
+          {t('playlists.back_to_playlists')}
         </button>
         {mainContent}
       </main>

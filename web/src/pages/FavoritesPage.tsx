@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff, RefreshCw } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
@@ -80,12 +82,11 @@ async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW
   return { ok, fails }
 }
 
-function buildImportMsg(ok: number, failCount: number, firstFail: string | undefined, suffix: string): { kind: 'ok' | 'err'; text: string } {
+function buildImportMsg(ok: number, failCount: number, firstFail: string | undefined, suffix: string, t: TFunction): { kind: 'ok' | 'err'; text: string } {
   if (failCount === 0) {
-    const plural = ok === 1 ? '' : 's'
-    return { kind: 'ok', text: `${ok} torrent${plural} importado${plural}${suffix}` }
+    return { kind: 'ok', text: t('favorites.importedOk', { count: ok, suffix }) }
   }
-  return { kind: 'err', text: `${ok} ok, ${failCount} falha(s): ${firstFail}${suffix}` }
+  return { kind: 'err', text: t('favorites.importedErr', { ok, fails: failCount, first: firstFail, suffix }) }
 }
 
 type TreeProps = {
@@ -106,6 +107,7 @@ type TreeProps = {
 }
 
 function FolderTree(p: TreeProps) {
+  const { t } = useTranslation()
   return (
     <ul className="flex flex-col gap-0.5">
       {p.nodes.map(node => {
@@ -136,7 +138,7 @@ function FolderTree(p: TreeProps) {
                 <span className="w-3" />
               )}
               {isOpen ? <FolderOpen className="w-3.5 h-3.5 text-pink-400" /> : <Folder className="w-3.5 h-3.5 text-text-muted" />}
-              {node.folder.hidden && <EyeOff className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label="pasta oculta" />}
+              {node.folder.hidden && <EyeOff className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label={t('favorites.folderHiddenAria')} />}
               {isEditing ? (
                 <input
                   autoFocus
@@ -159,16 +161,16 @@ function FolderTree(p: TreeProps) {
                 </button>
               )}
               <div className="max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
-                <button onClick={() => p.onCreateSub(node.folder.id)} title="Subpasta" className="p-0.5 text-text-muted hover:text-text-primary">
+                <button onClick={() => p.onCreateSub(node.folder.id)} title={t('favorites.subfolder')} className="p-0.5 text-text-muted hover:text-text-primary">
                   <FolderPlus className="w-3 h-3" />
                 </button>
-                <button onClick={() => p.onStartEdit(node.folder.id)} title="Renomear" className="p-0.5 text-text-muted hover:text-text-primary">
+                <button onClick={() => p.onStartEdit(node.folder.id)} title={t('favorites.rename')} className="p-0.5 text-text-muted hover:text-text-primary">
                   <Pencil className="w-3 h-3" />
                 </button>
-                <button onClick={() => p.onToggleHidden(node.folder.id, !node.folder.hidden)} title={node.folder.hidden ? 'Mostrar pasta' : 'Ocultar pasta'} className="p-0.5 text-text-muted hover:text-amber-400">
+                <button onClick={() => p.onToggleHidden(node.folder.id, !node.folder.hidden)} title={node.folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-0.5 text-text-muted hover:text-amber-400">
                   {node.folder.hidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                 </button>
-                <button onClick={() => p.onDelete(node.folder.id)} title="Excluir" className="p-0.5 text-text-muted hover:text-red-400">
+                <button onClick={() => p.onDelete(node.folder.id)} title={t('favorites.delete')} className="p-0.5 text-text-muted hover:text-red-400">
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
@@ -191,30 +193,30 @@ function rootFolderClass(viewMode: number | null, dropOnRoot: boolean): string {
   return 'text-text-primary hover:bg-surface-secondary border border-transparent'
 }
 
-function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteFolder[]): string {
-  if (viewMode === ALL_VIEW) return 'Todos os favoritos'
-  if (viewMode === null) return 'Sem pasta'
-  return folders.find(f => f.id === viewMode)?.name || 'Favoritos'
+function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteFolder[], t: TFunction): string {
+  if (viewMode === ALL_VIEW) return t('favorites.allFavorites')
+  if (viewMode === null) return t('favorites.noFolder')
+  return folders.find(f => f.id === viewMode)?.name || t('favorites.fallbackTitle')
 }
 
-function renderFavsContent(loading: boolean, error: string, filteredFavs: StreamFavorite[], viewMode: number | null, ALL_VIEW: number, _folders: FavoriteFolder[]): JSX.Element | null {
+function renderFavsContent(loading: boolean, error: string, filteredFavs: StreamFavorite[], viewMode: number | null, ALL_VIEW: number, _folders: FavoriteFolder[], t: TFunction): JSX.Element | null {
   if (loading) {
     return <div className="flex items-center justify-center py-20 text-text-muted">
       <Loader2 className="w-8 h-8 animate-spin" />
     </div>
   }
   if (error) {
-    return <div className="card text-red-400 text-sm">Erro: {error}</div>
+    return <div className="card text-red-400 text-sm">{t('favorites.errorLabel', { error })}</div>
   }
   if (filteredFavs.length === 0) {
     const insideFolder = viewMode !== ALL_VIEW
     return <div className="flex flex-col items-center justify-center py-20 text-text-muted">
       <Heart className="w-16 h-16 mb-4 opacity-30" />
-      <p className="text-xl font-medium">Nenhum favorito {insideFolder ? 'nessa pasta' : 'ainda'}</p>
+      <p className="text-xl font-medium">{insideFolder ? t('favorites.emptyInFolder') : t('favorites.emptyNone')}</p>
       <p className="text-sm mt-2 text-center max-w-md">
         {viewMode === ALL_VIEW
-          ? 'Abra um torrent no player e clique no ♥ no canto superior.'
-          : 'Arraste favoritos da view "Todos" pra esta pasta.'}
+          ? t('favorites.emptyHintAll')
+          : t('favorites.emptyHintFolder')}
       </p>
     </div>
   }
@@ -222,6 +224,7 @@ function renderFavsContent(loading: boolean, error: string, filteredFavs: Stream
 }
 
 export default function FavoritesPage() {
+  const { t } = useTranslation()
   const { isAdmin } = useAuth()
   const [favs, setFavs] = useState<StreamFavorite[]>([])
   const [folders, setFolders] = useState<FavoriteFolder[]>([])
@@ -380,14 +383,7 @@ export default function FavoritesPage() {
     }
     setImporting(false)
     setMagnetInput('')
-    let msg: { kind: 'ok' | 'err'; text: string }
-    if (fails.length === 0) {
-      const plural = ok === 1 ? '' : 's'
-      msg = { kind: 'ok', text: `${ok} torrent${plural} importado${plural}` }
-    } else {
-      msg = { kind: 'err', text: `${ok} ok, ${fails.length} falha(s): ${fails[0]}` }
-    }
-    setImportMsg(msg)
+    setImportMsg(buildImportMsg(ok, fails.length, fails[0], '', t))
     await load()
   }
 
@@ -395,21 +391,20 @@ export default function FavoritesPage() {
     const torrents = files.filter(f => f.name.toLowerCase().endsWith('.torrent'))
     const skipped = files.length - torrents.length
     if (torrents.length === 0) {
-      setImportMsg({ kind: 'err', text: 'Selecione ao menos um arquivo .torrent' })
+      setImportMsg({ kind: 'err', text: t('favorites.selectAtLeastOne') })
       return
     }
     setImporting(true)
     setImportMsg(null)
     const { ok, fails } = await importTorrentB64(torrents, viewMode, ALL_VIEW)
     setImporting(false)
-    const pluralSuffix = skipped === 1 ? '' : 's'
-    const suffix = skipped > 0 ? ` (${skipped} ignorado${pluralSuffix} — não .torrent)` : ''
-    setImportMsg(buildImportMsg(ok, fails.length, fails[0], suffix))
+    const suffix = skipped > 0 ? t('favorites.importSkippedSuffix', { count: skipped }) : ''
+    setImportMsg(buildImportMsg(ok, fails.length, fails[0], suffix, t))
     await load()
   }
 
   const handleRemove = async (name: string) => {
-    const ok = await confirm({ title: 'Remover favorito', message: `Remover "${name}" dos favoritos?`, confirmLabel: 'Remover', destructive: true })
+    const ok = await confirm({ title: t('favorites.removeTitle'), message: t('favorites.removeMessage', { name }), confirmLabel: t('favorites.removeConfirm'), destructive: true })
     if (!ok) return
     await favoriteRemove(name)
     setFavs(favs.filter(f => f.name !== name))
@@ -437,7 +432,7 @@ export default function FavoritesPage() {
 
   const playFavorite = (f: StreamFavorite) => {
     if (!favHasValidMagnet(f)) {
-      notify('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.', 'error')
+      notify(t('favorites.magnetInvalidPlay'), 'error')
       return
     }
     playSingle(favToResult(f))
@@ -447,7 +442,7 @@ export default function FavoritesPage() {
   // como na busca. Antes baixava o torrent inteiro direto, sem perguntar nada.
   const downloadFavorite = (fav: StreamFavorite) => {
     if (!favHasValidMagnet(fav)) {
-      notify('Magnet inválido nesse favorito. Refavorite via busca para reabilitar o download.', 'error')
+      notify(t('favorites.magnetInvalidDownload'), 'error')
       return
     }
     setDownloadTarget(favToResult(fav))
@@ -455,14 +450,14 @@ export default function FavoritesPage() {
 
   const openContents = (f: StreamFavorite) => {
     if (!favHasValidMagnet(f)) {
-      notify('Magnet inválido nesse favorito. Refavorite via busca para reabilitar Play.', 'error')
+      notify(t('favorites.magnetInvalidPlay'), 'error')
       return
     }
     setContentsTarget(favToResult(f))
   }
 
   const handleCreateSub = async (parentId: number) => {
-    const name = prompt('Nome da subpasta:')
+    const name = prompt(t('favorites.promptSubfolderName'))
     if (!name) return
     const f = await folderCreate(name, parentId)
     setFolders([...folders, f])
@@ -479,7 +474,7 @@ export default function FavoritesPage() {
 
   const handleDeleteFolder = async (id: number) => {
     const target = folders.find(f => f.id === id)
-    const ok = await confirm({ title: 'Excluir pasta', message: `Excluir pasta "${target?.name}"? Favoritos dentro voltam pra raiz.`, confirmLabel: 'Excluir', destructive: true })
+    const ok = await confirm({ title: t('favorites.deleteFolderTitle'), message: t('favorites.deleteFolderMessage', { name: target?.name }), confirmLabel: t('favorites.delete'), destructive: true })
     if (!ok) return
     await folderDelete(id)
     setFolders(folders.filter(f => f.id !== id))
@@ -498,13 +493,13 @@ export default function FavoritesPage() {
   // Versões prompt-based pro sheet do mobile (sem a sidebar/edição inline do
   // desktop): criar pasta raiz e renomear via prompt nativo (usável no iOS).
   const handleCreateRootPrompt = async () => {
-    const name = prompt('Nome da nova pasta:')?.trim()
+    const name = prompt(t('favorites.promptNewFolderName'))?.trim()
     if (!name) return
     const f = await folderCreate(name, null)
     setFolders([...folders, f])
   }
   const handleRenamePrompt = (folder: FavoriteFolder) => {
-    const name = prompt('Renomear pasta:', folder.name)
+    const name = prompt(t('favorites.promptRenameFolder'), folder.name)
     if (name != null) void handleRename(folder.id, name)
   }
 
@@ -538,12 +533,12 @@ export default function FavoritesPage() {
         {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
         <aside className="w-64 flex-shrink-0 hidden md:block">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs uppercase tracking-wider text-text-muted cursor-default select-none" title={revealHidden ? 'Pastas ocultas visíveis' : undefined}>
-              Pastas{revealHidden && <Eye className="inline w-3 h-3 ml-1 text-amber-400" aria-label="ocultas visíveis" />}
+            <h2 className="text-xs uppercase tracking-wider text-text-muted cursor-default select-none" title={revealHidden ? t('favorites.hiddenFoldersVisible') : undefined}>
+              {t('favorites.folders')}{revealHidden && <Eye className="inline w-3 h-3 ml-1 text-amber-400" aria-label={t('favorites.hiddenVisibleAria')} />}
             </h2>
             <button
               onClick={() => setCreatingRoot(true)}
-              title="Nova pasta"
+              title={t('favorites.newFolder')}
               className="p-1 text-text-muted hover:text-pink-400"
             >
               <FolderPlus className="w-4 h-4" />
@@ -561,7 +556,7 @@ export default function FavoritesPage() {
                 }`}
               >
                 <Heart className="w-3.5 h-3.5 fill-current" />
-                Todos
+                {t('favorites.all')}
                 <span className="ml-auto text-[10px] text-text-muted">{favs.length}</span>
               </button>
             </li>
@@ -579,7 +574,7 @@ export default function FavoritesPage() {
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${rootFolderClass(viewMode, dropOnRoot)}`}
               >
                 <Inbox className="w-3.5 h-3.5" />
-                Sem pasta
+                {t('favorites.noFolder')}
                 <span className="ml-auto text-[10px] text-text-muted">{favs.filter(f => f.folderId == null).length}</span>
               </button>
             </li>
@@ -591,7 +586,7 @@ export default function FavoritesPage() {
               <input
                 ref={newFolderInput}
                 autoFocus
-                placeholder="Nome da pasta"
+                placeholder={t('favorites.folderNamePlaceholder')}
                 onBlur={handleCreateRoot}
                 onKeyDown={e => {
                   if (e.key === 'Enter') handleCreateRoot()
@@ -633,21 +628,21 @@ export default function FavoritesPage() {
             className="md:hidden w-full flex items-center gap-2 px-3 min-h-[44px] mb-3 rounded-lg bg-surface-secondary border border-default text-sm text-text-primary"
           >
             <Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />
-            <span className="truncate flex-1 text-left">{pageTitle(viewMode, ALL_VIEW, folders)}</span>
+            <span className="truncate flex-1 text-left">{pageTitle(viewMode, ALL_VIEW, folders, t)}</span>
             <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />
           </button>
           <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
             <div className="flex items-center gap-3">
               <Heart className="w-5 h-5 text-pink-400 fill-current" />
-              <h1 className="text-lg font-semibold text-text-primary">{pageTitle(viewMode, ALL_VIEW, folders)}</h1>
+              <h1 className="text-lg font-semibold text-text-primary">{pageTitle(viewMode, ALL_VIEW, folders, t)}</h1>
               {!loading && (
                 <span className="text-xs text-text-muted bg-surface-secondary border border-default px-2 py-0.5 rounded-full">
-                  {filteredFavs.length} item{filteredFavs.length === 1 ? '' : 's'}
+                  {t('favorites.itemCount', { count: filteredFavs.length })}
                 </span>
               )}
               {isAdmin && (
                 <span className="text-[10px] uppercase bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded">
-                  Admin · vê todos
+                  {t('favorites.adminSeesAll')}
                 </span>
               )}
             </div>
@@ -656,11 +651,11 @@ export default function FavoritesPage() {
                 <button
                   onClick={refreshSeeds}
                   disabled={seedRefreshing}
-                  title="Reverificar seeds de todos os favoritos nesta visão"
+                  title={t('favorites.refreshSeedsTooltip')}
                   className="flex items-center gap-1.5 text-xs bg-surface-secondary hover:bg-surface-tertiary text-text-primary border border-default px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${seedRefreshing ? 'animate-spin' : ''}`} />
-                  Atualizar seeds
+                  {t('favorites.refreshSeeds')}
                 </button>
               )}
               <button
@@ -668,9 +663,9 @@ export default function FavoritesPage() {
                 className="flex items-center gap-1.5 text-xs bg-pink-500/15 hover:bg-pink-500/25 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-1.5 rounded-lg transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
-                Importar torrent
+                {t('favorites.importTorrent')}
               </button>
-              <p className="text-xs text-text-muted hidden lg:block">Arraste favoritos pra pastas na lateral pra organizar.</p>
+              <p className="text-xs text-text-muted hidden lg:block">{t('favorites.dragHint')}</p>
             </div>
           </div>
 
@@ -682,7 +677,7 @@ export default function FavoritesPage() {
                 type="text"
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); setVisible(PAGE_SIZE) }}
-                placeholder="Buscar nos favoritos…"
+                placeholder={t('favorites.searchPlaceholder')}
                 className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary focus:outline-none focus:border-pink-500"
               />
               {searchQuery && (
@@ -711,15 +706,15 @@ export default function FavoritesPage() {
                 }
               }}
               className="flex items-center gap-1.5 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-3 py-2 rounded-lg transition-colors flex-shrink-0"
-              title={selected.size === filteredFavs.length ? 'Desmarcar todos' : 'Selecionar todos'}
+              title={selected.size === filteredFavs.length ? t('favorites.deselectAll') : t('favorites.selectAll')}
             >
               {selected.size === filteredFavs.length ? <Square className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
-              {selected.size === filteredFavs.length ? 'Limpar' : 'Selecionar'}
+              {selected.size === filteredFavs.length ? t('favorites.clear') : t('favorites.select')}
             </button>
           </div>
 
           {(() => {
-            const fallback = renderFavsContent(loading, error, filteredFavs, viewMode, ALL_VIEW, folders)
+            const fallback = renderFavsContent(loading, error, filteredFavs, viewMode, ALL_VIEW, folders, t)
             if (fallback) return fallback
             const shown = filteredFavs.slice(0, visible)
             return <>
@@ -745,7 +740,7 @@ export default function FavoritesPage() {
                     checked={selected.has(fav.name)}
                     onChange={() => toggleSelected(fav.name)}
                     onClick={e => e.stopPropagation()}
-                    title="Selecionar"
+                    title={t('favorites.select')}
                     className={`absolute top-2 left-2 z-10 w-4 h-4 accent-green-500 cursor-pointer ${
                       selected.size > 0 ? 'opacity-100' : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100'
                     }`}
@@ -759,7 +754,7 @@ export default function FavoritesPage() {
                     </h3>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRemove(fav.name) }}
-                      title="Remover dos favoritos"
+                      title={t('favorites.removeFromFavorites')}
                       className="text-text-muted hover:text-red-400 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex-shrink-0"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -777,7 +772,7 @@ export default function FavoritesPage() {
                         ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30'
                         : 'bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-500/30'
                     }`}>
-                      {fav.reason === 'auto-5min' ? 'Auto (5min)' : 'Manual'}
+                      {fav.reason === 'auto-5min' ? t('favorites.autoReason') : t('favorites.manualReason')}
                     </span>
                     {fav.folderId != null && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-secondary text-text-secondary border border-default flex items-center gap-1">
@@ -791,7 +786,7 @@ export default function FavoritesPage() {
                     <button
                       onClick={e => { e.stopPropagation(); playFavorite(fav) }}
                       disabled={!fav.magnet}
-                      title={fav.magnet ? 'Play (usa magnet salvo)' : 'Magnet não salvo — refavorite'}
+                      title={fav.magnet ? t('favorites.playTooltip') : t('favorites.magnetNotSaved')}
                       className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg flex-1 justify-center transition-colors ${
                         fav.magnet
                           ? 'bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border border-green-500/30'
@@ -799,14 +794,14 @@ export default function FavoritesPage() {
                       }`}
                     >
                       <Play className="w-3.5 h-3.5" />
-                      Play
+                      {t('favorites.play')}
                     </button>
                     {/* Baixar — abre o modal unificado (destino + seleção de
                         arquivos/árvore), igual à busca/histórico. */}
                     <button
                       onClick={e => { e.stopPropagation(); downloadFavorite(fav) }}
                       disabled={!fav.magnet}
-                      title="Baixar (escolher destino e arquivos)"
+                      title={t('favorites.downloadTooltip')}
                       className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
                         fav.magnet
                           ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30'
@@ -820,7 +815,7 @@ export default function FavoritesPage() {
                     <button
                       onClick={e => { e.stopPropagation(); openContents(fav) }}
                       disabled={!fav.magnet}
-                      title="Ver conteúdo e detalhes"
+                      title={t('favorites.contentsTooltip')}
                       className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
                         fav.magnet
                           ? 'bg-surface-tertiary/40 hover:bg-surface-tertiary/70 text-text-primary border border-default'
@@ -837,10 +832,10 @@ export default function FavoritesPage() {
                         value={fav.folderId ?? ''}
                         onClick={e => e.stopPropagation()}
                         onChange={e => handleDropOnFolder(e.target.value === '' ? null : Number(e.target.value), fav.name)}
-                        title="Mover para pasta"
+                        title={t('favorites.moveToFolder')}
                         className="text-xs px-2 py-1.5 rounded-lg bg-surface-tertiary/40 text-text-primary border border-default focus:outline-none focus:border-green-500 cursor-pointer max-w-[45%]"
                       >
-                        <option value="">Raiz (sem pasta)</option>
+                        <option value="">{t('favorites.rootNoFolder')}</option>
                         {folders.map(f => (
                           <option key={f.id} value={f.id}>{f.name}</option>
                         ))}
@@ -853,11 +848,11 @@ export default function FavoritesPage() {
               {visible < filteredFavs.length && (
                 <div ref={sentinelRef} className="h-12 flex items-center justify-center text-text-muted text-xs">
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  Carregando mais…
+                  {t('favorites.loadingMore')}
                 </div>
               )}
               {visible >= filteredFavs.length && filteredFavs.length > PAGE_SIZE && (
-                <p className="text-center text-text-muted text-xs py-4">Todos os {filteredFavs.length} itens carregados.</p>
+                <p className="text-center text-text-muted text-xs py-4">{t('favorites.allItemsLoaded', { count: filteredFavs.length })}</p>
               )}
             </>
           })()}
@@ -874,10 +869,10 @@ export default function FavoritesPage() {
         icon={<Download className="w-4 h-4 text-pink-400 flex-shrink-0" />}
         title={
           <>
-            Importar torrent
+            {t('favorites.importTorrent')}
             {viewMode !== ALL_VIEW && (
               <span className="text-[10px] text-text-secondary font-normal ml-1">
-                → {folders.find(f => f.id === viewMode)?.name || 'pasta'}
+                → {folders.find(f => f.id === viewMode)?.name || t('favorites.folderFallback')}
               </span>
             )}
           </>
@@ -886,7 +881,7 @@ export default function FavoritesPage() {
         <div className="flex flex-col gap-4">
           {/* Magnet textarea — one per line for batch */}
           <div>
-            <label htmlFor="import-magnet" className="text-xs text-text-secondary mb-1 block">Magnet link (um por linha pra importar vários)</label>
+            <label htmlFor="import-magnet" className="text-xs text-text-secondary mb-1 block">{t('favorites.magnetLinkLabel')}</label>
             <textarea
               id="import-magnet"
               value={magnetInput}
@@ -901,12 +896,12 @@ export default function FavoritesPage() {
               className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
             >
               {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              Importar magnet{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
+              {t('favorites.importMagnet')}{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
             </button>
           </div>
 
           <div className="flex items-center gap-2 text-[10px] text-text-muted uppercase tracking-wider">
-            <div className="flex-1 h-px bg-surface-tertiary" /> ou <div className="flex-1 h-px bg-surface-tertiary" />
+            <div className="flex-1 h-px bg-surface-tertiary" /> {t('favorites.or')} <div className="flex-1 h-px bg-surface-tertiary" />
           </div>
 
           {/* .torrent dropzone */}
@@ -924,7 +919,7 @@ export default function FavoritesPage() {
             }`}
           >
             <UploadCloud className="w-7 h-7 text-text-muted" />
-            <span className="text-sm text-text-secondary">Arraste arquivos .torrent ou clique pra escolher (vários)</span>
+            <span className="text-sm text-text-secondary">{t('favorites.dropzoneHint')}</span>
             <input
               type="file"
               accept=".torrent"
@@ -945,14 +940,14 @@ export default function FavoritesPage() {
         {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-surface-secondary border border-default rounded-full shadow-2xl px-4 py-2 safe-bottom">
-          <span className="text-sm text-text-primary whitespace-nowrap">{selected.size} selecionado{selected.size === 1 ? '' : 's'}</span>
+          <span className="text-sm text-text-primary whitespace-nowrap">{t('favorites.selectedCount', { count: selected.size })}</span>
           <select
             defaultValue=""
             onChange={e => { moveSelectedToFolder(e.target.value === '' ? null : Number(e.target.value)); e.target.value = '' }}
             className="bg-surface border border-default rounded-lg text-sm text-text-primary px-2 py-1 focus:outline-none focus:border-green-500"
           >
-            <option value="" disabled>Mover para…</option>
-            <option value="">Raiz (sem pasta)</option>
+            <option value="" disabled>{t('favorites.moveTo')}</option>
+            <option value="">{t('favorites.rootNoFolder')}</option>
             {folders.map(f => (
               <option key={f.id} value={f.id}>{f.name}</option>
             ))}
@@ -960,19 +955,19 @@ export default function FavoritesPage() {
           <button
             onClick={async () => {
               const names = [...selected]
-              const ok = await confirm({ title: 'Excluir favoritos', message: `Remover ${names.length} favorito${names.length === 1 ? '' : 's'} selecionado${names.length === 1 ? '' : 's'}?`, confirmLabel: 'Excluir', destructive: true })
+              const ok = await confirm({ title: t('favorites.deleteSelectedTitle'), message: t('favorites.deleteSelectedMessage', { count: names.length }), confirmLabel: t('favorites.delete'), destructive: true })
               if (!ok) return
               await Promise.all(names.map(n => favoriteRemove(n).catch(() => {})))
               setFavs(favs.filter(f => !selected.has(f.name)))
               clearSelection()
             }}
             className="flex items-center gap-1 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 px-2 py-1"
-            title="Excluir selecionados"
+            title={t('favorites.deleteSelectedTooltip')}
           >
             <Trash2 className="w-3.5 h-3.5" />
-            Excluir
+            {t('favorites.delete')}
           </button>
-          <button onClick={clearSelection} title="Limpar seleção" className="text-text-secondary hover:text-text-primary">
+          <button onClick={clearSelection} title={t('favorites.clearSelection')} className="text-text-secondary hover:text-text-primary">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -993,7 +988,7 @@ export default function FavoritesPage() {
       <Sheet
         open={folderSheetOpen}
         onClose={() => setFolderSheetOpen(false)}
-        title={<>Pastas{revealHidden && <Eye className="inline w-3.5 h-3.5 ml-1 text-amber-400" aria-label="ocultas visíveis" />}</>}
+        title={<>{t('favorites.folders')}{revealHidden && <Eye className="inline w-3.5 h-3.5 ml-1 text-amber-400" aria-label={t('favorites.hiddenVisibleAria')} />}</>}
         icon={<Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />}
         size="sm"
       >
@@ -1004,7 +999,7 @@ export default function FavoritesPage() {
           className="w-full flex items-center justify-center gap-2 mb-2 px-3 min-h-[44px] rounded-lg text-sm bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30 hover:bg-pink-500/25 transition-colors"
         >
           <FolderPlus className="w-4 h-4 flex-shrink-0" />
-          Nova pasta
+          {t('favorites.newFolder')}
         </button>
         <ul className="flex flex-col gap-1">
           <li>
@@ -1015,7 +1010,7 @@ export default function FavoritesPage() {
               }`}
             >
               <Heart className="w-4 h-4 fill-current flex-shrink-0" />
-              <span className="flex-1 text-left">Todos</span>
+              <span className="flex-1 text-left">{t('favorites.all')}</span>
               <span className="text-[10px] text-text-muted">{favs.length}</span>
             </button>
           </li>
@@ -1027,7 +1022,7 @@ export default function FavoritesPage() {
               }`}
             >
               <Inbox className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1 text-left">Sem pasta</span>
+              <span className="flex-1 text-left">{t('favorites.noFolder')}</span>
               <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId == null).length}</span>
             </button>
           </li>
@@ -1044,21 +1039,21 @@ export default function FavoritesPage() {
               >
                 <Folder className="w-4 h-4 text-text-muted flex-shrink-0" />
                 <span className="flex-1 text-left truncate">{folder.name}</span>
-                {folder.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label="pasta oculta" />}
+                {folder.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('favorites.folderHiddenAria')} />}
                 <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId === folder.id).length}</span>
               </button>
               {/* Ações da categoria — ocultar / subpasta / renomear / excluir.
                   Pastas ocultas só aparecem aqui com o modo revelado ativo. */}
-              <button onClick={() => void handleToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? 'Mostrar pasta' : 'Ocultar pasta'} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
+              <button onClick={() => void handleToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
                 {folder.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
               </button>
-              <button onClick={() => void handleCreateSub(folder.id)} title="Nova subpasta" className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
+              <button onClick={() => void handleCreateSub(folder.id)} title={t('favorites.newSubfolder')} className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
                 <FolderPlus className="w-4 h-4" />
               </button>
-              <button onClick={() => handleRenamePrompt(folder)} title="Renomear" className="p-2 text-text-muted hover:text-text-primary flex-shrink-0">
+              <button onClick={() => handleRenamePrompt(folder)} title={t('favorites.rename')} className="p-2 text-text-muted hover:text-text-primary flex-shrink-0">
                 <Pencil className="w-4 h-4" />
               </button>
-              <button onClick={() => void handleDeleteFolder(folder.id)} title="Excluir" className="p-2 pr-3 text-text-muted hover:text-red-400 flex-shrink-0">
+              <button onClick={() => void handleDeleteFolder(folder.id)} title={t('favorites.delete')} className="p-2 pr-3 text-text-muted hover:text-red-400 flex-shrink-0">
                 <Trash2 className="w-4 h-4" />
               </button>
             </li>
