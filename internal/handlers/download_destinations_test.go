@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 func testDestService() *DestinationService {
@@ -14,7 +15,7 @@ func testDestService() *DestinationService {
 			{Name: "Alice only", Path: "/mnt/alice", AllowedUsers: []string{"alice"}},
 			{Name: "Per-user", Path: "/mnt/home", UserSubpath: true},
 		},
-		Promote:   []PromoteDest{{Name: "Extra", Path: "/mnt/extra"}},
+		Promote:   []httpshared.PromoteDest{{Name: "Extra", Path: "/mnt/extra"}},
 		SharedDir: "/shared",
 		ResolveUser: func(id int) string {
 			if id == 1 {

@@ -14,6 +14,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
@@ -26,11 +27,6 @@ type hlsCtx struct {
 	h       metainfo.Hash
 	fileIdx int
 }
-
-// hlsVODSegDur must match transcode.hlsSegDur — the segment length the encoder
-// targets with forced keyframes. The synthesised playlist declares each
-// segment as this long so Safari's timeline (sum of EXTINF) matches the media.
-const hlsVODSegDur = 4
 
 // mediaSegQuery builds the query string appended to each segment URL. It
 // carries the token (so <video> can authenticate) and, when set, the native_hls
@@ -51,10 +47,6 @@ func mediaSegQuery(token string, nativeHLS bool) string {
 	}
 	return q
 }
-
-// nativeHLSParam reads the client-class flag the frontend appends to HLS URLs
-// (1 = Safari/iOS native HLS). Drives the VOD policy + session keying.
-func nativeHLSParam(c *gin.Context) bool { return c.Query("native_hls") == "1" }
 
 // withSegAudio anexa `audio=<n>` a cada linha de SEGMENTO da playlist quando o
 // cliente escolheu uma faixa de áudio. Assim as requisições de segmento carregam
@@ -86,7 +78,7 @@ func withSegAudio(data []byte, audio string) []byte {
 // treating the stream as headless LIVE. Segments the encoder hasn't produced
 // yet are generated on demand (seek-restart) when the player requests them.
 func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte {
-	n := int(math.Ceil(durationSec / hlsVODSegDur))
+	n := int(math.Ceil(durationSec / httpshared.HLSVODSegDur))
 	if n < 1 {
 		n = 1
 	}
@@ -96,14 +88,14 @@ func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte 
 	b.WriteString("#EXT-X-VERSION:6\n")
 	// TARGETDURATION must be >= the longest EXTINF; segments are ~4s but allow
 	// slack for the trailing partial segment and minor keyframe rounding.
-	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", hlsVODSegDur+1)
+	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", httpshared.HLSVODSegDur+1)
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
 	b.WriteString("#EXT-X-PLAYLIST-TYPE:VOD\n")
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
 	for i := 0; i < n; i++ {
-		d := float64(hlsVODSegDur)
+		d := float64(httpshared.HLSVODSegDur)
 		if i == n-1 {
-			if last := durationSec - float64(i*hlsVODSegDur); last > 0 && last < d {
+			if last := durationSec - float64(i*httpshared.HLSVODSegDur); last > 0 && last < d {
 				d = last
 			}
 		}
@@ -155,12 +147,12 @@ func hlsSessionKey(h metainfo.Hash, fileIdx, audioTrack int) string {
 }
 
 func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
-	audioTrack := parseIntOr(hc.c.Query("audio"), -1)
+	audioTrack := httpshared.ParseIntOr(hc.c.Query("audio"), -1)
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
 		Key:        hlsSessionKey(hc.h, hc.fileIdx, audioTrack),
 		Source:     source,
 		SourceSize: sourceSize,
-		NativeHLS:  nativeHLSParam(hc.c),
+		NativeHLS:  httpshared.NativeHLSParam(hc.c),
 		// A fully-downloaded torrent (served from the completed path on disk) is
 		// complete & seekable — same VOD case as a local file. An in-progress
 		// stream stays under the global vodMode (#61 Safari seek guard).
@@ -176,17 +168,17 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 
 func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
 	if sess.IsVOD() {
-		c.Header(CacheControl, CacheNoStore)
-		c.Data(http.StatusOK, MIMEMPEGURL,
-			withSegAudio(buildVODPlaylist(sess.DurationSec, c.Query("token"), nativeHLSParam(c)), c.Query("audio")))
+		c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
+		c.Data(http.StatusOK, httpshared.MIMEMPEGURL,
+			withSegAudio(buildVODPlaylist(sess.DurationSec, c.Query("token"), httpshared.NativeHLSParam(c)), c.Query("audio")))
 		return
 	}
 	data := readEventPlaylist(c, sess)
 	if data == nil {
 		return
 	}
-	c.Header(CacheControl, CacheNoStore)
-	c.Data(http.StatusOK, MIMEMPEGURL, data)
+	c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
+	c.Data(http.StatusOK, httpshared.MIMEMPEGURL, data)
 }
 
 func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
@@ -195,7 +187,7 @@ func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
 		return nil
 	}
-	if q := mediaSegQuery(c.Query("token"), nativeHLSParam(c)); q != "" {
+	if q := mediaSegQuery(c.Query("token"), httpshared.NativeHLSParam(c)); q != "" {
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			trim := strings.TrimSpace(line)
@@ -226,8 +218,8 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 		if sess == nil {
 			return
 		}
-		ensureVODSegment(sess, segName)
-		serveSegment(c, sess, segName)
+		httpshared.EnsureVODSegment(sess, segName)
+		httpshared.ServeSegment(c, sess, segName)
 	}
 }
 
@@ -240,7 +232,7 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	// EffectiveKey must match the one the master used — hence native_hls is
 	// carried on every segment URL (see mediaSegQuery).
-	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, parseIntOr(c.Query("audio"), -1)), nativeHLSParam(c))
+	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, httpshared.ParseIntOr(c.Query("audio"), -1)), httpshared.NativeHLSParam(c))
 	if sess, err := getSession(mgr, key); err == nil {
 		return sess
 	}
@@ -267,30 +259,6 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 		_ = sess.RestartAt(idx)
 	}
 	return sess
-}
-
-func ensureVODSegment(sess *transcode.HLSSession, segName string) {
-	if !sess.IsVOD() {
-		return
-	}
-	idx, ok := transcode.ParseSegIndex(segName)
-	if !ok {
-		return
-	}
-	if _, statErr := os.Stat(filepath.Join(sess.Dir, segName)); statErr != nil {
-		sess.EnsureSegment(idx)
-	}
-}
-
-func serveSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
-	path, err := sess.WaitForSegment(segName, 30*time.Second)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
-	}
-	c.Header(ContentType, "video/mp2t")
-	c.Header(CacheControl, "max-age=3600")
-	c.File(path)
 }
 
 // getSession is a small helper to look up an existing session without

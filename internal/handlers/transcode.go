@@ -11,6 +11,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
@@ -49,8 +50,8 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 	}
 
 	opts := transcode.Options{
-		AudioTrack:   parseIntOr(c.Query("audio"), -1),
-		SubBurnTrack: parseIntOr(c.Query("burn"), -1),
+		AudioTrack:   httpshared.ParseIntOr(c.Query("audio"), -1),
+		SubBurnTrack: httpshared.ParseIntOr(c.Query("burn"), -1),
 		VideoCodec:   c.Query("video"),
 		AudioCodec:   c.Query("acodec"),
 		Container:    c.DefaultQuery("container", "mp4"),
@@ -96,17 +97,6 @@ func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex strin
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 	return true
-}
-
-func parseIntOr(s string, def int) int {
-	if s == "" {
-		return def
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return def
-	}
-	return n
 }
 
 type GPUInfo struct {

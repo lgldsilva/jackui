@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/audiometa"
-	"github.com/lgldsilva/jackui/internal/imagesearch"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -58,23 +57,6 @@ func TestReadTorrentTags_Timeout(t *testing.T) {
 	}
 }
 
-func TestAudioCoverQuery(t *testing.T) {
-	cases := []struct {
-		tags audiometa.Tags
-		abs  string
-		want string
-	}{
-		{audiometa.Tags{Artist: "Wind Rose", Album: "Trollslayer"}, "/x/01.flac", "Wind Rose Trollslayer album cover"},
-		{audiometa.Tags{Artist: "Wind Rose", Title: "Diggy"}, "/x/01.flac", "Wind Rose Diggy cover"},
-		{audiometa.Tags{}, "/music/Some Song.flac", "Some Song album cover"},
-	}
-	for _, tc := range cases {
-		if got := audioCoverQuery(tc.tags, tc.abs); got != tc.want {
-			t.Errorf("audioCoverQuery(%+v,%q)=%q want %q", tc.tags, tc.abs, got, tc.want)
-		}
-	}
-}
-
 type stubSource struct {
 	data []byte
 	ct   string
@@ -91,18 +73,6 @@ func newTestCtx() (*gin.Context, *httptest.ResponseRecorder) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	return c, w
-}
-
-func TestServeWebCover_Found(t *testing.T) {
-	c, w := newTestCtx()
-	chain := imagesearch.NewChain(stubSource{data: []byte("PNGDATA"), ct: "image/png"})
-	serveWebCover(c, "/x/song.flac", `"etag"`, chain)
-	if w.Code != 200 || w.Body.String() != "PNGDATA" {
-		t.Fatalf("got code=%d body=%q, want 200/PNGDATA", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
-		t.Errorf("content-type=%q want image/png", ct)
-	}
 }
 
 func ctxWithParams(hash, file string) (*gin.Context, *httptest.ResponseRecorder) {
@@ -142,18 +112,5 @@ func TestStreamAudioMeta_CacheHit(t *testing.T) {
 	StreamAudioMeta(nil)(c) // cache hit returns before touching the streamer
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Cached Title") {
 		t.Fatalf("cache hit: code=%d body=%q", w.Code, w.Body.String())
-	}
-}
-
-func TestServeWebCover_NilChainAnd404(t *testing.T) {
-	c1, _ := newTestCtx()
-	serveWebCover(c1, "/x/song.flac", `"e"`, nil)
-	if c1.Writer.Status() != 204 {
-		t.Errorf("nil chain: status=%d want 204", c1.Writer.Status())
-	}
-	c2, _ := newTestCtx()
-	serveWebCover(c2, "/x/song.flac", `"e"`, imagesearch.NewChain(stubSource{data: nil}))
-	if c2.Writer.Status() != 204 {
-		t.Errorf("empty result: status=%d want 204", c2.Writer.Status())
 	}
 }
