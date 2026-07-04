@@ -48,7 +48,11 @@ jobs:
       - run: go test -coverprofile=coverage.out ./internal/...
       - uses: actions/upload-artifact@v3
         env:
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          # This Node action talks to the Gitea artifact API over TLS. Its cert is
+          # signed by the internal "Development CA"; Node ignores the OS trust store
+          # (where the act-ubuntu:ca image bakes that CA), so point it at the CA
+          # instead of disabling verification. Keeps TLS verification intact.
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
         with: { name: go-coverage, path: coverage.out }
 
   frontend:
@@ -79,7 +83,9 @@ jobs:
           node-version: '24'
       - uses: actions/download-artifact@v3
         env:
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          # Same as upload-artifact: trust the homelab CA baked into the job image
+          # instead of disabling TLS verification.
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
         with: { name: go-coverage }
       - name: SonarQube analysis + gate
         env:
@@ -87,7 +93,11 @@ jobs:
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
           # Linha de /etc/hosts p/ resolver o host do Sonar no runner (formato "IP hostname").
           SONAR_HOSTS_ENTRY: ${{ vars.SONAR_HOSTS }}
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          # O Sonar do homelab usa cert assinado pela "Development CA" interna. O
+          # sonarqube-scanner (Node) ignora o trust store do OS (onde a imagem
+          # act-ubuntu:ca embute a CA) e falharia com "unable to verify the first
+          # certificate" — então apontamos o Node p/ a CA em vez de desligar o TLS.
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
         run: |
           [ -n "$SONAR_HOSTS_ENTRY" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
           npx -y sonarqube-scanner \
