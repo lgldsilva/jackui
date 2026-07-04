@@ -29,7 +29,7 @@ import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
 import { shouldPromptJackettSetup } from '../lib/jackettSetup'
 import { appendUnique, openSearchStream, type SearchStreamHandle } from '../lib/searchStream'
-import { useTranslation } from 'react-i18next'
+import { useTranslation, Trans } from 'react-i18next'
 import { errMessage } from '../lib/errMessage'
 
 const TABS_KEY = 'searchTabs'
@@ -231,12 +231,12 @@ function PhaseIndicator({ phase }: { readonly phase: SearchPhase }) {
   return <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
 }
 
-const SORT_OPTIONS: { key: ResultSortKey; label: string }[] = [
-  { key: 'seeders',  label: 'Seeds'    },
-  { key: 'leechers', label: 'Leechers' },
-  { key: 'size',     label: 'Tamanho'  },
-  { key: 'title',    label: 'Nome'     },
-  { key: 'age',      label: 'Data'     },
+const SORT_OPTIONS: { key: ResultSortKey; labelKey: string }[] = [
+  { key: 'seeders',  labelKey: 'search.seeds'    },
+  { key: 'leechers', labelKey: 'search.leechers' },
+  { key: 'size',     labelKey: 'search.size'     },
+  { key: 'title',    labelKey: 'search.name'     },
+  { key: 'age',      labelKey: 'search.date'     },
 ]
 
 export default function SearchPage() {
@@ -371,7 +371,7 @@ export default function SearchPage() {
     action: () => Promise<{ success: boolean; error?: string }>,
     onSuccess: () => void,
   ) => {
-    if (!setupUrl.trim()) { setSetupError('Informe a URL do Jackett'); return }
+    if (!setupUrl.trim()) { setSetupError(t('search.enter_jackett_url')); return }
     setSetupTesting(true); setSetupError(''); setSetupTestOk(false)
     const isNetErr = (e: unknown) => e instanceof Error && e.message.includes('Network Error')
     try {
@@ -383,7 +383,7 @@ export default function SearchPage() {
         d = await action()
       }
       if (d.success) onSuccess()
-      else setSetupError(d.error || 'Falha ao conectar — verifique a URL e a porta')
+      else setSetupError(d.error || t('search.connect_failed'))
     } catch (err) {
       setSetupError(errMessage(err))
     }
@@ -544,7 +544,7 @@ export default function SearchPage() {
       },
       onGiveUp: () => {
         esMap.current.delete(tabId)
-        updateTab(tabId, { phase: 'error', error: 'Conexão perdida com o servidor' })
+        updateTab(tabId, { phase: 'error', error: t('search.connection_lost') })
       },
     })
     esMap.current.set(tabId, handle)
@@ -750,7 +750,7 @@ export default function SearchPage() {
       </select>
       <div className={stacked ? 'grid grid-cols-3 gap-2' : 'contents'}>
         <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">Seeds ≥</span>
+          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_seeds_min')}</span>
           <input
             type="number" min={0}
             value={activeTab.minSeeders || ''}
@@ -760,7 +760,7 @@ export default function SearchPage() {
           />
         </label>
         <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">Leech ≥</span>
+          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_leech_min')}</span>
           <input
             type="number" min={0}
             value={activeTab.minLeechers || ''}
@@ -770,7 +770,7 @@ export default function SearchPage() {
           />
         </label>
         <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">Máx GB</span>
+          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_max_gb')}</span>
           <input
             type="number" min={0} step={0.1}
             value={activeTab.maxSizeGb}
@@ -782,7 +782,7 @@ export default function SearchPage() {
       </div>
       <button
         onClick={() => updateTab(activeTab.id, { onlyPlayable: !activeTab.onlyPlayable })}
-        title="Mostrar apenas resultados que podem ser reproduzidos no player (vídeo)"
+        title={t('search.playable_title')}
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           activeTab.onlyPlayable
             ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
@@ -795,7 +795,7 @@ export default function SearchPage() {
       <select
         value={activeTab.resolution}
         onChange={e => updateTab(activeTab.id, { resolution: e.target.value })}
-        title="Filtrar por resolução"
+        title={t('search.resolution_title')}
         className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
       >
         <option value="">{t('search.resolution')}</option>
@@ -807,7 +807,7 @@ export default function SearchPage() {
       <select
         value={activeTab.codecGroup}
         onChange={e => updateTab(activeTab.id, { codecGroup: e.target.value })}
-        title="Filtrar por codec de vídeo"
+        title={t('search.codec_title')}
         className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
       >
         <option value="">{t('search.codec')}</option>
@@ -817,7 +817,7 @@ export default function SearchPage() {
       </select>
       <button
         onClick={() => updateTab(activeTab.id, { hdrOnly: !activeTab.hdrOnly })}
-        title="Mostrar apenas HDR ou Dolby Vision"
+        title={t('search.hdr_title')}
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           activeTab.hdrOnly
             ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30'
@@ -829,7 +829,7 @@ export default function SearchPage() {
       </button>
       <button
         onClick={toggleGroupSeries}
-        title="Agrupar episódios da mesma série por temporada"
+        title={t('search.series_title')}
         className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
           groupSeries
             ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30'
@@ -865,17 +865,17 @@ export default function SearchPage() {
     <>
       {/* Mobile: dropdown compacto — nunca estoura a largura da tela. */}
       <div className="flex sm:hidden items-center gap-1.5 min-w-0 w-full">
-        <span className="text-xs text-text-muted flex-shrink-0">Ordenar:</span>
+        <span className="text-xs text-text-muted flex-shrink-0">{t('search.sort_label')}</span>
         <select
           value={activeTab.resultSort}
           onChange={e => updateTab(activeTab.id, { resultSort: e.target.value as ResultSortKey, resultSortAsc: false })}
           className="flex-1 min-w-0 text-xs bg-surface-tertiary border border-strong rounded-lg px-2 py-1.5 text-text-primary"
         >
-          {SORT_OPTIONS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+          {SORT_OPTIONS.map(({ key, labelKey }) => <option key={key} value={key}>{t(labelKey)}</option>)}
         </select>
         <button
           onClick={() => updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })}
-          title={activeTab.resultSortAsc ? 'Crescente' : 'Decrescente'}
+          title={activeTab.resultSortAsc ? t('search.asc') : t('search.desc')}
           className="flex-shrink-0 p-1.5 rounded-lg bg-surface-tertiary border border-strong text-text-secondary"
         >
           {activeTab.resultSortAsc ? <SortAsc className="w-3.5 h-3.5" /> : <SortDesc className="w-3.5 h-3.5" />}
@@ -883,9 +883,9 @@ export default function SearchPage() {
       </div>
       {/* Desktop: segmented control (wrap em vez de scroll horizontal). */}
       <div className="hidden sm:flex items-center gap-1.5 max-w-full">
-        <span className="text-xs text-text-muted flex-shrink-0">Ordenar:</span>
+        <span className="text-xs text-text-muted flex-shrink-0">{t('search.sort_label')}</span>
         <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 flex-wrap">
-          {SORT_OPTIONS.map(({ key, label }) => (
+          {SORT_OPTIONS.map(({ key, labelKey }) => (
             <button
               key={key}
               onClick={() => toggleSort(key)}
@@ -895,7 +895,7 @@ export default function SearchPage() {
                   : 'text-text-secondary hover:text-text-primary'
               }`}
             >
-              {label}
+              {t(labelKey)}
               {activeTab.resultSort === key && (
                 activeTab.resultSortAsc
                   ? <SortAsc className="w-3 h-3" />
@@ -933,7 +933,7 @@ export default function SearchPage() {
             >
               <PhaseIndicator phase={tab.phase} />
               <span className="truncate flex-1 min-w-0 text-left">
-                {tab.query.trim() || 'Nova busca'}
+                {tab.query.trim() || t('search.new_tab')}
               </span>
               {tabs.length > 1 && (
                 <button
@@ -950,7 +950,7 @@ export default function SearchPage() {
           <button
             onClick={addTab}
             className="flex items-center justify-center w-8 h-8 mb-0.5 text-text-muted hover:text-text-primary hover:bg-surface-tertiary rounded-lg transition-colors flex-shrink-0"
-            title="Nova aba de busca"
+            title={t('search.new_tab_title')}
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -964,27 +964,26 @@ export default function SearchPage() {
             <div className="flex items-start gap-3">
               <WifiOff className="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <h3 className="text-amber-700 dark:text-amber-300 font-medium text-sm mb-1">Jackett não configurado</h3>
+                <h3 className="text-amber-700 dark:text-amber-300 font-medium text-sm mb-1">{t('search.no_indexers')}</h3>
                 <p className="text-text-secondary text-xs mb-4">
-                  Informe a URL e a API key do seu servidor Jackett (local ou remoto)
-                  para começar a buscar torrents.
+                  {t('search.jackett_setup_desc')}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-2 mb-3">
                   <input
                     className="input-field flex-1 text-sm"
-                    placeholder="URL do Jackett (ex: http://localhost:9117)"
+                    placeholder={t('search.jackett_url_placeholder')}
                     value={setupUrl}
                     onChange={e => setSetupUrl(e.target.value)}
                   />
                   <input
                     className="input-field flex-1 text-sm"
-                    placeholder="API Key"
+                    placeholder={t('search.api_key_placeholder')}
                     value={setupKey}
                     onChange={e => setSetupKey(e.target.value)}
                   />
                 </div>
                 {setupError && <p className="text-red-400 text-xs mb-2">{setupError}</p>}
-                {setupTestOk && <p className="text-green-400 text-xs mb-2">Conexão OK — porta acessível e Jackett respondeu.</p>}
+                {setupTestOk && <p className="text-green-400 text-xs mb-2">{t('search.conn_ok')}</p>}
                 <div className="flex gap-2">
                   <button
                     onClick={() => runJackettSetup(
@@ -996,7 +995,7 @@ export default function SearchPage() {
                     disabled={setupTesting}
                     className="btn-secondary text-sm px-4 py-2"
                   >
-                    {setupTesting ? 'Testando…' : 'Testar'}
+                    {setupTesting ? t('search.testing') : t('search.test')}
                   </button>
                   <button
                     onClick={() => runJackettSetup(
@@ -1009,13 +1008,13 @@ export default function SearchPage() {
                     disabled={setupTesting}
                     className="btn-primary text-sm px-4 py-2"
                   >
-                    {setupTesting ? 'Testando…' : 'Salvar e Testar'}
+                    {setupTesting ? t('search.testing') : t('search.save_and_test')}
                   </button>
                   <button
                     onClick={() => setShowJackettSetup(false)}
                     className="text-xs text-text-muted hover:text-text-primary px-3 py-2"
                   >
-                    Ignorar
+                    {t('search.ignore')}
                   </button>
                 </div>
               </div>
@@ -1046,47 +1045,47 @@ export default function SearchPage() {
           <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
             {activeTab.phase === 'cache' && (
               <span className="flex items-center gap-2 text-blue-400">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />Carregando cache...
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />{t('search.loading_cache')}
               </span>
             )}
             {activeTab.phase === 'live' && (
               <span className="flex items-center gap-2 text-yellow-400">
-                <Wifi className="w-3.5 h-3.5 animate-pulse" />Buscando ao vivo nos indexadores...
+                <Wifi className="w-3.5 h-3.5 animate-pulse" />{t('search.searching_live')}
               </span>
             )}
             {activeTab.phase === 'done' && activeTab.summary && (
               <span className="flex items-center gap-2 text-green-400">
                 <Wifi className="w-3.5 h-3.5" />
                 {isFiltered ? (
-                  <><span className="text-text-primary font-medium">{filteredResults.length}</span> de {groupedCount} únicos</>
+                  <Trans i18nKey="search.filtered_of_unique" values={{ shown: filteredResults.length, total: groupedCount }} components={{ b: <span className="text-text-primary font-medium" /> }} />
                 ) : (
                   <>
                     <span className="text-text-primary font-medium">{groupedCount}</span>
-                    {' '}{groupedCount === 1 ? 'único' : 'únicos'}
+                    {' '}{t('search.unique')}
                     {hasDuplicates && (
                       <span
                         className="text-text-muted"
-                        title={`${activeTab.results.length} resultados brutos antes de agrupar duplicatas por hash/título`}
+                        title={t('search.raw_tooltip', { count: activeTab.results.length })}
                       >
-                        {' '}(de {activeTab.results.length} brutos)
+                        {' '}{t('search.raw_count', { count: activeTab.results.length })}
                       </span>
                     )}
                   </>
-                )}{' '}para <span className="text-text-primary font-medium">"{activeTab.query}"</span>
+                )}{' '}{t('search.for')} <span className="text-text-primary font-medium">"{activeTab.query}"</span>
                 <span className="text-text-muted">
-                  ({activeTab.summary.live} ao vivo, {activeTab.summary.cached} cache)
+                  {t('search.live_cache_summary', { live: activeTab.summary.live, cached: activeTab.summary.cached })}
                 </span>
               </span>
             )}
             {activeTab.phase === 'error' && (
               <span className="flex items-center gap-2 text-red-400">
-                <WifiOff className="w-3.5 h-3.5" />{activeTab.error || 'Erro na busca'}
+                <WifiOff className="w-3.5 h-3.5" />{activeTab.error || t('search.search_error')}
               </span>
             )}
             {hasResults && (
               <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-3 min-w-0">
                 {isSearching && (
-                  <span className="text-text-muted flex-shrink-0">{activeTab.results.length} até agora</span>
+                  <span className="text-text-muted flex-shrink-0">{t('search.so_far', { count: activeTab.results.length })}</span>
                 )}
                 {sortControls()}
               </div>
@@ -1111,7 +1110,7 @@ export default function SearchPage() {
               className="xl:hidden flex items-center justify-center gap-2 min-h-[44px] px-3 rounded-xl border border-default bg-surface-secondary/60 text-sm text-text-primary"
             >
               <Filter className="w-4 h-4" />
-              Filtros
+              {t('search.filters')}
               {activeFilterCount > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
                   {activeFilterCount}
@@ -1128,14 +1127,13 @@ export default function SearchPage() {
           <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl px-4 py-2.5 text-sm">
             <Filter className="w-4 h-4 flex-shrink-0" />
             <span className="flex-1">
-              <span className="font-semibold">{groupedCount - filteredResults.length}</span>{' '}
-              {groupedCount - filteredResults.length === 1 ? 'resultado oculto' : 'resultados ocultos'} pelos filtros ativos
+              <Trans i18nKey="search.hidden_by_filters" values={{ count: groupedCount - filteredResults.length }} components={{ b: <span className="font-semibold" /> }} />
             </span>
             <button
               onClick={clearFilters}
               className="flex-shrink-0 inline-flex items-center gap-1 font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100"
             >
-              <X className="w-3.5 h-3.5" />Limpar filtros
+              <X className="w-3.5 h-3.5" />{t('search.clean_filters')}
             </button>
           </div>
         )}
@@ -1150,7 +1148,7 @@ export default function SearchPage() {
         {/* Hard error */}
         {activeTab.error && !hasResults && (
           <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4">
-            <p className="font-medium">Erro na busca</p>
+            <p className="font-medium">{t('search.search_error')}</p>
             <p className="text-sm mt-1">{activeTab.error}</p>
           </div>
         )}
@@ -1174,7 +1172,7 @@ export default function SearchPage() {
                   <div key={item.id} className="col-span-full flex items-center gap-2 mt-2 first:mt-0">
                     <Layers className="w-4 h-4 text-green-400 flex-shrink-0" />
                     <h3 className="text-sm font-semibold text-text-primary truncate">{item.series}</h3>
-                    <span className="text-xs text-text-muted whitespace-nowrap">Temporada {item.season} • {item.count} ep.</span>
+                    <span className="text-xs text-text-muted whitespace-nowrap">{t('search.season_eps', { season: item.season, count: item.count })}</span>
                     <div className="flex-1 h-px bg-strong/40" />
                   </div>
                 ) : renderResultCard(item.result, `${item.result.infoHash || item.result.link}-${i}`)
@@ -1182,7 +1180,7 @@ export default function SearchPage() {
             </div>
             {visible < filteredResults.length && (
               <div ref={sentinelRef} className="text-center py-6 text-xs text-text-muted">
-                Mostrando {visible} de {filteredResults.length} • role pra ver mais
+                {t('search.showing_more', { visible, total: filteredResults.length })}
               </div>
             )}
           </>
@@ -1196,7 +1194,7 @@ export default function SearchPage() {
             </div>
             {visible < filteredResults.length && (
               <div ref={sentinelRef} className="text-center py-6 text-xs text-text-muted">
-                Mostrando {visible} de {filteredResults.length} • role pra ver mais
+                {t('search.showing_more', { visible, total: filteredResults.length })}
               </div>
             )}
           </>
@@ -1206,8 +1204,8 @@ export default function SearchPage() {
         {hasResults && filteredResults.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-text-muted">
             <SearchX className="w-12 h-12 mb-3 opacity-30" />
-            <p className="font-medium">Nenhum resultado com os filtros aplicados</p>
-            <p className="text-sm mt-1">{activeTab.results.length} resultado{(activeTab.results.length === 1 ? '' : 's')} disponíve{(activeTab.results.length === 1 ? 'l' : 'is')} antes dos filtros</p>
+            <p className="font-medium">{t('search.no_results_filtered')}</p>
+            <p className="text-sm mt-1">{t('search.available_before_filters', { count: activeTab.results.length })}</p>
           </div>
         )}
 
@@ -1215,15 +1213,15 @@ export default function SearchPage() {
         {activeTab.phase === 'done' && !hasResults && !activeTab.error && (
           <div className="flex flex-col items-center justify-center py-20 text-text-muted">
             <SearchX className="w-16 h-16 mb-4 opacity-30" />
-            <p className="text-xl font-medium">Nenhum resultado encontrado</p>
-            <p className="text-sm mt-2">Tente termos diferentes ou outros indexers</p>
+            <p className="text-xl font-medium">{t('search.no_results')}</p>
+            <p className="text-sm mt-2">{t('search.try_different')}</p>
           </div>
         )}
 
         {/* Initial state */}
         {activeTab.phase === 'idle' && (
           <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-            <p className="text-lg">Digite algo para buscar torrents</p>
+            <p className="text-lg">{t('search.type_to_search')}</p>
             <SavedSearches
               recent={historyQueries}
               onPick={q => { updateTab(activeTab.id, { query: q }); handleSearch(activeTab.id, q) }}
@@ -1236,7 +1234,7 @@ export default function SearchPage() {
       <Sheet
         open={filterSheetOpen}
         onClose={() => setFilterSheetOpen(false)}
-        title="Filtros"
+        title={t('search.filters')}
         icon={<Filter className="w-4 h-4 text-text-secondary flex-shrink-0" />}
         size="md"
       >

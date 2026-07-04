@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
 import { DownloadEntry, downloadPromoteBrowse, downloadPromoteBatch, fetchPromoteDestinations, PromoteDestination, downloadPromotePreview, PromotePreviewEntry } from '../api/client'
 import { useScrollLock } from '../lib/useScrollLock'
@@ -16,6 +17,7 @@ type Props = {
  * digitar uma subpasta nova (criada pelo backend com os.MkdirAll).
  */
 export default function PromoteModal({ items, onClose, onPromoted }: Props) {
+  const { t } = useTranslation()
   useScrollLock(!!items)
   const { notifyError } = useToast()
   const [dests, setDests] = useState<PromoteDestination[]>([])
@@ -50,7 +52,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
     setError('')
     downloadPromoteBrowse(path, selectedBase || undefined)
       .then(r => setDirs(r.dirs))
-      .catch(e => setError(e?.response?.data?.error || e.message || 'Erro listando subpastas'))
+      .catch(e => setError(e?.response?.data?.error || e.message || t('local.promote.listError')))
       .finally(() => setLoading(false))
   }, [path, items, selectedBase])
 
@@ -67,7 +69,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       { targetSubdir: finalTarget, targetBase: selectedBase || undefined }
     )
       .then(r => setPreviews(r.previews))
-      .catch(e => setError(e?.response?.data?.error || e.message || 'Erro gerando preview IA'))
+      .catch(e => setError(e?.response?.data?.error || e.message || t('local.promote.previewError')))
       .finally(() => setPreviewLoading(false))
   }, [renameIA, items, finalTarget, selectedBase])
 
@@ -87,7 +89,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   if (!items) return null
 
   const currentDest = dests.find(d => d.path === selectedBase) || dests[0]
-  const destLabel = currentDest?.name || 'Biblioteca'
+  const destLabel = currentDest?.name || t('local.promote.libraryDefault')
 
   const handlePromote = () => {
     // Fecha o modal NA HORA: a cópia roda em background (pool de transferências)
@@ -120,7 +122,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
         <header className="flex items-center justify-between p-4 border-b border-default">
           <h2 className="text-base font-semibold text-text-primary flex items-center gap-2">
             <ArrowUpCircle className="w-5 h-5 text-cyan-400" />
-            Promover {items.length > 1 ? `${items.length} downloads` : 'download'}
+            {items.length > 1 ? t('local.promote.headerMulti', { count: items.length }) : t('local.promote.headerSingle')}
           </h2>
           <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
             <X className="w-5 h-5" />
@@ -181,7 +183,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
         <div className="flex-1 overflow-y-auto p-4">
           {(() => {
             if (loading) return <div className="flex items-center justify-center py-8 text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>
-            if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-4">Sem subpastas aqui. Crie uma abaixo ou promova nesta raiz.</p>
+            if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-4">{t('local.promote.noSubfolders')}</p>
             return <ul className="space-y-1">{dirs.map(d => (
               <li key={d}>
                 <button onClick={() => setPath(path ? `${path}/${d}` : d)}
@@ -203,7 +205,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               type="text"
               value={newFolder}
               onChange={e => setNewFolder(e.target.value)}
-              placeholder="Nova subpasta (opcional)"
+              placeholder={t('local.newSubfolder')}
               className="flex-1 bg-surface-tertiary border border-strong rounded px-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500"
             />
           </label>
@@ -217,7 +219,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
             />
             <span className="flex items-center gap-1.5 text-cyan-700 dark:text-cyan-300 font-semibold bg-cyan-500/15 dark:bg-cyan-950/40 border border-cyan-500/30 dark:border-cyan-800/50 px-2 py-0.5 rounded-full text-xs">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              Renomear e Organizar via IA (Plex style)
+              {t('local.renameOrganizeAI')}
             </span>
           </label>
 
@@ -225,24 +227,24 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
             <div className="mt-1 border border-cyan-500/30 dark:border-cyan-800/40 bg-surface-elevated/60 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2 backdrop-blur-md">
               <h3 className="text-xs font-semibold text-cyan-400 flex items-center gap-1">
                 <Sparkles className="w-3 h-3" />
-                Visualização do Destino Organizado:
+                {t('local.promote.previewTitle')}
               </h3>
               {(() => {
-                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>Analisando nomes com IA...</span></div>
-                if (previews.length === 0) return <p className="text-xs text-text-muted text-center py-2">Nenhum preview gerado.</p>
+                if (previewLoading) return <div className="flex items-center gap-2 text-xs text-text-muted py-2 justify-center"><Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /><span>{t('local.promote.analyzing')}</span></div>
+                if (previews.length === 0) return <p className="text-xs text-text-muted text-center py-2">{t('local.promote.noPreview')}</p>
                 return <div className="space-y-2 divide-y divide-default">{previews.map((p, index) => (
                   <div key={`${p.originalName}-${index}`} className="pt-2 first:pt-0 text-xs space-y-1">
-                    <div className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>De: {p.originalName}</div>
+                    <div className="text-[10px] text-text-secondary font-mono truncate" title={p.originalName}>{t('local.promote.fromName', { name: p.originalName })}</div>
                     {p.error ? (
-                      <div className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">Erro: {p.error}</div>
+                      <div className="text-red-700 dark:text-red-400 text-[11px] bg-red-500/10 dark:bg-red-950/30 px-2 py-1 rounded border border-red-500/30 dark:border-red-900/30">{t('local.promote.previewRowError', { error: p.error })}</div>
                     ) : (
                       <div className="flex items-start gap-1.5 bg-emerald-500/10 dark:bg-emerald-950/10 border border-emerald-500/30 dark:border-emerald-900/30 px-2 py-1.5 rounded-lg text-emerald-700 dark:text-emerald-300">
                         <ArrowRight className="w-3 h-3 mt-0.5 text-emerald-400 flex-shrink-0" />
                         <div className="font-mono text-[11px] break-all leading-tight">
-                          <span className="text-text-muted">Para: </span>
+                          <span className="text-text-muted">{t('local.promote.toLabel')}</span>
                           <span className="font-semibold text-emerald-700 dark:text-emerald-400">{p.targetPath.split('/').slice(0, -1).join('/')}/</span>
                           <span className="text-text-primary font-bold">{p.targetPath.split('/').pop()}</span>
-                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">{p.kind === 'tv' ? 'Série' : 'Filme'}</span>
+                          <span className="ml-1 px-1.5 py-0.2 text-[9px] font-bold rounded bg-cyan-500/15 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 dark:border-cyan-700/40">{p.kind === 'tv' ? t('local.promote.kindTv') : t('local.promote.kindMovie')}</span>
                         </div>
                       </div>
                     )}
@@ -259,14 +261,14 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               onChange={e => setKeepSeeding(e.target.checked)}
               className="accent-cyan-500"
             />
-            {' '}Continuar seedando após mover (preserva ratio em trackers privados)
+            {' '}{t('local.promote.keepSeeding')}
           </label>
 
           <div className="text-xs text-text-muted flex items-start gap-1.5">
             <FolderOpen className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
             <span>
-              Destino: <span className="text-text-primary font-mono">{destLabel}/{finalTarget || ''}</span>
-              {!finalTarget && <span className="text-text-muted"> (raiz)</span>}
+              <Trans i18nKey="local.destinationLabel" values={{ dest: `${destLabel}/${finalTarget || ''}` }} components={{ mono: <span className="text-text-primary font-mono" /> }} />
+              {!finalTarget && <span className="text-text-muted">{t('local.rootSuffix')}</span>}
             </span>
           </div>
 
@@ -279,7 +281,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               onClick={onClose}
               className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded"
             >
-              Cancelar
+              {t('local.cancel')}
             </button>
             <button
               onClick={handlePromote}
@@ -287,7 +289,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
               className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
             >
               <ArrowUpCircle className="w-3.5 h-3.5" />
-              Promover {items.length > 1 ? `(${items.length})` : ''}
+              {t('local.promote.promoteBtn')}{items.length > 1 ? ` (${items.length})` : ''}
             </button>
           </div>
         </div>

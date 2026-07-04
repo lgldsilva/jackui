@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { Loader2, Play, Save, Cpu, RefreshCw, Square } from 'lucide-react'
 import {
   aiBenchmarkStatus, runAIBenchmark, runAIBenchmarkIncomplete, cancelAIBenchmark, saveAICases, saveAICostConfig,
@@ -23,6 +24,7 @@ import { casesToText, textToCases } from './aibenchmark/cases'
 // unit-testing the multi-task "[task]" prefix parsing without rendering the card.
 
 export default function AIBenchmarkCard() {
+  const { t } = useTranslation()
   const confirm = useConfirm()
   const [status, setStatus] = useState<AIStatus | null>(null)
   const [running, setRunning] = useState(false)
@@ -58,7 +60,7 @@ export default function AIBenchmarkCard() {
         setServerRunning(!!s.running)
         if (!s.running) {
           stopPolling()
-          setMsg('Benchmark concluído em segundo plano — resultados atualizados.')
+          setMsg(t('ai.run_done_background'))
         }
       } catch { /* transient poll error — try again next tick */ }
     }, 5000)
@@ -83,7 +85,7 @@ export default function AIBenchmarkCard() {
   if (!status) {
     return (
       <section className="card flex items-center gap-2 text-text-secondary">
-        <Loader2 className="w-4 h-4 animate-spin" /> Carregando IA…
+        <Loader2 className="w-4 h-4 animate-spin" /> {t('ai.loading')}
       </section>
     )
   }
@@ -91,11 +93,9 @@ export default function AIBenchmarkCard() {
   if (!status.enabled) {
     return (
       <section className="card flex flex-col gap-2">
-        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
+        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> {t('ai.title')}</h2>
         <p className="text-sm text-text-secondary">
-          Desabilitada — defina <code className="text-text-primary">GROQ_API_KEY</code>,{' '}
-          <code className="text-text-primary">OPENROUTER_API_KEY</code> ou{' '}
-          <code className="text-text-primary">OLLAMA_BASE_URL</code> para ativar a limpeza de títulos por IA.
+          <Trans i18nKey="ai.disabled" components={{ c: <code className="text-text-primary" /> }} />
         </p>
       </section>
     )
@@ -103,11 +103,11 @@ export default function AIBenchmarkCard() {
 
   const run = async () => {
     // Intentional: each run spends free-tier quota (remote models are rate-limited).
-    const providerLabel = selectedProvider ? ` para ${selectedProvider}` : ''
+    const providerLabel = selectedProvider ? t('ai.for_provider', { provider: selectedProvider }) : ''
     const ok = await confirm({
-      title: 'Rodar benchmark',
-      message: `Rodar o benchmark${providerLabel} consome cota dos modelos (testa cada modelo várias vezes). Continuar?`,
-      confirmLabel: 'Rodar',
+      title: t('ai.run'),
+      message: t('ai.confirm_run_message', { provider: providerLabel }),
+      confirmLabel: t('ai.run_short'),
       destructive: false,
     })
     if (!ok) return
@@ -116,7 +116,7 @@ export default function AIBenchmarkCard() {
     try {
       const results = await runAIBenchmark(selectedProvider || undefined)
       setStatus(s => s ? { ...s, results } : s)
-      setMsg(`Benchmark${providerLabel} concluído — chain adotada pelo melhor score.`)
+      setMsg(t('ai.run_done', { provider: providerLabel }))
       setServerRunning(false); stopPolling()
     } catch (e: any) {
       const serverErr = e?.response?.data?.error
@@ -130,14 +130,14 @@ export default function AIBenchmarkCard() {
         try {
           const s = await aiBenchmarkStatus()
           if (s.running) {
-            setMsg('A requisição expirou, mas o benchmark continua rodando no servidor — acompanhando o progresso…')
+            setMsg(t('ai.run_timeout_still_running'))
             setServerRunning(true)
             pollStatus()
           } else {
-            setMsg('Falha ao rodar o benchmark.')
+            setMsg(t('ai.run_failed'))
           }
         } catch {
-          setMsg('Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+          setMsg(t('ai.run_failed_timeout'))
         }
       }
     } finally { setRunning(false) }
@@ -149,9 +149,9 @@ export default function AIBenchmarkCard() {
   const handleCancel = async () => {
     try {
       await cancelAIBenchmark()
-      setMsg('Benchmark cancelado — o que já tinha sido medido foi mantido.')
+      setMsg(t('ai.cancel_done'))
     } catch {
-      setMsg('Nada para cancelar (o benchmark já tinha terminado).')
+      setMsg(t('ai.cancel_nothing'))
     } finally {
       stopPolling()
       setServerRunning(false)
@@ -171,7 +171,7 @@ export default function AIBenchmarkCard() {
       const results = await runAIBenchmarkIncomplete()
       setStatus(s => s ? { ...s, results } : s)
       const left = results.filter(needsRerun).length
-      setMsg(left > 0 ? `Faltantes re-rodados — ${left} ainda incompleto(s) (tente fora da janela do rate limit).` : 'Faltantes re-rodados — todos completos agora.')
+      setMsg(left > 0 ? t('ai.rerun_incomplete_left', { count: left }) : t('ai.rerun_incomplete_all'))
       setServerRunning(false); stopPolling()
     } catch (e: any) {
       const serverErr = e?.response?.data?.error
@@ -185,16 +185,16 @@ export default function AIBenchmarkCard() {
         try {
           const s = await aiBenchmarkStatus()
           if (s.running) {
-            setMsg('A requisição expirou, mas o benchmark continua rodando no servidor — acompanhando o progresso…')
+            setMsg(t('ai.run_timeout_still_running'))
             setServerRunning(true)
             pollStatus()
           } else {
-            setMsg('Falha ao rodar o benchmark.')
+            setMsg(t('ai.run_failed'))
             setServerRunning(false)
             stopPolling()
           }
         } catch {
-          setMsg('Falha (pode ter excedido o tempo; recarregue p/ ver o resultado salvo).')
+          setMsg(t('ai.run_failed_timeout'))
           setServerRunning(false)
           stopPolling()
         }
@@ -207,9 +207,9 @@ export default function AIBenchmarkCard() {
     try {
       const cases = await saveAICases(textToCases(casesText))
       setCasesText(casesToText(cases))
-      setMsg(`Casos salvos (${cases.length}).`)
+      setMsg(t('ai.cases_saved', { count: cases.length }))
     } catch (e: any) {
-      setMsg(e?.response?.data?.error || 'Falha ao salvar os casos.')
+      setMsg(e?.response?.data?.error || t('ai.cases_save_failed'))
     } finally { setSaving(false) }
   }
 
@@ -219,9 +219,9 @@ export default function AIBenchmarkCard() {
     try {
       const saved = await saveAICostConfig(cost)
       setCost(saved)
-      setMsg('Custos salvos — rode o benchmark p/ aplicar no ranking.')
+      setMsg(t('ai.cost_saved'))
     } catch (e: any) {
-      setMsg(e?.response?.data?.error || 'Falha ao salvar os custos.')
+      setMsg(e?.response?.data?.error || t('ai.cost_save_failed'))
     } finally { setSavingCost(false) }
   }
 
@@ -231,19 +231,20 @@ export default function AIBenchmarkCard() {
     try {
       const results = await runAIBenchmark(provider, model)
       setStatus(s => s ? { ...s, results } : s)
-      setMsg(`Benchmark para ${model} concluído.`)
+      setMsg(t('ai.run_single_done', { model }))
     } catch (e: any) {
-      setMsg(e?.response?.data?.error || `Falha ao rodar benchmark para ${model}.`)
+      setMsg(e?.response?.data?.error || t('ai.run_single_failed', { model }))
     } finally { setRunningSlotId(null) }
   }
 
   const busy = running || runningIncomplete || !!runningSlotId || serverRunning
   const incompleteCount = status.results.filter(needsRerun).length
+  const chainLabel = status.chain.map(s => s.id).join(' → ') || '—'
 
   return (
     <section className="card flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> Identificação por IA</h2>
+        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> {t('ai.title')}</h2>
         {/* w-full + flex-wrap no mobile: o grupo de ações (select + botões)
             quebra dentro do card em vez de vazar pra fora da borda. */}
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
@@ -254,7 +255,7 @@ export default function AIBenchmarkCard() {
               disabled={busy}
               className="bg-surface border border-default rounded-lg px-2.5 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-green-600 min-w-0"
             >
-              <option value="">Todos os provedores</option>
+              <option value="">{t('ai.all_providers')}</option>
               {status.providers.map(p => (
                 <option key={p} value={p}>{p}</option>
               ))}
@@ -264,11 +265,11 @@ export default function AIBenchmarkCard() {
             <button
               onClick={runIncomplete}
               disabled={busy}
-              title="Re-roda só os modelos cortados por rate limit. Rode mais tarde (até no dia seguinte) p/ sair da janela do limite."
+              title={t('ai.rerun_incomplete_title')}
               className="flex items-center gap-1.5 text-sm bg-surface hover:bg-surface-hover border border-default disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5"
             >
               {runningIncomplete ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-              {runningIncomplete ? 'Rodando…' : `Rodar faltantes (${incompleteCount})`}
+              {runningIncomplete ? t('ai.running') : t('ai.run_incomplete', { count: incompleteCount })}
             </button>
           )}
           <button
@@ -277,46 +278,39 @@ export default function AIBenchmarkCard() {
             className="flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white rounded-lg px-3 py-1.5"
           >
             {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {running ? 'Rodando…' : 'Rodar benchmark'}
+            {running ? t('ai.running') : t('ai.run')}
           </button>
           {serverRunning && (
             <button
               onClick={handleCancel}
-              title="Interrompe o benchmark em execução — o que já foi medido fica salvo."
+              title={t('ai.cancel_title')}
               className="flex items-center gap-1.5 text-sm bg-red-900/40 hover:bg-red-900/60 border border-red-800 text-red-200 rounded-lg px-3 py-1.5"
             >
-              <Square className="w-4 h-4" /> Cancelar
+              <Square className="w-4 h-4" /> {t('ai.cancel')}
             </button>
           )}
         </div>
       </div>
 
       <p className="text-xs text-text-muted">
-        Chain atual: {status.chain.map(s => s.id).join(' → ') || '—'}. O benchmark mede a extração
-        completa (título + ano para filmes, série + temporada/episódio para TV) e a latência por
-        modelo, calcula o score composto (acurácia ÷ √latência ÷ (1 + custo/1M)) e reordena a chain.
-        A latência é a <strong className="text-text-secondary">mediana</strong> das chamadas (desconta
-        o tempo de carga do modelo); o <strong className="text-text-secondary">custo</strong> ($/1M
-        tokens, em USD) penaliza modelos caros, então grátis/barato sobe. Ajuste abaixo o teto de
-        custo, a tarifa de energia e a potência da GPU — modelos locais não são grátis (gastam
-        energia: latência × tokens × potência × tarifa).
+        <Trans i18nKey="ai.explain" values={{ chain: chainLabel }} components={{ s: <strong className="text-text-secondary" /> }} />
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="text-xs text-text-muted flex flex-col gap-1">
-          <span>Teto p/ pagos ($/1M)</span>
+          <span>{t('ai.cost_cap')}</span>
           <input type="number" step="0.01" min="0" value={cost.maxCostPer1M}
             onChange={e => setCost({ ...cost, maxCostPer1M: Number.parseFloat(e.target.value) || 0 })}
             className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
         </label>
         <label className="text-xs text-text-muted flex flex-col gap-1">
-          <span>Tarifa energia ($/kWh)</span>
+          <span>{t('ai.energy_price')}</span>
           <input type="number" step="0.01" min="0" value={cost.kwhPrice}
             onChange={e => setCost({ ...cost, kwhPrice: Number.parseFloat(e.target.value) || 0 })}
             className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
         </label>
         <label className="text-xs text-text-muted flex flex-col gap-1">
-          <span>Potência GPU (W)</span>
+          <span>{t('ai.gpu_power')}</span>
           <input type="number" step="10" min="0" value={cost.localWatts}
             onChange={e => setCost({ ...cost, localWatts: Number.parseFloat(e.target.value) || 0 })}
             className="bg-surface border border-default rounded-lg px-2 py-1 text-sm text-text-primary tabular-nums" />
@@ -326,7 +320,7 @@ export default function AIBenchmarkCard() {
         <button onClick={saveCost} disabled={savingCost}
           className="flex items-center gap-1.5 text-sm bg-surface hover:bg-surface-hover border border-default disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5">
           {savingCost ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Salvar custos
+          {t('ai.save_costs')}
         </button>
       </div>
 
@@ -341,15 +335,7 @@ export default function AIBenchmarkCard() {
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="ai-testcases" className="text-sm text-text-primary">
-          Casos de teste (um por linha: <code className="text-text-secondary">nome.do.torrent =&gt; Rótulo Esperado</code>).
-          O rótulo separa a estrutura: <code className="text-text-secondary">Filme - Ano</code>,{' '}
-          <code className="text-text-secondary">Série - S03E07</code>,{' '}
-          <code className="text-text-secondary">Série - E01</code>, ou só o título.
-          Prefixe a tarefa com <code className="text-text-secondary">[schedule]</code> ou{' '}
-          <code className="text-text-secondary">[identify]</code> (sem prefixo = renomear);
-          agenda usa <code className="text-text-secondary">weekly:1:7:0</code> /{' '}
-          <code className="text-text-secondary">daily:21:30</code> /{' '}
-          <code className="text-text-secondary">interval:180</code>.
+          <Trans i18nKey="ai.cases_help" components={{ c: <code className="text-text-secondary" /> }} />
         </label>
         <textarea
           id="ai-testcases"
@@ -366,7 +352,7 @@ export default function AIBenchmarkCard() {
             className="flex items-center gap-1.5 text-sm bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary rounded-lg px-3 py-1.5"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Salvar casos
+            {t('ai.save_cases')}
           </button>
           {msg && <span className="text-xs text-text-secondary">{msg}</span>}
         </div>

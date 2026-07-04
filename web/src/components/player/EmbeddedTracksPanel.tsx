@@ -50,7 +50,7 @@ export function EmbeddedTracksPanel({
         <div>
           <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Volume2 className="w-3 h-3" />
-            Faixas de áudio ({probe.audio.length})
+            {t('player.embeddedTracks.audioTracks', { count: probe.audio.length })}
             {transcodeAudio !== null && (
               <span className="text-[10px] text-purple-700 dark:text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
                 <Cpu className="w-2.5 h-2.5 inline mr-0.5" />GPU encoding
@@ -65,9 +65,9 @@ export function EmbeddedTracksPanel({
                   ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30'
                   : 'bg-surface-secondary text-text-muted border-default hover:text-text-primary'
               }`}
-              title="Faixa padrão do arquivo (direct play, com seek completo)"
+              title={t('player.embeddedTracks.defaultHint')}
             >
-              Padrão
+              {t('player.embeddedTracks.default')}
             </button>
             {probe.audio.map(a => (
               <button
@@ -93,7 +93,7 @@ export function EmbeddedTracksPanel({
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <button
           onClick={() => setForceH264(v => !v)}
-          title="Re-encoda vídeo para H.264 — útil quando o codec original é HEVC e o browser não decodifica"
+          title={t('player.embeddedTracks.forceH264Hint')}
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
             forceH264
               ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
@@ -101,7 +101,7 @@ export function EmbeddedTracksPanel({
           }`}
         >
           <Cpu className="w-3.5 h-3.5" />
-          Forçar H.264
+          {t('player.embeddedTracks.forceH264')}
           {forceH264 && <Check className="w-3 h-3" />}
         </button>
 
@@ -109,7 +109,7 @@ export function EmbeddedTracksPanel({
         {isTranscoded && (
           <span className="text-[11px] text-yellow-400 flex items-center gap-1">
             <AlertCircle className="w-3 h-3" />
-            Stream transcoded — seek limitado
+            {t('player.embeddedTracks.transcodedSeekLimited')}
           </span>
         )}
       </div>
@@ -119,7 +119,7 @@ export function EmbeddedTracksPanel({
         <div>
           <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Subtitles className="w-3 h-3" />
-            Legendas no torrent ({sidecars.length}) <span className="text-[10px] text-text-muted italic">— arquivos .srt/.vtt</span>
+            {t('player.embeddedTracks.torrentSubs', { count: sidecars.length })} <span className="text-[10px] text-text-muted italic">{t('player.embeddedTracks.torrentSubsHint')}</span>
           </p>
           <div className="flex flex-wrap gap-1">
             <button
@@ -133,7 +133,7 @@ export function EmbeddedTracksPanel({
                   : 'bg-surface-secondary text-text-muted border-default hover:text-text-primary'
               }`}
             >
-              Nenhuma
+              {t('player.embeddedTracks.none')}
             </button>
             {sidecars.map(s => (
               <button
@@ -165,7 +165,7 @@ export function EmbeddedTracksPanel({
         <div>
           <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Subtitles className="w-3 h-3" />
-            Legendas embutidas ({probe.subtitles.length})
+            {t('player.embeddedTracks.embeddedSubs', { count: probe.subtitles.length })}
             {burnSubTrack !== null && (
               <span className="text-[10px] text-orange-700 dark:text-orange-300 bg-orange-500/15 border border-orange-500/30 px-1.5 py-0.5 rounded">
                 <Flame className="w-2.5 h-2.5 inline mr-0.5" />Burn-in
@@ -185,14 +185,14 @@ export function EmbeddedTracksPanel({
                   : 'bg-surface-elevated text-text-muted border-default hover:text-text-primary'
               }`}
             >
-              Nenhuma
+              {t('player.embeddedTracks.none')}
             </button>
             {probe.subtitles.map((s, i) => {
               const isActive = embeddedSub === s.index || burnSubTrack === s.index
               // Sem tag de língua (comum em releases tipo MeGusta com N subs
               // sem rótulo), o "??" deixa 34 faixas idênticas — usa o título, ou
               // um ordinal "Faixa N" pra serem ao menos distinguíveis.
-              const subLabel = s.language ? s.language.toUpperCase() : (s.title || `Faixa ${i + 1}`)
+              const subLabel = s.language ? s.language.toUpperCase() : (s.title || t('player.embeddedTracks.trackN', { n: i + 1 }))
               // Legendas image-based (PGS/DVD) exigiriam burn-in, que o caminho
               // HLS atual descarta (o encoder roda -sn, sem overlay) — selecioná-las
               // só silenciava a legenda. Desabilitado até o burn existir no HLS (#411).

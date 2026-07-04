@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { History, Trash2, Search, ArrowUpDown, Calendar, Database, Filter, X, SortAsc, SortDesc, Globe, FolderOpen, Loader2, RefreshCw, ArrowLeft } from 'lucide-react'
 import { getHistory, getHistoryResults, clearHistory, deleteHistoryEntry, searchCache, historyRefresh, searchTorrents, SearchResult, HistoryEntry, CachedSearchResult } from '../api/client'
@@ -24,12 +25,13 @@ type SortDef = { key: ResultSortKey; label: string }
 // Estado vazio do modo "browse" (nenhuma busca em cache). Extraído pra fora de
 // renderBrowseContent pra manter a complexidade cognitiva daquele render baixa.
 function BrowseEmptyState() {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center py-20 text-text-muted">
       <History className="w-16 h-16 mb-4 opacity-30" />
-      <p className="text-xl font-medium">Nenhuma busca salva</p>
-      <p className="text-sm mt-2">Faça uma busca para começar a acumular o cache</p>
-      <Link to="/" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">Ir para busca</Link>
+      <p className="text-xl font-medium">{t('history.noSavedTitle')}</p>
+      <p className="text-sm mt-2">{t('history.noSavedHint')}</p>
+      <Link to="/" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">{t('history.goToSearch')}</Link>
     </div>
   )
 }
@@ -89,23 +91,24 @@ function BrowseEntryList({
   selected, refreshingQueries, queryFilter, setQueryFilter, entrySort, setEntrySort,
   filteredEntries, onSelect, onDeleteEntry, onDeleteEntryByQuery, navigate,
 }: BrowseEntryListProps) {
+  const { t } = useTranslation()
   return (
     <div className={`flex-col gap-2 ${selected ? 'hidden lg:flex' : 'flex'}`}>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-        <input type="text" placeholder="Filtrar buscas..." value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500" />
+        <input type="text" placeholder={t('history.filterSearches')} value={queryFilter} onChange={e => setQueryFilter(e.target.value)} className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500" />
         {queryFilter && (<button onClick={() => setQueryFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"><X className="w-3.5 h-3.5" /></button>)}
       </div>
       <div className="flex gap-1">
-        {([['recent','Recente'],['oldest','Antiga'],['most','+ Resultados'],['alpha','A–Z']] as [EntrySortKey,string][]).map(([key, label]) => (
+        {([['recent',t('history.entrySortRecent')],['oldest',t('history.entrySortOldest')],['most',t('history.entrySortMost')],['alpha',t('history.entrySortAlpha')]] as [EntrySortKey,string][]).map(([key, label]) => (
           <button key={key} onClick={() => setEntrySort(key)} className={`flex-1 text-xs px-2 py-1.5 rounded-lg transition-colors ${entrySort === key ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-surface-secondary text-text-secondary border border-default hover:text-text-primary'}`}>{label}</button>
         ))}
       </div>
       <div className="bg-surface-secondary rounded-xl border border-default overflow-hidden flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
         {filteredEntries.length === 0 ? (
-          <p className="text-text-muted text-sm text-center py-8">Nenhuma busca encontrada</p>
+          <p className="text-text-muted text-sm text-center py-8">{t('history.noSearchesFound')}</p>
         ) : filteredEntries.map((entry) => (
-          <SwipeRow key={entry.query} onDelete={() => onDeleteEntryByQuery(entry.query)} deleteLabel="Apagar">
+          <SwipeRow key={entry.query} onDelete={() => onDeleteEntryByQuery(entry.query)} deleteLabel={t('history.delete')}>
           <button {...newTabProps(searchHref(entry.query), () => onSelect(entry.query))} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-default/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-surface-tertiary/50'}`}>
             <div className="flex-1 min-w-0">
               <p className={`truncate font-medium ${selected === entry.query ? 'text-green-400' : 'text-text-primary'}`} title={entry.query}>{entry.query}</p>
@@ -116,11 +119,11 @@ function BrowseEntryList({
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
               {refreshingQueries.has(entry.query) && (
-                <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label="Atualizando busca" />
+                <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label={t('history.refreshingSearch')} />
               )}
-              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title="Nova busca" aria-label="Nova busca" className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
+              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title={t('history.newSearch')} aria-label={t('history.newSearch')} className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
               {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
-              <button onClick={e => onDeleteEntry(entry.query, e)} title="Remover do cache" aria-label="Remover do cache" className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={e => onDeleteEntry(entry.query, e)} title={t('history.removeFromCache')} aria-label={t('history.removeFromCache')} className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </button>
           </SwipeRow>
@@ -186,47 +189,48 @@ function BrowseResultsDetail({
   refreshingSearch, onRefreshSearch, onBack, onDownload, onPlay, onAddToPlaylist,
   onExploreContents, onRefreshResult, refreshingIDs, refreshedLabels,
 }: BrowseResultsPanelProps) {
+  const { t } = useTranslation()
   return (
     <>
       <button
         onClick={onBack}
         className="lg:hidden flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary self-start"
       >
-        <ArrowLeft className="w-4 h-4" /> Voltar às buscas
+        <ArrowLeft className="w-4 h-4" /> {t('history.backToSearches')}
       </button>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-          <input type="text" placeholder="Filtrar títulos..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500" />
+          <input type="text" placeholder={t('history.filterTitles')} value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="w-full bg-surface-secondary border border-default rounded-lg pl-9 pr-8 py-2 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500" />
           {resultFilter && (<button onClick={() => setResultFilter('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"><X className="w-3.5 h-3.5" /></button>)}
         </div>
         <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-surface-secondary border border-default rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-green-500">
-          {trackers.map(t => (<option key={t} value={t}>{t === 'all' ? 'Todos os trackers' : t}</option>))}
+          {trackers.map(tr => (<option key={tr} value={tr}>{tr === 'all' ? t('history.allTrackers') : tr}</option>))}
         </select>
         <div className="flex items-center gap-2 bg-surface-secondary border border-default rounded-lg px-3 py-2">
-          <span className="text-xs text-text-muted">Mín seeds</span>
+          <span className="text-xs text-text-muted">{t('history.minSeeds')}</span>
           <input type="number" min={0} value={minSeeders} onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-14 bg-transparent text-sm text-text-primary focus:outline-none" />
         </div>
         <ResultSortButtons
           sort={resultSort}
           sortAsc={resultSortAsc}
           onChange={(k, a) => { setResultSort(k); setResultSortAsc(a) }}
-          defs={[['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Título']].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
+          defs={[['seeders',t('history.sortSeeds')],['size',t('history.sortSize')],['date',t('history.sortDate')],['title',t('history.sortTitle')]].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
           className="flex items-center gap-1 bg-surface-secondary border border-default rounded-lg p-1"
         />
       </div>
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-xs text-text-muted">{loadingResults ? 'Carregando...' : (<><span className="text-text-primary font-medium">{filteredResults.length}</span>{filteredResults.length !== results.length && <span> de {results.length}</span>} {' '}resultado{filteredResults.length === 1 ? '' : 's'} em cache para <span className="text-green-400 font-medium">"{selected}"</span></>)}</p>
+        <p className="text-xs text-text-muted">{loadingResults ? t('history.loading') : (<><span className="text-text-primary font-medium">{filteredResults.length}</span>{filteredResults.length !== results.length && <span> {t('history.ofTotal', { total: results.length })}</span>} {' '}<Trans i18nKey="history.resultsCachedFor" values={{ query: selected }} components={{ q: <span className="text-green-400 font-medium" /> }} /></>)}</p>
         {!loadingResults && (
-          <button onClick={onRefreshSearch} disabled={refreshingSearch} title="Buscar de novo no Jackett — atualiza seeders e traz resultados novos" className="flex items-center gap-1.5 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-700 dark:text-green-300 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+          <button onClick={onRefreshSearch} disabled={refreshingSearch} title={t('history.refreshSearchTooltip')} className="flex items-center gap-1.5 text-xs bg-green-500/15 hover:bg-green-500/25 text-green-700 dark:text-green-300 border border-green-500/30 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
             {refreshingSearch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            {refreshingSearch ? 'Atualizando...' : 'Atualizar busca'}
+            {refreshingSearch ? t('history.refreshing') : t('history.refreshSearch')}
           </button>
         )}
       </div>
       {loadingResults && <BrowseResultsSkeleton />}
       {!loadingResults && filteredResults.length === 0 && (
-        <div className="text-text-muted text-sm py-10 text-center">{results.length === 0 ? `Nenhum resultado em cache para "${selected}"` : 'Nenhum resultado com os filtros aplicados'}</div>
+        <div className="text-text-muted text-sm py-10 text-center">{results.length === 0 ? t('history.noResultsCached', { query: selected }) : t('history.noResultsFiltered')}</div>
       )}
       {!loadingResults && filteredResults.length > 0 && (
         <>
@@ -236,7 +240,7 @@ function BrowseResultsDetail({
             ))}
           </div>
           {browseVisible < filteredResults.length && (
-            <div ref={browseSentinelRef} className="text-center py-6 text-xs text-text-muted">Mostrando {browseVisible} de {filteredResults.length} • role pra ver mais</div>
+            <div ref={browseSentinelRef} className="text-center py-6 text-xs text-text-muted">{t('history.showingMore', { shown: browseVisible, total: filteredResults.length })}</div>
           )}
         </>
       )}
@@ -245,6 +249,7 @@ function BrowseResultsDetail({
 }
 
 export default function HistoryPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   useScrollRestoration(entries.length > 0)
@@ -378,7 +383,7 @@ export default function HistoryPage() {
   }, [mode, selected, globalResults.length, results.length])
 
   const handleClear = async () => {
-    const ok = await confirm({ title: 'Limpar cache', message: `Apagar TODAS as ${entries.length} buscas em cache do histórico?`, confirmLabel: 'Limpar', destructive: true })
+    const ok = await confirm({ title: t('history.clearCache'), message: t('history.clearCacheMessage', { count: entries.length }), confirmLabel: t('history.clearCacheConfirm'), destructive: true })
     if (!ok) return
     await clearHistory()
     setEntries([])
@@ -518,7 +523,7 @@ export default function HistoryPage() {
         <input
           type="text"
           autoFocus
-          placeholder="Busca full-text em TODOS os resultados em cache (ex: '1080p hevc', 'breaking bad')..."
+          placeholder={t('history.globalPlaceholder')}
           value={globalQuery}
           onChange={e => setGlobalQuery(e.target.value)}
           className="w-full bg-surface-secondary border border-default rounded-xl pl-12 pr-12 py-3 text-base text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500"
@@ -532,22 +537,22 @@ export default function HistoryPage() {
       {globalSearched && (
         <p className="text-sm text-text-secondary flex items-center gap-2">
           {globalLoading
-            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Buscando...</>
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />{t('history.searching')}</>
             : <><span className="text-text-primary font-medium">{filteredGlobal.length}</span>
-                {filteredGlobal.length !== globalResults.length && <span>de {globalResults.length}</span>}
-                {' '}resultados em todo o cache para <span className="text-green-400">"{globalQuery}"</span></>
+                {filteredGlobal.length !== globalResults.length && <span> {t('history.ofTotal', { total: globalResults.length })}</span>}
+                {' '}<Trans i18nKey="history.resultsAllCacheFor" values={{ query: globalQuery }} components={{ q: <span className="text-green-400" /> }} /></>
           }
         </p>
       )}
       {globalResults.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
           <Filter className="w-3.5 h-3.5 text-text-muted" />
-          <input type="text" placeholder="Filtrar título..." value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500 w-44" />
+          <input type="text" placeholder={t('history.filterTitle')} value={resultFilter} onChange={e => setResultFilter(e.target.value)} className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500 w-44" />
           <select value={trackerFilter} onChange={e => setTrackerFilter(e.target.value)} className="bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-green-500">
-            {globalTrackers.map(t => (<option key={t} value={t}>{t === 'all' ? 'Todos os servidores' : t}</option>))}
+            {globalTrackers.map(tr => (<option key={tr} value={tr}>{tr === 'all' ? t('history.allServers') : tr}</option>))}
           </select>
           <label className="flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5">
-            <span className="text-xs text-text-muted">Seeds ≥</span>
+            <span className="text-xs text-text-muted">{t('history.seedsGte')}</span>
             <input type="number" min={0} value={minSeeders || ''} placeholder="0" onChange={e => setMinSeeders(Math.max(0, Number.parseInt(e.target.value) || 0))} className="w-12 bg-transparent text-sm text-text-primary focus:outline-none" />
           </label>
           <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ml-auto">
@@ -555,7 +560,7 @@ export default function HistoryPage() {
               sort={resultSort}
               sortAsc={resultSortAsc}
               onChange={(k, a) => { setResultSort(k); setResultSortAsc(a) }}
-              defs={[['seeders','Seeds'],['size','Tamanho'],['date','Data'],['title','Nome']].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
+              defs={[['seeders',t('history.sortSeeds')],['size',t('history.sortSize')],['date',t('history.sortDate')],['title',t('history.sortName')]].map(([key, label]) => ({ key: key as ResultSortKey, label }))}
               className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 ml-auto"
             />
           </div>
@@ -567,8 +572,8 @@ export default function HistoryPage() {
       {globalSearched && !globalLoading && filteredGlobal.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-text-muted">
           <Search className="w-12 h-12 mb-3 opacity-30" />
-          <p className="font-medium">Nenhum resultado encontrado no cache</p>
-          <p className="text-sm mt-1">Tente outros termos ou faça uma nova busca</p>
+          <p className="font-medium">{t('history.noResultsInCache')}</p>
+          <p className="text-sm mt-1">{t('history.tryOtherTerms')}</p>
         </div>
       )}
       {filteredGlobal.length > 0 && (
@@ -578,23 +583,23 @@ export default function HistoryPage() {
               <div key={`${result.infoHash || result.link}-${i}`} className="flex flex-col gap-1">
                 <ResultCard result={result} onDownload={setDownloadTarget} onPlay={(r) => playSingle(r)} onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }} onExploreContents={setContentsTarget} onRefresh={handleRefreshResult} refreshing={result.id !== undefined && refreshingIDs.has(result.id)} refreshedAt={result.id === undefined ? null : refreshedLabels.get(result.id) ?? null} />
                 {result.query && (
-                  <button {...newTabProps(searchHref(result.query), () => { setMode('browse'); handleSelect(result.query!) })} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={`Ver todos os resultados da busca "${result.query}"`}>
-                    <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">de: {result.query}</span>
+                  <button {...newTabProps(searchHref(result.query), () => { setMode('browse'); handleSelect(result.query!) })} className="text-[10px] text-text-muted hover:text-green-400 transition-colors flex items-center gap-1 px-2 truncate" title={t('history.viewAllResultsOf', { query: result.query })}>
+                    <FolderOpen className="w-2.5 h-2.5 flex-shrink-0" /><span className="truncate">{t('history.fromQuery', { query: result.query })}</span>
                   </button>
                 )}
               </div>
             ))}
           </div>
           {globalVisible < filteredGlobal.length && (
-            <div ref={globalSentinelRef} className="text-center py-6 text-xs text-text-muted">Mostrando {globalVisible} de {filteredGlobal.length} • role pra ver mais</div>
+            <div ref={globalSentinelRef} className="text-center py-6 text-xs text-text-muted">{t('history.showingMore', { shown: globalVisible, total: filteredGlobal.length })}</div>
           )}
         </>
       )}
       {!globalSearched && !globalQuery && (
         <div className="flex flex-col items-center justify-center py-20 text-text-muted">
           <Globe className="w-16 h-16 mb-4 opacity-30" />
-          <p className="text-lg">Busca full-text em todo o cache</p>
-          <p className="text-sm mt-2">Digite termos para encontrar resultados de qualquer busca anterior</p>
+          <p className="text-lg">{t('history.globalHeroTitle')}</p>
+          <p className="text-sm mt-2">{t('history.globalHeroHint')}</p>
         </div>
       )}
     </div>
@@ -655,7 +660,7 @@ export default function HistoryPage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-text-muted">
               <ArrowUpDown className="w-10 h-10 mb-3 opacity-30" />
-              <p>Selecione uma busca para ver os resultados em cache</p>
+              <p>{t('history.selectSearchPrompt')}</p>
             </div>
           )}
         </div>
@@ -673,13 +678,13 @@ export default function HistoryPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <History className="w-5 h-5 text-text-secondary" />
-            <h1 className="text-lg font-semibold text-text-primary">Histórico</h1>
+            <h1 className="text-lg font-semibold text-text-primary">{t('history.title')}</h1>
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <span className="bg-surface-secondary border border-default px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Search className="w-3 h-3" />{entries.length} buscas
+                <Search className="w-3 h-3" />{t('history.searchesCount', { count: entries.length })}
               </span>
               <span className="bg-surface-secondary border border-default px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Database className="w-3 h-3" />{totalResults.toLocaleString()} resultados
+                <Database className="w-3 h-3" />{t('history.resultsCount', { count: totalResults.toLocaleString() })}
               </span>
             </div>
           </div>
@@ -693,7 +698,7 @@ export default function HistoryPage() {
                 }`}
               >
                 <FolderOpen className="w-3.5 h-3.5" />
-                Por busca
+                {t('history.modeBrowse')}
               </button>
               <button
                 onClick={() => setMode('global')}
@@ -702,13 +707,13 @@ export default function HistoryPage() {
                 }`}
               >
                 <Globe className="w-3.5 h-3.5" />
-                Busca global
+                {t('history.modeGlobal')}
               </button>
             </div>
             {entries.length > 0 && (
               <button onClick={handleClear} className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 transition-colors">
                 <Trash2 className="w-3.5 h-3.5" />
-                Limpar cache
+                {t('history.clearCache')}
               </button>
             )}
           </div>

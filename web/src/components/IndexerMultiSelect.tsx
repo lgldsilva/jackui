@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { Check, ChevronDown, Filter, Search as SearchIcon, Plus } from 'lucide-react'
 import { Indexer } from '../api/client'
 
@@ -19,6 +20,7 @@ type Props = {
  * contract: `[]` means "all indexers".
  */
 export default function IndexerMultiSelect({ selected, onChange, indexers }: Props) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -49,11 +51,11 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
 
   let label: string
   if (selected.length === 0) {
-    label = `Todos (${indexers.length || 0})`
+    label = t('search.all_count', { count: indexers.length || 0 })
   } else if (selected.length === 1) {
     label = indexers.find(i => i.id === selected[0])?.name || selected[0]
   } else {
-    label = `${selected.length} indexers`
+    label = t('search.n_indexers', { count: selected.length })
   }
 
   let dropdownContent: React.ReactNode
@@ -62,7 +64,7 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
     if (query) {
       emptyContent = (
         <>
-          <p>Nenhum indexer bate com &quot;{query}&quot;</p>
+          <p>{t('search.no_indexer_match', { query })}</p>
           <button
             type="button"
             onClick={() => {
@@ -74,23 +76,22 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
             }}
             className="mx-auto flex items-center gap-1 bg-green-500/25 hover:bg-green-500/35 text-green-700 dark:text-green-300 border border-green-500/40 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" /> Adicionar &quot;{query.trim()}&quot;
+            <Plus className="w-3.5 h-3.5" /> {t('search.add_indexer', { name: query.trim() })}
           </button>
         </>
       )
     } else if (indexers.length === 0) {
       emptyContent = (
         <>
-          <p className="text-text-secondary font-medium">Jackett não expôs a lista de indexers.</p>
+          <p className="text-text-secondary font-medium">{t('search.jackett_no_list')}</p>
           <p className="text-[11px] leading-relaxed text-text-muted">
-            A busca continuará usando <span className="text-green-400">todos</span> os indexers configurados.
-            Para filtrar, digite o nome do indexer acima para adicioná-lo ou faça uma busca comum para que o JackUI autodescubra seus indexadores a partir dos resultados!
+            <Trans i18nKey="search.indexer_help" components={{ g: <span className="text-green-400" /> }} />
           </p>
         </>
       )
     } else {
       emptyContent = (
-        <p>Nenhum indexer configurado no Jackett</p>
+        <p>{t('search.no_indexer_configured')}</p>
       )
     }
     dropdownContent = (
@@ -141,21 +142,21 @@ export default function IndexerMultiSelect({ selected, onChange, indexers }: Pro
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Filtrar..."
+              placeholder={t('search.filter_ellipsis')}
               className="bg-transparent text-sm text-text-primary placeholder-gray-500 flex-1 focus:outline-none"
               autoFocus
             />
-            <button onClick={selectAll} className="text-[11px] text-green-400 hover:text-green-500 dark:hover:text-green-300 whitespace-nowrap">Todos</button>
+            <button onClick={selectAll} className="text-[11px] text-green-400 hover:text-green-500 dark:hover:text-green-300 whitespace-nowrap">{t('search.all')}</button>
             <span className="text-text-muted">·</span>
-            <button onClick={clear} className="text-[11px] text-text-secondary hover:text-text-primary whitespace-nowrap">Limpar</button>
+            <button onClick={clear} className="text-[11px] text-text-secondary hover:text-text-primary whitespace-nowrap">{t('search.clean')}</button>
           </div>
 
           <div className="overflow-y-auto flex-1">
             {dropdownContent}
           </div>
           <div className="p-2 border-t border-default flex justify-between items-center text-[11px] text-text-muted">
-            <span>{selected.length === 0 ? 'Buscando em todos' : `${selected.length} selecionado(s)`}</span>
-            <button onClick={() => setOpen(false)} className="text-text-primary hover:text-text-primary">Fechar</button>
+            <span>{selected.length === 0 ? t('search.searching_all') : t('search.n_selected', { count: selected.length })}</span>
+            <button onClick={() => setOpen(false)} className="text-text-primary hover:text-text-primary">{t('search.close')}</button>
           </div>
         </div>
       )}

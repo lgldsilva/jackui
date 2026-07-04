@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import { Sheet } from './Sheet'
 
@@ -21,6 +22,7 @@ const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<boolean>
  * Envolve a app uma vez; o hook `useConfirm()` retorna uma função async.
  */
 export function ConfirmProvider({ children }: { readonly children: ReactNode }) {
+  const { t } = useTranslation()
   const [pending, setPending] = useState<Pending | null>(null)
   const pendingRef = useRef<Pending | null>(null)
   pendingRef.current = pending
@@ -43,7 +45,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
         onClick={() => settle(false)}
         className="px-4 py-2 rounded-lg text-sm text-text-primary hover:bg-surface-tertiary transition-colors min-h-[44px]"
       >
-        {pending?.cancelLabel ?? 'Cancelar'}
+        {pending?.cancelLabel ?? t('misc.cancel')}
       </button>
       <button
         onClick={() => settle(true)}
@@ -53,7 +55,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
             : 'bg-green-500 hover:bg-green-600 text-white'
         }`}
       >
-        {pending?.confirmLabel ?? 'Confirmar'}
+        {pending?.confirmLabel ?? t('misc.confirm')}
       </button>
     </div>
   )
@@ -65,7 +67,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
         open={pending !== null}
         onClose={() => settle(false)}
         size="sm"
-        title={pending?.title ?? 'Confirmar'}
+        title={pending?.title ?? t('misc.confirm')}
         icon={destructive ? <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" /> : undefined}
         footer={footer}
       >
@@ -77,7 +79,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
 
 export function useConfirm(): (opts: ConfirmOptions) => Promise<boolean> {
   const ctx = useContext(ConfirmContext)
-  if (!ctx) throw new Error('useConfirm precisa de <ConfirmProvider> acima na árvore')
+  if (!ctx) throw new Error('useConfirm must be used within a <ConfirmProvider>')
   // useMemo só pra estabilizar a referência (o ctx já é estável via useCallback).
   return useMemo(() => ctx, [ctx])
 }

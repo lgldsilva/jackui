@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowUp, Loader2 } from 'lucide-react'
+import i18n from '../lib/i18n'
 import { streamHealth, StreamHealth } from '../api/client'
 
 // SeedBadge shows a torrent's swarm health on a card: a dot (green = available,
@@ -11,12 +13,12 @@ import { streamHealth, StreamHealth } from '../api/client'
 function relTime(iso?: string): string {
   if (!iso) return ''
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 90) return 'agora'
+  if (s < 90) return i18n.t('misc.rel_now')
   const m = s / 60
-  if (m < 90) return `há ${Math.round(m)}min`
+  if (m < 90) return i18n.t('misc.rel_min', { n: Math.round(m) })
   const h = m / 60
-  if (h < 36) return `há ${Math.round(h)}h`
-  return `há ${Math.round(h / 24)}d`
+  if (h < 36) return i18n.t('misc.rel_hour', { n: Math.round(h) })
+  return i18n.t('misc.rel_day', { n: Math.round(h / 24) })
 }
 
 type Props = {
@@ -33,6 +35,7 @@ type Props = {
 }
 
 export default function SeedBadge({ infoHash, magnet, className = '', refreshSignal, autoProbe = false }: Props) {
+  const { t } = useTranslation()
   const ref = useRef<HTMLButtonElement>(null)
   const [health, setHealth] = useState<StreamHealth | null>(null)
   const [probing, setProbing] = useState(false)
@@ -112,12 +115,12 @@ export default function SeedBadge({ infoHash, magnet, className = '', refreshSig
   }
   let title: string
   if (probing) {
-    title = 'Verificando seeds no swarm…'
+    title = t('misc.seed_checking')
   } else if (known) {
-    const liveSuffix = health?.active ? ' (ao vivo)' : ''
-    title = `${seeders} seeds / ${health?.peers ?? 0} peers · verificado ${relTime(health?.checkedAt)}${liveSuffix}`
+    const liveSuffix = health?.active ? t('misc.seed_live_suffix') : ''
+    title = `${t('misc.seed_summary', { seeders, peers: health?.peers ?? 0, time: relTime(health?.checkedAt) })}${liveSuffix}`
   } else {
-    title = 'Clique para verificar seeds'
+    title = t('misc.seed_click')
   }
 
   return (

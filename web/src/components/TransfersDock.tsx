@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeftRight, ChevronDown, ChevronUp } from 'lucide-react'
+import i18n from '../lib/i18n'
 import { useTransfers } from '../lib/transfers'
 import type { TransferSnapshot } from '../api/transfers'
 import FileProgressBar from './FileProgressBar'
@@ -9,25 +11,26 @@ import FileProgressBar from './FileProgressBar'
 // consistent FileProgressBar. Sits bottom-LEFT so it never collides with the
 // player dock (bottom-right). Hides itself when there's nothing to show.
 
-const KIND_LABEL: Record<string, string> = {
-  'download-move': 'Finalizando download',
-  'local-move': 'Movendo',
-  'promote': 'Promovendo',
-  'ai-rename': 'Organizando (IA)',
+const KIND_KEY: Record<string, string> = {
+  'download-move': 'transfers.kind.downloadMove',
+  'local-move': 'transfers.kind.localMove',
+  'promote': 'transfers.kind.promote',
+  'ai-rename': 'transfers.kind.aiRename',
 }
 
 function kindLabel(kind: string): string {
-  return KIND_LABEL[kind] ?? 'Transferência'
+  return i18n.t(KIND_KEY[kind] ?? 'transfers.kind.generic')
 }
 
 export default function TransfersDock() {
+  const { t } = useTranslation()
   const { transfers, cancel } = useTransfers()
   const [collapsed, setCollapsed] = useState(false)
 
   if (transfers.length === 0) return null
 
-  const running = transfers.filter((t) => t.status === 'running').length
-  const queued = transfers.filter((t) => t.status === 'queued').length
+  const running = transfers.filter((x) => x.status === 'running').length
+  const queued = transfers.filter((x) => x.status === 'queued').length
 
   return (
     <div
@@ -41,28 +44,28 @@ export default function TransfersDock() {
         >
           <ArrowLeftRight className="w-3.5 h-3.5 text-amber-400" />
           <span className="flex-1 text-left">
-            Transferências
-            {running > 0 && <span className="ml-1 text-text-muted font-normal">· {running} ativa{running > 1 ? 's' : ''}</span>}
-            {queued > 0 && <span className="ml-1 text-text-muted font-normal">· {queued} na fila</span>}
+            {t('transfers.title')}
+            {running > 0 && <span className="ml-1 text-text-muted font-normal">· {t('transfers.activeCount', { count: running })}</span>}
+            {queued > 0 && <span className="ml-1 text-text-muted font-normal">· {t('transfers.queuedCount', { count: queued })}</span>}
           </span>
           {collapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
         {!collapsed && (
           <div className="max-h-[40vh] overflow-y-auto p-3 flex flex-col gap-3">
-            {transfers.map((t: TransferSnapshot) => (
+            {transfers.map((item: TransferSnapshot) => (
               <FileProgressBar
-                key={t.id}
-                label={`${kindLabel(t.kind)}: ${t.label}`}
-                status={t.status}
-                filesDone={t.filesDone}
-                filesTotal={t.filesTotal}
-                bytesDone={t.bytesDone}
-                bytesTotal={t.bytesTotal}
-                ratePerSec={t.ratePerSec}
-                etaSeconds={t.etaSeconds}
-                progress={t.progress}
-                error={t.error}
-                onCancel={() => cancel(t.id)}
+                key={item.id}
+                label={`${kindLabel(item.kind)}: ${item.label}`}
+                status={item.status}
+                filesDone={item.filesDone}
+                filesTotal={item.filesTotal}
+                bytesDone={item.bytesDone}
+                bytesTotal={item.bytesTotal}
+                ratePerSec={item.ratePerSec}
+                etaSeconds={item.etaSeconds}
+                progress={item.progress}
+                error={item.error}
+                onCancel={() => cancel(item.id)}
               />
             ))}
           </div>
