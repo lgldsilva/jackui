@@ -38,13 +38,21 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
       - run: go vet ./internal/...
-      # Reforço contra "connection refused": espera o PG antes dos testes.
-      - name: aguardar Postgres aceitar conexões
+      # Reforço contra "connection refused": exige o PG ESTÁVEL antes dos testes.
+      - name: aguardar Postgres estável
         run: |
-          for i in $(seq 1 30); do
-            (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null && { exec 3>&-; echo "postgres pronto"; break; }
-            echo "aguardando postgres ($i/30)…"; sleep 2
+          # Um único connect podia pegar o Postgres num piscar do arranque (initdb/
+          # restart) e o go test logo depois falhava com "connection refused" (flake
+          # recorrente). Exigimos o port ABERTO E ESTÁVEL (3 connects consecutivos, 2s
+          # de intervalo) e FALHAMOS o job se não estabilizar em ~120s — em vez de
+          # seguir cego pro go test.
+          ok=0
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null; then exec 3>&-; ok=$((ok+1)); else ok=0; fi
+            [ "$ok" -ge 3 ] && { echo "postgres estável ($i)"; break; }
+            echo "aguardando postgres estabilizar ($i, ok=$ok)…"; sleep 2
           done
+          [ "$ok" -ge 3 ] || { echo "ERRO: postgres não estabilizou em ~120s"; exit 1; }
       - run: go test -coverprofile=coverage.out ./internal/...
       - uses: actions/upload-artifact@v3
         env:

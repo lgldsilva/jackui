@@ -44,12 +44,20 @@ jobs:
         run: 'test -z "$(gofmt -l .)" || { echo "gofmt:"; gofmt -l .; exit 1; }'
       - name: go vet
         run: go vet ./internal/...
-      - name: aguardar Postgres aceitar conexões
+      - name: aguardar Postgres estável
         run: |
-          for i in $(seq 1 30); do
-            (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null && { exec 3>&-; echo "postgres pronto"; break; }
-            echo "aguardando postgres ($i/30)…"; sleep 2
+          # Um único connect podia pegar o Postgres num piscar do arranque (initdb/
+          # restart) e o go test logo depois falhava com "connection refused" (flake
+          # recorrente). Exigimos o port ABERTO E ESTÁVEL (3 connects consecutivos, 2s
+          # de intervalo) e FALHAMOS o job se não estabilizar em ~120s — em vez de
+          # seguir cego pro go test.
+          ok=0
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null; then exec 3>&-; ok=$((ok+1)); else ok=0; fi
+            [ "$ok" -ge 3 ] && { echo "postgres estável ($i)"; break; }
+            echo "aguardando postgres estabilizar ($i, ok=$ok)…"; sleep 2
           done
+          [ "$ok" -ge 3 ] || { echo "ERRO: postgres não estabilizou em ~120s"; exit 1; }
       - name: go test + cobertura
         run: go test -coverprofile=coverage.out ./internal/...
       - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)
