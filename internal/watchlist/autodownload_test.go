@@ -182,8 +182,8 @@ func TestWorker_AutoDownload_SkipsBaselinePass(t *testing.T) {
 	if len(enq.calls) != 0 {
 		t.Fatalf("baseline pass must not auto-download, got %d", len(enq.calls))
 	}
-	if len(notifier.notifications) != 1 {
-		t.Fatalf("baseline pass still notifies, got %d", len(notifier.notifications))
+	if len(notifier.notifications) != 0 {
+		t.Fatalf("baseline pass must not notify (only seed 'seen'), got %d", len(notifier.notifications))
 	}
 	// Second pass: a NEW release shows up — now it auto-downloads.
 	searcher.results = append(searcher.results,
@@ -291,4 +291,67 @@ func mustFirstID(t *testing.T, s *Store, userID int) int {
 		t.Fatalf("List(%d): %v %v", userID, lists, err)
 	}
 	return lists[0].ID
+}
+
+// TestWorker_AggregatesHitsIntoOneNotification: a pass that turns up several new
+// releases must emit ONE summary alert (naming the watch, listing the releases),
+// not one alert per release — the fix for the create-time notification flood.
+func TestWorker_AggregatesHitsIntoOneNotification(t *testing.T) {
+	s := newTestStore(t)
+	wl, _ := s.Create(1, params("Rick and Morty", "", 1, "topic"))
+	primeChecked(t, s, wl.ID) // past the silent baseline
+	searcher := &fakeSearcher{results: []jackett.Result{
+		{InfoHash: "a", Title: "Rick.and.Morty.S01E01", MagnetURI: "magnet:a", Seeders: 5, Size: 100},
+		{InfoHash: "b", Title: "Rick.and.Morty.S01E02", MagnetURI: "magnet:b", Seeders: 5, Size: 100},
+		{InfoHash: "c", Title: "Rick.and.Morty.S01E03", MagnetURI: "magnet:c", Seeders: 5, Size: 100},
+	}}
+	notifier := &recorderNotifier{}
+	un := &recorderUserNotifier{}
+	w := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
+	w.SetUserNotifier(un)
+	w.RunOnce()
+	if len(notifier.notifications) != 1 {
+		t.Fatalf("3 hits must collapse into ONE ntfy notification, got %d", len(notifier.notifications))
+	}
+	if len(un.calls) != 1 {
+		t.Fatalf("3 hits must collapse into ONE user notification, got %d", len(un.calls))
+	}
+	n := notifier.notifications[0]
+	if !strings.Contains(n.title, "Rick and Morty") || !strings.Contains(n.title, "3") {
+		t.Fatalf("summary title should name the watch and the count, got %q", n.title)
+	}
+	if n.magnet != "" {
+		t.Fatalf("aggregated notification must carry no single magnet, got %q", n.magnet)
+	}
+	if !strings.Contains(n.body, "S01E01") || !strings.Contains(n.body, "S01E03") {
+		t.Fatalf("summary body should list the releases, got %q", n.body)
+	}
+	// All three are recorded as seen, so a second identical pass stays silent.
+	w.RunOnce()
+	if len(notifier.notifications) != 1 {
+		t.Fatalf("already-seen hits must not re-notify, got %d", len(notifier.notifications))
+	}
+}
+
+// TestAggregateHits_TruncatesLongList: beyond maxHitList releases the summary
+// lists the first few and collapses the rest into a "… e mais N" line rather
+// than a wall of text.
+func TestAggregateHits_TruncatesLongList(t *testing.T) {
+	hits := make([]newHit, 0, maxHitList+3)
+	for i := 0; i < maxHitList+3; i++ {
+		hits = append(hits, newHit{title: fmt.Sprintf("Rel.%02d", i), seeders: 2, size: 10})
+	}
+	title, body, magnet := aggregateHits(&Watchlist{Query: "q"}, hits)
+	if magnet != "" {
+		t.Fatalf("multi-hit summary must carry no magnet, got %q", magnet)
+	}
+	if !strings.Contains(title, "9 novos") { // maxHitList(6)+3
+		t.Fatalf("title should carry the total count, got %q", title)
+	}
+	if !strings.Contains(body, "… e mais 3") {
+		t.Fatalf("body should collapse the overflow into '… e mais 3', got %q", body)
+	}
+	if strings.Contains(body, "Rel.07") {
+		t.Fatalf("body must not spell out releases past the cap, got %q", body)
+	}
 }

@@ -26,6 +26,7 @@ func (r *recorderUserNotifier) NotifyUser(ctx context.Context, userID int, title
 func TestWorker_UserNotifierReceivesHits(t *testing.T) {
 	s := newTestStore(t)
 	mustCreate(t, s, 9, params("show", "", 1, "")) // no ntfy topic — user channel still fires
+	primeChecked(t, s, mustFirstID(t, s, 9))       // past the silent baseline: this pass must notify
 	searcher := &fakeSearcher{results: []jackett.Result{
 		{InfoHash: "aaa", Title: "Show.S01E01.1080p", MagnetURI: "magnet:aaa", Seeders: 4, Size: 100},
 	}}
