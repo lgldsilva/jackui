@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Cpu, RefreshCw, Loader2, Check, X, Zap } from 'lucide-react'
 import { transcodeCapabilities, TranscodeCapabilities, TranscodeEncoder } from '../api/client'
+import { errMessage } from '../lib/errMessage'
 
 const BACKEND_LABELS: Record<string, string> = {
   'nvidia':    'NVIDIA NVENC',
@@ -34,7 +35,7 @@ export default function TranscodeCapabilitiesCard() {
       const data = await transcodeCapabilities(force)
       setCaps(data)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errMessage(e))
     } finally {
       setLoading(false)
       setRefreshing(false)

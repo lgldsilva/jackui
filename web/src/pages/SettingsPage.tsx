@@ -26,6 +26,7 @@ import { Sheet } from '../components/Sheet'
 import AccountTab from './settings/AccountTab'
 import GeneralTab from './settings/GeneralTab'
 import { useAuth } from '../auth/AuthContext'
+import { errMessage } from '../lib/errMessage'
 
 const DEFAULT_CLIENT: DownloadClientFull = {
   id: '', name: '', type: 'qbittorrent', url: '', username: '', password: '', default: false,
@@ -119,7 +120,7 @@ export default function SettingsPage() {
       if (!r.success) setTestMsg(r.error || r.message || '')
     } catch (e) {
       setTestResult('error')
-      setTestMsg(e instanceof Error ? e.message : '')
+      setTestMsg(errMessage(e))
     } finally { setTesting(false) }
   }
 

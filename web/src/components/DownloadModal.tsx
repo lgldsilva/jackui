@@ -9,6 +9,7 @@ import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import DownloadDestinationPicker from './DownloadDestinationPicker'
 import { FileSelectionSection } from './files/FileSelectionSection'
+import { errMessage } from '../lib/errMessage'
 
 // Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
 // as opposed to handing the torrent to an external qBittorrent/Transmission.
@@ -232,7 +233,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       setSuccess(true)
       setTimeout(onClose, 1200)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erro ao enviar para o cliente')
+      setError(errMessage(err))
     } finally {
       setLoading(false)
     }

@@ -4,6 +4,7 @@ import {
   getMounts, updateMounts, adminListUsers,
   ExternalMount, AdminUser,
 } from '../api/client'
+import { errMessage } from '../lib/errMessage'
 
 // UserAccessPicker — shows the users with access as removable chips and a search
 // box to add others (typeahead over the users not yet selected). Replaces the
@@ -102,7 +103,7 @@ export default function ExternalMountsCard() {
   useEffect(() => {
     Promise.all([getMounts(), adminListUsers().catch(() => [] as AdminUser[])])
       .then(([m, u]) => { setMounts(withKeys(m)); setUsers(u) })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(errMessage(e)))
       .finally(() => setLoading(false))
   }, [])
 
@@ -133,7 +134,7 @@ export default function ExternalMountsCard() {
       await updateMounts(mounts.map(({ _key: _drop, ...m }) => m))
       setNotice('Salvo e aplicado ao vivo.')
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errMessage(e))
     } finally {
       setSaving(false)
     }

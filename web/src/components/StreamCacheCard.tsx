@@ -4,6 +4,7 @@ import { streamCacheStats, streamCacheClear, StreamCacheStats, CacheEntry } from
 import { usePlayer } from './PlayerProvider'
 import { syntheticResult } from '../lib/playable'
 import { usePersistedState } from '../lib/storage'
+import { errMessage } from '../lib/errMessage'
 
 type CacheSort = 'name' | 'size' | 'date'
 
@@ -76,7 +77,7 @@ export default function StreamCacheCard() {
       const s = await streamCacheStats()
       setStats(s)
     } catch (e: unknown) {
-      const m = e instanceof Error ? e.message : String(e)
+      const m = errMessage(e)
       setError(m)
     } finally {
       setLoading(false)

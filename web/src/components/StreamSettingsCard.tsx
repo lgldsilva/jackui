@@ -7,6 +7,7 @@ import {
   StreamSettingsDefaults,
   StorageBackend,
 } from '../api/client'
+import { errMessage } from '../lib/errMessage'
 
 const MIB = 1024 * 1024
 
@@ -127,7 +128,7 @@ export default function StreamSettingsCard() {
         setForm(toForm(s))
         setDefaults(s.defaults)
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => setError(errMessage(e)))
       .finally(() => setLoading(false))
   }, [])
 
@@ -147,7 +148,7 @@ export default function StreamSettingsCard() {
           : 'Salvo e aplicado ao vivo.',
       )
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errMessage(e))
     } finally {
       setSaving(false)
     }

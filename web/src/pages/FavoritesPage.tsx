@@ -22,6 +22,7 @@ import { useRevealHidden } from '../lib/reveal'
 import { newTabProps, playHref } from '../lib/cardNav'
 import { formatDate } from '../lib/format'
 import { SortKey, SortDir, sortFavorites } from '../lib/favSort'
+import { errMessage } from '../lib/errMessage'
 
 type FolderNode = {
   folder: FavoriteFolder
@@ -72,7 +73,7 @@ async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW
       await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
       ok++
     } catch (e: unknown) {
-      fails.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
+      fails.push(`${file.name}: ${errMessage(e)}`)
     }
   }
   return { ok, fails }
@@ -303,7 +304,7 @@ export default function FavoritesPage() {
       setFavs(favsList || [])
       setFolders(foldersList || [])
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errMessage(e))
     } finally {
       setLoading(false)
     }
@@ -372,7 +373,7 @@ export default function FavoritesPage() {
         await streamImport({ magnet, folderId: viewMode === ALL_VIEW ? null : viewMode })
         ok++
       } catch (e: unknown) {
-        fails.push(e instanceof Error ? e.message : String(e))
+        fails.push(errMessage(e))
       }
     }
     setImporting(false)
