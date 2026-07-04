@@ -5,19 +5,12 @@ import { playlistsList, playlistsCreate, playlistsDelete, Playlist } from '../ap
 import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
-
-function formatDate(iso: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const diffH = (Date.now() - d.getTime()) / 3_600_000
-  if (diffH < 1) return `${Math.floor(diffH * 60)}m atrás`
-  if (diffH < 24) return `${Math.floor(diffH)}h atrás`
-  if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-}
+import { useConfirm } from '../components/ConfirmDialog'
+import { formatDate } from '../lib/format'
 
 export default function PlaylistsPage() {
   const nav = useNavigate()
+  const confirm = useConfirm()
   const [lists, setLists] = useState<Playlist[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -46,7 +39,8 @@ export default function PlaylistsPage() {
   }
 
   const remove = async (p: Playlist) => {
-    if (!confirm(`Apagar playlist "${p.name}"? Itens são removidos junto.`)) return
+    const ok = await confirm({ title: 'Apagar playlist', message: `Apagar playlist "${p.name}"? Itens são removidos junto.`, confirmLabel: 'Apagar', destructive: true })
+    if (!ok) return
     await playlistsDelete(p.id)
     setLists(lists.filter(x => x.id !== p.id))
   }

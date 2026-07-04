@@ -20,6 +20,13 @@ export function formatBytes(bytes: number): string {
   return formatBytesAs(bytes, i)
 }
 
+// Como formatBytes, mas mostra '—' para valores ausentes/zero/negativos — para
+// UIs que preferem um traço a "0 B" (conteúdo de torrent, metadados do viewer).
+export function formatBytesOrDash(bytes: number): string {
+  if (!bytes || bytes <= 0) return '—'
+  return formatBytes(bytes)
+}
+
 export function formatRate(bytesPerSec: number): string {
   if (!bytesPerSec || bytesPerSec <= 0) return '0 KB/s'
   return `${formatBytes(bytesPerSec)}/s`
@@ -64,6 +71,15 @@ export function formatDate(iso: string): string {
   if (diffH < 48) return 'ontem'
   if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
+// Data + hora local ("dd/mm/aaaa HH:MM") — usado no browser de arquivos locais,
+// onde o horário de modificação importa (ao contrário do formatDate relativo).
+export function formatDateTime(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
 }
 
 export function formatBytesPair(downloaded: number, total: number): string {

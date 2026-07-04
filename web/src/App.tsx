@@ -25,6 +25,7 @@ const ResetPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ de
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 import { ConfirmProvider } from './components/ConfirmDialog'
+import { ToastProvider } from './components/Toast'
 import ErrorBoundary from './components/ErrorBoundary'
 import { TransfersProvider } from './lib/transfers'
 import TransfersDock from './components/TransfersDock'
@@ -135,6 +136,7 @@ function App() {
   return (
     <AuthProvider>
       <ConfirmProvider>
+        <ToastProvider>
         <TransfersProvider>
           <PlayerProvider>
             <div className="min-h-screen bg-surface">
@@ -150,6 +152,7 @@ function App() {
             </div>
           </PlayerProvider>
         </TransfersProvider>
+        </ToastProvider>
       </ConfirmProvider>
     </AuthProvider>
   )

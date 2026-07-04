@@ -4,6 +4,8 @@ import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, conver
 import { buildFavoritePayload } from '../lib/favoritePayload'
 import i18n from '../lib/i18n'
 import { playHref, anchorNavProps, swallowClick } from '../lib/cardNav'
+import { formatBytes } from '../lib/format'
+import { notify, notifyError } from './Toast'
 import QualityBadges from './QualityBadges'
 import SeedBadge from './SeedBadge'
 
@@ -23,14 +25,6 @@ type ResultCardProps = {
   readonly onRefresh?: (result: SearchResult) => Promise<void> | void
   readonly refreshing?: boolean
   readonly refreshedAt?: string | null
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 async function copyToClipboard(text: string) {
@@ -60,8 +54,8 @@ async function resolveMagnetIfNeeded(
       result.magnetUri = conv.magnet
       result.infoHash = conv.infoHash
       magnet = conv.magnet
-    } catch (err: any) {
-      alert(`Erro ao obter magnet do torrent: ${err.message || err}`)
+    } catch (err: unknown) {
+      notifyError(err)
     } finally {
       setResolving(false)
     }
@@ -121,7 +115,7 @@ async function handleToggleFavorite(
       // create an inert favorite that can never Play. Revert + tell the user
       // instead of silently persisting a dead row.
       setFavOpt(wasFavorited)
-      alert(i18n.t('favorites.resolve_failed'))
+      notify(i18n.t('favorites.resolve_failed'), 'error')
       return
     }
     if (payload.source === 'link' && payload.magnet.startsWith('magnet:')) {
@@ -145,8 +139,8 @@ async function startTorrentDownload(
   setResolvingTorrent(true)
   try {
     await downloadTorrentForResult(result)
-  } catch (err: any) {
-    alert(`Erro ao baixar .torrent: ${err?.response?.data?.error || err.message || err}`)
+  } catch (err: unknown) {
+    notifyError(err)
   } finally {
     setResolvingTorrent(false)
   }
@@ -257,7 +251,7 @@ function renderCardStats(
 ): React.ReactNode {
   return (
     <div className="grid grid-cols-2 gap-2 text-xs">
-      <div className="flex items-center gap-1 text-text-secondary"><HardDrive className="w-3.5 h-3.5" /><span>{formatSize(result.size)}</span></div>
+      <div className="flex items-center gap-1 text-text-secondary"><HardDrive className="w-3.5 h-3.5" /><span>{formatBytes(result.size)}</span></div>
       <div className="flex items-center gap-1 text-text-secondary"><Clock className="w-3.5 h-3.5" /><span>{result.age}</span></div>
       <div className="flex items-center gap-1 text-green-400">
         <Users className="w-3.5 h-3.5" /><span>{result.seeders} seed</span>
