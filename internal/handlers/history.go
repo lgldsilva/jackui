@@ -47,7 +47,7 @@ func enrichCached(items []history.CachedResult, e *resultEnricher) []enrichedCac
 func GetHistory(store *history.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		entries, err := store.RecentEntries(100, userID, includeAll)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -70,7 +70,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 		}
 
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		results, err := store.Search(query, userID, includeAll)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -91,7 +91,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 		}
 		limit := 200
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		results, err := store.SearchAll(query, limit, userID, includeAll)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -107,7 +107,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 func DeleteHistory(store *history.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		if q := c.Query("q"); q != "" {
 			if err := store.DeleteQuery(q, userID, includeAll); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

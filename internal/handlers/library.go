@@ -16,7 +16,7 @@ import (
 func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		limit := 0
 		if l := c.Query("limit"); l != "" {
 			if n, err := strconv.Atoi(l); err == nil && n > 0 {
@@ -96,7 +96,7 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 func LibraryDeleteAll(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		n, err := lib.DeleteAll(userID, includeAll)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

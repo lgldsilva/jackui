@@ -129,9 +129,8 @@ func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 // StreamInfo handles GET /api/stream/info/:hash — current torrent state + progress.
 func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		info, err := s.Get(h)
@@ -145,14 +144,12 @@ func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
 
 func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		if serveFromCompletedStore(c, store, s, h, fileIdx) {
@@ -205,14 +202,12 @@ func serveFromStreamer(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, fi
 // which only work on subsets of devices and break on desktop VLC entirely.
 func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 
@@ -315,14 +310,12 @@ func m3uFilename(info *streamer.TorrentInfo, fileIdx int) string {
 // Returns 202 immediately; the actual piece download happens asynchronously.
 func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		if err := s.Prefetch(h, fileIdx); err != nil {
@@ -338,9 +331,8 @@ func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 // deixar o ffmpeg do transcode órfão consumindo CPU até o idle-reaper.
 func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		// DropSeed (não Drop): remover o torrent é uma ação explícita do usuário,
@@ -360,9 +352,8 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.H
 // grace period instead of seeding indefinitely until the idle reaper.
 func StreamViewerOpen(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		s.AcquireViewer(h)
@@ -375,9 +366,8 @@ func StreamViewerOpen(s *streamer.Streamer) gin.HandlerFunc {
 // scheduled and the HLS session is torn down so ffmpeg doesn't linger.
 func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		// Close the HLS transcode whenever the LAST viewer leaves — even if the
@@ -394,14 +384,12 @@ func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager
 // StreamProbe handles GET /api/stream/probe/:hash/:file — lists embedded audio + sub tracks.
 func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		// ffprobe is bounded; 60s is generous
@@ -419,14 +407,12 @@ func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 // StreamSidecars handles GET /api/stream/sidecars/:hash/:file — list .srt/.vtt/.ass sibling files in the torrent.
 func StreamSidecars(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		subs, err := s.Sidecars(h, fileIdx)
@@ -443,14 +429,12 @@ func StreamSidecars(s *streamer.Streamer) gin.HandlerFunc {
 // Converts SRT → VTT automatically; serves VTT as-is.
 func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
@@ -482,14 +466,12 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 // StreamSubtitleExtract handles GET /api/stream/subtrack/:hash/:file/:track — extracts an embedded sub as VTT.
 func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		trackIdx, err := strconv.Atoi(c.Param("track"))
@@ -517,14 +499,12 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 // across the bar reuses cached thumbs instead of running ffmpeg per pixel.
 func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		at, _ := strconv.Atoi(c.Query("at"))
@@ -552,9 +532,8 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 // 200 = cache hit, 404 = never seen this hash before.
 func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		cache := s.MetadataCache()
@@ -577,14 +556,12 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 // and serves it with aggressive caching. Returns 204 if no artwork is embedded.
 func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		fileIdx, ok := bindFileIndex(c, "file")
+		if !ok {
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -613,9 +590,8 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 // strictly on-demand.
 func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		snapshot, active := s.HealthSnapshot(h)
@@ -645,9 +621,8 @@ func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 // and whether it answered. Synchronous (bounded) — the panel shows a spinner.
 func StreamTrackers(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
@@ -740,7 +715,7 @@ func StreamUnfavorite(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		if err := favs.Remove(name, userID, includeAll); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -759,7 +734,7 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		includeAll := isAdmin && c.Query("all") == "1"
+		includeAll := isAdmin && queryBool(c, "all")
 		// The global reveal curtain (X-JackUI-Reveal-Hidden, the easter egg) or the
 		// legacy ?includeHidden=1 reveal favourites inside hidden folders.
 		list, err := favs.List(userID, includeAll, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
@@ -813,9 +788,8 @@ func parseHash(s string) (metainfo.Hash, error) {
 // StreamPause handles POST /api/stream/:hash/pause — soft-pause peer connections.
 func StreamPause(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		if err := s.Pause(h); err != nil {
@@ -829,9 +803,8 @@ func StreamPause(s *streamer.Streamer) gin.HandlerFunc {
 // StreamResume handles POST /api/stream/:hash/resume — re-enable peer connections.
 func StreamResume(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		if err := s.Resume(h); err != nil {
@@ -845,9 +818,8 @@ func StreamResume(s *streamer.Streamer) gin.HandlerFunc {
 // StreamSetPriority handles POST /api/stream/:hash/priority — body {priority}.
 func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		var req struct {
@@ -872,9 +844,8 @@ func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
 // StreamSetFilePriority handles POST /api/stream/:hash/files/:idx/priority — body {priority}.
 func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		h, ok := bindHash(c)
+		if !ok {
 			return
 		}
 		idx, err := strconv.Atoi(c.Param("idx"))
