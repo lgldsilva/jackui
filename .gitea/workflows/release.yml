@@ -166,7 +166,11 @@ jobs:
           TOKEN: ${{ secrets.REGISTRY_TOKEN }}
           SHA: ${{ github.sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: bash scripts/publish-release.sh
+        # Não-fatal: a tag/Release é best-effort e vem ANTES do deploy — um imprevisto
+        # aqui NÃO pode bloquear a entrega (o artefato já foi buildado+escaneado+pushado;
+        # a tag pode ser refeita idempotentemente num re-run).
+        run: |
+          bash scripts/publish-release.sh || echo "Aviso: publish-release falhou — deploy segue."
       - name: deploy (docker.sock local; recria jackui no projeto compose de prod)
         run: |
           docker pull $IMAGE:nvidia
