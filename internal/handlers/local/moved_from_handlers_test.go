@@ -403,7 +403,7 @@ func TestLocalPromoteBatch(t *testing.T) {
 
 	b := lb.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: meus}})
 	router := gin.New()
-	router.POST("/api/local/promote", LocalPromote(b, nil, nil, shared, nil, nil, nil, nil))
+	router.POST("/api/local/promote", LocalPromote(LocalPromoteDeps{Browser: b, SharedDir: shared}))
 
 	body, _ := json.Marshal(localPromoteReq{Mount: "Meus downloads", Paths: names, TargetSubdir: "filmes"})
 	req := httptest.NewRequest(http.MethodPost, "/api/local/promote", bytes.NewReader(body))

@@ -43,6 +43,22 @@ type promoteReq struct {
 	IDs []int `json:"ids"`
 }
 
+// PromoteDeps bundles the shared dependencies of the promote handlers
+// (DownloadsPromote/DownloadsPromoteBatch). Passed as one struct so the handler
+// factories stay within the ≤7-parameter limit (S107) — the wiring in cmd/server
+// injects it, mirroring the existing promoteOpts/previewDeps pattern.
+type PromoteDeps struct {
+	Store      *downloads.Store
+	Streamer   *streamer.Streamer
+	AIClient   *ai.Client
+	TMDBClient *tmdb.Client
+	SharedDir  string
+	Dests      []httpshared.PromoteDest
+	Tracker    *transfer.Tracker
+	Pending    *transfer.Store
+	Cfg        *config.Config
+}
+
 // BuildPromoteDests returns the full list of promote destinations: sharedDir
 // is always first ("Biblioteca"), followed by any configured extras.
 func BuildPromoteDests(sharedDir string, extra []httpshared.PromoteDest) []httpshared.PromoteDest {
@@ -61,28 +77,28 @@ func BuildPromoteDests(sharedDir string, extra []httpshared.PromoteDest) []https
 //
 // targetSubdir vazio = raiz do destino. targetBase vazio = sharedDir (default).
 // Subpastas inexistentes são criadas (os.MkdirAll). Validação anti-traversal.
-func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
+func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
 			return
 		}
-		if sharedDir == "" {
+		if d.SharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
 		var req promoteReq
 		_ = c.ShouldBindJSON(&req)
 
-		base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
+		base, err := httpshared.ResolveTargetBase(req.TargetBase, d.SharedDir, d.Dests)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		o := &promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr, pending: pending, concMode: transferMode(cfg)}
+		o := &promoteOpts{store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}
 		plan, err := promotePreparePlan(o)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -90,11 +106,11 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 		}
 		if plan != nil {
 			// Cópia roda em background (pool de transferências) → responde na hora.
-			submitPromotePlans(o, tr, []*promotePlan{plan})
+			submitPromotePlans(o, d.Tracker, []*promotePlan{plan})
 		}
 		// Retorno otimista: file_path ainda aponta pro original até a cópia terminar
 		// (a lista reflete o destino quando o job do dock conclui).
-		updated, _ := store.Get(userID, id)
+		updated, _ := d.Store.Get(userID, id)
 		c.JSON(http.StatusOK, updated)
 	}
 }
@@ -106,18 +122,18 @@ func DownloadsPromote(store *downloads.Store, s *streamer.Streamer, aiClient *ai
 //
 // Resposta: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
 // Falhas individuais não abortam o batch — cada item é tentado.
-func DownloadsPromoteBatch(store *downloads.Store, s *streamer.Streamer, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, tr *transfer.Tracker, pending *transfer.Store, cfg *config.Config) gin.HandlerFunc {
+func DownloadsPromoteBatch(d PromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if sharedDir == "" {
+		if d.SharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
 			return
 		}
-		req, base, ok := validateBatchReq(c, sharedDir, dests)
+		req, base, ok := validateBatchReq(c, d.SharedDir, d.Dests)
 		if !ok {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted, failed := promoteBatchItems(&promoteOpts{store: store, s: s, aiClient: aiClient, tmdbClient: tmdbClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: tr, pending: pending, concMode: transferMode(cfg)}, req, tr)
+		promoted, failed := promoteBatchItems(&promoteOpts{store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}, req, d.Tracker)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
