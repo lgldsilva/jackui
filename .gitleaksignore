@@ -1,0 +1,6 @@
+# Accepted gitleaks findings (verified false positives — see .gitleaks.toml header).
+# Format: <commit>:<file>:<rule>:<startline>
+#
+# Makefile curl-auth-user: `curl -s -u "$(SONAR_TOKEN)…"` Make variable ref in a
+# Sonar-measures target since removed from HEAD (historical commit only).
+22637e3e1373d48feae0257c9a9463d3b4cdf72e:Makefile:curl-auth-user:294
