@@ -74,7 +74,7 @@ export function usePlaylistTracks(
     cancelled.current = false
     inFlight.current = new Set()
     if (!enabled) { setGroups([]); return }
-    setGroups(items.map(skeletonGroup))
+    setGroups(items.map((it, i) => skeletonGroup(it, i)))
     return () => { cancelled.current = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, enabled])
