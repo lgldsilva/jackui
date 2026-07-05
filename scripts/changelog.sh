@@ -47,6 +47,7 @@ if [ -n "$breaking" ]; then
 fi
 
 section '✨ Features'      'feat'
+section '🔒 Security'      'security'
 section '🐛 Fixes'         'fix'
 section '⚡ Performance'    'perf'
 section '♻️ Refactor'      'refactor'
@@ -57,7 +58,7 @@ section '🔧 Chore / CI / Docs' 'chore|ci|docs|build|test|style'
 # printf gera quando não há commit no range.
 others=$(printf '%s\n' "$subjects" \
   | grep -E '\|[0-9a-f]+$' \
-  | grep -viE "^(feat|fix|perf|refactor|chore|ci|docs|build|test|style)(\([^)]*\))?!?:" \
+  | grep -viE "^(feat|fix|perf|security|refactor|chore|ci|docs|build|test|style)(\([^)]*\))?!?:" \
   | sed -E 's/^(.*)\|([0-9a-f]+)$/- \1 (\2)/' || true)
 if [ -n "$others" ]; then
   printf '### 📦 Outros\n%s\n\n' "$others"
