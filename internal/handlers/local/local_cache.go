@@ -20,6 +20,12 @@ import (
 // without a real FUSE/NAS mount.
 var isRemoteFS = detectRemoteFS
 
+// DetectRemoteFS reports whether abs lives on a remote/FUSE mount (rclone, NFS,
+// CIFS/SMB). Exported wrapper for cross-package use — cross-torrent dedup (#23)
+// flags cloud candidates so they're matched by cheap fingerprint, never a full
+// piece read. Delegates to isRemoteFS so test overrides are honoured too.
+func DetectRemoteFS(abs string) bool { return isRemoteFS(abs) }
+
 // cacheStatusResponse is the cache "mark" plus a flag telling the UI whether
 // caching even makes sense here. Files already on a local disk return
 // cacheable=false, so the player hides the cache button entirely — there's
