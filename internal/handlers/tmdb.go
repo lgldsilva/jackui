@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/tmdb"
@@ -36,6 +37,56 @@ func TmdbMatch(c *tmdb.Client) gin.HandlerFunc {
 			return
 		}
 		ctx.JSON(http.StatusOK, m)
+	}
+}
+
+// TmdbMatchBatch — POST /api/tmdb/match/batch {titles:[...]} → {matches:{title:Match}}.
+// Resolves MANY titles in ONE call (each c.Match is cached 30d server-side), so a
+// grid of N cards seeds its posters with a single round-trip instead of N GET
+// /tmdb/match (the frontend N+1). Titles with no match are simply absent from the
+// map. Bounded concurrency keeps a cold first-search from firing N serial API hits.
+func TmdbMatchBatch(c *tmdb.Client) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		var req struct {
+			Titles []string `json:"titles"`
+		}
+		if err := ctx.ShouldBindJSON(&req); err != nil || len(req.Titles) == 0 {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "titles is required"})
+			return
+		}
+		if c == nil {
+			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			return
+		}
+		if len(req.Titles) > 100 {
+			ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many titles"})
+			return
+		}
+		matches := make(map[string]*tmdb.Match, len(req.Titles))
+		var mu sync.Mutex
+		sem := make(chan struct{}, 6)
+		var wg sync.WaitGroup
+		rctx := ctx.Request.Context()
+		for _, t := range req.Titles {
+			if t == "" {
+				continue
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(t string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				m, err := c.Match(rctx, t)
+				if err != nil || m == nil {
+					return
+				}
+				mu.Lock()
+				matches[t] = m
+				mu.Unlock()
+			}(t)
+		}
+		wg.Wait()
+		ctx.JSON(http.StatusOK, gin.H{"matches": matches})
 	}
 }
 
