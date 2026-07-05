@@ -46,19 +46,33 @@ export function splitTargetPath(target: string): { category: string; middle: str
   }
 }
 
+// lastPathSegment is the trailing name of a '/'-separated path (a cheap basename
+// used to give error rows a readable source name when the backend omitted it).
+function lastPathSegment(p: string | undefined): string {
+  const segs = (p ?? '').split('/').filter(Boolean)
+  return segs.length ? segs[segs.length - 1] : ''
+}
+
 // buildEditableRows turns the IA preview list into editable rows. Errored
 // previews still produce a row (so the user sees what failed) but start
 // unselected. Successful previews start selected.
+//
+// Error previews come back as { path, error } ONLY — no originalName/targetPath/
+// kind (see the backend's previewItem). Every string field is coerced to a real
+// string so rowTargetPath's per-segment .trim() can never hit an undefined —
+// that TypeError is what surfaced as "undefined is not an object (evaluating
+// 'c.trim')" in the reclassify modal for a batch containing a failed item.
 export function buildEditableRows(previews: readonly PromotePreviewEntry[]): ReclassifyRow[] {
   return previews.map(p => {
     const { category, middle, finalName } = splitTargetPath(p.targetPath || '')
+    const name = p.originalName || lastPathSegment(p.path) || ''
     return {
-      path: p.path ?? p.originalName,
-      originalName: p.originalName,
+      path: p.path ?? name,
+      originalName: name,
       selected: !p.error,
       category,
       middle,
-      finalName: finalName || p.originalName,
+      finalName: finalName || name,
       kind: p.kind,
       reusedFolder: p.reusedFolder,
       error: p.error,

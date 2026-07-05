@@ -70,6 +70,31 @@ describe('buildEditableRows', () => {
     expect(rows[0].path).toBe('orphan.mkv')
     expect(rows[0].finalName).toBe('orphan.mkv')
   })
+
+  it('coerces string fields for a backend error entry ({ path, error } only)', () => {
+    // The backend's previewItem returns ONLY { path, error } when an item fails
+    // (no originalName/targetPath/kind). buildEditableRows must never leave a
+    // string field undefined — otherwise rowTargetPath's .trim() throws.
+    const rows = buildEditableRows([
+      { path: 'Movies/broken file.mkv', error: 'AI provider timeout' } as never,
+    ])
+    expect(rows[0].error).toBe('AI provider timeout')
+    expect(rows[0].selected).toBe(false)
+    // originalName derives a readable name from the path when omitted.
+    expect(rows[0].originalName).toBe('broken file.mkv')
+    expect(rows[0].finalName).toBe('broken file.mkv')
+    expect(typeof rows[0].category).toBe('string')
+    // The row must render without throwing (the reported crash).
+    expect(() => rowTargetPath(rows[0])).not.toThrow()
+  })
+
+  it('handles an error entry with neither originalName nor path', () => {
+    const rows = buildEditableRows([{ error: 'boom' } as never])
+    expect(rows[0].originalName).toBe('')
+    expect(rows[0].finalName).toBe('')
+    expect(() => rowTargetPath(rows[0])).not.toThrow()
+    expect(rowTargetPath(rows[0])).toBe('')
+  })
 })
 
 describe('rowTargetPath', () => {
