@@ -99,3 +99,24 @@ func TestCompletedBySize(t *testing.T) {
 		t.Fatalf("size 0 must return nil, got %+v", n)
 	}
 }
+
+func TestRefCountPath(t *testing.T) {
+	s := newTestStore(t)
+	const p = "/mnt/storage/Downloads/shared.mkv"
+	if n, _ := s.RefCountPath(p); n != 0 {
+		t.Fatalf("empty store: want 0, got %d", n)
+	}
+	// Two different downloads adopting the SAME external file.
+	if _, err := s.CreateLinked(Download{UserID: 1, InfoHash: "h1", FileIndex: 0, Magnet: "m"}, p, 10); err != nil {
+		t.Fatalf("CreateLinked#1: %v", err)
+	}
+	if _, err := s.CreateLinked(Download{UserID: 1, InfoHash: "h2", FileIndex: 0, Magnet: "m"}, p, 10); err != nil {
+		t.Fatalf("CreateLinked#2: %v", err)
+	}
+	if n, _ := s.RefCountPath(p); n != 2 {
+		t.Fatalf("two rows on the same path: want 2, got %d", n)
+	}
+	if n, _ := s.RefCountPath("/somewhere/else.mkv"); n != 0 {
+		t.Fatalf("unreferenced path: want 0, got %d", n)
+	}
+}
