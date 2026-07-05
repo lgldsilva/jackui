@@ -237,6 +237,7 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 	if err := os.RemoveAll(root); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -423,6 +424,7 @@ func ffprobePathFrom(ffmpegPath string) string {
 func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) float64 {
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(cctx, ffprobePathFrom(ffmpegPath),
 		ffHideBanner, ffLogLevel, "error",
 		ffSeekable, "1", ffMultipleReq, "1",
@@ -503,6 +505,7 @@ func (s *HLSSession) launch(startSeg int) error {
 	}
 	s.mu.Unlock()
 	ffctx, cancel := context.WithCancel(context.Background())
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
 	log.Printf("hls: ffmpeg %s", strings.Join(s.spec.args(startSeg), " "))
 	oom := newOOMWatcher("hls/" + s.Key + " ")

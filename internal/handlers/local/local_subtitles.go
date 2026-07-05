@@ -3,6 +3,7 @@ package local
 import (
 	"bytes"
 	"context"
+	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -235,6 +236,7 @@ func LocalSidecarRead(b *lb.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported subtitle format"})
 			return
 		}
+		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 		raw, err := os.ReadFile(subPath)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -289,6 +291,7 @@ func resolveLocalFileWithStat(ctx *gin.Context, b *lb.Browser, mount, path strin
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return "", nil, nil, false
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -366,6 +369,7 @@ func localSubVTTPath(cache *localcache.Cache, abs string, st os.FileInfo, track 
 	if cache == nil || st == nil {
 		return ""
 	}
+	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
 	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d|%d", abs, st.ModTime().UnixNano(), st.Size(), track)))
 	return filepath.Join(cache.Root(), "subs", hex.EncodeToString(sum[:])+".vtt")
 }
@@ -375,6 +379,7 @@ func localSubVTTPath(cache *localcache.Cache, abs string, st os.FileInfo, track 
 // (PGS/VobSub) fail here — the frontend filters them via the probe's Image flag.
 func extractEmbeddedVTT(ctx context.Context, src string, track int) ([]byte, error) {
 	// -map 0:<absoluteIndex> selects the stream; ffmpeg accepts the absolute idx.
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		ffHideBanner, ffLogLevel, "error",
 		"-i", src,
@@ -431,10 +436,12 @@ func persistVTT(vttPath string, data []byte) {
 	if vttPath == "" {
 		return
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(filepath.Dir(vttPath), 0o755); err != nil {
 		return
 	}
 	tmp := vttPath + ".tmp"
+	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return
 	}
@@ -480,6 +487,7 @@ func serveCachedVTT(c *gin.Context, vttPath string) bool {
 	if vttPath == "" {
 		return false
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	data, err := os.ReadFile(vttPath)
 	if err != nil {
 		return false

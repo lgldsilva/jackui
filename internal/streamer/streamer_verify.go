@@ -199,6 +199,7 @@ func (s *Streamer) warmTail(f *torrent.File) {
 	r.SetReadahead(tail)
 	r.SetResponsive()
 	if _, err := r.Seek(length-tail, io.SeekStart); err != nil {
+		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 		r.Close()
 		return
 	}
@@ -212,5 +213,6 @@ func (s *Streamer) warmTail(f *torrent.File) {
 	case <-done:
 	case <-time.After(30 * time.Second):
 	}
+	// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 	r.Close()
 }

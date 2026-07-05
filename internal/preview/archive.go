@@ -7,11 +7,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strings"
 
 	"github.com/nwaples/rardecode/v2"
 )
+
+// safeZipSize converts a container entry's UNTRUSTED uint64 size to int64
+// without wrapping to a negative. A lying/oversized header must not overflow —
+// that would let a huge entry slip past the size checks (a negative compares
+// below any positive cap). Clamps to MaxInt64 instead.
+func safeZipSize(u uint64) int64 {
+	if u > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(u)
+}
 
 // Format identifies how to decode a container by its file name.
 type Format string
@@ -110,7 +122,7 @@ func listZip(src Source) ([]Entry, bool, error) {
 		if len(entries) >= MaxListEntries {
 			return entries, true, nil
 		}
-		entries = append(entries, Entry{Name: f.Name, Size: int64(f.UncompressedSize64)})
+		entries = append(entries, Entry{Name: f.Name, Size: safeZipSize(f.UncompressedSize64)})
 	}
 	return entries, false, nil
 }
@@ -125,8 +137,9 @@ func readZipEntry(src Source, name string, capBytes int64) ([]byte, error) {
 			continue
 		}
 		// Early reject on the declared size; readAllCapped still enforces the
-		// cap on the REAL output in case the header lies.
-		if int64(f.UncompressedSize64) > capBytes {
+		// cap on the REAL output in case the header lies. safeZipSize stops a
+		// >MaxInt64 header from wrapping negative and skipping this guard.
+		if safeZipSize(f.UncompressedSize64) > capBytes {
 			return nil, ErrEntryTooLarge
 		}
 		rc, err := f.Open()

@@ -70,6 +70,7 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 		return
 	}
 
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "criar diretório destino: " + err.Error()})
 		return
@@ -310,12 +311,14 @@ func copyFileAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) 
 		job.FileDone()
 		return os.Remove(src)
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return err

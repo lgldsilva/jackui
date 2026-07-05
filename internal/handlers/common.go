@@ -9,13 +9,15 @@ const (
 	MIMEJSON  = "application/json"
 	MIMEOctet = "application/octet-stream"
 
-	ErrInvalidID          = "invalid id"
-	ErrNotFound           = "not found"
-	ErrNameRequired       = "name is required"
-	ErrQueryRequired      = "query parameter 'q' is required"
-	ErrFileIdxOutOfRange  = "file index out of range"
-	ErrTMDBDisabled       = "tmdb disabled"
-	ErrPasskeysNotConfig  = "passkeys não configuradas"
+	ErrInvalidID         = "invalid id"
+	ErrNotFound          = "not found"
+	ErrNameRequired      = "name is required"
+	ErrQueryRequired     = "query parameter 'q' is required"
+	ErrFileIdxOutOfRange = "file index out of range"
+	ErrTMDBDisabled      = "tmdb disabled"
+	// #nosec G101 -- falso-positivo: constante de mensagem de erro, nao credencial
+	ErrPasskeysNotConfig = "passkeys não configuradas"
+	// #nosec G101 -- falso-positivo: constante de mensagem de erro, nao credencial
 	ErrPasskeysNotConfigF = "passkeys não configuradas (defina JACKUI_BASE_URL)"
 
 	MagnetPrefix = "magnet:?xt=urn:btih:"

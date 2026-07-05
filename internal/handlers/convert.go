@@ -265,6 +265,7 @@ func ensureMetainfo(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, magne
 
 func serveTorrentFile(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, mi *metainfo.Magnet) {
 	path := s.MetainfoPath(h)
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(path)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err)})

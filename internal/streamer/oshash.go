@@ -147,6 +147,7 @@ func (s *Streamer) OSHash(ctx context.Context, hash metainfo.Hash, fileIdx int) 
 	go func() {
 		select {
 		case <-ctx.Done():
+			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 			r.Close()
 		case <-done:
 		}

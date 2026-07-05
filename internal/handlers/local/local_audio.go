@@ -1,6 +1,7 @@
 package local
 
 import (
+	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
@@ -57,6 +58,7 @@ func resolveLocalAudio(b *lb.Browser, c *gin.Context) (abs string, stat os.FileI
 // or promote (which changes mtime) invalidates a cached cover/tags in the
 // browser, even though the cover endpoint advertises a long max-age.
 func audioETag(abs string, modUnix int64) string {
+	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
 	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%d", abs, modUnix)))
 	return `"` + hex.EncodeToString(sum[:]) + `"`
 }
