@@ -866,7 +866,7 @@ func TestLocalPlayVideoResp_ProbeFailedSafeExt(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	resp := localPlayVideoResp(c, notAVideo, "Test", "video.mp4", "tok")
+	resp := localPlayVideoResp(c.Request.Context(), false, notAVideo, "Test", "video.mp4", "tok")
 	// ffprobe may succeed or fail on garbage — we just check no panic and valid output
 	if resp.Kind != "direct" && resp.Kind != "hls" {
 		t.Errorf("kind = %q, want 'direct' or 'hls'", resp.Kind)
@@ -885,7 +885,7 @@ func TestLocalPlayVideoResp_ProbeFailedUnsafeExt(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	resp := localPlayVideoResp(c, notAVideo, "Test", "video.avi", "tok")
+	resp := localPlayVideoResp(c.Request.Context(), false, notAVideo, "Test", "video.avi", "tok")
 	if resp.Kind != "direct" && resp.Kind != "hls" {
 		t.Errorf("kind = %q, want 'direct' or 'hls'", resp.Kind)
 	}
