@@ -405,3 +405,41 @@ export const fetchPromoteDestinations = async (): Promise<PromoteDestination[]> 
 export const downloadStopSeed = async (id: number): Promise<void> => {
   await api.post(`/downloads/${id}/stop-seed`)
 }
+
+// ─── Cross-torrent dedup (#23) ─────────────────────────────────────────────
+// One of a torrent's files that the user ALREADY has on disk, so it can be
+// linked instead of re-downloaded. source 'download' = already in the queue;
+// 'library'/'cloud' = a browsable mount (carries mount+relPath, the link target).
+// confidence 'certain' = piece-verified (local); 'probable' = head/tail
+// fingerprint (the only check possible for cloud files).
+export type DedupMatch = {
+  fileIndex: number
+  name: string
+  size: number
+  isVideo: boolean
+  source: 'download' | 'library' | 'cloud'
+  mount?: string
+  relPath?: string
+  confidence: 'certain' | 'probable'
+}
+
+export type DedupCheckResult = { matches: DedupMatch[]; totalFiles: number }
+
+export type DedupLinkItem = { fileIndex: number; mount: string; relPath: string }
+export type DedupLinkParams = { infoHash: string; magnet: string; name: string; items: DedupLinkItem[] }
+export type DedupLinkResult = { linked: number; errors: string[] }
+
+// dedupCheck probes (read-only) which of a torrent's files are already on disk
+// before enqueuing, so the UI can offer to link them. The backend briefly
+// activates the torrent to read its file list, so this is not instant.
+export const dedupCheck = async (magnet: string): Promise<DedupCheckResult> => {
+  const { data } = await api.post<DedupCheckResult>('/downloads/dedup-check', { magnet })
+  return data
+}
+
+// dedupLink records the confirmed matches as completed links (no swarm fetch).
+// Soft failures come back in result.errors (the call itself resolves on 200).
+export const dedupLink = async (params: DedupLinkParams): Promise<DedupLinkResult> => {
+  const { data } = await api.post<DedupLinkResult>('/downloads/link', params)
+  return data
+}

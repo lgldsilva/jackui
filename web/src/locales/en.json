@@ -452,6 +452,17 @@
     "clear_queued_title": "Clear the queue?",
     "clear_queued_message": "Remove {{count}} queued download(s)? Active downloads are not affected.",
     "clear_confirm": "Remove",
+    "dedup": {
+      "title": "You already have these files",
+      "summary": "{{count}} of {{total}} file(s) in this torrent are already in your collection.",
+      "explain": "Link the ones you already have to watch instantly, without re-downloading from the swarm — the rest is downloaded normally.",
+      "use_existing": "Use the ones I have",
+      "download_all": "Download everything anyway",
+      "source_download": "in queue",
+      "source_library": "library",
+      "source_cloud": "cloud",
+      "probable": "probable"
+    },
     "page": {
       "sectionAriaLabel": "Downloads manager — drag .torrent files or magnet links",
       "dropOverlayTitle": "Drop your .torrent files here!",
