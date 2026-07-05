@@ -45,8 +45,15 @@ cmd/server/main.go   Gin wiring: builds appDeps, registers /api/* routes, mounts
                      SPA fallback, and starts background workers (downloads, watchlist).
 ui/embed.go          //go:embed all:dist — the Vite build is compiled into the binary.
 web/src/             React 18 + TS + Vite + Tailwind. PlayerProvider sits ABOVE the
-                     router so playback survives navigation.
+                     router so playback survives navigation. The iOS audio path
+                     (dedicated <audio>, direct-play) is written up in
+                     IOS_AUDIO.md; the frontend→backend N+1 backlog in
+                     PERFORMANCE.md.
 ```
+
+> Frontend deep-dives: **[IOS_AUDIO.md](IOS_AUDIO.md)** (the iOS/Safari audio
+> path + the silent-switch lesson) and **[PERFORMANCE.md](PERFORMANCE.md)** (the
+> N+1 batch backlog — list-in-client = one batch call).
 
 | Package | Responsibility |
 |---|---|
