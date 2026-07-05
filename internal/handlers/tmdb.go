@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -62,32 +63,37 @@ func TmdbMatchBatch(c *tmdb.Client) gin.HandlerFunc {
 			ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many titles"})
 			return
 		}
-		matches := make(map[string]*tmdb.Match, len(req.Titles))
-		var mu sync.Mutex
-		sem := make(chan struct{}, 6)
-		var wg sync.WaitGroup
-		rctx := ctx.Request.Context()
-		for _, t := range req.Titles {
-			if t == "" {
-				continue
-			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func(t string) {
-				defer wg.Done()
-				defer func() { <-sem }()
-				m, err := c.Match(rctx, t)
-				if err != nil || m == nil {
-					return
-				}
+		ctx.JSON(http.StatusOK, gin.H{"matches": matchTitlesConcurrent(ctx.Request.Context(), c, req.Titles)})
+	}
+}
+
+// matchTitlesConcurrent resolves each non-empty title via c.Match (cached 30d) in
+// parallel, bounded to 6 in-flight, and collects the hits into a map. Extracted
+// from TmdbMatchBatch to keep both bodies well under the cognitive-complexity
+// gate. Titles that error or don't match are simply absent from the result.
+func matchTitlesConcurrent(rctx context.Context, c *tmdb.Client, titles []string) map[string]*tmdb.Match {
+	matches := make(map[string]*tmdb.Match, len(titles))
+	var mu sync.Mutex
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	for _, t := range titles {
+		if t == "" {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(t string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if m, err := c.Match(rctx, t); err == nil && m != nil {
 				mu.Lock()
 				matches[t] = m
 				mu.Unlock()
-			}(t)
-		}
-		wg.Wait()
-		ctx.JSON(http.StatusOK, gin.H{"matches": matches})
+			}
+		}(t)
 	}
+	wg.Wait()
+	return matches
 }
 
 // TmdbTrending — GET /api/tmdb/trending[?year=&genre=]. Without filters: this
