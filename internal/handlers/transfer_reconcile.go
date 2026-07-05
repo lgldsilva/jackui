@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
+	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
@@ -75,7 +76,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 		log.Printf("transfer reconcile: mkdir dst for #%d failed: %v", pl.DownloadID, err)
 		return
 	}
-	files, bytes := countTree(pt.Src)
+	files, bytes := lh.CountTree(pt.Src)
 	o := &promoteOpts{store: store, s: s, userID: pl.UserID, keepSeeding: pl.KeepSeeding, tracker: tr, pending: pending}
 	p := &promotePlan{d: d, src: pt.Src, dst: pt.Dst, srcInfo: info, files: files, bytes: bytes}
 	label := safeBaseName(pt.Src, d.Name)

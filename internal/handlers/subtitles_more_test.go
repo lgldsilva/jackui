@@ -58,10 +58,3 @@ func TestSubtitlesDownload_ValidFileIDNoClient(t *testing.T) {
 		t.Errorf("status = %d, want 502; body: %s", w.Code, w.Body.String())
 	}
 }
-
-func TestCollectDirSubs_NoDir(t *testing.T) {
-	_, err := collectDirSubs("/nonexistent/dir", "movie")
-	if err == nil {
-		t.Error("expected error for nonexistent dir")
-	}
-}

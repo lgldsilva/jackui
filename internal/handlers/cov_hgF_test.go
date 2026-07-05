@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
@@ -235,7 +236,7 @@ func Test_hgF_Proxy_UpstreamSuccess(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
-	if ct := w.Header().Get(ContentType); ct != "application/x-bittorrent" {
+	if ct := w.Header().Get(httpshared.ContentType); ct != "application/x-bittorrent" {
 		t.Errorf("Content-Type = %q, want application/x-bittorrent", ct)
 	}
 	if !strings.Contains(w.Body.String(), "d8:announce") {

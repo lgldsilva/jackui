@@ -13,6 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
+	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/preview"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -115,22 +117,22 @@ func (d PreviewDeps) resolveTorrentSource(c *gin.Context) (*previewSrc, bool) {
 func (d PreviewDeps) resolveLocalSource(c *gin.Context) (*previewSrc, bool) {
 	mount, path := c.Query("mount"), c.Query("path")
 	if path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPathParam})
+		c.JSON(http.StatusBadRequest, gin.H{"error": lh.ErrMissingMountOrPathParam})
 		return nil, false
 	}
 	if d.Local == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "local browsing disabled"})
 		return nil, false
 	}
-	if !checkMountAccess(d.Local, c, mount) {
+	if !lh.CheckMountAccess(d.Local, c, mount) {
 		return nil, false
 	}
-	abs, err := d.Local.ResolvePath(mount, scopePath(d.Local, c, mount, path))
+	abs, err := d.Local.ResolvePath(mount, lh.ScopePath(d.Local, c, mount, path))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return nil, false
 	}
-	if !statLocalFile(c, abs) {
+	if !lh.StatLocalFile(c, abs) {
 		return nil, false
 	}
 	return openLocalPreviewFile(c, abs)
@@ -271,7 +273,7 @@ func PreviewComicPage(d PreviewDeps) gin.HandlerFunc {
 			return
 		}
 		ct, _ := preview.EntryContentType(pageName)
-		c.Header(CacheControl, CachePublicDay)
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
 		servePreviewBytes(c, ct, data)
 	})
 }
@@ -338,7 +340,7 @@ func PreviewEpubResource(d PreviewDeps) gin.HandlerFunc {
 			previewError(c, err)
 			return
 		}
-		c.Header(CacheControl, CachePublicDay)
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
 		servePreviewBytes(c, ct, data)
 	})
 }

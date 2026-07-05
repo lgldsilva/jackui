@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/middleware"
@@ -130,8 +131,8 @@ func parseSearchParams(c *gin.Context) (query, category string, indexers []strin
 }
 
 func setSSEHeaders(c *gin.Context) {
-	c.Header(ContentType, "text/event-stream")
-	c.Header(CacheControl, "no-cache")
+	c.Header(httpshared.ContentType, "text/event-stream")
+	c.Header(httpshared.CacheControl, "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 }

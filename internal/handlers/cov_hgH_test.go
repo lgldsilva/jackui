@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/dbtest"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 	"github.com/lgldsilva/jackui/internal/transcode"
@@ -22,7 +23,7 @@ import (
 //     StreamArtwork / StreamThumbnail) reached with a valid hash+index but no
 //     active torrent — distinct from the existing bad-hash / bad-index tests.
 //   - the ffmpeg-free HLS serving helpers (serveHLSPlaylist non-VOD branch,
-//     readEventPlaylist token-rewrite + error, serveSegment, ensureVODSegment
+//     readEventPlaylist token-rewrite + error, httpshared.ServeSegment, httpshared.EnsureVODSegment
 //     no-op) driven against a hand-built non-VOD *transcode.HLSSession.
 //   - the tmdb.ErrDisabled fall-through in TmdbMatch / TmdbTrending exercised
 //     through a real (empty-key) *tmdb.Client rather than a nil one.
@@ -174,7 +175,7 @@ func Test_hgH_ServeHLSPlaylist_NonVOD_NoToken(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "seg_00000.ts") {
 		t.Errorf("playlist body missing segment line: %s", w.Body.String())
 	}
-	if got := w.Header().Get(ContentType); !strings.Contains(got, "mpegurl") {
+	if got := w.Header().Get(httpshared.ContentType); !strings.Contains(got, "mpegurl") {
 		t.Errorf("content-type=%q want mpegurl", got)
 	}
 }
@@ -226,7 +227,7 @@ func Test_hgH_ServeHLSPlaylist_NonVOD_Missing(t *testing.T) {
 	}
 }
 
-// serveSegment with an existing non-empty segment returns it immediately (no
+// httpshared.ServeSegment with an existing non-empty segment returns it immediately (no
 // 30s wait), exercising the success path including the video/mp2t headers.
 func Test_hgH_ServeSegment_Existing(t *testing.T) {
 	sess := hgHSession(t)
@@ -235,11 +236,11 @@ func Test_hgH_ServeSegment_Existing(t *testing.T) {
 		t.Fatalf("write segment: %v", err)
 	}
 	c, w := hgHCtx(t)
-	serveSegment(c, sess, seg)
+	httpshared.ServeSegment(c, sess, seg)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
 	}
-	if got := w.Header().Get(ContentType); got != "video/mp2t" {
+	if got := w.Header().Get(httpshared.ContentType); got != "video/mp2t" {
 		t.Errorf("content-type=%q want video/mp2t", got)
 	}
 	if w.Body.String() != "ts-bytes" {
@@ -247,24 +248,24 @@ func Test_hgH_ServeSegment_Existing(t *testing.T) {
 	}
 }
 
-// serveSegment rejects a traversal segment name with 404 (immediate, no wait).
+// httpshared.ServeSegment rejects a traversal segment name with 404 (immediate, no wait).
 func Test_hgH_ServeSegment_TraversalName(t *testing.T) {
 	sess := hgHSession(t)
 	c, w := hgHCtx(t)
-	serveSegment(c, sess, "../escape.ts")
+	httpshared.ServeSegment(c, sess, "../escape.ts")
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status=%d want 404; body=%s", w.Code, w.Body.String())
 	}
 }
 
-// ensureVODSegment must no-op on a non-VOD session even for a parseable name
+// httpshared.EnsureVODSegment must no-op on a non-VOD session even for a parseable name
 // (the IsVOD guard short-circuits before any stat/EnsureSegment work).
 func Test_hgH_EnsureVODSegment_NonVODNoop(t *testing.T) {
 	sess := hgHSession(t) // IsVOD()==false
 	// Must not panic and must not create the file.
-	ensureVODSegment(sess, "seg_00003.ts")
+	httpshared.EnsureVODSegment(sess, "seg_00003.ts")
 	if _, err := os.Stat(filepath.Join(sess.Dir, "seg_00003.ts")); !os.IsNotExist(err) {
-		t.Errorf("non-VOD ensureVODSegment should not touch the dir; stat err=%v", err)
+		t.Errorf("non-VOD httpshared.EnsureVODSegment should not touch the dir; stat err=%v", err)
 	}
 }
 
