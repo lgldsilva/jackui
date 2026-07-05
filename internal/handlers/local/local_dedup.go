@@ -158,6 +158,7 @@ func sortDupGroups(groups []dupGroup) {
 // the whole object. Files at or under 2*dupSampleBytes are hashed whole (they're
 // already tiny). The size is folded in so length alone always distinguishes.
 func fingerprintFile(abs string, size int64) (string, error) {
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
 		return "", err

@@ -522,12 +522,14 @@ func New(cfg Config) (*Streamer, error) {
 	// hashes. Without this, even a magnet we've seen 10 times waits ~3-10s for
 	// peers + DHT to deliver the metadata anew every cold-start.
 	metainfoDir := filepath.Join(cfg.DataDir, ".metainfo")
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	_ = os.MkdirAll(metainfoDir, 0o755)
 
 	// Shared persistent piece-completion DB for download-to-bulk storage. Lives in
 	// the cache dir (it's only piece metadata — KB/MB), at a path DISTINCT from the
 	// client's own completion DB so the two Bolt files never lock each other.
 	dlCompletionDir := filepath.Join(cfg.DataDir, ".piece-completion-dl")
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	_ = os.MkdirAll(dlCompletionDir, 0o755)
 	dlPieceCompletion, err := storage.NewBoltPieceCompletion(dlCompletionDir)
 	if err != nil {
@@ -850,6 +852,7 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 	r.SetReadahead(8 << 20) // 8 MiB — enough to cover the first few seconds
 	r.SetResponsive()
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
+		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 		r.Close()
 		return fmt.Errorf("prefetch seek: %w", err)
 	}
@@ -868,6 +871,7 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 		case <-done:
 		case <-time.After(5 * time.Second):
 		}
+		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 		r.Close()
 	}()
 	return nil

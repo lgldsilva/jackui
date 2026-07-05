@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
 	"crypto/sha1"
 	"fmt"
 	"net/http"
@@ -183,6 +184,7 @@ func serveLocalFileMetered(c *gin.Context, reg *localstream.Registry, mount, sco
 		http.ServeFile(c.Writer, c.Request, abs)
 		return
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -367,6 +369,7 @@ func SetLocalThumbCacheDir(dir string) {
 
 func thumbCachePath(cacheDir, abs string, at int) string {
 	stat, _ := os.Stat(abs)
+	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
 	key := fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", abs, stat.ModTime().UnixNano(), at))))
 	return filepath.Join(cacheDir, key+".jpg")
 }
@@ -386,6 +389,7 @@ func negativeThumbFresh(cachePath string) bool {
 }
 
 func serveCachedThumb(c *gin.Context, cachePath string) bool {
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		return false
@@ -412,6 +416,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	}
 	var out []byte
 	for _, s := range seeks {
+		// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 		cmd := exec.CommandContext(ctx, ffBinary,
 			ffHideBanner, ffLogLevel, "error",
 			"-ss", strconv.Itoa(s),
@@ -427,10 +432,12 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 			break
 		}
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if os.MkdirAll(cacheDir, 0o755) != nil {
 		return out
 	}
 	if len(out) > 0 {
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 		_ = os.WriteFile(cachePath, out, 0o644)
 		_ = os.Remove(negativeMarkerPath(cachePath)) // a success clears any stale failure
 		return out
@@ -439,6 +446,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	// frame ffmpeg can't produce — but only on a real ffmpeg error/timeout, not
 	// when the client cancelled (navigated away) before we finished.
 	if ctx.Err() != context.Canceled {
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 		_ = os.WriteFile(negativeMarkerPath(cachePath), nil, 0o644)
 	}
 	return out
@@ -468,6 +476,7 @@ func LocalTranscode(b *lb.Browser) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
 			return
 		}
+		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 		f, err := os.Open(abs)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -387,6 +387,7 @@ func parseMountSpec(spec string) (ExternalMount, bool) {
 // to warn early that Settings/Mounts changes won't persist (typical cause: the
 // host file is owned by root while the container runs as uid 1000).
 func CheckWritable(path string) error {
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		return err

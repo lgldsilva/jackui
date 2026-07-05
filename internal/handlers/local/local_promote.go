@@ -176,6 +176,7 @@ func promoteOnePath(b *lb.Browser, deps *promoteDstDeps, mount, scopedRel, targe
 	if src == dst {
 		return nil
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return gin.H{"path": scopedRel, "error": "criar destino: " + err.Error()}
 	}

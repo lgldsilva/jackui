@@ -458,11 +458,13 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 			// ASS/SSA need ffmpeg to convert — for now, just serve raw with text/plain so browsers can show it as "non-VTT"
 			c.Header(httpshared.ContentType, "text/plain; charset=utf-8")
 			c.Header(httpshared.CacheControl, httpshared.CacheImmutable)
+			// #nosec G104 -- erro best-effort nao-acionavel
 			c.Writer.Write(raw)
 			return
 		}
 		c.Header(httpshared.ContentType, httpshared.MIMEVTT)
 		c.Header(httpshared.CacheControl, httpshared.CacheImmutable)
+		// #nosec G104 -- erro best-effort nao-acionavel
 		c.Writer.Write(body)
 	}
 }
@@ -493,6 +495,7 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		c.Header(httpshared.ContentType, httpshared.MIMEVTT)
 		c.Header(httpshared.CacheControl, "public, max-age=3600")
+		// #nosec G104 -- erro best-effort nao-acionavel
 		c.Writer.Write(vtt)
 	}
 }

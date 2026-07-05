@@ -1001,6 +1001,7 @@ func (w *Worker) sendNtfy(ctx context.Context, title, body, tags string) {
 		}
 		resp, err := w.ntfyClient.Do(req)
 		if err == nil {
+			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 			resp.Body.Close()
 			if resp.StatusCode < 300 {
 				return
