@@ -137,6 +137,9 @@ type Download struct {
 	// CompletionDest is the per-torrent destination dir frozen at metadata-resolve
 	// (completionBaseDir + sanitized name). Empty until resolved / for legacy rows.
 	CompletionDest string `json:"completionDest,omitempty"`
+	// Linked is true when this completed row points at a PRE-EXISTING file it
+	// adopted (cross-torrent dedup #23) instead of bytes it downloaded itself.
+	Linked bool `json:"linked,omitempty"`
 }
 
 // IsWholeTorrent reports whether this row downloads the entire torrent as one
@@ -430,7 +433,7 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 	COALESCE(priority, 'normal'), COALESCE(stalls, 0), queued_since,
 	COALESCE(active_magnet, ''), COALESCE(source, ''),
 	COALESCE(dest_base, ''), COALESCE(dest_subdir, ''),
-	COALESCE(completion_dest, '') FROM downloads `
+	COALESCE(completion_dest, ''), COALESCE(linked, 0) FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com
@@ -576,16 +579,18 @@ func scanRows(rows *sql.Rows) (*Download, error) {
 func scanGeneric(r rowScanner) (*Download, error) {
 	d := &Download{}
 	var startedAt, completedAt, queuedSince sql.NullTime
+	var linkedInt int // SMALLINT 0/1 → bool (keeps the schema's int-flag convention)
 	err := r.Scan(
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
 		&d.Name, &d.Magnet, &d.Tracker, &d.Category, &d.Status, &d.BytesDownloaded,
 		&startedAt, &completedAt, &d.Error, &d.CreatedAt,
 		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet, &d.Source,
-		&d.DestBase, &d.DestSubdir, &d.CompletionDest,
+		&d.DestBase, &d.DestSubdir, &d.CompletionDest, &linkedInt,
 	)
 	if err != nil {
 		return nil, err
 	}
+	d.Linked = linkedInt != 0
 	if startedAt.Valid {
 		t := startedAt.Time
 		d.StartedAt = &t
