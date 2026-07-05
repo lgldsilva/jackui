@@ -3,7 +3,7 @@
 # última tag vX.Y.Z — e SÓ bumpa quando há mudança "releasable":
 #
 #   feat:                  → bump MINOR
-#   fix: / perf:           → bump PATCH
+#   fix: / perf: / security: → bump PATCH
 #   <tipo>!: / BREAKING    → bump MINOR enquanto major==0 (0.x), MAJOR a partir de 1.0
 #   só chore/ci/docs/test/build/style/refactor (ou nada convencional) → SEM bump
 #
@@ -63,7 +63,7 @@ is_breaking() {
 }
 
 bump=none
-if match_type 'fix|perf'; then bump=patch; fi
+if match_type 'fix|perf|security'; then bump=patch; fi
 if match_type 'feat';     then bump=minor; fi
 if is_breaking;           then bump=break; fi
 
