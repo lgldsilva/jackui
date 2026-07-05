@@ -175,6 +175,13 @@ func (w *Worker) initTarget(d *Download, hash metainfo.Hash, t wholeTarget) (*to
 		return nil, nil, false
 	}
 	f := files[fileIdx]
+	// Cross-torrent dedup (#23): if this exact file is already on disk from another
+	// completed download, adopt it (link) instead of re-downloading from the swarm.
+	// ok=false makes the caller return without tracking; the row is already a
+	// completed link, and the idle torrent (no piece wanted) is evicted normally.
+	if w.tryLinkExisting(d, hash, fileIdx, f) {
+		return nil, nil, false
+	}
 	if err := w.streamer.VerifyFile(hash, fileIdx); err != nil {
 		log.Printf("downloads: failed to verify file pieces for download %d: %v", d.ID, err)
 	}
