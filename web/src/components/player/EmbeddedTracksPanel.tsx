@@ -1,7 +1,7 @@
 import { AlertCircle, Subtitles, Check, Cpu, Volume2, Flame } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { StreamProbe, SidecarSubtitle } from '../../api/client'
-import { audioTrackTitle, subBtnClass } from './playerFormat'
+import { audioTrackTitle } from './playerFormat'
 
 type EmbeddedTracksPanelProps = {
   readonly probe: StreamProbe
@@ -172,58 +172,39 @@ export function EmbeddedTracksPanel({
               </span>
             )}
           </p>
-          <div className="flex flex-wrap gap-1">
-            <button
-              onClick={() => {
+          {/* Seletor único (dropdown) em vez de N botões: arquivos com dezenas de
+              faixas (ex.: 34 subs sem rótulo) enchiam a tela de botões. Legendas
+              image-based (PGS/DVD) ficam como <option disabled> — o HLS atual roda
+              -sn (sem burn-in), então selecioná-las só silenciava a legenda (#411). */}
+          <select
+            value={embeddedSub ?? ''}
+            onChange={(e) => {
+              const v = e.target.value
+              clearCustomSub()
+              setBurnSubTrack(null)
+              if (v === '') {
                 setEmbeddedSub(null)
-                setBurnSubTrack(null)
-                clearCustomSub()
-              }}
-              className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                embeddedSub === null && burnSubTrack === null
-                  ? 'bg-surface-tertiary text-text-primary border-strong'
-                  : 'bg-surface-elevated text-text-muted border-default hover:text-text-primary'
-              }`}
-            >
-              {t('player.embeddedTracks.none')}
-            </button>
+                return
+              }
+              setEmbeddedSub(Number(v))
+              setSubActive(null)
+              setAutoSource('embedded')
+            }}
+            className="text-[11px] px-2 py-1.5 rounded border bg-surface-secondary text-text-primary border-default max-w-full"
+          >
+            <option value="">{t('player.embeddedTracks.none')}</option>
             {probe.subtitles.map((s, i) => {
-              const isActive = embeddedSub === s.index || burnSubTrack === s.index
-              // Sem tag de língua (comum em releases tipo MeGusta com N subs
-              // sem rótulo), o "??" deixa 34 faixas idênticas — usa o título, ou
-              // um ordinal "Faixa N" pra serem ao menos distinguíveis.
+              // Sem tag de língua (comum em releases tipo MeGusta com N subs sem
+              // rótulo), usa o título ou um ordinal "Faixa N" p/ distinguir.
               const subLabel = s.language ? s.language.toUpperCase() : (s.title || t('player.embeddedTracks.trackN', { n: i + 1 }))
-              // Legendas image-based (PGS/DVD) exigiriam burn-in, que o caminho
-              // HLS atual descarta (o encoder roda -sn, sem overlay) — selecioná-las
-              // só silenciava a legenda. Desabilitado até o burn existir no HLS (#411).
+              const tags = [s.codec, s.forced ? 'FORCED' : '', s.image ? 'IMG' : ''].filter(Boolean).join(' · ')
               return (
-                <button
-                  key={s.index}
-                  disabled={s.image}
-                  onClick={() => {
-                    if (s.image) return
-                    clearCustomSub()
-                    // Text sub → extract as VTT
-                    setEmbeddedSub(s.index)
-                    setBurnSubTrack(null)
-                    setSubActive(null)
-                    setAutoSource('embedded')
-                  }}
-                  title={
-                    s.image
-                      ? `${s.codec} — ${t('player.burnUnsupported')}`
-                      : s.title || s.codec
-                  }
-                  className={`text-[11px] px-2 py-1 rounded border transition-colors ${subBtnClass(isActive, s.image)} ${s.image ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {subLabel}
-                  <span className="text-text-muted ml-1">{s.codec}</span>
-                  {s.forced && <span className="ml-1 text-[9px] text-yellow-400">FORCED</span>}
-                  {s.image && <span className="ml-1 text-[9px] text-orange-400">IMG</span>}
-                </button>
+                <option key={s.index} value={s.index} disabled={s.image}>
+                  {subLabel} — {tags}{s.image ? ` (${t('player.burnUnsupported')})` : ''}
+                </option>
               )
             })}
-          </div>
+          </select>
         </div>
       )}
     </div>
