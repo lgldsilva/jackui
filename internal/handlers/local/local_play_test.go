@@ -427,7 +427,7 @@ func TestLocalPlayVideoResp_ProbeFails(t *testing.T) {
 	notAVideo := filepath.Join(mountDir, "video.mkv")
 	os.WriteFile(notAVideo, []byte("garbage"), 0644)
 
-	resp := localPlayVideoResp(c, notAVideo, "Test", "video.mkv", "tok")
+	resp := localPlayVideoResp(c.Request.Context(), false, notAVideo, "Test", "video.mkv", "tok")
 	if resp.Kind != "hls" {
 		t.Errorf("kind = %q, want 'hls' for MKV probe fail", resp.Kind)
 	}
