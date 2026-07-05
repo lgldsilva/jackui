@@ -64,6 +64,32 @@ afterwards, so the filter alone is not enough. Guarded by
 
 ---
 
+## Playback: the iOS-audio path (dedicated `<audio>`, direct-play, native gesture)
+
+**Decision.** iOS audio plays through a **dedicated native `<audio controls>`**
+element (`SimpleAudioPlayer`), fed a **direct** bytes-with-Range URL
+(`useAudioDirectUrl`, never HLS), with `preload='none'` on WebKit, an internal
+`blessedRef` for auto-advance, and a 6h media-token. **No** Web Audio (EQ/gapless
+off on WebKit), no custom start overlay, no `v.load()`.
+
+**Why (the receipt).** A long saga where the headline symptom — "no sound on
+iPhone" — turned out to be the **hardware silent/ringer switch** muting
+inline-`<video>` audio, not our code. The definitive fix was to move the audio
+path OFF `<video>` onto a bare `<audio>`, which plays on the **media channel**
+(the switch does not mute it). Separately: `preload='auto'` froze the element at
+`readyState 2`; a media-token refresh reloaded the element (AbortError); and
+EQ/gapless use `createMediaElementSource`, which stalls the element on a
+suspended-AudioContext WebKit.
+
+**How / full write-up.** See **[IOS_AUDIO.md](IOS_AUDIO.md)** — the canonical doc
+with the gotcha table (G1-G6), the current architecture, what's disabled and why,
+the re-enable table, and a "Don't fix this" checklist.
+
+**Trade-offs.** No auto-advance gapless/crossfade or EQ on iOS (the `<audio>`
+path is deliberately Web-Audio-free); those stay a future opt-in.
+
+---
+
 ## ffmpeg reads a seekable HTTP source, not a pipe
 
 **Decision.** ffmpeg reads the torrent through a loopback HTTP server with Range
