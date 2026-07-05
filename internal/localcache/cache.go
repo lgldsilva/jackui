@@ -8,6 +8,7 @@
 package localcache
 
 import (
+	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -83,6 +84,7 @@ func newCache(root string, maxBytes int64, nowFn func() time.Time, runWorker boo
 	if nowFn == nil {
 		nowFn = time.Now
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -102,6 +104,7 @@ func newCache(root string, maxBytes int64, nowFn func() time.Time, runWorker boo
 }
 
 func key(mount, path string) string {
+	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
 	sum := sha1.Sum([]byte(mount + "|" + path))
 	return hex.EncodeToString(sum[:])
 }
@@ -225,11 +228,13 @@ func (c *Cache) runJob(j job) {
 }
 
 func (c *Cache) copyFile(k, srcAbs, dst string) error {
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	in, err := os.Open(srcAbs)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -347,6 +352,7 @@ func (c *Cache) saveIndex() {
 		return
 	}
 	tmp := c.indexPath() + ".tmp"
+	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 	if os.WriteFile(tmp, data, 0o644) == nil {
 		_ = os.Rename(tmp, c.indexPath())
 	}

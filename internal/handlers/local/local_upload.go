@@ -66,6 +66,7 @@ func streamUploadToDisk(c *gin.Context, fileHeader *multipart.FileHeader, absDir
 	}
 	defer srcFile.Close()
 
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(absDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar diretório: " + err.Error()})
 		return "", false
@@ -146,6 +147,7 @@ func createUploadFile(c *gin.Context, absDir, absPath, filename string) (dstFile
 	stem := strings.TrimSuffix(filename, ext)
 	finalPath = absPath
 	for i := 1; ; i++ {
+		// #nosec G304 G302 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna; arquivo de midia; 0644 intencional p/ leitura
 		f, err := os.OpenFile(finalPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
 		if err == nil {
 			return f, finalPath, true

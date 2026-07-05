@@ -144,6 +144,7 @@ func backoffDelay(p Policy, attempt int, resp *http.Response) time.Duration {
 		return capDelay(ra, p.MaxDelay)
 	}
 	d := p.BaseDelay << uint(attempt)
+	// #nosec G404 -- rand nao-cripto adequado p/ jitter de backoff
 	d += time.Duration(rand.Int63n(int64(p.BaseDelay) + 1)) // jitter in [0, BaseDelay]
 	return capDelay(d, p.MaxDelay)
 }

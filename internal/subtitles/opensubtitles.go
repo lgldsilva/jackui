@@ -43,6 +43,7 @@ type Client struct {
 
 func New(apiKey, username, password, cacheDir string) *Client {
 	if cacheDir != "" {
+		// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 		_ = os.MkdirAll(cacheDir, 0o755)
 	}
 	return &Client{
@@ -209,6 +210,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 
 	// Disk cache — subtitle content for a given file_id is immutable
 	if path := c.cachePath(fileID); path != "" {
+		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 			return data, nil
 		}
@@ -263,6 +265,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 
 	// Persist to disk cache so we don't burn quota again
 	if path := c.cachePath(fileID); path != "" {
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 		_ = os.WriteFile(path, vtt, 0o644)
 	}
 	return vtt, nil

@@ -261,11 +261,13 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 	for rows.Next() {
 		var st stale
 		if err := rows.Scan(&st.id, &st.hash); err != nil {
+			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 			rows.Close()
 			return 0, err
 		}
 		todo = append(todo, st)
 	}
+	// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 	rows.Close()
 	updated := 0
 	for _, st := range todo {

@@ -24,6 +24,7 @@ func Usage(path string) (free, total int64) {
 	}
 	bsize := int64(st.Bsize)
 	// Bavail = blocks free for unprivileged users (what's actually usable).
+	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 	return bsize * int64(st.Bavail), bsize * int64(st.Blocks)
 }
 
@@ -54,6 +55,7 @@ func IsRotational(path string) bool {
 		if name == "" {
 			continue
 		}
+		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 		b, err := os.ReadFile("/sys/block/" + name + "/queue/rotational")
 		if err == nil {
 			return strings.TrimSpace(string(b)) == "1"

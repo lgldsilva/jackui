@@ -225,7 +225,11 @@ func main() {
 	addr := fmt.Sprintf(":%d", deps.cfg.Port)
 	log.Printf("JackUI starting on http://localhost%s", addr)
 
-	srv := &http.Server{Addr: addr, Handler: router}
+	// ReadHeaderTimeout bounds how long a client may take to send request
+	// headers — without it a slow-loris connection can hold a goroutine open
+	// indefinitely (gosec G112). Body/handler timeouts stay off: media streaming
+	// and long transcode reads legitimately run for minutes.
+	srv := &http.Server{Addr: addr, Handler: router, ReadHeaderTimeout: 30 * time.Second}
 	serverErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

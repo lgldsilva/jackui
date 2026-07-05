@@ -88,6 +88,7 @@ func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex strin
 	if st, err := os.Stat(path); err != nil || st.IsDir() {
 		return false
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(path)
 	if err != nil {
 		return false

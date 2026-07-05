@@ -72,6 +72,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 	}
 	// Garante o diretório destino (no fluxo normal o ensureTargetDir cuida disso
 	// na fase de preparação; aqui re-submetemos direto a cópia).
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(filepath.Dir(pt.Dst), 0o755); err != nil {
 		log.Printf("transfer reconcile: mkdir dst for #%d failed: %v", pl.DownloadID, err)
 		return

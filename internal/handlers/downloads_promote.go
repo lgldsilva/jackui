@@ -517,6 +517,7 @@ func promoteDestPath(o *promoteOpts, baseName string, targetDir *string) string 
 }
 
 func ensureTargetDir(targetDir string) error {
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	return os.MkdirAll(targetDir, 0755)
 }
 

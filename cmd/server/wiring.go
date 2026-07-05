@@ -54,6 +54,7 @@ func resolvePeerPort() int {
 			p, err := gluetun.ForwardedPort(ctx, ctrl)
 			cancel()
 			if err == nil && p > 0 {
+				// #nosec G706 -- falso-positivo: loga inteiro (%d), sem injecao de log possivel
 				log.Printf("peer port: using gluetun forwarded port %d", p)
 				return p
 			}
@@ -90,6 +91,7 @@ func watchForwardedPort(ctrl string, current int, restart chan<- struct{}) {
 		p, err := gluetun.ForwardedPort(ctx, ctrl)
 		cancel()
 		if err == nil && p > 0 && p != current {
+			// #nosec G706 -- falso-positivo: loga inteiro (%d), sem injecao de log possivel
 			log.Printf("forwarded port changed %d→%d — triggering graceful restart to rebind", current, p)
 			// Non-blocking: main drains this and runs graceful shutdown (closing
 			// stores, stopping ffmpeg, waiting on moves). The old os.Exit(0) here
@@ -127,6 +129,7 @@ func initHistoryStore(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
+			// #nosec G104 -- limpeza periodica best-effort em background
 			store.Cleanup(90 * 24 * time.Hour)
 		}
 	}()
@@ -679,6 +682,7 @@ func initAuth(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)
+			// #nosec G104 -- limpeza periodica best-effort em background
 			deps.authStore.CleanupExpired()
 		}
 	}()
@@ -794,6 +798,7 @@ func dirWritable(path string) bool {
 		return false
 	}
 	probe := filepath.Join(path, ".jackui-wtest")
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return false

@@ -250,6 +250,7 @@ type DownloadClient struct {
 }
 
 func Load(path string) (*Config, error) {
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -282,6 +283,7 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
+	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}

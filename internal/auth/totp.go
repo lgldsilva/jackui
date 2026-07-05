@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/rand"
+	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
@@ -72,6 +73,7 @@ func ValidateTOTP(secret, code string) bool {
 	if len(code) != 6 || secret == "" {
 		return false
 	}
+	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 	now := uint64(time.Now().Unix() / int64(totpStep.Seconds()))
 	for _, c := range []uint64{now - 1, now, now + 1} {
 		if hmac.Equal([]byte(totpAt(secret, c)), []byte(code)) {

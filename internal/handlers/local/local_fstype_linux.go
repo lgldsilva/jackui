@@ -24,6 +24,7 @@ func detectRemoteFS(abs string) bool {
 	if err := syscall.Statfs(abs, &st); err != nil {
 		return false
 	}
+	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 	return isRemoteMagic(uint32(st.Type))
 }
 

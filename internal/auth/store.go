@@ -189,6 +189,7 @@ func normalizeBackupCode(s string) string {
 	var b []byte
 	for _, r := range strings.ToLower(s) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 			b = append(b, byte(r))
 		}
 	}

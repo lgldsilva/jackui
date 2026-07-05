@@ -3,6 +3,7 @@ package local
 import (
 	"bytes"
 	"context"
+	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -157,6 +158,7 @@ func classifyForBrowser(p localProbe) (bool, string) {
 // localSessionKey derives a stable, filesystem-safe HLS session key from
 // (mount, relPath). sha1 keeps the key short and avoids leaking the path.
 func localSessionKey(mount, relPath string) string {
+	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
 	sum := sha1.Sum([]byte(mount + "|" + relPath))
 	return "local-" + hex.EncodeToString(sum[:])
 }

@@ -388,6 +388,7 @@ func resolveOwner(abs string, knownUsers map[string]bool, fallbackUser string, a
 // failures.
 func moveIntoUserSubdir(mountAbs, user, name string) (moved bool, err error) {
 	destDir := filepath.Join(mountAbs, user)
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return false, err
 	}
@@ -557,6 +558,7 @@ func (b *Browser) SetFolderLock(mountName, relPath string, locked bool) error {
 	}
 	marker := filepath.Join(abs, keepMarker)
 	if locked {
+		// #nosec G304 G302 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna; arquivo de midia; 0644 intencional p/ leitura
 		f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err
