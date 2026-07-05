@@ -100,6 +100,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	}
 
 	dir := filepath.Join(m.baseDir, effKey)
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir hls dir: %w", err)
 	}
@@ -136,7 +137,10 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		// makes http.ServeContent unsafe with a single-cursor underlying reader.
 		serveSource(w, r, sourceReader, srcSize)
 	})
-	srv := &http.Server{Handler: mux}
+	// ReadHeaderTimeout guards this loopback source server against a stuck
+	// header read (gosec G112). It only serves ffmpeg on localhost, but the
+	// bound is free hardening; the body read stays unbounded for long streams.
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 30 * time.Second}
 	go func() { _ = srv.Serve(listener) }()
 	inputURL := fmt.Sprintf("http://%s/source", listener.Addr().String())
 

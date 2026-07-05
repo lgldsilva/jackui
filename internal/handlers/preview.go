@@ -139,6 +139,7 @@ func (d PreviewDeps) resolveLocalSource(c *gin.Context) (*previewSrc, bool) {
 }
 
 func openLocalPreviewFile(c *gin.Context, abs string) (*previewSrc, bool) {
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

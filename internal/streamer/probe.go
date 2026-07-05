@@ -165,6 +165,7 @@ func ProbeLocal(ctx context.Context, path string) (ProbeResult, error) {
 }
 
 func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, error) {
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
@@ -368,6 +369,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	bucket := atSeconds / 10 // quantize to 10s — keeps hover responsive without spamming ffmpeg
 	cacheDir := filepath.Join(s.cfg.DataDir, ".thumbs", hash.HexString(), fmt.Sprintf("%d", fileIdx))
 	cachePath := filepath.Join(cacheDir, fmt.Sprintf("%d.jpg", bucket))
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	if data, err := os.ReadFile(cachePath); err == nil {
 		return data, true, nil
 	}
@@ -382,6 +384,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
 	// We're only producing a preview tooltip image — pixel-accuracy is overkill.
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
@@ -400,7 +403,9 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	if err != nil || len(out) == 0 {
 		return nil, false, nil
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
 	return out, false, nil
@@ -420,6 +425,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 	if _, err := os.Stat(emptyMarker); err == nil {
 		return nil, true, nil
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	if data, err := os.ReadFile(cachePath); err == nil {
 		return data, true, nil
 	}
@@ -436,6 +442,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", pi.input,
@@ -453,11 +460,15 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		// Negative-cache so we don't burn ffmpeg again next time.
+		// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 		_ = os.MkdirAll(cacheDir, 0o755)
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 		_ = os.WriteFile(emptyMarker, []byte{}, 0o644)
 		return nil, false, nil
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
 	return out, false, nil
@@ -500,6 +511,7 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		defer closeFn()
 	}
 
+	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", input,

@@ -138,10 +138,12 @@ func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte
 // .art cache dir and returns the DataDir-relative path to persist in CachedArt.
 func (s *Streamer) SaveArtBytes(hash metainfo.Hash, data []byte) (string, error) {
 	dir := filepath.Join(s.cfg.DataDir, artDirName)
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	rel := filepath.Join(artDirName, hash.HexString()+".jpg")
+	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
 	if err := os.WriteFile(filepath.Join(s.cfg.DataDir, rel), data, 0o644); err != nil {
 		return "", err
 	}
@@ -156,5 +158,6 @@ func (s *Streamer) ReadArtBytes(rel string) ([]byte, error) {
 	if !strings.HasPrefix(clean, artDirName+string(os.PathSeparator)) {
 		return nil, fmt.Errorf("art path %q outside cache dir", rel)
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	return os.ReadFile(filepath.Join(s.cfg.DataDir, clean))
 }

@@ -257,6 +257,7 @@ func moveDownloadedFile(ctx context.Context, dataDir, destDir, relPath string, o
 		_ = os.Remove(src)
 		return dst, nil
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
@@ -375,6 +376,7 @@ func moveTreeEntry(ctx context.Context, dataDir, destDir, torrentName, rel strin
 		_ = os.Remove(src)
 		return true, nil
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return false, fmt.Errorf("mkdir for %q: %w", rel, err)
 	}
@@ -436,6 +438,7 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) string {
 	if newDst == currentPath {
 		return ""
 	}
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(filepath.Dir(newDst), 0o755); err != nil {
 		log.Printf("downloads: AI-rename mkdir #%d: %v", d.ID, err)
 		return ""
@@ -491,11 +494,13 @@ func moveFileProgress(ctx context.Context, src, dst string, onBytes func(int64))
 		}
 		return nil
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
+	// #nosec G304 G302 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna; arquivo de midia; 0644 intencional p/ leitura
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err

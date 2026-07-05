@@ -114,15 +114,14 @@ jobs:
           go-version-file: go.mod
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-  # SAST — INFORMATIVO (não-bloqueante por ora). Rodando pela 1ª vez no jackui, o
-  # gosec acusa 116 findings, a maioria inerente a um media server (G304 abrir
-  # arquivo por path, G301/G302/G306 perms de mídia, G204 ffmpeg, G401/G505 sha1
-  # de hash). Ele roda e reporta (visível no log), mas o `|| true` mantém o job
-  # VERDE (só continue-on-error deixava o status como "failure" e derrubava o
-  # combined), e ele fica FORA de `approve.needs`. A triagem dedicada dos 116
-  # (#nosec justificado + fixes reais) e a promoção a gate bloqueante estão
-  # rastreadas em #480. Difere do semidx, onde o gosec é bloqueante (codebase
-  # pequeno, 0 findings).
+  # SAST — BLOQUEANTE (#480). Os 116 findings da 1ª rodada foram triados: fixes
+  # reais (G112 ReadHeaderTimeout, G115 overflow de header de zip em archive.go) e
+  # `#nosec RULE -- motivo` nos aceitos (G304 paths validados por ResolvePath/hash,
+  # G204 exec sem shell com args controlados, G301/G302/G306 perms de mídia
+  # intencionais, G401/G505 hash não-cripto, G104 cleanup best-effort, G101/G706
+  # falsos-positivos). gosec agora reporta 0 findings; sem `|| true` e DENTRO de
+  # `approve.needs` — um finding novo (Nosec não justificado) reprova o PR, igual
+  # ao semidx. Novos #nosec exigem `-- motivo` (triagem explícita).
   gosec:
     runs-on: [self-hosted, arm64]
     steps:
@@ -130,10 +129,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./... || true
+      - run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./...
 
   approve:
-    needs: [backend, frontend, gitleaks, govulncheck]
+    needs: [backend, frontend, gitleaks, govulncheck, gosec]
     runs-on: [self-hosted, arm64]
     # Executa a aprovação se os testes passarem e for de fato um PR
     if: github.event_name == 'pull_request'

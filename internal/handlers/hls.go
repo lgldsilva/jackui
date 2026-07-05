@@ -315,6 +315,7 @@ func openCompletedFile(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 	if err != nil || stat.IsDir() {
 		return nil, 0, false
 	}
+	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, false

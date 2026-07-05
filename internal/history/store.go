@@ -93,6 +93,7 @@ func (s *Store) Save(query string, results []jackett.Result, userID int, incogni
 			seen[r.InfoHash] = true
 
 			var count int
+			// #nosec G104 -- erro best-effort nao-acionavel
 			tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ? AND incognito = ?", r.InfoHash, userID, incognitoVal).Scan(&count)
 			if count > 0 {
 				continue

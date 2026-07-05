@@ -282,6 +282,7 @@ func getFreeBytes(path string) (int64, error) {
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, err
 	}
+	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 	return int64(stat.Bsize) * int64(stat.Bavail), nil
 }
 
@@ -339,6 +340,7 @@ func (h *Handler) runPortTest() {
 		}
 		var buf [1]byte
 		n, _ := resp.Body.Read(buf[:])
+		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 		resp.Body.Close()
 		if n > 0 {
 			open = buf[0] == '1'

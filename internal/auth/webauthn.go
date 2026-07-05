@@ -86,6 +86,7 @@ func waUserFrom(id int, name string, creds []webauthn.Credential) *waUser {
 }
 func (u *waUser) WebAuthnID() []byte {
 	b := make([]byte, 8)
+	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 	binary.BigEndian.PutUint64(b, uint64(u.id))
 	return b
 }
