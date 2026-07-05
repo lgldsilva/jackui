@@ -1,0 +1,23 @@
+# gitleaks config — extend the default ruleset, allowlist verified false positives.
+#
+# Turning gitleaks on for the first time (full-history scan, fetch-depth: 0) surfaced
+# 3 findings, ALL verified false positives on 2026-07-04 (no live credential — nothing
+# to rotate):
+#   - .env.example (generic-api-key ×2): placeholder values in a config TEMPLATE, e.g.
+#     the commented "# JACKUI_JWT_SECRET=troque-por-32-bytes-ou-mais". A template is
+#     placeholder-laden by design, so we allowlist the path here (durable as it grows).
+#   - Makefile (curl-auth-user ×1): a `curl -s -u "$(SONAR_TOKEN)…"` Make VARIABLE
+#     reference in a Sonar-measures target that no longer exists in HEAD (history only).
+#     Pinned by fingerprint in .gitleaksignore so we don't blanket-ignore the Makefile.
+#
+# Keep this allowlist minimal: gitleaks stays a BLOCKING gate (mirrors semidx). A new
+# real secret in any other path still fails CI.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Template placeholders (verified false positives, 2026-07-04)"
+paths = [
+  '''\.env\.example$''',
+]
