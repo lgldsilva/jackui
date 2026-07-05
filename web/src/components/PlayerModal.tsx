@@ -1240,10 +1240,11 @@ export default function PlayerModal({
   const audioDirectSrc = useAudioDirectUrl(info, selectedFile, mediaToken)
   const activeMediaRef = audioMode ? audioRef : videoRef
 
-  // Sidebar agregada da playlist (lista de faixas de vários itens). Resolução
-  // adiada até blessed no iOS, igual antes, para não sufocar o byte-stream.
-  const resolveEnabled = !iosAudio || blessed
-  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && sidebarOpen, resolveEnabled)
+  // Sidebar agregada da playlist (lista de faixas de vários itens). O esqueleto
+  // persiste ao fechar a sidebar (não re-resolve ~47 faixas ao reabrir); a rajada
+  // de resolução é gateada por `sidebarOpen`. O antigo `resolveEnabled`/blessed foi
+  // removido: com preload='none' no iOS não há byte-stream pra sufocar.
+  const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && sidebarOpen)
 
   // Espelha currentTime/duration/onProgress do <audio> no estado do player.
   const handleAudioTimeUpdate = useCallback((currentTime: number, duration: number) => {
