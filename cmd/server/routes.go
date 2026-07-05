@@ -386,6 +386,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/lock", lh.LocalSetFolderLock(deps.localBrowser))
 	api.POST("/local/upload", lh.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
 	api.GET("/local/play", lh.LocalHiddenGate(deps.streamSrv), lh.LocalPlay(deps.localBrowser, deps.libraryStore))
+	api.POST("/local/play/batch", lh.LocalPlayBatch(deps.localBrowser))
 	api.GET("/local/audio/meta", lh.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
 	api.GET("/local/audio/cover", lh.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
 	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))

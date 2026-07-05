@@ -1,8 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { streamMetadata, streamAdd, isLocalHash } from '../../api/client'
+import { streamMetadata, streamAdd, isLocalHash, parseLocalHash } from '../../api/client'
 import { detectKind } from '../../lib/playable'
-import { extractTracks, orderPending, type PlaylistGroup, type PlaylistItemLite } from './playlistTracks'
+import { extractTracks, orderPending, basename, type PlaylistGroup, type PlaylistItemLite } from './playlistTracks'
 import type { TorrentInfo } from '../../api/client'
+
+// skeletonGroup builds a playlist item's initial group.
+// LOCAL item: the pseudo-hash already carries everything to DISPLAY the track
+// (title + path), so it starts 'ready' with the derived single track — NO backend
+// call. (The direct-vs-HLS/URL resolution only matters at PLAY, which the
+// PlayerModal does on selection; localPlayBatch pre-warms those URLs.) This kills
+// the N+1 of ~1 GET /api/local/play (ffprobe) per track just to build the LIST.
+// TORRENT item: starts 'pending' (its file list resolves via streamMetadata).
+function skeletonGroup(it: PlaylistItemLite, i: number): PlaylistGroup {
+  if (isLocalHash(it.infoHash)) {
+    const path = parseLocalHash(it.infoHash)?.path ?? it.title
+    return {
+      itemIndex: i, title: it.title, infoHash: it.infoHash, isLocal: true, status: 'ready',
+      tracks: [{ fileIndex: 0, name: basename(path), path, size: 0, kind: detectKind(it.title) === 'video' ? 'video' : 'audio' }],
+    }
+  }
+  return { itemIndex: i, title: it.title, infoHash: it.infoHash, isLocal: false, status: 'pending', tracks: [] }
+}
 
 // Resolving an item's file list may require ACTIVATING its torrent on the
 // server (anacrolix fetches metadata from peers) — so a playlist of packs can
@@ -56,14 +74,7 @@ export function usePlaylistTracks(
     cancelled.current = false
     inFlight.current = new Set()
     if (!enabled) { setGroups([]); return }
-    setGroups(items.map((it, i) => ({
-      itemIndex: i,
-      title: it.title,
-      infoHash: it.infoHash,
-      isLocal: isLocalHash(it.infoHash),
-      status: 'pending' as const,
-      tracks: [],
-    })))
+    setGroups(items.map(skeletonGroup))
     return () => { cancelled.current = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, enabled])

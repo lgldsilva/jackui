@@ -480,6 +480,26 @@ export const localPlay = async (mount: string, path: string, forceHLS = false): 
   return { ...data, url: withViewAs(data.url) }
 }
 
+// localPlayBatch resolves direct-vs-HLS + the URL for MANY local files in ONE
+// call (POST /api/local/play/batch) and PRE-WARMS localPlayableURLCache — exactly
+// as synthesizeLocalInfo does per file, but for the whole folder at once. So a
+// playlist is warmed without the N+1 of one ffprobe per track, and each track's
+// play/auto-advance is instant (cache hit via localStreamInfo, which skips
+// synthesizeLocalInfo when the URL is already cached). forceHLS mirrors
+// synthesizeLocalInfo's iOS choice so the pre-warmed video URL matches the real
+// play (audio ignores it server-side). Best-effort: per-file errors are ignored
+// (that track just falls back to the normal resolve path on play).
+export async function localPlayBatch(mount: string, paths: string[]): Promise<void> {
+  if (paths.length === 0) return
+  const { data } = await api.post<{ items: { path: string; url?: string; error?: string }[] }>(
+    withViewAs('/local/play/batch'),
+    { mount, paths, forceHLS: isIOS() },
+  )
+  for (const it of data.items ?? []) {
+    if (it.url && !it.error) localPlayableURLCache.set(buildLocalHash(mount, it.path), withViewAs(it.url))
+  }
+}
+
 // AudioMeta is the tag metadata for a local audio file (server reads ID3/Vorbis/
 // MP4 tags via dhowden/tag and caches them). Empty fields → fall back to filename.
 export type AudioMeta = {
