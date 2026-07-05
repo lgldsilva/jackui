@@ -368,7 +368,16 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/clean-empty", lh.LocalCleanEmptyDirs(deps.localBrowser))
 	api.GET("/local/duplicates", lh.LocalDuplicates(deps.localBrowser))
 	api.POST("/local/duplicates/delete", lh.LocalDuplicatesDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/promote", lh.LocalPromote(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
+	api.POST("/local/promote", lh.LocalPromote(lh.LocalPromoteDeps{
+		Browser:    deps.localBrowser,
+		AIClient:   deps.aiClient,
+		TMDBClient: deps.tmdbClient,
+		SharedDir:  deps.cfg.Stream.SharedDir,
+		Dests:      deps.promoteDests,
+		Downloads:  deps.downloadsStore,
+		Streamer:   deps.streamSrv,
+		Tracker:    deps.transferTracker,
+	}))
 	api.POST("/local/promote/preview", lh.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/local/walk", lh.LocalWalk(deps.localBrowser))
 	api.POST("/local/move", lh.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
@@ -426,8 +435,19 @@ func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))
 	api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(deps.downloadsStore))
 	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore, downloadRemoverDep(deps)))
-	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker, deps.pendingTransfers, deps.cfg))
-	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(deps.downloadsStore, deps.streamSrv, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.transferTracker, deps.pendingTransfers, deps.cfg))
+	promoteDeps := handlers.PromoteDeps{
+		Store:      deps.downloadsStore,
+		Streamer:   deps.streamSrv,
+		AIClient:   deps.aiClient,
+		TMDBClient: deps.tmdbClient,
+		SharedDir:  deps.cfg.Stream.SharedDir,
+		Dests:      deps.promoteDests,
+		Tracker:    deps.transferTracker,
+		Pending:    deps.pendingTransfers,
+		Cfg:        deps.cfg,
+	}
+	api.POST("/downloads/:id/promote", handlers.DownloadsPromote(promoteDeps))
+	api.POST("/downloads/promote", handlers.DownloadsPromoteBatch(promoteDeps))
 	api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(deps.downloadsStore, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/promote/destinations", handlers.DownloadsPromoteDests(deps.cfg.Stream.SharedDir, deps.promoteDests))
