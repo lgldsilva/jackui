@@ -52,11 +52,14 @@ match_type() {
     "^($1)(\([^)]*\))?!?:|^Merge pull request '($1)(\([^)]*\))?!?:"
 }
 
-# breaking: "<tipo>!:" no assunto (qualquer forma) OU "BREAKING CHANGE" no corpo.
+# breaking: "<tipo>!:" no assunto (qualquer forma) OU "BREAKING CHANGE" como FOOTER
+# do corpo. Ancorado em início de linha + ":" e case-sensitive (a spec exige o
+# footer em maiúsculas) pra NÃO casar a frase citada em prosa — um commit que só
+# MENCIONA "BREAKING CHANGE" no meio de uma explicação não é um breaking change.
 is_breaking() {
   printf '%s\n' "$subjects" | grep -qE \
     "^[a-zA-Z]+(\([^)]*\))?!:|^Merge pull request '[a-zA-Z]+(\([^)]*\))?!:" \
-    || printf '%s\n' "$bodies" | grep -qiE 'BREAKING[ -]CHANGE'
+    || printf '%s\n' "$bodies" | grep -qE '^BREAKING[ -]CHANGE:'
 }
 
 bump=none
