@@ -211,22 +211,44 @@ export type StreamHealth = {
   checkedAt?: string
 }
 
-// streamHealth returns the last-known swarm health for a torrent (and kicks a
-// background re-probe server-side when stale). `magnet` lets the server probe an
-// inactive torrent. Best-effort: returns an "unknown" shape on error.
 // streamHealth peeks the last-known swarm health (cheap, no swarm activity).
 // Pass probe=true ONLY on an explicit user action — that adds the torrent to the
 // swarm to count peers (expensive). Auto-calling with probe=true bogs the app.
+const unknownHealth: StreamHealth = { known: false, active: false, refreshing: false }
+
+// PEEK coalescing: N SeedBadges peeking on mount become ONE POST
+// /stream/health/batch (instead of one GET /stream/health/:hash per card — the
+// list-page N+1). The PROBE (on-demand, expensive) stays a single request.
+const healthQueue: { hash: string; resolve: (h: StreamHealth) => void }[] = []
+let healthFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushHealthQueue() {
+  if (healthFlushTimer) { clearTimeout(healthFlushTimer); healthFlushTimer = null }
+  const batch = healthQueue.splice(0)
+  if (batch.length === 0) return
+  const hashes = [...new Set(batch.map(b => b.hash))]
+  api.post<{ results?: Record<string, StreamHealth> }>('/stream/health/batch', { hashes })
+    .then(r => { const results = r.data?.results ?? {}; for (const b of batch) b.resolve(results[b.hash] ?? unknownHealth) })
+    .catch(() => { for (const b of batch) b.resolve(unknownHealth) })
+}
+
 export const streamHealth = async (hash: string, magnet?: string, probe = false): Promise<StreamHealth> => {
-  try {
-    const params = new URLSearchParams()
-    if (magnet) params.set('magnet', magnet)
-    if (probe) params.set('probe', '1')
-    const { data } = await api.get<StreamHealth>(`/stream/health/${hash}?${params.toString()}`)
-    return data
-  } catch {
-    return { known: false, active: false, refreshing: false }
+  if (probe) {
+    try {
+      const params = new URLSearchParams()
+      if (magnet) params.set('magnet', magnet)
+      params.set('probe', '1')
+      const { data } = await api.get<StreamHealth>(`/stream/health/${hash}?${params.toString()}`)
+      return data
+    } catch {
+      return unknownHealth
+    }
   }
+  return new Promise<StreamHealth>(resolve => {
+    healthQueue.push({ hash, resolve })
+    if (healthQueue.length >= 200) flushHealthQueue()
+    else if (!healthFlushTimer) healthFlushTimer = setTimeout(flushHealthQueue, 40)
+  })
 }
 
 // TrackerScrape is one tracker's reported swarm size (BEP 48). `tracker` is the
