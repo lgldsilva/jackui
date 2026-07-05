@@ -5,11 +5,14 @@ import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
   streamAdd, streamMetadata, StreamFile, TorrentInfo,
+  dedupCheck, dedupLink, DedupCheckResult,
 } from '../api/client'
 import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import DownloadDestinationPicker from './DownloadDestinationPicker'
 import { FileSelectionSection } from './files/FileSelectionSection'
+import DedupPrompt from './DedupPrompt'
+import { linkableItems, planAfterLink } from '../lib/dedup'
 import { errMessage } from '../lib/errMessage'
 
 // Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
@@ -155,6 +158,9 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   const pathInputRef = useRef<HTMLInputElement>(null)
   // clientsLoaded evita o flash do modal enquanto a lista de clientes carrega.
   const [clientsLoaded, setClientsLoaded] = useState(false)
+  // Cross-torrent dedup (#23): set when /dedup-check finds files the user already
+  // has → the DedupPrompt asks whether to link them instead of re-downloading.
+  const [dedup, setDedup] = useState<DedupCheckResult | null>(null)
 
   useEffect(() => {
     if (!result) return
@@ -165,6 +171,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
     setFiles(null)
     setFilesError('')
     setSelectedFiles(new Set())
+    setDedup(null)
     setRecentPaths(load<string[]>(KEY_RECENT_PATHS, []))
     setSavePath(load<string>(KEY_PATH, ''))
 
@@ -222,24 +229,87 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, selectedClientId])
 
+  // finishInternal enqueues the internal download for `selection` and closes on
+  // success. Clears the dedup prompt either way so an error surfaces in the modal.
+  const finishInternal = async (filesArg: StreamFile[] | null, selection: Set<number>) => {
+    const err = await downloadInternal(result!, filesArg, selection, streamAdd, downloadCreate, t, dest)
+    setDedup(null)
+    if (err) { setError(err); return }
+    save(KEY_CLIENT, INTERNAL_ID)
+    setSuccess(true)
+    setTimeout(onClose, 1200)
+  }
+
   const handleDownload = async () => {
     if (!result) return
-
     setLoading(true)
     setError('')
-
     try {
       if (selectedClientId === INTERNAL_ID) {
-        const error = await downloadInternal(result, files, selectedFiles, streamAdd, downloadCreate, t, dest)
-        if (error) setError(error)
+        // Probe for files already on disk before enqueuing. A match opens the
+        // DedupPrompt (the enqueue then happens there); a probe error or no match
+        // falls straight through to the normal download.
+        const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
+        const dr = magnet ? await dedupCheck(magnet).catch(() => null) : null
+        if (dr && dr.matches.length > 0) { setDedup(dr); return }
+        await finishInternal(files, selectedFiles)
       } else {
         await downloadTorrent(selectedClientId, result.magnetUri || '', result.link || '', savePath || undefined)
+        save(KEY_CLIENT, selectedClientId)
+        if (savePath.trim()) { save(KEY_PATH, savePath.trim()); pushMRU(KEY_RECENT_PATHS, savePath.trim()) }
+        setSuccess(true)
+        setTimeout(onClose, 1200)
       }
-      save(KEY_CLIENT, selectedClientId)
-      if (savePath.trim()) { save(KEY_PATH, savePath.trim()); pushMRU(KEY_RECENT_PATHS, savePath.trim()) }
-      setSuccess(true)
-      setTimeout(onClose, 1200)
     } catch (err: unknown) {
+      setError(errMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // DedupPrompt → "use existing": link the mount-backed matches, then enqueue
+  // only what's still missing (or nothing if it's all already here).
+  const handleUseExisting = async () => {
+    if (!result || !dedup) return
+    setLoading(true)
+    setError('')
+    try {
+      const plan = planAfterLink(!!files, [...selectedFiles], dedup.matches, dedup.totalFiles)
+      // No per-file list to exclude the linked files from → linking here would
+      // leave the whole-torrent download re-fetching them from the swarm. Skip the
+      // link and just download (the worker still auto-links local-certain matches).
+      if (plan.kind === 'whole') {
+        await finishInternal(files, selectedFiles)
+        return
+      }
+      const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
+      const infoHash = result.infoHash || hashFromMagnet(magnet)
+      const items = linkableItems(dedup.matches)
+      if (items.length > 0) await dedupLink({ infoHash, magnet, name: result.title, items })
+      if (plan.kind === 'files') {
+        await finishInternal(files, new Set(plan.indices))
+      } else {
+        save(KEY_CLIENT, INTERNAL_ID)
+        setDedup(null)
+        setSuccess(true)
+        setTimeout(onClose, 1200)
+      }
+    } catch (err: unknown) {
+      setDedup(null)
+      setError(errMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // DedupPrompt → "download anyway": ignore the matches, enqueue as usual.
+  const handleDownloadAll = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      await finishInternal(files, selectedFiles)
+    } catch (err: unknown) {
+      setDedup(null)
       setError(errMessage(err))
     } finally {
       setLoading(false)
@@ -255,6 +325,19 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   if (!result) return null
   // Ainda decidindo (carregando clientes) — não pisca o modal.
   if (!clientsLoaded) return null
+  // Dedup: o torrent tem arquivos que o usuário já tem → pergunta antes de baixar.
+  if (dedup) {
+    return (
+      <DedupPrompt
+        matches={dedup.matches}
+        totalFiles={dedup.totalFiles}
+        busy={loading}
+        onUseExisting={handleUseExisting}
+        onDownloadAll={handleDownloadAll}
+        onCancel={() => setDedup(null)}
+      />
+    )
+  }
 
   return (
     <Sheet
