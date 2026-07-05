@@ -47,6 +47,7 @@ import {
   localCleanEmptyDirs,
   localSetFolderLock,
   localCacheFolder,
+  localPlayBatch,
   localUpload,
   adminListUsers,
   setLocalViewAsUser,
@@ -523,6 +524,10 @@ export default function LocalPage() {
         }
       })
       const start = Math.max(0, siblings.findIndex((x) => x.path === e.path))
+      // Pre-warm the resolution (direct-vs-HLS + URL) of EVERY track in the folder
+      // in ONE batch call, instead of one GET /api/local/play (ffprobe) per track
+      // when the player navigates/auto-advances. Best-effort (never blocks play).
+      void localPlayBatch(activeMount, siblings.map((x) => x.path)).catch(() => {})
       const folderName = path ? path.split('/').pop() || path : activeMount
       // expand=true: arquivos locais abrem o player MAXIMIZADO (não o dock de
       // áudio minimizado) — o usuário clicou pra ver/ouvir a experiência cheia.

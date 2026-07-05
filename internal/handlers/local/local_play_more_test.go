@@ -114,7 +114,7 @@ func TestLocalPlayVideoResp_ProbeResult(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/api/local/play?mount=Test&path=video.mp4", nil)
 
 	abs := filepath.Join(mountDir, "video.mp4")
-	resp := localPlayVideoResp(c, abs, "Test", "video.mp4", "")
+	resp := localPlayVideoResp(c.Request.Context(), false, abs, "Test", "video.mp4", "")
 
 	// ffprobe may succeed or fail - we just verify we get a valid response
 	// without panic. Both "direct" and "hls" are valid depending on ffprobe.
