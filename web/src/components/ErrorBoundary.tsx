@@ -1,5 +1,6 @@
 import { Component, ReactNode } from 'react'
 import { AlertCircle, X } from 'lucide-react'
+import i18n from '../lib/i18n'
 
 type Props = {
   readonly children: ReactNode
@@ -40,18 +41,18 @@ export default class ErrorBoundary extends Component<Props, State> {
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-red-400 flex items-center gap-2">
                 <AlertCircle className="w-5 h-5" />
-                {this.props.title || 'Erro no componente'}
+                {this.props.title || i18n.t('errorBoundary.title')}
               </h2>
               <button onClick={this.reset} className="text-text-secondary hover:text-text-primary">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-sm text-text-primary mb-2">A interface encontrou um erro inesperado.</p>
+            <p className="text-sm text-text-primary mb-2">{i18n.t('errorBoundary.message')}</p>
             <pre className="text-xs text-red-700/80 dark:text-red-300/80 bg-surface rounded p-3 overflow-auto max-h-40">
               {this.state.error.message}
             </pre>
             <button onClick={this.reset} className="btn-primary mt-4 w-full">
-              Fechar
+              {i18n.t('errorBoundary.close')}
             </button>
           </div>
         </div>

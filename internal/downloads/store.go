@@ -213,7 +213,14 @@ func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, e
 		priority = PriorityNormal
 	}
 	// Try to fetch existing first — idempotent enqueue.
-	if existing, _ := s.getByKeyWith(x, d.UserID, d.InfoHash, d.FileIndex); existing != nil {
+	existing, err := s.getByKeyWith(x, d.UserID, d.InfoHash, d.FileIndex)
+	if errors.Is(err, sql.ErrNoRows) {
+		existing, err = nil, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if existing != nil {
 		if err := requeueExisting(x, existing, d); err != nil {
 			return nil, false, err
 		}

@@ -44,6 +44,7 @@ import { ActiveTab } from '../components/downloads/ActiveTab'
 import { SeedingTab } from '../components/downloads/SeedingTab'
 import { NetworkTab } from '../components/downloads/NetworkTab'
 import { countTorrents, completedViewCounts } from '../lib/downloadGroups'
+import { errMessage } from '../lib/errMessage'
 
 // Re-exported para os testes unitários co-localizados que importam de './DownloadsPage'.
 export { countTorrents, groupByHash, completedViewCounts } from '../lib/downloadGroups'
@@ -266,7 +267,9 @@ export default function DownloadsPage() {
         : await downloadsList()
       // Drop stale/out-of-order responses: only the latest load reconciles.
       if (mountedRef.current && seq === loadSeqRef.current) setItems(reconcile(pendingDeletesRef.current, list))
-    } catch { /* silent */ } finally {
+    } catch (err) {
+      notifyError(errMessage(err))
+    } finally {
       if (mountedRef.current) setLoading(false)
     }
   }
@@ -287,9 +290,21 @@ export default function DownloadsPage() {
         ? await downloadsListAll(params)
         : await downloadsListFiltered(params)
       if (mountedRef.current && seq === loadSeqRef.current) setItems(reconcile(pendingDeletesRef.current, list))
-    } catch { /* silent */ } finally {
+    } catch (err) {
+      notifyError(errMessage(err))
+    } finally {
       if (mountedRef.current) setLoading(false)
     }
+  }
+
+  // Poll + mutations must respect active filters — the mount-only interval used
+  // to always call load() and overwrote a filtered view every ~2s.
+  const reloadDownloadsRef = useRef<() => Promise<void>>(async () => {})
+  reloadDownloadsRef.current = async () => {
+    const hasFilters = !!(filterStatus || filterTracker || filterCategory || filterSearch
+      || sortCol !== 'created_at' || sortDir !== 'desc')
+    if (hasFilters) await loadFiltered()
+    else await load()
   }
 
   const loadFilterOptions = async () => {
@@ -322,12 +337,16 @@ export default function DownloadsPage() {
 
   useEffect(() => {
     mountedRef.current = true
-    load(); loadTorrents(); loadLimits(); loadFilterOptions()
+    void reloadDownloadsRef.current(); loadTorrents(); loadLimits(); loadFilterOptions()
     localMounts().then(setMounts).catch(() => {})
     getDownloadsQueueSettings().then(s => setMaxActive(s.maxActive)).catch(() => {})
     // Pula o poll com a aba oculta — cada ciclo refaz streamActive→buildInfo de
     // todos os torrents ativos (caro num pacote multi-arquivo). Retoma ao focar.
-    const t = setInterval(() => { if (document.hidden) return; load(); loadTorrents() }, 2000)
+    const t = setInterval(() => {
+      if (document.hidden) return
+      void reloadDownloadsRef.current()
+      loadTorrents()
+    }, 2000)
     return () => { mountedRef.current = false; clearInterval(t) }
   }, [])
 
@@ -338,14 +357,7 @@ export default function DownloadsPage() {
       clearTimeout(filterTimeoutRef.current)
     }
     filterTimeoutRef.current = setTimeout(() => {
-      if (mountedRef.current) {
-        const hasFilters = filterStatus || filterTracker || filterCategory || filterSearch
-        if (hasFilters || sortCol !== 'created_at' || sortDir !== 'desc') {
-          loadFiltered()
-        } else {
-          load()
-        }
-      }
+      if (mountedRef.current) void reloadDownloadsRef.current()
     }, filterSearch ? 300 : 0)
     return () => { if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -434,15 +446,15 @@ export default function DownloadsPage() {
 
   const onPause = async (id: number) => {
     setBusyID(id)
-    try { await downloadPause(id); await load() } finally { setBusyID(null) }
+    try { await downloadPause(id); await reloadDownloadsRef.current() } finally { setBusyID(null) }
   }
   const onResume = async (id: number) => {
     setBusyID(id)
-    try { await downloadResume(id); await load() } finally { setBusyID(null) }
+    try { await downloadResume(id); await reloadDownloadsRef.current() } finally { setBusyID(null) }
   }
   const onSetPriority = async (id: number, priority: DownloadPriority) => {
     setBusyID(id)
-    try { await downloadSetPriority(id, priority); await load() } finally { setBusyID(null) }
+    try { await downloadSetPriority(id, priority); await reloadDownloadsRef.current() } finally { setBusyID(null) }
   }
   const onDelete = async (id: number) => {
     if (!await confirm({ title: t('downloads.page.removeDownloadTitle'), message: t('downloads.page.removeDownloadMessage'), confirmLabel: t('downloads.page.remove'), destructive: true })) return
@@ -461,12 +473,12 @@ export default function DownloadsPage() {
       // como card de Streaming após o delete (sintoma: "permaneceu mesmo após excluir").
       if (target?.infoHash) await streamDrop(target.infoHash).catch(() => {})
       await downloadDelete(id)
-      await load(); await loadTorrents()
+      await reloadDownloadsRef.current(); await loadTorrents()
     } catch (err) {
       // The DELETE genuinely failed (network/500) — un-hide the row so the user
       // sees reality instead of a silently-vanished item, and surface the error.
       clearDeleted(pendingDeletesRef.current, [id])
-      await load().catch(() => {})
+      await reloadDownloadsRef.current().catch(() => {})
       notifyError(err)
     } finally { setBusyID(null) }
   }
@@ -485,14 +497,14 @@ export default function DownloadsPage() {
     const ids = items.filter(d => selected.has(d.id) && (d.status === 'downloading' || d.status === 'queued')).map(d => d.id)
     if (ids.length === 0) return
     setBulkBusy(true)
-    try { await downloadBatchPause(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
+    try { await downloadBatchPause(ids); await reloadDownloadsRef.current(); setSelected(new Set()) } finally { setBulkBusy(false) }
   }
 
   const onBatchResume = async () => {
     const ids = items.filter(d => selected.has(d.id) && d.status === 'paused').map(d => d.id)
     if (ids.length === 0) return
     setBulkBusy(true)
-    try { await downloadBatchResume(ids); await load(); setSelected(new Set()) } finally { setBulkBusy(false) }
+    try { await downloadBatchResume(ids); await reloadDownloadsRef.current(); setSelected(new Set()) } finally { setBulkBusy(false) }
   }
 
   const onBatchDelete = async () => {
@@ -522,11 +534,11 @@ export default function DownloadsPage() {
         clearDeleted(pendingDeletesRef.current, failed) // let the survivors come back into view
         notify(t('downloads.page.removeFailed', { count: failed.length, ids: failed.join(', #') }), 'error')
       }
-      await load(); await loadTorrents()
+      await reloadDownloadsRef.current(); await loadTorrents()
       setSelected(new Set())
     } catch (err) {
       clearDeleted(pendingDeletesRef.current, ids)
-      await load().catch(() => {})
+      await reloadDownloadsRef.current().catch(() => {})
       notifyError(err)
     }
   }
@@ -553,13 +565,13 @@ export default function DownloadsPage() {
         return next
       })
     }
-    void load()
+    void reloadDownloadsRef.current()
     void loadTorrents()
   }
   const onStopSeed = async (id: number, name: string) => {
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedMessage', { name }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBusyID(id)
-    try { await downloadStopSeed(id); await load(); await loadTorrents() }
+    try { await downloadStopSeed(id); await reloadDownloadsRef.current(); await loadTorrents() }
     finally { setBusyID(null) }
   }
 
@@ -577,14 +589,14 @@ export default function DownloadsPage() {
     if (ds.length === 0) return
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedManyMessage', { count: ds.length }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBulkBusy(true)
-    try { await Promise.all(ds.map(d => downloadStopSeed(d.id).catch(() => {}))); await load(); await loadTorrents() }
+    try { await Promise.all(ds.map(d => downloadStopSeed(d.id).catch(() => {}))); await reloadDownloadsRef.current(); await loadTorrents() }
     finally { setBulkBusy(false) }
   }
   const onRetryMany = async (ds: DownloadEntry[]) => {
     const ids = ds.filter(d => d.status === 'failed').map(d => d.id)
     if (ids.length === 0) return
     setBulkBusy(true)
-    try { await downloadBatchResume(ids); await load() } finally { setBulkBusy(false) }
+    try { await downloadBatchResume(ids); await reloadDownloadsRef.current() } finally { setBulkBusy(false) }
   }
 
   const onTorrentPause = async (hash: string) => {
@@ -645,27 +657,30 @@ export default function DownloadsPage() {
   // valores não são persistidos, então o backend não os ordena (ORDER BY). As
   // demais chaves (data/nome/...) seguem server-side; aqui a ordem é preservada.
   // As seções/grupos derivam de sortedItems para herdar a ordem escolhida.
-  const sortedItems = applyDownloadSort(items, sortCol, sortDir)
+  const sortedItems = useMemo(
+    () => applyDownloadSort(items, sortCol, sortDir),
+    [items, sortCol, sortDir],
+  )
 
-  // Per-status download groups
-  const downloadsByStatus = {
+  // Per-status download groups (memoized — poll every 2s would otherwise rebuild)
+  const downloadsByStatus = useMemo(() => ({
     downloading: sortedItems.filter(d => d.status === 'downloading' || d.status === 'queued'),
     paused:      sortedItems.filter(d => d.status === 'paused'),
     completed:   sortedItems.filter(d => d.status === 'completed'),
     failed:      sortedItems.filter(d => d.status === 'failed'),
-  }
+  }), [sortedItems])
   const completedDownloads = downloadsByStatus.completed
 
   // Ações em lote globais (reusadas pela barra inline do desktop e pelo Sheet
   // de "Ações" do mobile).
   const doResumeAll = async () => {
     setBulkBusy(true)
-    try { await Promise.all([downloadResumeAll(), streamResumeAll()]); await load() }
+    try { await Promise.all([downloadResumeAll(), streamResumeAll()]); await reloadDownloadsRef.current() }
     finally { setBulkBusy(false) }
   }
   const doPauseAll = async () => {
     setBulkBusy(true)
-    try { await Promise.all([downloadPauseAll(), streamPauseAll()]); await load() }
+    try { await Promise.all([downloadPauseAll(), streamPauseAll()]); await reloadDownloadsRef.current() }
     finally { setBulkBusy(false) }
   }
   const doRemoveCompleted = async () => {
@@ -680,7 +695,7 @@ export default function DownloadsPage() {
     try {
       // Encerra sessões de seed/stream antes de remover as rows concluídas.
       await Promise.all(completedDownloads.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
-      await downloadBatchDelete(completedDownloads.map(d => d.id)); await load(); await loadTorrents()
+      await downloadBatchDelete(completedDownloads.map(d => d.id)); await reloadDownloadsRef.current(); await loadTorrents()
     }
     finally { setBulkBusy(false) }
   }
@@ -693,7 +708,7 @@ export default function DownloadsPage() {
     if (!ok) return
     setBulkBusy(true)
     try {
-      await downloadBatchDelete(targets.map(d => d.id)); await load(); await loadTorrents()
+      await downloadBatchDelete(targets.map(d => d.id)); await reloadDownloadsRef.current(); await loadTorrents()
     } finally { setBulkBusy(false) }
   }
   const doClearFailed = () => doClearByStatus(
@@ -1226,7 +1241,7 @@ export default function DownloadsPage() {
         download={inspectTarget}
         onClose={() => setQuery({ inspect: null }, { replace: true })}
         siblings={inspectTarget ? items.filter(i => i.infoHash === inspectTarget.infoHash) : []}
-        onAdopted={() => { void load() }}
+        onAdopted={() => { void reloadDownloadsRef.current() }}
         onMutated={(updated) => {
           setItems(prev => prev.map(item => item.id === updated.id ? updated : item))
         }}
@@ -1253,7 +1268,7 @@ export default function DownloadsPage() {
         result={downloadTarget}
         onClose={() => {
           setDownloadTarget(null)
-          void load()
+          void reloadDownloadsRef.current()
           void loadTorrents()
         }}
       />

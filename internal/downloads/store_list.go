@@ -4,10 +4,16 @@ import (
 	"database/sql"
 )
 
+// ListMaxResults caps list endpoints so a multi-file pack cannot return unbounded
+// rows to the UI poll (778-file torrent = 778 JSON objects every 2s).
+const ListMaxResults = 5000
+
+const listLimitClause = " LIMIT 5000"
+
 // Leituras/listagens do store de downloads — extraído de store.go.
 // List returns all downloads for the user, newest first.
 func (s *Store) List(userID int) ([]Download, error) {
-	rows, err := s.db.Query(dlSelect+"WHERE user_id=? ORDER BY created_at DESC", userID)
+	rows, err := s.db.Query(dlSelect+"WHERE user_id=? ORDER BY created_at DESC"+listLimitClause, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +62,7 @@ func (s *Store) ListFiltered(f ListFilter) ([]Download, error) {
 	if f.SortDir == "asc" {
 		dir = "ASC"
 	}
-	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir, args...)
+	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir+listLimitClause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +160,7 @@ func (s *Store) ListFilteredAll(f ListFilter) ([]Download, error) {
 	if f.SortDir == "asc" {
 		dir = "ASC"
 	}
-	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir, args...)
+	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir+listLimitClause, args...)
 	if err != nil {
 		return nil, err
 	}

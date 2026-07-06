@@ -267,6 +267,9 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 		}
 		todo = append(todo, st)
 	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
 	// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
 	rows.Close()
 	updated := 0

@@ -14,41 +14,12 @@ import { FileSelectionSection } from './files/FileSelectionSection'
 import DedupPrompt from './DedupPrompt'
 import { linkableItems, planAfterLink } from '../lib/dedup'
 import { errMessage } from '../lib/errMessage'
+import { canonicalInfoHash } from '../lib/magnet'
+import { defaultSelectedFiles } from '../lib/torrentSelect'
 
 // Sentinel client id for "download inside JackUI itself" (anacrolix → /data),
 // as opposed to handing the torrent to an external qBittorrent/Transmission.
 const INTERNAL_ID = '__internal__'
-
-// Pull the 40-hex btih out of a magnet URI. The internal download queue keys
-// on info hash; search results sometimes only carry the magnet.
-function hashFromMagnet(magnet: string): string {
-  const m = /btih:([a-f0-9]{40})/i.exec(magnet)
-  return m ? m[1].toLowerCase() : ''
-}
-
-// Heurística pro default de "marcar pra baixar" no picker. Antes o modal
-// hardcodava fileIndex=0 e enfileirava só esse — quebrava em torrents onde
-// o primeiro arquivo é lixo (.nfo, .url do site, .txt) em vez do .mp4 que
-// o usuário quer. Agora vem da lista e o user pode desmarcar.
-//
-// Regra: arquivo de vídeo (isVideo do backend) sempre marcado; outros só
-// se forem grandes (>= 10MB) pra cobrir áudios, MKVs sem ext detectada,
-// rars, etc. Lixo abaixo de 10MB (nfo/txt/url/jpg pequenas) fica desmarcado.
-const DEFAULT_MIN_BYTES = 10 * 1024 * 1024
-function defaultSelected(files: StreamFile[]): Set<number> {
-  const sel = new Set<number>()
-  for (const f of files) {
-    if (f.isVideo || f.size >= DEFAULT_MIN_BYTES) sel.add(f.index)
-  }
-  // Se a heurística não marcou nenhum (torrent só de lixo OU só arquivos
-  // muito pequenos), cai no maior — melhor baixar UM arquivo do que travar.
-  if (sel.size === 0 && files.length > 0) {
-    let biggest = files[0]
-    for (const f of files) if (f.size > biggest.size) biggest = f
-    sel.add(biggest.index)
-  }
-  return sel
-}
 
 // Seleção inicial dos arquivos resolvidos: a pré-seleção explícita (ex: a pasta
 // vinda do player) tem prioridade, filtrada contra o que realmente resolveu
@@ -58,7 +29,7 @@ function pickInitialSelection(files: StreamFile[], initial?: readonly number[]):
     const preset = new Set(files.filter(f => initial.includes(f.index)).map(f => f.index))
     if (preset.size > 0) return preset
   }
-  return defaultSelected(files)
+  return defaultSelectedFiles(files)
 }
 
 type DownloadDest = { destBase: string; destSubdir: string }
@@ -78,7 +49,7 @@ async function downloadInternal(
   dest: DownloadDest = EMPTY_DEST,
 ): Promise<string | null> {
   let magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-  let infoHash = result.infoHash || hashFromMagnet(magnet)
+  let infoHash = result.infoHash || canonicalInfoHash(result.infoHash, magnet)
   if ((!infoHash || !magnet) && result.link) {
     const info = await streamAdd(result.link)
     infoHash = info.infoHash
@@ -205,7 +176,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
     setFilesLoading(true)
     setFilesError('')
     const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-    const infoHash = result.infoHash || hashFromMagnet(magnet)
+    const infoHash = result.infoHash || canonicalInfoHash(result.infoHash, magnet)
     const sourceForAdd = magnet || result.link || ''
     ;(async () => {
       let info: TorrentInfo | null = null
@@ -283,7 +254,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
         return
       }
       const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-      const infoHash = result.infoHash || hashFromMagnet(magnet)
+      const infoHash = result.infoHash || canonicalInfoHash(result.infoHash, magnet)
       const items = linkableItems(dedup.matches)
       if (items.length > 0) await dedupLink({ infoHash, magnet, name: result.title, items })
       if (plan.kind === 'files') {

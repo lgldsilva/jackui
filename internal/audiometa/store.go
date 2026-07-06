@@ -6,7 +6,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/dbutil"
 )
 
-// Store caches parsed audio tags in a DEDICATED SQLite file (.audio-metadata.db).
+// Store caches parsed audio tags in PostgreSQL (shared pool; schema in internal/db migrations).
 //
 // Why a dedicated DB and not the library/history store: those run MaxOpenConns(1)
 // and back hot read paths (Continue Watching, Library page). Folding a lazy tag

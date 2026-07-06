@@ -1025,7 +1025,7 @@ func (s *Streamer) purgeVerifiedFiles(hash metainfo.Hash) {
 
 // ─── internal helpers ────────────────────────────────────────────────────────
 
-func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
+func (s *Streamer) buildInfo(e *entry, withFiles bool) *TorrentInfo {
 	t := e.t
 	// Rate sample requires mutating entry counters — must hold s.mu so concurrent
 	// GlobalStats / Get callers see a consistent snapshot.
@@ -1055,25 +1055,27 @@ func (s *Streamer) buildInfo(e *entry) *TorrentInfo {
 		info.Trackers = append(info.Trackers, tier...)
 	}
 
-	files := t.Files()
-	info.Files = make([]FileInfo, 0, len(files))
-	for i, f := range files {
-		ext := strings.ToLower(filepath.Ext(f.Path()))
-		isVideo := videoExtensions[ext]
-		fi := FileInfo{
-			Index:      i,
-			Path:       f.Path(),
-			Size:       f.Length(),
-			IsVideo:    isVideo,
-			Downloaded: f.BytesCompleted(),
-			Priority:   labelFromPriority(f.Priority()),
+	if withFiles {
+		files := t.Files()
+		info.Files = make([]FileInfo, 0, len(files))
+		for i, f := range files {
+			ext := strings.ToLower(filepath.Ext(f.Path()))
+			isVideo := videoExtensions[ext]
+			fi := FileInfo{
+				Index:      i,
+				Path:       f.Path(),
+				Size:       f.Length(),
+				IsVideo:    isVideo,
+				Downloaded: f.BytesCompleted(),
+				Priority:   labelFromPriority(f.Priority()),
+			}
+			if f.Length() > 0 {
+				fi.Progress = float64(f.BytesCompleted()) / float64(f.Length())
+			}
+			info.Files = append(info.Files, fi)
 		}
-		if f.Length() > 0 {
-			fi.Progress = float64(f.BytesCompleted()) / float64(f.Length())
-		}
-		info.Files = append(info.Files, fi)
+		info.PrimaryFile = pickPrimaryFile(info.Files)
 	}
-	info.PrimaryFile = pickPrimaryFile(info.Files)
 	return info
 }
 

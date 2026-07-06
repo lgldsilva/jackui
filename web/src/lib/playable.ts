@@ -1,5 +1,7 @@
 import { SearchResult } from '../api/client'
 
+import { VIDEO_EXT_RE, AUDIO_EXT_RE } from './mediaExtensions'
+
 // Jackett categories that typically contain playable media (video OR audio)
 const VIDEO_CATEGORIES = new Set([
   2000, 2010, 2020, 2030, 2040, 2045, 2050, 2060, 2070, 2080,
@@ -10,8 +12,6 @@ const AUDIO_CATEGORIES = new Set([
   3000, 3010, 3020, 3030, 3040, 3050, 3060,
 ])
 
-const VIDEO_EXT_RE  = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
-const AUDIO_EXT_RE  = /\.(mp3|flac|ogg|wav|m4a|aac|opus|alac|wma)$/i
 const VIDEO_HINT_RE = /\b(1080p|720p|480p|2160p|4k|bluray|web-dl|webrip|hdtv|x264|x265|hevc|h264|h265)\b/i
 const AUDIO_HINT_RE = /\b(flac|mp3|320kbps|256kbps|192kbps|lossless|hi-?res|24bit|discography|album|ost|soundtrack)\b/i
 

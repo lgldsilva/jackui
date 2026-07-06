@@ -54,8 +54,8 @@ func (s *Streamer) VerifyTorrent(hash metainfo.Hash) error {
 
 // RecheckAllFiles força o "Force Recheck" em TODOS os arquivos de um torrent
 // (download de torrent inteiro). Mesmo contrato do RecheckFile; os arquivos são
-// re-hashados sequencialmente numa única goroutine — um torrent de milhares de
-// arquivos não pode disparar milhares de hash loops concorrentes.
+// re-hashados sequencialmente — um torrent de milhares de arquivos não dispara
+// milhares de hash loops concorrentes.
 func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -63,16 +63,15 @@ func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
 	if !ok {
 		return ErrTorrentNotActive
 	}
-	files := e.t.Files()
-	go func() {
-		for i, f := range files {
-			key := fmt.Sprintf("%s-%d", hash.HexString(), i)
-			s.verifiedMu.Lock()
-			delete(s.verifiedFiles, key)
-			s.verifiedMu.Unlock()
-			s.asyncRecheckFile(key, f)
+	for i, f := range e.t.Files() {
+		key := fmt.Sprintf("%s-%d", hash.HexString(), i)
+		s.verifiedMu.Lock()
+		delete(s.verifiedFiles, key)
+		s.verifiedMu.Unlock()
+		if err := s.recheckFilePieces(key, f); err != nil {
+			return err
 		}
-	}()
+	}
 	return nil
 }
 
@@ -83,7 +82,7 @@ func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
 // ou quando o tamanho/contagem do downloads.db não bate com o real.
 // Diferente do VerifyFile, que pula pieces já completos e dedupa por processo,
 // aqui valida tudo de novo — semantics equivalente ao "Force Recheck" do
-// qBittorrent. Roda em goroutine porque um filme grande leva minutos.
+// qBittorrent. Bloqueia até terminar: o handler HTTP só reenfileira depois.
 func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -103,12 +102,12 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	delete(s.verifiedFiles, key)
 	s.verifiedMu.Unlock()
 	f := files[fileIdx]
-	go s.asyncRecheckFile(key, f)
-	return nil
+	return s.recheckFilePieces(key, f)
 }
 
-// asyncRecheckFile handles the asynchronous re-hashing of a file's pieces.
-func (s *Streamer) asyncRecheckFile(key string, f *torrent.File) {
+// recheckFilePieces re-hashes every piece of a file (no skip-complete). Returns
+// the first VerifyData error so callers can fail the recheck end-to-end.
+func (s *Streamer) recheckFilePieces(key string, f *torrent.File) error {
 	// Marca como em-progresso antes da hashagem pra concorrent calls não
 	// dispararem 2ª pass.
 	s.verifiedMu.Lock()
@@ -123,7 +122,7 @@ func (s *Streamer) asyncRecheckFile(key string, f *torrent.File) {
 	}
 	s.verifiedMu.Unlock()
 	if loaded {
-		return
+		return nil
 	}
 
 	completed := false
@@ -135,9 +134,12 @@ func (s *Streamer) asyncRecheckFile(key string, f *torrent.File) {
 		}
 	}()
 	for p := range f.Pieces() {
-		_ = p.VerifyData() // todos os pieces, sem o skip-complete do VerifyFile
+		if err := p.VerifyData(); err != nil {
+			return err
+		}
 	}
 	completed = true
+	return nil
 }
 
 // verifyFilePieces hash-checks the on-disk pieces backing a single file so the
