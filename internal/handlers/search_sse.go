@@ -170,7 +170,12 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 // the live phase emitted nothing — the cache pass already covered the DB snapshot
 // and a second identical SELECT would be wasted work.
 func (s *liveSearchState) emitConverged(store *history.Store, query string, userID int, includeAll bool) int {
-	if store == nil || len(s.liveResults) == 0 {
+	if store == nil {
+		return 0
+	}
+	// Cache-only session (no live phase): the cache pass already emitted every
+	// known row — a second identical SELECT would be wasted work.
+	if len(s.liveResults) == 0 && len(s.liveSeen) == 0 {
 		return 0
 	}
 	cached, err := store.Search(query, userID, includeAll)

@@ -31,16 +31,12 @@ func (h *Handler) methodTorrentStart(args map[string]interface{}) rpcResponse {
 		if err := h.store.Requeue(d.UserID, d.ID); err != nil {
 			return err
 		}
-		if h.streamer == nil {
-			return nil
+		if h.streamer != nil {
+			if hh, err := hashFromDownload(d); err == nil {
+				_ = h.streamer.Resume(hh) // best-effort — torrent may not be in the client yet
+			}
 		}
-		hh, err := hashFromDownload(d)
-		if err != nil {
-			return err
-		}
-		if err := h.streamer.Resume(hh); err != nil {
-			return err
-		}
+		return nil
 		return nil
 	})
 }
@@ -53,16 +49,12 @@ func (h *Handler) methodTorrentStop(args map[string]interface{}) rpcResponse {
 		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused); err != nil {
 			return err
 		}
-		if h.streamer == nil {
-			return nil
+		if h.streamer != nil {
+			if hh, err := hashFromDownload(d); err == nil {
+				_ = h.streamer.Pause(hh) // best-effort — torrent may not be in the client yet
+			}
 		}
-		hh, err := hashFromDownload(d)
-		if err != nil {
-			return err
-		}
-		if err := h.streamer.Pause(hh); err != nil {
-			return err
-		}
+		return nil
 		return nil
 	})
 }
