@@ -90,32 +90,42 @@ func (s *Store) Save(query string, results []jackett.Result, userID int, incogni
 		incognitoVal = 1
 	}
 
+	lowerQuery := strings.ToLower(query)
 	for _, r := range results {
-		if r.InfoHash != "" {
-			if seen[r.InfoHash] {
-				continue
-			}
-			seen[r.InfoHash] = true
-
-			var count int
-			if err := tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ? AND incognito = ?", r.InfoHash, userID, incognitoVal).Scan(&count); err != nil {
-				return err
-			}
-			if count > 0 {
-				continue
-			}
+		if skip, err := historyRowExists(tx, r, seen, userID, incognitoVal); err != nil {
+			return err
+		} else if skip {
+			continue
 		}
-
 		_, err := tx.Exec(`
 			INSERT INTO results (query, title, tracker, category, size, seeders, leechers, age, magnet_uri, link, info_hash, publish_date, user_id, incognito)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, strings.ToLower(query), r.Title, r.Tracker, r.Category, r.Size, r.Seeders, r.Leechers, r.Age, r.MagnetURI, r.Link, r.InfoHash, r.PublishDate, userID, incognitoVal)
+		`, lowerQuery, r.Title, r.Tracker, r.Category, r.Size, r.Seeders, r.Leechers, r.Age, r.MagnetURI, r.Link, r.InfoHash, r.PublishDate, userID, incognitoVal)
 		if err != nil {
 			return err
 		}
 	}
 
 	return tx.Commit()
+}
+
+// historyRowExists dedups by info_hash: in-batch via `seen`, and against
+// already-persisted rows via a COUNT. Returns skip=true when the result
+// should not be inserted. InfoHash-less rows are always inserted.
+func historyRowExists(tx *dbutil.Tx, r jackett.Result, seen map[string]bool, userID, incognitoVal int) (bool, error) {
+	if r.InfoHash == "" {
+		return false, nil
+	}
+	if seen[r.InfoHash] {
+		return true, nil
+	}
+	seen[r.InfoHash] = true
+
+	var count int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ? AND incognito = ?", r.InfoHash, userID, incognitoVal).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // DistinctQueryCount returns how many different searches the user has saved
