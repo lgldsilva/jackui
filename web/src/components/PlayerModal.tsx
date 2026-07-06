@@ -28,6 +28,7 @@ import {
   downloadLocalFileDirect,
   classifyCategory,
   isLocalHash,
+  downloadCreate,
 } from '../api/client'
 import { formatRate } from '../lib/format'
 import { parentDir, filesUnderDir } from '../lib/treeSelect'
@@ -49,7 +50,7 @@ import { useTrackOrder } from './player/useTrackOrder'
 import { nextTrack, prevTrack } from '../lib/trackTransport'
 import { computeMediaUrls } from './player/mediaUrls'
 import { computeFilePickerState } from './player/filePickerVisibility'
-import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile } from './player/playerEffects'
+import { buildErrorInfo, tryPrefetchNext, updateBufferedRanges, tryAutoFavorite, trySaveResume, trySyncUrlPlayhead, chooseInitialFile, autoDownloadNextFile } from './player/playerEffects'
 import { VideoPlayerElement } from './player/VideoPlayerElement'
 import { FilePickerSidebar } from './player/FilePickerSidebar'
 import DownloadModal from './DownloadModal'
@@ -361,6 +362,10 @@ export default function PlayerModal({
   const lastResumeSaveRef = useRef(0)
   const lastUrlSyncRef = useRef(0)
   const bufferRetryRef = useRef(0)
+  // Callback ref para o auto-download do próximo arquivo: a função acessa
+  // buildDownloadResult+info (muda a cada render), então espelhamos pra um ref
+  // pra o efeito keyeado por info não precisar do callback como dep.
+  const enqueueNextDownloadRef = useRef<(fileIndex: number) => void>(() => {})
 
   const loadLibraryEntry = (list: LibraryEntry[], infoHash: string) => {
     const entry = list.find(e => e.infoHash === infoHash)
@@ -455,6 +460,30 @@ export default function PlayerModal({
     const indices = dir ? filesUnderDir(info.files, dir).map(f => f.index) : [file.index]
     setPlayerDownload({ result: r, indices })
   }, [buildDownloadResult, info])
+
+  // Auto-enqueue callback: when the current streaming file finishes downloading,
+  // enqueue the next file in the in-torrent queue as a background download.
+  // Reuses buildDownloadResult for magnet/tracker/name synthesis.
+  const enqueueNextDownload = useCallback((fileIndex: number) => {
+    const r = buildDownloadResult()
+    if (!r || !info) return
+    const f = info.files.find(x => x.index === fileIndex)
+    if (!f) return
+    downloadCreate({
+      infoHash: info.infoHash,
+      fileIndex: f.index,
+      magnet: r.magnetUri,
+      name: r.title,
+      filePath: f.path,
+      fileSize: f.size,
+      tracker: r.tracker || undefined,
+    }).catch(() => {
+      // Best-effort: never block playback or pollute the console.
+      // downloadCreate is idempotent — safe to retry on next poll.
+    })
+  }, [buildDownloadResult, info])
+  // Espelha o callback num ref pra evitar stale closure no efeito keyeado por info.
+  enqueueNextDownloadRef.current = enqueueNextDownload
 
   // 📁↓ na linha da pasta (árvore): baixa a pasta inteira, recursivamente. O
   // node.path é o caminho real (mesmo em folders single-child colapsados), então
@@ -587,6 +616,9 @@ export default function PlayerModal({
   const prefetchedNextEpRef = useRef(false)
   const prefetchedPlaylistN1Ref = useRef(false)
   const prefetchedPlaylistN2Ref = useRef(false)
+  // Tracks which file indices have already been auto-enqueued for background
+  // download in this session, so we don't spam the queue on every poll tick.
+  const autoDownloadDoneRef = useRef<Set<number>>(new Set())
 
   // Subtitle cluster (external/embedded/sidecar/custom tracks, OpenSubtitles
   // panel, sync offset, local-embedded blob + the 3 lower-level subtitle
@@ -668,6 +700,7 @@ export default function PlayerModal({
     prefetchedNextEpRef.current = false
     prefetchedPlaylistN1Ref.current = false
     prefetchedPlaylistN2Ref.current = false
+    autoDownloadDoneRef.current.clear()
     bufferRetryRef.current = 0
     setFileFilter('')
     setFileTypeFilter('all')
@@ -1225,6 +1258,20 @@ export default function PlayerModal({
   // servindo de base pro repeat. O picker/sidebar segue usando mediaQueue (ordem
   // de exibição); o transporte (prev/next/onEnded) segue trackOrder.
   const trackOrder = useTrackOrder(mediaQueue.indices, selectedFile, shuffle, info?.infoHash)
+
+  // Auto-download the next file in the in-torrent queue when the current file
+  // finishes streaming. Runs every time the poll updates `info` so it triggers
+  // within 2s of completion. Pure logic lives in playerEffects.ts.
+  useEffect(() => {
+    autoDownloadNextFile({
+      info,
+      selectedFile,
+      nextIdx: mediaQueue.nextIdx,
+      doneRef: autoDownloadDoneRef,
+      incognito,
+      onEnqueue: (idx) => enqueueNextDownloadRef.current(idx),
+    })
+  }, [info, selectedFile, mediaQueue.nextIdx, incognito])
 
   // Continuous transport: stay within the current torrent's queue, then spill
   // over into the user's playlist (next/prev torrent) at the boundary — one
