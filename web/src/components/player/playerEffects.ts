@@ -4,6 +4,7 @@ import {
   favoriteAdd,
   libraryUpdateResume,
 } from '../../api/client'
+import { isLocalHash } from '../../api/local'
 import { formatRate } from '../../lib/format'
 
 export function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
@@ -120,4 +121,39 @@ export function chooseInitialFile(t: TorrentInfo, initialFileIndex: number | und
     return initialFileIndex
   }
   return Math.max(0, t.primaryFile)
+}
+
+// autoDownloadNextFile detects when the current streaming file has finished
+// downloading and enqueues the next file in the in-torrent queue as a background
+// download. Respects the same ordering as the player (filterAndSortFiles +
+// same-kind constraint via mediaQueue.nextIdx).
+//
+// Call from the handleTimeUpdate or 2s-poll path; the function is pure (no
+// React dependency) so it's testable without a component.
+export function autoDownloadNextFile(props: {
+  info: TorrentInfo | null
+  selectedFile: number
+  nextIdx: number
+  doneRef: { current: Set<number> }
+  incognito: boolean
+  onEnqueue: (fileIndex: number) => void
+}): void {
+  const { info, selectedFile, nextIdx, doneRef, incognito, onEnqueue } = props
+  if (!info || selectedFile < 0 || nextIdx < 0) return
+  if (incognito) return
+  if (isLocalHash(info.infoHash)) return
+
+  const current = info.files.find(f => f.index === selectedFile)
+  if (!current) return
+  // File must be fully downloaded (the streaming client has received every byte).
+  if (current.downloaded < current.size) return
+
+  if (doneRef.current.has(nextIdx)) return
+
+  // Only enqueue if the target file isn't already on disk.
+  const next = info.files.find(f => f.index === nextIdx)
+  if (next && next.downloaded >= next.size) return
+
+  doneRef.current.add(nextIdx)
+  onEnqueue(nextIdx)
 }
