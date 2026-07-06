@@ -8,6 +8,11 @@ name: CI
 on:
   pull_request:
 
+concurrency:
+  # Cancela runs antigas do mesmo PR quando chega um commit novo.
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: [self-hosted, arm64]
