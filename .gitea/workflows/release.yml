@@ -53,7 +53,7 @@ jobs:
             echo "aguardando postgres estabilizar ($i, ok=$ok)…"; sleep 2
           done
           [ "$ok" -ge 3 ] || { echo "ERRO: postgres não estabilizou em ~120s"; exit 1; }
-      - run: go test -coverprofile=coverage.out ./internal/...
+      - run: go test -p 4 -coverprofile=coverage.out ./internal/...
       - uses: actions/upload-artifact@v3
         env:
           # This Node action talks to the Gitea artifact API over TLS. Its cert is

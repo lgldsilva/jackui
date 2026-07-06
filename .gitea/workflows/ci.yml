@@ -59,7 +59,7 @@ jobs:
           done
           [ "$ok" -ge 3 ] || { echo "ERRO: postgres não estabilizou em ~120s"; exit 1; }
       - name: go test + cobertura
-        run: go test -coverprofile=coverage.out ./internal/...
+        run: go test -p 4 -coverprofile=coverage.out ./internal/...
       - name: Publica coverage.out (para o job do Sonar p/ main em release.yml)
         uses: actions/upload-artifact@v3
         env:
