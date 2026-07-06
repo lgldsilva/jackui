@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Loader2, Pause, Play, Trash2, CheckCircle2, AlertCircle, Clock, Users,
@@ -69,7 +70,7 @@ type DownloadCardProps = {
 }
 
 // DownloadCard — Premium redesigned background download card.
-export function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority, onOpenLocal }: DownloadCardProps) {
+export const DownloadCard = memo(function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority, onOpenLocal }: DownloadCardProps) {
   const { isGuest } = useAuth()
   const { t } = useTranslation()
   // Item de torrent INTEIRO (sentinel): UM card com progresso agregado.
@@ -308,4 +309,4 @@ export function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelec
       </div>
     </div>
   )
-}
+})

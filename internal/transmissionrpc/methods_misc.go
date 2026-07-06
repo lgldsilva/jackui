@@ -28,15 +28,19 @@ func (h *Handler) methodTorrentStart(args map[string]interface{}) rpcResponse {
 		}
 		// Re-queue (not straight to downloading) so the scheduler honors the
 		// active limit — a Transmission client must not bypass the queue.
-		_ = h.store.Requeue(d.UserID, d.ID)
+		if err := h.store.Requeue(d.UserID, d.ID); err != nil {
+			return err
+		}
 		if h.streamer == nil {
 			return nil
 		}
 		hh, err := hashFromDownload(d)
 		if err != nil {
-			return nil
+			return err
 		}
-		_ = h.streamer.Resume(hh)
+		if err := h.streamer.Resume(hh); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -46,15 +50,19 @@ func (h *Handler) methodTorrentStop(args map[string]interface{}) rpcResponse {
 		if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
 			return nil
 		}
-		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused)
+		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused); err != nil {
+			return err
+		}
 		if h.streamer == nil {
 			return nil
 		}
 		hh, err := hashFromDownload(d)
 		if err != nil {
-			return nil
+			return err
 		}
-		_ = h.streamer.Pause(hh)
+		if err := h.streamer.Pause(hh); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -75,8 +83,12 @@ func (h *Handler) methodTorrentVerify(args map[string]interface{}) rpcResponse {
 		if err != nil {
 			return nil
 		}
-		// RecheckFile runs in a goroutine and forces a full re-verification.
-		_ = h.streamer.RecheckFile(hh, d.FileIndex)
+		// Transmission-style verify is fire-and-forget; don't block the RPC.
+		fileIdx := d.FileIndex
+		hash := hh
+		go func() {
+			_ = h.streamer.RecheckFile(hash, fileIdx)
+		}()
 		return nil
 	})
 }
@@ -205,8 +217,12 @@ func (h *Handler) methodTorrentRemove(args map[string]interface{}) rpcResponse {
 				h.streamer.Drop(hh)
 			}
 		}
-		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed)
-		_ = h.store.Delete(d.UserID, d.ID)
+		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed); err != nil {
+			return failResp(err.Error())
+		}
+		if err := h.store.Delete(d.UserID, d.ID); err != nil {
+			return failResp(err.Error())
+		}
 	}
 	return successResp(nil)
 }

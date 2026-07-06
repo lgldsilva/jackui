@@ -166,14 +166,11 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 
 // emitConverged is the convergence pass that runs right before `done`, AFTER
 // the synchronous save: it re-emits any DB row for the EXACT query that was not
-// already emitted in this SSE session (cache phase or live phase). This pins
-// the invariant "the stream is a superset of the exact-query history" — any
-// tail that reached the DB outside this session (e.g. a concurrent search for
-// the same query) still reaches this client. Cost: one indexed exact-query
-// SELECT; only unseen rows are written. Rows without a dedup key are skipped
-// (we can't tell whether they were emitted — re-sending risks a duplicate).
+// already emitted in this SSE session (cache phase or live phase). Skipped when
+// the live phase emitted nothing — the cache pass already covered the DB snapshot
+// and a second identical SELECT would be wasted work.
 func (s *liveSearchState) emitConverged(store *history.Store, query string, userID int, includeAll bool) int {
-	if store == nil {
+	if store == nil || len(s.liveResults) == 0 {
 		return 0
 	}
 	cached, err := store.Search(query, userID, includeAll)

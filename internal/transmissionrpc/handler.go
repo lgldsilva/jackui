@@ -421,6 +421,7 @@ func (h *Handler) forEachDownload(ids map[int]bool, fn func(d downloads.Download
 		}
 		if err := fn(d); err != nil {
 			log.Printf("transmission-rpc: %v", err)
+			return failResp(err.Error())
 		}
 	}
 	return successResp(nil)

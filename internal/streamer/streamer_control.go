@@ -81,7 +81,7 @@ func (s *Streamer) ActiveList() []*TorrentInfo {
 
 	out := make([]*TorrentInfo, 0, len(entries))
 	for _, e := range entries {
-		info := s.buildInfo(e)
+		info := s.buildInfo(e, false)
 		s.mu.Lock()
 		info.Status = statusForLocked(e)
 		info.Priority = e.priority

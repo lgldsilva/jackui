@@ -11,6 +11,7 @@ import {
   downloadDetails, downloadRecheck, downloadDelete, downloadStopSeed, downloadSources, downloadCreate,
 } from '../api/client'
 import { formatBytes, formatRate, formatBytesPair } from '../lib/format'
+import { errMessage } from '../lib/errMessage'
 import { Sheet } from './Sheet'
 import { useConfirm } from './ConfirmDialog'
 import { useToast } from './Toast'
@@ -222,7 +223,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       const d = await downloadDetails(download.id)
       setDetails(d)
     } catch (e: unknown) {
-      setError((e as Error)?.message || t('downloads.inspect.errorDetails'))
+      setError(errMessage(e) || t('downloads.inspect.errorDetails'))
     } finally {
       setLoading(false)
     }
@@ -304,7 +305,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       onAdopted?.()
       await refresh()
     } catch (e: unknown) {
-      setError((e as Error)?.message || t('downloads.inspect.errorAdopt'))
+      setError(errMessage(e) || t('downloads.inspect.errorAdopt'))
     } finally {
       setAdopting(null)
     }
@@ -320,7 +321,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       // re-busca details pra refletir reset de bytes
       await refresh()
     } catch (e: unknown) {
-      setError((e as Error)?.message || t('downloads.inspect.errorRecheck'))
+      setError(errMessage(e) || t('downloads.inspect.errorRecheck'))
     } finally {
       setBusy(null)
     }
@@ -335,7 +336,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       onMutated?.(d)
       await refresh()
     } catch (e: unknown) {
-      setError((e as Error)?.message || t('downloads.inspect.errorStopSeed'))
+      setError(errMessage(e) || t('downloads.inspect.errorStopSeed'))
     } finally {
       setBusy(null)
     }
@@ -352,7 +353,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
       onDeleted?.(d.id)
       onClose()
     } catch (e: unknown) {
-      setError((e as Error)?.message || t('downloads.inspect.errorDelete'))
+      setError(errMessage(e) || t('downloads.inspect.errorDelete'))
       setBusy(null)
     }
   }
