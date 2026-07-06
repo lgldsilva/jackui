@@ -26,6 +26,9 @@ DEPLOY_HOST    ?= $(or $(shell grep -E '^DEPLOY_HOST=' .env 2>/dev/null | head -
 DEPLOY_ADDR    := $(shell echo '$(DEPLOY_HOST)' | sed 's/.*@//')
 # Diretório de config no servidor remoto (onde o config.yaml é sincronizado).
 REMOTE_CONFIG_DIR ?= $(or $(shell grep -E '^REMOTE_CONFIG_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/opt/jackui)
+# The production compose that INCLUDES jackui alongside gluetun/postgres.
+# JackUI runs in network_mode:service:gluetun — the repo compose is for dev only.
+VPN_GATEWAY_DIR ?= /portainer/Files/AppData/Config/vpn-gateway
 IMAGE_CPU      := jackui:latest
 IMAGE_NVIDIA   := jackui:nvidia
 IMAGE_VAAPI    := jackui:vaapi
@@ -123,7 +126,7 @@ _sync-config:
 	# e é gerenciado SEPARADAMENTE do repo (contém secrets hardcoded).
 	# Se adicionar novas env vars, edite também o arquivo no servidor:
 	#   ssh $(DEPLOY_HOST) "nano $(REMOTE_CONFIG_DIR)/docker-compose.yml"
-	#   cd $(REMOTE_CONFIG_DIR) && docker compose up -d
+	#   cd $(VPN_GATEWAY_DIR) && docker compose up -d
 
 # ─────────────────────────────────────────
 # GPU detection — runs on the deploy host via SSH
@@ -187,7 +190,7 @@ deploy-cpu: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile -t $(IMAGE_CPU) .
 	$(call ok,Imagem CPU pronta)
 	$(call step,Deployando via compose do servidor (CPU)...)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose up -d --no-deps --force-recreate jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose up -d --no-deps --force-recreate jackui"
 	$(call ok,JackUI [CPU] rodando)
 
 deploy-nvidia: _sync-config
@@ -195,7 +198,7 @@ deploy-nvidia: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
 	$(call ok,Imagem NVIDIA pronta)
 	$(call step,Deployando via compose do servidor (NVIDIA)...)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose up -d --no-deps --force-recreate jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose up -d --no-deps --force-recreate jackui"
 	$(call ok,JackUI [NVIDIA] rodando)
 
 deploy-vaapi: _sync-config
@@ -203,7 +206,7 @@ deploy-vaapi: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
 	$(call ok,Imagem VAAPI pronta)
 	$(call step,Deployando via compose do servidor (VAAPI)...)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose up -d --no-deps --force-recreate jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose up -d --no-deps --force-recreate jackui"
 	$(call ok,JackUI [VAAPI] rodando)
 
 # ─── With VPN (gluetun overlay) — same as above, server compose already includes gluetun ───
@@ -211,21 +214,21 @@ deploy-vpn: _sync-config
 	$(call step,Construindo imagem CPU + gluetun overlay...)
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile -t $(IMAGE_CPU) .
 	$(call ok,Imagem pronta)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose up -d --no-deps --force-recreate jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose up -d --no-deps --force-recreate jackui"
 	$(call ok,JackUI [CPU+VPN] rodando)
 
 deploy-nvidia-vpn: _sync-config
 	$(call step,Construindo imagem NVIDIA + gluetun overlay...)
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
 	$(call ok,Imagem pronta)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose up -d --no-deps --force-recreate jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose up -d --no-deps --force-recreate jackui"
 	$(call ok,JackUI [NVIDIA+VPN] rodando)
 
 deploy-vaapi-vpn: _sync-config
 	$(call step,Construindo imagem VAAPI + gluetun overlay...)
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
 	$(call ok,Imagem pronta)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose up -d --no-deps --force-recreate jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose up -d --no-deps --force-recreate jackui"
 	$(call ok,JackUI [VAAPI+VPN] rodando)
 
 # ─────────────────────────────────────────
@@ -233,15 +236,15 @@ deploy-vaapi-vpn: _sync-config
 # ─────────────────────────────────────────
 restart:
 	$(call step,Reiniciando container jackui...)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose restart jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose restart jackui"
 	$(call ok,Reiniciado)
 
 logs:
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose logs -f jackui"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose logs -f jackui"
 
 down:
 	$(call step,Parando container...)
-	@ssh $(DEPLOY_HOST) "cd $(REMOTE_CONFIG_DIR) && docker compose down"
+	@ssh $(DEPLOY_HOST) "cd $(VPN_GATEWAY_DIR) && docker compose down"
 	$(call ok,Container parado)
 
 # Query the GPU/CPU capability matrix from the running container
