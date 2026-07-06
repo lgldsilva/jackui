@@ -41,19 +41,16 @@ export type PlaylistTracksAPI = {
 // the already-loaded `currentInfo` (no refetch); the rest fill in in the
 // background, current-first then ascending, cache-first, throttled.
 //
-// `enabled` controla a EXIBIÇÃO (monta o esqueleto da lista + seeda a faixa
-// atual). `resolveEnabled` controla a RESOLUÇÃO EM RAJADA dos demais itens (cada
-// um faz streamMetadata/streamAdd — no caso local, ffprobe no servidor). São
-// separados de propósito: no iOS a rajada (~47 chamadas) compete com o
-// byte-stream da faixa atual e o iOS aborta o play() por timeout; então a lista
-// aparece na hora (enabled) mas a rajada só dispara após a 1ª reprodução
-// (resolveEnabled=blessed). Ver PlayerModal.
+// `enabled` controla a RESOLUÇÃO EM RAJADA (cada item faz streamMetadata/streamAdd
+// — no caso local, ffprobe no servidor). O ESQUELETO da lista NÃO depende de
+// `enabled` (persiste ao fechar a sidebar → não re-resolve ~47 faixas ao reabrir).
+// O antigo `resolveEnabled`/blessed foi removido: com preload='none' no iOS não
+// há byte-stream no cold-start pra a rajada sufocar, então o defer é desnecessário.
 export function usePlaylistTracks(
   items: readonly PlaylistItemLite[],
   currentItemIndex: number,
   currentInfo: TorrentInfo | null,
   enabled: boolean,
-  resolveEnabled: boolean,
 ): PlaylistTracksAPI {
   const [groups, setGroups] = useState<PlaylistGroup[]>([])
   const groupsRef = useRef<PlaylistGroup[]>(groups)
@@ -69,15 +66,18 @@ export function usePlaylistTracks(
     setGroups(prev => prev.map(g => (g.itemIndex === idx ? { ...g, ...patch } : g)))
   }, [])
 
-  // (1) Rebuild the skeleton whenever the playlist changes.
+  // (1) Rebuild the skeleton whenever the playlist CHANGES (signature). Does NOT
+  // depend on `enabled`: with the sidebar closed (`enabled=false`) the already-
+  // resolved groups PERSIST so re-opening doesn't re-resolve ~47 items. The
+  // BACKGROUND driver (effect 3) stays gated by `enabled` (no torrent activation
+  // while closed), but 'ready' items survive the close→open cycle.
   useEffect(() => {
     cancelled.current = false
     inFlight.current = new Set()
-    if (!enabled) { setGroups([]); return }
     setGroups(items.map((it, i) => skeletonGroup(it, i)))
     return () => { cancelled.current = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signature, enabled])
+  }, [signature])
 
   // (2) Seed the current group from the metadata the player already loaded —
   // avoids a redundant fetch and shows the playing album's tracks instantly.
@@ -92,12 +92,12 @@ export function usePlaylistTracks(
   const currentSig = `${currentInfo?.infoHash ?? ''}:${currentInfo?.files?.length ?? 0}`
   useEffect(() => {
     const ci = currentInfoRef.current
-    if (!enabled || !ci?.files?.length) return
+    if (!ci?.files?.length) return
     if (currentItemIndex < 0 || currentItemIndex >= items.length) return
     inFlight.current.delete(currentItemIndex)
     setGroup(currentItemIndex, { status: 'ready', tracks: extractTracks(ci) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, currentItemIndex, currentSig])
+  }, [currentItemIndex, currentSig])
 
   // resolveOne: cache/local peek first; only activate the torrent (streamAdd)
   // when the peek came back empty and it's a real (non-local) torrent.
@@ -126,23 +126,18 @@ export function usePlaylistTracks(
   // (3) Background driver: keep up to ACTIVATE_CONCURRENCY resolves running,
   // current-first. Re-runs on every `groups` change (a finished resolve frees a
   // slot → fills the next). resolveOne flips status off 'pending' synchronously,
-  // so the same item is never started twice.
-  // Gated TAMBÉM por `resolveEnabled`: no iOS a rajada espera a 1ª reprodução
-  // (blessed) pra não sufocar o byte-stream da faixa atual. resolveEnabled É
-  // dep deste efeito — sem isso, ao virar true (blessed) o efeito não re-rodaria
-  // e a rajada nunca arrancaria (itens ficariam 'pending' pra sempre). O
-  // eslint-disable abaixo não pega essa dep, por isso ela está explícita.
+  // so the same item is never started twice. Gated by `enabled` so no torrent
+  // activation/ffprobe while the playlist sidebar is closed.
   useEffect(() => {
-    if (!enabled || !resolveEnabled) return
+    if (!enabled) return
     const free = ACTIVATE_CONCURRENCY - inFlight.current.size
     if (free <= 0) return
     const next = orderPending(groups, currentItemIndex, inFlight.current).slice(0, free)
     for (const idx of next) void resolveOne(idx)
-  }, [groups, enabled, resolveEnabled, currentItemIndex, resolveOne])
+  }, [groups, enabled, currentItemIndex, resolveOne])
 
   // ensureLoaded resolve UM grupo sob demanda (clique do usuário pra expandir um
-  // grupo ainda 'pending'). Bypassa `resolveEnabled` de propósito: é 1 requisição
-  // vinda de um gesto, não a rajada de N — não sufoca o playback.
+  // grupo ainda 'pending'). É 1 requisição vinda de um gesto — não a rajada de N.
   const ensureLoaded = useCallback((itemIndex: number) => {
     void resolveOne(itemIndex)
   }, [resolveOne])
