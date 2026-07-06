@@ -58,3 +58,13 @@ func (s *Store) CompletedBySize(userID int, size int64) ([]Download, error) {
 	defer rows.Close()
 	return scanSlice(rows)
 }
+
+// RefCountPath returns how many completed+linked downloads currently reference
+// a given external file path. Used to decide whether it is safe to garbage-
+// collect a file that no torrent relies on.
+func (s *Store) RefCountPath(path string) (int, error) {
+	var n int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM downloads WHERE file_path=? AND linked=1 AND status=?",
+		path, StatusCompleted).Scan(&n)
+	return n, err
+}
