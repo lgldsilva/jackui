@@ -202,19 +202,23 @@ func (h *Handler) methodTorrentRemove(args map[string]interface{}) rpcResponse {
 		if !ids[d.ID] {
 			continue
 		}
-		if deleteLocal && h.streamer != nil {
-			if hh, herr := hashFromDownload(d); herr == nil {
-				h.streamer.Drop(hh)
-			}
-		}
-		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed); err != nil {
-			return failResp(err.Error())
-		}
-		if err := h.store.Delete(d.UserID, d.ID); err != nil {
+		if err := h.removeDownload(d, deleteLocal); err != nil {
 			return failResp(err.Error())
 		}
 	}
 	return successResp(nil)
+}
+
+func (h *Handler) removeDownload(d downloads.Download, deleteLocal bool) error {
+	if deleteLocal && h.streamer != nil {
+		if hh, herr := hashFromDownload(d); herr == nil {
+			h.streamer.Drop(hh)
+		}
+	}
+	if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed); err != nil {
+		return err
+	}
+	return h.store.Delete(d.UserID, d.ID)
 }
 
 // ─── torrent-set-location ──────────────────────────────────────────────────

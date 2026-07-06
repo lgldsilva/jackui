@@ -9,12 +9,12 @@ export const AUDIO_EXTENSIONS = new Set([
 ])
 
 export const VIDEO_EXT_RE = new RegExp(
-  `\\.(${[...VIDEO_EXTENSIONS].join('|')})$`,
+  String.raw`\.(${[...VIDEO_EXTENSIONS].join('|')})$`,
   'i',
 )
 
 export const AUDIO_EXT_RE = new RegExp(
-  `\\.(${[...AUDIO_EXTENSIONS].join('|')})$`,
+  String.raw`\.(${[...AUDIO_EXTENSIONS].join('|')})$`,
   'i',
 )
 
