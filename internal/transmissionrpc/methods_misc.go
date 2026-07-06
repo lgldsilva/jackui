@@ -37,7 +37,6 @@ func (h *Handler) methodTorrentStart(args map[string]interface{}) rpcResponse {
 			}
 		}
 		return nil
-		return nil
 	})
 }
 
@@ -54,7 +53,6 @@ func (h *Handler) methodTorrentStop(args map[string]interface{}) rpcResponse {
 				_ = h.streamer.Pause(hh) // best-effort — torrent may not be in the client yet
 			}
 		}
-		return nil
 		return nil
 	})
 }
