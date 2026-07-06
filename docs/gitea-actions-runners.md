@@ -58,6 +58,42 @@ e opcional `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`.
 Vars: `REGISTRY` (host do registry), `SONAR_HOST_URL` (URL do SonarQube) e
 `SONAR_HOSTS` (linha de `/etc/hosts` "IP hostname", se o host do Sonar não resolver via DNS no runner).
 
+## Política de concorrência (concurrency)
+
+Todos os workflows têm um bloco `concurrency` no nível raiz para evitar que
+múltiplos commits no mesmo PR disparem execuções redundantes dos gates.
+
+### Regras por tipo de workflow
+
+| Workflow | group | cancel-in-progress | Efeito |
+|---|---|---|---|
+| `ci.yml` | `CI-pr-{PR number}` | `true` | Cancela runs antigas do mesmo PR; PRs distintos não se afetam |
+| `release.yml` | `Release-refs/heads/main` | `false` | Serializa deploys da main; nunca aborta um deploy em andamento |
+| `mutation.yml` | `Mutation-refs/heads/main` | `false` | Serializa runs noturnas; não interrompe mutation em andamento |
+
+### Por que não cancelar release e mutation
+
+`cancel-in-progress: false` em `release.yml` evita que um segundo push na `main`
+(ex: hotfix imediato) mate um deploy já em voo — o segundo run entra em fila e
+espera. Em `mutation.yml`, interromper uma run de mutação a meio desperdiça horas
+de CPU sem resultado útil.
+
+### Checklist operacional — fila travada
+
+Se os runners estiverem sobrecarregados e runs ficarem presas em `pending`:
+
+1. Verificar se o runner está `Online` em **Settings → Actions → Runners**.
+2. Se offline: reiniciar o container `act_runner` no nó afetado.
+3. Runs de PR antigas (mesmo PR, commit desatualizado) são canceladas
+   automaticamente pelo `concurrency` quando chega um commit novo — não é
+   necessário cancelar manualmente.
+4. Runs de `release.yml` em fila aguardam a anterior terminar (`cancel-in-progress:
+   false`). Se a run anterior travou, cancele-a manualmente no Gitea antes de
+   re-triggar.
+5. Rollback de concurrency: se um grupo mal configurado causar cancelamentos
+   indevidos, remova apenas o bloco `concurrency` do workflow problemático e
+   re-execute — os outros workflows não são afetados.
+
 ## Ativação
 
 Os workflows nascem com `on: workflow_dispatch` (manual) para não gerar checks
