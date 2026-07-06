@@ -181,7 +181,7 @@ deploy-cpu: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile -t $(IMAGE_CPU) .
 	$(call ok,Imagem CPU pronta)
 	$(call step,Subindo container (CPU-only)...)
-	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml up -d --remove-orphans
+	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml up -d --no-deps jackui
 	$(call ok,JackUI [CPU] rodando em http://$(DEPLOY_ADDR):8989)
 
 deploy-nvidia: _sync-config
@@ -189,7 +189,7 @@ deploy-nvidia: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
 	$(call ok,Imagem NVIDIA pronta)
 	$(call step,Subindo container (NVIDIA)...)
-	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --remove-orphans
+	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d --no-deps jackui
 	$(call ok,JackUI [NVIDIA] rodando em http://$(DEPLOY_ADDR):8989)
 
 deploy-vaapi: _sync-config
@@ -197,7 +197,7 @@ deploy-vaapi: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
 	$(call ok,Imagem VAAPI pronta)
 	$(call step,Subindo container (VAAPI)...)
-	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --remove-orphans
+	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml up -d --no-deps jackui
 	$(call ok,JackUI [VAAPI] rodando em http://$(DEPLOY_ADDR):8989)
 
 # ─── With VPN (gluetun overlay) ────────────────────────────────────────────
@@ -206,7 +206,7 @@ deploy-vpn: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile -t $(IMAGE_CPU) .
 	$(call ok,Imagem pronta)
 	$(call step,Subindo container atrás do gluetun (VPN)...)
-	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d --remove-orphans
+	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d --no-deps jackui
 	$(call ok,JackUI [CPU+VPN] rodando — acesse via porta exposta pelo gluetun)
 
 deploy-nvidia-vpn: _sync-config
@@ -214,7 +214,7 @@ deploy-nvidia-vpn: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.nvidia -t $(IMAGE_NVIDIA) .
 	$(call ok,Imagem pronta)
 	$(call step,Subindo container NVIDIA atrás do gluetun...)
-	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml -f docker-compose.gluetun.yml up -d --remove-orphans
+	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.nvidia.yml -f docker-compose.gluetun.yml up -d --no-deps jackui
 	$(call ok,JackUI [NVIDIA+VPN] rodando)
 
 deploy-vaapi-vpn: _sync-config
@@ -222,7 +222,7 @@ deploy-vaapi-vpn: _sync-config
 	@docker --context $(DOCKER_CONTEXT) build --progress=plain $(BUILD_ARGS) -f Dockerfile.vaapi -t $(IMAGE_VAAPI) .
 	$(call ok,Imagem pronta)
 	$(call step,Subindo container VAAPI atrás do gluetun...)
-	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml -f docker-compose.gluetun.yml up -d --remove-orphans
+	@docker --context $(DOCKER_CONTEXT) compose -f docker-compose.yml -f docker-compose.vaapi.yml -f docker-compose.gluetun.yml up -d --no-deps jackui
 	$(call ok,JackUI [VAAPI+VPN] rodando)
 
 # ─────────────────────────────────────────
