@@ -566,7 +566,7 @@ export default function DownloadsPage() {
       })
     }
     reloadDownloadsRef.current().catch(() => {})
-    void loadTorrents()
+    loadTorrents().catch(() => {})
   }
   const onStopSeed = async (id: number, name: string) => {
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedMessage', { name }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
@@ -1269,7 +1269,7 @@ export default function DownloadsPage() {
         onClose={() => {
           setDownloadTarget(null)
           reloadDownloadsRef.current().catch(() => {})
-          void loadTorrents()
+          loadTorrents().catch(() => {})
         }}
       />
 

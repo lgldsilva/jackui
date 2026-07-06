@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 )
@@ -160,5 +161,54 @@ func TestTmdbMatchBatch_ResolvesEmptyOnDisabled(t *testing.T) {
 	}
 	if body := w.Body.String(); !strings.Contains(body, "matches") {
 		t.Errorf("body missing matches key: %s", body)
+	}
+}
+
+func TestStreamMetadataBatch_EmptyHashes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	router := gin.New()
+	router.POST("/api/stream/metadata/batch", StreamMetadataBatch(s))
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, batchReq("/api/stream/metadata/batch", `{"hashes":[]}`))
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStreamMetadataBatch_CacheHit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	mc, err := streamer.NewMetadataCache(dbtest.NewDB(t))
+	if err != nil {
+		t.Fatalf("NewMetadataCache: %v", err)
+	}
+	s.SetMetadataCache(mc)
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := mc.Set(&streamer.TorrentInfo{
+		InfoHash: hash, Name: "Batch Test", TotalSize: 42,
+		Files: []streamer.FileInfo{{Index: 0, Path: "x.mkv", Size: 42, IsVideo: true}},
+	}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	router := gin.New()
+	router.POST("/api/stream/metadata/batch", StreamMetadataBatch(s))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, batchReq("/api/stream/metadata/batch", `{"hashes":["`+hash+`"]}`))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Results map[string]map[string]any `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Results[hash]["name"] != "Batch Test" {
+		t.Errorf("results = %v", resp.Results)
 	}
 }
