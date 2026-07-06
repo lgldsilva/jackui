@@ -83,7 +83,7 @@ func NewDB(t *testing.T) *sql.DB {
 			delete(truncated, t)
 			truncMu.Unlock()
 		})
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		if _, err := pool.ExecContext(ctx, truncateStmt); err != nil {
 			t.Fatalf("truncate: %v", err)

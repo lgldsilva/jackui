@@ -31,7 +31,7 @@ Legenda: ✅ = entregue · ⬜ = pendente.
 | **1** | Lista de faixas local: 1 ffprobe por arquivo | `usePlaylistTracks` skeleton local + `LocalPage playPlaylist` → GET `/api/local/play` | ~47 p/ álbum de 47 | **POST `/api/local/play/batch`** {mount,paths[],forceHLS?}; `skeletonGroup` marca local 'ready' sem fetch, `playPlaylist` pré-aquece a pasta 1× | ✅ **feito** (batch handler + skeleton + pre-warm) |
 | **2** | `tmdbMatch` por card (Search/History/Favorites/Watchlist/Library) | `ResultCard useTmdbMatch`/`useThumbnail` → GET `/tmdb/match` | ~30-50 por grade | **POST `/tmdb/match/batch`** {titles[]}; `tmdbMatch` faz coalescing (~40ms) → 1 POST; semeia o cache de `tmdb.ts` | ✅ **feito** (coalescing + `matchTitlesConcurrent`) |
 | **3** | `streamHealth` (peek) por `SeedBadge` | `SeedBadge.tsx` peek → GET `/stream/health/:hash` | ~N (até 2N na busca) | **POST `/api/stream/health/batch`** {hashes[]} (peek-only); `streamHealth(peek)` faz coalescing → 1 POST | ✅ **feito** (peek batch; probe segue single) |
-| **4** | Metadata de playlist (torrent) warm-cache: 1 `/stream/metadata` por item | `usePlaylistTracks.resolveOne` → GET `/stream/metadata/:hash` (+`/stream/add` frio) | N por playlist de N | **`/api/stream/metadata/batch`** {hashes[]}; só `streamAdd` nos misses frios | ⬜ pendente — **próximo** (par do #1 pro lado torrent) |
+| **4** | Metadata de playlist (torrent) warm-cache: 1 `/stream/metadata` por item | `usePlaylistTracks.resolveOne` → GET `/stream/metadata/:hash` (+`/stream/add` frio) | N por playlist de N | **`POST /api/stream/metadata/batch`** {hashes[]}; só `streamAdd` nos misses frios | ✅ **feito** (batch warm + `metadataPeekCache`; `streamAdd` só nos misses) |
 | 5 | Download create por arquivo (sem batch-create) | `AddTorrentModal`/`DownloadModal` picks.map → POST `/downloads` | M por pick; N×M | **POST `/api/downloads/batch`** {items[]} | ⬜ |
 | 6 | `resolveArt` por tile da biblioteca no miss (204) | `LibraryPage` onArtError→resolveArt → POST `/stream/art/:hash/resolve` | até ~50 resolves frios | **POST `/api/stream/art/resolve/batch`** OU `libraryList` retorna `artStatus` | ⬜ |
 | 7 | `streamDrop` por download no delete em massa | `DownloadsPage.tsx` targets.map→streamDrop → DELETE `/stream/:hash` | N | **`/api/stream/drop/batch`** OU dobrar no `/downloads/batch/delete` | ⬜ |
@@ -68,10 +68,8 @@ Os três N+1 de maior impacto (player local + grades TMDB + swarm health) já fo
 
 ## Por onde continuar
 
-**#4 (`/api/stream/metadata/batch`)** é o próximo alvo: é a metade torrent do mesmo N+1 do
-`usePlaylistTracks` cuja metade local (#1) já caiu — juntos colapsam o load da lista de N
-round-trips para 1 (local) + 1 (torrent warm). Depois, #5 (`downloads/batch` create) e #6
-(art resolve batch / `artStatus` na lista) são os de maior alcance restantes.
+**#5 (`POST /api/downloads/batch` create)** é o próximo alvo de maior alcance. Depois #6
+(art resolve batch / `artStatus` na lista).
 
 ## Worked example — `POST /api/local/play/batch` (#1, referência)
 

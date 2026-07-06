@@ -59,12 +59,37 @@ export type TorrentInfo = {
 export const streamMetadata = async (hash: string): Promise<TorrentInfo | null> => {
   // Local files: synthesize TorrentInfo from /api/local/play (no real metadata cache).
   if (isLocalHash(hash)) return synthesizeLocalInfo(hash).catch(() => null)
+  const cached = metadataPeekCache.get(hash)
+  if (cached !== undefined) return cached
   try {
     const { data, status } = await api.get<TorrentInfo>(`/stream/metadata/${hash}`, { validateStatus: () => true })
-    return status === 200 ? data : null
+    const result = status === 200 ? data : null
+    metadataPeekCache.set(hash, result)
+    return result
   } catch {
+    metadataPeekCache.set(hash, null)
     return null
   }
+}
+
+// metadataPeekCache is seeded by streamMetadataBatch so a playlist warm-cache
+// satisfies subsequent per-item streamMetadata calls without extra round-trips.
+const metadataPeekCache = new Map<string, TorrentInfo | null>()
+
+// streamMetadataBatch peeks cached TorrentInfo snapshots for many hashes at once.
+// Misses are omitted from results — callers fall through to streamAdd.
+export const streamMetadataBatch = async (hashes: readonly string[]): Promise<Record<string, TorrentInfo | null>> => {
+  const torrent = [...new Set(hashes.filter(h => h && !isLocalHash(h)))]
+  if (torrent.length === 0) return {}
+  const { data } = await api.post<{ results?: Record<string, TorrentInfo> }>('/stream/metadata/batch', { hashes: torrent })
+  const out: Record<string, TorrentInfo | null> = {}
+  for (const h of torrent) {
+    const hit = data.results?.[h]
+    const info = hit?.files?.length ? hit : null
+    out[h] = info
+    metadataPeekCache.set(h, info)
+  }
+  return out
 }
 
 // resolveTorrentInfo busca o metadata mais barato primeiro (snapshot em cache

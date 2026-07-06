@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { streamMetadata, streamAdd, isLocalHash, parseLocalHash } from '../../api/client'
+import { streamMetadata, streamMetadataBatch, streamAdd, isLocalHash, parseLocalHash } from '../../api/client'
 import { detectKind } from '../../lib/playable'
 import { extractTracks, orderPending, basename, type PlaylistGroup, type PlaylistItemLite } from './playlistTracks'
 import type { TorrentInfo } from '../../api/client'
@@ -53,6 +53,7 @@ export function usePlaylistTracks(
   enabled: boolean,
 ): PlaylistTracksAPI {
   const [groups, setGroups] = useState<PlaylistGroup[]>([])
+  const [batchWarmDone, setBatchWarmDone] = useState(false)
   const groupsRef = useRef<PlaylistGroup[]>(groups)
   groupsRef.current = groups
   const inFlight = useRef<Set<number>>(new Set())
@@ -74,6 +75,7 @@ export function usePlaylistTracks(
   useEffect(() => {
     cancelled.current = false
     inFlight.current = new Set()
+    setBatchWarmDone(false)
     setGroups(items.map((it, i) => skeletonGroup(it, i)))
     return () => { cancelled.current = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +100,34 @@ export function usePlaylistTracks(
     setGroup(currentItemIndex, { status: 'ready', tracks: extractTracks(ci) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentItemIndex, currentSig])
+
+  // (2.5) Batch-warm metadata for every torrent item in ONE peek when the
+  // playlist opens (torrent half of the N+1 — local items are already 'ready').
+  // The background driver waits for this before calling streamAdd on misses.
+  useEffect(() => {
+    if (!enabled) return
+    const torrentItems = items
+      .map((it, i) => ({ it, i }))
+      .filter(({ it }) => !isLocalHash(it.infoHash))
+    if (!torrentItems.length) {
+      setBatchWarmDone(true)
+      return
+    }
+    let cancelled = false
+    streamMetadataBatch(torrentItems.map(({ it }) => it.infoHash))
+      .then(results => {
+        if (cancelled) return
+        for (const { it, i } of torrentItems) {
+          const info = results[it.infoHash]
+          if (!info?.files?.length) continue
+          inFlight.current.delete(i)
+          setGroup(i, { status: 'ready', tracks: extractTracks(info) })
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setBatchWarmDone(true) })
+    return () => { cancelled = true }
+  }, [enabled, signature, items, setGroup])
 
   // resolveOne: cache/local peek first; only activate the torrent (streamAdd)
   // when the peek came back empty and it's a real (non-local) torrent.
@@ -129,12 +159,12 @@ export function usePlaylistTracks(
   // so the same item is never started twice. Gated by `enabled` so no torrent
   // activation/ffprobe while the playlist sidebar is closed.
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !batchWarmDone) return
     const free = ACTIVATE_CONCURRENCY - inFlight.current.size
     if (free <= 0) return
     const next = orderPending(groups, currentItemIndex, inFlight.current).slice(0, free)
     for (const idx of next) void resolveOne(idx)
-  }, [groups, enabled, currentItemIndex, resolveOne])
+  }, [groups, enabled, batchWarmDone, currentItemIndex, resolveOne])
 
   // ensureLoaded resolve UM grupo sob demanda (clique do usuário pra expandir um
   // grupo ainda 'pending'). É 1 requisição vinda de um gesto — não a rajada de N.

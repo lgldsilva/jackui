@@ -558,6 +558,67 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
+// metadataBatchNormalize dedupes valid info_hashes and maps hex → the client's raw key.
+func metadataBatchNormalize(hashes []string) (normalized []string, keyForRaw map[string]string) {
+	keyForRaw = make(map[string]string, len(hashes))
+	for _, raw := range hashes {
+		h, err := parseHash(raw)
+		if err != nil {
+			continue
+		}
+		hex := h.HexString()
+		if _, seen := keyForRaw[hex]; seen {
+			continue
+		}
+		keyForRaw[hex] = raw
+		normalized = append(normalized, hex)
+	}
+	return normalized, keyForRaw
+}
+
+func metadataBatchResults(batch map[string]*streamer.CachedMeta, keyForRaw map[string]string) map[string]*streamer.CachedMeta {
+	results := make(map[string]*streamer.CachedMeta, len(batch))
+	for hex, meta := range batch {
+		raw := keyForRaw[hex]
+		if raw == "" {
+			raw = hex
+		}
+		results[raw] = meta
+	}
+	return results
+}
+
+// StreamMetadataBatch handles POST /api/stream/metadata/batch {hashes:[...]} →
+// {results:{hash:CachedMeta}} — peek-only warm-cache for MANY torrents in ONE
+// call so playlist/track lists resolve every cached item with a single
+// round-trip instead of one GET /stream/metadata/:hash per group (the N+1 in
+// usePlaylistTracks). Cache misses are omitted; the caller falls through to
+// streamAdd for cold hashes only.
+func StreamMetadataBatch(s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Hashes []string `json:"hashes"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.Hashes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hashes is required"})
+			return
+		}
+		if len(req.Hashes) > 500 {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many hashes"})
+			return
+		}
+		cache := s.MetadataCache()
+		if cache == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+			return
+		}
+		normalized, keyForRaw := metadataBatchNormalize(req.Hashes)
+		results := metadataBatchResults(cache.GetBatch(normalized), keyForRaw)
+		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
+		c.JSON(http.StatusOK, gin.H{"results": results})
+	}
+}
+
 // StreamArtwork handles GET /api/stream/artwork/:hash/:file — extracts the
 // embedded cover-art image (APIC/PICTURE/covr) from an audio file via ffmpeg
 // and serves it with aggressive caching. Returns 204 if no artwork is embedded.
