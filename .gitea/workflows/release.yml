@@ -12,6 +12,11 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  # Serializa deploys da main; nunca cancela um deploy em andamento.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Reexecuta os gates no contexto da main (mesma lógica do ci.yml).
   backend:

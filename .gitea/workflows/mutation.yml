@@ -22,6 +22,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+
+concurrency:
+  # Serializa runs noturnas; não interrompe mutation em andamento.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   gremlins:
     runs-on: [self-hosted, arm64]
