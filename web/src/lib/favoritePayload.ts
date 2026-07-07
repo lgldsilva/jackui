@@ -6,9 +6,9 @@
 // private trackers (amigosshare & cia) often carry only a `.torrent` link, so
 // the payload may need a backend conversion before the favorite is written.
 
-import { extractInfoHashFromMagnet, canonicalInfoHash } from './magnet'
+import { extractInfoHashFromMagnet } from './magnet'
 
-export { extractInfoHashFromMagnet, canonicalInfoHash }
+export { extractInfoHashFromMagnet, canonicalInfoHash } from './magnet'
 
 /** The slice of SearchResult that favorite linkage cares about. */
 export type FavoriteLinkSource = {
