@@ -138,6 +138,30 @@ func TestMetadataCache_Get_Missing(t *testing.T) {
 	}
 }
 
+func TestMetadataCache_GetBatch(t *testing.T) {
+	c := newTestCache(t)
+	const h1, h2 = "aabbccddee", "1122334455"
+	if err := c.Set(&TorrentInfo{
+		InfoHash: h1, Name: "One", TotalSize: 100,
+		Files: []FileInfo{{Index: 0, Path: "a.mkv", Size: 100, IsVideo: true}},
+	}); err != nil {
+		t.Fatalf("Set h1: %v", err)
+	}
+	got := c.GetBatch([]string{h1, h2, h1, ""})
+	if len(got) != 1 {
+		t.Fatalf("GetBatch len = %d, want 1", len(got))
+	}
+	if meta := got[h1]; meta == nil || meta.Name != "One" {
+		t.Fatalf("GetBatch h1 = %+v", meta)
+	}
+	if _, ok := got[h2]; ok {
+		t.Fatal("missing hash should be omitted")
+	}
+	if batch := c.GetBatch(nil); len(batch) != 0 {
+		t.Fatal("nil batch should return empty map")
+	}
+}
+
 func TestMetadataCache_GetArt_Missing(t *testing.T) {
 	c := newTestCache(t)
 	if got := c.GetArt("nonexistent"); got != nil {

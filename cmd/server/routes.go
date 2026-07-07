@@ -317,6 +317,7 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/prefetch/:hash/:file", handlers.StreamPrefetch(deps.streamSrv))
 	api.GET("/stream/artwork/:hash/:file", handlers.StreamArtwork(deps.streamSrv))
 	api.GET("/stream/metadata/:hash", handlers.StreamMetadata(deps.streamSrv))
+	api.POST("/stream/metadata/batch", handlers.StreamMetadataBatch(deps.streamSrv))
 	api.GET("/stream/health/:hash", handlers.StreamHealth(deps.streamSrv))
 	api.POST("/stream/health/batch", handlers.StreamHealthBatch(deps.streamSrv))
 	api.GET("/stream/trackers/:hash", handlers.StreamTrackers(deps.streamSrv))
