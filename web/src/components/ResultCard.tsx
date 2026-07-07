@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { memo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
@@ -339,7 +339,7 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
   )
 }
 
-export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
+export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
   // Subscribe to language changes so this card (and its i18n.t()-driven helpers)
   // re-renders when the user switches locale.
   useTranslation()
@@ -452,4 +452,4 @@ export default function ResultCard({ result, onDownload, onPlay, onAddToPlaylist
       {cardInner}
     </button>
   )
-}
+})

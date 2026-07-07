@@ -20,7 +20,7 @@ type Pending struct {
 	Payload string // kind-specific JSON (promote: downloadID/userID/keepSeeding)
 }
 
-// Store persists pending transfers in a dedicated SQLite file. All methods are
+// Store persists pending transfers in PostgreSQL (shared pool).
 // nil-safe so callers can stay agnostic to whether persistence is wired.
 type Store struct {
 	db *dbutil.DB

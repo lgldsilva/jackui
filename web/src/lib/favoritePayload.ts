@@ -6,6 +6,10 @@
 // private trackers (amigosshare & cia) often carry only a `.torrent` link, so
 // the payload may need a backend conversion before the favorite is written.
 
+import { extractInfoHashFromMagnet, canonicalInfoHash } from './magnet'
+
+export { extractInfoHashFromMagnet, canonicalInfoHash }
+
 /** The slice of SearchResult that favorite linkage cares about. */
 export type FavoriteLinkSource = {
   readonly magnetUri?: string
@@ -28,18 +32,6 @@ export type FavoritePayload = {
 
 /** Backend .torrent→magnet conversion (GET /api/convert/torrent-to-magnet). */
 export type TorrentLinkResolver = (url: string) => Promise<{ magnet: string; infoHash: string }>
-
-/**
- * Extracts a canonical lowercase 40-hex infoHash from a magnet's
- * `xt=urn:btih:` param. Returns '' when absent or non-canonical (base32 is
- * left alone — the backend coerces it to hex before results reach the UI).
- */
-export function extractInfoHashFromMagnet(magnet: string): string {
-  const m = /[?&]xt=urn:btih:([^&]+)/i.exec(magnet)
-  if (!m) return ''
-  const h = decodeURIComponent(m[1]).trim().toLowerCase()
-  return /^[0-9a-f]{40}$/.test(h) ? h : ''
-}
 
 /**
  * Tracker-less magnet from a bare infoHash. anacrolix resolves peers via DHT,

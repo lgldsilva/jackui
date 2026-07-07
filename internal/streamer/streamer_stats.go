@@ -19,7 +19,7 @@ func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 	if !ok {
 		return nil, errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
 	}
-	return s.buildInfo(e), nil
+	return s.buildInfo(e, true), nil
 }
 
 // LiveStats returns a torrent's current down/up rate + connected seeders WITHOUT

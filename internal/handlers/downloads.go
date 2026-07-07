@@ -697,9 +697,13 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 		// EnsureActive antes do recheck — se o torrent foi dropado (ex.: post-
 		// completed sem seed), precisa re-attach pra ter acesso aos files.
 		if d.Magnet != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			_, _ = s.EnsureActive(ctx, d.Magnet)
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			_, err := s.EnsureActive(ctx, d.Magnet)
 			cancel()
+			if err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+				return
+			}
 		}
 		// Whole-torrent rows re-hash every file; per-file rows only theirs.
 		recheck := func() error { return s.RecheckFile(h, d.FileIndex) }
@@ -712,9 +716,19 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 		}
 		// Reset row pro worker reconciliar com o real após o hash check. Vai pra
 		// fila (não direto pra downloading) pro scheduler respeitar o limite.
-		_ = store.UpdateProgress(userID, id, 0)
-		_ = store.SetStatus(userID, id, downloads.StatusQueued)
-		updated, _ := store.Get(userID, id)
+		if err := store.UpdateProgress(userID, id, 0); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := store.SetStatus(userID, id, downloads.StatusQueued); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		updated, err := store.Get(userID, id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, updated)
 	}
 }

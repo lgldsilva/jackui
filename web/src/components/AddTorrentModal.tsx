@@ -14,6 +14,7 @@ import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import { formatBytes } from '../lib/format'
 import { uid } from '../lib/uid'
+import { errMessage } from '../lib/errMessage'
 import { FileSelectionSection } from './files/FileSelectionSection'
 
 type Props = {
@@ -47,19 +48,7 @@ const INTERNAL_ID = '__internal__'
 // with the component's `t`.
 type TFn = (key: string, opts?: Record<string, unknown>) => string
 
-const DEFAULT_MIN_BYTES = 10 * 1024 * 1024
-function defaultSelected(files: StreamFile[]): Set<number> {
-  const sel = new Set<number>()
-  for (const f of files) {
-    if (f.isVideo || f.size >= DEFAULT_MIN_BYTES) sel.add(f.index)
-  }
-  if (sel.size === 0 && files.length > 0) {
-    let biggest = files[0]
-    for (const f of files) if (f.size > biggest.size) biggest = f
-    sel.add(biggest.index)
-  }
-  return sel
-}
+import { defaultSelectedFiles } from '../lib/torrentSelect'
 
 function renderItemStatus(item: TorrentItem, t: TFn) {
   if (item.loading) {
@@ -214,7 +203,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
         infoHash: info.infoHash,
         totalSize: info.totalSize,
         files: filesList,
-        selectedFiles: defaultSelected(filesList),
+        selectedFiles: defaultSelectedFiles(filesList),
         loading: false
       } : p))
 
@@ -222,7 +211,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       setItems(prev => prev.map(p => p.id === item.id ? {
         ...p,
         loading: false,
-        error: err.message || t('downloads.addTorrent.resolveFailed')
+        error: errMessage(err) || t('downloads.addTorrent.resolveFailed')
       } : p))
     }
   }
@@ -334,7 +323,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
       setSuccess(true)
       notifyAdded(readyItems, onAdded, onClose)
     } catch (err: any) {
-      setError(err.message || t('downloads.addTorrent.startError'))
+      setError(errMessage(err) || t('downloads.addTorrent.startError'))
     } finally {
       setLoading(false)
     }

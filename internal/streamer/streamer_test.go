@@ -839,16 +839,16 @@ func TestImportTorrentBytes_InvalidData(t *testing.T) {
 	}
 }
 
-func TestStreamer_AsyncRecheckFile_Dedup(t *testing.T) {
+func TestStreamer_RecheckFilePieces_Dedup(t *testing.T) {
 	s := NewForTesting()
 
-	// Chave já carregada → asyncRecheckFile vira no-op (loaded=true), sem panic
+	// Chave já carregada → recheckFilePieces vira no-op (loaded=true), sem panic
 	// com f=nil.
 	s.verifiedMu.Lock()
 	s.verifiedFiles = map[string]bool{"test-key": true}
 	s.verifiedMu.Unlock()
 
-	s.asyncRecheckFile("test-key", nil)
+	_ = s.recheckFilePieces("test-key", nil)
 }
 
 // purgeVerifiedFiles substituiu o wipe-tudo-ao-atingir-2000: agora a limpeza é
