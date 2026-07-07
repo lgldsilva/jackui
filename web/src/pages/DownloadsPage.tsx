@@ -337,14 +337,14 @@ export default function DownloadsPage() {
 
   useEffect(() => {
     mountedRef.current = true
-    void reloadDownloadsRef.current(); loadTorrents(); loadLimits(); loadFilterOptions()
+    reloadDownloadsRef.current().catch(() => {}); loadTorrents(); loadLimits(); loadFilterOptions()
     localMounts().then(setMounts).catch(() => {})
     getDownloadsQueueSettings().then(s => setMaxActive(s.maxActive)).catch(() => {})
     // Pula o poll com a aba oculta — cada ciclo refaz streamActive→buildInfo de
     // todos os torrents ativos (caro num pacote multi-arquivo). Retoma ao focar.
     const t = setInterval(() => {
       if (document.hidden) return
-      void reloadDownloadsRef.current()
+      reloadDownloadsRef.current().catch(() => {})
       loadTorrents()
     }, 2000)
     return () => { mountedRef.current = false; clearInterval(t) }
@@ -357,7 +357,7 @@ export default function DownloadsPage() {
       clearTimeout(filterTimeoutRef.current)
     }
     filterTimeoutRef.current = setTimeout(() => {
-      if (mountedRef.current) void reloadDownloadsRef.current()
+      if (mountedRef.current) reloadDownloadsRef.current().catch(() => {})
     }, filterSearch ? 300 : 0)
     return () => { if (filterTimeoutRef.current) clearTimeout(filterTimeoutRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -565,7 +565,7 @@ export default function DownloadsPage() {
         return next
       })
     }
-    void reloadDownloadsRef.current()
+    reloadDownloadsRef.current().catch(() => {})
     void loadTorrents()
   }
   const onStopSeed = async (id: number, name: string) => {
@@ -1241,7 +1241,7 @@ export default function DownloadsPage() {
         download={inspectTarget}
         onClose={() => setQuery({ inspect: null }, { replace: true })}
         siblings={inspectTarget ? items.filter(i => i.infoHash === inspectTarget.infoHash) : []}
-        onAdopted={() => { void reloadDownloadsRef.current() }}
+        onAdopted={() => { reloadDownloadsRef.current().catch(() => {}) }}
         onMutated={(updated) => {
           setItems(prev => prev.map(item => item.id === updated.id ? updated : item))
         }}
@@ -1268,7 +1268,7 @@ export default function DownloadsPage() {
         result={downloadTarget}
         onClose={() => {
           setDownloadTarget(null)
-          void reloadDownloadsRef.current()
+          reloadDownloadsRef.current().catch(() => {})
           void loadTorrents()
         }}
       />

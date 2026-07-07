@@ -676,6 +676,34 @@ func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.Ha
 // do disco depois. Uso típico: usuário desconfia que os bytes corromperam
 // (BitErrors, ungraceful shutdown sem grace period), ou o file_size do row
 // não bate com o real.
+// recheckPrepare resolves the download row + infoHash and (re-)attaches the
+// torrent so RecheckFile/RecheckAllFiles have access to the files. It writes
+// the error response itself and returns ok=false on failure.
+func recheckPrepare(c *gin.Context, store *downloads.Store, s *streamer.Streamer, userID, id int) (*downloads.Download, metainfo.Hash, bool) {
+	var h metainfo.Hash
+	d, err := store.Get(userID, id)
+	if err != nil || d == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
+		return nil, h, false
+	}
+	if err := h.FromHexString(d.InfoHash); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash inválido"})
+		return nil, h, false
+	}
+	// EnsureActive antes do recheck — se o torrent foi dropado (ex.: post-
+	// completed sem seed), precisa re-attach pra ter acesso aos files.
+	if d.Magnet != "" {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		_, err := s.EnsureActive(ctx, d.Magnet)
+		cancel()
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return nil, h, false
+		}
+	}
+	return d, h, true
+}
+
 func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
@@ -684,33 +712,16 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		d, err := store.Get(userID, id)
-		if err != nil || d == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
+		d, h, ok := recheckPrepare(c, store, s, userID, id)
+		if !ok {
 			return
-		}
-		var h metainfo.Hash
-		if err := h.FromHexString(d.InfoHash); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash inválido"})
-			return
-		}
-		// EnsureActive antes do recheck — se o torrent foi dropado (ex.: post-
-		// completed sem seed), precisa re-attach pra ter acesso aos files.
-		if d.Magnet != "" {
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-			_, err := s.EnsureActive(ctx, d.Magnet)
-			cancel()
-			if err != nil {
-				c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-				return
-			}
 		}
 		// Whole-torrent rows re-hash every file; per-file rows only theirs.
-		recheck := func() error { return s.RecheckFile(h, d.FileIndex) }
+		recheck := s.RecheckFile
 		if d.IsWholeTorrent() {
-			recheck = func() error { return s.RecheckAllFiles(h) }
+			recheck = func(_ metainfo.Hash, _ int) error { return s.RecheckAllFiles(h) }
 		}
-		if err := recheck(); err != nil {
+		if err := recheck(h, d.FileIndex); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
