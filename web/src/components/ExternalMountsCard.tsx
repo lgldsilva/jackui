@@ -81,7 +81,10 @@ function withKeys(ms: ExternalMount[]): MountRow[] {
 
 function visibilityOf(m: ExternalMount): Visibility {
   if (m.userSubpath) return 'perUser'
-  if ((m.allowedUsers?.length ?? 0) > 0) return 'restricted'
+  // allowedUsers === undefined/null → "all" (everyone)
+  // allowedUsers === []        → "restricted" (no users picked yet)
+  // allowedUsers === ['...']   → "restricted" (the listed users)
+  if (Array.isArray(m.allowedUsers)) return 'restricted'
   return 'all'
 }
 
@@ -115,8 +118,12 @@ export default function ExternalMountsCard() {
 
   const setVisibility = (i: number, v: Visibility) => {
     if (v === 'perUser') update(i, { userSubpath: true, allowedUsers: [] })
-    else if (v === 'all') update(i, { userSubpath: false, allowedUsers: [] })
-    else update(i, { userSubpath: false })
+    else if (v === 'all') update(i, { userSubpath: false, allowedUsers: undefined })
+    else setMounts((ms) => ms ? replaceAt(ms, i, {
+      ...ms[i],
+      userSubpath: false,
+      allowedUsers: Array.isArray(ms[i].allowedUsers) ? ms[i].allowedUsers : [],
+    }) : ms)
   }
 
   const toggleUser = (i: number, username: string) =>
@@ -126,7 +133,7 @@ export default function ExternalMountsCard() {
       return replaceAt(ms, i, { ...ms[i], allowedUsers: next })
     })
 
-  const addMount = () => setMounts((ms) => [...(ms ?? []), { name: '', path: '', userSubpath: false, allowedUsers: [], _key: rowKeySeq++ }])
+  const addMount = () => setMounts((ms) => [...(ms ?? []), { name: '', path: '', userSubpath: false, _key: rowKeySeq++ }])
   const removeMount = (i: number) => setMounts((ms) => ms ? ms.filter((_, idx) => idx !== i) : ms)
 
   const handleSave = async () => {
