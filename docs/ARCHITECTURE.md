@@ -65,15 +65,16 @@ web/src/             React 18 + TS + Vite + Tailwind. PlayerProvider sits ABOVE 
 | `internal/downloads` | Background download queue + async worker (`EnsureActive`+`GotInfo` in a goroutine). The **aggregate-by-torrent model** lives in `aggregate.go` (see below). |
 | `internal/downloader` | qBittorrent / Transmission client adapters. |
 | `internal/transmissionrpc` | Transmission-RPC compatibility layer so `*arr` apps treat JackUI as a Transmission daemon (opt-in). |
-| `internal/tmdb` | TMDB enrichment (posters, metadata, trending) with SQLite cache. |
+| `internal/tmdb` | TMDB enrichment (posters, metadata, trending) with PostgreSQL cache. |
 | `internal/imagesearch` | Keyless web image search (DuckDuckGo→Bing) — last resort for artwork TMDB can't cover. |
 | `internal/ai` | OpenAI-compatible chain for release-name cleanup, with fallback + circuit breaker + a benchmark. |
 | `internal/subtitles` | Embedded probe, sidecar, and OpenSubtitles. |
 | `internal/local` | Browsable read-only mounts (the local-files page). |
 | `internal/auth` | JWT (rotated refresh tokens), users, sessions, `AdminOnly`. |
-| `internal/history` / `library` / `playlists` / `watchlist` | SQLite stores. |
+| `internal/db` | Shared PostgreSQL pool + golang-migrate schema (all durable stores). |
+| `internal/history` / `library` / `playlists` / `watchlist` / `downloads` | PostgreSQL stores on the unified pool. |
 | `internal/middleware` | Cross-cutting Gin middleware (incognito flag, media-token `?token=` auth). |
-| `internal/parser` / `renamer` / `dbutil` | Release-name parsing, library renaming, SQLite time helpers. |
+| `internal/parser` / `renamer` / `dbutil` | Release-name parsing, library renaming, SQL helpers (`Rebind`, `ParseTime`). |
 | `electron/` | Optional desktop wrapper (Electron main + preload) bundling the Go server. |
 
 ## The downloads subsystem (aggregate-by-torrent)
@@ -110,22 +111,17 @@ O(rows×files) and made the endpoint take 2–17 s on a big pack.
 
 ## Storage architecture
 
-Two roots, deliberately separated to reduce I/O contention:
+Three on-disk roots plus one database:
 
 | Root (env) | Holds | Why separate |
 |---|---|---|
-| **`JACKUI_CONFIG_DIR`** → `/data` | `jackui.db` (history) + `auth.db` | Irreplaceable user state; low write volume. |
-| **`JACKUI_CACHE_DIR`** → `/data/streams` | Piece cache **+** 7 streamer SQLite stores (favorites, metadata-cache, library, playlists, downloads, tmdb, watchlist, ai-benchmark) | High write volume (pieces); cache is reconstructable. |
-| **`JACKUI_STORAGE_DIR`** → `/mnt/storage` | Browsable mounts (read-only) + the "promote" destination | Shared media library. |
+| **`JACKUI_DATABASE_URL`** | PostgreSQL — auth, history, library, downloads queue, favorites, metadata cache, TMDB, watchlist, playlists, AI benchmark, pending transfers, audio-meta cache, … | Durable user state; schema via `internal/db` migrations. |
+| **`JACKUI_CACHE_DIR`** → `/data/streams` | BitTorrent **piece cache** + transcode/HLS temp files | High write volume; reconstructable from the swarm. |
+| **`JACKUI_STORAGE_DIR`** → `/mnt/storage` | Browsable mounts (read-only) + the **promote** destination | Shared media library on disk. |
+| **`JACKUI_CONFIG_DIR`** (optional) | Legacy `auth.db` / `jackui.db` for the one-shot `migrate-auth` tool only | Not used at runtime once migrated to PostgreSQL. |
 
-> [!NOTE]
-> The 7 streamer stores currently live in the cache dir. Splitting them out via a
-> dedicated `JACKUI_STATE_DIR` is on the roadmap — losing the cache should never lose
-> favourites/library/playlists.
-
-SQLite stores all use `MaxOpenConns(1)` and `IF NOT EXISTS` / `hasColumn` migrations.
-Read timestamps with `dbutil.ParseTime` (modernc sometimes emits RFC3339) — never a
-single `time.Parse` layout.
+Read timestamps with `dbutil.ParseTime` — never a single `time.Parse` layout.
+Stores write SQL with `?` placeholders; `dbutil.Rebind` adapts for PostgreSQL.
 
 ## Request & auth model
 

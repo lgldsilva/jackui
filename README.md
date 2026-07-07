@@ -39,12 +39,12 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 - **Swarm health on cards** — `SeedBadge` shows seeders + availability. A background **tracker scrape** (BEP 48, private trackers included) backs the count so an active torrent never sits at a misleading 0; results are cached.
 - **Subtitles** — embedded (ffmpeg probe), sidecar `.srt`/`.vtt` inside the torrent, and external (OpenSubtitles). Choice persists per file.
 - **Discover & recommendations** — a **Discover** page with weekly-trending titles, **personalised recommendations** seeded from your favourites + watch history (with dismiss), and a **Music** mode showing trending albums (keyless Apple RSS). Both seed the search on click.
-- **TMDB enrichment** — posters + metadata on results and library (SQLite cache, 30-day TTL).
+- **TMDB enrichment** — posters + metadata on results and library (PostgreSQL cache, 30-day TTL).
 - **Per-torrent artwork** — resolved and persisted by `info_hash` through a fail-safe chain: embedded torrent image → TMDB poster → keyless web image search → captured frame.
 - **AI title cleanup** (optional) — an OpenAI-compatible chain (Groq / OpenRouter / Ollama) cleans raw release names before the TMDB lookup, with per-provider fallback + circuit breaker. A tunable benchmark (Settings → admin) scores providers on accuracy, latency and cost/energy, keeps history, and reorders the chain.
 - **Downloads queue** — the internal worker treats a **multi-file torrent as one unit**: the scheduler counts a slot per torrent and steers the anacrolix file priorities (selected = download, the rest = cancel), so one big pack no longer hogs every slot or spikes CPU/RAM. The list groups one card per torrent; you can filter completed into **Seeding vs On-disk** and sort by speed / seeds / date / name / size / progress. Downloads land under a category folder by default, with a destination picker (incl. browse into mounts) and **auto-seed of completed** torrents (re-seeded in place from the cached metainfo). qBittorrent/Transmission clients are also supported.
 - **`*arr` provider** — exposes a Transmission-RPC-compatible endpoint so **Sonarr/Radarr/Prowlarr** can use JackUI as their download client (opt-in). See [docs/TRANSMISSION_RPC.md](docs/TRANSMISSION_RPC.md).
-- **Local files** — browse configured mounts; a downloaded video on **local disk** seeks instantly (`http.ServeFile`/sendfile), while remote/rclone mounts get read-ahead + a whole-file LRU disk cache. Local play falls back to HLS when the container/codec needs it. Continue Watching tracks local items too; the list filters by **downloading / done**.
+- **Local files** — browse configured mounts; promote to the library (`LocalPromoteModal`, batch + per-row). A downloaded video on **local disk** seeks instantly (`http.ServeFile`/sendfile), while remote/rclone mounts get read-ahead + a whole-file LRU disk cache. Local play falls back to HLS when the container/codec needs it. Continue Watching tracks local items too; the list filters by **downloading / done**.
 - **Library extras** — Playlists, Watchlists (cron + ntfy push, opt-in auto-download with quality filters), Continue Watching (resume position), and an Incognito toggle that skips history/library writes. A global "reveal hidden" curtain hides flagged items across the UI.
 - **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS` + `JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`) keeps idle memory low on a home server.
 - **Desktop app** (optional) — an Electron wrapper bundling the Go server, with a status tray, magnet deep-links, and native downloads. See [`electron/`](electron/).
@@ -58,7 +58,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 | Backend | Go 1.25, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
 | Transcode | ffmpeg (NVENC / VAAPI / QSV / libx264), HLS for Safari |
 | Frontend | React 18 + TypeScript + Vite + TailwindCSS, embedded via `//go:embed all:dist` |
-| Storage | SQLite (`modernc.org/sqlite`, pure-Go) for state; disk cache for pieces |
+| Storage | PostgreSQL (`JACKUI_DATABASE_URL`, unified schema via `internal/db`); disk cache for torrent pieces |
 | Deploy | Docker, single binary + embedded UI |
 
 ## Requirements
@@ -90,9 +90,10 @@ Runtime config comes from `config.yaml` plus environment overrides (env wins). K
 |---|---|---|
 | `JACKUI_PORT` | `8989` | HTTP listen port |
 | `JACKETT_URL` / `JACKETT_API_KEY` | — | Jackett search backend |
-| `JACKUI_CONFIG_DIR` | `./data/config` | **State**: `jackui.db` (history) + `auth.db` |
-| `JACKUI_CACHE_DIR` | `./data/cache` | Piece cache + streamer SQLite stores |
-| `JACKUI_STORAGE_DIR` | `./data/storage` | Shared library: browsable mounts + "promote" target |
+| `JACKUI_DATABASE_URL` | — | **Required.** PostgreSQL DSN (all durable app state) |
+| `JACKUI_CACHE_DIR` | `./data/cache` | Piece cache + transcode/HLS temp (reconstructable) |
+| `JACKUI_STORAGE_DIR` | `./data/storage` | Shared library: browsable mounts + promote target |
+| `JACKUI_CONFIG_DIR` | `./data/config` | Legacy SQLite files for `migrate-auth` only (optional) |
 | `JACKUI_STREAM_MAX_GB` | `50` | Cache size cap (LRU eviction above this) |
 | `JACKUI_AUTH_ENABLED` | `0` | Enable JWT auth (`1`/`true`) |
 | `TMDB_API_KEY` | — | Poster/metadata enrichment (optional) |
@@ -101,7 +102,7 @@ Runtime config comes from `config.yaml` plus environment overrides (env wins). K
 | `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent CUDA decoders (`0` = unlimited; extras fall back to CPU-decode) |
 | `JACKUI_MAX_CONNS` / `JACKUI_PEERS_HIGH` | — | Peer-connection tuning (conns per torrent / swarm high-water) |
 
-State (`JACKUI_CONFIG_DIR`) is deliberately separate from the piece cache + streamer DBs (`JACKUI_CACHE_DIR`) to reduce I/O contention.
+State lives in **PostgreSQL** (`JACKUI_DATABASE_URL`). The piece cache (`JACKUI_CACHE_DIR`) is deliberately separate to reduce I/O contention on torrent pieces.
 
 *Low-footprint runtime tuning* (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`) is applied via the process environment, not `config.yaml`; production sets it in the deploy compose (see below).
 
@@ -142,8 +143,8 @@ internal/
   streamer/          anacrolix: Add / FileReader / probe / cache / favourites
   transcode/         ffmpeg pipeline + HLS sessions (seek-restart)
   handlers/          HTTP handlers (search, config, stream, local, classify, …)
-  config/ jackett/ downloader/ downloads/ tmdb/ subtitles/ parser/
-  auth/ history/ library/ playlists/ watchlist/   SQLite stores
+  config/ jackett/ downloader/ downloads/ tmdb/ subtitles/ parser/ db/
+  auth/ history/ library/ playlists/ watchlist/   PostgreSQL stores (unified pool)
   transmissionrpc/   Transmission-RPC compatibility layer (*arr provider)
   middleware/         cross-cutting Gin middleware (incognito, media-token auth)
 ```
@@ -162,7 +163,8 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 - [x] **i18n / multi-language UI** — done: react-i18next ships Portuguese + English (`web/src/locales/`).
 - [ ] HLS master playlist (Phase 2): N audio/subtitle tracks + multi-resolution in one VOD stream.
 - [x] Streamer reconciles pieces with already-downloaded files (play without re-downloading).
-- [x] "Promote" button on the local-files page; split the streamer's SQLite stores from the cache dir via `JACKUI_STATE_DIR`.
+- [x] **Promote** on the local-files page (`LocalPromoteModal` — per-row + batch).
+- [x] Durable state migrated to **PostgreSQL** (favorites, metadata cache, downloads, etc. no longer live in the piece-cache dir).
 
 ## Docs
 

@@ -108,6 +108,53 @@ func (m *MetadataCache) Get(infoHash string) *CachedMeta {
 	return &cm
 }
 
+// GetBatch returns cached snapshots for many hashes in one query. Hashes with no
+// row are omitted — callers treat absence as a cache miss (same as Get returning nil).
+func (m *MetadataCache) GetBatch(hashes []string) map[string]*CachedMeta {
+	out := make(map[string]*CachedMeta)
+	if m == nil || len(hashes) == 0 {
+		return out
+	}
+	unique := make([]string, 0, len(hashes))
+	seen := make(map[string]bool, len(hashes))
+	for _, h := range hashes {
+		if h == "" || seen[h] {
+			continue
+		}
+		seen[h] = true
+		unique = append(unique, h)
+	}
+	if len(unique) == 0 {
+		return out
+	}
+	placeholders := make([]string, len(unique))
+	args := make([]any, len(unique))
+	for i, h := range unique {
+		placeholders[i] = "?"
+		args[i] = h
+	}
+	rows, err := m.db.Query(
+		`SELECT info_hash, name, total_size, files, primary_file, cached_at FROM metadata WHERE info_hash IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cm CachedMeta
+		var filesJSON string
+		if err := rows.Scan(&cm.InfoHash, &cm.Name, &cm.TotalSize, &filesJSON, &cm.PrimaryFile, &cm.CachedAt); err != nil {
+			continue
+		}
+		if err := json.Unmarshal([]byte(filesJSON), &cm.Files); err != nil {
+			continue
+		}
+		out[cm.InfoHash] = &cm
+	}
+	_ = rows.Err()
+	return out
+}
+
 // Set saves a snapshot. Called by Streamer.Add() once anacrolix delivers
 // metadata, so subsequent opens of the same hash hit the cache.
 func (m *MetadataCache) Set(info *TorrentInfo) error {
