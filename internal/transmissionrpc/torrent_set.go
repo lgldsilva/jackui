@@ -24,16 +24,22 @@ func (h *Handler) methodTorrentSet(args map[string]interface{}) rpcResponse {
 	// (nil → match every row), like forEachDownload and the other methods.
 	for _, d := range all {
 		if ids == nil || ids[d.ID] {
-			h.applyAllTorrentSetArgs(d, args)
+			if err := h.applyAllTorrentSetArgs(d, args); err != nil {
+				return failResp(err.Error())
+			}
 		}
 	}
 
 	return successResp(nil)
 }
 
-func (h *Handler) applyAllTorrentSetArgs(d downloads.Download, args map[string]interface{}) {
-	h.applyPausedArg(d, args["paused"])
-	h.applyLabelsArg(d, args["labels"])
+func (h *Handler) applyAllTorrentSetArgs(d downloads.Download, args map[string]interface{}) error {
+	if err := h.applyPausedArg(d, args["paused"]); err != nil {
+		return err
+	}
+	if err := h.applyLabelsArg(d, args["labels"]); err != nil {
+		return err
+	}
 	h.applyBandwidthPriority(d, args["bandwidthPriority"])
 	h.applySequentialDownload(d, args["sequentialDownload"])
 	h.applyPeerLimit(d, args["peerLimit"])
@@ -46,30 +52,39 @@ func (h *Handler) applyAllTorrentSetArgs(d downloads.Download, args map[string]i
 	h.applySeedIdle(d, args["seedIdleLimit"])
 	h.applyQueuePosition(d, args["queuePosition"])
 	h.applyHonorsSessionLimits(d, args["honorsSessionLimits"])
+	return nil
 }
 
-func (h *Handler) applyPausedArg(d downloads.Download, raw interface{}) {
+func (h *Handler) applyPausedArg(d downloads.Download, raw interface{}) error {
 	b, ok := raw.(bool)
 	if !ok {
-		return
+		return nil
 	}
 	if b {
-		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused)
+		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused); err != nil {
+			return err
+		}
 	} else if d.Status == downloads.StatusPaused {
-		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusDownloading)
+		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusDownloading); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (h *Handler) applyLabelsArg(d downloads.Download, raw interface{}) {
+func (h *Handler) applyLabelsArg(d downloads.Download, raw interface{}) error {
 	labels, ok := raw.([]interface{})
 	if !ok || len(labels) == 0 {
-		return
+		return nil
 	}
 	cat, ok := labels[0].(string)
 	if !ok {
-		return
+		return nil
 	}
-	_ = h.store.SetCategory(d.UserID, d.ID, cat)
+	if err := h.store.SetCategory(d.UserID, d.ID, cat); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) applyBandwidthPriority(d downloads.Download, raw interface{}) {

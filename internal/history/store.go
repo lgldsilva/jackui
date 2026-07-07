@@ -12,6 +12,11 @@ import (
 
 const queryUserClause = " AND user_id = ?"
 
+// MaxSearchResults caps history reads for SSE cache/convergence and list APIs.
+// Without a limit a popular query with thousands of cached rows scans the full
+// table twice per SSE connection.
+const MaxSearchResults = 500
+
 type Store struct {
 	db *dbutil.DB
 }
@@ -93,8 +98,9 @@ func (s *Store) Save(query string, results []jackett.Result, userID int, incogni
 			seen[r.InfoHash] = true
 
 			var count int
-			// #nosec G104 -- erro best-effort nao-acionavel
-			tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ? AND incognito = ?", r.InfoHash, userID, incognitoVal).Scan(&count)
+			if err := tx.QueryRow("SELECT COUNT(*) FROM results WHERE info_hash = ? AND user_id = ? AND incognito = ?", r.InfoHash, userID, incognitoVal).Scan(&count); err != nil {
+				return err
+			}
 			if count > 0 {
 				continue
 			}
@@ -156,7 +162,8 @@ func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResul
 		q += queryUserClause
 		args = append(args, userID)
 	}
-	q += " ORDER BY seeders DESC, saved_at DESC"
+	q += " ORDER BY seeders DESC, saved_at DESC LIMIT ?"
+	args = append(args, MaxSearchResults)
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err

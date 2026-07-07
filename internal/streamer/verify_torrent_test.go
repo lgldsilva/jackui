@@ -56,9 +56,8 @@ func TestVerifyTorrent_ClaimsEveryFile(t *testing.T) {
 	}
 }
 
-// RecheckAllFiles re-hashes every file sequentially in ONE goroutine. After it
-// settles, every file must hold a verify claim again (asyncRecheckFile marks
-// them as it completes).
+// RecheckAllFiles re-hashes every file sequentially. After it returns, every
+// file must hold a verify claim again (recheckFilePieces marks them as it completes).
 func TestRecheckAllFiles_RehashesEveryFile(t *testing.T) {
 	dir := t.TempDir()
 	s, err := newTestStreamer(t, Config{DataDir: dir})
@@ -80,24 +79,12 @@ func TestRecheckAllFiles_RehashesEveryFile(t *testing.T) {
 	if err := s.RecheckAllFiles(hash); err != nil {
 		t.Fatalf("RecheckAllFiles: %v", err)
 	}
-	// The recheck runs in a goroutine; poll briefly for the claims to appear.
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		s.verifiedMu.Lock()
-		all := true
-		for i := range tor.Files() {
-			if !s.verifiedFiles[fmt.Sprintf("%s-%d", hash.HexString(), i)] {
-				all = false
-				break
-			}
+	s.verifiedMu.Lock()
+	defer s.verifiedMu.Unlock()
+	for i := range tor.Files() {
+		key := fmt.Sprintf("%s-%d", hash.HexString(), i)
+		if !s.verifiedFiles[key] {
+			t.Errorf("file %d was not rechecked (key %q missing)", i, key)
 		}
-		s.verifiedMu.Unlock()
-		if all {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for RecheckAllFiles to claim every file")
-		}
-		time.Sleep(20 * time.Millisecond)
 	}
 }

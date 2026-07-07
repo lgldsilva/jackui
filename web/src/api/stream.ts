@@ -3,6 +3,7 @@
 // Arquivos locais são detectados pelo pseudo info-hash e roteados pro ./local —
 // o PlayerModal não distingue torrent de local. Extraído de client.ts (#417).
 import { api, withToken } from './http'
+import { extractInfoHashFromMagnet } from '../lib/magnet'
 import { downloadCreate, WHOLE_TORRENT_FILE_INDEX, type DownloadEntry } from './downloads'
 import {
   isLocalHash,
@@ -94,7 +95,7 @@ export const queueAllTorrentFiles = async (
 export const streamAdd = async (magnet: string, kind?: 'audio' | 'video'): Promise<TorrentInfo> => {
   // Local files: magnet carries the pseudo-hash. Synthesize TorrentInfo from
   // /api/local/play + /api/local/probe without touching the torrent client.
-  const localHash = extractHashFromMagnet(magnet)
+  const localHash = extractInfoHashFromMagnet(magnet) || null
   if (localHash && isLocalHash(localHash)) return synthesizeLocalInfo(localHash)
   // kind (from the player's detectKind) lets the server classify the library row
   // as audio/video for Continue Watching + stats. Omitted → server leaves it.
@@ -111,10 +112,6 @@ export const streamAddTorrentFile = async (file: File): Promise<TorrentInfo> => 
   return data
 }
 
-function extractHashFromMagnet(magnet: string): string | null {
-  const m = /[?&]xt=urn:btih:([^&]+)/i.exec(magnet)
-  return m ? decodeURIComponent(m[1]) : null
-}
 
 export const streamInfo = async (hash: string): Promise<TorrentInfo> => {
   if (isLocalHash(hash)) return localStreamInfo(hash)

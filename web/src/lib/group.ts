@@ -1,35 +1,6 @@
 import { SearchResult } from '../api/client'
 
-/**
- * Returns a canonical grouping key for a result: a lowercase 40-hex infoHash.
- * Prefers the dedicated field, falling back to the magnet's `xt=urn:btih:` when
- * the field is absent or non-canonical. The backend already canonicalizes this,
- * but deep links, history rows and synthetic results can still reach the grouper
- * with a raw/uppercase hash or none at all — without this, the same torrent
- * scatters across buckets and renders as duplicate cards. Returns '' when no
- * valid hash can be derived (caller then falls back to the name|size bucket).
- *
- * Base32 btih (32 chars) is intentionally not decoded here — the backend coerces
- * it to hex before results reach the UI.
- */
-function canonicalHash(infoHash: string | undefined, magnetUri: string | undefined): string {
-  const norm = (s: string): string => {
-    const t = s.trim().toLowerCase()
-    return /^[0-9a-f]{40}$/.test(t) ? t : ''
-  }
-  if (infoHash) {
-    const h = norm(infoHash)
-    if (h) return h
-  }
-  if (magnetUri) {
-    const m = /[?&]xt=urn:btih:([^&]+)/i.exec(magnetUri)
-    if (m) {
-      const h = norm(decodeURIComponent(m[1]))
-      if (h) return h
-    }
-  }
-  return ''
-}
+import { canonicalInfoHash } from './magnet'
 
 /**
  * Pulls every `tr=` (announce URL) out of a magnet URI. Returns the URLs
@@ -173,7 +144,7 @@ export function groupByInfoHash<T extends SearchResult>(results: T[]): T[] {
   const noHash: T[] = []
 
   for (const r of results) {
-    const key = canonicalHash(r.infoHash, r.magnetUri)
+    const key = canonicalInfoHash(r.infoHash, r.magnetUri)
     if (!key) {
       noHash.push(r)
       continue

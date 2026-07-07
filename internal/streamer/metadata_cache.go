@@ -281,6 +281,9 @@ func (m *MetadataCache) GetSortMeta(hashes []string) map[string]SortMeta {
 		}
 		out[hash] = sm
 	}
+	if err := rows.Err(); err != nil {
+		return out
+	}
 	return out
 }
 

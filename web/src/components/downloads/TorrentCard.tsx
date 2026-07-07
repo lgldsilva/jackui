@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Pause, Play, Trash2, Clock, Users, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import type { TorrentInfo, StreamPriority } from '../../api/client'
@@ -27,7 +28,7 @@ type TorrentCardProps = {
 }
 
 // TorrentCard — Premium redesigned streaming torrent card.
-export function TorrentCard({ t: torrent, busy, onPause, onResume, onPriority, onDelete, onPlay }: TorrentCardProps) {
+export const TorrentCard = memo(function TorrentCard({ t: torrent, busy, onPause, onResume, onPriority, onDelete, onPlay }: TorrentCardProps) {
   const { t } = useTranslation()
   const pct = Math.max(0, Math.min(1, torrent.progress || 0)) * 100
   const status = torrent.status || (pct >= 100 ? 'complete' : 'downloading')
@@ -167,4 +168,4 @@ export function TorrentCard({ t: torrent, busy, onPause, onResume, onPriority, o
       </div>
     </div>
   )
-}
+})

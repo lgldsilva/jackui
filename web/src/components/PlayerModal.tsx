@@ -708,14 +708,32 @@ export default function PlayerModal({
     }
 
     return () => { cancelled = true }
-    // Keyado no VALOR `infoHash`, não no objeto `result`: o PlayerProvider recria o
-    // objeto `result` em vários pontos (playlistItemToResult, toggle Cinema/Música,
-    // sync URL↔estado) com o MESMO infoHash. Keyar no objeto re-rodava toda esta
-    // init (streamAdd/probe/library) ~16s após abrir, recarregando o <video> e
-    // abortando o play() do gesto no iOS. A troca de arquivo real muda infoHash e
-    // dispara normal; initialFileIndex tem efeito dedicado próprio.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.infoHash])
+
+  // Cinema ↔ Música com o mesmo torrent: re-envia kind ao backend sem reiniciar
+  // o player inteiro (o efeito acima omite audioMode de propósito).
+  const prevAudioModeRef = useRef(audioMode)
+  useEffect(() => {
+    if (!result?.infoHash || !everReadyRef.current) {
+      prevAudioModeRef.current = audioMode
+      return
+    }
+    if (prevAudioModeRef.current === audioMode) return
+    prevAudioModeRef.current = audioMode
+    let cancelled = false
+    streamAdd(pickTorrentSource(result), audioMode ? 'audio' : 'video')
+      .then(t => {
+        if (cancelled) return
+        streamAddDoneRef.current = true
+        setInfo(t)
+        setSelectedFile(cur => (cur >= 0 ? cur : chooseInitialFile(t, initialFileIndex)))
+      })
+      .catch(err => {
+        if (!cancelled) setError(err?.response?.data?.error || err.message || t('player.modal.streamStartFailed'))
+      })
+    return () => { cancelled = true }
+  }, [audioMode, result?.infoHash, initialFileIndex, result, t])
 
   // Marca que o player já renderizou uma faixa nesta instância → habilita o warm
   // hold (troca de faixa sem desmontar a UI) nas próximas trocas.

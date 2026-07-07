@@ -1737,6 +1737,31 @@
     "picker_empty": "You don't have any playlists yet. Create one below.",
     "new_name_placeholder": "New playlist name"
   },
+  "theme": {
+    "light": {
+      "title": "Theme: light (fixed)",
+      "active": "Light theme ACTIVE — click to follow system",
+      "inactive": "Switch to light theme",
+      "aria": "Light theme"
+    },
+    "system": {
+      "title": "Theme: follows the operating system",
+      "active": "Following system theme — click for dark",
+      "inactive": "Follow system theme",
+      "aria": "System theme"
+    },
+    "dark": {
+      "title": "Theme: dark (fixed)",
+      "active": "Dark theme ACTIVE — click for light",
+      "inactive": "Switch to dark theme",
+      "aria": "Dark theme"
+    }
+  },
+  "errorBoundary": {
+    "title": "Component error",
+    "message": "The interface hit an unexpected error.",
+    "close": "Close"
+  },
   "misc": {
     "user_role": "User",
     "admin_role": "Admin",

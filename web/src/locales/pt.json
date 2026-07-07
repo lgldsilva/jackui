@@ -15,10 +15,10 @@
     "continue": "Continuar",
     "local": "Local",
     "downloads": "Downloads",
-    "watchlist": "Watch",
+    "watchlist": "Watchlist",
     "favorites": "Favoritos",
     "history": "Histórico",
-    "settings": "Settings",
+    "settings": "Configurações",
     "incognito": "Incógnito",
     "incognito_title_active": "Modo incógnito ATIVO — clique para sair",
     "incognito_title_inactive": "Ativar modo incógnito (não grava histórico nem biblioteca)",
@@ -1736,6 +1736,31 @@
     "add_to_playlist_title": "Adicionar à playlist",
     "picker_empty": "Você ainda não tem playlists. Crie uma abaixo.",
     "new_name_placeholder": "Nome da nova playlist"
+  },
+  "theme": {
+    "light": {
+      "title": "Tema: claro (fixo)",
+      "active": "Tema claro ATIVO — clique para seguir o sistema",
+      "inactive": "Mudar para tema claro",
+      "aria": "Tema claro"
+    },
+    "system": {
+      "title": "Tema: segue o sistema operacional",
+      "active": "Seguindo o sistema operacional — clique para escuro",
+      "inactive": "Seguir o sistema operacional",
+      "aria": "Tema do sistema"
+    },
+    "dark": {
+      "title": "Tema: escuro (fixo)",
+      "active": "Tema escuro ATIVO — clique para claro",
+      "inactive": "Mudar para tema escuro",
+      "aria": "Tema escuro"
+    }
+  },
+  "errorBoundary": {
+    "title": "Erro no componente",
+    "message": "A interface encontrou um erro inesperado.",
+    "close": "Fechar"
   },
   "misc": {
     "user_role": "Usuário",

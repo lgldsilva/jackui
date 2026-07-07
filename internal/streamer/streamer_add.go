@@ -167,7 +167,7 @@ func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 	s.mu.Unlock()
 	s.persistMetainfo(t)
 	s.maybePersistSeed(t)
-	info := s.buildInfo(e)
+	info := s.buildInfo(e, true)
 	if s.cache != nil {
 		_ = s.cache.Set(info)
 	}
