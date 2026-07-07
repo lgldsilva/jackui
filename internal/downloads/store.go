@@ -214,6 +214,9 @@ func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, e
 	}
 	// Try to fetch existing first — idempotent enqueue.
 	existing, err := s.getByKeyWith(x, d.UserID, d.InfoHash, d.FileIndex)
+	if errors.Is(err, sql.ErrNoRows) {
+		existing, err = nil, nil
+	}
 	if err != nil {
 		return nil, false, err
 	}
