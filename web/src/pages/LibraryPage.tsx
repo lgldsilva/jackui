@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info, Download as DownloadIcon, MoreVertical } from 'lucide-react'
+import { Play, Library as LibraryIcon, CheckCircle2, Clock, X, Trash2, Info, Download as DownloadIcon, MoreVertical } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
 import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
+import { ErrorState } from '../components/ErrorState'
+import { LoadingState } from '../components/LoadingState'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import DownloadModal from '../components/DownloadModal'
 import SeedBadge from '../components/SeedBadge'
@@ -24,6 +26,7 @@ type Filter = 'recent' | 'unfinished' | 'finished'
 export default function LibraryPage() {
   const [entries, setEntries] = useState<LibraryEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   useScrollRestoration(!loading)
   const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
@@ -39,7 +42,13 @@ export default function LibraryPage() {
 
   const reload = () => {
     setLoading(true)
-    libraryList({ limit: 50 }).then(setEntries).catch(() => {}).finally(() => setLoading(false))
+    libraryList({ limit: 50 })
+      .then(entries => {
+        setEntries(entries)
+        setError(null)
+      })
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load library'))
+      .finally(() => setLoading(false))
   }
   // Re-fetch when the hidden curtain flips: hidden-folder titles drop in/out of
   // Continue Watching (the backend filters by the X-JackUI-Reveal-Hidden header).
@@ -139,7 +148,8 @@ export default function LibraryPage() {
         </div>
 
         {(() => {
-          if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
+          if (error) return <ErrorState message={error} onRetry={reload} />
+          if (loading) return <LoadingState />
           if (filtered.length === 0) return <div className="text-center py-20 text-text-muted"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>{t('library.emptyTitle')}</p><p className="text-xs mt-2">{t('library.emptyHint')}</p></div>
           return (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
