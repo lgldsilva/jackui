@@ -33,12 +33,22 @@ func (c *countingSearcher) seen() []string {
 type safeNotifier struct {
 	mu     sync.Mutex
 	titles []string
+	// notified, when non-nil, receives a signal per Notify call so tests can
+	// await a notification deterministically instead of polling.
+	notified chan struct{}
 }
 
 func (n *safeNotifier) Notify(ctx context.Context, topic, title, body, magnet string) error {
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	n.titles = append(n.titles, title)
+	ch := n.notified
+	n.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 	return nil
 }
 
@@ -143,7 +153,7 @@ func TestWorker_KickChecksOneItemImmediately(t *testing.T) {
 	_ = s.MarkChecked(w.ID, time.Now().Add(time.Hour))
 
 	searcher := &countingSearcher{results: []jackett.Result{{InfoHash: "abc", Title: "Hit", MagnetURI: "m:1", Seeders: 9}}}
-	notifier := &safeNotifier{}
+	notifier := &safeNotifier{notified: make(chan struct{}, 1)}
 	wk := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
 	wk.startDelay = time.Millisecond
 	wk.tick = time.Hour // make sure the scheduled pass never fires during the test
@@ -151,9 +161,10 @@ func TestWorker_KickChecksOneItemImmediately(t *testing.T) {
 	defer wk.Stop()
 
 	wk.Kick(w.ID)
-	deadline := time.Now().Add(5 * time.Second)
-	for notifier.count() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-notifier.notified: // the kick's async check ran and notified
+	case <-time.After(5 * time.Second):
+		t.Fatal("no notification after kick within 5s")
 	}
 	if notifier.count() != 1 {
 		t.Fatalf("expected 1 notification after kick, got %d", notifier.count())

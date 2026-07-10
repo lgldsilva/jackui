@@ -150,11 +150,12 @@ func TestLocalSubtitleExtract_BackgroundExtracting(t *testing.T) {
 
 	// Aguarda o job de extração em background terminar para liberar o arquivo no TempDir
 	vttPath := localSubVTTPath(cache, abs, st, 3)
-	for i := 0; i < 300; i++ {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
 		if _, extracting := subExtractJobs.Load(vttPath); !extracting {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU ao job de extração
 	}
 }
 

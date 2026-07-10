@@ -168,14 +168,16 @@ func TestRealWorkerCopiesAsync(t *testing.T) {
 	p, size := writeSrc(t, src, "a.mkv", 4096)
 	c.Enqueue("M", "a.mkv", p, size)
 
-	// Poll until the worker finishes the copy.
+	// Poll until the worker finishes the copy (deterministic completion: exits
+	// the instant the status flips, bounded by the deadline).
 	ready := false
-	for i := 0; i < 100; i++ {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
 		if c.StatusFor("M", "a.mkv").Status == "ready" {
 			ready = true
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU ao worker de cópia
 	}
 	if !ready {
 		t.Fatal("worker did not mark the file ready in time")

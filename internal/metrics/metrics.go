@@ -43,11 +43,17 @@ var (
 )
 
 // StartWorker inicia o coletor periódico em background que consulta o streamer e o transcode.HLSSessionManager
-func StartWorker(ctx context.Context, s *streamer.Streamer, hls *transcode.HLSSessionManager) {
+// StartWorker returns a channel that is closed when the worker goroutine exits
+// (after ctx is cancelled); it is nil when no goroutine was started (nil
+// streamer). Callers may ignore it; tests use it to await a deterministic
+// shutdown instead of sleeping.
+func StartWorker(ctx context.Context, s *streamer.Streamer, hls *transcode.HLSSessionManager) <-chan struct{} {
 	if s == nil {
-		return
+		return nil
 	}
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
@@ -60,6 +66,7 @@ func StartWorker(ctx context.Context, s *streamer.Streamer, hls *transcode.HLSSe
 			}
 		}
 	}()
+	return done
 }
 
 // collect faz uma rodada de amostragem e atualiza os gauges. Os rates de rede
