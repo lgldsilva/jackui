@@ -162,6 +162,12 @@ services:
     image: postgres:16-alpine
     container_name: jackui-postgres
     restart: unless-stopped
+    # Graceful shutdown: o default (10s) não é suficiente para o fast shutdown do
+    # Postgres quando há conexões ativas no pool do jackui — o Docker manda SIGKILL
+    # e o próximo boot faz recovery WAL ("not properly shut down"). 30s dá folga
+    # para o checkpoint completar. Crítico em prod, onde o gluetun recria este
+    # container junto consigo a cada rotação de porta VPN (vpn-gateway compose).
+    stop_grace_period: 30s
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-jackui}
