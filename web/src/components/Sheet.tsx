@@ -1,5 +1,7 @@
-import { ReactNode, useRef } from 'react'
+import { ReactNode, useId, useRef } from 'react'
 import { X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { useDialogFocus } from '../lib/useDialogFocus'
 import { useScrollLock } from '../lib/useScrollLock'
 import { useSwipe } from '../lib/useSwipe'
 import { useIsMobile } from '../lib/useMediaQuery'
@@ -17,6 +19,7 @@ const SIZE_MAXW: Record<SheetSize, string> = {
 }
 
 export type SheetProps = {
+  readonly id?: string
   readonly open: boolean
   readonly onClose: () => void
   readonly title?: ReactNode
@@ -40,6 +43,7 @@ export type SheetProps = {
  * evitar a quirk de `width: fit-content` do user-agent.
  */
 export function Sheet({
+  id,
   open,
   onClose,
   title,
@@ -51,8 +55,13 @@ export function Sheet({
   hideHeader = false,
   lockScroll = true,
 }: SheetProps) {
+  const { t } = useTranslation()
   const headerRef = useRef<HTMLDivElement>(null)
+  const dialogRef = useDialogFocus(open)
   const isMobile = useIsMobile()
+  const generatedId = useId()
+  const baseId = id ?? `sheet-${generatedId}`
+  const titleId = !hideHeader && title != null ? `${baseId}-title` : undefined
 
   useScrollLock(open && lockScroll)
   // Swipe-to-close: só pelo header/grabber (não pelo corpo, pra não brigar com
@@ -69,8 +78,12 @@ export function Sheet({
       tabIndex={-1}
     >
       <div
+        ref={dialogRef}
+        id={baseId}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className={`bg-surface-secondary w-full ${SIZE_MAXW[size]} rounded-t-2xl sm:rounded-2xl border-0 sm:border border-default shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] p-0 m-0 text-inherit`}
       >
         <div ref={headerRef}>
@@ -79,14 +92,14 @@ export function Sheet({
           {!hideHeader && (
             <div className="flex items-center justify-between p-4 border-b border-default flex-shrink-0">
               {title != null && (
-                <h2 className="text-base font-semibold text-text-primary flex items-center gap-2 min-w-0">
+                <h2 id={titleId} className="text-base font-semibold text-text-primary flex items-center gap-2 min-w-0">
                   {icon}
                   <span className="truncate">{title}</span>
                 </h2>
               )}
               <button
                 onClick={onClose}
-                aria-label="Fechar"
+                aria-label={t('misc.close')}
                 className="ml-auto text-text-secondary hover:text-text-primary p-1.5 -m-1.5 rounded-lg hover:bg-surface-tertiary/50"
               >
                 <X className="w-5 h-5" />

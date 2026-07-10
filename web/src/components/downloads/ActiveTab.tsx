@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Loader2, Zap } from 'lucide-react'
 import type { TorrentInfo, DownloadEntry, StreamPriority } from '../../api/client'
-import { EmptyState } from './EmptyState'
+import { EmptyState } from '../EmptyState'
 import { TorrentCard } from './TorrentCard'
 import { DownloadCard } from './DownloadCard'
 

@@ -1,4 +1,8 @@
 {
+  "common": {
+    "errorTitle": "Algo deu errado",
+    "retry": "Tentar novamente"
+  },
   "files": {
     "to_download": "Arquivos pra baixar",
     "selected": "{{n}}/{{total}} selecionados",
@@ -1775,7 +1779,8 @@
     "seed_checking": "Verificando seeds no swarm…",
     "seed_live_suffix": " (ao vivo)",
     "seed_summary": "{{seeders}} seeds / {{peers}} peers · verificado {{time}}",
-    "seed_click": "Clique para verificar seeds"
+    "seed_click": "Clique para verificar seeds",
+    "close": "Fechar"
   },
   "transfers": {
     "title": "Transferências",
