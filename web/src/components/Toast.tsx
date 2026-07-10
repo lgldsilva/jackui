@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { errMessage } from '../lib/errMessage'
 
 export type ToastKind = 'info' | 'success' | 'error'
@@ -65,6 +66,7 @@ const KIND_META: Record<ToastKind, { readonly icon: ReactNode; readonly border: 
 }
 
 function ToastItem({ toast }: { readonly toast: Toast }) {
+  const { t } = useTranslation()
   useEffect(() => {
     const h = setTimeout(() => dismissToast(toast.id), AUTO_DISMISS_MS)
     return () => clearTimeout(h)
@@ -79,7 +81,7 @@ function ToastItem({ toast }: { readonly toast: Toast }) {
       <span className="flex-1 min-w-0 break-words leading-snug">{toast.message}</span>
       <button
         onClick={() => dismissToast(toast.id)}
-        aria-label="Fechar"
+        aria-label={t('misc.close')}
         className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
       >
         <X className="w-3.5 h-3.5" />

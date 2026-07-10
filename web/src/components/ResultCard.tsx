@@ -4,7 +4,7 @@ import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Cl
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
 import i18n from '../lib/i18n'
-import { playHref, anchorNavProps, swallowClick } from '../lib/cardNav'
+import { playHref, newTabProps, swallowClick } from '../lib/cardNav'
 import { formatBytes } from '../lib/format'
 import { notify, notifyError } from './Toast'
 import QualityBadges from './QualityBadges'
@@ -66,8 +66,7 @@ async function resolveMagnetIfNeeded(
 
 function useTmdbMatch(title: string) {
   const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
-  // HTMLElement (not HTMLButtonElement): the card renders as <a> when playable
-  // (so it's a real new-tab-able link) or <button> otherwise.
+  // HTMLElement: the card wrapper is a focusable/clickable <div>.
   const cardRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -263,7 +262,7 @@ function renderCardStats(
       <div className="flex items-center gap-1 text-red-400">
         <TrendingDown className="w-3.5 h-3.5" /><span>{result.leechers} leech</span>
         {onRefresh && result.id !== undefined && (
-          <button onClick={(e) => { swallowClick(e); void onRefresh(result) }} disabled={!!refreshing} title={refreshedAt ? i18n.t('search.updated_at', { time: refreshedAt }) : i18n.t('search.refresh_stats')} className="ml-1 inline-flex items-center text-text-muted hover:text-cyan-400 disabled:opacity-50 transition-colors">
+          <button onClick={(e) => { swallowClick(e); void onRefresh(result) }} aria-label={i18n.t('search.refresh_stats')} disabled={!!refreshing} title={refreshedAt ? i18n.t('search.updated_at', { time: refreshedAt }) : i18n.t('search.refresh_stats')} className="ml-1 inline-flex items-center text-text-muted hover:text-cyan-400 disabled:opacity-50 transition-colors">
             <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin text-cyan-400' : ''}`} />
           </button>
         )}
@@ -275,6 +274,7 @@ function renderCardStats(
 
 type RenderCardActionsProps = {
   canPlay: boolean
+  playLinkHref: string | null
   hasSource: boolean
   canDownload: boolean
   onPlay: ((result: SearchResult) => void) | undefined
@@ -291,27 +291,35 @@ type RenderCardActionsProps = {
 }
 
 function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
-  const { canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
-  // Every action button calls swallowClick (preventDefault + stopPropagation) so a
-  // click NEVER falls through to the card's <a> link navigation — clicking
-  // "Cliente"/Magnet/.torrent must NOT also open the player deep-link. New-tab for
-  // play is provided by the card link itself (the card is a real <a href>).
+  const { canPlay, playLinkHref, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
+  const playNavProps = canPlay && playLinkHref ? newTabProps(playLinkHref, () => onPlay?.(result)) : null
   return (
     <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap">
       {canPlay && (
           <button
-            onClick={(e) => { swallowClick(e); onPlay?.(result) }}
+            onClick={(e) => {
+              swallowClick(e)
+              if (playNavProps) {
+                playNavProps.onClick(e)
+                return
+              }
+              onPlay?.(result)
+            }}
+            onAuxClick={playNavProps ? (e) => {
+              swallowClick(e)
+              playNavProps.onAuxClick(e)
+            } : undefined}
             title={i18n.t('search.play_stream')} className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <Play className="w-3.5 h-3.5 fill-current" />Play
         </button>
       )}
       {hasSource && onExploreContents && (
-        <button onClick={(e) => { swallowClick(e); onExploreContents(result) }} title={i18n.t('search.explore_files')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); onExploreContents(result) }} aria-label={i18n.t('search.explore_files')} title={i18n.t('search.explore_files')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
           <FolderOpen className="w-3.5 h-3.5" />
         </button>
       )}
       {hasSource && onAddToPlaylist && (
-        <button onClick={(e) => { swallowClick(e); onAddToPlaylist(result) }} title={i18n.t('search.add_to_playlist')} className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
+        <button onClick={(e) => { swallowClick(e); onAddToPlaylist(result) }} aria-label={i18n.t('search.add_to_playlist')} title={i18n.t('search.add_to_playlist')} className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
           <ListPlus className="w-3.5 h-3.5" />
         </button>
       )}
@@ -320,7 +328,7 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
           <button onClick={(e) => { swallowClick(e); handleOpenMagnet() }} disabled={resolvingMagnet} title={i18n.t('search.open_magnet')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-strong">
             {resolvingMagnet ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <Magnet className="w-3.5 h-3.5" />}Magnet
           </button>
-          <button onClick={(e) => { swallowClick(e); handleCopyMagnet() }} disabled={resolvingMagnet} title={i18n.t('search.copy_magnet')} className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
+          <button onClick={(e) => { swallowClick(e); handleCopyMagnet() }} aria-label={i18n.t('search.copy_magnet')} disabled={resolvingMagnet} title={i18n.t('search.copy_magnet')} className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
             {renderMagnetIcon(copied, resolvingMagnet)}
           </button>
         </div>
@@ -386,13 +394,21 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
   // para syntheticResult / deep links que constroem SearchResult sem o campo.
   const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
 
-  // Playable cards become a REAL link to the player deep-link, so the browser's
-  // native new-tab works (ctrl/cmd/middle-click, right-click → "open in new tab").
-  // A plain click plays in the current tab. Non-playable cards keep the old
-  // button-click → explore-contents behaviour.
   const playLinkHref = canPlay && result.infoHash ? playHref(result.infoHash) : null
-  const cardClickable = playLinkHref !== null || (hasSource && onExploreContents !== undefined)
-  const handleCardClick = !playLinkHref && hasSource && onExploreContents ? () => onExploreContents(result) : undefined
+  const handleCardClick = canPlay
+    ? () => onPlay?.(result)
+    : hasSource && onExploreContents
+      ? () => onExploreContents(result)
+      : undefined
+  const cardClickable = handleCardClick !== undefined
+
+  const handleCardKeyDown = handleCardClick ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleCardClick()
+    }
+  } : undefined
 
   let titleAttr: string
   if (tmdb) {
@@ -414,42 +430,22 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
       <QualityBadges quality={result.quality} />
       {renderCategoryBadges(result)}
       {renderCardStats(result, onRefresh, refreshing, refreshedAt)}
-      {renderCardActions({ canPlay, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied })}
+      {renderCardActions({ canPlay, playLinkHref, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied })}
     </>
   )
 
-  if (playLinkHref) {
-    return (
-      <a
-        ref={(el) => { cardRef.current = el }}
-        href={playLinkHref}
-        {...anchorNavProps(() => onPlay?.(result))}
-        className={cardClass}
-        style={cardTapStyle}
-        title={i18n.t('search.play_new_tab')}
-      >
-        {cardInner}
-      </a>
-    )
-  }
-
   return (
-    <button
+    <div
       ref={(el) => { cardRef.current = el }}
       onClick={handleCardClick}
-      onKeyDown={handleCardClick ? (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          handleCardClick()
-        }
-      } : undefined}
+      onKeyDown={handleCardKeyDown}
       className={cardClass}
       style={cardTapStyle}
-      title={cardClickable ? i18n.t('search.tap_explore') : undefined}
-      type="button"
-      disabled={!cardClickable}
+      title={canPlay ? i18n.t('search.play_stream') : cardClickable ? i18n.t('search.tap_explore') : undefined}
+      role={cardClickable ? 'button' : undefined}
+      tabIndex={cardClickable ? 0 : undefined}
     >
       {cardInner}
-    </button>
+    </div>
   )
 })
