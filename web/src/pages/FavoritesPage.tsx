@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
-import { Heart, Loader2, Trash2, Play, Clock, FileVideo, FolderPlus, Folder, FolderOpen, ChevronRight, ChevronDown, Pencil, Inbox, Download, X, UploadCloud, Search, CheckSquare, Square, Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { Heart, Loader2, Folder, ChevronDown, Download, X, Search, CheckSquare, Square, RefreshCw } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, StreamFavorite,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden, favoriteSetFolder,
@@ -10,158 +9,24 @@ import {
 import NavHeader from '../components/NavHeader'
 import DownloadModal from '../components/DownloadModal'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
-import Thumbnail from '../components/Thumbnail'
-import SeedBadge from '../components/SeedBadge'
 import FavoritesSortControl from '../components/FavoritesSortControl'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
-import { Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { useRevealHidden } from '../lib/reveal'
-import { newTabProps, playHref } from '../lib/cardNav'
-import { formatDate } from '../lib/format'
 import { SortKey, SortDir, sortFavorites } from '../lib/favSort'
 import { errMessage } from '../lib/errMessage'
-import { buildTree, flattenTree, importTorrentB64, buildImportMsg, type FolderNode } from '../lib/favoritesTree'
-
-
-type TreeProps = {
-  readonly nodes: FolderNode[]
-  readonly depth: number
-  readonly selectedId: number | null
-  readonly expanded: Set<number>
-  readonly editingId: number | null
-  readonly onSelect: (id: number | null) => void
-  readonly onToggle: (id: number) => void
-  readonly onStartEdit: (id: number) => void
-  readonly onCommitEdit: (id: number, name: string) => void
-  readonly onCancelEdit: () => void
-  readonly onDelete: (id: number) => void
-  readonly onCreateSub: (parentId: number) => void
-  readonly onToggleHidden: (id: number, hidden: boolean) => void
-  readonly onDropOnFolder: (folderId: number, favoriteName: string) => void
-}
-
-function FolderTree(p: TreeProps) {
-  const { t } = useTranslation()
-  return (
-    <ul className="flex flex-col gap-0.5">
-      {p.nodes.map(node => {
-        const isOpen = p.expanded.has(node.folder.id)
-        const isSelected = p.selectedId === node.folder.id
-        const isEditing = p.editingId === node.folder.id
-        return (
-            <li key={node.folder.id}>
-            <button
-              type="button"
-              className={`group flex items-center gap-1 px-2 py-1 rounded-md text-sm transition-colors w-full text-left ${
-                isSelected ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
-              }`}
-              style={{ paddingLeft: `${depthIndent(p.depth)}px` }}
-              onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-              onDrop={e => {
-                e.preventDefault()
-                const name = e.dataTransfer.getData('text/x-favorite-name')
-                if (name) p.onDropOnFolder(node.folder.id, name)
-              }}
-              onClick={() => p.onSelect(node.folder.id)}
-            >
-              {node.children.length > 0 ? (
-                <button onClick={() => p.onToggle(node.folder.id)} className="text-text-muted hover:text-text-primary">
-                  {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                </button>
-              ) : (
-                <span className="w-3" />
-              )}
-              {isOpen ? <FolderOpen className="w-3.5 h-3.5 text-pink-400" /> : <Folder className="w-3.5 h-3.5 text-text-muted" />}
-              {node.folder.hidden && <EyeOff className="w-3 h-3 text-amber-400 flex-shrink-0" aria-label={t('favorites.folderHiddenAria')} />}
-              {isEditing ? (
-                <input
-                  autoFocus
-                  defaultValue={node.folder.name}
-                  onBlur={e => p.onCommitEdit(node.folder.id, e.currentTarget.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') p.onCommitEdit(node.folder.id, e.currentTarget.value)
-                    if (e.key === 'Escape') p.onCancelEdit()
-                  }}
-                  className="flex-1 bg-surface border border-default rounded px-1 text-xs text-text-primary focus:outline-none focus:border-pink-500"
-                />
-              ) : (
-                <button
-                  onClick={() => p.onSelect(node.folder.id)}
-                  onDoubleClick={() => p.onStartEdit(node.folder.id)}
-                  className="flex-1 min-w-0 text-left truncate"
-                  title={node.folder.name}
-                >
-                  {node.folder.name}
-                </button>
-              )}
-              <div className="max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
-                <button onClick={() => p.onCreateSub(node.folder.id)} title={t('favorites.subfolder')} className="p-0.5 text-text-muted hover:text-text-primary">
-                  <FolderPlus className="w-3 h-3" />
-                </button>
-                <button onClick={() => p.onStartEdit(node.folder.id)} title={t('favorites.rename')} className="p-0.5 text-text-muted hover:text-text-primary">
-                  <Pencil className="w-3 h-3" />
-                </button>
-                <button onClick={() => p.onToggleHidden(node.folder.id, !node.folder.hidden)} title={node.folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-0.5 text-text-muted hover:text-amber-400">
-                  {node.folder.hidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                </button>
-                <button onClick={() => p.onDelete(node.folder.id)} title={t('favorites.delete')} className="p-0.5 text-text-muted hover:text-red-400">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            </button>
-            {isOpen && node.children.length > 0 && (
-              <FolderTree {...p} nodes={node.children} depth={p.depth + 1} />
-            )}
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-const depthIndent = (depth: number) => 8 + depth * 14
-
-function rootFolderClass(viewMode: number | null, dropOnRoot: boolean): string {
-  if (viewMode === null) return 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30'
-  if (dropOnRoot) return 'bg-pink-500/20 border border-pink-500/50 text-pink-700 dark:text-pink-100'
-  return 'text-text-primary hover:bg-surface-secondary border border-transparent'
-}
-
-function pageTitle(viewMode: number | null, ALL_VIEW: number, folders: FavoriteFolder[], t: TFunction): string {
-  if (viewMode === ALL_VIEW) return t('favorites.allFavorites')
-  if (viewMode === null) return t('favorites.noFolder')
-  return folders.find(f => f.id === viewMode)?.name || t('favorites.fallbackTitle')
-}
-
-function renderFavsContent(loading: boolean, error: string, filteredFavs: StreamFavorite[], viewMode: number | null, ALL_VIEW: number, _folders: FavoriteFolder[], t: TFunction): JSX.Element | null {
-  if (loading) {
-    return <div className="flex items-center justify-center py-20 text-text-muted">
-      <Loader2 className="w-8 h-8 animate-spin" />
-    </div>
-  }
-  if (error) {
-    return <div className="card text-red-400 text-sm">{t('favorites.errorLabel', { error })}</div>
-  }
-  if (filteredFavs.length === 0) {
-    const insideFolder = viewMode !== ALL_VIEW
-    return <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-      <Heart className="w-16 h-16 mb-4 opacity-30" />
-      <p className="text-xl font-medium">{insideFolder ? t('favorites.emptyInFolder') : t('favorites.emptyNone')}</p>
-      <p className="text-sm mt-2 text-center max-w-md">
-        {viewMode === ALL_VIEW
-          ? t('favorites.emptyHintAll')
-          : t('favorites.emptyHintFolder')}
-      </p>
-    </div>
-  }
-  return null
-}
+import { buildTree, importTorrentB64, buildImportMsg } from '../lib/favoritesTree'
+import FolderSidebar from '../components/favorites/FolderSidebar'
+import FavoriteCard from '../components/favorites/FavoriteCard'
+import ImportSheet from '../components/favorites/ImportSheet'
+import MultiSelectBar from '../components/favorites/MultiSelectBar'
+import MobileFolderSheet from '../components/favorites/MobileFolderSheet'
+import { pageTitle, renderFavsContent } from '../components/favorites/favoritesHelpers'
 
 export default function FavoritesPage() {
   const { t } = useTranslation()
@@ -463,6 +328,14 @@ export default function FavoritesPage() {
     setFavs(favs.map(f => selected.has(f.name) ? { ...f, folderId } : f))
     clearSelection()
   }
+  const deleteSelected = async () => {
+    const names = [...selected]
+    const ok = await confirm({ title: t('favorites.deleteSelectedTitle'), message: t('favorites.deleteSelectedMessage', { count: names.length }), confirmLabel: t('favorites.delete'), destructive: true })
+    if (!ok) return
+    await Promise.all(names.map(n => favoriteRemove(n).catch(() => {})))
+    setFavs(favs.filter(f => !selected.has(f.name)))
+    clearSelection()
+  }
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
@@ -471,94 +344,31 @@ export default function FavoritesPage() {
 
       <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4">
         {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
-        <aside className="w-64 flex-shrink-0 hidden md:block">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xs uppercase tracking-wider text-text-muted cursor-default select-none" title={revealHidden ? t('favorites.hiddenFoldersVisible') : undefined}>
-              {t('favorites.folders')}{revealHidden && <Eye className="inline w-3 h-3 ml-1 text-amber-400" aria-label={t('favorites.hiddenVisibleAria')} />}
-            </h2>
-            <button
-              onClick={() => setCreatingRoot(true)}
-              title={t('favorites.newFolder')}
-              className="p-1 text-text-muted hover:text-pink-400"
-            >
-              <FolderPlus className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Special views */}
-          <ul className="flex flex-col gap-0.5 mb-2">
-            <li>
-              <button
-                onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null) }}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(ALL_VIEW); setSelectedFolderId(null) } }}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${
-                  viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-secondary border border-transparent'
-                }`}
-              >
-                <Heart className="w-3.5 h-3.5 fill-current" />
-                {t('favorites.all')}
-                <span className="ml-auto text-[10px] text-text-muted">{favs.length}</span>
-              </button>
-            </li>
-            <li>
-              <button
-                onDragOver={e => { e.preventDefault(); setDropOnRoot(true) }}
-                onDragLeave={() => setDropOnRoot(false)}
-                onDrop={e => {
-                  e.preventDefault()
-                  const name = e.dataTransfer.getData('text/x-favorite-name')
-                  if (name) handleDropOnFolder(null, name)
-                }}
-                onClick={() => { setViewMode(null); setSelectedFolderId(null) }}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setViewMode(null); setSelectedFolderId(null) } }}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm transition-colors ${rootFolderClass(viewMode, dropOnRoot)}`}
-              >
-                <Inbox className="w-3.5 h-3.5" />
-                {t('favorites.noFolder')}
-                <span className="ml-auto text-[10px] text-text-muted">{favs.filter(f => f.folderId == null).length}</span>
-              </button>
-            </li>
-          </ul>
-
-          {/* New root folder input */}
-          {creatingRoot && (
-            <div className="mb-2">
-              <input
-                ref={newFolderInput}
-                autoFocus
-                placeholder={t('favorites.folderNamePlaceholder')}
-                onBlur={handleCreateRoot}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleCreateRoot()
-                  if (e.key === 'Escape') setCreatingRoot(false)
-                }}
-                className="w-full bg-surface border border-default rounded px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-pink-500"
-              />
-            </div>
-          )}
-
-          {/* Folder tree */}
-          <FolderTree
-            nodes={tree}
-            depth={0}
-            selectedId={selectedFolderId}
-            expanded={expanded}
-            editingId={editingId}
-            onSelect={id => { setSelectedFolderId(id); setViewMode(id) }}
-            onToggle={id => setExpanded(prev => {
-              const next = new Set(prev)
-              if (next.has(id)) next.delete(id); else next.add(id)
-              return next
-            })}
-            onStartEdit={setEditingId}
-            onCommitEdit={handleRename}
-            onCancelEdit={() => setEditingId(null)}
-            onDelete={handleDeleteFolder}
-            onCreateSub={handleCreateSub}
-            onToggleHidden={handleToggleHidden}
-            onDropOnFolder={(fid, name) => handleDropOnFolder(fid, name)}
-          />
-        </aside>
+        <FolderSidebar
+          revealHidden={revealHidden}
+          viewMode={viewMode}
+          ALL_VIEW={ALL_VIEW}
+          favs={favs}
+          tree={tree}
+          dropOnRoot={dropOnRoot}
+          creatingRoot={creatingRoot}
+          newFolderInput={newFolderInput}
+          selectedFolderId={selectedFolderId}
+          expanded={expanded}
+          editingId={editingId}
+          setCreatingRoot={setCreatingRoot}
+          setViewMode={setViewMode}
+          setSelectedFolderId={setSelectedFolderId}
+          setDropOnRoot={setDropOnRoot}
+          setExpanded={setExpanded}
+          setEditingId={setEditingId}
+          onCreateRoot={handleCreateRoot}
+          onRename={handleRename}
+          onDeleteFolder={handleDeleteFolder}
+          onCreateSub={handleCreateSub}
+          onToggleHidden={handleToggleHidden}
+          onDropOnFolder={handleDropOnFolder}
+        />
 
         {/* Main — favorites grid */}
         <section className="flex-1 min-w-0">
@@ -660,129 +470,21 @@ export default function FavoritesPage() {
             return <>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {shown.map(fav => (
-                <div
+                <FavoriteCard
                   key={fav.name}
-                  role="button"
-                  tabIndex={0}
-                  draggable
+                  fav={fav}
+                  selected={selected.has(fav.name)}
+                  anySelected={selected.size > 0}
+                  folders={folders}
+                  seedRefresh={seedRefresh}
+                  onToggleSelected={() => toggleSelected(fav.name)}
                   onDragStart={e => handleFavDragStart(e, fav.name)}
-                  {...newTabProps(playHref(fav.infoHash), () => playFavorite(fav))}
-                  onKeyDown={e => { if (e.key === 'Enter') playFavorite(fav) }}
-                  className={`card flex flex-col gap-2 group cursor-grab active:cursor-grabbing relative w-full text-left ${
-                    selected.has(fav.name) ? 'ring-2 ring-green-500' : ''
-                  }`}
-                >
-                  {/* Multi-select checkbox — pick several, then move all to a
-                      folder via the action bar. Stops propagation so it doesn't
-                      start a drag/play. */}
-                  <input
-                    type="checkbox"
-                    checked={selected.has(fav.name)}
-                    onChange={() => toggleSelected(fav.name)}
-                    onClick={e => e.stopPropagation()}
-                    title={t('favorites.select')}
-                    className={`absolute top-2 left-2 z-10 w-4 h-4 accent-green-500 cursor-pointer ${
-                      selected.size > 0 ? 'opacity-100' : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100'
-                    }`}
-                  />
-                  <div className="flex items-start gap-2 pl-6">
-                    {/* Lazy TMDB poster — falls back to a Film/Music icon when no match. */}
-                    <Thumbnail title={fav.name} size="md" infoHash={fav.infoHash} />
-                    <h3 className="text-sm font-medium text-text-primary line-clamp-2 flex-1" title={fav.name}>
-                      <FileVideo className="w-3.5 h-3.5 inline mr-1.5 text-text-muted" />
-                      {fav.name}
-                    </h3>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRemove(fav.name) }}
-                      title={t('favorites.removeFromFavorites')}
-                      className="text-text-muted hover:text-red-400 transition-colors max-sm:opacity-100 opacity-0 group-hover:opacity-100 flex-shrink-0"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-3 text-xs text-text-muted flex-wrap">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {formatDate(fav.favoritedAt)}
-                    </span>
-                    <SeedBadge infoHash={fav.infoHash} magnet={fav.magnet} refreshSignal={seedRefresh} />
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      fav.reason === 'auto-5min'
-                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30'
-                        : 'bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-500/30'
-                    }`}>
-                      {fav.reason === 'auto-5min' ? t('favorites.autoReason') : t('favorites.manualReason')}
-                    </span>
-                    {fav.folderId != null && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-secondary text-text-secondary border border-default flex items-center gap-1">
-                        <Folder className="w-2.5 h-2.5" />
-                        {folders.find(f => f.id === fav.folderId)?.name || '?'}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex gap-1.5 mt-auto pt-2 border-t border-default">
-                    <button
-                      onClick={e => { e.stopPropagation(); playFavorite(fav) }}
-                      disabled={!fav.magnet}
-                      title={fav.magnet ? t('favorites.playTooltip') : t('favorites.magnetNotSaved')}
-                      className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg flex-1 justify-center transition-colors ${
-                        fav.magnet
-                          ? 'bg-green-500/20 hover:bg-green-500/30 text-green-700 dark:text-green-300 border border-green-500/30'
-                          : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
-                      }`}
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      {t('favorites.play')}
-                    </button>
-                    {/* Baixar — abre o modal unificado (destino + seleção de
-                        arquivos/árvore), igual à busca/histórico. */}
-                    <button
-                      onClick={e => { e.stopPropagation(); downloadFavorite(fav) }}
-                      disabled={!fav.magnet}
-                      title={t('favorites.downloadTooltip')}
-                      className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
-                        fav.magnet
-                          ? 'bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-500/30'
-                          : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
-                      }`}
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                    </button>
-                    {/* Details/contents — view files + torrent details without
-                        committing to play (consistent with search/history). */}
-                    <button
-                      onClick={e => { e.stopPropagation(); openContents(fav) }}
-                      disabled={!fav.magnet}
-                      title={t('favorites.contentsTooltip')}
-                      className={`flex items-center justify-center text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
-                        fav.magnet
-                          ? 'bg-surface-tertiary/40 hover:bg-surface-tertiary/70 text-text-primary border border-default'
-                          : 'bg-surface-tertiary/30 text-text-muted cursor-not-allowed'
-                      }`}
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                    </button>
-                    {/* Move to folder — touch-friendly alternative to drag-and-drop
-                        (HTML5 DnD doesn't work on touch). Native <select> is fully
-                        usable on iOS. Only shown when folders exist. */}
-                    {folders.length > 0 && (
-                      <select
-                        value={fav.folderId ?? ''}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => handleDropOnFolder(e.target.value === '' ? null : Number(e.target.value), fav.name)}
-                        title={t('favorites.moveToFolder')}
-                        className="text-xs px-2 py-1.5 rounded-lg bg-surface-tertiary/40 text-text-primary border border-default focus:outline-none focus:border-green-500 cursor-pointer max-w-[45%]"
-                      >
-                        <option value="">{t('favorites.rootNoFolder')}</option>
-                        {folders.map(f => (
-                          <option key={f.id} value={f.id}>{f.name}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
+                  onPlay={() => playFavorite(fav)}
+                  onRemove={() => handleRemove(fav.name)}
+                  onDownload={() => downloadFavorite(fav)}
+                  onOpenContents={() => openContents(fav)}
+                  onMoveToFolder={folderId => handleDropOnFolder(folderId, fav.name)}
+                />
               ))}
             </div>
               {visible < filteredFavs.length && (
@@ -802,115 +504,31 @@ export default function FavoritesPage() {
       {/* Import modal — paste magnet(s) or drop a .torrent file.
           Usa o Sheet (mesmo padrão dos demais modais): centraliza certo no
           desktop/Safari e vira bottom-sheet no mobile. */}
-      <Sheet
+      <ImportSheet
         open={showImport}
         onClose={() => { if (!importing) setShowImport(false) }}
-        size="lg"
-        icon={<Download className="w-4 h-4 text-pink-400 flex-shrink-0" />}
-        title={
-          <>
-            {t('favorites.importTorrent')}
-            {viewMode !== ALL_VIEW && (
-              <span className="text-[10px] text-text-secondary font-normal ml-1">
-                → {folders.find(f => f.id === viewMode)?.name || t('favorites.folderFallback')}
-              </span>
-            )}
-          </>
-        }
-      >
-        <div className="flex flex-col gap-4">
-          {/* Magnet textarea — one per line for batch */}
-          <div>
-            <label htmlFor="import-magnet" className="text-xs text-text-secondary mb-1 block">{t('favorites.magnetLinkLabel')}</label>
-            <textarea
-              id="import-magnet"
-              value={magnetInput}
-              onChange={e => setMagnetInput(e.target.value)}
-              placeholder="magnet:?xt=urn:btih:..."
-              rows={3}
-              className="w-full bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary font-mono resize-y focus:border-pink-500 focus:outline-none"
-            />
-            <button
-              onClick={importMagnets}
-              disabled={importing || !magnetInput.trim()}
-              className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
-            >
-              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {t('favorites.importMagnet')}{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 text-[10px] text-text-muted uppercase tracking-wider">
-            <div className="flex-1 h-px bg-surface-tertiary" /> {t('favorites.or')} <div className="flex-1 h-px bg-surface-tertiary" />
-          </div>
-
-          {/* .torrent dropzone */}
-          <label
-            onDragOver={e => { e.preventDefault(); setDragOverDrop(true) }}
-            onDragLeave={() => setDragOverDrop(false)}
-            onDrop={e => {
-              e.preventDefault()
-              setDragOverDrop(false)
-              const fs = Array.from(e.dataTransfer.files || [])
-              if (fs.length) importTorrentFiles(fs)
-            }}
-            className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors ${
-              dragOverDrop ? 'border-pink-500 bg-pink-500/10' : 'border-default hover:border-strong'
-            }`}
-          >
-            <UploadCloud className="w-7 h-7 text-text-muted" />
-            <span className="text-sm text-text-secondary">{t('favorites.dropzoneHint')}</span>
-            <input
-              type="file"
-              accept=".torrent"
-              multiple
-              className="hidden"
-              onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) importTorrentFiles(fs) }}
-            />
-          </label>
-
-          {importMsg && (
-            <p className={`text-sm ${importMsg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
-              {importMsg.text}
-            </p>
-          )}
-        </div>
-      </Sheet>
+        importing={importing}
+        viewMode={viewMode}
+        ALL_VIEW={ALL_VIEW}
+        folders={folders}
+        magnetInput={magnetInput}
+        setMagnetInput={setMagnetInput}
+        onImportMagnets={importMagnets}
+        onImportFiles={importTorrentFiles}
+        importMsg={importMsg}
+        dragOverDrop={dragOverDrop}
+        setDragOverDrop={setDragOverDrop}
+      />
 
         {/* Multi-select action bar — appears when ≥1 favorite is checked. */}
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-surface-secondary border border-default rounded-full shadow-2xl px-4 py-2 safe-bottom">
-          <span className="text-sm text-text-primary whitespace-nowrap">{t('favorites.selectedCount', { count: selected.size })}</span>
-          <select
-            defaultValue=""
-            onChange={e => { moveSelectedToFolder(e.target.value === '' ? null : Number(e.target.value)); e.target.value = '' }}
-            className="bg-surface border border-default rounded-lg text-sm text-text-primary px-2 py-1 focus:outline-none focus:border-green-500"
-          >
-            <option value="" disabled>{t('favorites.moveTo')}</option>
-            <option value="">{t('favorites.rootNoFolder')}</option>
-            {folders.map(f => (
-              <option key={f.id} value={f.id}>{f.name}</option>
-            ))}
-          </select>
-          <button
-            onClick={async () => {
-              const names = [...selected]
-              const ok = await confirm({ title: t('favorites.deleteSelectedTitle'), message: t('favorites.deleteSelectedMessage', { count: names.length }), confirmLabel: t('favorites.delete'), destructive: true })
-              if (!ok) return
-              await Promise.all(names.map(n => favoriteRemove(n).catch(() => {})))
-              setFavs(favs.filter(f => !selected.has(f.name)))
-              clearSelection()
-            }}
-            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 px-2 py-1"
-            title={t('favorites.deleteSelectedTooltip')}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            {t('favorites.delete')}
-          </button>
-          <button onClick={clearSelection} title={t('favorites.clearSelection')} className="text-text-secondary hover:text-text-primary">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <MultiSelectBar
+          count={selected.size}
+          folders={folders}
+          onMoveToFolder={moveSelectedToFolder}
+          onDeleteSelected={deleteSelected}
+          onClear={clearSelection}
+        />
       )}
 
       {/* Contents/details modal — files + torrent details without playing. */}
@@ -925,81 +543,22 @@ export default function FavoritesPage() {
       <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
 
       {/* Dropdown de pastas no mobile — navega entre pastas sem a sidebar. */}
-      <Sheet
+      <MobileFolderSheet
         open={folderSheetOpen}
         onClose={() => setFolderSheetOpen(false)}
-        title={<>{t('favorites.folders')}{revealHidden && <Eye className="inline w-3.5 h-3.5 ml-1 text-amber-400" aria-label={t('favorites.hiddenVisibleAria')} />}</>}
-        icon={<Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />}
-        size="sm"
-      >
-        {/* Criar/editar/excluir categorias direto no mobile (a sidebar com isso
-            é hidden md:block). */}
-        <button
-          onClick={handleCreateRootPrompt}
-          className="w-full flex items-center justify-center gap-2 mb-2 px-3 min-h-[44px] rounded-lg text-sm bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30 hover:bg-pink-500/25 transition-colors"
-        >
-          <FolderPlus className="w-4 h-4 flex-shrink-0" />
-          {t('favorites.newFolder')}
-        </button>
-        <ul className="flex flex-col gap-1">
-          <li>
-            <button
-              onClick={() => { setViewMode(ALL_VIEW); setSelectedFolderId(null); setFolderSheetOpen(false) }}
-              className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
-                viewMode === ALL_VIEW ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
-              }`}
-            >
-              <Heart className="w-4 h-4 fill-current flex-shrink-0" />
-              <span className="flex-1 text-left">{t('favorites.all')}</span>
-              <span className="text-[10px] text-text-muted">{favs.length}</span>
-            </button>
-          </li>
-          <li>
-            <button
-              onClick={() => { setViewMode(null); setSelectedFolderId(null); setFolderSheetOpen(false) }}
-              className={`w-full flex items-center gap-2 px-3 min-h-[44px] rounded-lg text-sm transition-colors ${
-                viewMode === null ? 'bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30' : 'text-text-primary hover:bg-surface-tertiary border border-transparent'
-              }`}
-            >
-              <Inbox className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1 text-left">{t('favorites.noFolder')}</span>
-              <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId == null).length}</span>
-            </button>
-          </li>
-          {flattenTree(tree).map(({ folder, depth }) => (
-            <li key={folder.id} className={`flex items-center rounded-lg transition-colors ${
-              viewMode === folder.id ? 'bg-pink-500/15 border border-pink-500/30' : 'border border-transparent hover:bg-surface-tertiary'
-            }`}>
-              <button
-                onClick={() => { setViewMode(folder.id); setSelectedFolderId(folder.id); setFolderSheetOpen(false) }}
-                className={`flex-1 min-w-0 flex items-center gap-2 min-h-[44px] text-sm text-left ${
-                  viewMode === folder.id ? 'text-pink-700 dark:text-pink-200' : 'text-text-primary'
-                }`}
-                style={{ paddingLeft: `${12 + depth * 16}px` }}
-              >
-                <Folder className="w-4 h-4 text-text-muted flex-shrink-0" />
-                <span className="flex-1 text-left truncate">{folder.name}</span>
-                {folder.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('favorites.folderHiddenAria')} />}
-                <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId === folder.id).length}</span>
-              </button>
-              {/* Ações da categoria — ocultar / subpasta / renomear / excluir.
-                  Pastas ocultas só aparecem aqui com o modo revelado ativo. */}
-              <button onClick={() => void handleToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
-                {folder.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-              </button>
-              <button onClick={() => void handleCreateSub(folder.id)} title={t('favorites.newSubfolder')} className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
-                <FolderPlus className="w-4 h-4" />
-              </button>
-              <button onClick={() => handleRenamePrompt(folder)} title={t('favorites.rename')} className="p-2 text-text-muted hover:text-text-primary flex-shrink-0">
-                <Pencil className="w-4 h-4" />
-              </button>
-              <button onClick={() => void handleDeleteFolder(folder.id)} title={t('favorites.delete')} className="p-2 pr-3 text-text-muted hover:text-red-400 flex-shrink-0">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Sheet>
+        revealHidden={revealHidden}
+        viewMode={viewMode}
+        ALL_VIEW={ALL_VIEW}
+        favs={favs}
+        tree={tree}
+        setViewMode={setViewMode}
+        setSelectedFolderId={setSelectedFolderId}
+        onCreateRoot={handleCreateRootPrompt}
+        onToggleHidden={handleToggleHidden}
+        onCreateSub={handleCreateSub}
+        onRename={handleRenamePrompt}
+        onDeleteFolder={handleDeleteFolder}
+      />
     </div>
   )
 }

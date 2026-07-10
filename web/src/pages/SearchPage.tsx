@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import {
-  SearchX, Wifi, WifiOff, Loader2,
-  Plus, X, Filter, SortAsc, SortDesc, Play, Sparkles, Layers,
-} from 'lucide-react'
+import { SearchX, X, Filter } from 'lucide-react'
 import SearchBar from '../components/SearchBar'
 import ResultCard, { refreshFavoritesCache } from '../components/ResultCard'
 import DownloadModal from '../components/DownloadModal'
@@ -14,61 +11,28 @@ import { useScrollRestoration } from '../lib/useScrollRestoration'
 import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
-import { SearchResult, Indexer, getIndexers, getHistory, favoritesList, withToken, saveConfig, testJackettConnection } from '../api/client'
+import { SearchResult, Indexer, getIndexers, getHistory, favoritesList } from '../api/client'
 import { load, save } from '../lib/storage'
 import { reorder } from '../lib/reorder'
 import { syncTabsToCache } from '../lib/searchResultsCache'
-import type { SearchPhase } from '../lib/searchResultsCache'
 import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { useMediaMode } from '../lib/mediaMode'
 import { MusicSearchFilterToggle } from '../components/MusicSearchFilterToggle'
-import { buildSeriesLayout } from '../lib/seriesGroup'
-import { isIncognito } from '../lib/incognito'
 import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
-import { shouldPromptJackettSetup } from '../lib/jackettSetup'
-import { openSearchStream, type SearchStreamHandle } from '../lib/searchStream'
 import { useTranslation, Trans } from 'react-i18next'
-import { errMessage } from '../lib/errMessage'
 
-import { hydrateTabs, persistTabs, appendResult, setErrorMsg, newTab, nextTabId, FILTER_DEFAULTS_KEY, type FilterDefaults, type ResultSortKey, type TabState } from '../lib/searchTabs'
-
-function SkeletonCard() {
-  return (
-    <div className="card animate-pulse flex flex-col gap-3">
-      <div className="h-4 bg-surface-tertiary rounded w-3/4" />
-      <div className="h-3 bg-surface-tertiary rounded w-1/4" />
-      <div className="grid grid-cols-2 gap-2">
-        <div className="h-3 bg-surface-tertiary rounded" />
-        <div className="h-3 bg-surface-tertiary rounded" />
-        <div className="h-3 bg-surface-tertiary rounded" />
-        <div className="h-3 bg-surface-tertiary rounded" />
-      </div>
-      <div className="flex gap-2 pt-1 border-t border-default">
-        <div className="h-7 bg-surface-tertiary rounded flex-1" />
-        <div className="h-7 bg-surface-tertiary rounded flex-1" />
-      </div>
-    </div>
-  )
-}
-
-function PhaseIndicator({ phase }: { readonly phase: SearchPhase }) {
-  if (phase === 'idle') return null
-  if (phase === 'cache' || phase === 'live')
-    return <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse flex-shrink-0" />
-  if (phase === 'done')
-    return <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
-  return <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-}
-
-const SORT_OPTIONS: { key: ResultSortKey; labelKey: string }[] = [
-  { key: 'seeders',  labelKey: 'search.seeds'    },
-  { key: 'leechers', labelKey: 'search.leechers' },
-  { key: 'size',     labelKey: 'search.size'     },
-  { key: 'title',    labelKey: 'search.name'     },
-  { key: 'age',      labelKey: 'search.date'     },
-]
+import { hydrateTabs, persistTabs, newTab, nextTabId, FILTER_DEFAULTS_KEY, type FilterDefaults, type TabState } from '../lib/searchTabs'
+import { SkeletonCard } from '../components/search/SkeletonCard'
+import { SearchFilterFields } from '../components/search/SearchFilterFields'
+import { SearchTabStrip } from '../components/search/SearchTabStrip'
+import { SearchStatusBar } from '../components/search/SearchStatusBar'
+import { SearchResultsGrid } from '../components/search/SearchResultsGrid'
+import { JackettSetupPrompt } from '../components/search/JackettSetupPrompt'
+import { useDiscoveredIndexers } from '../components/search/useDiscoveredIndexers'
+import { useJackettSetup } from '../components/search/useJackettSetup'
+import { useSearchStreams } from '../components/search/useSearchStreams'
 
 export default function SearchPage() {
   const { t } = useTranslation()
@@ -79,82 +43,9 @@ export default function SearchPage() {
   // re-busca os resultados chegam por SSE, então pode restaurar parcialmente).
   useScrollRestoration((tabs.find(t => t.id === activeId)?.results.length ?? 0) > 0)
   const [indexers, setIndexers] = useState<Indexer[]>([])
-  const [discoveredIndexers, setDiscoveredIndexers] = useState<Indexer[]>([])
 
-  // Carrega indexadores autodescobertos persistidos
-  useEffect(() => {
-    setDiscoveredIndexers(load<Indexer[]>('discoveredIndexers', []))
-  }, [])
-
-  // Coleta novos indexadores a partir dos resultados de busca
-  useEffect(() => {
-    if (tabs.length === 0) return
-    const allResults = tabs.flatMap(t => t.results)
-    if (allResults.length === 0) return
-
-    const discoveredMap = new Map<string, Indexer>()
-    discoveredIndexers.forEach(idx => discoveredMap.set(idx.id, idx))
-
-    let mutated = false
-    allResults.forEach(r => {
-      const id = r.trackerId || r.tracker.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
-      if (!id) return
-      if (discoveredMap.has(id)) return  // already known by this ID
-
-      // When a real trackerId arrives, evict any stale entry with the same
-      // display name but a different (possibly synthetic) ID. Without this,
-      // re-discovering "Amigos Share Club" under its real Jackett ID leaves
-      // the old synthetic-id entry, causing the same indexer to appear twice.
-      if (r.trackerId) {
-        const nameLower = r.tracker.toLowerCase()
-        for (const [staleId, stale] of discoveredMap) {
-          if (stale.name.toLowerCase() === nameLower && staleId !== id) {
-            discoveredMap.delete(staleId)
-            break
-          }
-        }
-      }
-
-      discoveredMap.set(id, {
-        id,
-        name: r.tracker,
-        description: `Descoberto via busca (${r.tracker})`,
-        configured: true,
-        language: '',
-        type: ''
-      })
-      mutated = true
-    })
-
-    if (mutated) {
-      const nextList = Array.from(discoveredMap.values())
-      setDiscoveredIndexers(nextList)
-      save('discoveredIndexers', nextList)
-    }
-  }, [tabs, discoveredIndexers])
-
-  const allIndexers = useMemo(() => {
-    const map = new Map<string, Indexer>()
-    indexers.forEach(i => map.set(i.id, i))
-    discoveredIndexers.forEach(i => map.set(i.id, i))
-    // Final dedup by display name: prevents a stale entry (old synthetic ID)
-    // from appearing alongside a newer entry with the same name but a real ID.
-    const byName = new Map<string, Indexer>()
-    for (const idx of map.values()) {
-      const key = idx.name.toLowerCase().trim()
-      const existing = byName.get(key)
-      if (existing) {
-        // Prefer the entry whose ID is NOT the synthetic derivation of the name
-        const synthetic = idx.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-')
-        if (existing.id === synthetic && idx.id !== synthetic) {
-          byName.set(key, idx)
-        }
-      } else {
-        byName.set(key, idx)
-      }
-    }
-    return Array.from(byName.values())
-  }, [indexers, discoveredIndexers])
+  // Indexadores configurados + autodescobertos (coleta/persistência no hook)
+  const allIndexers = useDiscoveredIndexers(tabs, indexers)
 
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   const { playSingle } = usePlayer()
@@ -164,63 +55,13 @@ export default function SearchPage() {
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
 
   // Jackett connection status — for first-run / config prompt
-  const [showJackettSetup, setShowJackettSetup] = useState(false)
-  const [setupUrl, setSetupUrl] = useState('')
-  const [setupKey, setSetupKey] = useState('')
-  const [setupTesting, setSetupTesting] = useState(false)
-  const [setupError, setSetupError] = useState('')
-  const [setupTestOk, setSetupTestOk] = useState(false)
+  const {
+    showJackettSetup, setShowJackettSetup,
+    setupUrl, setSetupUrl, setupKey, setSetupKey,
+    setupTesting, setupError, setupTestOk, setSetupTestOk,
+    runJackettSetup,
+  } = useJackettSetup()
 
-  useEffect(() => {
-    // Check if Jackett is actually configured before showing the setup prompt.
-    // If the network request fails (transient Electron GPU crash), don't prompt —
-    // the config might already be saved.
-    fetch('/api/status')
-      .then(r => r.json())
-      .then(d => {
-        if (d.jackett === 'ok') return
-        // Only prompt if there's truly no config saved. /api/config is admin-only,
-        // so capture response.ok: an unreadable config (non-admin 403, transient
-        // error) must NOT be misread as "unconfigured" — see lib/jackettSetup.ts.
-        fetch('/api/config')
-          .then(async r => ({ ok: r.ok, body: r.ok ? await r.json() : {} }))
-          .then(({ ok, body }) => {
-            if (shouldPromptJackettSetup(d.jackett, { ok, jackettUrl: body?.jackett?.url, apiKeySet: body?.jackett?.apiKeySet })) {
-              setShowJackettSetup(true)
-            }
-          })
-          .catch(() => {})
-      })
-      .catch(() => {}) // network error — don't prompt, config might be saved
-  }, [])
-
-  // Shared runner for the Jackett setup prompt's "Testar" / "Salvar e Testar"
-  // buttons: validates the URL, runs `action` (test-only or save+test) with one
-  // transient-network retry, and manages the shared setup* UI state — so the two
-  // buttons stay a single skeleton instead of duplicating the retry/try-catch.
-  const runJackettSetup = async (
-    action: () => Promise<{ success: boolean; error?: string }>,
-    onSuccess: () => void,
-  ) => {
-    if (!setupUrl.trim()) { setSetupError(t('search.enter_jackett_url')); return }
-    setSetupTesting(true); setSetupError(''); setSetupTestOk(false)
-    const isNetErr = (e: unknown) => e instanceof Error && e.message.includes('Network Error')
-    try {
-      let d
-      try { d = await action() }
-      catch (err) {
-        if (!isNetErr(err)) throw err
-        await new Promise(r => setTimeout(r, 3000))
-        d = await action()
-      }
-      if (d.success) onSuccess()
-      else setSetupError(d.error || t('search.connect_failed'))
-    } catch (err) {
-      setSetupError(errMessage(err))
-    }
-    setSetupTesting(false)
-  }
-  const esMap = useRef<Map<string, SearchStreamHandle>>(new Map())
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Infinite scroll pagination (grows as user scrolls)
   const PAGE_SIZE = 60
@@ -239,10 +80,6 @@ export default function SearchPage() {
     favoritesList()
       .then(list => refreshFavoritesCache(list.map(f => ({ name: f.name, infoHash: f.infoHash }))))
       .catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    return () => { esMap.current.forEach(es => es.close()) }
   }, [])
 
   // Persist tabs whenever they change (debounced via React batching)
@@ -284,17 +121,23 @@ export default function SearchPage() {
     return () => obs.disconnect()
   }, [activeId, tabs])
 
+  const updateTab = useCallback((id: string, patch: Partial<TabState>) => {
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
+  }, [])
+
+  // SSE streams (uma por aba): start/stop/close vivem no hook.
+  const { handleSearch, stopSearch, closeStream } = useSearchStreams(tabs, updateTab, setTabs)
+
   const closeActiveTab = useCallback(() => {
     setTabs(prev => {
       if (prev.length === 1) return prev
-      const es = esMap.current.get(activeId)
-      if (es) { es.close(); esMap.current.delete(activeId) }
+      closeStream(activeId)
       const next = prev.filter(t => t.id !== activeId)
       const idx = prev.findIndex(t => t.id === activeId)
       setActiveId(next[Math.max(0, idx - 1)].id)
       return next
     })
-  }, [activeId])
+  }, [activeId, closeStream])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -336,62 +179,6 @@ export default function SearchPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, activeId])
 
-  const updateTab = useCallback((id: string, patch: Partial<TabState>) => {
-    setTabs(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t))
-  }, [])
-
-  const handleSearch = useCallback((tabId: string, queryOverride?: string) => {
-    const tab = tabs.find(t => t.id === tabId)
-    // queryOverride lets a caller (e.g. the Discover page seeding via ?q=) run a
-    // search before the tab's query state has propagated through a re-render.
-    const q = (queryOverride ?? tab?.query ?? '').trim()
-    if (!tab || !q) return
-
-    const existing = esMap.current.get(tabId)
-    if (existing) { existing.close(); esMap.current.delete(tabId) }
-
-    updateTab(tabId, { results: [], error: '', summary: null, phase: 'cache' })
-
-    const params = new URLSearchParams({ q })
-    if (tab.selectedIndexers.length > 0 && tab.selectedIndexers[0] !== 'all')
-      params.set('indexers', tab.selectedIndexers.join(','))
-    if (tab.selectedCategory && tab.selectedCategory !== 'all')
-      params.set('category', tab.selectedCategory)
-    if (isIncognito()) params.set('incognito', '1')
-
-    // EventSource can't set Authorization header — inject Bearer as query token
-    // instead (the middleware's extractToken() reads ?token= as a fallback).
-    // openSearchStream owns the connection: a drop before `done` reconnects
-    // with backoff while the tab stays in 'live' (the backend's cache phase
-    // re-emits what already arrived; appendResult dedupes the replay). Only
-    // after the retry budget is exhausted does the tab go to 'error'.
-    const handle = openSearchStream(withToken(`/api/search/stream?${params}`), {
-      onResult: (result) => setTabs(prev => appendResult(prev, tabId, result as SearchResult)),
-      onLive: () => updateTab(tabId, { phase: 'live' }),
-      onServerError: (message) => setTabs(prev => setErrorMsg(prev, tabId, message)),
-      onDone: (summary) => {
-        esMap.current.delete(tabId)
-        updateTab(tabId, { summary: summary as TabState['summary'], phase: 'done' })
-      },
-      onGiveUp: () => {
-        esMap.current.delete(tabId)
-        updateTab(tabId, { phase: 'error', error: t('search.connection_lost') })
-      },
-    })
-    esMap.current.set(tabId, handle)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs, updateTab])
-
-  // Abort the in-flight search for a tab. Closing the EventSource cancels the
-  // request on the backend (the SSE handler watches c.Request.Context()), so the
-  // indexers stop being polled. Partial results already received stay on screen;
-  // the phase goes to 'done' (not 'error') since the stop was intentional.
-  const stopSearch = useCallback((tabId: string) => {
-    const es = esMap.current.get(tabId)
-    if (es) { es.close(); esMap.current.delete(tabId) }
-    updateTab(tabId, { phase: 'done' })
-  }, [updateTab])
-
   // Seed a search from ?q= (e.g. clicking a poster on the Discover page). Runs
   // once: fills the active tab's query, fires the search via the override (so it
   // doesn't wait for state to propagate), then clears the param so a refresh
@@ -422,8 +209,7 @@ export default function SearchPage() {
 
   const closeTab = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation()
-    const existing = esMap.current.get(id)
-    if (existing) { existing.close(); esMap.current.delete(id) }
+    closeStream(id)
     setTabs(prev => {
       if (prev.length === 1) return prev
       const next = prev.filter(t => t.id !== id)
@@ -558,299 +344,44 @@ export default function SearchPage() {
 
   const toggleGroupSeries = () => setGroupSeries(prev => { const next = !prev; save('searchGroupSeries', next); return next })
 
-  // Campos de filtro compartilhados entre a barra inline (desktop) e o Sheet
-  // (mobile). `stacked` controla a largura: no desktop os campos fluem no
-  // flex-wrap (display:contents nos numéricos); no Sheet ficam full-width.
-  const filterFields = (stacked: boolean) => (
-    <>
-      <input
-        type="text"
-        placeholder={t('search.filter_title')}
-        value={activeTab.titleFilter}
-        onChange={e => updateTab(activeTab.id, { titleFilter: e.target.value })}
-        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary placeholder-gray-500 focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : 'w-full sm:w-44'}`}
-      />
-      <select
-        value={activeTab.trackerFilter}
-        onChange={e => updateTab(activeTab.id, { trackerFilter: e.target.value })}
-        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
-      >
-        {trackers.map(tOption => (
-          <option key={tOption} value={tOption}>{tOption === 'all' ? t('search.all_servers') : tOption}</option>
-        ))}
-      </select>
-      <div className={stacked ? 'grid grid-cols-3 gap-2' : 'contents'}>
-        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_seeds_min')}</span>
-          <input
-            type="number" min={0}
-            value={activeTab.minSeeders || ''}
-            placeholder="0"
-            onChange={e => updateTab(activeTab.id, { minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-            className="w-12 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
-          />
-        </label>
-        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_leech_min')}</span>
-          <input
-            type="number" min={0}
-            value={activeTab.minLeechers || ''}
-            placeholder="0"
-            onChange={e => updateTab(activeTab.id, { minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-            className="w-12 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
-          />
-        </label>
-        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_max_gb')}</span>
-          <input
-            type="number" min={0} step={0.1}
-            value={activeTab.maxSizeGb}
-            placeholder="∞"
-            onChange={e => updateTab(activeTab.id, { maxSizeGb: e.target.value })}
-            className="w-14 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
-          />
-        </label>
-      </div>
-      <button
-        onClick={() => updateTab(activeTab.id, { onlyPlayable: !activeTab.onlyPlayable })}
-        title={t('search.playable_title')}
-        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-          activeTab.onlyPlayable
-            ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
-            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
-        }`}
-      >
-        <Play className={`w-3.5 h-3.5 ${activeTab.onlyPlayable ? 'fill-current' : ''}`} />
-        {t('search.playable')}
-      </button>
-      <select
-        value={activeTab.resolution}
-        onChange={e => updateTab(activeTab.id, { resolution: e.target.value })}
-        title={t('search.resolution_title')}
-        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
-      >
-        <option value="">{t('search.resolution')}</option>
-        <option value="2160p">4K (2160p)</option>
-        <option value="1080p">1080p</option>
-        <option value="720p">720p</option>
-        <option value="480p">480p</option>
-      </select>
-      <select
-        value={activeTab.codecGroup}
-        onChange={e => updateTab(activeTab.id, { codecGroup: e.target.value })}
-        title={t('search.codec_title')}
-        className={`bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 text-base sm:text-sm text-text-primary focus:outline-none focus:border-green-500 ${stacked ? 'w-full' : ''}`}
-      >
-        <option value="">{t('search.codec')}</option>
-        <option value="hevc">H.265 / HEVC</option>
-        <option value="h264">H.264</option>
-        <option value="av1">AV1</option>
-      </select>
-      <button
-        onClick={() => updateTab(activeTab.id, { hdrOnly: !activeTab.hdrOnly })}
-        title={t('search.hdr_title')}
-        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-          activeTab.hdrOnly
-            ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30'
-            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
-        }`}
-      >
-        <Sparkles className={`w-3.5 h-3.5 ${activeTab.hdrOnly ? 'fill-current' : ''}`} />
-        {t('search.hdr')}
-      </button>
-      <button
-        onClick={toggleGroupSeries}
-        title={t('search.series_title')}
-        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-          groupSeries
-            ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30'
-            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
-        }`}
-      >
-        <Layers className="w-3.5 h-3.5" />
-        {t('search.series')}
-      </button>
-      {activeFilterCount > 0 && (
-        <button
-          onClick={clearFilters}
-          className={`text-xs text-text-muted hover:text-red-400 transition-colors flex items-center gap-1 ${stacked ? 'w-full justify-center py-2' : ''}`}
-          title={t('search.clean_filters')}
-        >
-          <X className="w-3.5 h-3.5" />{t('search.clean')}
-        </button>
-      )}
-    </>
-  )
-
-  // sortControls is the result-ordering control. No celular (sem espaço pro
-  // segmented control de 5 opções, que gerava scroll horizontal no header) vira
-  // um dropdown compacto + botão asc/desc; no desktop fica o segmented control.
-  const toggleSort = (key: ResultSortKey) => {
-    if (activeTab.resultSort === key) {
-      updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })
-    } else {
-      updateTab(activeTab.id, { resultSort: key, resultSortAsc: false })
-    }
-  }
-  const sortControls = () => (
-    <>
-      {/* Mobile: dropdown compacto — nunca estoura a largura da tela. */}
-      <div className="flex sm:hidden items-center gap-1.5 min-w-0 w-full">
-        <span className="text-xs text-text-muted flex-shrink-0">{t('search.sort_label')}</span>
-        <select
-          value={activeTab.resultSort}
-          onChange={e => updateTab(activeTab.id, { resultSort: e.target.value as ResultSortKey, resultSortAsc: false })}
-          className="flex-1 min-w-0 text-xs bg-surface-tertiary border border-strong rounded-lg px-2 py-1.5 text-text-primary"
-        >
-          {SORT_OPTIONS.map(({ key, labelKey }) => <option key={key} value={key}>{t(labelKey)}</option>)}
-        </select>
-        <button
-          onClick={() => updateTab(activeTab.id, { resultSortAsc: !activeTab.resultSortAsc })}
-          title={activeTab.resultSortAsc ? t('search.asc') : t('search.desc')}
-          className="flex-shrink-0 p-1.5 rounded-lg bg-surface-tertiary border border-strong text-text-secondary"
-        >
-          {activeTab.resultSortAsc ? <SortAsc className="w-3.5 h-3.5" /> : <SortDesc className="w-3.5 h-3.5" />}
-        </button>
-      </div>
-      {/* Desktop: segmented control (wrap em vez de scroll horizontal). */}
-      <div className="hidden sm:flex items-center gap-1.5 max-w-full">
-        <span className="text-xs text-text-muted flex-shrink-0">{t('search.sort_label')}</span>
-        <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 flex-wrap">
-          {SORT_OPTIONS.map(({ key, labelKey }) => (
-            <button
-              key={key}
-              onClick={() => toggleSort(key)}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
-                activeTab.resultSort === key
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {t(labelKey)}
-              {activeTab.resultSort === key && (
-                activeTab.resultSortAsc
-                  ? <SortAsc className="w-3 h-3" />
-                  : <SortDesc className="w-3 h-3" />
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
-  )
+  // Props compartilhadas pelos campos de filtro (barra inline e Sheet mobile).
+  const onUpdateActive = (patch: Partial<TabState>) => updateTab(activeTab.id, patch)
 
   return (
     <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
 
       {/* Tab strip */}
-      <div className="bg-surface-secondary/60 border-b border-default px-4">
-        <div ref={stripRef} className="max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto flex items-end gap-0.5 overflow-x-auto scroll-smooth snap-x safe-left">
-          {tabs.map((tab, i) => (
-            <button
-              key={tab.id}
-              ref={tab.id === activeId ? activeTabRef : undefined}
-              onClick={() => setActiveId(tab.id)}
-              draggable
-              onDragStart={(e) => { dragIndexRef.current = i; e.dataTransfer.effectAllowed = 'move' }}
-              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverIndex !== i) setDragOverIndex(i) }}
-              onDrop={(e) => { e.preventDefault(); if (dragIndexRef.current !== null) moveTab(dragIndexRef.current, i); dragIndexRef.current = null; setDragOverIndex(null) }}
-              onDragEnd={() => { dragIndexRef.current = null; setDragOverIndex(null) }}
-              className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 snap-start cursor-grab active:cursor-grabbing ${
-                tab.id === activeId
-                  ? 'bg-surface border-default text-text-primary'
-                  : 'border-transparent text-text-muted hover:text-text-primary hover:bg-surface-secondary'
-              } ${dragOverIndex === i && dragIndexRef.current !== null && dragIndexRef.current !== i ? 'ring-2 ring-green-500/60' : ''}`}
-            >
-              <PhaseIndicator phase={tab.phase} />
-              <span className="truncate flex-1 min-w-0 text-left">
-                {tab.query.trim() || t('search.new_tab')}
-              </span>
-              {tabs.length > 1 && (
-                <button
-                  type="button"
-                  onClick={e => closeTab(tab.id, e)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeTab(tab.id) } }}
-                  className="opacity-60 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0 cursor-pointer p-0.5"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </button>
-          ))}
-          <button
-            onClick={addTab}
-            className="flex items-center justify-center w-8 h-8 mb-0.5 text-text-muted hover:text-text-primary hover:bg-surface-tertiary rounded-lg transition-colors flex-shrink-0"
-            title={t('search.new_tab_title')}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      <SearchTabStrip
+        tabs={tabs}
+        activeId={activeId}
+        onSelect={setActiveId}
+        stripRef={stripRef}
+        activeTabRef={activeTabRef}
+        dragIndexRef={dragIndexRef}
+        dragOverIndex={dragOverIndex}
+        setDragOverIndex={setDragOverIndex}
+        onMoveTab={moveTab}
+        onCloseTab={closeTab}
+        onAddTab={addTab}
+      />
 
       <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full min-w-0 overflow-x-clip px-4 py-6 flex flex-col gap-4">
         {/* Jackett setup prompt */}
         {showJackettSetup && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 sm:p-6">
-            <div className="flex items-start gap-3">
-              <WifiOff className="w-6 h-6 text-amber-400 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <h3 className="text-amber-700 dark:text-amber-300 font-medium text-sm mb-1">{t('search.no_indexers')}</h3>
-                <p className="text-text-secondary text-xs mb-4">
-                  {t('search.jackett_setup_desc')}
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2 mb-3">
-                  <input
-                    className="input-field flex-1 text-sm"
-                    placeholder={t('search.jackett_url_placeholder')}
-                    value={setupUrl}
-                    onChange={e => setSetupUrl(e.target.value)}
-                  />
-                  <input
-                    className="input-field flex-1 text-sm"
-                    placeholder={t('search.api_key_placeholder')}
-                    value={setupKey}
-                    onChange={e => setSetupKey(e.target.value)}
-                  />
-                </div>
-                {setupError && <p className="text-red-400 text-xs mb-2">{setupError}</p>}
-                {setupTestOk && <p className="text-green-400 text-xs mb-2">{t('search.conn_ok')}</p>}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => runJackettSetup(
-                      // Test-only: validate URL+key WITHOUT saving, so the user can
-                      // confirm the port is reachable before committing config.
-                      () => testJackettConnection({ url: setupUrl.trim(), apiKey: setupKey.trim() }),
-                      () => setSetupTestOk(true),
-                    )}
-                    disabled={setupTesting}
-                    className="btn-secondary text-sm px-4 py-2"
-                  >
-                    {setupTesting ? t('search.testing') : t('search.test')}
-                  </button>
-                  <button
-                    onClick={() => runJackettSetup(
-                      async () => {
-                        await saveConfig({ port: 8989, jackett: { url: setupUrl.trim(), apiKey: setupKey.trim() }, downloadClients: [] })
-                        return testJackettConnection()
-                      },
-                      () => { setShowJackettSetup(false); getIndexers().then(setIndexers).catch(() => {}) },
-                    )}
-                    disabled={setupTesting}
-                    className="btn-primary text-sm px-4 py-2"
-                  >
-                    {setupTesting ? t('search.testing') : t('search.save_and_test')}
-                  </button>
-                  <button
-                    onClick={() => setShowJackettSetup(false)}
-                    className="text-xs text-text-muted hover:text-text-primary px-3 py-2"
-                  >
-                    {t('search.ignore')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <JackettSetupPrompt
+            setupUrl={setupUrl}
+            setSetupUrl={setSetupUrl}
+            setupKey={setupKey}
+            setSetupKey={setSetupKey}
+            setupTesting={setupTesting}
+            setupError={setupError}
+            setupTestOk={setupTestOk}
+            setShowJackettSetup={setShowJackettSetup}
+            setSetupTestOk={setSetupTestOk}
+            runJackettSetup={runJackettSetup}
+            onConfigured={() => getIndexers().then(setIndexers).catch(() => {})}
+          />
         )}
         {/* Search bar */}
         <SearchBar
@@ -873,55 +404,16 @@ export default function SearchPage() {
             ordenação numa linha própria full-width (scroll horizontal). No
             sm:+ voltam pra mesma linha, com o sort empurrado pra direita. */}
         {activeTab.phase !== 'idle' && (
-          <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-            {activeTab.phase === 'cache' && (
-              <span className="flex items-center gap-2 text-blue-400">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />{t('search.loading_cache')}
-              </span>
-            )}
-            {activeTab.phase === 'live' && (
-              <span className="flex items-center gap-2 text-yellow-400">
-                <Wifi className="w-3.5 h-3.5 animate-pulse" />{t('search.searching_live')}
-              </span>
-            )}
-            {activeTab.phase === 'done' && activeTab.summary && (
-              <span className="flex items-center gap-2 text-green-400">
-                <Wifi className="w-3.5 h-3.5" />
-                {isFiltered ? (
-                  <Trans i18nKey="search.filtered_of_unique" values={{ shown: filteredResults.length, total: groupedCount }} components={{ b: <span className="text-text-primary font-medium" /> }} />
-                ) : (
-                  <>
-                    <span className="text-text-primary font-medium">{groupedCount}</span>
-                    {' '}{t('search.unique')}
-                    {hasDuplicates && (
-                      <span
-                        className="text-text-muted"
-                        title={t('search.raw_tooltip', { count: activeTab.results.length })}
-                      >
-                        {' '}{t('search.raw_count', { count: activeTab.results.length })}
-                      </span>
-                    )}
-                  </>
-                )}{' '}{t('search.for')} <span className="text-text-primary font-medium">"{activeTab.query}"</span>
-                <span className="text-text-muted">
-                  {t('search.live_cache_summary', { live: activeTab.summary.live, cached: activeTab.summary.cached })}
-                </span>
-              </span>
-            )}
-            {activeTab.phase === 'error' && (
-              <span className="flex items-center gap-2 text-red-400">
-                <WifiOff className="w-3.5 h-3.5" />{activeTab.error || t('search.search_error')}
-              </span>
-            )}
-            {hasResults && (
-              <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-3 min-w-0">
-                {isSearching && (
-                  <span className="text-text-muted flex-shrink-0">{t('search.so_far', { count: activeTab.results.length })}</span>
-                )}
-                {sortControls()}
-              </div>
-            )}
-          </div>
+          <SearchStatusBar
+            tab={activeTab}
+            onUpdate={onUpdateActive}
+            isFiltered={isFiltered}
+            filteredCount={filteredResults.length}
+            groupedCount={groupedCount}
+            hasDuplicates={hasDuplicates}
+            isSearching={isSearching}
+            hasResults={hasResults}
+          />
         )}
 
         {/* Filter toolbar — shown once results start arriving. A ordenação NÃO
@@ -933,7 +425,16 @@ export default function SearchPage() {
           <>
             <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
               <Filter className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-              {filterFields(false)}
+              <SearchFilterFields
+                stacked={false}
+                tab={activeTab}
+                onUpdate={onUpdateActive}
+                trackers={trackers}
+                groupSeries={groupSeries}
+                onToggleGroupSeries={toggleGroupSeries}
+                activeFilterCount={activeFilterCount}
+                onClearFilters={clearFilters}
+              />
               <MusicSearchFilterToggle active={mediaMode === 'audio'} stacked={false} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
             </div>
             <button
@@ -992,43 +493,14 @@ export default function SearchPage() {
         )}
 
         {/* Results grid (paginated via infinite scroll) */}
-        {hasResults && filteredResults.length > 0 && groupSeries && (
-          <>
-            {/* Paginate by RESULTS first (same `visible` window + sentinel as the
-                flat view), then group what's visible — so a huge result set
-                doesn't mount every card at once. */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {buildSeriesLayout(filteredResults.slice(0, visible)).map((item, i) => (
-                item.kind === 'header' ? (
-                  <div key={item.id} className="col-span-full flex items-center gap-2 mt-2 first:mt-0">
-                    <Layers className="w-4 h-4 text-green-400 flex-shrink-0" />
-                    <h3 className="text-sm font-semibold text-text-primary truncate">{item.series}</h3>
-                    <span className="text-xs text-text-muted whitespace-nowrap">{t('search.season_eps', { season: item.season, count: item.count })}</span>
-                    <div className="flex-1 h-px bg-strong/40" />
-                  </div>
-                ) : renderResultCard(item.result, `${item.result.infoHash || item.result.link}-${i}`)
-              ))}
-            </div>
-            {visible < filteredResults.length && (
-              <div ref={sentinelRef} className="text-center py-6 text-xs text-text-muted">
-                {t('search.showing_more', { visible, total: filteredResults.length })}
-              </div>
-            )}
-          </>
-        )}
-        {hasResults && filteredResults.length > 0 && !groupSeries && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredResults.slice(0, visible).map((result, i) => (
-                renderResultCard(result, `${result.infoHash || result.link}-${i}`)
-              ))}
-            </div>
-            {visible < filteredResults.length && (
-              <div ref={sentinelRef} className="text-center py-6 text-xs text-text-muted">
-                {t('search.showing_more', { visible, total: filteredResults.length })}
-              </div>
-            )}
-          </>
+        {hasResults && filteredResults.length > 0 && (
+          <SearchResultsGrid
+            filteredResults={filteredResults}
+            visible={visible}
+            groupSeries={groupSeries}
+            renderCard={renderResultCard}
+            sentinelRef={sentinelRef}
+          />
         )}
 
         {/* Empty after filter */}
@@ -1069,7 +541,19 @@ export default function SearchPage() {
         icon={<Filter className="w-4 h-4 text-text-secondary flex-shrink-0" />}
         size="md"
       >
-        <div className="flex flex-col gap-3">{filterFields(true)}<MusicSearchFilterToggle active={mediaMode === 'audio'} stacked showAll={showAll} onToggle={() => setShowAll(v => !v)} /></div>
+        <div className="flex flex-col gap-3">
+          <SearchFilterFields
+            stacked
+            tab={activeTab}
+            onUpdate={onUpdateActive}
+            trackers={trackers}
+            groupSeries={groupSeries}
+            onToggleGroupSeries={toggleGroupSeries}
+            activeFilterCount={activeFilterCount}
+            onClearFilters={clearFilters}
+          />
+          <MusicSearchFilterToggle active={mediaMode === 'audio'} stacked showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+        </div>
       </Sheet>
 
       <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
