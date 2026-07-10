@@ -63,14 +63,16 @@ func TestMaybeScrapeActive_Scrapes(t *testing.T) {
 	hash := scrapeTestHash()
 	srv := fakeScrapeTracker(t, hash, 33, 4)
 	s.maybeScrapeActive(hash, []string{srv.URL + "/announce"}, nil)
-	// The scrape runs in a goroutine; poll the cache briefly for the result.
+	// The scrape runs in a goroutine; await the persisted result (exits the
+	// instant it lands, bounded by the deadline).
 	var got *CachedHealth
-	for i := 0; i < 100; i++ {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
 		if h := mc.GetHealth(hash.HexString()); h != nil && h.Seeders == 33 {
 			got = h
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de scrape
 	}
 	if got == nil || got.Seeders != 33 || got.Peers != 4 {
 		t.Fatalf("scrape did not persist (got %+v)", got)

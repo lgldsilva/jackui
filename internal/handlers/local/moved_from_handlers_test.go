@@ -363,7 +363,7 @@ func TestLocalMoveEntry_PopulatesTracker(t *testing.T) {
 			}
 			return
 		}
-		time.Sleep(2 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de move
 	}
 	t.Fatalf("tracker job did not reach done; list=%+v", tr.List())
 }

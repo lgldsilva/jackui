@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -39,7 +38,7 @@ func TestStartWorkerNilAndCancel(t *testing.T) {
 	StartWorker(context.Background(), nil, nil) // must not panic nor spawn
 
 	ctx, cancel := context.WithCancel(context.Background())
-	StartWorker(ctx, streamer.NewForTesting(), nil)
+	done := StartWorker(ctx, streamer.NewForTesting(), nil)
 	cancel()
-	time.Sleep(20 * time.Millisecond) // goroutine observes ctx.Done and exits
+	<-done // goroutine observes ctx.Done and exits
 }

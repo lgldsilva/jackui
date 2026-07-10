@@ -96,8 +96,8 @@ func TestWorkerStartStop_EmptyStore(t *testing.T) {
 		Interval: 50 * time.Millisecond,
 	})
 	w.Start()
-	// Let it run a tick or two
-	time.Sleep(150 * time.Millisecond)
+	// Stop() joins the worker goroutine, which always runs the bootstrap tick
+	// before observing stop — so the tick path is exercised deterministically.
 	w.Stop()
 }
 
@@ -230,7 +230,8 @@ func TestWorker_RaceFreeStartStop(t *testing.T) {
 				Interval: 10 * time.Millisecond,
 			})
 			worker.Start()
-			time.Sleep(20 * time.Millisecond)
+			// Stop joins run() after its bootstrap tick — 5 concurrent
+			// start/tick/stop cycles still exercise the race detector.
 			worker.Stop()
 		}()
 	}
@@ -634,7 +635,7 @@ func TestWorkerTick_ListActiveError(t *testing.T) {
 	store.Close()
 
 	w.Start()
-	time.Sleep(50 * time.Millisecond)
+	// Stop joins run() after the bootstrap tick, which hits the ListActive error.
 	w.Stop()
 	// Should not panic on store error
 }
@@ -661,8 +662,9 @@ func TestWorkerTick_CleansUpPendingRemoved(t *testing.T) {
 	// Remove from store so tick cleans up pending
 	_ = store.Delete(1, d.ID)
 
+	// Stop joins run() after the bootstrap tick, which does the pending cleanup —
+	// deterministically complete before we assert (no sleep-and-hope).
 	w.Start()
-	time.Sleep(100 * time.Millisecond)
 	w.Stop()
 
 	w.mu.Lock()
@@ -699,9 +701,10 @@ func TestWorkerTick_CleansUpRemovedDownloads(t *testing.T) {
 	w.tracked[d.ID] = &trackedDL{id: d.ID, name: d.Name}
 	w.mu.Unlock()
 
-	// Start worker - tick will detect this tracked download has no active store entry
+	// Start worker - the bootstrap tick detects this tracked download has no
+	// active store entry. Stop joins run() after that tick, so the untrack is
+	// deterministically done before we assert.
 	w.Start()
-	time.Sleep(100 * time.Millisecond)
 	w.Stop()
 
 	w.mu.Lock()

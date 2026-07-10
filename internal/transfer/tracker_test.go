@@ -194,20 +194,20 @@ func TestSubmitBoundsConcurrencyAndQueues(t *testing.T) {
 	}
 
 	close(release) // drain
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		done := 0
-		for _, s := range tr.List() {
-			if s.Status == StatusDone {
-				done++
-			}
-		}
-		if done == 3 {
-			return
-		}
-		time.Sleep(2 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if !tr.WaitIdle(ctx) {
+		t.Fatal("nem todos os 3 jobs concluíram após liberar a fila")
 	}
-	t.Fatal("nem todos os 3 jobs concluíram após liberar a fila")
+	done := 0
+	for _, s := range tr.List() {
+		if s.Status == StatusDone {
+			done++
+		}
+	}
+	if done != 3 {
+		t.Fatalf("done=%d após liberar a fila, want 3", done)
+	}
 }
 
 // Submit on a nil Tracker still runs fn (with a nil Job) — tracking disabled.

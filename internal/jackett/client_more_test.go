@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -101,8 +102,13 @@ func TestSearchOnIndexer_HTTPError(t *testing.T) {
 }
 
 func TestSearchOnIndexer_ContextCancel(t *testing.T) {
+	// ctx is cancelled before the call, so the handler should never be reached.
+	// If it ever is (a race), block until cleanup instead of racing to a 200 that
+	// would mask the cancellation — no wall-clock wait when the handler isn't hit.
+	block := make(chan struct{})
+	defer close(block)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Second)
+		<-block
 	}))
 	defer srv.Close()
 
@@ -143,7 +149,15 @@ func TestStreamSearch_EmptyIndexers(t *testing.T) {
 // requests must never exceed maxConcurrentIndexerSearches.
 func TestStreamSearch_BoundsConcurrency(t *testing.T) {
 	const numIndexers = 40
-	var inFlight, maxSeen int32
+	var inFlight, maxSeen, waiting int32
+	// gate makes overlap deterministically observable without a sleep: every
+	// per-indexer handler holds its slot until `gate` closes, and `gate` only
+	// closes once maxConcurrentIndexerSearches handlers are simultaneously
+	// in-flight. That proves the cap is actually reached; handlers scheduled
+	// after the gate closes pass through immediately, so a non-divisible
+	// remainder (40 % 12) can't deadlock.
+	gate := make(chan struct{})
+	var once sync.Once
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("t") == "indexers" {
 			resp := listIndexersResponse{}
@@ -167,7 +181,10 @@ func TestStreamSearch_BoundsConcurrency(t *testing.T) {
 				break
 			}
 		}
-		time.Sleep(20 * time.Millisecond) // hold the slot so overlap is observable
+		if atomic.AddInt32(&waiting, 1) == maxConcurrentIndexerSearches {
+			once.Do(func() { close(gate) })
+		}
+		<-gate // hold the slot so overlap is observable
 		atomic.AddInt32(&inFlight, -1)
 		_, _ = w.Write([]byte(`{"Results":[]}`))
 	}))
