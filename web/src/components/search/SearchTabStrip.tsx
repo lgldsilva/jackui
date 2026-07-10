@@ -36,7 +36,7 @@ export function SearchTabStrip({
             draggable
             onDragStart={(e) => { dragIndexRef.current = i; e.dataTransfer.effectAllowed = 'move' }}
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverIndex !== i) setDragOverIndex(i) }}
-            onDrop={(e) => { e.preventDefault(); if (dragIndexRef.current !== null) onMoveTab(dragIndexRef.current, i); dragIndexRef.current = null; setDragOverIndex(null) }}
+            onDrop={(e) => { e.preventDefault(); if (dragIndexRef.current !== null) { onMoveTab(dragIndexRef.current, i) } dragIndexRef.current = null; setDragOverIndex(null) }}
             onDragEnd={() => { dragIndexRef.current = null; setDragOverIndex(null) }}
             className={`group flex items-center gap-2 px-4 py-2.5 text-sm rounded-t-lg transition-colors min-w-0 max-w-[200px] border-t border-l border-r flex-shrink-0 snap-start cursor-grab active:cursor-grabbing ${
               tab.id === activeId

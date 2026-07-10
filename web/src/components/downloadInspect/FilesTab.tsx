@@ -20,17 +20,30 @@ export function fileIcon(f: StreamFile, primary: boolean) {
   return <FileText className={`w-4 h-4 ${color} flex-shrink-0`} />
 }
 
-export function renderFilesTab(
-  torrent: TorrentInfo | null | undefined,
-  syntheticFile: StreamFile | null,
-  filePath: string,
-  fileIndex: number,
-  fileIcon: (f: StreamFile, primary: boolean) => React.ReactNode,
-  siblings: readonly DownloadEntry[],
-  adopting: number | null,
-  onAdopt: (f: StreamFile) => void,
-  t: TFn,
-): React.ReactNode {
+export type FilesTabProps = {
+  torrent: TorrentInfo | null | undefined
+  syntheticFile: StreamFile | null
+  filePath: string
+  fileIndex: number
+  fileIcon: (f: StreamFile, primary: boolean) => React.ReactNode
+  siblings: readonly DownloadEntry[]
+  adopting: number | null
+  onAdopt: (f: StreamFile) => void
+  t: TFn
+}
+
+// Tracked-file status cell: OK check when complete, amber percentage while
+// still downloading (nothing when the file has no progress info yet).
+function trackedStatusCell(done: boolean, pct: number | null, t: TFn): React.ReactNode {
+  if (pct === null) return null
+  if (done) {
+    return <span className="text-[10px] text-emerald-400 flex-shrink-0 inline-flex items-center gap-0.5" title={t('downloads.inspect.fileComplete')}><Check className="w-3 h-3" />{t('downloads.inspect.ok')}</span>
+  }
+  return <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0" title={t('downloads.inspect.fileIncomplete')}>{pct}%</span>
+}
+
+export function renderFilesTab(props: FilesTabProps): React.ReactNode {
+  const { torrent, syntheticFile, filePath, fileIndex, fileIcon, siblings, adopting, onAdopt, t } = props
   if (!torrent && !syntheticFile) {
     return (
       <p className="text-xs text-text-muted italic py-2">
@@ -95,7 +108,7 @@ export function renderFilesTab(
               </div>
               {/* Arquivo sem registro de download = está só em streaming (cache).
                   Botão adota como download: reusa o cache e move ao concluir. */}
-              {!tracked ? (
+              {tracked ? trackedStatusCell(done, pct, t) : (
                 <button
                   onClick={() => onAdopt(f)}
                   disabled={adopting !== null}
@@ -105,10 +118,6 @@ export function renderFilesTab(
                   {adopting === f.index ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
                   {t('downloads.inspect.download')}
                 </button>
-              ) : pct !== null && (
-                done
-                  ? <span className="text-[10px] text-emerald-400 flex-shrink-0 inline-flex items-center gap-0.5" title={t('downloads.inspect.fileComplete')}><Check className="w-3 h-3" />{t('downloads.inspect.ok')}</span>
-                  : <span className="text-[10px] text-amber-400 tabular-nums flex-shrink-0" title={t('downloads.inspect.fileIncomplete')}>{pct}%</span>
               )}
               {f.size > 0 && <span className="text-xs text-text-muted tabular-nums flex-shrink-0">{formatBytes(f.size)}</span>}
             </li>

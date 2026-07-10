@@ -24,7 +24,7 @@ type Setter<T> = React.Dispatch<React.SetStateAction<T>>
 // PlayerModal. It closes over nothing — everything it needs (state, setters,
 // handlers and the cohesive hook returns) is passed explicitly, so behaviour is
 // identical to the old nested render fns (renderActiveStream + renderAudioBody).
-export function ActiveStreamView(props: {
+export function ActiveStreamView(props: Readonly<{
   subs: ReturnType<typeof useSubtitles>
   videoUrls: ReturnType<typeof computeMediaUrls>
   downloads: ReturnType<typeof usePlayerDownloads>
@@ -102,7 +102,7 @@ export function ActiveStreamView(props: {
   onToggleShuffle?: () => void
   onCycleRepeat?: () => void
   onPlaylistJump?: (itemIndex: number, fileIndex?: number) => void
-}) {
+}>) {
   const {
     subs, videoUrls, downloads, trackOrder, aggregate, hoverThumb,
     info, selectedFile, playlist, minimized, sidebarOpen, audioMode,

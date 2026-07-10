@@ -395,11 +395,14 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
   const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
 
   const playLinkHref = canPlay && result.infoHash ? playHref(result.infoHash) : null
-  const handleCardClick = canPlay
-    ? () => onPlay?.(result)
-    : hasSource && onExploreContents
-      ? () => onExploreContents(result)
-      : undefined
+  let handleCardClick: (() => void) | undefined
+  if (canPlay) {
+    handleCardClick = () => onPlay?.(result)
+  } else if (hasSource && onExploreContents) {
+    handleCardClick = () => onExploreContents(result)
+  } else {
+    handleCardClick = undefined
+  }
   const cardClickable = handleCardClick !== undefined
 
   const handleCardKeyDown = handleCardClick ? (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -424,6 +427,20 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
       : 'cursor-default'
   }`
   const cardTapStyle = cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined
+  let cardTitle: string | undefined
+  if (canPlay) {
+    cardTitle = i18n.t('search.play_stream')
+  } else if (cardClickable) {
+    cardTitle = i18n.t('search.tap_explore')
+  } else {
+    cardTitle = undefined
+  }
+  // Interactive-role/tabindex/handlers travel together and only when the card
+  // is clickable — spreading keeps a non-interactive card a plain <div> (no
+  // stray tabindex on a non-interactive element).
+  const interactiveProps = cardClickable
+    ? { role: 'button' as const, tabIndex: 0, onClick: handleCardClick, onKeyDown: handleCardKeyDown }
+    : {}
   const cardInner = (
     <>
       {renderCardTitle(tmdb, result, isFavorited, cardClickable, titleAttr, toggleFavorite, favResolving)}
@@ -437,13 +454,10 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
   return (
     <div
       ref={(el) => { cardRef.current = el }}
-      onClick={handleCardClick}
-      onKeyDown={handleCardKeyDown}
       className={cardClass}
       style={cardTapStyle}
-      title={canPlay ? i18n.t('search.play_stream') : cardClickable ? i18n.t('search.tap_explore') : undefined}
-      role={cardClickable ? 'button' : undefined}
-      tabIndex={cardClickable ? 0 : undefined}
+      title={cardTitle}
+      {...interactiveProps}
     >
       {cardInner}
     </div>
