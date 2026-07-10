@@ -2,7 +2,7 @@
 
 > Gerado por deepwork (sessão 2026-07-09). Revisado por @oracle.
 > Estado: prod `v0.90.2` · 0 issues/PRs/milestones abertos · CI ativo (Sonar+Trivy+DT).
-> Diagnóstico: PR-2 e PR-3 concluídos. Próximo: PR-1 (README vars).
+> Diagnóstico: M0 (PR-1+PR-2+PR-3) concluído (#508). M0.5 auditoria concluída 2026-07-10.
 
 ## Visão geral
 
@@ -37,13 +37,13 @@ M0  Docs        → M0.5 Segurança → M1 Decompor god-classes → M2 HLS Phase
 - Fonte: `GET /releases` (v0.81.0+) + `git log` (v0.65.0→v0.80.4).
 - **CA-0.3**: CHANGELOG cobre todas as tags até `v0.90.2` ✅
 
-### M0.5 — Auditoria de superfície de segurança  ·  *read-only → decisão*
-- Inventariar as **229 rotas** registradas e confirmar cobertura de `auth.Required`/`AdminOnly`
-  (já existe em `cmd/server/routes.go:210,229,589` — é confirmar/documentar).
-- Avaliar **rate-limiting** em `/api/*` (hoje só há throttle de torrent bytes/s).
-- Confirmar CORS (`routes.go:154`) e CSRF (só Transmission RPC hoje).
-- **CA-0.5.1**: inventário de rotas com coluna "auth required"; zero sensíveis sem auth.
-- **CA-0.5.2**: decisão de rate-limit documentada (implementar ou aceitar risco c/ justificativa).
+### M0.5 — Auditoria de superfície de segurança  ·  ✅ *concluída 2026-07-10*
+- **233 rotas** inventariadas em `cmd/server/routes.go` + `internal/transmissionrpc/handler.go`.
+- Cobertura de `auth.Required`/`AdminOnly`/`GuestRestrict` confirmada — **zero rotas sensíveis sem auth**.
+- CORS: `AllowAllOrigins = true` — aceitável para SPA server-less atrás de reverse proxy.
+- CSRF: ausente por design (SPA + JWT Bearer, não cookies). Session-id do Transmission RPC é o único CSRF.
+- **CA-0.5.1 ✅**: inventário completo em `SECURITY.md`.
+- **CA-0.5.2 ✅**: decisão documentada em `docs/design-decisions.md` — aceitar risco sem generic rate-limiter; implementar no reverse proxy se necessário.
 
 ### M1 — Decomposição de god-classes  ·  *risco médio/alto · rede de segurança: 3205 funções de teste + auditoria #416*
 > Feito ANTES do HLS Phase 2 pois `hls.go` + `PlayerModal` são onde a feature aterrissa.

@@ -377,3 +377,34 @@ software decode. The NVENC *encode* still runs on the GPU. (#349)
       (recover from CUDA-OOM) so the Nth concurrent stream doesn't fail.
 - [ ] Don't add a prod env var only to the repo compose — prod is a hand-maintained
       compose file on the server; edit it too or the change won't take effect.
+
+---
+
+## Rate-limiting: no generic HTTP rate-limiter — defer to the reverse proxy
+
+**Decision.** Don't add a generic API rate-limiter to the Go server. Accept the risk of
+unthrottled `/api/*` endpoints.
+
+**Why.** JackUI is designed to run behind a reverse proxy on a trusted network, not
+exposed directly to the internet. Rate-limiting is a reverse-proxy concern (nginx limit_req,
+Caddy rate_limit), not an application concern. Adding it in Go would introduce:
+- Configuration surface (requests/sec, burst, window, per-IP vs per-token)
+- State management (shared memory or Redis for multi-instance)
+- False-positive blocks for legitimate users behind NAT
+
+The most critical auth vector (login brute force) is already protected by
+`internal/auth/lockout.go` (5 attempts → 15 min lock).
+
+**How.** The only application-level limiters are:
+- Login lockout (per-username, in-memory, 5× → 15 min)
+- Torrent bandwidth caps (`rate.Limiter` in anacrolix)
+- AI provider RPM per config (`internal/config/config_models.go`)
+No generic HTTP rate-limiter exists on `/api/*`.
+
+**Trade-offs.** Risks accepted:
+- User enumeration via `/api/auth/register/forgot/reset`
+- External API abuse (TMDB, Jackett, OpenSubtitles) via unthrottled search routes
+- Download ID scraping via `/api/subtitles/download/:fileId`
+
+If direct internet exposure is ever required, add rate-limiting at the reverse proxy layer.
+A CAPTCHA on auth forms can be added to the frontend if spam becomes a problem.
