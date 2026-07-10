@@ -123,20 +123,31 @@ to media paths bounds the blast radius.
 
 ---
 
-## SQLite (modernc, pure-Go), one writer
+## ~~SQLite (modernc, pure-Go), one writer~~ → PostgreSQL (SUPERSEDED)
 
-**Decision.** All state is SQLite via `modernc.org/sqlite` (cgo-free), with
+**Decision (original).** All state was SQLite via `modernc.org/sqlite` (cgo-free), with
 `MaxOpenConns(1)`.
 
-**Why.** No external DB to run; the binary stays self-contained and cross-compiles
-cleanly (no cgo). `MaxOpenConns(1)` sidesteps SQLite's writer-concurrency footguns.
+**Why it worked.** No external DB to run; the binary stayed self-contained and
+cross-compiled cleanly (no cgo). `MaxOpenConns(1)` sidestepped SQLite's writer-
+concurrency footguns.
 
-**How.** Migrations are idempotent (`IF NOT EXISTS` / `hasColumn`). Read timestamps
-with `dbutil.ParseTime` — modernc sometimes emits RFC3339, so a single `time.Parse`
-layout silently fails.
+**Why it was superseded.** Single-writer throughput capped concurrent access, and the
+multi-file DB split made cross-domain queries impossible. PostgreSQL (via `pgx`)
+replaced SQLite, unifying auth, history, library, queue, favorites, metadata cache,
+TMDB, watchlist, and AI benchmark in one DB with full concurrent access.
 
-**Trade-offs.** Single-writer throughput, mitigated by splitting state across separate
-DB files (see ARCHITECTURE → Storage).
+**Migration path.** `cmd/server/migrate-auth.go` (one-shot ETL, `make dev` + flag
+`--from /data/auth.db`) reads the legacy SQLite `auth.db` and copies into PostgreSQL.
+Kept for anyone still on a pre-migration deployment.
+
+**Remaining traces.** `internal/dbutil.ParseTime` is still used (some pgx drivers
+emit RFC3339 — same edge case modernc had). Test helpers create throwaway SQLite
+databases for fast unit tests.
+
+**Trade-offs (at the time).** Single-writer throughput, mitigated by splitting state
+across separate DB files. The migration traded self-containment for concurrency and
+query flexibility.
 
 ---
 
@@ -333,7 +344,8 @@ software decode. The NVENC *encode* still runs on the GPU. (#349)
 ## What we are explicitly NOT doing (yet)
 
 - **No public-internet hardening.** JackUI assumes a reverse proxy + trusted network.
-- **No multi-writer SQLite / external DB.** Single-writer is fine at home scale.
+- **PostgreSQL is the primary DB (done since ~v0.86).** Replaced SQLite; see
+  the PostgreSQL entry above.
 - **No mermaid diagrams.** ASCII box-and-arrow only — renders everywhere, diffs cleanly.
 - *(Done since: react-i18next ships pt/en; and the streamer now reconciles on-disk pieces
   — the worker `VerifyFile`s before `f.Download()` and streaming reconciles via
@@ -345,7 +357,7 @@ software decode. The NVENC *encode* still runs on the GPU. (#349)
 - [ ] Don't serve Safari progressive MP4. Don't use `append_list` or `-hls_playlist_type vod`.
 - [ ] Don't drop `-muxdelay 0 -muxpreload 0` thinking the `setpts` filter covers it.
 - [ ] Don't feed ffmpeg a pipe — it must be a seekable HTTP source.
-- [ ] Don't read SQLite timestamps with a single `time.Parse` layout — use `dbutil.ParseTime`.
+- [ ] Don't read DB timestamps with a single `time.Parse` layout — use `dbutil.ParseTime` (pgx and modernc both emit RFC3339).
 - [ ] Don't make the downloads queue serial — one dead magnet would block everything.
 - [ ] Don't run repeated heavy `docker run --platform linux/amd64` scans on the CI host
       via `timeout ssh` — the remote container is orphaned on timeout and can OOM the host.
