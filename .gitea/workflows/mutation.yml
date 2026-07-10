@@ -9,6 +9,7 @@
 #   - DB-backed (need JACKUI_TEST_DATABASE_URL): db, dbtest, dbutil, streamer
 #   - ffmpeg / exec-driven: audiometa, transcode, localstream
 #   - HTTP handlers (httptest-driven, integration-shaped): handlers, middleware
+#   - auth (lockout test → 15 min timeout por mutante): auth
 #   - external APIs / IO: jackett, tmdb, imagesearch, lyrics, subtitles,
 #     musictrending, watchlist, transmissionrpc, downloader, downloads, mailer,
 #     push, gluetun, preview, transfer, library, playlists, history, stats, ai
@@ -93,6 +94,7 @@ jobs:
             --exclude-files 'internal/playlists/.*' \
             --exclude-files 'internal/history/.*' \
             --exclude-files 'internal/stats/.*' \
+            --exclude-files 'internal/auth/.*' \
             --exclude-files 'internal/ai/.*' \
             --exclude-files 'ui/.*' \
             --exclude-files 'web/.*' \
