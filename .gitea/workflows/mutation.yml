@@ -31,11 +31,44 @@ concurrency:
 jobs:
   gremlins:
     runs-on: [self-hosted, arm64]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jackui
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: jackui
+          PGPORT: 5433
+        options: >-
+          --health-cmd "pg_isready -U jackui -p 5433"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:ci@127.0.0.1:5433/jackui?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Frontend dist (prereq para ui/embed.go compilar)
+        run: npm ci --prefix web && npm run build --prefix web
+      - name: ffmpeg (prereq para testes de transcode/handlers)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: aguardar Postgres estável
+        run: |
+          ok=0
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/5433) 2>/dev/null; then exec 3>&-; ok=$((ok+1)); else ok=0; fi
+            [ "$ok" -ge 3 ] && { echo "postgres estável ($i)"; break; }
+            echo "aguardando postgres estabilizar ($i, ok=$ok)…"; sleep 2
+          done
+          [ "$ok" -ge 3 ] || { echo "ERRO: postgres não estabilizou em ~120s"; exit 1; }
       - name: gremlins unleash (business logic)
         run: |
           go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash \
@@ -68,5 +101,8 @@ jobs:
             --exclude-files 'internal/history/.*' \
             --exclude-files 'internal/stats/.*' \
             --exclude-files 'internal/ai/.*' \
+            --exclude-files 'ui/.*' \
+            --exclude-files 'web/.*' \
+            --exclude-files 'electron/.*' \
             --exclude-files 'cmd/.*' \
             --threshold-efficacy 50
