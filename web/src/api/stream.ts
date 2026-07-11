@@ -404,6 +404,8 @@ export type StreamSettings = {
   maxCacheGB: number
   // Substrings de announce URLs cujos torrents continuam seedando após o uso.
   seedTrackers: string[]
+  // Renditions EXT-X-MEDIA (áudio/legenda) no master HLS (Phase 2 M2b).
+  hlsMediaRenditions: boolean
 }
 
 export type StreamSettingsDefaults = {

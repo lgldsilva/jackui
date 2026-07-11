@@ -25,6 +25,7 @@ type Form = {
   maxCacheGB: number
   // Editado como texto (um tracker por linha); convertido pra []string no save.
   seedTrackersText: string
+  hlsMediaRenditions: boolean
 }
 
 function toForm(s: StreamSettings): Form {
@@ -39,6 +40,7 @@ function toForm(s: StreamSettings): Form {
     pieceHashers: s.pieceHashers,
     maxCacheGB: s.maxCacheGB,
     seedTrackersText: (s.seedTrackers ?? []).join('\n'),
+    hlsMediaRenditions: s.hlsMediaRenditions ?? false,
   }
 }
 
@@ -57,6 +59,7 @@ function toPayload(f: Form): StreamSettings {
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean),
+    hlsMediaRenditions: f.hlsMediaRenditions,
   }
 }
 
@@ -203,6 +206,23 @@ export default function StreamSettingsCard() {
           />
           <span className="text-[11px] text-text-muted">
             {t('stream.seed_trackers_help')}
+          </span>
+        </label>
+      </div>
+
+      {/* HLS renditions de áudio/legenda (Phase 2 M2b) — ao vivo */}
+      <div className="flex flex-col gap-3">
+        <SectionTitle title={t('stream.hls_renditions_title')} badge="live" />
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.hlsMediaRenditions}
+            onChange={(e) => set('hlsMediaRenditions', e.target.checked)}
+            className="mt-1 h-5 w-5 shrink-0 accent-accent"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm text-text-primary">{t('stream.hls_renditions_label')}</span>
+            <span className="text-[11px] text-text-muted">{t('stream.hls_renditions_help')}</span>
           </span>
         </label>
       </div>

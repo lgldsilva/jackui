@@ -108,7 +108,7 @@ func TestStreamHLSMasterFallbackNoTorrent(t *testing.T) {
 		t.Fatalf("NewHLSManager: %v", err)
 	}
 	r := gin.New()
-	r.GET("/api/stream/hls/:hash/:file/index.m3u8", StreamHLSMaster(streamer.NewForTesting(), mgr, nil, false))
+	r.GET("/api/stream/hls/:hash/:file/index.m3u8", StreamHLSMaster(streamer.NewForTesting(), mgr, nil, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+testHash+"/0/index.m3u8", nil))
 	if w.Code == http.StatusOK {
