@@ -1,30 +1,42 @@
 # Requisitos & Plano de Correção — JackUI
 
 > Gerado por deepwork (sessão 2026-07-09). Revisado por @oracle.
-> Estado: prod `v0.90.2` · 0 issues/PRs/milestones abertos · CI ativo (Sonar+Trivy+DT).
-> Diagnóstico: M0 (PR-1+PR-2+PR-3) concluído (#508). M0.5 auditoria concluída 2026-07-10.
+> **Atualizado 2026-07-11**: prod `v0.91.0` (commit `27d9ba0`) · M0, M0.5, M1 e M3 **entregues e no ar** · M2 aberto.
+> Diagnóstico original (2026-07-10): M0 (PR-1+PR-2+PR-3) concluído (#508); M0.5 auditoria concluída; M1/M2/M3 abertos.
 
 ## Visão geral
 
-O projeto está saudável (3 NOSONAR, 0 TODOs técnicos, gate CVE CRITICAL ativo, auth declarativo existe).
-Este documento organiza o trabalho restante em **5 marcos sequenciais por risco crescente**.
+O projeto está saudável (gate CVE CRITICAL ativo, auth declarativo, SonarQube+Trivy+Dependency-Track no release).
+Este documento organiza o trabalho em **5 marcos sequenciais por risco crescente**.
+
+## Estado de entrega (2026-07-11)
+
+| Marco | Estado | Evidência |
+|---|---|---|
+| **M0** — Docs | ✅ entregue | #508 (PR-2/3) + #511 (PR-1 `JACKUI_DL_AUTO_PROMOTE_ARR`); CA-0.1 vazio |
+| **M0.5** — Segurança | ✅ entregue | auditoria 2026-07-10 (`SECURITY.md`, `design-decisions.md`) |
+| **M1** — God-classes | ✅ entregue | #510 (16 Go) + #512 (9 `.tsx`) + #514 (fix Sonar); **0 arquivos `.go`/`.tsx` >600 ln na main** |
+| **M2** — HLS Phase 2 | ⬜ **aberto** | único milestone restante; feature (ver seção M2) |
+| **M3** — Testes | ✅ entregue (parcial) | #513; 34/37 `time.Sleep` removidos; 3 residuais justificados; CA-3.2 a aferir |
+
+> Deploy confirmado: prod respondendo em `v0.91.0`, commit `27d9ba0` (= head da `main`), `Release / sonar` e `Release / deliver` = success.
+> Débitos residuais e follow-ups: ver seção **"Débito residual & follow-ups"** ao final.
 
 ---
 
 ## Marcos (sequência final)
 
 ```
-M0  Docs        → M0.5 Segurança → M1 Decompor god-classes → M2 HLS Phase 2 → M3 Testes
-(risco zero)      (auditoria)       (risco médio/alto)        (feature)        (baixo)
+M0 ✅ Docs     → M0.5 ✅ Segurança → M1 ✅ Decompor god-classes → M2 ⬜ HLS Phase 2 → M3 ✅ Testes
+(risco zero)     (auditoria)         (risco médio/alto)           (feature)          (baixo)
 ```
 
 ### M0 — Alinhamento de documentação  ·  *3 PRs separados*
 
-**PR-1 · README vars** (CRÍTICO — desinformação ativa)
-- `README.md:94-96` documenta `JACKUI_CACHE_DIR/STORAGE_DIR/CONFIG_DIR` → **inexistentes** no código.
-- Código usa `JACKUI_STREAM_DIR/DOWNLOAD_DIR/SHARED_DIR` (`internal/config/config_env.go:152-153,193-199`).
-- Documentar as ~41 vars faltantes: `JACKUI_JWT_SECRET`, `PG_*` (7), `SMTP_*` (5), `NTFY_*` (3), `DL_*` (8), `AI_*`, `ADMIN_*`, `HLS_VOD_MODE`, `PEER_PORT`, `METRICS_TOKEN`, `STORAGE_BACKEND`, `EXTERNAL_MOUNTS`, `GLUETUN_*`, `LOCAL_*`, `LOG_FORMAT`, `BASE_URL`, `CONTROL_TOKEN`...
-- **CA-0.1**: `diff <(vars no config_env.go) <(vars no README)` → vazio.
+**PR-1 · README vars** ✅ (bulk em #508; última var `JACKUI_DL_AUTO_PROMOTE_ARR` em #511)
+- `README.md` documentava dirs inexistentes; código usa `JACKUI_STREAM_DIR/DOWNLOAD_DIR/SHARED_DIR` (`internal/config/config_env.go`).
+- Todas as vars faltantes documentadas (`JWT_SECRET`, `PG_*`, `SMTP_*`, `NTFY_*`, `DL_*`, `AI_*`, `ADMIN_*`, `HLS_VOD_MODE`, `PEER_PORT`, `METRICS_TOKEN`, `STORAGE_BACKEND`, `EXTERNAL_MOUNTS`, `GLUETUN_*`, `LOCAL_*`, `LOG_FORMAT`, `BASE_URL`, `CONTROL_TOKEN`, `DL_AUTO_PROMOTE_ARR`).
+- **CA-0.1 ✅**: `diff <(vars no config_env.go) <(vars no README)` → vazio (ignorando prefixo genérico `JACKUI_PG_`).
 
 **PR-2 · design-decisions.md** ✅
 - `§126` descrevia "SQLite (modernc), one writer" como vigente → projeto migrou p/ PostgreSQL.
@@ -45,7 +57,13 @@ M0  Docs        → M0.5 Segurança → M1 Decompor god-classes → M2 HLS Phase
 - **CA-0.5.1 ✅**: inventário completo em `SECURITY.md`.
 - **CA-0.5.2 ✅**: decisão documentada em `docs/design-decisions.md` — aceitar risco sem generic rate-limiter; implementar no reverse proxy se necessário.
 
-### M1 — Decomposição de god-classes  ·  *risco médio/alto · rede de segurança: 3205 funções de teste + auditoria #416*
+### M1 — Decomposição de god-classes  ·  ✅ **ENTREGUE (2026-07-11)**  ·  *risco médio/alto*
+> **Resultado**: #510 (16 arquivos Go) + #512 (9 `.tsx`), extração mecânica sem mudança de comportamento.
+> - **CA-1.1 ✅** — nenhum `.go`/`.tsx` (não-teste) >600 ln na main (verificado pós-merge).
+> - **CA-1.2 ✅** — complexidade ≤15: reduções em `confirmDownloads`/`SearchFilterFields` (frontend) e `streamer_gc.go`/`browser_cleanup.go` (Go); zero NOSONAR novo. As 20 `new_violations` que a decomposição reexpôs no Sonar (bloquearam o deploy) foram zeradas em #514.
+> - **CA-1.3 ✅** — cobertura preservada: 541→559 testes vitest verdes (npm ci completou deps), 2517+ testes Go verdes.
+> - ⚠️ Fora do escopo do CA-1.1 (só `.go`/`.tsx`): `web/src/api/local.ts` (667) e `stream.ts` (644) seguem >600 — candidatos a follow-up.
+>
 > Feito ANTES do HLS Phase 2 pois `hls.go` + `PlayerModal` são onde a feature aterrissa.
 > "Slow down to speed up" (@oracle).
 
@@ -60,7 +78,8 @@ M0  Docs        → M0.5 Segurança → M1 Decompor god-classes → M2 HLS Phase
 - **CA-1.2**: complexidade cognitiva ≤15/função; zero NOSONAR novo.
 - **CA-1.3**: cobertura de testes não cai (baseline registrada antes do refactor).
 
-### M2 — HLS Master Playlist Phase 2  ·  *requisito de produto (único `[ ]` do Roadmap, README:164)*
+### M2 — HLS Master Playlist Phase 2  ·  ⬜ **ABERTO — próximo milestone**  ·  *requisito de produto (único `[ ]` do Roadmap, README:164)*
+> Não iniciado. Agora desbloqueado (M1 decompôs `hls.go` e `PlayerModal`). É feature: exige validação E2E com MKV multi-stream real — recomenda-se sessão dedicada, não fechar às pressas.
 - Multi-resolução **on-demand** (variantes só se fonte >1080p ou cliente em baixa banda).
 - Tracks de áudio/legenda unificados como `#EXT-X-MEDIA` no master (hoje por-sessão).
 - Implementado **sobre `hls.go` já decomposto** no M1.
@@ -69,7 +88,11 @@ M0  Docs        → M0.5 Segurança → M1 Decompor god-classes → M2 HLS Phase
 - **CA-2.2**: `#EXT-X-MEDIA TYPE=AUDIO` e `TYPE=SUBTITLES` presentes.
 - **CA-2.3**: teste E2E com MKV multi-stream valida o manifest.
 
-### M3 — Estabilização de testes  ·  *baixo risco*
+### M3 — Estabilização de testes  ·  ✅ **ENTREGUE (parcial, 2026-07-11)**  ·  *baixo risco*
+> **Resultado**: #513 — 34/37 `time.Sleep` removidos (incl. o de 10s em `jackett/client_more_test.go`, ganho direto no CI). Técnicas: channels de sinal / `sync.WaitGroup` / done-channel onde há hook do produtor; poll determinístico `for time.Now().Before(deadline) { if cond break; <-time.After(Nms) }` onde não há (cede CPU, sem busy-spin nem wall-clock cego). Sem dep externa (testify NÃO é usado no projeto).
+> - **CA-3.1 ✅ (parcial)** — 3 `time.Sleep` mantidos, justificados: `transcode/hls_test.go` (janela Seek/Read p/ regressão STSC/STCO), `ai/benchmark_test.go` e `ai/client_test.go` (observação de concorrência/ausência-de-concorrência onde uma barreira causaria deadlock).
+> - **CA-3.2 ⬜** — pass-rate ≥99% em 20 runs sem retry ainda **não aferido** (medição pendente).
+> - ⚠️ `metrics.StartWorker` passou a retornar `<-chan struct{}` (aditivo, caller ignora) como hook determinístico de shutdown.
 - **Quick-fix isolado**: `internal/jackett/client_more_test.go:105` (`time.Sleep(10*time.Second)`) → channel sync (ganho imediato de ~10s no CI).
 - `internal/transcode/duration_retry_test.go` (5 sleeps), `localcache/cache_test.go`, `watchlist/sched_test.go`, `transfer/tracker_test.go` → `testify.Eventually`/channels.
 - **CA-3.1**: zero `time.Sleep` em testes.
@@ -81,6 +104,15 @@ M0  Docs        → M0.5 Segurança → M1 Decompor god-classes → M2 HLS Phase
 - **PostgreSQL escala**: 26 índices nas migrations, pool pgx — saudável. Vale um `EXPLAIN` nas queries críticas em sessão futura.
 - **CVEs**: SECURITY.md confirma Trivy `--severity CRITICAL --exit-code 1` pré-push — sem débito conhecido.
 - **API contracts**: sem OpenAPI/Swagger; Transmission RPC (Sonarr/Radarr) tem testes. Monitorar breaking changes.
+
+## Débito residual & follow-ups (aberto após a entrega de 2026-07-11)
+
+Requisitos remanescentes, em ordem de prioridade:
+
+- **R1 — M2 (HLS Master Playlist Phase 2)** · *feature*: implementar sobre `hls.go` decomposto (ver seção M2). CA-2.1/2.2/2.3. Sessão dedicada com validação E2E de MKV multi-stream.
+- **R2 — CA-3.2 (estabilidade de CI)**: aferir pass-rate ≥99% em 20 runs sem retry; investigar/retirar os 3 `time.Sleep` residuais se surgir alternativa determinística sem deadlock.
+- **R3 — `.ts` >600 ln**: `web/src/api/local.ts` (667) e `web/src/api/stream.ts` (644) fora do escopo literal do CA-1.1 (só `.go`/`.tsx`), mas candidatos a fatiar por coesão.
+- **R4 — Higiene de branches**: triar as 8 branches órfãs — deletar as 3 superadas (`feat/i18n`, `feat/hls-vod-seekbar`, `worktree-feat+local-transfer-speed`), confirmar+deletar as 2 dups de push (`feat/web-push`, `feat/web-push-v2`), e revisar as 3 com trabalho real não-integrado (`feat/chapters`, `feature/refactor-smells`, `worktree-mobile-ux`).
 
 ## Fora de escopo deste plano
 - Backup/restore do PostgreSQL (operação de homelab, não de código).
