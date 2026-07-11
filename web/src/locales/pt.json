@@ -1,4 +1,8 @@
 {
+  "common": {
+    "errorTitle": "Algo deu errado",
+    "retry": "Tentar novamente"
+  },
   "files": {
     "to_download": "Arquivos pra baixar",
     "selected": "{{n}}/{{total}} selecionados",
