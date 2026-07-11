@@ -46,6 +46,7 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 		"/api/stream/hls/:hash/:file/v/:variant/:seg":       false,
 		"/api/stream/hls/:hash/:file/a/:track/index.m3u8":   false,
 		"/api/stream/hls/:hash/:file/a/:track/:seg":         false,
+		"/api/stream/hls/:hash/:file/sub/:track/index.m3u8": false,
 		"/api/stream/hls/:hash/:file/:seg":                  false,
 	}
 	for _, ri := range r.Routes() {

@@ -102,18 +102,33 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 		return false
 	}
 	ladder := transcode.VariantLadder(pr.VideoHeight)
-	if len(ladder) < 2 && len(pr.Audio) < 2 {
+	subs := textSubs(pr.Subtitles)
+	// Master vale a pena com ≥2 rungs de vídeo, ≥2 faixas de áudio (renditions),
+	// OU ≥1 legenda de texto (rendition WebVTT).
+	if len(ladder) < 2 && len(pr.Audio) < 2 && len(subs) == 0 {
 		return false
 	}
-	writeMasterPlaylist(hc.c, ladder, pr.VideoWidth, pr.VideoHeight, pr.Audio)
+	writeMasterPlaylist(hc.c, ladder, pr.VideoWidth, pr.VideoHeight, pr.Audio, subs)
 	return true
+}
+
+// textSubs filtra as legendas de TEXTO (SRT/ASS/…) — as bitmap (PGS/VOBSUB,
+// Track.Image) continuam burn-in, sem rendition (não há WebVTT sem OCR).
+func textSubs(subs []streamer.Track) []streamer.Track {
+	out := make([]streamer.Track, 0, len(subs))
+	for _, s := range subs {
+		if !s.Image {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // writeMasterPlaylist renders the master and writes it to the response
 // (no-store; MPEG-URL). token/native_hls come from the request query so they
 // propagate onto the variant/rendition URIs (see buildMasterPlaylist).
-func writeMasterPlaylist(c *gin.Context, ladder []transcode.Variant, w, h int, audio []streamer.Track) {
-	body := buildMasterPlaylist(ladder, w, h, audio, c.Query("token"), httpshared.NativeHLSParam(c))
+func writeMasterPlaylist(c *gin.Context, ladder []transcode.Variant, w, h int, audio, subs []streamer.Track) {
+	body := buildMasterPlaylist(ladder, w, h, audio, subs, c.Query("token"), httpshared.NativeHLSParam(c))
 	c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
 	c.Data(http.StatusOK, httpshared.MIMEMPEGURL, body)
 }
@@ -175,15 +190,19 @@ func writeAudioRenditions(b *strings.Builder, audio []streamer.Track, q string) 
 // master URL (.../:file/index.m3u8) so they resolve to the v/:variant and
 // a/:track routes; token+native_hls propagate so each child authenticates and
 // resolves to the same EffectiveKey.
-func buildMasterPlaylist(ladder []transcode.Variant, srcW, srcH int, audio []streamer.Track, token string, nativeHLS bool) []byte {
+func buildMasterPlaylist(ladder []transcode.Variant, srcW, srcH int, audio, subs []streamer.Track, token string, nativeHLS bool) []byte {
 	q := mediaSegQuery(token, nativeHLS)
 	hasAudioRenditions := len(audio) >= 2
+	hasSubs := len(subs) > 0
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
 	if hasAudioRenditions {
 		writeAudioRenditions(&b, audio, q)
+	}
+	if hasSubs {
+		writeSubtitleRenditions(&b, subs, q)
 	}
 	for i, v := range ladder {
 		b.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=")
@@ -195,8 +214,30 @@ func buildMasterPlaylist(ladder []transcode.Variant, srcW, srcH int, audio []str
 		if hasAudioRenditions {
 			b.WriteString(`,AUDIO="aud"`)
 		}
+		if hasSubs {
+			b.WriteString(`,SUBTITLES="sub"`)
+		}
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "v/%d/index.m3u8%s\n", i, q)
 	}
 	return []byte(b.String())
+}
+
+// writeSubtitleRenditions emits one EXT-X-MEDIA TYPE=SUBTITLES per text sub
+// track (URI → sub/:track WebVTT mini-playlist). The first is DEFAULT but subs
+// are never auto-shown (AUTOSELECT=NO) — the user opts in.
+func writeSubtitleRenditions(b *strings.Builder, subs []streamer.Track, q string) {
+	for i, s := range subs {
+		b.WriteString(`#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="sub",NAME=`)
+		b.WriteString(strconv.Quote(audioTrackName(s, i)))
+		if i == 0 {
+			b.WriteString(",DEFAULT=YES")
+		}
+		b.WriteString(",AUTOSELECT=NO,FORCED=NO")
+		if s.Language != "" {
+			b.WriteString(",LANGUAGE=" + strconv.Quote(s.Language))
+		}
+		fmt.Fprintf(b, `,URI="sub/%d/index.m3u8%s"`, s.Index, q)
+		b.WriteString("\n")
+	}
 }
