@@ -5,6 +5,17 @@ import i18n from '../../lib/i18n'
 
 export { formatBytes as formatSize }
 
+// Human-readable playhead / duration (m:ss or h:mm:ss). Shared by the video and
+// controls components as the `formatTime` prop.
+export function formatTime(s: number): string {
+  if (!Number.isFinite(s) || s < 0) return '0:00'
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = Math.floor(s % 60)
+  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`
+  return `${m}:${sec.toString().padStart(2, '0')}`
+}
+
 export type FileType = 'all' | 'video' | 'audio' | 'other'
 export const PLAYER_AUDIO_RE = /\.(mp3|flac|m4a|aac|ogg|wav|opus|alac|wma)$/i
 export const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)$/i
