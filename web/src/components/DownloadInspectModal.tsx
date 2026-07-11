@@ -264,7 +264,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     priority: 'normal',
   } : null
 
-  const filesTabContent = renderFilesTab(torrent, syntheticFile, d.filePath, d.fileIndex, fileIcon, siblings ?? [], adopting, adopt, t)
+  const filesTabContent = renderFilesTab({ torrent, syntheticFile, filePath: d.filePath, fileIndex: d.fileIndex, fileIcon, siblings: siblings ?? [], adopting, onAdopt: adopt, t })
 
   return (
     <Sheet

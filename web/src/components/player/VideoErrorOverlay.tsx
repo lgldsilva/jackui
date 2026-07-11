@@ -22,13 +22,13 @@ function renderDiagnosticChip(lastErrorDiag: Diag | null, videoDiagnostic: () =>
   )
 }
 
-export function VideoErrorOverlay(props: {
+export function VideoErrorOverlay(props: Readonly<{
   info: TorrentInfo | null
   selectedFile: number
   lastErrorDiag: Diag | null
   videoDiagnostic: () => Diag
   onRetry: () => void
-}) {
+}>) {
   const { info, selectedFile, lastErrorDiag, videoDiagnostic, onRetry } = props
   const { t } = useTranslation()
   const cf = info?.files?.[selectedFile]

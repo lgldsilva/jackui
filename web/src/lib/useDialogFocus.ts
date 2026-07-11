@@ -20,8 +20,8 @@ export function useDialogFocus(open: boolean) {
       previousActiveElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
 
       const [firstFocusable] = getFocusableElements(container)
-      if (firstFocusable != null) firstFocusable.focus()
-      else container?.focus()
+      if (firstFocusable == null) container?.focus()
+      else firstFocusable.focus()
     }
 
     if (!open && wasOpenRef.current && previousActiveElementRef.current?.isConnected) {
