@@ -466,12 +466,20 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	if deps.hlsMgr == nil {
 		return
 	}
-	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore, deps.cfg.Stream.HLSMediaRenditions))
 	// Variantes do ladder ABR (HLS master, Phase 2). `v` é segmento estático →
 	// coexiste com o wildcard `:seg` no mesmo nível (o gin avalia estáticos antes
 	// do wildcard); `:variant` fica sob o nó estático, sem colisão com `:seg`.
 	api.GET("/stream/hls/:hash/:file/v/:variant/index.m3u8", handlers.StreamHLSVariant(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/v/:variant/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	// Renditions de áudio alternativas (EXT-X-MEDIA TYPE=AUDIO, HLS Phase 2 M2b).
+	// `a` é segmento estático (coexiste com `v` e o wildcard `:seg`); o segmento
+	// reusa StreamHLSSegment (a chave -ao{track} vem de hlsSessionKeyFromReq).
+	api.GET("/stream/hls/:hash/:file/a/:track/index.m3u8", handlers.StreamHLSAudio(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	api.GET("/stream/hls/:hash/:file/a/:track/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	// Renditions de legenda WebVTT (EXT-X-MEDIA TYPE=SUBTITLES). A mini-playlist
+	// referencia o endpoint /stream/subtrack existente (ExtractSubtitle → VTT).
+	api.GET("/stream/hls/:hash/:file/sub/:track/index.m3u8", handlers.StreamHLSSubtitle(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/local/hls/index.m3u8", lh.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
 	api.GET("/local/hls/seg", lh.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))

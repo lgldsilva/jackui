@@ -30,6 +30,9 @@ type hlsCtx struct {
 	// 2). Zero-value (Height 0) = single-variant legado; o handler da variante
 	// (v/:variant) resolve srcHeight→ladder e popula isto antes de startHLSSession.
 	variant transcode.Variant
+	// mediaRenditions liga as renditions EXT-X-MEDIA (áudio/legenda) no master
+	// (config JACKUI_HLS_MEDIA_RENDITIONS). false = comportamento M2a.
+	mediaRenditions bool
 }
 
 // mediaSegQuery builds the query string appended to each segment URL. It
@@ -110,15 +113,16 @@ func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte 
 	return []byte(b.String())
 }
 
-func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
+func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, mediaRenditions bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hc, ok := newHLSCtx(c, s, mgr, store)
 		if !ok {
 			return
 		}
-		// Phase 5 branches here to a probe-only multi-variant MASTER when the
-		// source ladder has ≥2 rungs. For now (and for sub-1080p / unknown-height
-		// sources) it serves the legacy single-variant media playlist.
+		hc.mediaRenditions = mediaRenditions
+		// Probe-only MASTER when the source warrants one (≥2 ABR rungs, or — with
+		// renditions on — ≥2 audio tracks / text subs). Else the legacy
+		// single-variant media playlist (sub-1080p / unknown-height sources).
 		if serveMasterIfMultiVariant(hc) {
 			return
 		}
@@ -183,21 +187,49 @@ func hlsVariantParam(c *gin.Context) int {
 	return httpshared.ParseIntOr(c.Param("variant"), -1)
 }
 
+// hlsAudioTrackParam lê o índice ABSOLUTO da faixa de uma rendition audio-only
+// do path (`a/:track/...`); -1 quando ausente.
+func hlsAudioTrackParam(c *gin.Context) int {
+	return httpshared.ParseIntOr(c.Param("track"), -1)
+}
+
+// hlsAudioOnlyKey é a chave de uma sessão audio-only (rendition EXT-X-MEDIA
+// TYPE=AUDIO alternativa): `{hash}-{file}-ao{track}`. Prefixo `-ao` distinto do
+// `-a` do remux AV legado pra NÃO colidir Dir/encodeSpec.
+func hlsAudioOnlyKey(h metainfo.Hash, fileIdx, track int) string {
+	return fmt.Sprintf("%s-%d-ao%d", h.HexString(), fileIdx, track)
+}
+
+// hlsSessionKeyFromReq deriva a chave do request: rendition audio-only
+// (`a/:track`) → -ao{track}; senão o path de vídeo (-v{variant}[-a{audio}]).
+// Master, playlist e segmentos DEVEM usar esta MESMA função pra bater o Dir.
+func hlsSessionKeyFromReq(c *gin.Context, h metainfo.Hash, fileIdx int) string {
+	if t := hlsAudioTrackParam(c); t >= 0 {
+		return hlsAudioOnlyKey(h, fileIdx, t)
+	}
+	return hlsSessionKey(h, fileIdx, hlsVariantParam(c), httpshared.ParseIntOr(c.Query("audio"), -1))
+}
+
 func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
-	audioTrack := httpshared.ParseIntOr(hc.c.Query("audio"), -1)
-	variant := hlsVariantParam(hc.c)
-	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
-		Key:        hlsSessionKey(hc.h, hc.fileIdx, variant, audioTrack),
+	opts := transcode.HLSStartOpts{
+		Key:        hlsSessionKeyFromReq(hc.c, hc.h, hc.fileIdx),
 		Source:     source,
 		SourceSize: sourceSize,
 		NativeHLS:  httpshared.NativeHLSParam(hc.c),
 		// A fully-downloaded torrent (served from the completed path on disk) is
 		// complete & seekable — same VOD case as a local file. An in-progress
 		// stream stays under the global vodMode (#61 Safari seek guard).
-		ForceVOD:   complete,
-		AudioTrack: audioTrack,
-		Variant:    hc.variant,
-	})
+		ForceVOD: complete,
+	}
+	if t := hlsAudioTrackParam(hc.c); t >= 0 {
+		// Rendition audio-only (a/:track): sessão só-áudio da faixa t, sem vídeo.
+		opts.AudioOnly = true
+		opts.AudioTrack = t
+	} else {
+		opts.AudioTrack = httpshared.ParseIntOr(hc.c.Query("audio"), -1)
+		opts.Variant = hc.variant
+	}
+	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), opts)
 	if err != nil {
 		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return nil, err
@@ -271,7 +303,7 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	// EffectiveKey must match the one the master used — hence native_hls is
 	// carried on every segment URL (see mediaSegQuery).
-	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, hlsVariantParam(c), httpshared.ParseIntOr(c.Query("audio"), -1)), httpshared.NativeHLSParam(c))
+	key := mgr.EffectiveKey(hlsSessionKeyFromReq(c, h, fileIdx), httpshared.NativeHLSParam(c))
 	if sess, err := getSession(mgr, key); err == nil {
 		return sess
 	}

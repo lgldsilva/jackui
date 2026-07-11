@@ -212,6 +212,14 @@ type StreamConfig struct {
 	// instantâneo voltando para "hlsjs" ou "off".
 	// Env: JACKUI_HLS_VOD_MODE. Aplicado ao vivo (vale na próxima sessão HLS).
 	HLSVODMode string `yaml:"hls_vod_mode"`
+	// HLSMediaRenditions liga as renditions EXT-X-MEDIA do master HLS (Phase 2
+	// M2b): faixas de áudio alternativas como TYPE=AUDIO (a/:track) e legendas de
+	// texto como TYPE=SUBTITLES (sub/:track, WebVTT). DEFAULT false (dark launch):
+	// o frontend precisa migrar pra hls.audioTrack (troca seamless, sem reload) e
+	// ser validado no Chrome/Safari antes de ligar — com false o master mantém o
+	// comportamento M2a (só STREAM-INF multi-resolução + ?audio via reload).
+	// Env: JACKUI_HLS_MEDIA_RENDITIONS (1/true).
+	HLSMediaRenditions bool `yaml:"hls_media_renditions"`
 	// SeedTrackers lista substrings/hostnames de trackers cujos torrents devem
 	// CONTINUAR seedando após o uso (não são dropados pelo idle reaper nem pelo
 	// fim do stream), em vez do comportamento padrão de dropar. Casado

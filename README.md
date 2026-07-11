@@ -118,6 +118,7 @@ All variables below accept empty/unset as "use default". The canonical default i
 | **Local cache** | `JACKUI_LOCAL_READAHEAD_MB` | `16` | Read-ahead buffer for local/rclone mounts (MiB) |
 | | `JACKUI_LOCAL_CACHE_GB` | `50` | Dedicated pre-fetch cache (GiB, LRU) |
 | | `JACKUI_HLS_VOD_MODE` | `all` | VOD seekbar: `off`, `hlsjs`, or `all` |
+| | `JACKUI_HLS_MEDIA_RENDITIONS` | `0` | HLS master `EXT-X-MEDIA` audio/subtitle renditions (Phase 2 M2b). Dark launch — enable (`1`) only after the frontend migrates to `hls.audioTrack` and is validated in Chrome/Safari |
 | **Peer/Torrent** | `JACKUI_MAX_CONNS` | — | Peer connections per torrent |
 | | `JACKUI_PEERS_HIGH` | — | Swarm high-water mark |
 | | `JACKUI_PEER_PORT` | — | Fixed listen port (overrides forwarded port) |

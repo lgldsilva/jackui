@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
@@ -25,6 +26,7 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 		t.Fatalf("NewHLSManager: %v", err)
 	}
 	deps := &appDeps{
+		cfg:       &config.Config{},
 		hlsMgr:    mgr,
 		streamSrv: streamer.NewForTesting(),
 	}
@@ -44,6 +46,9 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 		"/api/stream/hls/:hash/:file/index.m3u8":            false,
 		"/api/stream/hls/:hash/:file/v/:variant/index.m3u8": false,
 		"/api/stream/hls/:hash/:file/v/:variant/:seg":       false,
+		"/api/stream/hls/:hash/:file/a/:track/index.m3u8":   false,
+		"/api/stream/hls/:hash/:file/a/:track/:seg":         false,
+		"/api/stream/hls/:hash/:file/sub/:track/index.m3u8": false,
 		"/api/stream/hls/:hash/:file/:seg":                  false,
 	}
 	for _, ri := range r.Routes() {
@@ -63,6 +68,8 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 	for _, path := range []string{
 		"/api/stream/hls/" + hash + "/0/v/0/index.m3u8",
 		"/api/stream/hls/" + hash + "/0/v/0/seg_00000.ts",
+		"/api/stream/hls/" + hash + "/0/a/2/index.m3u8",
+		"/api/stream/hls/" + hash + "/0/a/2/seg_00000.ts",
 		"/api/stream/hls/" + hash + "/0/index.m3u8",
 		"/api/stream/hls/" + hash + "/0/seg_00000.ts",
 	} {
