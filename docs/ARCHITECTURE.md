@@ -116,8 +116,8 @@ Three on-disk roots plus one database:
 | Root (env) | Holds | Why separate |
 |---|---|---|
 | **`JACKUI_DATABASE_URL`** | PostgreSQL — auth, history, library, downloads queue, favorites, metadata cache, TMDB, watchlist, playlists, AI benchmark, pending transfers, audio-meta cache, … | Durable user state; schema via `internal/db` migrations. |
-| **`JACKUI_CACHE_DIR`** → `/data/streams` | BitTorrent **piece cache** + transcode/HLS temp files | High write volume; reconstructable from the swarm. |
-| **`JACKUI_STORAGE_DIR`** → `/mnt/storage` | Browsable mounts (read-only) + the **promote** destination | Shared media library on disk. |
+| **`JACKUI_STREAM_DIR`** → `/data/streams` | BitTorrent **piece cache** + transcode/HLS temp files | High write volume; reconstructable from the swarm. Docker host-path var `JACKUI_CACHE_DIR` maps this mount. |
+| **`JACKUI_SHARED_DIR`** → `/mnt/storage` | Browsable mounts (read-only) + the **promote** destination | Shared media library on disk. Docker host-path var `JACKUI_STORAGE_DIR` maps this mount. |
 | **`JACKUI_CONFIG_DIR`** (optional) | Legacy `auth.db` / `jackui.db` for the one-shot `migrate-auth` tool only | Not used at runtime once migrated to PostgreSQL. |
 
 Read timestamps with `dbutil.ParseTime` — never a single `time.Parse` layout.

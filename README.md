@@ -86,23 +86,80 @@ Open `http://localhost:5173` (dev) or `http://localhost:8989` (the embedded buil
 
 Runtime config comes from `config.yaml` plus environment overrides (env wins). Key variables:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `JACKUI_PORT` | `8989` | HTTP listen port |
-| `JACKETT_URL` / `JACKETT_API_KEY` | — | Jackett search backend |
-| `JACKUI_DATABASE_URL` | — | **Required.** PostgreSQL DSN (all durable app state) |
-| `JACKUI_CACHE_DIR` | `./data/cache` | Piece cache + transcode/HLS temp (reconstructable) |
-| `JACKUI_STORAGE_DIR` | `./data/storage` | Shared library: browsable mounts + promote target |
-| `JACKUI_CONFIG_DIR` | `./data/config` | Legacy SQLite files for `migrate-auth` only (optional) |
-| `JACKUI_STREAM_MAX_GB` | `50` | Cache size cap (LRU eviction above this) |
-| `JACKUI_AUTH_ENABLED` | `0` | Enable JWT auth (`1`/`true`) |
-| `TMDB_API_KEY` | — | Poster/metadata enrichment (optional) |
-| `GROQ_API_KEY` / `OPENROUTER_API_KEY` / `OLLAMA_BASE_URL` | — | AI title cleanup (optional, auto-detected) |
-| `JACKUI_TRANSMISSION_RPC_ENABLED` | `0` | Expose the Transmission-RPC `*arr` provider (opt-in) |
-| `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent CUDA decoders (`0` = unlimited; extras fall back to CPU-decode) |
-| `JACKUI_MAX_CONNS` / `JACKUI_PEERS_HIGH` | — | Peer-connection tuning (conns per torrent / swarm high-water) |
+All variables below accept empty/unset as "use default". The canonical default is compiled in or read from `config.yaml`; env wins when set.
 
-State lives in **PostgreSQL** (`JACKUI_DATABASE_URL`). The piece cache (`JACKUI_CACHE_DIR`) is deliberately separate to reduce I/O contention on torrent pieces.
+| Category | Variable | Default | Purpose |
+|---|---|---|---|
+| **Core** | `JACKUI_PORT` | `8989` | HTTP listen port |
+| | `JACKETT_URL` | `http://localhost:9117` | Jackett search backend |
+| | `JACKETT_API_KEY` | — | Jackett API key |
+| | `JACKUI_BASE_URL` | — | Public app URL (e-mail links, optional) |
+| | `JACKUI_CONTROL_TOKEN` | — | Static token for RPC control endpoint (port refresh) |
+| **PostgreSQL** | `JACKUI_DATABASE_URL` | — | **Required.** DSN (`postgres://...`). Overrides `PG_*` below |
+| | `DATABASE_URL` | — | Same as above (alternative name) |
+| | `JACKUI_PG_HOST` | `localhost` | Host |
+| | `JACKUI_PG_PORT` | `5432` | Port |
+| | `JACKUI_PG_USER` | `jackui` | User |
+| | `JACKUI_PG_PASSWORD` | — | Password |
+| | `JACKUI_PG_DB` | `jackui` | Database name |
+| | `JACKUI_PG_SSLMODE` | `disable` | SSL mode |
+| **Directories** | `JACKUI_STREAM_DIR` | `./data/stream` | Piece cache + transcode/HLS temp (reconstructable) |
+| | `JACKUI_DOWNLOAD_DIR` | `./data/downloads` | Completed download target (empty = stay in cache) |
+| | `JACKUI_SHARED_DIR` | `./data/shared` | Shared library: browsable mounts + promote target |
+| | `JACKUI_EXTERNAL_MOUNTS` | — | Extra mount paths (rclone/NFS, comma-separated) |
+| **Streamer perf** | `JACKUI_STREAM_MAX_GB` | `50` | Piece-cache size cap (LRU eviction) |
+| | `JACKUI_STREAM_DOWN_MBPS` | — | Download rate limit (MB/s) |
+| | `JACKUI_STREAM_UP_MBPS` | — | Upload rate limit (MB/s) |
+| | `JACKUI_READAHEAD_MB` | — | Read-ahead for sequential file serving (MiB) |
+| | `JACKUI_STORAGE_BACKEND` | — | Storage backend driver (`mmap` etc.) |
+| | `JACKUI_HALF_OPEN` | — | Max half-open TCP connections |
+| | `JACKUI_PIECE_HASHERS` | — | Piece hash checker workers |
+| | `JACKUI_SEED_TRACKERS` | — | Extra announce trackers for seeding |
+| **Local cache** | `JACKUI_LOCAL_READAHEAD_MB` | `16` | Read-ahead buffer for local/rclone mounts (MiB) |
+| | `JACKUI_LOCAL_CACHE_GB` | `50` | Dedicated pre-fetch cache (GiB, LRU) |
+| | `JACKUI_HLS_VOD_MODE` | `all` | VOD seekbar: `off`, `hlsjs`, or `all` |
+| **Peer/Torrent** | `JACKUI_MAX_CONNS` | — | Peer connections per torrent |
+| | `JACKUI_PEERS_HIGH` | — | Swarm high-water mark |
+| | `JACKUI_PEER_PORT` | — | Fixed listen port (overrides forwarded port) |
+| | `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent HW decoders (`0` = unlimited) |
+| | `JACKUI_MAX_UPLOAD_MB` | — | Max upload per torrent (MiB) |
+| | `JACKUI_IDLE_MINUTES` | `30` | Drop torrent after N min idle (files stay) |
+| | `JACKUI_METADATA_SECONDS` | `60` | Metadata fetch timeout |
+| | `JACKUI_TRANSMISSION_RPC_ENABLED` | `0` | Expose Transmission-RPC `*arr` provider (opt-in) |
+| **Downloads** | `JACKUI_DL_MAX_ACTIVE` | — | Max active downloads per user |
+| | `JACKUI_DL_PER_USER_MAX` | — | Max concurrent downloads per user |
+| | `JACKUI_DL_STALL_MIN` | — | Stall timeout (minutes) |
+| | `JACKUI_DL_MAX_STALLS` | — | Max stalls before abort |
+| | `JACKUI_DL_AGING_STEP_MIN` | — | Aging step interval (minutes) |
+| | `JACKUI_DL_AGING_CAP` | — | Aging cap |
+| | `JACKUI_DL_ROTATION` | — | Download rotation strategy |
+| **Auth** | `JACKUI_AUTH_ENABLED` | `0` | Enable JWT auth (`1`/`true`) |
+| | `JACKUI_ADMIN_USERNAME` | `admin` | Admin username |
+| | `JACKUI_ADMIN_PASSWORD` | — | Admin password |
+| | `JACKUI_JWT_SECRET` | — | JWT signing secret (≥32 bytes, **required** with auth) |
+| | `JACKUI_METRICS_TOKEN` | — | Static token for Prometheus `/api/metrics` |
+| **Notifications** | `JACKUI_NTFY_TOPIC` | — | ntfy.sh topic for watchlist push |
+| | `JACKUI_NTFY_URL` | `https://ntfy.sh` | ntfy server URL |
+| | `JACKUI_NTFY_TOKEN` | — | ntfy auth token (optional) |
+| **AI title ID** | `GROQ_API_KEY` | — | Groq API key |
+| | `OPENROUTER_API_KEY` | — | OpenRouter API key |
+| | `GEMINI_API_KEY` | — | Google Gemini API key |
+| | `OPENCODE_API_KEY` | — | OpenCode Zen API key |
+| | `OLLAMA_BASE_URL` | — | Ollama endpoint URL |
+| | `JACKUI_AI_ENABLED` | — | Auto-enabled when any key is present |
+| | `JACKUI_AI_MAX_COST_PER_1M` | — | Max cost per 1M tokens (USD) |
+| | `JACKUI_AI_KWH_PRICE` | — | Electricity price for local-model cost |
+| | `JACKUI_AI_LOCAL_WATTS` | — | Local model power draw (watts) |
+| **Metadata** | `TMDB_API_KEY` | — | TMDB v3 API key (posters + clean titles) |
+| | `OMDB_API_KEY` | — | OMDb API key (IMDb rating) |
+| **SMTP** | `JACKUI_SMTP_HOST` | — | SMTP server host |
+| | `JACKUI_SMTP_PORT` | `587` | SMTP port |
+| | `JACKUI_SMTP_USER` | — | SMTP user |
+| | `JACKUI_SMTP_PASS` | — | SMTP password |
+| | `JACKUI_SMTP_FROM` | — | Sender address |
+| **Observability** | `JACKUI_LOG_FORMAT` | — | Structured logs: `json` (empty = text) |
+
+State lives in **PostgreSQL** (`JACKUI_DATABASE_URL`). The piece cache (`JACKUI_STREAM_DIR`) is deliberately separate to reduce I/O contention on torrent pieces.
 
 *Low-footprint runtime tuning* (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`) is applied via the process environment, not `config.yaml`; production sets it in the deploy compose (see below).
 
