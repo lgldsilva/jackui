@@ -75,26 +75,7 @@ func (s *Streamer) gcLoop() {
 		case <-s.stop:
 			return
 		case now := <-tick.C:
-			var dropped []metainfo.Hash
-			s.mu.Lock()
-			for h, e := range s.active {
-				if now.Sub(e.lastAccess) > s.cfg.IdleTimeout {
-					// Active downloads stay alive even when idle — the user
-					// is waiting for the file to finish in background.
-					if _, protected := s.downloads[e.t.Name()]; protected {
-						continue
-					}
-					// Seed-tracker torrents keep seeding regardless of idleness.
-					if s.shouldKeepSeeding(e.t) {
-						continue
-					}
-					log.Printf("streamer: dropping idle torrent %s (%s)", e.t.Name(), h.HexString()[:8])
-					delete(s.active, h)
-					e.t.Drop()
-					dropped = append(dropped, h)
-				}
-			}
-			s.mu.Unlock()
+			dropped := s.dropIdleTorrents(now)
 			// Purge hash-check dedup keys outside s.mu (purgeVerifiedFiles takes
 			// verifiedMu — avoid nesting the two locks).
 			for _, h := range dropped {
@@ -104,6 +85,34 @@ func (s *Streamer) gcLoop() {
 			s.enforceCacheLimit()
 		}
 	}
+}
+
+// dropIdleTorrents drops torrents idle longer than IdleTimeout (skipping active
+// downloads and seed-tracker torrents) and returns the dropped hashes so the
+// caller can purge their dedup keys outside s.mu.
+func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
+	var dropped []metainfo.Hash
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for h, e := range s.active {
+		if now.Sub(e.lastAccess) <= s.cfg.IdleTimeout {
+			continue
+		}
+		// Active downloads stay alive even when idle — the user is waiting for
+		// the file to finish in background.
+		if _, protected := s.downloads[e.t.Name()]; protected {
+			continue
+		}
+		// Seed-tracker torrents keep seeding regardless of idleness.
+		if s.shouldKeepSeeding(e.t) {
+			continue
+		}
+		log.Printf("streamer: dropping idle torrent %s (%s)", e.t.Name(), h.HexString()[:8])
+		delete(s.active, h)
+		e.t.Drop()
+		dropped = append(dropped, h)
+	}
+	return dropped
 }
 
 // firstChars returns up to n characters from s — for error messages without leaking huge URLs.

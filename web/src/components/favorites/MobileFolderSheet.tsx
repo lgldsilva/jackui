@@ -84,16 +84,16 @@ export default function MobileFolderSheet(p: MobileFolderSheetProps) {
             </button>
             {/* Ações da categoria — ocultar / subpasta / renomear / excluir.
                 Pastas ocultas só aparecem aqui com o modo revelado ativo. */}
-            <button onClick={() => void p.onToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
+            <button onClick={() => p.onToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
               {folder.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             </button>
-            <button onClick={() => void p.onCreateSub(folder.id)} title={t('favorites.newSubfolder')} className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
+            <button onClick={() => p.onCreateSub(folder.id)} title={t('favorites.newSubfolder')} className="p-2 text-text-muted hover:text-pink-400 flex-shrink-0">
               <FolderPlus className="w-4 h-4" />
             </button>
             <button onClick={() => p.onRename(folder)} title={t('favorites.rename')} className="p-2 text-text-muted hover:text-text-primary flex-shrink-0">
               <Pencil className="w-4 h-4" />
             </button>
-            <button onClick={() => void p.onDeleteFolder(folder.id)} title={t('favorites.delete')} className="p-2 pr-3 text-text-muted hover:text-red-400 flex-shrink-0">
+            <button onClick={() => p.onDeleteFolder(folder.id)} title={t('favorites.delete')} className="p-2 pr-3 text-text-muted hover:text-red-400 flex-shrink-0">
               <Trash2 className="w-4 h-4" />
             </button>
           </li>
