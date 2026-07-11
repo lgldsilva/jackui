@@ -153,18 +153,38 @@ func TestGPUSemNilIsUnlimited(t *testing.T) {
 
 // The semaphore must stay correct under concurrent acquire/release.
 func TestGPUSemConcurrentSafe(t *testing.T) {
-	g := newGPUSem(4)
+	const (
+		limit   = 4
+		workers = 64
+	)
+	g := newGPUSem(limit)
 	var wg sync.WaitGroup
-	for i := 0; i < 64; i++ {
+	// acquired/release replace a "hold the slot" sleep with deterministic
+	// overlap: with nobody releasing, exactly `limit` goroutines win a slot and
+	// the rest fail tryAcquire. We block the winners until all `limit` slots are
+	// simultaneously held (guaranteeing real overlap), then release. `acquired`
+	// is sized to `workers` so no send can ever block: after release is closed
+	// the losers re-acquire/release freely and their sends buffer harmlessly.
+	acquired := make(chan struct{}, workers)
+	release := make(chan struct{})
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if g.tryAcquire() {
-				time.Sleep(time.Millisecond)
+				acquired <- struct{}{}
+				<-release // hold the slot so all limit slots overlap
 				g.release()
 			}
 		}()
 	}
+	for i := 0; i < limit; i++ {
+		<-acquired // all limit slots are now held simultaneously
+	}
+	if held := g.held(); held != limit {
+		t.Fatalf("held()=%d want %d while all slots are held", held, limit)
+	}
+	close(release)
 	wg.Wait()
 	if g.held() != 0 {
 		t.Fatalf("held()=%d want 0 after all releases", g.held())
@@ -381,7 +401,7 @@ exit 0
 		if sw {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU à recuperação de OOM
 	}
 	sess.mu.Lock()
 	sw := sess.spec.swDecode

@@ -58,13 +58,14 @@ func TestLocalCacheFolder_EnqueuesPlayableRecursive(t *testing.T) {
 
 	// Espera que as cópias em background terminem para liberar o TempDir
 	ready := false
-	for i := 0; i < 300; i++ {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
 		if cache.StatusFor("Test", "ep01.mkv").Status == "ready" &&
 			cache.StatusFor("Test", "S02/ep02.mp4").Status == "ready" {
 			ready = true
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU ao worker de cópia
 	}
 	if !ready {
 		t.Fatal("arquivos do folder não terminaram de ser copiados para o cache")

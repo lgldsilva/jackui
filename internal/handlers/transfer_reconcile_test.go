@@ -47,12 +47,13 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 
 	// A cópia roda em background (tr.Submit → goroutine). Espera concluir.
 	moved := false
-	for i := 0; i < 100; i++ {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
 		if _, err := os.Stat(dst); err == nil {
 			moved = true
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de cópia
 	}
 	if !moved {
 		t.Fatal("destino não foi criado pela reconciliação")
@@ -61,11 +62,12 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 		t.Error("origem deveria ser removida após o move")
 	}
 	// pending limpo + file_path atualizado.
-	for i := 0; i < 50; i++ {
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
 		if l, _ := pending.List(); len(l) == 0 {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de cópia
 	}
 	if l, _ := pending.List(); len(l) != 0 {
 		t.Errorf("pending deveria estar vazio, got %d", len(l))

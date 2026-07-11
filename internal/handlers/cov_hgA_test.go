@@ -528,18 +528,9 @@ func Test_hgA_DownloadsPromote_Success(t *testing.T) {
 		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
 	}
 	// A cópia roda em background (tr.Submit → goroutine), então o handler retorna
-	// 200 antes de mover. Aguarda o arquivo aparecer no destino (polling curto).
-	moved := false
-	for i := 0; i < 100; i++ {
-		if _, err := os.Stat(filepath.Join(shared, "promote_me.mkv")); err == nil {
-			moved = true
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !moved {
-		t.Errorf("file not promoted within timeout (async copy)")
-	}
+	// 200 antes de mover. Aguarda o arquivo aparecer no destino (deterministic
+	// completion — sai assim que o arquivo existe).
+	waitForLocalFile(t, filepath.Join(shared, "promote_me.mkv"), 2*time.Second)
 }
 
 func Test_hgA_DownloadsPromoteBatch_NoSharedDir(t *testing.T) {
