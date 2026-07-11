@@ -1,4 +1,8 @@
 {
+  "common": {
+    "errorTitle": "Something went wrong",
+    "retry": "Try again"
+  },
   "files": {
     "to_download": "Files to download",
     "selected": "{{n}}/{{total}} selected",
@@ -1775,7 +1779,8 @@
     "seed_checking": "Checking swarm seeds…",
     "seed_live_suffix": " (live)",
     "seed_summary": "{{seeders}} seeds / {{peers}} peers · checked {{time}}",
-    "seed_click": "Click to check seeds"
+    "seed_click": "Click to check seeds",
+    "close": "Close"
   },
   "transfers": {
     "title": "Transfers",

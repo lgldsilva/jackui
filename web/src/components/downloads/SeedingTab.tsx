@@ -5,7 +5,7 @@ import type { TorrentInfo, DownloadEntry, DownloadPriority, StreamPriority } fro
 import { groupByHash, groupCompleted, type CompletedGroup } from '../../lib/downloadGroups'
 import { type CompletedFilterKey } from './CompletedFilterChips'
 import { GroupHeader } from './GroupHeader'
-import { EmptyState } from './EmptyState'
+import { EmptyState } from '../EmptyState'
 import { TorrentCard } from './TorrentCard'
 import { DownloadCard } from './DownloadCard'
 import { DownloadGroupCard, CompletedGroupActions, ActiveGroupActions } from './DownloadGroupCard'
