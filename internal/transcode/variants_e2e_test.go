@@ -16,7 +16,7 @@ func make1080pMP4(t *testing.T) string {
 	out := filepath.Join(t.TempDir(), "src_1080p.mp4")
 	cmd := exec.Command("ffmpeg",
 		"-hide_banner", "-loglevel", "error", "-y",
-		"-f", "lavfi", "-i", "testsrc=duration=2:size=1920x1080:rate=10",
+		"-f", "lavfi", "-i", "testsrc=duration=1:size=1920x1080:rate=10",
 		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
 		out,
 	)
@@ -91,36 +91,8 @@ func TestHLSVariantDownscaleE2E(t *testing.T) {
 	}
 }
 
-// TestHLSDefaultSessionStill1080E2E garante que a sessão SEM Variant (path
-// legado) mantém o cap 1080 — não regride com a introdução do ladder.
-func TestHLSDefaultSessionStill1080E2E(t *testing.T) {
-	installFastCapsForTest(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	fixture := make1080pMP4(t)
-	f, err := os.Open(fixture)
-	if err != nil {
-		t.Fatalf("open fixture: %v", err)
-	}
-	defer f.Close()
-	fi, _ := f.Stat()
-
-	mgr, err := NewHLSManager(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewHLSManager: %v", err)
-	}
-	sess, err := mgr.GetOrStart(ctx, HLSStartOpts{Key: "e2e-default", Source: f, SourceSize: fi.Size()})
-	if err != nil {
-		t.Fatalf("GetOrStart: %v", err)
-	}
-	defer mgr.Close(sess.Key)
-
-	seg, err := sess.WaitForSegment("seg_00000.ts", 60*time.Second)
-	if err != nil {
-		t.Fatalf("segmento default nunca produzido: %v", err)
-	}
-	if h := ffprobeSegHeight(t, seg); h != "1080" {
-		t.Errorf("altura do segmento default = %q, want 1080 (cap legado regrediu)", h)
-	}
-}
+// Nota: o guard "sessão default (sem Variant) mantém cap 1080" fica no unit
+// TestEncodeSpecVariantArgs (assertiva de args, sem custo de ffmpeg) — este
+// arquivo mantém só o E2E do downscale por variante pra não somar carga de
+// transcode concorrente ao suite (o pacote internal/handlers já roda ffmpeg real
+// e vivia perto do timeout).
