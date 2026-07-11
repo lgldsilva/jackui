@@ -1775,7 +1775,8 @@
     "seed_checking": "Checking swarm seeds…",
     "seed_live_suffix": " (live)",
     "seed_summary": "{{seeders}} seeds / {{peers}} peers · checked {{time}}",
-    "seed_click": "Click to check seeds"
+    "seed_click": "Click to check seeds",
+    "close": "Close"
   },
   "transfers": {
     "title": "Transfers",
