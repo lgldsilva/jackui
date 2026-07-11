@@ -289,6 +289,12 @@ type HLSStartOpts struct {
 	// escolhida; <=0 = primeira/default). A sessão é keyed pela faixa (ver
 	// hlsSessionKey) pra que trocar o áudio gere um transcode novo, não reuse o cache.
 	AudioTrack int
+	// Variant é a rung do ladder ABR que esta sessão codifica (HLS master, Phase
+	// 2). O zero-value (Height 0) é o caminho single-variant legado (cap 1080p,
+	// L5.2, sem cap de bitrate). A variante entra na session key (hlsSessionKey
+	// `-vN`) → Dir/segmentos próprios por rung, então só uma toca por vez e o
+	// seek-restart funciona idêntico ao atual, sem coordenação entre variantes.
+	Variant Variant
 }
 
 // The #61 finite-VOD path (synthetic playlist + forced keyframes + seek-restart)
