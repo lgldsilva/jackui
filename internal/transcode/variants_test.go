@@ -53,12 +53,24 @@ func TestVariantLadder(t *testing.T) {
 	}
 }
 
-// CA-2.1: fonte ≥1080p produz ≥2 variantes.
+// CA-2.1: fonte ≥1080p produz ≥2 variantes. Usa o wrapper EXPORTADO VariantLadder
+// (o que os handlers chamam).
 func TestVariantLadderCA21(t *testing.T) {
 	for _, src := range []int{1080, 1440, 2160, 4320} {
-		if n := len(variantLadder(src)); n < 2 {
+		if n := len(VariantLadder(src)); n < 2 {
 			t.Errorf("CA-2.1: fonte %dp deve ter ≥2 variantes, tem %d", src, n)
 		}
+	}
+}
+
+// Fonte muito baixa (<480) usa o bitrate/level mínimo, sem upscale.
+func TestVariantLadderLowRes(t *testing.T) {
+	l := VariantLadder(360)
+	if len(l) != 1 || l[0].Height != 360 {
+		t.Fatalf("360p → %+v, want 1 rung @360", l)
+	}
+	if l[0].VBitrateK != 800 || l[0].Level != 30 {
+		t.Errorf("360p rung = %+v, want VBitrateK 800 / Level 30", l[0])
 	}
 }
 

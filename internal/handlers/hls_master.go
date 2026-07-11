@@ -81,10 +81,17 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	if len(ladder) < 2 {
 		return false
 	}
-	body := buildMasterPlaylist(ladder, w, h, hc.c.Query("token"), httpshared.NativeHLSParam(hc.c), hc.c.Query("audio"))
-	hc.c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
-	hc.c.Data(http.StatusOK, httpshared.MIMEMPEGURL, body)
+	writeMasterPlaylist(hc.c, ladder, w, h)
 	return true
+}
+
+// writeMasterPlaylist renders the master for the ladder and writes it to the
+// response (no-store; MPEG-URL). token/native_hls/audio come from the request
+// query so they propagate onto the variant URIs (see buildMasterPlaylist).
+func writeMasterPlaylist(c *gin.Context, ladder []transcode.Variant, w, h int) {
+	body := buildMasterPlaylist(ladder, w, h, c.Query("token"), httpshared.NativeHLSParam(c), c.Query("audio"))
+	c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
+	c.Data(http.StatusOK, httpshared.MIMEMPEGURL, body)
 }
 
 // masterVariantQuery is the query appended to each variant URI in the master:
