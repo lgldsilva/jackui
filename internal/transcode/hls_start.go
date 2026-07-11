@@ -162,13 +162,16 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		source:      opts.Source,
 		mgr:         m,
 		spec: &encodeSpec{
-			dir:        dir,
-			inputURL:   inputURL,
-			encoder:    encoder,
-			ffmpegPath: caps.FFmpegPath,
-			vod:        vod,
-			audioOnly:  opts.AudioOnly,
-			audioTrack: opts.AudioTrack,
+			dir:             dir,
+			inputURL:        inputURL,
+			encoder:         encoder,
+			ffmpegPath:      caps.FFmpegPath,
+			vod:             vod,
+			audioOnly:       opts.AudioOnly,
+			audioTrack:      opts.AudioTrack,
+			variantHeight:   opts.Variant.Height,
+			variantBitrateK: opts.Variant.VBitrateK,
+			variantLevel:    opts.Variant.Level,
 		},
 	}
 

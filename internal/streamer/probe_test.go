@@ -73,6 +73,54 @@ func TestParseProbeOutput(t *testing.T) {
 	}
 }
 
+func TestParseProbeOutput_VideoDimensions(t *testing.T) {
+	json := `{
+		"streams": [
+			{"index": 0, "codec_type": "video", "codec_name": "hevc", "width": 1920, "height": 1080},
+			{"index": 1, "codec_type": "audio", "codec_name": "aac", "channels": 2}
+		],
+		"format": {"duration": "10"}
+	}`
+	result, err := parseProbeOutput([]byte(json))
+	if err != nil {
+		t.Fatalf("parseProbeOutput: %v", err)
+	}
+	if result.VideoWidth != 1920 || result.VideoHeight != 1080 {
+		t.Errorf("dims = %dx%d, want 1920x1080", result.VideoWidth, result.VideoHeight)
+	}
+}
+
+// Fonte sem vídeo (só áudio) → dimensões 0 (ladder cai para single-variant).
+func TestParseProbeOutput_NoVideoZeroDims(t *testing.T) {
+	json := `{"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2}],"format":{}}`
+	result, err := parseProbeOutput([]byte(json))
+	if err != nil {
+		t.Fatalf("parseProbeOutput: %v", err)
+	}
+	if result.VideoWidth != 0 || result.VideoHeight != 0 {
+		t.Errorf("dims = %dx%d, want 0x0", result.VideoWidth, result.VideoHeight)
+	}
+}
+
+// A capa/thumbnail embutida (2º stream de vídeo, ex. 600x900) NÃO deve
+// sobrescrever as dimensões do vídeo principal — só o primeiro conta.
+func TestParseProbeOutput_IgnoresCoverArtDims(t *testing.T) {
+	json := `{
+		"streams": [
+			{"index": 0, "codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720},
+			{"index": 1, "codec_type": "video", "codec_name": "mjpeg", "width": 600, "height": 900}
+		],
+		"format": {}
+	}`
+	result, err := parseProbeOutput([]byte(json))
+	if err != nil {
+		t.Fatalf("parseProbeOutput: %v", err)
+	}
+	if result.VideoWidth != 1280 || result.VideoHeight != 720 {
+		t.Errorf("dims = %dx%d, want 1280x720 (primeiro vídeo)", result.VideoWidth, result.VideoHeight)
+	}
+}
+
 func TestParseProbeOutput_Empty(t *testing.T) {
 	json := `{"streams":[],"format":{}}`
 	result, err := parseProbeOutput([]byte(json))
