@@ -52,7 +52,26 @@ export function renderItemStatus(item: TorrentItem, t: TFn) {
   </span>
 }
 
-export async function confirmDownloads( // NOSONAR: complexidade cognitiva rastreada no refactor de god-components (auditoria #417)
+// Enfileira UM item no cliente interno da JackUI (whole-torrent vs subconjunto
+// vs sentinela sem-arquivos). Extraído de confirmDownloads p/ manter ambas as
+// funções com complexidade cognitiva <=15 (CA-1.2).
+async function submitInternalItem(item: TorrentItem, infoHash: string, magnet: string): Promise<void> {
+  const all = item.files ?? []
+  if (all.length === 0) {
+    await downloadCreate({ infoHash, fileIndex: 0, magnet, name: item.name, filePath: '', fileSize: 0 })
+    return
+  }
+  if (isWholeTorrentSelection(all, item.selectedFiles)) {
+    // Todos marcados → 1 linha "torrent inteiro" (-2), não N por-arquivo.
+    await downloadCreate({ infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name: item.name, filePath: '', fileSize: all.reduce((s, f) => s + (f.size || 0), 0) })
+    return
+  }
+  // Subconjunto → batch numa request (substitui o Promise.all de N POSTs).
+  const picks = all.filter(f => item.selectedFiles.has(f.index))
+  await downloadBatchCreate({ infoHash, magnet, name: item.name, files: buildBatchFiles(picks) })
+}
+
+export async function confirmDownloads(
   readyItems: TorrentItem[],
   selectedClientId: string,
   savePath: string,
@@ -63,19 +82,7 @@ export async function confirmDownloads( // NOSONAR: complexidade cognitiva rastr
     const magnet = item.magnet || (infoHash ? `magnet:?xt=urn:btih:${infoHash}` : '')
     if (!infoHash || !magnet) continue
     if (selectedClientId === INTERNAL_ID) {
-      if ((item.files?.length ?? 0) > 0) {
-        const all = item.files ?? []
-        const picks = all.filter(f => item.selectedFiles.has(f.index))
-        if (isWholeTorrentSelection(all, item.selectedFiles)) {
-          // Todos marcados → 1 linha "torrent inteiro" (-2), não N por-arquivo.
-          await downloadCreate({ infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name: item.name, filePath: '', fileSize: all.reduce((s, f) => s + (f.size || 0), 0) })
-        } else {
-          // Subconjunto → batch numa request (substitui o Promise.all de N POSTs).
-          await downloadBatchCreate({ infoHash, magnet, name: item.name, files: buildBatchFiles(picks) })
-        }
-      } else {
-        await downloadCreate({ infoHash, fileIndex: 0, magnet, name: item.name, filePath: '', fileSize: 0 })
-      }
+      await submitInternalItem(item, infoHash, magnet)
     } else {
       await downloadTorrent(selectedClientId, magnet, '', savePath || undefined)
     }

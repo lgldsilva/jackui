@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { X, Play, Sparkles, Layers } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { TabState } from '../../lib/searchTabs'
@@ -13,6 +14,56 @@ type Props = {
   readonly onToggleGroupSeries: () => void
   readonly activeFilterCount: number
   readonly onClearFilters: () => void
+}
+
+// Campo numérico com rótulo (min-seeders/min-leechers/max-GB). Extraído para
+// manter SearchFilterFields com complexidade cognitiva <=15 (CA-1.2).
+function NumberFilter({ stacked, label, value, placeholder, widthClass, step, onChange }: {
+  readonly stacked: boolean
+  readonly label: string
+  readonly value: string | number
+  readonly placeholder: string
+  readonly widthClass: string
+  readonly step?: number
+  readonly onChange: (raw: string) => void
+}) {
+  return (
+    <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
+      <span className="text-xs text-text-muted whitespace-nowrap">{label}</span>
+      <input
+        type="number" min={0} step={step}
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+        className={`${widthClass} bg-transparent text-base sm:text-sm text-text-primary focus:outline-none`}
+      />
+    </label>
+  )
+}
+
+// Botão-toggle de filtro (playable/HDR/série). `icon` já vem montado no call
+// site para preservar o fill-current dependente de estado.
+function FilterToggle({ stacked, active, activeClass, title, label, icon, onClick }: {
+  readonly stacked: boolean
+  readonly active: boolean
+  readonly activeClass: string
+  readonly title: string
+  readonly label: string
+  readonly icon: ReactNode
+  readonly onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
+        active ? activeClass : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  )
 }
 
 // Campos de filtro compartilhados entre a barra inline (desktop) e o Sheet
@@ -42,49 +93,41 @@ export function SearchFilterFields({
         ))}
       </select>
       <div className={stacked ? 'grid grid-cols-3 gap-2' : 'contents'}>
-        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_seeds_min')}</span>
-          <input
-            type="number" min={0}
-            value={tab.minSeeders || ''}
-            placeholder="0"
-            onChange={e => onUpdate({ minSeeders: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-            className="w-12 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
-          />
-        </label>
-        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_leech_min')}</span>
-          <input
-            type="number" min={0}
-            value={tab.minLeechers || ''}
-            placeholder="0"
-            onChange={e => onUpdate({ minLeechers: Math.max(0, Number.parseInt(e.target.value) || 0) })}
-            className="w-12 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
-          />
-        </label>
-        <label className={`flex items-center gap-1.5 bg-surface-tertiary border border-strong rounded-lg px-3 py-1.5 ${stacked ? 'w-full justify-between' : ''}`}>
-          <span className="text-xs text-text-muted whitespace-nowrap">{t('search.filter_max_gb')}</span>
-          <input
-            type="number" min={0} step={0.1}
-            value={tab.maxSizeGb}
-            placeholder="∞"
-            onChange={e => onUpdate({ maxSizeGb: e.target.value })}
-            className="w-14 bg-transparent text-base sm:text-sm text-text-primary focus:outline-none"
-          />
-        </label>
+        <NumberFilter
+          stacked={stacked}
+          label={t('search.filter_seeds_min')}
+          value={tab.minSeeders || ''}
+          placeholder="0"
+          widthClass="w-12"
+          onChange={raw => onUpdate({ minSeeders: Math.max(0, Number.parseInt(raw) || 0) })}
+        />
+        <NumberFilter
+          stacked={stacked}
+          label={t('search.filter_leech_min')}
+          value={tab.minLeechers || ''}
+          placeholder="0"
+          widthClass="w-12"
+          onChange={raw => onUpdate({ minLeechers: Math.max(0, Number.parseInt(raw) || 0) })}
+        />
+        <NumberFilter
+          stacked={stacked}
+          label={t('search.filter_max_gb')}
+          value={tab.maxSizeGb}
+          placeholder="∞"
+          widthClass="w-14"
+          step={0.1}
+          onChange={raw => onUpdate({ maxSizeGb: raw })}
+        />
       </div>
-      <button
-        onClick={() => onUpdate({ onlyPlayable: !tab.onlyPlayable })}
+      <FilterToggle
+        stacked={stacked}
+        active={tab.onlyPlayable}
+        activeClass="bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30"
         title={t('search.playable_title')}
-        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-          tab.onlyPlayable
-            ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
-            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
-        }`}
-      >
-        <Play className={`w-3.5 h-3.5 ${tab.onlyPlayable ? 'fill-current' : ''}`} />
-        {t('search.playable')}
-      </button>
+        label={t('search.playable')}
+        icon={<Play className={`w-3.5 h-3.5 ${tab.onlyPlayable ? 'fill-current' : ''}`} />}
+        onClick={() => onUpdate({ onlyPlayable: !tab.onlyPlayable })}
+      />
       <select
         value={tab.resolution}
         onChange={e => onUpdate({ resolution: e.target.value })}
@@ -108,30 +151,24 @@ export function SearchFilterFields({
         <option value="h264">H.264</option>
         <option value="av1">AV1</option>
       </select>
-      <button
-        onClick={() => onUpdate({ hdrOnly: !tab.hdrOnly })}
+      <FilterToggle
+        stacked={stacked}
+        active={tab.hdrOnly}
+        activeClass="bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30"
         title={t('search.hdr_title')}
-        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-          tab.hdrOnly
-            ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 border-yellow-500/30'
-            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
-        }`}
-      >
-        <Sparkles className={`w-3.5 h-3.5 ${tab.hdrOnly ? 'fill-current' : ''}`} />
-        {t('search.hdr')}
-      </button>
-      <button
-        onClick={onToggleGroupSeries}
+        label={t('search.hdr')}
+        icon={<Sparkles className={`w-3.5 h-3.5 ${tab.hdrOnly ? 'fill-current' : ''}`} />}
+        onClick={() => onUpdate({ hdrOnly: !tab.hdrOnly })}
+      />
+      <FilterToggle
+        stacked={stacked}
+        active={groupSeries}
+        activeClass="bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30"
         title={t('search.series_title')}
-        className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors border ${stacked ? 'w-full justify-center' : ''} ${
-          groupSeries
-            ? 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30'
-            : 'bg-surface-tertiary hover:bg-surface-tertiary text-text-primary border-strong'
-        }`}
-      >
-        <Layers className="w-3.5 h-3.5" />
-        {t('search.series')}
-      </button>
+        label={t('search.series')}
+        icon={<Layers className="w-3.5 h-3.5" />}
+        onClick={onToggleGroupSeries}
+      />
       {activeFilterCount > 0 && (
         <button
           onClick={onClearFilters}
