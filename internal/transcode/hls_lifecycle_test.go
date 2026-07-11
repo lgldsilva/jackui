@@ -98,7 +98,7 @@ func TestGetOrStartConcurrentDedupe(t *testing.T) {
 	m.Close(sessions[0].Key)
 	deadline := time.Now().Add(3 * time.Second)
 	for openCount = countOpen(sources); openCount != 0 && time.Now().Before(deadline); openCount = countOpen(sources) {
-		time.Sleep(20 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU ao cleanup assíncrono
 	}
 	if openCount != 0 {
 		t.Errorf("after Close, %d sources still open, want 0", openCount)
@@ -136,7 +136,7 @@ func TestManagerStopReapsSessionsAndIsIdempotent(t *testing.T) {
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for !src.closed.Load() && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU ao cleanup assíncrono
 	}
 	if !src.closed.Load() {
 		t.Error("Stop must close the live session's source")

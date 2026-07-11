@@ -46,6 +46,12 @@ func TestMetadataWithRetryStopsOnContextCancel(t *testing.T) {
 	defer srv.Close()
 	c := &Client{http: &http.Client{}, providers: map[string]config.AIProvider{"groq": {BaseURL: srv.URL}}}
 	ctx, cancel := context.WithCancel(context.Background())
+	// KEPT SLEEP (deterministic substitution not sane here): cancel must land
+	// strictly BETWEEN the first request completing (its ctx-bound body read must
+	// finish, else the transport aborts it and we'd see a Post error, not the 429)
+	// and the 1s throttle wait. A channel signalled from the handler races that
+	// body read; the only clean alternative is a production timer seam. 100ms sits
+	// safely inside the 900ms margin before the Retry-After wait elapses.
 	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
 	_, _, _, err := c.metadataWithRetry(ctx,
 		Slot{ID: "groq:m", Provider: "groq", Model: "m", BaseURL: srv.URL}, "X")

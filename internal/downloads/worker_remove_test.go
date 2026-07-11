@@ -259,8 +259,7 @@ func TestWorkerRemove_StopAfterRemove(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		w.Start()
-		time.Sleep(40 * time.Millisecond)
-		w.Stop()
+		w.Stop() // joins run() after its bootstrap tick; exercises the lock ordering
 		close(done)
 	}()
 	select {

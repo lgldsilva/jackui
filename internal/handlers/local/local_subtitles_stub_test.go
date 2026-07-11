@@ -117,9 +117,10 @@ func TestStartBgSubExtract_DedupesAndPersists(t *testing.T) {
 	// Dedupe: pre-register the job key → the call must bail out before ffmpeg.
 	deduped := filepath.Join(dir, "deduped.vtt")
 	subExtractJobs.LoadOrStore(deduped, struct{}{})
+	// The key is already registered, so startBgSubExtract bails SYNCHRONOUSLY
+	// (no goroutine, no Enqueue) — nothing async can create the file.
 	startBgSubExtract(cache, "M", "movie.mkv", abs, st, 0, deduped)
 	subExtractJobs.Delete(deduped)
-	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(deduped); !os.IsNotExist(err) {
 		t.Errorf("deduped job must not extract; stat err = %v", err)
 	}
@@ -127,16 +128,7 @@ func TestStartBgSubExtract_DedupesAndPersists(t *testing.T) {
 	// Happy path: the goroutine extracts (stub ffmpeg) and persists the VTT.
 	vtt := filepath.Join(dir, "ok.vtt")
 	startBgSubExtract(cache, "M", "movie.mkv", abs, st, 0, vtt)
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(vtt); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("background extraction never persisted the VTT")
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
+	waitForLocalFile(t, vtt, 5*time.Second)
 	data, err := os.ReadFile(vtt)
 	if err != nil || !strings.HasPrefix(string(data), "WEBVTT") {
 		t.Errorf("persisted VTT invalid: err=%v data=%q", err, string(data))

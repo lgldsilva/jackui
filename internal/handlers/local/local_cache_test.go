@@ -42,14 +42,16 @@ func TestLocalCacheStart_EnqueuesAndServesCached(t *testing.T) {
 		t.Fatalf("status=%d want 202; body=%s", w.Code, w.Body.String())
 	}
 
-	// Worker copies async — poll until ready, then the cached path must exist.
+	// Worker copies async — await ready (exits the instant it flips), then the
+	// cached path must exist.
 	ready := false
-	for i := 0; i < 100; i++ {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
 		if cache.StatusFor("Test", "movie.mkv").Status == "ready" {
 			ready = true
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		<-time.After(2 * time.Millisecond) // cede a CPU ao worker de cópia
 	}
 	if !ready {
 		t.Fatal("file did not finish caching")
