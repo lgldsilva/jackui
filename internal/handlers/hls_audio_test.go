@@ -75,6 +75,30 @@ func TestStreamHLSAudioResolves(t *testing.T) {
 	}
 }
 
+// StreamHLSSubtitle serve a mini-playlist WebVTT (probe falha → duração
+// fallback, mas o corpo é válido e aponta pro subtrack com token).
+func TestStreamHLSSubtitle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mgr, err := transcode.NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	r := gin.New()
+	r.GET("/api/stream/hls/:hash/:file/sub/:track/index.m3u8", StreamHLSSubtitle(streamer.NewForTesting(), mgr, nil))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+testHash+"/0/sub/3/index.m3u8?token=T", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200\n%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{"#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-ENDLIST", "/api/stream/subtrack/" + testHash + "/0/3?token=T"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sub playlist sem %q:\n%s", want, body)
+		}
+	}
+}
+
 // StreamHLSMaster sem torrent: passa por serveMasterIfMultiVariant (probe falha
 // → fallback) + serveHLSMediaPlaylist. Cobre o glue single-variant.
 func TestStreamHLSMasterFallbackNoTorrent(t *testing.T) {
@@ -84,7 +108,7 @@ func TestStreamHLSMasterFallbackNoTorrent(t *testing.T) {
 		t.Fatalf("NewHLSManager: %v", err)
 	}
 	r := gin.New()
-	r.GET("/api/stream/hls/:hash/:file/index.m3u8", StreamHLSMaster(streamer.NewForTesting(), mgr, nil))
+	r.GET("/api/stream/hls/:hash/:file/index.m3u8", StreamHLSMaster(streamer.NewForTesting(), mgr, nil, false))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+testHash+"/0/index.m3u8", nil))
 	if w.Code == http.StatusOK {

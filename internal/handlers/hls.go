@@ -30,6 +30,9 @@ type hlsCtx struct {
 	// 2). Zero-value (Height 0) = single-variant legado; o handler da variante
 	// (v/:variant) resolve srcHeight→ladder e popula isto antes de startHLSSession.
 	variant transcode.Variant
+	// mediaRenditions liga as renditions EXT-X-MEDIA (áudio/legenda) no master
+	// (config JACKUI_HLS_MEDIA_RENDITIONS). false = comportamento M2a.
+	mediaRenditions bool
 }
 
 // mediaSegQuery builds the query string appended to each segment URL. It
@@ -110,15 +113,16 @@ func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte 
 	return []byte(b.String())
 }
 
-func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
+func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, mediaRenditions bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hc, ok := newHLSCtx(c, s, mgr, store)
 		if !ok {
 			return
 		}
-		// Phase 5 branches here to a probe-only multi-variant MASTER when the
-		// source ladder has ≥2 rungs. For now (and for sub-1080p / unknown-height
-		// sources) it serves the legacy single-variant media playlist.
+		hc.mediaRenditions = mediaRenditions
+		// Probe-only MASTER when the source warrants one (≥2 ABR rungs, or — with
+		// renditions on — ≥2 audio tracks / text subs). Else the legacy
+		// single-variant media playlist (sub-1080p / unknown-height sources).
 		if serveMasterIfMultiVariant(hc) {
 			return
 		}

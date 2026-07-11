@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
@@ -25,6 +26,7 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 		t.Fatalf("NewHLSManager: %v", err)
 	}
 	deps := &appDeps{
+		cfg:       &config.Config{},
 		hlsMgr:    mgr,
 		streamSrv: streamer.NewForTesting(),
 	}

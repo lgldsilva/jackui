@@ -91,11 +91,26 @@ func StreamHLSAudio(s *streamer.Streamer, mgr *transcode.HLSSessionManager, stor
 	}
 }
 
+// masterOpts é o insumo do buildMasterPlaylist. Com renditions=false (M2a) só
+// há STREAM-INF de vídeo e a faixa escolhida vai na query do variant
+// (audioQuery, troca por reload). Com renditions=true (M2b, gate
+// JACKUI_HLS_MEDIA_RENDITIONS) saem EXT-X-MEDIA TYPE=AUDIO/SUBTITLES e o variant
+// fica no áudio default.
+type masterOpts struct {
+	ladder     []transcode.Variant
+	srcW, srcH int
+	audio      []streamer.Track
+	subs       []streamer.Track
+	token      string
+	nativeHLS  bool
+	audioQuery string
+	renditions bool
+}
+
 // serveMasterIfMultiVariant serves a synthetic MASTER playlist (probe-only, no
-// ffmpeg) when the source warrants one — ≥2 ABR rungs (multi-resolution) OR ≥2
-// audio tracks (audio renditions). Otherwise returns false and the caller serves
-// the legacy single-variant media playlist (unchanged, backward compatible). The
-// encode begins only when the client fetches a v/:variant or a/:track playlist.
+// ffmpeg) when the source warrants one. Otherwise returns false and the caller
+// serves the legacy single-variant media playlist. The encode begins only when
+// the client fetches a v/:variant / a/:track playlist.
 func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	pr, ok := probeSource(hc)
 	if !ok {
@@ -103,13 +118,30 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	}
 	ladder := transcode.VariantLadder(pr.VideoHeight)
 	subs := textSubs(pr.Subtitles)
-	// Master vale a pena com ≥2 rungs de vídeo, ≥2 faixas de áudio (renditions),
-	// OU ≥1 legenda de texto (rendition WebVTT).
-	if len(ladder) < 2 && len(pr.Audio) < 2 && len(subs) == 0 {
+	if !masterWarranted(hc.mediaRenditions, ladder, pr.Audio, subs) {
 		return false
 	}
-	writeMasterPlaylist(hc.c, ladder, pr.VideoWidth, pr.VideoHeight, pr.Audio, subs)
+	o := masterOpts{
+		ladder: ladder, srcW: pr.VideoWidth, srcH: pr.VideoHeight,
+		token: hc.c.Query("token"), nativeHLS: httpshared.NativeHLSParam(hc.c),
+		renditions: hc.mediaRenditions,
+	}
+	if hc.mediaRenditions {
+		o.audio, o.subs = pr.Audio, subs
+	} else {
+		o.audioQuery = hc.c.Query("audio")
+	}
+	writeMaster(hc.c, o)
 	return true
+}
+
+// masterWarranted: com renditions, um master vale por ≥2 rungs de vídeo OU ≥2
+// faixas de áudio OU ≥1 legenda de texto; sem renditions (M2a), só por ≥2 rungs.
+func masterWarranted(renditions bool, ladder []transcode.Variant, audio, subs []streamer.Track) bool {
+	if len(ladder) >= 2 {
+		return true
+	}
+	return renditions && (len(audio) >= 2 || len(subs) > 0)
 }
 
 // textSubs filtra as legendas de TEXTO (SRT/ASS/…) — as bitmap (PGS/VOBSUB,
@@ -124,13 +156,10 @@ func textSubs(subs []streamer.Track) []streamer.Track {
 	return out
 }
 
-// writeMasterPlaylist renders the master and writes it to the response
-// (no-store; MPEG-URL). token/native_hls come from the request query so they
-// propagate onto the variant/rendition URIs (see buildMasterPlaylist).
-func writeMasterPlaylist(c *gin.Context, ladder []transcode.Variant, w, h int, audio, subs []streamer.Track) {
-	body := buildMasterPlaylist(ladder, w, h, audio, subs, c.Query("token"), httpshared.NativeHLSParam(c))
+// writeMaster renders the master (no-store; MPEG-URL).
+func writeMaster(c *gin.Context, o masterOpts) {
 	c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
-	c.Data(http.StatusOK, httpshared.MIMEMPEGURL, body)
+	c.Data(http.StatusOK, httpshared.MIMEMPEGURL, buildMasterPlaylist(o))
 }
 
 // variantWidth derives a rung's pixel width from the source aspect ratio,
@@ -190,35 +219,45 @@ func writeAudioRenditions(b *strings.Builder, audio []streamer.Track, q string) 
 // master URL (.../:file/index.m3u8) so they resolve to the v/:variant and
 // a/:track routes; token+native_hls propagate so each child authenticates and
 // resolves to the same EffectiveKey.
-func buildMasterPlaylist(ladder []transcode.Variant, srcW, srcH int, audio, subs []streamer.Track, token string, nativeHLS bool) []byte {
-	q := mediaSegQuery(token, nativeHLS)
-	hasAudioRenditions := len(audio) >= 2
-	hasSubs := len(subs) > 0
+func buildMasterPlaylist(o masterOpts) []byte {
+	q := mediaSegQuery(o.token, o.nativeHLS)
+	// M2a (sem renditions): a faixa escolhida vai na query do variant (troca por
+	// reload). Com renditions o áudio vem por a/:track e o variant fica no default.
+	variantQ := q
+	if !o.renditions && o.audioQuery != "" {
+		sep := "?"
+		if variantQ != "" {
+			sep = "&"
+		}
+		variantQ += sep + "audio=" + o.audioQuery
+	}
+	hasAudio := o.renditions && len(o.audio) >= 2
+	hasSubs := o.renditions && len(o.subs) > 0
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
-	if hasAudioRenditions {
-		writeAudioRenditions(&b, audio, q)
+	if hasAudio {
+		writeAudioRenditions(&b, o.audio, q)
 	}
 	if hasSubs {
-		writeSubtitleRenditions(&b, subs, q)
+		writeSubtitleRenditions(&b, o.subs, q)
 	}
-	for i, v := range ladder {
+	for i, v := range o.ladder {
 		b.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=")
 		b.WriteString(strconv.Itoa(v.Bandwidth()))
-		if w := variantWidth(srcW, srcH, v.Height); w > 0 {
+		if w := variantWidth(o.srcW, o.srcH, v.Height); w > 0 {
 			fmt.Fprintf(&b, ",RESOLUTION=%dx%d", w, v.Height)
 		}
 		fmt.Fprintf(&b, ",CODECS=%q", v.Codecs())
-		if hasAudioRenditions {
+		if hasAudio {
 			b.WriteString(`,AUDIO="aud"`)
 		}
 		if hasSubs {
 			b.WriteString(`,SUBTITLES="sub"`)
 		}
 		b.WriteString("\n")
-		fmt.Fprintf(&b, "v/%d/index.m3u8%s\n", i, q)
+		fmt.Fprintf(&b, "v/%d/index.m3u8%s\n", i, variantQ)
 	}
 	return []byte(b.String())
 }
