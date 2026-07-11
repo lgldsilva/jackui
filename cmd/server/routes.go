@@ -466,7 +466,7 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	if deps.hlsMgr == nil {
 		return
 	}
-	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore, deps.cfg.Stream.HLSMediaRenditions))
+	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore, deps.cfg))
 	// Variantes do ladder ABR (HLS master, Phase 2). `v` é segmento estático →
 	// coexiste com o wildcard `:seg` no mesmo nível (o gin avalia estáticos antes
 	// do wildcard); `:variant` fica sob o nó estático, sem colisão com `:seg`.

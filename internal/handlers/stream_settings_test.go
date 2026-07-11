@@ -136,6 +136,35 @@ func TestStreamUpdateSettings_LiveFieldsNoRestart(t *testing.T) {
 	}
 }
 
+// PUT com hlsMediaRenditions persiste no cfg (lido ao vivo pelo StreamHLSMaster)
+// e volta no GET; não exige reinício.
+func TestStreamUpdateSettings_HLSMediaRenditions(t *testing.T) {
+	cfg, path := newTestConfig(t)
+	s := streamer.NewForTesting()
+	w := putSettings(t, cfg, path, s, `{"storageBackend":"file","hlsMediaRenditions":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["restartRequired"] != false {
+		t.Errorf("restartRequired = %v, queria false", resp["restartRequired"])
+	}
+	if !cfg.Stream.HLSMediaRenditions {
+		t.Error("cfg.Stream.HLSMediaRenditions não persistiu true")
+	}
+	// GET reflete o valor.
+	gr := gin.New()
+	gr.GET("/s", StreamGetSettings(cfg, s))
+	gw := httptest.NewRecorder()
+	gr.ServeHTTP(gw, httptest.NewRequest("GET", "/s", nil))
+	var got map[string]any
+	json.Unmarshal(gw.Body.Bytes(), &got)
+	if got["hlsMediaRenditions"] != true {
+		t.Errorf("GET hlsMediaRenditions = %v, queria true", got["hlsMediaRenditions"])
+	}
+}
+
 // PUT com seedTrackers persiste a lista limpa (sem linhas em branco) e não
 // exige reinício (aplicado ao vivo).
 func TestStreamUpdateSettings_SeedTrackers(t *testing.T) {
