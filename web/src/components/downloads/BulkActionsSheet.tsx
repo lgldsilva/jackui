@@ -31,14 +31,14 @@ export function BulkActionsSheet(props: {
     >
       <div className="flex flex-col gap-2">
         <button
-          onClick={() => { onClose(); void onResumeAll() }}
+          onClick={() => { onClose(); onResumeAll() }}
           disabled={bulkBusy}
           className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 disabled:opacity-50"
         >
           <Play className="w-4 h-4" /> {t('downloads.page.startAll')}
         </button>
         <button
-          onClick={() => { onClose(); void onPauseAll() }}
+          onClick={() => { onClose(); onPauseAll() }}
           disabled={bulkBusy}
           className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-surface-tertiary/60 text-text-primary border border-default disabled:opacity-50"
         >
@@ -46,7 +46,7 @@ export function BulkActionsSheet(props: {
         </button>
         {completedCount > 0 && (
           <button
-            onClick={() => { onClose(); void onRemoveCompleted() }}
+            onClick={() => { onClose(); onRemoveCompleted() }}
             disabled={bulkBusy}
             className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
           >
@@ -55,7 +55,7 @@ export function BulkActionsSheet(props: {
         )}
         {failedCount > 0 && (
           <button
-            onClick={() => { onClose(); void onClearFailed() }}
+            onClick={() => { onClose(); onClearFailed() }}
             disabled={bulkBusy}
             className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
           >
@@ -64,7 +64,7 @@ export function BulkActionsSheet(props: {
         )}
         {queuedCount > 0 && (
           <button
-            onClick={() => { onClose(); void onClearQueued() }}
+            onClick={() => { onClose(); onClearQueued() }}
             disabled={bulkBusy}
             className="flex items-center gap-2 min-h-[48px] px-4 rounded-lg bg-red-500/10 text-red-700 dark:text-red-300 border border-red-500/30 disabled:opacity-50"
           >

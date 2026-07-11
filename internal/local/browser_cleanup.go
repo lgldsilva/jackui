@@ -9,6 +9,10 @@ import (
 	"strings"
 )
 
+// errNotADirectory is the shared error text returned when a resolved path is
+// expected to be a directory but isn't.
+const errNotADirectory = "not a directory"
+
 // keepMarker is the empty-but-present file that pins a folder: a dir holding it
 // is no longer "empty" to RemoveEmptyDirs (os.Remove → ENOTEMPTY), so the
 // cleanup leaves it alone. List hides it (dotfile) and surfaces Entry.Locked.
@@ -27,7 +31,7 @@ func (b *Browser) Walk(mountName, relPath string, mediaOnly bool) ([]Entry, erro
 		return nil, err
 	}
 	if !stat.IsDir() {
-		return nil, fmt.Errorf("not a directory")
+		return nil, fmt.Errorf(errNotADirectory)
 	}
 
 	mountAbs, err := filepath.Abs(b.findMountPath(mountName))
@@ -95,7 +99,7 @@ func (b *Browser) RemoveEmptyDirs(mountName, relPath string) (int, error) {
 		return 0, err
 	}
 	if !stat.IsDir() {
-		return 0, fmt.Errorf("not a directory")
+		return 0, fmt.Errorf(errNotADirectory)
 	}
 	mountAbs, err := filepath.Abs(b.findMountPath(mountName))
 	if err != nil {
@@ -139,7 +143,7 @@ func (b *Browser) SetFolderLock(mountName, relPath string, locked bool) error {
 		return err
 	}
 	if !stat.IsDir() {
-		return fmt.Errorf("not a directory")
+		return fmt.Errorf(errNotADirectory)
 	}
 	marker := filepath.Join(abs, keepMarker)
 	if locked {
