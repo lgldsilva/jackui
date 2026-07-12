@@ -213,9 +213,11 @@ export default function StreamSettingsCard() {
       {/* HLS renditions de áudio/legenda (Phase 2 M2b) — ao vivo */}
       <div className="flex flex-col gap-3">
         <SectionTitle title={t('stream.hls_renditions_title')} badge="live" />
-        <label className="flex items-start gap-3 cursor-pointer">
+        <label htmlFor="hls-media-renditions" className="flex items-start gap-3 cursor-pointer">
           <input
+            id="hls-media-renditions"
             type="checkbox"
+            aria-label={t('stream.hls_renditions_label')}
             checked={form.hlsMediaRenditions}
             onChange={(e) => set('hlsMediaRenditions', e.target.checked)}
             className="mt-1 h-5 w-5 shrink-0 accent-accent"
