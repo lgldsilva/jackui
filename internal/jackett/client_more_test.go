@@ -64,6 +64,68 @@ func TestListIndexers_HTTPError(t *testing.T) {
 	}
 }
 
+// TestListIndexers_TorznabError: Jackett answers HTTP 200 with a torznab <error>
+// envelope (e.g. invalid key). The old code surfaced an opaque XML decode error;
+// now the real description reaches the user. The error is "retryable" so it hits
+// all 3 attempts — the test asserts the legible message, not the attempt count.
+func TestListIndexers_TorznabError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><error code="100" description="Invalid API Key" />`)
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "key")
+	_, err := client.ListIndexers()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "Invalid API Key") || !strings.Contains(err.Error(), "100") {
+		t.Fatalf("expected legible jackett error, got: %v", err)
+	}
+}
+
+// TestListIndexers_RetriesTransient: a transient <error> on the first call clears
+// on the second → ListIndexers recovers instead of failing the whole search.
+func TestListIndexers_RetriesTransient(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		if atomic.AddInt32(&calls, 1) == 1 {
+			fmt.Fprint(w, `<error code="900" description="temporarily unavailable" />`)
+			return
+		}
+		fmt.Fprint(w, `<indexers><indexer id="1337x" configured="true"><title>1337x</title><type>public</type></indexer></indexers>`)
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "key")
+	indexers, err := client.ListIndexers()
+	if err != nil {
+		t.Fatalf("expected recovery after retry, got: %v", err)
+	}
+	if len(indexers) != 1 || indexers[0].ID != "1337x" {
+		t.Fatalf("wrong indexers after retry: %+v", indexers)
+	}
+	if atomic.LoadInt32(&calls) < 2 {
+		t.Fatalf("expected a retry (≥2 calls), got %d", calls)
+	}
+}
+
+// TestTorznabErrorFromBody: a real <indexers> body is NOT mistaken for an error.
+func TestTorznabErrorFromBody(t *testing.T) {
+	if err := torznabErrorFromBody([]byte(`<indexers><indexer id="x"/></indexers>`)); err != nil {
+		t.Fatalf("indexers body should not be an error, got: %v", err)
+	}
+	if err := torznabErrorFromBody([]byte(`<error code="100" description="Invalid API Key"/>`)); err == nil {
+		t.Fatal("error body should produce an error")
+	}
+	// <error> without a description still yields a coded error (no panic).
+	if err := torznabErrorFromBody([]byte(`<error code="500"/>`)); err == nil {
+		t.Fatal("coded error without description should still be an error")
+	}
+}
+
 func TestSearchOnIndexer(t *testing.T) {
 	var capturedIndexer string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
