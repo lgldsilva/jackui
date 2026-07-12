@@ -366,10 +366,13 @@ Branch da `main` atualizada. Deepwork file: `.slim/deepwork/hls-master-p2.md`.
 - UI: não duplicar com `<track>` se HLS SUBTITLES ativo
 - **Gate (CA-2.2)**: tags presentes no fixture multi-stream
 
-#### Fase 8 — Frontend M2b
-- hls.js: `audioTrack` / listeners; Safari: fallback painel
-- Estado claro: selected rendition ≠ `transcodeAudio` URL remux (renomear se preciso)
-- **Gate**: troca áudio sem reload no Chrome; Safari path documentado
+#### Fase 8 — Frontend M2b ✅ ENTREGUE (branch `feat/hls-audiotrack-frontend`)
+- hls.js: `AUDIO_TRACKS_UPDATED`/`SUBTITLE_TRACKS_UPDATED` (`hlsAudioTracks.ts:wireHlsAudioSubs`) → `hls.audioTrack` seamless; Safari nativo: WebKit `video.audioTracks` (`applyAudioSelection`). Effects em `useSeamlessAudio.ts` (fora do god-file `VideoPlayerElement`, complexidade inalterada = 18).
+- **Bifurcação PURAMENTE RUNTIME** (`seamlessAudioAvailable(hlsAudioCount) = count>1`): nada de flag de config no front. Com o master expondo ≤1 faixa (toggle backend OFF = prod) o caminho seamless NUNCA ativa → 100% inerte, zero regressão. `seamlessAudio` (índice via `hls.audioTrack`, sem tocar `streamURL`) ≠ `transcodeAudio` (o remux legado `?audio=` reload, preservado p/ fallback/direct-play). `selectAudio` no `PlayerModal` decide; painel só chama.
+- Mapeamento probe↔hls: renditions emitidas em ordem de probe (`writeAudioRenditions`), logo `audioTracks[k] ↔ probe.audio[k]` (`probeAudioToPosition`).
+- Legenda dupla (8c): `SUBTITLE_TRACKS_UPDATED → subtitleTrack=-1` (o `<track>` React + offset/externas segue fonte única no Chrome/FF).
+- Testes puros: `hlsAudioTracks.test.ts` (12). tsc/lint/i18n/build/vitest(571) verdes.
+- **Gate residual**: validar troca-sem-reload no **Chrome real** (hls.js) e o path **Safari** nativo por automação de browser APÓS deploy com o toggle LIGADO (headless não roda o player). Só então tirar o "beta" do toggle.
 
 #### Fase 9 — E2E + GPU + gates
 - Fixture `multistream.mkv` **1920x1080**, 2 áudios AAC, 1 text sub:

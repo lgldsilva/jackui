@@ -65,7 +65,14 @@ export function ActiveStreamView(props: Readonly<{
   fileTypeFilter: FileType
   fileSortBySize: boolean
   fileSizeDesc: boolean
-  transcodeAudio: number | null
+  // Fase 8: áudio unificado. activeAudioIndex = faixa ativa (seamless OU legado);
+  // selectAudio bifurca (hls.audioTrack seamless × ?audio= reload); seamlessAudioOn
+  // indica o modo. seamlessAudioIndex/onHlsAudioCount ligam o VideoPlayerElement.
+  activeAudioIndex: number | null
+  selectAudio: (v: number | null) => void
+  seamlessAudioOn: boolean
+  seamlessAudioIndex: number | null
+  onHlsAudioCount: (n: number) => void
   forceH264: boolean
   burnSubTrack: number | null
   shuffle: boolean
@@ -76,7 +83,6 @@ export function ActiveStreamView(props: Readonly<{
   setVideoError: Setter<boolean>
   setShowMobileOpts: Setter<boolean>
   setPlaybackSpeed: Setter<number>
-  setTranscodeAudio: Setter<number | null>
   setForceH264: Setter<boolean>
   setBurnSubTrack: Setter<number | null>
   setFileFilter: Setter<string>
@@ -112,9 +118,10 @@ export function ActiveStreamView(props: Readonly<{
     probe, subEnabled, showMobileOpts, playbackSpeed,
     currentFile, currentEp, videoFiles, mediaFileIndices, mediaCursor,
     fileFilter, fileTypeFilter, fileSortBySize, fileSizeDesc,
-    transcodeAudio, forceH264, burnSubTrack, shuffle, repeat, audioDirectSrc,
+    activeAudioIndex, selectAudio, seamlessAudioOn, seamlessAudioIndex, onHlsAudioCount,
+    forceH264, burnSubTrack, shuffle, repeat, audioDirectSrc,
     setShowResumePrompt, setResumePosition, setVideoError, setShowMobileOpts, setPlaybackSpeed,
-    setTranscodeAudio, setForceH264, setBurnSubTrack, setFileFilter, setFileTypeFilter,
+    setForceH264, setBurnSubTrack, setFileFilter, setFileTypeFilter,
     setFileSortBySize, setFileSizeDesc, setSidebarOpen, setPreviewFileIdx,
     renderVideoError, videoDiagnostic, onVideoError, onTimeUpdate, onVideoEnded, onVideoCanPlay,
     onPlaybackStarted, onAudioTimeUpdate, handlePrev, handleNext, hasPrev, hasNext, handleRequestFullscreen,
@@ -199,6 +206,9 @@ export function ActiveStreamView(props: Readonly<{
           onPlaybackStarted={onPlaybackStarted}
           audioMode={audioMode}
           subtitleVttURL={subtitleVttURL}
+          seamlessAudioIndex={seamlessAudioIndex}
+          probeAudioTracks={probe?.audio}
+          onHlsAudioCount={onHlsAudioCount}
           videoError={videoError}
           serverReady={serverReady}
           currentTime={currentTime}
@@ -261,7 +271,9 @@ export function ActiveStreamView(props: Readonly<{
           probe={probe}
           onSeek={(sec) => { const el = activeMediaRef.current; if (el && Number.isFinite(sec)) el.currentTime = sec }}
           sidecars={sidecars}
-          transcodeAudio={transcodeAudio}
+          activeAudioIndex={activeAudioIndex}
+          selectAudio={selectAudio}
+          seamlessAudioOn={seamlessAudioOn}
           forceH264={forceH264}
           burnSubTrack={burnSubTrack}
           isTranscoded={isTranscoded}
@@ -288,7 +300,6 @@ export function ActiveStreamView(props: Readonly<{
           setShowMobileOpts={setShowMobileOpts}
           setPlaybackSpeed={setPlaybackSpeed}
           clearCustomSub={clearCustomSub}
-          setTranscodeAudio={setTranscodeAudio}
           setForceH264={setForceH264}
           setBurnSubTrack={setBurnSubTrack}
           setSidecarIdx={setSidecarIdx}
