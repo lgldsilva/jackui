@@ -41,6 +41,11 @@ type streamSettingsBody struct {
 	// SeedTrackers: substrings de announce URLs cujos torrents continuam
 	// seedando após o uso (ex.: "jackui"). Aplicado ao vivo, sem reinício.
 	SeedTrackers []string `json:"seedTrackers"`
+	// HLSMediaRenditions liga as renditions EXT-X-MEDIA (áudio/legenda) no master
+	// HLS (Phase 2 M2b). Aplicado ao vivo (o handler lê no próximo play). ⚠ com ON,
+	// o seletor de áudio in-app regride no hls.js (Chrome/Firefox) até o front
+	// migrar pra hls.audioTrack — Safari nativo usa o menu próprio.
+	HLSMediaRenditions bool `json:"hlsMediaRenditions"`
 }
 
 type streamSettingsResponse struct {
@@ -67,6 +72,7 @@ func currentStreamSettings(cfg *config.Config, s *streamer.Streamer) streamSetti
 		PieceHashers:       st.PieceHashers,
 		MaxCacheGB:         st.MaxCacheGB,
 		SeedTrackers:       st.SeedTrackers,
+		HLSMediaRenditions: st.HLSMediaRenditions,
 	}
 }
 
@@ -158,6 +164,7 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 		cfg.Stream.PieceHashers = b.PieceHashers
 		cfg.Stream.MaxCacheGB = b.MaxCacheGB
 		cfg.Stream.SeedTrackers = cleanSeedTrackers(b.SeedTrackers)
+		cfg.Stream.HLSMediaRenditions = b.HLSMediaRenditions
 
 		if err := cfg.Save(configPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})

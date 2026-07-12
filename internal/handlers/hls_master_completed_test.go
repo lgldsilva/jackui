@@ -53,7 +53,7 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 	}
 
 	r := gin.New()
-	r.GET("/hls/:hash/:file/master.m3u8", StreamHLSMaster(s, mgr, st, false))
+	r.GET("/hls/:hash/:file/master.m3u8", StreamHLSMaster(s, mgr, st, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/hls/"+hash+"/0/master.m3u8", nil))
 
