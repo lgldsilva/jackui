@@ -65,6 +65,11 @@ func mkVariant(h int) Variant {
 	return Variant{Height: h, VBitrateK: bitrateForHeight(h), Level: levelIdcForHeight(h)}
 }
 
+// VariantLadder is the exported entry point handlers use to turn a probed
+// source height into the ABR ladder (the master builder + variant/segment
+// handlers live in the handlers package). See variantLadder.
+func VariantLadder(srcHeight int) []Variant { return variantLadder(srcHeight) }
+
 // variantLadder returns the ABR ladder for a source of the given height,
 // ordered highest→lowest. 4K sources get three rungs (1080/720/480) because the
 // browser's built-in H.264 decoder won't play 4K directly; a 1080p source gets
