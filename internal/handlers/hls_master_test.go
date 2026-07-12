@@ -27,7 +27,7 @@ func TestBuildMasterPlaylistCA21(t *testing.T) {
 		{3840, 2160, 3},
 	} {
 		ladder := transcode.VariantLadder(src.h)
-		master := string(buildMasterPlaylist(ladder, src.w, src.h, "", false))
+		master := string(buildMasterPlaylist(ladder, src.w, src.h, "", false, ""))
 		if got := countStreamInf(master); got != src.want {
 			t.Errorf("%dp: %d STREAM-INF, want %d\n%s", src.h, got, src.want, master)
 		}
@@ -44,7 +44,7 @@ func TestBuildMasterPlaylistCA21(t *testing.T) {
 // (v/0/…, v/1/…) — NÃO o v0/… do rascunho antigo (bug B-2).
 func TestBuildMasterPlaylistVariantURIs(t *testing.T) {
 	ladder := transcode.VariantLadder(1080)
-	master := string(buildMasterPlaylist(ladder, 1920, 1080, "", false))
+	master := string(buildMasterPlaylist(ladder, 1920, 1080, "", false, ""))
 	for _, want := range []string{"\nv/0/index.m3u8", "\nv/1/index.m3u8"} {
 		if !strings.Contains(master, want) {
 			t.Errorf("master sem URI %q:\n%s", want, master)
@@ -59,7 +59,7 @@ func TestBuildMasterPlaylistVariantURIs(t *testing.T) {
 // primeira variante dá 401 no <video>?token= ou cai na sessão errada).
 func TestBuildMasterPlaylistPropagatesTokenAndNative(t *testing.T) {
 	ladder := transcode.VariantLadder(2160)
-	master := string(buildMasterPlaylist(ladder, 3840, 2160, "Tok123", true))
+	master := string(buildMasterPlaylist(ladder, 3840, 2160, "Tok123", true, ""))
 	uris := 0
 	for _, line := range strings.Split(master, "\n") {
 		if strings.HasPrefix(line, "v/") {
@@ -74,10 +74,28 @@ func TestBuildMasterPlaylistPropagatesTokenAndNative(t *testing.T) {
 	}
 }
 
+// M2a: a faixa de áudio escolhida é propagada em TODA URI de variante (senão
+// escolher áudio não-default quebraria em fontes ≥1080p, onde vem master). A
+// troca continua sendo por reload da master URL (?audio=N muda a streamURL).
+func TestBuildMasterPlaylistPropagatesAudio(t *testing.T) {
+	ladder := transcode.VariantLadder(1080)
+	master := string(buildMasterPlaylist(ladder, 1920, 1080, "Tok", true, "2"))
+	for _, line := range strings.Split(master, "\n") {
+		if strings.HasPrefix(line, "v/") && !strings.Contains(line, "audio=2") {
+			t.Errorf("URI de variante sem audio=2: %q", line)
+		}
+	}
+	// Sem áudio escolhido → nenhuma URI carrega audio=.
+	noAudio := string(buildMasterPlaylist(ladder, 1920, 1080, "Tok", true, ""))
+	if strings.Contains(noAudio, "audio=") {
+		t.Errorf("sem escolha de áudio não deveria haver audio= nas URIs:\n%s", noAudio)
+	}
+}
+
 // RESOLUTION derivada do aspect ratio da fonte (par); CODECS por tier.
 func TestBuildMasterPlaylistResolutionCodecs(t *testing.T) {
 	ladder := transcode.VariantLadder(1080)
-	master := string(buildMasterPlaylist(ladder, 1920, 1080, "", false))
+	master := string(buildMasterPlaylist(ladder, 1920, 1080, "", false, ""))
 	for _, want := range []string{"RESOLUTION=1920x1080", "RESOLUTION=1280x720", `CODECS="avc1.4d4028,mp4a.40.2"`, `CODECS="avc1.4d401f,mp4a.40.2"`} {
 		if !strings.Contains(master, want) {
 			t.Errorf("master sem %q:\n%s", want, master)
@@ -94,7 +112,7 @@ func TestBuildMasterPlaylistResolutionCodecs(t *testing.T) {
 func TestBuildMasterPlaylistUnknownDimsOmitsResolution(t *testing.T) {
 	// Ladder de 2 rungs mas sem dims da fonte.
 	ladder := transcode.VariantLadder(1080)
-	master := string(buildMasterPlaylist(ladder, 0, 0, "", false))
+	master := string(buildMasterPlaylist(ladder, 0, 0, "", false, ""))
 	if strings.Contains(master, "RESOLUTION=") {
 		t.Errorf("dims 0 deveria omitir RESOLUTION:\n%s", master)
 	}

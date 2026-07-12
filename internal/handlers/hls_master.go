@@ -81,10 +81,27 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	if len(ladder) < 2 {
 		return false
 	}
-	body := buildMasterPlaylist(ladder, w, h, hc.c.Query("token"), httpshared.NativeHLSParam(hc.c))
+	body := buildMasterPlaylist(ladder, w, h, hc.c.Query("token"), httpshared.NativeHLSParam(hc.c), hc.c.Query("audio"))
 	hc.c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
 	hc.c.Data(http.StatusOK, httpshared.MIMEMPEGURL, body)
 	return true
+}
+
+// masterVariantQuery is the query appended to each variant URI in the master:
+// token + native_hls (so the variant request authenticates AND resolves to the
+// same EffectiveKey) plus, in M2a, the chosen audio track — carried through so
+// selecting a non-default audio still works on ≥1080p sources (the switch is a
+// master-URL reload, per the M2a policy; EXT-X-MEDIA renditions arrive in M2b).
+func masterVariantQuery(token string, nativeHLS bool, audio string) string {
+	q := mediaSegQuery(token, nativeHLS)
+	if audio != "" {
+		sep := "?"
+		if q != "" {
+			sep = "&"
+		}
+		q += sep + "audio=" + audio
+	}
+	return q
 }
 
 // variantWidth derives a rung's pixel width from the source aspect ratio,
@@ -109,8 +126,8 @@ func variantWidth(srcW, srcH, variantH int) int {
 // authenticates AND resolves to the same EffectiveKey. CODECS/BANDWIDTH/RESOLUTION
 // come from the deterministic ladder (transcode.Variant) so ABR selection in
 // hls.js/Safari is stable.
-func buildMasterPlaylist(ladder []transcode.Variant, srcW, srcH int, token string, nativeHLS bool) []byte {
-	q := mediaSegQuery(token, nativeHLS)
+func buildMasterPlaylist(ladder []transcode.Variant, srcW, srcH int, token string, nativeHLS bool, audio string) []byte {
+	q := masterVariantQuery(token, nativeHLS, audio)
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")
