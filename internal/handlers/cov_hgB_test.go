@@ -57,7 +57,7 @@ func Test_hgB_StreamHLSMaster_BadHash(t *testing.T) {
 	s := streamer.NewForTesting()
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/m/:hash/:file", StreamHLSMaster(s, mgr, nil))
+	r.GET("/m/:hash/:file", StreamHLSMaster(s, mgr, nil, false))
 
 	w := hgBGET(t, r, "/m/nothex/0")
 	if w.Code != http.StatusBadRequest {
@@ -70,7 +70,7 @@ func Test_hgB_StreamHLSMaster_BadFileIndex(t *testing.T) {
 	s := streamer.NewForTesting()
 	mgr := hgBManager(t)
 	r := gin.New()
-	r.GET("/m/:hash/:file", StreamHLSMaster(s, mgr, nil))
+	r.GET("/m/:hash/:file", StreamHLSMaster(s, mgr, nil, false))
 
 	w := hgBGET(t, r, "/m/"+hgBHexHash+"/notanint")
 	if w.Code != http.StatusBadRequest {
