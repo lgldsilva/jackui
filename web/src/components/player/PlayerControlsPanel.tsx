@@ -33,7 +33,9 @@ type PlayerControlsPanelProps = {
   readonly probe: StreamProbe | null
   readonly onSeek: (sec: number) => void
   readonly sidecars: SidecarSubtitle[]
-  readonly transcodeAudio: number | null
+  readonly activeAudioIndex: number | null
+  readonly selectAudio: (v: number | null) => void
+  readonly seamlessAudioOn: boolean
   readonly forceH264: boolean
   readonly burnSubTrack: number | null
   readonly isTranscoded: boolean
@@ -62,7 +64,6 @@ type PlayerControlsPanelProps = {
   readonly setShowMobileOpts: (fn: (prev: boolean) => boolean) => void
   readonly setPlaybackSpeed: (v: number) => void
   readonly clearCustomSub: () => void
-  readonly setTranscodeAudio: (v: number | null) => void
   readonly setForceH264: (fn: (prev: boolean) => boolean) => void
   readonly setBurnSubTrack: (v: number | null) => void
   readonly setSidecarIdx: (v: number | null) => void
@@ -105,7 +106,9 @@ export function PlayerControlsPanel({
   probe,
   onSeek,
   sidecars,
-  transcodeAudio,
+  activeAudioIndex,
+  selectAudio,
+  seamlessAudioOn,
   forceH264,
   burnSubTrack,
   isTranscoded,
@@ -132,7 +135,6 @@ export function PlayerControlsPanel({
   setShowMobileOpts,
   setPlaybackSpeed,
   clearCustomSub,
-  setTranscodeAudio,
   setForceH264,
   setBurnSubTrack,
   setSidecarIdx,
@@ -303,14 +305,15 @@ export function PlayerControlsPanel({
           <EmbeddedTracksPanel
             probe={probe}
             sidecars={sidecars}
-            transcodeAudio={transcodeAudio}
+            activeAudioIndex={activeAudioIndex}
+            selectAudio={selectAudio}
+            seamlessAudioOn={seamlessAudioOn}
             forceH264={forceH264}
             burnSubTrack={burnSubTrack}
             isTranscoded={isTranscoded}
             sidecarIdx={sidecarIdx}
             embeddedSub={embeddedSub}
             clearCustomSub={clearCustomSub}
-            setTranscodeAudio={setTranscodeAudio}
             setForceH264={setForceH264}
             setBurnSubTrack={setBurnSubTrack}
             setSidecarIdx={setSidecarIdx}
