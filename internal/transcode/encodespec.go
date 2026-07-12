@@ -221,9 +221,16 @@ func (e *encodeSpec) audioArgs(startSeg int) []string {
 	if e.vod && startSeg > 0 {
 		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
 	}
+	// Faixa de áudio: default = primeira (0:a:0). Uma rendition alternativa
+	// (EXT-X-MEDIA TYPE=AUDIO com URI) passa o índice ABSOLUTO do stream via
+	// audioTrack (>0) → mapeia 0:<n>, gerando um TS só-áudio daquela faixa.
+	audioMap := "0:a:0"
+	if e.audioTrack > 0 {
+		audioMap = fmt.Sprintf("0:%d", e.audioTrack)
+	}
 	args = append(args,
 		"-i", e.inputURL,
-		"-vn", "-map", "0:a:0",
+		"-vn", "-map", audioMap,
 		"-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "-1",
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
 		"-af", ffAfAsetptsZero,
