@@ -42,7 +42,7 @@ func TestBuildMasterPlaylistCA21(t *testing.T) {
 		{3840, 2160, 3},
 	} {
 		ladder := transcode.VariantLadder(src.h)
-		master := string(buildMasterPlaylist(ladder, src.w, src.h, nil, "", false))
+		master := string(buildMasterPlaylist(ladder, src.w, src.h, nil, nil, "", false))
 		if got := countStreamInf(master); got != src.want {
 			t.Errorf("%dp: %d STREAM-INF, want %d\n%s", src.h, got, src.want, master)
 		}
@@ -54,7 +54,7 @@ func TestBuildMasterPlaylistCA21(t *testing.T) {
 
 // URIs de variante são RELATIVAS e batem com a rota v/:variant/index.m3u8.
 func TestBuildMasterPlaylistVariantURIs(t *testing.T) {
-	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, nil, "", false))
+	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, nil, nil, "", false))
 	for _, want := range []string{"\nv/0/index.m3u8", "\nv/1/index.m3u8"} {
 		if !strings.Contains(master, want) {
 			t.Errorf("master sem URI %q:\n%s", want, master)
@@ -67,7 +67,7 @@ func TestBuildMasterPlaylistVariantURIs(t *testing.T) {
 
 // token + native_hls propagados nas URIs de variante.
 func TestBuildMasterPlaylistPropagatesTokenAndNative(t *testing.T) {
-	master := string(buildMasterPlaylist(transcode.VariantLadder(2160), 3840, 2160, nil, "Tok123", true))
+	master := string(buildMasterPlaylist(transcode.VariantLadder(2160), 3840, 2160, nil, nil, "Tok123", true))
 	for _, line := range strings.Split(master, "\n") {
 		if strings.HasPrefix(line, "v/") {
 			if !strings.Contains(line, "?token=Tok123") || !strings.Contains(line, "native_hls=1") {
@@ -85,7 +85,7 @@ func TestBuildMasterPlaylistAudioRenditions(t *testing.T) {
 		{Index: 1, Language: "por", Title: "Português", Default: true},
 		{Index: 2, Language: "eng", Title: "English"},
 	}
-	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, audio, "Tok", true))
+	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, audio, nil, "Tok", true))
 	if n := countMedia(master, "AUDIO"); n != 2 {
 		t.Fatalf("esperava 2 EXT-X-MEDIA AUDIO, achei %d\n%s", n, master)
 	}
@@ -117,7 +117,7 @@ func TestBuildMasterPlaylistAudioRenditions(t *testing.T) {
 // muxado no variant, nada a alternar).
 func TestBuildMasterPlaylistSingleAudioNoRenditions(t *testing.T) {
 	audio := []streamer.Track{{Index: 1, Language: "eng"}}
-	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, audio, "", false))
+	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, audio, nil, "", false))
 	if countMedia(master, "AUDIO") != 0 {
 		t.Errorf("1 faixa não deveria gerar EXT-X-MEDIA:\n%s", master)
 	}
@@ -128,7 +128,7 @@ func TestBuildMasterPlaylistSingleAudioNoRenditions(t *testing.T) {
 
 // RESOLUTION derivada do aspect ratio (par); CODECS por tier.
 func TestBuildMasterPlaylistResolutionCodecs(t *testing.T) {
-	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, nil, "", false))
+	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, nil, nil, "", false))
 	for _, want := range []string{"RESOLUTION=1920x1080", "RESOLUTION=1280x720", `CODECS="avc1.4d4028,mp4a.40.2"`, `CODECS="avc1.4d401f,mp4a.40.2"`} {
 		if !strings.Contains(master, want) {
 			t.Errorf("master sem %q:\n%s", want, master)
@@ -138,7 +138,7 @@ func TestBuildMasterPlaylistResolutionCodecs(t *testing.T) {
 
 // Dims desconhecidas (0,0) → RESOLUTION omitida, master ainda válido.
 func TestBuildMasterPlaylistUnknownDimsOmitsResolution(t *testing.T) {
-	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 0, 0, nil, "", false))
+	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 0, 0, nil, nil, "", false))
 	if strings.Contains(master, "RESOLUTION=") {
 		t.Errorf("dims 0 deveria omitir RESOLUTION:\n%s", master)
 	}
@@ -154,7 +154,7 @@ func TestWriteMasterPlaylist(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/x?token=T", nil)
 
-	writeMasterPlaylist(c, transcode.VariantLadder(1080), 1920, 1080, nil)
+	writeMasterPlaylist(c, transcode.VariantLadder(1080), 1920, 1080, nil, nil)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -203,6 +203,59 @@ func TestVariantWidth(t *testing.T) {
 		if got := variantWidth(c.sw, c.sh, c.vh); got != c.want {
 			t.Errorf("variantWidth(%d,%d,%d) = %d, want %d", c.sw, c.sh, c.vh, got, c.want)
 		}
+	}
+}
+
+// CA-2.2 (legenda): faixas de TEXTO → EXT-X-MEDIA TYPE=SUBTITLES com URI
+// sub/{idx}; STREAM-INF referencia SUBTITLES="sub". PGS (Image) é filtrada.
+func TestBuildMasterPlaylistSubtitleRenditions(t *testing.T) {
+	subs := []streamer.Track{
+		{Index: 3, Language: "eng", Codec: "subrip"},
+		{Index: 4, Language: "spa", Codec: "hdmv_pgs_subtitle", Image: true}, // PGS → burn-in, sem rendition
+	}
+	master := string(buildMasterPlaylist(transcode.VariantLadder(1080), 1920, 1080, nil, textSubs(subs), "Tok", true))
+	if n := countMedia(master, "SUBTITLES"); n != 1 {
+		t.Fatalf("esperava 1 EXT-X-MEDIA SUBTITLES (PGS filtrada), achei %d\n%s", n, master)
+	}
+	if !strings.Contains(master, `URI="sub/3/index.m3u8`) {
+		t.Errorf("master sem URI sub/3:\n%s", master)
+	}
+	if strings.Contains(master, "sub/4/") {
+		t.Errorf("PGS (track 4) NÃO deveria virar rendition:\n%s", master)
+	}
+	for _, l := range strings.Split(master, "\n") {
+		if strings.HasPrefix(l, "#EXT-X-STREAM-INF:") && !strings.Contains(l, `SUBTITLES="sub"`) {
+			t.Errorf("STREAM-INF sem SUBTITLES=sub: %q", l)
+		}
+	}
+}
+
+func TestTextSubsFiltersImage(t *testing.T) {
+	subs := []streamer.Track{
+		{Index: 1, Codec: "subrip"},
+		{Index: 2, Codec: "hdmv_pgs_subtitle", Image: true},
+		{Index: 3, Codec: "ass"},
+	}
+	got := textSubs(subs)
+	if len(got) != 2 || got[0].Index != 1 || got[1].Index != 3 {
+		t.Errorf("textSubs = %+v, want tracks 1 e 3 (sem PGS)", got)
+	}
+}
+
+// buildSubtitlePlaylist: VOD single-segment WebVTT apontando pro subtrack com token.
+func TestBuildSubtitlePlaylist(t *testing.T) {
+	pl := string(buildSubtitlePlaylist("abc123", 0, 3, 120.5, "Tok"))
+	for _, want := range []string{
+		"#EXTM3U", "#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-ENDLIST",
+		"#EXTINF:120.500,", "/api/stream/subtrack/abc123/0/3?token=Tok",
+	} {
+		if !strings.Contains(pl, want) {
+			t.Errorf("sub playlist sem %q:\n%s", want, pl)
+		}
+	}
+	// TARGETDURATION ≥ EXTINF (ceil).
+	if !strings.Contains(pl, "#EXT-X-TARGETDURATION:121") {
+		t.Errorf("TARGETDURATION deveria ser 121 (ceil 120.5):\n%s", pl)
 	}
 }
 
