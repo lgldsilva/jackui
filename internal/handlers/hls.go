@@ -13,6 +13,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -113,13 +114,16 @@ func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte 
 	return []byte(b.String())
 }
 
-func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, mediaRenditions bool) gin.HandlerFunc {
+// StreamHLSMaster serves the master (or legacy single-variant). It reads
+// cfg.Stream.HLSMediaRenditions LIVE per request so the admin toggle
+// (PUT /api/stream/settings) takes effect on the next play, no restart.
+func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hc, ok := newHLSCtx(c, s, mgr, store)
 		if !ok {
 			return
 		}
-		hc.mediaRenditions = mediaRenditions
+		hc.mediaRenditions = cfg != nil && cfg.Stream.HLSMediaRenditions
 		// Probe-only MASTER when the source warrants one (≥2 ABR rungs, or — with
 		// renditions on — ≥2 audio tracks / text subs). Else the legacy
 		// single-variant media playlist (sub-1080p / unknown-height sources).
