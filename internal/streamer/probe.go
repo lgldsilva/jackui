@@ -68,6 +68,12 @@ type ProbeResult struct {
 	AudioCodec      string `json:"audioCodec"`
 	NeedsTranscode  bool   `json:"needsTranscode"`
 	TranscodeReason string `json:"transcodeReason,omitempty"`
+	// VideoWidth / VideoHeight são as dimensões do primeiro stream de vídeo, 0
+	// quando desconhecidas (ffprobe não rodou, stream sem vídeo, ou header ainda
+	// não baixado). O ladder de variantes do HLS master (Phase 2) usa a altura;
+	// 0 → single-variant (não dá pra montar tiers sem saber a resolução da fonte).
+	VideoWidth  int `json:"videoWidth,omitempty"`
+	VideoHeight int `json:"videoHeight,omitempty"`
 }
 
 // Conjuntos que o <video> dos browsers toca DIRETO (sem transcode). Fora deles →
@@ -191,6 +197,8 @@ type ffprobeStream struct {
 	CodecType   string            `json:"codec_type"`
 	CodecName   string            `json:"codec_name"`
 	Channels    int               `json:"channels"`
+	Width       int               `json:"width"`  // pixels; só em streams de vídeo (0 caso contrário)
+	Height      int               `json:"height"` // idem — fonte do ladder de variantes (HLS Phase 2)
 	Tags        map[string]string `json:"tags"`
 	Disposition struct {
 		Default int `json:"default"`
@@ -250,9 +258,9 @@ func streamToTrack(st ffprobeStream) Track {
 	return t
 }
 
-// classifyStreams separa as faixas por tipo e captura o codec do primeiro
-// stream de vídeo (ignora capa/thumbnail anexada depois).
-func classifyStreams(streams []ffprobeStream) (audio, subs []Track, videoCodec string) {
+// classifyStreams separa as faixas por tipo e captura o codec + dimensões do
+// primeiro stream de vídeo (ignora capa/thumbnail anexada depois).
+func classifyStreams(streams []ffprobeStream) (audio, subs []Track, videoCodec string, videoW, videoH int) {
 	audio, subs = []Track{}, []Track{}
 	for _, st := range streams {
 		t := streamToTrack(st)
@@ -267,10 +275,11 @@ func classifyStreams(streams []ffprobeStream) (audio, subs []Track, videoCodec s
 		case "video":
 			if videoCodec == "" {
 				videoCodec = strings.ToLower(st.CodecName)
+				videoW, videoH = st.Width, st.Height
 			}
 		}
 	}
-	return audio, subs, videoCodec
+	return audio, subs, videoCodec, videoW, videoH
 }
 
 // defaultAudioCodec devolve o codec da faixa de áudio default (ou a primeira).
@@ -291,12 +300,14 @@ func parseProbeOutput(out []byte) (*ProbeResult, error) {
 		return nil, err
 	}
 
-	audio, subs, videoCodec := classifyStreams(parsed.Streams)
+	audio, subs, videoCodec, videoW, videoH := classifyStreams(parsed.Streams)
 	result := &ProbeResult{
-		Audio:      audio,
-		Subtitles:  subs,
-		Chapters:   parseChapters(parsed.Chapters),
-		VideoCodec: videoCodec,
+		Audio:       audio,
+		Subtitles:   subs,
+		Chapters:    parseChapters(parsed.Chapters),
+		VideoCodec:  videoCodec,
+		VideoWidth:  videoW,
+		VideoHeight: videoH,
 	}
 	if parsed.Format.Duration != "" {
 		if d, perr := strconv.ParseFloat(parsed.Format.Duration, 64); perr == nil {
