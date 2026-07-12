@@ -300,13 +300,49 @@ type listIndexersResponse struct {
 	} `xml:"indexer"`
 }
 
-// ListIndexers returns the configured indexers via Jackett's torznab `t=indexers` endpoint.
-// This works with API key (no admin cookie needed), unlike /api/v2.0/indexers.
-func (c *Client) ListIndexers() ([]Indexer, error) {
+// torznabError is Jackett's torznab error envelope, returned with HTTP **200**
+// (not a 4xx/5xx): `<error code="100" description="Invalid API Key" />`. Without
+// detecting it the XML decode of `<indexers>` failed with the opaque
+// "expected element type <indexers> but have <error>" — hiding the real reason
+// (bad key, Jackett mid-restart) behind a cryptic "search error".
+type torznabError struct {
+	XMLName     xml.Name `xml:"error"`
+	Code        string   `xml:"code,attr"`
+	Description string   `xml:"description,attr"`
+}
+
+// torznabErrorFromBody returns a legible error when body is a torznab `<error>`
+// envelope, else nil (body is presumably the expected payload). xml.Unmarshal
+// into torznabError only succeeds when the root element is literally `<error>`.
+func torznabErrorFromBody(body []byte) error {
+	var e torznabError
+	if xml.Unmarshal(body, &e) != nil || e.XMLName.Local != "error" {
+		return nil
+	}
+	if e.Description != "" {
+		return fmt.Errorf("jackett error %s: %s", e.Code, e.Description)
+	}
+	return fmt.Errorf("jackett error code %s", e.Code)
+}
+
+// listIndexersRetries retries the indexers list a few times: it is the gateway to
+// EVERY search (StreamSearch calls it first), and Jackett intermittently answers a
+// transient torznab `<error>` (e.g. while it reloads an indexer) that clears on a
+// retry — without this a single hiccup fails the whole search. HTTP/transport
+// failures are NOT retried here (httpretry already owns those, and a 4xx/5xx or a
+// bad key won't fix itself); only the app-level `<error>`/decode cases are.
+const (
+	listIndexersRetries    = 3
+	listIndexersRetryDelay = 300 * time.Millisecond
+)
+
+// fetchIndexers does one t=indexers request. `retryable` marks the transient
+// app-level failures (torznab <error>, malformed XML) worth another attempt.
+func (c *Client) fetchIndexers() (out []Indexer, retryable bool, err error) {
 	endpoint := c.URL + torznabAPIEndpoint
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, false, fmt.Errorf("build request: %w", err)
 	}
 	q := req.URL.Query()
 	q.Set("apikey", c.APIKey)
@@ -316,20 +352,26 @@ func (c *Client) ListIndexers() ([]Indexer, error) {
 
 	resp, err := httpretry.Do(req.Context(), c.http, req, httpretry.Policy{})
 	if err != nil {
-		return nil, fmt.Errorf("list indexers: %w", err)
+		return nil, false, fmt.Errorf("list indexers: %w", err)
 	}
 	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, false, fmt.Errorf("read indexers body: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("list indexers returned %d: %s", resp.StatusCode, string(body))
+		return nil, false, fmt.Errorf("list indexers returned %d: %s", resp.StatusCode, string(body))
+	}
+	if terr := torznabErrorFromBody(body); terr != nil {
+		return nil, true, terr
 	}
 
 	var parsed listIndexersResponse
-	if err := xml.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("decode indexers xml: %w", err)
+	if err := xml.Unmarshal(body, &parsed); err != nil {
+		return nil, true, fmt.Errorf("decode indexers xml: %w", err)
 	}
 
-	out := make([]Indexer, 0, len(parsed.Indexers))
+	out = make([]Indexer, 0, len(parsed.Indexers))
 	for _, idx := range parsed.Indexers {
 		if idx.Configured != "true" {
 			continue
@@ -342,7 +384,28 @@ func (c *Client) ListIndexers() ([]Indexer, error) {
 			Configured: true,
 		})
 	}
-	return out, nil
+	return out, false, nil
+}
+
+// ListIndexers returns the configured indexers via Jackett's torznab `t=indexers`
+// endpoint (works with the API key, no admin cookie). Retries a transient Jackett
+// failure (see listIndexersRetries) so a momentary hiccup doesn't fail the search.
+func (c *Client) ListIndexers() ([]Indexer, error) {
+	var lastErr error
+	for attempt := 0; attempt < listIndexersRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(listIndexersRetryDelay)
+		}
+		out, retryable, err := c.fetchIndexers()
+		if err == nil {
+			return out, nil
+		}
+		lastErr = err
+		if !retryable {
+			break
+		}
+	}
+	return nil, lastErr
 }
 
 // SearchOnIndexer queries one specific indexer (by id). Used for parallel fan-out.
