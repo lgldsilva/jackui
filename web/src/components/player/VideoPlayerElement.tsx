@@ -8,6 +8,8 @@ import { useAirPlay } from './playerHooks'
 import { canPlayNativeHls, audioElementKey } from './playerFormat'
 import { shouldShowStartOverlay, shouldShowStartAudioOverlay } from './playerOverlay'
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
+import { wireHlsAudioSubs } from './hlsAudioTracks'
+import { useSeamlessAudio } from './useSeamlessAudio'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton, StartAudioOverlay } from './PlayerOverlays'
 
 type VideoPlayerElementProps = {
@@ -30,6 +32,17 @@ type VideoPlayerElementProps = {
   readonly suppressStartOverlay?: boolean
   readonly audioMode: boolean
   readonly subtitleVttURL: string
+  // Fase 8 (HLS master multi-áudio): índice ABSOLUTO da faixa escolhida via troca
+  // SEAMLESS (null = default). Aplicado por hls.audioTrack / video.audioTracks sem
+  // recriar o player. Só tem efeito quando o master expõe >1 rendition; senão a
+  // troca vai pelo caminho legado ?audio=N (streamURL) e este fica null.
+  readonly seamlessAudioIndex?: number | null
+  // probeAudioTracks: faixas do probe (em ordem) p/ mapear índice absoluto →
+  // posição na lista de renditions do hls.js/WebKit. Ver hlsAudioTracks.ts.
+  readonly probeAudioTracks?: readonly { index: number }[]
+  // onHlsAudioCount reporta quantas faixas de áudio a engine expôs (hls.js ou
+  // AudioTrackList nativa) p/ o pai decidir seamless × reload. 0 quando não há HLS.
+  readonly onHlsAudioCount?: (n: number) => void
   readonly videoError: boolean
   readonly serverReady: boolean
   readonly currentTime: number
@@ -148,6 +161,9 @@ export function VideoPlayerElement({
   suppressStartOverlay = false,
   audioMode,
   subtitleVttURL,
+  seamlessAudioIndex = null,
+  probeAudioTracks,
+  onHlsAudioCount,
   videoError,
   serverReady,
   currentTime,
@@ -178,6 +194,10 @@ export function VideoPlayerElement({
   // Com o motor gapless ativo o <video> não carrega nada (o áudio sai dos <audio>
   // do motor) → nunca anexa hls.js nem seta src.
   const useHlsJs = !engineActive && shouldAttachHlsJs(streamURL)
+  // hlsRef expõe a instância viva do hls.js aos effects de troca de áudio (Fase 8)
+  // — antes ela era const local ao effect e sumia no cleanup. Só usada p/ SEAMLESS
+  // audio; o resto do ciclo de vida continua no effect abaixo.
+  const hlsRef = useRef<Hls | null>(null)
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
@@ -206,10 +226,22 @@ export function VideoPlayerElement({
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       tryAutoplayMutedFallback(v)
     })
+    // Fase 8: reporta faixas de áudio (>1 = seamless) e desliga legendas do HLS.
+    wireHlsAudioSubs(hls, onHlsAudioCount)
+    hlsRef.current = hls
     hls.loadSource(streamURL)
     hls.attachMedia(v)
-    return () => hls.destroy()
-  }, [videoRef, streamURL, useHlsJs])
+    return () => {
+      hlsRef.current = null
+      onHlsAudioCount?.(0)
+      hls.destroy()
+    }
+  }, [videoRef, streamURL, useHlsJs, onHlsAudioCount])
+
+  // Troca de áudio seamless (hls.audioTrack / WebKit AudioTrackList) + contagem de
+  // faixas do HLS nativo (Safari/iOS). Effects num hook próprio p/ não inflar a
+  // complexidade cognitiva deste componente (já no baseline). Ver useSeamlessAudio.
+  useSeamlessAudio({ videoRef, hlsRef, engineActive, useHlsJs, streamURL, seamlessAudioIndex, probeAudioTracks, onHlsAudioCount })
 
   // AirPlay (Safari/iOS): native <video controls> already shows the route button,
   // but a custom one aids discovery and works while minimized (controls hidden).

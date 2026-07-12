@@ -19,6 +19,7 @@ import { useHoverThumb } from './FileThumbHover'
 import { parseEpisodeTag, type FileType } from './player/playerFormat'
 import { useSubtitles } from './player/useSubtitles'
 import { computeMediaUrls } from './player/mediaUrls'
+import { seamlessAudioAvailable } from './player/hlsAudioTracks'
 import DownloadModal from './DownloadModal'
 import { useToast } from './Toast'
 import type { PlayerModalProps } from './player/playerTypes'
@@ -126,6 +127,13 @@ export default function PlayerModal({
 
   // Transcoding options — any non-null value triggers `/api/stream/transcode` instead of raw stream
   const [transcodeAudio, setTranscodeAudio] = useState<number | null>(null)
+  // Fase 8 (HLS master multi-áudio): quando o master expõe >1 rendition de áudio,
+  // a troca é SEAMLESS (hls.audioTrack, sem reload) — seamlessAudio guarda o
+  // índice escolhido e transcodeAudio (o gatilho de reload ?audio=N) fica intacto.
+  // hlsAudioCount é reportado pelo VideoPlayerElement (hls.js/WebKit). Com o toggle
+  // do backend OFF o master traz ≤1 faixa → seamless nunca ativa → troca legada.
+  const [hlsAudioCount, setHlsAudioCount] = useState(0)
+  const [seamlessAudio, setSeamlessAudio] = useState<number | null>(null)
   // Dispara o auto-transcode do áudio incompatível no máximo uma vez por arquivo.
   const audioAutoRef = useRef(false)
   const [forceH264, setForceH264] = useState(false)
@@ -220,6 +228,8 @@ export default function PlayerModal({
     setResumePosition(null)
     lastResumeSaveRef.current = 0
     setTranscodeAudio(null)
+    setSeamlessAudio(null)
+    setHlsAudioCount(0)
     audioAutoRef.current = false
     setForceH264(false)
     setBurnSubTrack(null)
@@ -290,6 +300,16 @@ export default function PlayerModal({
   // + HEVC/x265/AV1/4K short-circuits to HLS before the first <video> attempt.
   const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe })
   const { streamURL, encoderLabel, isTranscoded } = videoUrls
+
+  // Fase 8: seleção de áudio unificada. Com o master expondo >1 rendition, a troca
+  // é seamless (seamlessAudio, via hls.audioTrack — sem tocar em transcodeAudio,
+  // logo sem reload da streamURL); senão cai no legado (setTranscodeAudio → ?audio=N).
+  const seamlessAudioOn = seamlessAudioAvailable(hlsAudioCount)
+  const activeAudioIndex = seamlessAudioOn ? seamlessAudio : transcodeAudio
+  const selectAudio = (idx: number | null) => {
+    if (seamlessAudioOn) setSeamlessAudio(idx)
+    else setTranscodeAudio(idx)
+  }
 
   // HEVC/unsupported-codec handling (audio auto-transcode, onError fallback
   // chain, Safari silent-failure backstop). Called AFTER computeMediaUrls so it
@@ -448,7 +468,11 @@ export default function PlayerModal({
               fileTypeFilter={fileTypeFilter}
               fileSortBySize={fileSortBySize}
               fileSizeDesc={fileSizeDesc}
-              transcodeAudio={transcodeAudio}
+              activeAudioIndex={activeAudioIndex}
+              selectAudio={selectAudio}
+              seamlessAudioOn={seamlessAudioOn}
+              seamlessAudioIndex={seamlessAudio}
+              onHlsAudioCount={setHlsAudioCount}
               forceH264={forceH264}
               burnSubTrack={burnSubTrack}
               shuffle={shuffle}
@@ -459,7 +483,6 @@ export default function PlayerModal({
               setVideoError={setVideoError}
               setShowMobileOpts={setShowMobileOpts}
               setPlaybackSpeed={setPlaybackSpeed}
-              setTranscodeAudio={setTranscodeAudio}
               setForceH264={setForceH264}
               setBurnSubTrack={setBurnSubTrack}
               setFileFilter={setFileFilter}

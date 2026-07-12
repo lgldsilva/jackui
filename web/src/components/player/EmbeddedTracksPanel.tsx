@@ -6,14 +6,18 @@ import { audioTrackTitle } from './playerFormat'
 type EmbeddedTracksPanelProps = {
   readonly probe: StreamProbe
   readonly sidecars: SidecarSubtitle[]
-  readonly transcodeAudio: number | null
+  // Fase 8: activeAudioIndex = faixa ativa (índice absoluto do probe, null=default),
+  // seamless OU legado; selectAudio bifurca (hls.audioTrack × ?audio= reload);
+  // seamlessAudioOn = a troca é sem reencode (sem badge "GPU encoding").
+  readonly activeAudioIndex: number | null
+  readonly selectAudio: (v: number | null) => void
+  readonly seamlessAudioOn: boolean
   readonly forceH264: boolean
   readonly burnSubTrack: number | null
   readonly isTranscoded: boolean
   readonly sidecarIdx: number | null
   readonly embeddedSub: number | null
   readonly clearCustomSub: () => void
-  readonly setTranscodeAudio: (v: number | null) => void
   readonly setForceH264: (fn: (prev: boolean) => boolean) => void
   readonly setBurnSubTrack: (v: number | null) => void
   readonly setSidecarIdx: (v: number | null) => void
@@ -27,14 +31,15 @@ type EmbeddedTracksPanelProps = {
 export function EmbeddedTracksPanel({
   probe,
   sidecars,
-  transcodeAudio,
+  activeAudioIndex,
+  selectAudio,
+  seamlessAudioOn,
   forceH264,
   burnSubTrack,
   isTranscoded,
   sidecarIdx,
   embeddedSub,
   clearCustomSub,
-  setTranscodeAudio,
   setForceH264,
   setBurnSubTrack,
   setSidecarIdx,
@@ -51,7 +56,10 @@ export function EmbeddedTracksPanel({
           <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Volume2 className="w-3 h-3" />
             {t('player.embeddedTracks.audioTracks', { count: probe.audio.length })}
-            {transcodeAudio !== null && (
+            {/* "GPU encoding" só no caminho legado (troca por reencode/reload). No
+                modo seamless (master multi-áudio) trocar de faixa não reencoda o
+                vídeo — a rendition já existe — então o badge sairia enganoso. */}
+            {activeAudioIndex !== null && !seamlessAudioOn && (
               <span className="text-[10px] text-purple-700 dark:text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
                 <Cpu className="w-2.5 h-2.5 inline mr-0.5" />GPU encoding
               </span>
@@ -59,9 +67,9 @@ export function EmbeddedTracksPanel({
           </p>
           <div className="flex flex-wrap gap-1">
             <button
-              onClick={() => setTranscodeAudio(null)}
+              onClick={() => selectAudio(null)}
               className={`text-[11px] px-2 py-1 rounded border transition-colors ${
-                transcodeAudio === null
+                activeAudioIndex === null
                   ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30'
                   : 'bg-surface-secondary text-text-muted border-default hover:text-text-primary'
               }`}
@@ -72,10 +80,10 @@ export function EmbeddedTracksPanel({
             {probe.audio.map(a => (
               <button
                 key={a.index}
-                onClick={() => setTranscodeAudio(a.index)}
+                onClick={() => selectAudio(a.index)}
                 title={audioTrackTitle(a)}
                 className={`text-[11px] px-2 py-1 rounded border transition-colors ${(() => {
-                  if (transcodeAudio === a.index) return 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
+                  if (activeAudioIndex === a.index) return 'bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-500/30'
                   if (a.default) return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
                   return 'bg-surface-tertiary/40 text-text-secondary border-default hover:text-text-primary'
                 })()}`}
