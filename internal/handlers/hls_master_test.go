@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
+	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
@@ -118,6 +123,100 @@ func TestBuildMasterPlaylistUnknownDimsOmitsResolution(t *testing.T) {
 	}
 	if countStreamInf(master) != 2 {
 		t.Errorf("ainda deveria ter 2 STREAM-INF:\n%s", master)
+	}
+}
+
+// writeMasterPlaylist escreve o master na resposta com o content-type e o
+// no-store corretos, propagando token/audio da query nas URIs de variante.
+func TestWriteMasterPlaylist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/x?token=T&audio=1", nil)
+
+	writeMasterPlaylist(c, transcode.VariantLadder(1080), 1920, 1080)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "mpegurl") {
+		t.Errorf("Content-Type = %q, want mpegurl", ct)
+	}
+	if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	body := w.Body.String()
+	if countStreamInf(body) != 2 {
+		t.Errorf("body sem 2 STREAM-INF:\n%s", body)
+	}
+	if !strings.Contains(body, "?token=T") || !strings.Contains(body, "audio=1") {
+		t.Errorf("token/audio não propagados no body:\n%s", body)
+	}
+}
+
+// StreamHLSVariant responde 404 quando o índice de variante está fora do ladder
+// (probe indisponível → ladder single → idx alto é inválido). Cobre o path
+// resolveVariant=false sem precisar de torrent real.
+func TestStreamHLSVariantOutOfRange(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mgr, err := transcode.NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	r := gin.New()
+	r.GET("/api/stream/hls/:hash/:file/v/:variant/index.m3u8",
+		StreamHLSVariant(streamer.NewForTesting(), mgr, nil))
+
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+hash+"/0/v/9/index.m3u8", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("variante 9 (fora de faixa) → status %d, want 404\n%s", w.Code, w.Body.String())
+	}
+}
+
+// Hash válido + sem torrent: StreamHLSMaster passa por serveMasterIfMultiVariant
+// (probe falha → ladder single → fallback) e por serveHLSMediaPlaylist até
+// resolveTranscodeSource não achar a fonte. Cobre o glue single-variant sem
+// precisar de ffmpeg/torrent.
+func TestStreamHLSMasterFallbackNoTorrent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mgr, err := transcode.NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	r := gin.New()
+	r.GET("/api/stream/hls/:hash/:file/index.m3u8", StreamHLSMaster(streamer.NewForTesting(), mgr, nil))
+
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+hash+"/0/index.m3u8", nil)
+	r.ServeHTTP(w, req)
+	// Sem torrent a fonte não resolve → não-200 (404/500), mas o handler roda o
+	// glue sem panicar — que é o que este teste cobre.
+	if w.Code == http.StatusOK {
+		t.Errorf("sem torrent não deveria dar 200; got %d", w.Code)
+	}
+}
+
+// v/0 com ladder single (probe falha → [default]) exercita resolveVariant no
+// caminho de sucesso (idx 0 válido) + entrada de serveHLSMediaPlaylist.
+func TestStreamHLSVariantZeroResolves(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	mgr, err := transcode.NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	r := gin.New()
+	r.GET("/api/stream/hls/:hash/:file/v/:variant/index.m3u8", StreamHLSVariant(streamer.NewForTesting(), mgr, nil))
+
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+hash+"/0/v/0/index.m3u8", nil)
+	r.ServeHTTP(w, req)
+	if w.Code == http.StatusNotFound && strings.Contains(w.Body.String(), "out of range") {
+		t.Errorf("v/0 com ladder single deveria resolver (não 'out of range'): %s", w.Body.String())
 	}
 }
 
