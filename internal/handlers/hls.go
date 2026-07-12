@@ -26,6 +26,10 @@ type hlsCtx struct {
 	store   *downloads.Store
 	h       metainfo.Hash
 	fileIdx int
+	// variant é a rung do ladder ABR que ESTA sessão codifica (HLS master, Phase
+	// 2). Zero-value (Height 0) = single-variant legado; o handler da variante
+	// (v/:variant) resolve srcHeight→ladder e popula isto antes de startHLSSession.
+	variant transcode.Variant
 }
 
 // mediaSegQuery builds the query string appended to each segment URL. It
@@ -134,22 +138,35 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 	}
 }
 
-// hlsSessionKey separa sessões HLS por faixa de áudio escolhida. Sem isso, trocar
-// o áudio reusava a sessão/transcode em cache (com a faixa antiga) → a escolha não
-// surtia efeito. Master e segmentos DEVEM derivar a mesma chave (o segmento lê
-// ?audio= da própria URL, injetada por withSegAudio).
-func hlsSessionKey(h metainfo.Hash, fileIdx, audioTrack int) string {
+// hlsSessionKey separa sessões HLS por VARIANTE (rung do ladder ABR) e por faixa
+// de áudio escolhida. Cada dimensão que muda o transcode entra na chave → Dir/
+// segmentos próprios (o EffectiveKey ainda anexa -vod/-evt). Sem a faixa, trocar
+// o áudio reusava a sessão em cache (faixa antiga). variant/audioTrack < 0 =
+// dimensão ausente (nenhum sufixo) → a chave single-variant legada permanece
+// idêntica. Master e segmentos DEVEM derivar a MESMA chave (o segmento carrega
+// ?audio= e a variante no path, e native_hls, pra reconstruir o EffectiveKey).
+func hlsSessionKey(h metainfo.Hash, fileIdx, variant, audioTrack int) string {
 	k := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
+	if variant >= 0 {
+		k += fmt.Sprintf("-v%d", variant)
+	}
 	if audioTrack >= 0 {
 		k += fmt.Sprintf("-a%d", audioTrack)
 	}
 	return k
 }
 
+// hlsVariantParam lê o índice da variante do path (`v/:variant/...`); -1 quando
+// ausente (rota legada single-variant) ou inválido.
+func hlsVariantParam(c *gin.Context) int {
+	return httpshared.ParseIntOr(c.Param("variant"), -1)
+}
+
 func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
 	audioTrack := httpshared.ParseIntOr(hc.c.Query("audio"), -1)
+	variant := hlsVariantParam(hc.c)
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
-		Key:        hlsSessionKey(hc.h, hc.fileIdx, audioTrack),
+		Key:        hlsSessionKey(hc.h, hc.fileIdx, variant, audioTrack),
 		Source:     source,
 		SourceSize: sourceSize,
 		NativeHLS:  httpshared.NativeHLSParam(hc.c),
@@ -158,6 +175,7 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 		// stream stays under the global vodMode (#61 Safari seek guard).
 		ForceVOD:   complete,
 		AudioTrack: audioTrack,
+		Variant:    hc.variant,
 	})
 	if err != nil {
 		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -232,7 +250,7 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	// EffectiveKey must match the one the master used — hence native_hls is
 	// carried on every segment URL (see mediaSegQuery).
-	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, httpshared.ParseIntOr(c.Query("audio"), -1)), httpshared.NativeHLSParam(c))
+	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, hlsVariantParam(c), httpshared.ParseIntOr(c.Query("audio"), -1)), httpshared.NativeHLSParam(c))
 	if sess, err := getSession(mgr, key); err == nil {
 		return sess
 	}
