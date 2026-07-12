@@ -205,22 +205,31 @@ func isHWEncoder(enc string) bool {
 }
 
 // videoScaleFilter caps height at 1080p AND converts to the 8-bit pixel format
-// the encoder needs. This is REQUIRED for 10-bit HDR sources (p010 — 4K HEVC
-// Dolby Vision): the HW h264 encoders only take 8-bit NV12, and feeding p010
-// crashes ffmpeg with "Error reinitializing filters". The downscale also keeps
-// realtime 4K transcodes light. min(1080,ih) never upscales smaller sources.
-func videoScaleFilter(encoder string) string {
+// the encoder needs (the legacy single-variant default). See videoScaleFilterH.
+func videoScaleFilter(encoder string) string { return videoScaleFilterH(encoder, 1080) }
+
+// videoScaleFilterH caps height at maxH AND converts to the 8-bit pixel format
+// the encoder needs. The 8-bit conversion is REQUIRED for 10-bit HDR sources
+// (p010 — 4K HEVC Dolby Vision): the HW h264 encoders only take 8-bit NV12, and
+// feeding p010 crashes ffmpeg with "Error reinitializing filters". The downscale
+// also keeps realtime transcodes light. min(maxH,ih) never upscales smaller
+// sources. maxH parameterises the ABR ladder (Phase 2): 1080/720/480 rungs each
+// pass their own height; maxH ≤ 0 falls back to 1080 (the default cap).
+func videoScaleFilterH(encoder string, maxH int) string {
+	if maxH <= 0 {
+		maxH = 1080
+	}
 	switch {
 	case strings.HasSuffix(encoder, "_vaapi"):
 		// Frames are on the GPU (vaapi surfaces) → scale + convert on the GPU.
-		return `scale_vaapi=w=-2:h=min(1080\,ih):format=nv12`
+		return fmt.Sprintf(`scale_vaapi=w=-2:h=min(%d\,ih):format=nv12`, maxH)
 	case strings.HasSuffix(encoder, "_qsv"):
-		return `scale_qsv=w=-2:h=min(1080\,ih):format=nv12`
+		return fmt.Sprintf(`scale_qsv=w=-2:h=min(%d\,ih):format=nv12`, maxH)
 	default:
 		// NVENC (frames downloaded to sysmem), libx264/libx265, videotoolbox:
 		// software scale + 8-bit yuv420p. h264_nvenc uploads sysmem frames itself,
 		// so this avoids scale_cuda's `format=` option (missing on ffmpeg 4.4.2).
-		return `scale=-2:'min(1080,ih)',format=yuv420p`
+		return fmt.Sprintf(`scale=-2:'min(%d,ih)',format=yuv420p`, maxH)
 	}
 }
 

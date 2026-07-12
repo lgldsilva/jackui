@@ -31,6 +31,43 @@ type encodeSpec struct {
 	// software and re-uploads (see videoScaleFilter), so software-decoded frames
 	// feed it identically.
 	swDecode bool
+	// variantHeight / variantBitrateK / variantLevel drive one rung of the ABR
+	// ladder (HLS master, Phase 2). variantHeight == 0 is the LEGACY sentinel:
+	// scale cap 1080p, -level:v 5.2, no -maxrate — byte-for-byte the pre-Phase-2
+	// single-variant command. When variantHeight > 0 the scale caps at that
+	// height, -level:v matches the tier, and -maxrate/-bufsize cap the bitrate so
+	// the master's BANDWIDTH is honoured. Populated from a transcode.Variant.
+	variantHeight   int
+	variantBitrateK int
+	variantLevel    int // H.264 level_idc (e.g. 40, 31); 0 → default "5.2"
+}
+
+// scaleHeight is the ABR-rung height for videoScaleFilterH (1080 = legacy cap).
+func (e *encodeSpec) scaleHeight() int {
+	if e.variantHeight <= 0 {
+		return 1080
+	}
+	return e.variantHeight
+}
+
+// levelStr is the H.264 -level:v for this rung ("5.2" = legacy default).
+func (e *encodeSpec) levelStr() string {
+	if e.variantLevel <= 0 {
+		return "5.2"
+	}
+	return fmt.Sprintf("%d.%d", e.variantLevel/10, e.variantLevel%10)
+}
+
+// maxrateArgs caps the encoder bitrate for a ladder rung (-maxrate/-bufsize),
+// or nil for the legacy path (no explicit cap → encoder default rate control).
+func (e *encodeSpec) maxrateArgs() []string {
+	if e.variantBitrateK <= 0 {
+		return nil
+	}
+	return []string{
+		"-maxrate", fmt.Sprintf("%dk", e.variantBitrateK),
+		"-bufsize", fmt.Sprintf("%dk", e.variantBitrateK*2),
+	}
 }
 
 // decodeArgs returns the `-hwaccel` decode flags for this spec, or nil when
@@ -95,7 +132,8 @@ func (e *encodeSpec) args(startSeg int) []string {
 	if !isHWEncoder(e.encoder) {
 		args = append(args, "-pix_fmt", "yuv420p")
 	}
-	args = append(args, "-profile:v", "main", "-level:v", "5.2")
+	args = append(args, "-profile:v", "main", "-level:v", e.levelStr())
+	args = append(args, e.maxrateArgs()...)
 	if e.vod {
 		// Keyframe EXACTLY every hlsSegDur seconds so each segment starts on a
 		// clean IDR — required for both standalone-decodable segments and for
@@ -132,7 +170,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// left a [0,1.4] hole so Safari/iOS stalled at currentTime 0 buffering only
 		// the first segment, AND it broke seek-restart's output_ts_offset math
 		// (the cascade). Zeroing up front fixes both, for every backend.
-		args = append(args, "-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", ffAfAsetptsZero)
+		args = append(args, "-vf", "setpts=PTS-STARTPTS,"+videoScaleFilterH(e.encoder, e.scaleHeight()), "-af", ffAfAsetptsZero)
 		if startSeg > 0 {
 			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
 		}
@@ -141,7 +179,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// fontes HEVC/MKV com PTS≠0 deixam um buraco [0,offset] e o Safari trava
 		// no currentTime 0). setpts antes do scale; asetpts no áudio.
 		args = append(args, "-g", "60", "-bf", "0",
-			"-vf", "setpts=PTS-STARTPTS,"+videoScaleFilter(e.encoder), "-af", ffAfAsetptsZero)
+			"-vf", "setpts=PTS-STARTPTS,"+videoScaleFilterH(e.encoder, e.scaleHeight()), "-af", ffAfAsetptsZero)
 	}
 	args = append(args,
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",

@@ -26,6 +26,10 @@ type hlsCtx struct {
 	store   *downloads.Store
 	h       metainfo.Hash
 	fileIdx int
+	// variant é a rung do ladder ABR que ESTA sessão codifica (HLS master, Phase
+	// 2). Zero-value (Height 0) = single-variant legado; o handler da variante
+	// (v/:variant) resolve srcHeight→ladder e popula isto antes de startHLSSession.
+	variant transcode.Variant
 }
 
 // mediaSegQuery builds the query string appended to each segment URL. It
@@ -108,48 +112,82 @@ func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte 
 
 func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h, err := parseHash(c.Param("hash"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		hc, ok := newHLSCtx(c, s, mgr, store)
+		if !ok {
 			return
 		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		// Phase 5 branches here to a probe-only multi-variant MASTER when the
+		// source ladder has ≥2 rungs. For now (and for sub-1080p / unknown-height
+		// sources) it serves the legacy single-variant media playlist.
+		if serveMasterIfMultiVariant(hc) {
 			return
 		}
-		hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
-		transcodeSource, transcodeSourceSize, complete := resolveTranscodeSource(hc)
-		if transcodeSource == nil {
-			return
-		}
-		sess, err := startHLSSession(hc, transcodeSource, transcodeSourceSize, complete)
-		if err != nil {
-			return
-		}
-		if !waitForMasterPlaylist(hc, sess) {
-			return
-		}
-		serveHLSPlaylist(c, sess)
+		serveHLSMediaPlaylist(hc)
 	}
 }
 
-// hlsSessionKey separa sessões HLS por faixa de áudio escolhida. Sem isso, trocar
-// o áudio reusava a sessão/transcode em cache (com a faixa antiga) → a escolha não
-// surtia efeito. Master e segmentos DEVEM derivar a mesma chave (o segmento lê
-// ?audio= da própria URL, injetada por withSegAudio).
-func hlsSessionKey(h metainfo.Hash, fileIdx, audioTrack int) string {
+// newHLSCtx parses :hash/:file into an hlsCtx, answering 400 on a bad param.
+func newHLSCtx(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) (*hlsCtx, bool) {
+	h, err := parseHash(c.Param("hash"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return nil, false
+	}
+	fileIdx, err := strconv.Atoi(c.Param("file"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		return nil, false
+	}
+	return &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}, true
+}
+
+// serveHLSMediaPlaylist resolves the source, (re)starts the session for hc's
+// variant and serves its media playlist. Shared by the legacy master route and
+// the per-variant route (they differ only in whether hc.variant is pinned).
+func serveHLSMediaPlaylist(hc *hlsCtx) {
+	source, size, complete := resolveTranscodeSource(hc)
+	if source == nil {
+		return
+	}
+	sess, err := startHLSSession(hc, source, size, complete)
+	if err != nil {
+		return
+	}
+	if !waitForMasterPlaylist(hc, sess) {
+		return
+	}
+	serveHLSPlaylist(hc.c, sess)
+}
+
+// hlsSessionKey separa sessões HLS por VARIANTE (rung do ladder ABR) e por faixa
+// de áudio escolhida. Cada dimensão que muda o transcode entra na chave → Dir/
+// segmentos próprios (o EffectiveKey ainda anexa -vod/-evt). Sem a faixa, trocar
+// o áudio reusava a sessão em cache (faixa antiga). variant/audioTrack < 0 =
+// dimensão ausente (nenhum sufixo) → a chave single-variant legada permanece
+// idêntica. Master e segmentos DEVEM derivar a MESMA chave (o segmento carrega
+// ?audio= e a variante no path, e native_hls, pra reconstruir o EffectiveKey).
+func hlsSessionKey(h metainfo.Hash, fileIdx, variant, audioTrack int) string {
 	k := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
+	if variant >= 0 {
+		k += fmt.Sprintf("-v%d", variant)
+	}
 	if audioTrack >= 0 {
 		k += fmt.Sprintf("-a%d", audioTrack)
 	}
 	return k
 }
 
+// hlsVariantParam lê o índice da variante do path (`v/:variant/...`); -1 quando
+// ausente (rota legada single-variant) ou inválido.
+func hlsVariantParam(c *gin.Context) int {
+	return httpshared.ParseIntOr(c.Param("variant"), -1)
+}
+
 func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
 	audioTrack := httpshared.ParseIntOr(hc.c.Query("audio"), -1)
+	variant := hlsVariantParam(hc.c)
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), transcode.HLSStartOpts{
-		Key:        hlsSessionKey(hc.h, hc.fileIdx, audioTrack),
+		Key:        hlsSessionKey(hc.h, hc.fileIdx, variant, audioTrack),
 		Source:     source,
 		SourceSize: sourceSize,
 		NativeHLS:  httpshared.NativeHLSParam(hc.c),
@@ -158,6 +196,7 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 		// stream stays under the global vodMode (#61 Safari seek guard).
 		ForceVOD:   complete,
 		AudioTrack: audioTrack,
+		Variant:    hc.variant,
 	})
 	if err != nil {
 		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -232,7 +271,7 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	// EffectiveKey must match the one the master used — hence native_hls is
 	// carried on every segment URL (see mediaSegQuery).
-	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, httpshared.ParseIntOr(c.Query("audio"), -1)), httpshared.NativeHLSParam(c))
+	key := mgr.EffectiveKey(hlsSessionKey(h, fileIdx, hlsVariantParam(c), httpshared.ParseIntOr(c.Query("audio"), -1)), httpshared.NativeHLSParam(c))
 	if sess, err := getSession(mgr, key); err == nil {
 		return sess
 	}
@@ -243,8 +282,14 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 		return nil
 	}
 	// Sessão ausente → respawn. resolveTranscodeSource resolve do store ou do
-	// torrent (e já responde 404 se a fonte sumiu de vez).
+	// torrent (e já responde 404 se a fonte sumiu de vez). resolveVariant fixa a
+	// rung a partir de v/:variant pra que o respawn de um segmento de variante
+	// re-encode na RESOLUÇÃO certa (senão codificaria 1080 default no dir -vN).
 	hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
+	if !resolveVariant(hc) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "variant out of range"})
+		return nil
+	}
 	source, size, complete := resolveTranscodeSource(hc)
 	if source == nil {
 		return nil
