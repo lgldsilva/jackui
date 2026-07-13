@@ -285,13 +285,15 @@ type RenderCardActionsProps = {
   copied: boolean
 }
 
-function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
-  const { canPlay, playLinkHref, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
-  const playNavProps = canPlay && playLinkHref ? newTabProps(playLinkHref, () => onPlay?.(result)) : null
-
-  const moreItems: MoreActionItem[] = []
+function buildCardMoreItems(props: RenderCardActionsProps): MoreActionItem[] {
+  const {
+    hasSource, onExploreContents, onAddToPlaylist, result,
+    handleOpenMagnet, handleCopyMagnet, handleTorrentDownload,
+    resolvingMagnet, resolvingTorrent, copied,
+  } = props
+  const items: MoreActionItem[] = []
   if (hasSource && onExploreContents) {
-    moreItems.push({
+    items.push({
       id: 'explore',
       label: i18n.t('search.explore_files'),
       icon: <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />,
@@ -299,36 +301,44 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
     })
   }
   if (hasSource && onAddToPlaylist) {
-    moreItems.push({
+    items.push({
       id: 'playlist',
       label: i18n.t('search.add_to_playlist'),
       icon: <ListPlus className="w-3.5 h-3.5 flex-shrink-0" />,
       onClick: () => onAddToPlaylist(result),
     })
   }
-  if (hasSource) {
-    moreItems.push({
+  if (!hasSource) return items
+  items.push(
+    {
       id: 'magnet-open',
       label: i18n.t('search.open_magnet'),
       icon: resolvingMagnet ? undefined : <Magnet className="w-3.5 h-3.5 flex-shrink-0" />,
       disabled: resolvingMagnet,
       onClick: handleOpenMagnet,
-    })
-    moreItems.push({
+    },
+    {
       id: 'magnet-copy',
       label: copied ? i18n.t('search.copied') : i18n.t('search.copy_magnet'),
       icon: copied ? <Check className="w-3.5 h-3.5 flex-shrink-0 text-green-400" /> : <Clipboard className="w-3.5 h-3.5 flex-shrink-0" />,
       disabled: resolvingMagnet,
       onClick: handleCopyMagnet,
-    })
-    moreItems.push({
+    },
+    {
       id: 'torrent',
       label: i18n.t('search.download_torrent'),
       icon: resolvingTorrent ? undefined : <FileDown className="w-3.5 h-3.5 flex-shrink-0" />,
       disabled: resolvingTorrent,
       onClick: handleTorrentDownload,
-    })
-  }
+    },
+  )
+  return items
+}
+
+function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
+  const { canPlay, playLinkHref, canDownload, onPlay, onDownload, result } = props
+  const playNavProps = canPlay && playLinkHref ? newTabProps(playLinkHref, () => onPlay?.(result)) : null
+  const moreItems = buildCardMoreItems(props)
 
   return (
     <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap items-center">
