@@ -74,8 +74,15 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 // progressively earlier for short clips.
 var frameCaptureSeconds = []int{120, 60, 30, 5}
 
+// artResponder abstracts gin's JSON/Status writers so the same resolve chain
+// serves both the single-hash handler and the batch handler.
+type artResponder interface {
+	JSON(code int, obj any)
+	Status(code int)
+}
+
 type artResolveCtx struct {
-	c            *gin.Context
+	resp         artResponder
 	s            *streamer.Streamer
 	cache        *streamer.MetadataCache
 	tmdbClient   *tmdb.Client
@@ -87,6 +94,7 @@ type artResolveCtx struct {
 	webSearch    *imagesearch.Chain
 	isAudio      bool
 	rawName      string
+	nameOverride string
 	aiClient     *ai.Client
 	query        string
 	frameJobs    *sync.Map
@@ -119,31 +127,155 @@ func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Cl
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
 		return
 	}
-	hash := h.HexString()
 	fileIdx, _ := strconv.Atoi(c.DefaultQuery("file", "-1"))
+	runArtResolve(c.Request.Context(), c, s, cache, tmdbClient, aiClient, webSearch, frameJobs, h, fileIdx, c.Query("name"))
+}
 
+type artBatchItem struct {
+	Hash string `json:"hash"`
+	Name string `json:"name"`
+	File int    `json:"file"`
+}
+
+// ResolveArtBatch handles POST /api/stream/art/resolve/batch {items:[{hash,name?,file?}]}
+// → {results:{hash:{source,...}}} — runs the art chain for MANY library tiles in ONE
+// call instead of one POST /stream/art/:hash/resolve per card on 204 (Perf #6).
+func ResolveArtBatch(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain) gin.HandlerFunc {
+	var frameJobs sync.Map
+	return func(c *gin.Context) {
+		var req struct {
+			Items []artBatchItem `json:"items"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "items is required"})
+			return
+		}
+		if len(req.Items) > 50 {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many items"})
+			return
+		}
+		cache := s.MetadataCache()
+		if cache == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"results": resolveArtBatchConcurrent(
+			c.Request.Context(), s, cache, tmdbClient, aiClient, webSearch, &frameJobs, req.Items,
+		)})
+	}
+}
+
+func resolveArtBatchConcurrent(
+	rctx context.Context,
+	s *streamer.Streamer,
+	cache *streamer.MetadataCache,
+	tmdbClient *tmdb.Client,
+	aiClient *ai.Client,
+	webSearch *imagesearch.Chain,
+	frameJobs *sync.Map,
+	items []artBatchItem,
+) map[string]gin.H {
+	results := make(map[string]gin.H, len(items))
+	var mu sync.Mutex
+	sem := make(chan struct{}, 6)
+	var wg sync.WaitGroup
+	for _, item := range items {
+		h, err := parseHash(item.Hash)
+		if err != nil {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(hashKey string, name string, fileIdx int, h metainfo.Hash) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			out := resolveArtBatchOne(rctx, s, cache, tmdbClient, aiClient, webSearch, frameJobs, h, fileIdx, name)
+			mu.Lock()
+			results[hashKey] = out
+			mu.Unlock()
+		}(item.Hash, item.Name, item.File, h)
+	}
+	wg.Wait()
+	return results
+}
+
+func resolveArtBatchOne(
+	rctx context.Context,
+	s *streamer.Streamer,
+	cache *streamer.MetadataCache,
+	tmdbClient *tmdb.Client,
+	aiClient *ai.Client,
+	webSearch *imagesearch.Chain,
+	frameJobs *sync.Map,
+	h metainfo.Hash,
+	fileIdx int,
+	name string,
+) gin.H {
+	var cap artCaptureResponder
+	runArtResolve(rctx, &cap, s, cache, tmdbClient, aiClient, webSearch, frameJobs, h, fileIdx, name)
+	if cap.Code == http.StatusNoContent {
+		return gin.H{"resolved": false}
+	}
+	if cap.Body != nil {
+		return cap.Body
+	}
+	return gin.H{"resolved": false}
+}
+
+// artCaptureResponder records the last JSON/Status written by the resolve chain.
+type artCaptureResponder struct {
+	Code int
+	Body gin.H
+}
+
+func (w *artCaptureResponder) JSON(code int, obj any) {
+	w.Code = code
+	if m, ok := obj.(gin.H); ok {
+		w.Body = m
+		return
+	}
+	if m, ok := obj.(map[string]any); ok {
+		w.Body = gin.H(m)
+		return
+	}
+	w.Body = gin.H{"source": obj}
+}
+
+func (w *artCaptureResponder) Status(code int) { w.Code = code }
+
+func runArtResolve(
+	rctx context.Context,
+	resp artResponder,
+	s *streamer.Streamer,
+	cache *streamer.MetadataCache,
+	tmdbClient *tmdb.Client,
+	aiClient *ai.Client,
+	webSearch *imagesearch.Chain,
+	frameJobs *sync.Map,
+	h metainfo.Hash,
+	fileIdx int,
+	nameOverride string,
+) {
+	hash := h.HexString()
 	existing := cache.GetArt(hash)
 	existingRank := 0
 	if existing != nil {
 		existingRank = streamer.ArtSourceRank(existing.Source)
 	}
 	if existingRank >= streamer.ArtSourceRank("torrent") {
-		c.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
+		resp.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
 		return
 	}
-	// A recent "no art found" marker means the full AI+TMDB+web-search chain
-	// already ran and produced nothing — don't re-spend it on every card render
-	// (Continue Watching, lists). Re-tries once the marker ages past the TTL.
 	if cache.ArtNegativeFresh(hash, artNegativeTTL) {
-		c.Status(http.StatusNoContent)
+		resp.Status(http.StatusNoContent)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(rctx, 25*time.Second)
 	defer cancel()
 
 	a := &artResolveCtx{
-		c:            c,
+		resp:         resp,
 		s:            s,
 		cache:        cache,
 		tmdbClient:   tmdbClient,
@@ -156,6 +288,7 @@ func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Cl
 		webSearch:    webSearch,
 		frameJobs:    frameJobs,
 		fileIdx:      fileIdx,
+		nameOverride: nameOverride,
 	}
 	buildArtQuery(a)
 
@@ -172,10 +305,8 @@ func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Cl
 		return
 	}
 
-	// Whole chain found nothing — persist a negative marker so we don't re-run
-	// AI+TMDB+web-search for this hash until the TTL lapses.
 	_ = cache.SetArt(hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
-	c.Status(http.StatusNoContent)
+	resp.Status(http.StatusNoContent)
 }
 
 func buildArtQuery(a *artResolveCtx) {
@@ -184,7 +315,7 @@ func buildArtQuery(a *artResolveCtx) {
 		a.isAudio = isAudioOnlyMeta(meta)
 	}
 	if a.rawName == "" {
-		a.rawName = a.c.Query("name")
+		a.rawName = a.nameOverride
 	}
 	a.query = a.rawName
 	if a.aiClient != nil && a.rawName != "" {
@@ -229,7 +360,7 @@ func resolveTorrentArt(a *artResolveCtx) bool {
 		art.TmdbID, art.ImdbID = a.existing.TmdbID, a.existing.ImdbID
 	}
 	_ = a.cache.SetArt(a.hash, art)
-	a.c.JSON(http.StatusOK, gin.H{"source": "torrent"})
+	a.resp.JSON(http.StatusOK, gin.H{"source": "torrent"})
 	return true
 }
 
@@ -247,7 +378,7 @@ func resolveTMDBArt(a *artResolveCtx) bool {
 		TmdbID:    m.TmdbID,
 		ImdbID:    m.ImdbID,
 	})
-	a.c.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
+	a.resp.JSON(http.StatusOK, gin.H{"source": "tmdb", "tmdbId": m.TmdbID, "imdbId": m.ImdbID})
 	return true
 }
 
@@ -273,7 +404,7 @@ func resolveWebArt(a *artResolveCtx) bool {
 		return false
 	}
 	_ = a.cache.SetArt(a.hash, &streamer.CachedArt{Source: "web", Path: rel})
-	a.c.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
+	a.resp.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
 	return true
 }
 
@@ -282,7 +413,7 @@ func resolveFrameCapture(a *artResolveCtx) bool {
 		return false
 	}
 	if _, busy := a.frameJobs.LoadOrStore(a.hash, true); busy {
-		a.c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+		a.resp.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
 		return true
 	}
 	go func() {
@@ -303,6 +434,6 @@ func resolveFrameCapture(a *artResolveCtx) bool {
 			return
 		}
 	}()
-	a.c.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
+	a.resp.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
 	return true
 }

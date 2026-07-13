@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2, Clock, Server } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Download, Loader2, Clock, Server, CheckCircle2 } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
@@ -34,6 +35,24 @@ function pickInitialSelection(files: StreamFile[], initial?: readonly number[]):
 
 type DownloadDest = { destBase: string; destSubdir: string }
 const EMPTY_DEST: DownloadDest = { destBase: '', destSubdir: '' }
+
+type SuccessInfo = {
+  fileCount: number
+  destLabel: string
+  category?: string
+  external: boolean
+}
+
+function queuedFileCount(files: StreamFile[] | null, selection: Set<number>): number {
+  if (!files || files.length === 0) return 1
+  if (isWholeTorrentSelection(files, selection)) return files.length
+  return selection.size
+}
+
+function internalDestLabel(dest: DownloadDest, t: TFn): string {
+  const parts = [dest.destBase, dest.destSubdir].filter(Boolean)
+  return parts.length > 0 ? parts.join('/') : t('downloads.modal.defaultDest')
+}
 
 // Minimal translate-fn signature so the module-level helper can format the
 // user-facing partial/validation messages with the component's `t`.
@@ -109,6 +128,7 @@ const KEY_RECENT_PATHS = 'recentSavePaths'
 
 export default function DownloadModal({ result, onClose, initialFileIndices, nested }: DownloadModalProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [clients, setClients] = useState<DownloadClient[]>([])
   const [selectedClientId, setSelectedClientId] = useState('')
   const [savePath, setSavePath] = useState('')
@@ -116,6 +136,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [successInfo, setSuccessInfo] = useState<SuccessInfo | null>(null)
   const [showRecent, setShowRecent] = useState(false)
   // Files preview do torrent — quando destino = JackUI interno, picker mostra
   // a lista pro user marcar/desmarcar o que baixar. null = ainda carregando
@@ -139,6 +160,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
     setClientsLoaded(false)
     setError('')
     setSuccess(false)
+    setSuccessInfo(null)
     setFiles(null)
     setFilesError('')
     setSelectedFiles(new Set())
@@ -200,15 +222,20 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, selectedClientId])
 
-  // finishInternal enqueues the internal download for `selection` and closes on
-  // success. Clears the dedup prompt either way so an error surfaces in the modal.
+  // finishInternal enqueues the internal download for `selection`. Clears the
+  // dedup prompt either way so an error surfaces in the modal.
   const finishInternal = async (filesArg: StreamFile[] | null, selection: Set<number>) => {
     const err = await downloadInternal(result!, filesArg, selection, streamAdd, downloadCreate, t, dest)
     setDedup(null)
     if (err) { setError(err); return }
     save(KEY_CLIENT, INTERNAL_ID)
+    setSuccessInfo({
+      fileCount: queuedFileCount(filesArg, selection),
+      destLabel: internalDestLabel(dest, t),
+      category: result!.category || undefined,
+      external: false,
+    })
     setSuccess(true)
-    setTimeout(onClose, 1200)
   }
 
   const handleDownload = async () => {
@@ -228,8 +255,13 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
         await downloadTorrent(selectedClientId, result.magnetUri || '', result.link || '', savePath || undefined)
         save(KEY_CLIENT, selectedClientId)
         if (savePath.trim()) { save(KEY_PATH, savePath.trim()); pushMRU(KEY_RECENT_PATHS, savePath.trim()) }
+        setSuccessInfo({
+          fileCount: 1,
+          destLabel: savePath.trim() || t('downloads.modal.clientDefault'),
+          category: result.category || undefined,
+          external: true,
+        })
         setSuccess(true)
-        setTimeout(onClose, 1200)
       }
     } catch (err: unknown) {
       setError(errMessage(err))
@@ -262,8 +294,13 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       } else {
         save(KEY_CLIENT, INTERNAL_ID)
         setDedup(null)
+        setSuccessInfo({
+          fileCount: 0,
+          destLabel: internalDestLabel(dest, t),
+          category: result.category || undefined,
+          external: false,
+        })
         setSuccess(true)
-        setTimeout(onClose, 1200)
       }
     } catch (err: unknown) {
       setDedup(null)
@@ -320,19 +357,33 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       title={t('downloads.modal.title')}
       icon={<Download className="w-4 h-4 text-green-500 flex-shrink-0" />}
       footer={
+        success ? (
+          <div className="flex gap-3">
+            <button onClick={onClose} className="btn-secondary flex-1">
+              {t('common.dismiss')}
+            </button>
+            <button
+              onClick={() => { onClose(); navigate('/downloads') }}
+              className="btn-primary flex-1"
+            >
+              {t('downloads.modal.viewDownloads')}
+            </button>
+          </div>
+        ) : (
         <div className="flex gap-3">
           <button onClick={onClose} className="btn-secondary flex-1">
             {t('downloads.modal.cancel')}
           </button>
           <button
             onClick={handleDownload}
-            disabled={loading || !selectedClientId || success}
+            disabled={loading || !selectedClientId}
             className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {t('downloads.modal.confirm')}
           </button>
         </div>
+        )
       }
     >
       <div className="flex flex-col gap-4">
@@ -446,9 +497,21 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
               {error}
             </div>
           )}
-          {success && (
-            <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-sm rounded-lg p-3">
-              {t('downloads.modal.success')}
+          {success && successInfo && (
+            <div className="bg-green-500/10 border border-green-500/30 text-green-400 text-sm rounded-lg p-3 flex flex-col gap-2" role="status">
+              <div className="flex items-center gap-2 font-medium">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                {t('downloads.modal.success')}
+              </div>
+              <ul className="text-xs text-green-300/90 space-y-1 pl-6 list-disc">
+                {successInfo.fileCount > 0 && (
+                  <li>{t('downloads.modal.successFiles', { count: successInfo.fileCount })}</li>
+                )}
+                <li>{t('downloads.modal.successDest', { dest: successInfo.destLabel })}</li>
+                {successInfo.category && (
+                  <li>{t('downloads.modal.successCategory', { category: successInfo.category })}</li>
+                )}
+              </ul>
             </div>
           )}
       </div>

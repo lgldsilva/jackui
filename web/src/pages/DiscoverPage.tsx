@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
+import { Flame, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import TrailerModal from '../components/TrailerModal'
 import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendation, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'

@@ -180,6 +180,7 @@
     "copy_magnet": "Copy magnet link",
     "download_torrent": "Download .torrent file",
     "send_to_client": "Send to a download client (qBittorrent/Deluge)",
+    "moreActions": "More actions",
     "client": "Client",
     "play_new_tab": "Play — Ctrl/Cmd or middle-click opens in a new tab",
     "tap_explore": "Tap to view the torrent's files"
@@ -751,6 +752,12 @@
       "optional": "(optional)",
       "recentFolders": "Recent folders",
       "success": "Torrent sent successfully!",
+      "viewDownloads": "View downloads",
+      "defaultDest": "Server default folder",
+      "clientDefault": "Client default destination",
+      "successFiles": "{{count}} file(s) queued",
+      "successDest": "Destination: {{dest}}",
+      "successCategory": "Category: {{category}}",
       "selectAtLeastOne": "Select at least one file",
       "partialQueued": "{{created}}/{{total}} queued"
     },
