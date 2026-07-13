@@ -1,7 +1,8 @@
 {
   "common": {
     "errorTitle": "Something went wrong",
-    "retry": "Try again"
+    "retry": "Try again",
+    "dismiss": "Dismiss"
   },
   "files": {
     "to_download": "Files to download",
@@ -62,6 +63,8 @@
     "filter_title": "Filter by title...",
     "empty_title": "Nothing to show",
     "empty_hint": "Set <c>tmdb.api_key</c> (or <c>TMDB_API_KEY</c>) to see trending titles.",
+    "load_error": "Couldn't load trending titles",
+    "loading_trending": "Loading trending titles…",
     "title_trending": "Trending",
     "clear": "Clear",
     "search_title": "Search \"{{title}}\"",

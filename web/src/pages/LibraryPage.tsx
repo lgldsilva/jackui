@@ -5,8 +5,7 @@ import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
 import { libraryList, libraryDelete, libraryDeleteAll, LibraryEntry, streamArtURL, resolveArt, SearchResult } from '../api/client'
 import { useRevealHidden } from '../lib/reveal'
-import { ErrorState } from '../components/ErrorState'
-import { LoadingState } from '../components/LoadingState'
+import { AsyncState } from '../components/AsyncState'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import DownloadModal from '../components/DownloadModal'
 import SeedBadge from '../components/SeedBadge'
@@ -147,11 +146,17 @@ export default function LibraryPage() {
           </div>
         </div>
 
-        {(() => {
-          if (error) return <ErrorState message={error} onRetry={reload} />
-          if (loading) return <LoadingState />
-          if (filtered.length === 0) return <div className="text-center py-20 text-text-muted"><LibraryIcon className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>{t('library.emptyTitle')}</p><p className="text-xs mt-2">{t('library.emptyHint')}</p></div>
-          return (
+        <AsyncState
+          loading={loading}
+          error={error}
+          empty={!loading && !error && filtered.length === 0}
+          onRetry={reload}
+          emptyConfig={{
+            icon: <LibraryIcon className="w-16 h-16 opacity-30" />,
+            title: t('library.emptyTitle'),
+            description: t('library.emptyHint'),
+          }}
+        >
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filtered.map(e => {
               const ratio = e.durationSeconds > 0 ? Math.min(1, e.resumeSeconds / e.durationSeconds) : 0
@@ -172,7 +177,7 @@ export default function LibraryPage() {
               )
             })}
           </div>
-        )})()}
+        </AsyncState>
       </main>
 
       <TorrentContentsModal
