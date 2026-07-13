@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Flame, Loader2, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
+import { Flame, Search, Star, Film, Tv, X, TrendingUp, TrendingDown, Sparkles, Wand2, Clapperboard, ChevronDown } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
 import TrailerModal from '../components/TrailerModal'
 import { tmdbTrending, tmdbGenres, tmdbRecommendations, tmdbDismissRecommendation, tmdbVideos, TmdbMatch, TmdbGenre, TmdbRecommendation } from '../api/client'
@@ -13,6 +13,7 @@ import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { newTabProps, searchHref } from '../lib/cardNav'
 import { useMediaMode } from '../lib/mediaMode'
 import { MusicDiscoverView } from '../components/MusicDiscoverView'
+import { AsyncState } from '../components/AsyncState'
 
 // searchQuery builds the seed string a poster click uses (and the href a new tab
 // opens). Torrent releases are named by the ORIGINAL title, not the pt-BR one —
@@ -193,6 +194,7 @@ const YEARS = (() => {
 export default function DiscoverPage() {
   const { t } = useTranslation()
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
+  const [trendingError, setTrendingError] = useState<string | null>(null)
   // Filtros do Discover na URL (sobrevivem a back/forward/reload/reabrir). year e
   // genre são numéricos → glue string<->number ('' = sem filtro). filter/query
   // são filtros client-side; year/genre disparam o fetch de trending.
@@ -262,11 +264,19 @@ export default function DiscoverPage() {
     tmdbRecommendations().then(l => setRecs(dedupeMatches(l))).catch(() => setRecs([]))
   }, [])
 
-  // Trending / discover list — refetched whenever the year/genre filter changes.
-  useEffect(() => {
+  const loadTrending = useCallback(() => {
     setItems(null)
-    tmdbTrending({ year, genre }).then(l => setItems(dedupeMatches(l))).catch(() => setItems([]))
-  }, [year, genre])
+    setTrendingError(null)
+    tmdbTrending({ year, genre })
+      .then(l => { setItems(dedupeMatches(l)); setTrendingError(null) })
+      .catch(err => {
+        setItems([])
+        setTrendingError(err instanceof Error ? err.message : t('discover.load_error'))
+      })
+  }, [year, genre, t])
+
+  // Trending / discover list — refetched whenever the year/genre filter changes.
+  useEffect(() => { loadTrending() }, [loadTrending])
 
   const openSearch = (m: TmdbMatch) => {
     navigate(searchHref(searchQuery(m)))
@@ -378,10 +388,19 @@ export default function DiscoverPage() {
           </div>
         )}
 
-{(() => {
-          if (items === null) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
-          if (items.length === 0) return <div className="text-center py-20 text-text-muted"><Flame className="w-16 h-16 mx-auto mb-4 opacity-30" /><p>{t('discover.empty_title')}</p><p className="text-xs mt-2"><Trans i18nKey="discover.empty_hint" components={{ c: <code className="text-text-secondary" /> }} /></p></div>
-          return (
+        <AsyncState
+          loading={items === null}
+          error={trendingError}
+          empty={items !== null && items.length === 0 && !trendingError}
+          loadingLabel={t('discover.loading_trending')}
+          onRetry={loadTrending}
+          emptyConfig={{
+            icon: <Flame className="w-16 h-16 opacity-30" />,
+            title: t('discover.empty_title'),
+            description: <Trans i18nKey="discover.empty_hint" components={{ c: <code className="text-text-secondary" /> }} />,
+          }}
+        >
+          {items !== null && items.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
             {shown.map(m => (
               <PosterCard
@@ -394,7 +413,8 @@ export default function DiscoverPage() {
               />
             ))}
           </div>
-        )})()}
+          )}
+        </AsyncState>
       </main>
 
       {trailer && (
