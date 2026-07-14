@@ -20,13 +20,16 @@ export default function MoreActionsMenu({ items, className = '' }: MoreActionsMe
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLUListElement>(null)
 
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+      const target = e.target
+      if (target instanceof Node && !rootRef.current?.contains(target)) setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
+    menuRef.current?.focus()
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
@@ -47,29 +50,32 @@ export default function MoreActionsMenu({ items, className = '' }: MoreActionsMe
         {t('search.moreActions')}
       </button>
       {open && (
-        <div
+        <ul
+          ref={menuRef}
           role="menu"
-          className="absolute right-0 bottom-full mb-1 z-30 min-w-[10rem] rounded-lg border border-strong bg-surface shadow-lg py-1"
-          onClick={(e) => e.stopPropagation()}
+          tabIndex={-1}
+          className="absolute right-0 bottom-full mb-1 z-30 min-w-[10rem] rounded-lg border border-strong bg-surface shadow-lg py-1 list-none m-0 p-0"
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }}
         >
           {items.map(item => (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              onClick={(e) => {
-                e.stopPropagation()
-                setOpen(false)
-                item.onClick()
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-surface-tertiary disabled:opacity-50 text-left transition-colors"
-            >
-              {item.disabled ? <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" /> : item.icon}
-              <span>{item.label}</span>
-            </button>
+            <li key={item.id} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setOpen(false)
+                  item.onClick()
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-surface-tertiary disabled:opacity-50 text-left transition-colors"
+              >
+                {item.disabled ? <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" /> : item.icon}
+                <span>{item.label}</span>
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   )

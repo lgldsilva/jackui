@@ -128,13 +128,25 @@ func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Cl
 		return
 	}
 	fileIdx, _ := strconv.Atoi(c.DefaultQuery("file", "-1"))
-	runArtResolve(c.Request.Context(), c, s, cache, tmdbClient, aiClient, webSearch, frameJobs, h, fileIdx, c.Query("name"))
+	env := &artResolver{s: s, cache: cache, tmdbClient: tmdbClient, aiClient: aiClient, webSearch: webSearch, frameJobs: frameJobs}
+	runArtResolve(c.Request.Context(), c, env, h, fileIdx, c.Query("name"))
 }
 
 type artBatchItem struct {
 	Hash string `json:"hash"`
 	Name string `json:"name"`
 	File int    `json:"file"`
+}
+
+// artResolver bundles the shared deps for single + batch art resolve (keeps
+// function arity under Sonar S107).
+type artResolver struct {
+	s          *streamer.Streamer
+	cache      *streamer.MetadataCache
+	tmdbClient *tmdb.Client
+	aiClient   *ai.Client
+	webSearch  *imagesearch.Chain
+	frameJobs  *sync.Map
 }
 
 // ResolveArtBatch handles POST /api/stream/art/resolve/batch {items:[{hash,name?,file?}]}
@@ -160,21 +172,12 @@ func ResolveArtBatch(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"results": resolveArtBatchConcurrent(
-			c.Request.Context(), s, cache, tmdbClient, aiClient, webSearch, &frameJobs, req.Items,
+			c.Request.Context(), &artResolver{s: s, cache: cache, tmdbClient: tmdbClient, aiClient: aiClient, webSearch: webSearch, frameJobs: &frameJobs}, req.Items,
 		)})
 	}
 }
 
-func resolveArtBatchConcurrent(
-	rctx context.Context,
-	s *streamer.Streamer,
-	cache *streamer.MetadataCache,
-	tmdbClient *tmdb.Client,
-	aiClient *ai.Client,
-	webSearch *imagesearch.Chain,
-	frameJobs *sync.Map,
-	items []artBatchItem,
-) map[string]gin.H {
+func resolveArtBatchConcurrent(rctx context.Context, env *artResolver, items []artBatchItem) map[string]gin.H {
 	results := make(map[string]gin.H, len(items))
 	var mu sync.Mutex
 	sem := make(chan struct{}, 6)
@@ -189,7 +192,7 @@ func resolveArtBatchConcurrent(
 		go func(hashKey string, name string, fileIdx int, h metainfo.Hash) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			out := resolveArtBatchOne(rctx, s, cache, tmdbClient, aiClient, webSearch, frameJobs, h, fileIdx, name)
+			out := resolveArtBatchOne(rctx, env, h, fileIdx, name)
 			mu.Lock()
 			results[hashKey] = out
 			mu.Unlock()
@@ -199,20 +202,9 @@ func resolveArtBatchConcurrent(
 	return results
 }
 
-func resolveArtBatchOne(
-	rctx context.Context,
-	s *streamer.Streamer,
-	cache *streamer.MetadataCache,
-	tmdbClient *tmdb.Client,
-	aiClient *ai.Client,
-	webSearch *imagesearch.Chain,
-	frameJobs *sync.Map,
-	h metainfo.Hash,
-	fileIdx int,
-	name string,
-) gin.H {
+func resolveArtBatchOne(rctx context.Context, env *artResolver, h metainfo.Hash, fileIdx int, name string) gin.H {
 	var cap artCaptureResponder
-	runArtResolve(rctx, &cap, s, cache, tmdbClient, aiClient, webSearch, frameJobs, h, fileIdx, name)
+	runArtResolve(rctx, &cap, env, h, fileIdx, name)
 	if cap.Code == http.StatusNoContent {
 		return gin.H{"resolved": false}
 	}
@@ -246,18 +238,13 @@ func (w *artCaptureResponder) Status(code int) { w.Code = code }
 func runArtResolve(
 	rctx context.Context,
 	resp artResponder,
-	s *streamer.Streamer,
-	cache *streamer.MetadataCache,
-	tmdbClient *tmdb.Client,
-	aiClient *ai.Client,
-	webSearch *imagesearch.Chain,
-	frameJobs *sync.Map,
+	env *artResolver,
 	h metainfo.Hash,
 	fileIdx int,
 	nameOverride string,
 ) {
 	hash := h.HexString()
-	existing := cache.GetArt(hash)
+	existing := env.cache.GetArt(hash)
 	existingRank := 0
 	if existing != nil {
 		existingRank = streamer.ArtSourceRank(existing.Source)
@@ -266,7 +253,7 @@ func runArtResolve(
 		resp.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
 		return
 	}
-	if cache.ArtNegativeFresh(hash, artNegativeTTL) {
+	if env.cache.ArtNegativeFresh(hash, artNegativeTTL) {
 		resp.Status(http.StatusNoContent)
 		return
 	}
@@ -276,17 +263,17 @@ func runArtResolve(
 
 	a := &artResolveCtx{
 		resp:         resp,
-		s:            s,
-		cache:        cache,
-		tmdbClient:   tmdbClient,
+		s:            env.s,
+		cache:        env.cache,
+		tmdbClient:   env.tmdbClient,
 		h:            h,
 		hash:         hash,
 		existing:     existing,
 		existingRank: existingRank,
 		ctx:          ctx,
-		aiClient:     aiClient,
-		webSearch:    webSearch,
-		frameJobs:    frameJobs,
+		aiClient:     env.aiClient,
+		webSearch:    env.webSearch,
+		frameJobs:    env.frameJobs,
 		fileIdx:      fileIdx,
 		nameOverride: nameOverride,
 	}
@@ -305,7 +292,7 @@ func runArtResolve(
 		return
 	}
 
-	_ = cache.SetArt(hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
+	_ = env.cache.SetArt(hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
 	resp.Status(http.StatusNoContent)
 }
 
