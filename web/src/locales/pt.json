@@ -1,7 +1,8 @@
 {
   "common": {
     "errorTitle": "Algo deu errado",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "dismiss": "Fechar"
   },
   "files": {
     "to_download": "Arquivos pra baixar",
@@ -62,6 +63,8 @@
     "filter_title": "Filtrar por título...",
     "empty_title": "Nada pra mostrar",
     "empty_hint": "Configure a <c>tmdb.api_key</c> (ou <c>TMDB_API_KEY</c>) pra ver os títulos em alta.",
+    "load_error": "Não foi possível carregar os títulos em alta",
+    "loading_trending": "Carregando títulos em alta…",
     "title_trending": "Em alta",
     "clear": "Limpar",
     "search_title": "Buscar \"{{title}}\"",

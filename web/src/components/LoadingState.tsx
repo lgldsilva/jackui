@@ -10,8 +10,13 @@ export function LoadingState({ size = 'default', label }: LoadingStateProps) {
   const paddingClass = size === 'sm' ? 'py-16' : 'py-20'
 
   return (
-    <div className={`flex flex-col items-center justify-center ${paddingClass} text-center text-text-muted`}>
-      <Loader2 className={`${sizeClass} animate-spin`} />
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className={`flex flex-col items-center justify-center ${paddingClass} text-center text-text-muted`}
+    >
+      <Loader2 className={`${sizeClass} animate-spin`} aria-hidden />
       {label && <p className="text-sm mt-3 text-text-secondary">{label}</p>}
     </div>
   )

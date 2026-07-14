@@ -36,6 +36,8 @@ import { type SortKey, type KindFilter } from '../components/local/localViewType
 import { LocalSidebar } from '../components/local/LocalSidebar'
 import { MountSheet } from '../components/local/MountSheet'
 import { LocalActionBar } from '../components/local/LocalActionBar'
+import { StatusBanner } from '../components/StatusBanner'
+import { LoadingState } from '../components/LoadingState'
 import { LocalToolbar } from '../components/local/LocalToolbar'
 import { LocalEntryList } from '../components/local/LocalEntryList'
 import { useHiddenEntries } from '../components/local/useHiddenEntries'
@@ -322,21 +324,20 @@ export default function LocalPage() {
           )}
 
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4 text-sm">
-              {error}
-            </div>
+            <StatusBanner variant="error">{error}</StatusBanner>
           )}
 
           {notice && (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between gap-3">
-              <span>{notice}</span>
-              <button onClick={() => setNotice('')} className="text-emerald-400/70 hover:text-emerald-500 dark:hover:text-emerald-300 text-xs">{t('local.close')}</button>
-            </div>
+            <StatusBanner
+              variant="success"
+              onDismiss={() => setNotice('')}
+              dismissLabel={t('local.close')}
+            >
+              {notice}
+            </StatusBanner>
           )}
 
-          {loading && (
-            <div className="text-text-muted text-sm">{t('local.loading')}</div>
-          )}
+          {loading && <LoadingState size="sm" label={t('local.loading')} />}
 
           {!loading && !error && activeMount && visible.length === 0 && (
             <div className="text-text-muted text-sm">
