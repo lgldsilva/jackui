@@ -42,7 +42,21 @@ func IsRotational(path string) bool {
 	if err := syscall.Stat(path, &st); err != nil {
 		return false
 	}
-	maj, min := unix.Major(uint64(st.Dev)), unix.Minor(uint64(st.Dev))
+	// st.Dev is int32 on macOS (Darwin). Device numbers are inherently
+	// unsigned, so a negative value can only result from filesystem quirks.
+	// Defensive: compute the absolute value with safe arithmetic so the
+	// int32→uint64 cast never wraps a negative (including MinInt32 where
+	// -x would overflow int32).
+	stDev := st.Dev
+	var absDev uint64
+	if stDev < 0 {
+		// int32→int64 is always safe; negating MinInt32 in int64 is safe;
+		// uint64 from positive int64 is also safe.
+		absDev = uint64(-int64(stDev))
+	} else {
+		absDev = uint64(stDev)
+	}
+	maj, min := unix.Major(absDev), unix.Minor(absDev)
 	// /sys/dev/block/MAJ:MIN symlinks to …/block/<disk>[/<part>].
 	link, err := os.Readlink(fmt.Sprintf("/sys/dev/block/%d:%d", maj, min))
 	if err != nil {

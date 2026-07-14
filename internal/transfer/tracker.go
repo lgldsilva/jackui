@@ -494,7 +494,7 @@ func itoa(n int64) string {
 // ProgressReader wraps r so each Read reports the byte count via onBytes —
 // drop-in for io.Copy(dst, ProgressReader(src, job.AddBytes)).
 func ProgressReader(r io.Reader, onBytes func(int64)) io.Reader {
-	return ProgressReaderCtx(nil, r, onBytes)
+	return ProgressReaderCtx(context.Background(), r, onBytes)
 }
 
 // ProgressReaderCtx is ProgressReader that also aborts the copy when ctx is

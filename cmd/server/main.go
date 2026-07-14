@@ -242,6 +242,7 @@ func main() {
 
 	select {
 	case err := <-serverErr:
+		deps.runCleanup() // explícito antes de fatal (defer não roda em log.Fatalf)
 		log.Fatalf("HTTP server failed: %v", err)
 	case sig := <-quit:
 		log.Printf("Signal %s recebido — graceful shutdown iniciado...", sig)

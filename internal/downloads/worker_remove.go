@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 )
 
@@ -63,7 +64,7 @@ func (w *Worker) Remove(id int, infoHash string) {
 	// priorities; cancel ours if we have it.
 	if siblingKeepsTorrent {
 		if removed != nil && removed.file != nil {
-			removed.file.Cancel()
+			removed.file.SetPriority(torrent.PiecePriorityNone)
 		}
 		return
 	}
