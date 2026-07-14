@@ -332,6 +332,13 @@ test:
 test-verbose:
 	@go test -v ./internal/...
 
+# CA-3.2 — pass-rate em N runs consecutivos (default 20). Ex.: make test-stability RUNS=5
+test-stability:
+	@./scripts/ci-stability-audit.sh $(or $(RUNS),20)
+
+branch-hygiene:
+	@./scripts/branch-hygiene.sh $(if $(DELETE),--delete-merged,)
+
 # ─────────────────────────────────────────
 # análise SonarQube + thresholds
 # ─────────────────────────────────────────
