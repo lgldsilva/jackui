@@ -62,10 +62,11 @@ func TestBuildArtQuery_FallbackToNameParam(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/hash/resolve?name=User+Supplied", nil)
 
 	a := &artResolveCtx{
-		resp:  cGin,
-		s:     s,
-		cache: cache,
-		hash:  "hash",
+		resp:         cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		nameOverride: "User Supplied",
 	}
 	buildArtQuery(a)
 	if a.rawName != "User Supplied" {
@@ -118,11 +119,12 @@ func TestBuildArtQuery_NilAIClient(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/hash/resolve?name=Test+Movie", nil)
 
 	a := &artResolveCtx{
-		resp:     cGin,
-		s:        s,
-		cache:    cache,
-		hash:     "hash",
-		aiClient: nil,
+		resp:         cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		aiClient:     nil,
+		nameOverride: "Test Movie",
 	}
 	buildArtQuery(a)
 	if a.query != "Test Movie" {
