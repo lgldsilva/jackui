@@ -323,6 +323,7 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.GET("/stream/trackers/:hash", handlers.StreamTrackers(deps.streamSrv))
 	api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(deps.streamSrv))
 	api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
+	api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore))
 	api.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr))

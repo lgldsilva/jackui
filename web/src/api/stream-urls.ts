@@ -6,6 +6,8 @@ import { localResolvedURL } from './local'
 export const streamArtURL = (hash: string): string =>
   withToken(`/api/stream/art/${hash}`)
 
+export type ArtResolveResult = { source?: string; reused?: boolean; resolved?: boolean; status?: string }
+
 export const resolveArt = async (hash: string, fileIdx = -1, name?: string): Promise<string | null> => {
   if (isLocalHash(hash)) return null
   try {
@@ -15,6 +17,22 @@ export const resolveArt = async (hash: string, fileIdx = -1, name?: string): Pro
     return status === 200 ? (data?.source ?? null) : null
   } catch {
     return null
+  }
+}
+
+/** Batch art resolve — 1 round-trip for library lists (Perf #6). */
+export const resolveArtBatch = async (
+  items: { hash: string; name?: string; file?: number }[],
+): Promise<Record<string, ArtResolveResult>> => {
+  if (items.length === 0) return {}
+  try {
+    const { data } = await api.post<{ results?: Record<string, ArtResolveResult> }>(
+      '/stream/art/resolve/batch',
+      { items },
+    )
+    return data?.results ?? {}
+  } catch {
+    return {}
   }
 }
 

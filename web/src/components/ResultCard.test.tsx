@@ -133,7 +133,8 @@ describe('ResultCard — aria-labels', () => {
     expect(refreshBtn).toHaveAccessibleName()
   })
 
-  it('botão Explore files tem aria-label i18n quando presente', () => {
+  it('botão Explore files tem aria-label i18n quando presente', async () => {
+    const user = userEvent.setup()
     render(
       <ResultCard
         result={makeResult()}
@@ -142,15 +143,18 @@ describe('ResultCard — aria-labels', () => {
         onExploreContents={vi.fn()}
       />,
     )
-    const exploreBtn = screen.getByRole('button', { name: /view files inside/i })
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    const exploreBtn = screen.getByRole('menuitem', { name: /view files inside/i })
     expect(exploreBtn).toBeInTheDocument()
   })
 
-  it('botão Copy magnet tem aria-label i18n', () => {
+  it('botão Copy magnet tem aria-label i18n', async () => {
+    const user = userEvent.setup()
     render(
       <ResultCard result={makeResult()} onDownload={vi.fn()} onPlay={vi.fn()} />,
     )
-    const copyBtn = screen.getByRole('button', { name: /copy magnet link/i })
+    await user.click(screen.getByRole('button', { name: 'More actions' }))
+    const copyBtn = screen.getByRole('menuitem', { name: /copy magnet link/i })
     expect(copyBtn).toBeInTheDocument()
   })
 })
