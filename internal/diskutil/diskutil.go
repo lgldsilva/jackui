@@ -52,7 +52,8 @@ func IsRotational(path string) bool {
 	if stDev < 0 {
 		// int32→int64 is always safe; negating MinInt32 in int64 is safe;
 		// uint64 from positive int64 is also safe.
-		absDev = uint64(-int64(stDev))
+				// #nosec G115
+			absDev = uint64(-int64(stDev))
 	} else {
 		absDev = uint64(stDev)
 	}
