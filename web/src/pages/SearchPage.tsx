@@ -27,6 +27,7 @@ import { hydrateTabs, persistTabs, newTab, nextTabId, FILTER_DEFAULTS_KEY, type 
 import { SkeletonCard } from '../components/search/SkeletonCard'
 import { SearchFilterFields } from '../components/search/SearchFilterFields'
 import { SearchTabStrip } from '../components/search/SearchTabStrip'
+import { StatusBanner } from '../components/StatusBanner'
 import { SearchStatusBar } from '../components/search/SearchStatusBar'
 import { SearchResultsGrid } from '../components/search/SearchResultsGrid'
 import { JackettSetupPrompt } from '../components/search/JackettSetupPrompt'
@@ -470,19 +471,14 @@ export default function SearchPage() {
           </div>
         )}
 
-        {/* Soft error with results */}
         {activeTab.error && hasResults && (
-          <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 rounded-xl px-4 py-2 text-sm">
-            {activeTab.error}
-          </div>
+          <StatusBanner variant="warning">{activeTab.error}</StatusBanner>
         )}
 
-        {/* Hard error */}
         {activeTab.error && !hasResults && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4">
-            <p className="font-medium">{t('search.search_error')}</p>
-            <p className="text-sm mt-1">{activeTab.error}</p>
-          </div>
+          <StatusBanner variant="error" title={t('search.search_error')}>
+            {activeTab.error}
+          </StatusBanner>
         )}
 
         {/* Loading skeletons */}

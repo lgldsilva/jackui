@@ -33,7 +33,7 @@ func TestBuildArtQuery_FromCache(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/resolve", nil)
 
 	a := &artResolveCtx{
-		c:     cGin,
+		resp:  cGin,
 		s:     s,
 		cache: cache,
 		hash:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -62,10 +62,11 @@ func TestBuildArtQuery_FallbackToNameParam(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/hash/resolve?name=User+Supplied", nil)
 
 	a := &artResolveCtx{
-		c:     cGin,
-		s:     s,
-		cache: cache,
-		hash:  "hash",
+		resp:         cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		nameOverride: "User Supplied",
 	}
 	buildArtQuery(a)
 	if a.rawName != "User Supplied" {
@@ -118,11 +119,12 @@ func TestBuildArtQuery_NilAIClient(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/hash/resolve?name=Test+Movie", nil)
 
 	a := &artResolveCtx{
-		c:        cGin,
-		s:        s,
-		cache:    cache,
-		hash:     "hash",
-		aiClient: nil,
+		resp:         cGin,
+		s:            s,
+		cache:        cache,
+		hash:         "hash",
+		aiClient:     nil,
+		nameOverride: "Test Movie",
 	}
 	buildArtQuery(a)
 	if a.query != "Test Movie" {
@@ -288,7 +290,7 @@ func TestResolveTorrentArt_ExistingRankTooHigh(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
-		c:            cGin,
+		resp:         cGin,
 		s:            s,
 		cache:        cache,
 		hash:         "hash",
@@ -313,7 +315,7 @@ func TestResolveTorrentArt_TorrentNotActive(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
-		c:     cGin,
+		resp:  cGin,
 		s:     s,
 		cache: cache,
 		hash:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -338,7 +340,7 @@ func TestResolveTMDBArt_NilClient(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
-		c:            cGin,
+		resp:         cGin,
 		s:            s,
 		cache:        cache,
 		hash:         "hash",
@@ -365,7 +367,7 @@ func TestResolveTMDBArt_ExistingRankTooHigh(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
-		c:            cGin,
+		resp:         cGin,
 		s:            s,
 		cache:        cache,
 		hash:         "hash",
@@ -392,7 +394,7 @@ func TestResolveWebArt_NilSearch(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
-		c:            cGin,
+		resp:         cGin,
 		s:            s,
 		cache:        cache,
 		hash:         "hash",
@@ -419,7 +421,7 @@ func TestResolveWebArt_ExistingRankTooHigh(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
-		c:            cGin,
+		resp:         cGin,
 		s:            s,
 		cache:        cache,
 		hash:         "hash",
@@ -447,7 +449,7 @@ func TestResolveFrameCapture_NegativeFileIdx(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/api/stream/art/hash/resolve", nil)
 
 	a := &artResolveCtx{
-		c:       cGin,
+		resp:    cGin,
 		s:       s,
 		cache:   cache,
 		hash:    "hash",
@@ -480,7 +482,7 @@ func TestResolveFrameCapture_AlreadyBusy(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/api/stream/art/hash/resolve?file=0", nil)
 
 	a := &artResolveCtx{
-		c:         cGin,
+		resp:      cGin,
 		s:         s,
 		cache:     cache,
 		hash:      "hash",

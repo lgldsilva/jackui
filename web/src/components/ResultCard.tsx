@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
+import MoreActionsMenu, { type MoreActionItem } from './MoreActionsMenu'
 import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
 import i18n from '../lib/i18n'
@@ -170,12 +171,6 @@ function RatingBadge({ tmdb }: { readonly tmdb: TmdbMatch | null }): React.React
   return null
 }
 
-function renderMagnetIcon(copied: boolean, resolvingMagnet: boolean): JSX.Element {
-  if (copied) return <Check className="w-3.5 h-3.5" />
-  if (resolvingMagnet) return <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-  return <Clipboard className="w-3.5 h-3.5" />
-}
-
 function renderFavoriteIcon(favResolving: boolean, isFavorited: boolean): JSX.Element {
   if (favResolving) return <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-400" />
   return <Heart className={`w-3.5 h-3.5 ${isFavorited ? 'fill-current' : ''}`} />
@@ -293,8 +288,50 @@ type RenderCardActionsProps = {
 function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
   const { canPlay, playLinkHref, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied } = props
   const playNavProps = canPlay && playLinkHref ? newTabProps(playLinkHref, () => onPlay?.(result)) : null
+
+  const moreItems: MoreActionItem[] = []
+  if (hasSource && onExploreContents) {
+    moreItems.push({
+      id: 'explore',
+      label: i18n.t('search.explore_files'),
+      icon: <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />,
+      onClick: () => onExploreContents(result),
+    })
+  }
+  if (hasSource && onAddToPlaylist) {
+    moreItems.push({
+      id: 'playlist',
+      label: i18n.t('search.add_to_playlist'),
+      icon: <ListPlus className="w-3.5 h-3.5 flex-shrink-0" />,
+      onClick: () => onAddToPlaylist(result),
+    })
+  }
+  if (hasSource) {
+    moreItems.push({
+      id: 'magnet-open',
+      label: i18n.t('search.open_magnet'),
+      icon: resolvingMagnet ? undefined : <Magnet className="w-3.5 h-3.5 flex-shrink-0" />,
+      disabled: resolvingMagnet,
+      onClick: handleOpenMagnet,
+    })
+    moreItems.push({
+      id: 'magnet-copy',
+      label: copied ? i18n.t('search.copied') : i18n.t('search.copy_magnet'),
+      icon: copied ? <Check className="w-3.5 h-3.5 flex-shrink-0 text-green-400" /> : <Clipboard className="w-3.5 h-3.5 flex-shrink-0" />,
+      disabled: resolvingMagnet,
+      onClick: handleCopyMagnet,
+    })
+    moreItems.push({
+      id: 'torrent',
+      label: i18n.t('search.download_torrent'),
+      icon: resolvingTorrent ? undefined : <FileDown className="w-3.5 h-3.5 flex-shrink-0" />,
+      disabled: resolvingTorrent,
+      onClick: handleTorrentDownload,
+    })
+  }
+
   return (
-    <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap">
+    <div className="flex gap-1.5 mt-auto pt-1 border-t border-default flex-wrap items-center">
       {canPlay && (
           <button
             onClick={(e) => {
@@ -313,36 +350,12 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
           <Play className="w-3.5 h-3.5 fill-current" />Play
         </button>
       )}
-      {hasSource && onExploreContents && (
-        <button onClick={(e) => { swallowClick(e); onExploreContents(result) }} aria-label={i18n.t('search.explore_files')} title={i18n.t('search.explore_files')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
-          <FolderOpen className="w-3.5 h-3.5" />
-        </button>
-      )}
-      {hasSource && onAddToPlaylist && (
-        <button onClick={(e) => { swallowClick(e); onAddToPlaylist(result) }} aria-label={i18n.t('search.add_to_playlist')} title={i18n.t('search.add_to_playlist')} className="flex items-center gap-1 text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-2.5 py-1.5 rounded-lg transition-colors">
-          <ListPlus className="w-3.5 h-3.5" />
-        </button>
-      )}
-      {hasSource && (
-        <div className="flex items-center gap-0.5">
-          <button onClick={(e) => { swallowClick(e); handleOpenMagnet() }} disabled={resolvingMagnet} title={i18n.t('search.open_magnet')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary pl-2.5 pr-2 py-1.5 rounded-l-lg transition-colors border-r border-strong">
-            {resolvingMagnet ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <Magnet className="w-3.5 h-3.5" />}Magnet
-          </button>
-          <button onClick={(e) => { swallowClick(e); handleCopyMagnet() }} aria-label={i18n.t('search.copy_magnet')} disabled={resolvingMagnet} title={i18n.t('search.copy_magnet')} className={`flex items-center px-2 py-1.5 rounded-r-lg transition-colors text-xs ${copied ? 'bg-green-500/20 text-green-400' : 'bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-secondary'}`}>
-            {renderMagnetIcon(copied, resolvingMagnet)}
-          </button>
-        </div>
-      )}
-      {hasSource && (
-        <button onClick={(e) => { swallowClick(e); handleTorrentDownload() }} disabled={resolvingTorrent} title={i18n.t('search.download_torrent')} className="flex items-center gap-1 text-xs bg-surface-tertiary hover:bg-surface-tertiary disabled:opacity-50 text-text-primary px-2.5 py-1.5 rounded-lg transition-colors">
-          {resolvingTorrent ? <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" /> : <FileDown className="w-3.5 h-3.5" />}.torrent
-        </button>
-      )}
       {canDownload && (
         <button onClick={(e) => { swallowClick(e); onDownload(result) }} title={i18n.t('search.send_to_client')} className="flex items-center gap-1 text-xs btn-primary py-1.5 px-2.5 flex-1 justify-center min-w-[80px]">
           <ExternalLink className="w-3.5 h-3.5" />{i18n.t('search.client')}
         </button>
       )}
+      {moreItems.length > 0 && <MoreActionsMenu items={moreItems} className="ml-auto" />}
     </div>
   )
 }

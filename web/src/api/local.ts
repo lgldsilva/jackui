@@ -10,7 +10,9 @@
 // em ./local-base pra evitar ciclos com os irmãos.
 import { api, withToken } from './http'
 import { audioCapsParam } from '../lib/audioCaps'
-import { isIOS, streamSubtrackURL, type TorrentInfo, type StreamFile } from './stream'
+import { isIOS } from './stream-browser'
+import { streamSubtrackURL } from './stream-urls'
+import type { TorrentInfo, StreamFile } from './stream-types'
 import { buildLocalHash, parseLocalHash, appendViewAs, withViewAs, localQS } from './local-base'
 import { localTransferStatus } from './local-transfer'
 

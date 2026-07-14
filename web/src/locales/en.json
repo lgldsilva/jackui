@@ -1,7 +1,8 @@
 {
   "common": {
     "errorTitle": "Something went wrong",
-    "retry": "Try again"
+    "retry": "Try again",
+    "dismiss": "Dismiss"
   },
   "files": {
     "to_download": "Files to download",
@@ -62,6 +63,8 @@
     "filter_title": "Filter by title...",
     "empty_title": "Nothing to show",
     "empty_hint": "Set <c>tmdb.api_key</c> (or <c>TMDB_API_KEY</c>) to see trending titles.",
+    "load_error": "Couldn't load trending titles",
+    "loading_trending": "Loading trending titles…",
     "title_trending": "Trending",
     "clear": "Clear",
     "search_title": "Search \"{{title}}\"",
@@ -177,6 +180,7 @@
     "copy_magnet": "Copy magnet link",
     "download_torrent": "Download .torrent file",
     "send_to_client": "Send to a download client (qBittorrent/Deluge)",
+    "moreActions": "More actions",
     "client": "Client",
     "play_new_tab": "Play — Ctrl/Cmd or middle-click opens in a new tab",
     "tap_explore": "Tap to view the torrent's files"
@@ -748,6 +752,12 @@
       "optional": "(optional)",
       "recentFolders": "Recent folders",
       "success": "Torrent sent successfully!",
+      "viewDownloads": "View downloads",
+      "defaultDest": "Server default folder",
+      "clientDefault": "Client default destination",
+      "successFiles": "{{count}} file(s) queued",
+      "successDest": "Destination: {{dest}}",
+      "successCategory": "Category: {{category}}",
       "selectAtLeastOne": "Select at least one file",
       "partialQueued": "{{created}}/{{total}} queued"
     },
