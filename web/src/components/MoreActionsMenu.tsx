@@ -20,7 +20,7 @@ export default function MoreActionsMenu({ items, className = '' }: MoreActionsMe
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-  const menuRef = useRef<HTMLUListElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -50,32 +50,31 @@ export default function MoreActionsMenu({ items, className = '' }: MoreActionsMe
         {t('search.moreActions')}
       </button>
       {open && (
-        <ul
+        <div
           ref={menuRef}
           role="menu"
           tabIndex={-1}
-          className="absolute right-0 bottom-full mb-1 z-30 min-w-[10rem] rounded-lg border border-strong bg-surface shadow-lg py-1 list-none m-0 p-0"
+          className="absolute right-0 bottom-full mb-1 z-30 min-w-[10rem] rounded-lg border border-strong bg-surface shadow-lg py-1 flex flex-col"
           onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }}
         >
           {items.map(item => (
-            <li key={item.id} role="none">
-              <button
-                type="button"
-                role="menuitem"
-                disabled={item.disabled}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setOpen(false)
-                  item.onClick()
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-surface-tertiary disabled:opacity-50 text-left transition-colors"
-              >
-                {item.disabled ? <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" /> : item.icon}
-                <span>{item.label}</span>
-              </button>
-            </li>
+            <button
+              key={item.id}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={(e) => {
+                e.stopPropagation()
+                setOpen(false)
+                item.onClick()
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-primary hover:bg-surface-tertiary disabled:opacity-50 text-left transition-colors"
+            >
+              {item.disabled ? <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" /> : item.icon}
+              <span>{item.label}</span>
+            </button>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   )

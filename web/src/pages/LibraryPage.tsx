@@ -30,15 +30,16 @@ function artBumpsFromBatchResults(results: Record<string, { source?: string }>):
   return bumps
 }
 
-function scheduleLibraryArtBatch(
+function mergeArtBustMaps(prev: Record<string, number>, bumps: Record<string, number>): Record<string, number> {
+  return { ...prev, ...bumps }
+}
+
+async function resolveLibraryArtBumps(
   items: { hash: string; name: string; file: number }[],
-  onBumps: (bumps: Record<string, number>) => void,
-) {
-  if (items.length === 0) return
-  void resolveArtBatch(items).then(results => {
-    const bumps = artBumpsFromBatchResults(results)
-    if (Object.keys(bumps).length > 0) onBumps(bumps)
-  })
+): Promise<Record<string, number>> {
+  if (items.length === 0) return {}
+  const results = await resolveArtBatch(items)
+  return artBumpsFromBatchResults(results)
 }
 
 export default function LibraryPage() {
@@ -60,17 +61,22 @@ export default function LibraryPage() {
 
   const [revealHidden] = useRevealHidden()
 
+  const applyArtBumps = (bumps: Record<string, number>) => {
+    if (Object.keys(bumps).length === 0) return
+    setArtBustMap(prev => mergeArtBustMaps(prev, bumps))
+  }
+
   const reload = () => {
     setLoading(true)
     libraryList({ limit: 50 })
       .then(entries => {
         setEntries(entries)
         setError(null)
-        scheduleLibraryArtBatch(
+        return resolveLibraryArtBumps(
           entries.filter(e => e.infoHash).map(e => ({ hash: e.infoHash, name: e.name, file: -1 })),
-          bumps => setArtBustMap(prev => ({ ...prev, ...bumps })),
         )
       })
+      .then(applyArtBumps)
       .catch(err => setError(err instanceof Error ? err.message : 'Failed to load library'))
       .finally(() => setLoading(false))
   }
