@@ -22,6 +22,25 @@ import { newTabProps, playHref } from '../lib/cardNav'
 
 type Filter = 'recent' | 'unfinished' | 'finished'
 
+function artBumpsFromBatchResults(results: Record<string, { source?: string }>): Record<string, number> {
+  const bumps: Record<string, number> = {}
+  for (const [hash, r] of Object.entries(results)) {
+    if (r.source) bumps[hash] = Date.now()
+  }
+  return bumps
+}
+
+function scheduleLibraryArtBatch(
+  items: { hash: string; name: string; file: number }[],
+  onBumps: (bumps: Record<string, number>) => void,
+) {
+  if (items.length === 0) return
+  void resolveArtBatch(items).then(results => {
+    const bumps = artBumpsFromBatchResults(results)
+    if (Object.keys(bumps).length > 0) onBumps(bumps)
+  })
+}
+
 export default function LibraryPage() {
   const [entries, setEntries] = useState<LibraryEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,20 +66,10 @@ export default function LibraryPage() {
       .then(entries => {
         setEntries(entries)
         setError(null)
-        const items = entries
-          .filter(e => e.infoHash)
-          .map(e => ({ hash: e.infoHash, name: e.name, file: -1 }))
-        if (items.length > 0) {
-          resolveArtBatch(items).then(results => {
-            const bumps: Record<string, number> = {}
-            for (const [hash, r] of Object.entries(results)) {
-              if (r.source) bumps[hash] = Date.now()
-            }
-            if (Object.keys(bumps).length > 0) {
-              setArtBustMap(prev => ({ ...prev, ...bumps }))
-            }
-          })
-        }
+        scheduleLibraryArtBatch(
+          entries.filter(e => e.infoHash).map(e => ({ hash: e.infoHash, name: e.name, file: -1 })),
+          bumps => setArtBustMap(prev => ({ ...prev, ...bumps })),
+        )
       })
       .catch(err => setError(err instanceof Error ? err.message : 'Failed to load library'))
       .finally(() => setLoading(false))
