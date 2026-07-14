@@ -170,7 +170,7 @@ func buildTrackers(d downloads.Download, si *streamer.TorrentInfo) (trackers, tr
 	if d.Tracker == "" {
 		return
 	}
-	trackerList = d.Tracker
+	_ = d.Tracker
 	trackerURLs := []string{d.Tracker}
 	if si != nil && len(si.Trackers) > 0 {
 		trackerURLs = si.Trackers

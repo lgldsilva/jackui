@@ -101,7 +101,7 @@ func (w *Worker) applyFilePriorities(g Group, hash metainfo.Hash, t *torrent.Tor
 	// fetches it — the whole point of per-file selection on a multi-file torrent.
 	for i, f := range files {
 		if !selected[i] {
-			f.Cancel()
+			f.SetPriority(torrent.PiecePriorityNone)
 		}
 	}
 }
