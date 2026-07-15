@@ -233,7 +233,7 @@ jobs:
           ./scripts/sonar/sonar-ephemeral.sh
           ls -la "$REPORT_DIR" || true
       - name: Publish Sonar report artifacts on PR
-        if: ${{ env.SONAR_TOKEN != '' }}
+        if: ${{ always() && env.SONAR_TOKEN != '' }}
         continue-on-error: true
         env:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}

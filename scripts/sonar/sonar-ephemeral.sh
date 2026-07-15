@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sonar-ephemeral.sh — shared Sonar Community Edition analysis + durable reports.
 #
-# Source of truth: ai-standards (scripts/sonar/). Vendored into project repos.
+# Source of truth: gitea-workflows (scripts/sonar/). Consumed via reusable workflows.
 #
 # CE has no real PR/branch analysis. Pattern:
 #   EPHEMERAL=1 (PR): temp projectKey → analyze → export reports → delete project
@@ -31,6 +31,20 @@
 #   GENERATE_PDF      [0]
 #   PDF_CMD           [empty]  — e.g. 'python -m md_converter "$REPORT_DIR/sonar-report.md" -f pdf -o "$REPORT_DIR/sonar-report.pdf"'
 #   NODE_EXTRA_CA_CERTS
+#
+# Local quality floors (fail-closed; Sonar CE ephemeral often returns QG=OK with
+# empty conditions even when bugs/smells/coverage are bad):
+#   GATE_STRICT                    [1]  — 0 = only trust official Sonar QG (legacy, insecure on CE ephemeral)
+#   GATE_FAIL_ON_EMPTY_CONDITIONS  [1]  — apply floors when QG has no conditions
+#   GATE_MAX_BUGS                  [0]
+#   GATE_MAX_VULNERABILITIES       [0]
+#   GATE_MAX_SECURITY_HOTSPOTS     [0]
+#   GATE_MAX_CODE_SMELLS           [0]
+#   GATE_MIN_COVERAGE              [80] — percent; 0 disables
+#   GATE_MAX_DUPLICATED_LINES_DENSITY [3] — empty string disables
+#   GATE_MAX_RELIABILITY_RATING    [1]  — 1=A … 5=E
+#   GATE_MAX_SECURITY_RATING       [1]
+#   GATE_MAX_SQALE_RATING          [1]  — maintainability
 set -euo pipefail
 
 SONAR_HOST_URL="${SONAR_HOST_URL:-${SONAR_URL:-https://sonar.raspberrypi.lan}}"
@@ -254,26 +268,18 @@ def load(name: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"_parse_error": str(exc), "_raw": path.read_text(encoding="utf-8")[:2000]}
 
+def env_num(name: str, default: str):
+    """Return float threshold, or None if disabled (empty env)."""
+    raw = os.environ.get(name, default)
+    if raw is None:
+        return None
+    raw = str(raw).strip()
+    if raw == "":
+        return None
+    return float(raw)
+
 qg, meas, issues_payload = load("_qg.json"), load("_measures.json"), load("_issues.json")
 issues = issues_payload.get("issues") or []
-bundle = {
-    "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-    "project_key": os.environ.get("PROJECT_KEY"),
-    "project_name": os.environ.get("PROJECT_NAME"),
-    "ephemeral": os.environ.get("EPHEMERAL"),
-    "sonar_host": os.environ.get("SONAR_HOST_URL"),
-    "scanner_exit": int(os.environ.get("SCAN_RC") or 0),
-    "quality_gate": qg,
-    "measures": meas,
-    "issues_total": issues_payload.get("total", len(issues)),
-    "issues": issues,
-    "rules": issues_payload.get("rules") or [],
-    "components": issues_payload.get("components") or [],
-    "issues_fetch_error": issues_payload.get("error"),
-    "schema": "ai-standards/sonar-report@1",
-}
-json_path = report_dir / "sonar-report.json"
-json_path.write_text(json.dumps(bundle, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 measures = {
     m.get("metric"): m.get("value")
@@ -283,6 +289,114 @@ measures = {
 ps = qg.get("projectStatus") or {}
 qg_status = ps.get("status") or "UNKNOWN"
 conditions = ps.get("conditions") or []
+
+# ── Local floors (fail-closed on CE ephemeral: QG OK + empty conditions is common) ──
+gate_strict = os.environ.get("GATE_STRICT", "1").strip() != "0"
+fail_empty = os.environ.get("GATE_FAIL_ON_EMPTY_CONDITIONS", "1").strip() != "0"
+apply_floors = gate_strict and (fail_empty or bool(conditions) or qg_status in ("ERROR", "FAILED", "OK", "UNKNOWN"))
+# Always apply floors when GATE_STRICT=1 (org rule). GATE_FAIL_ON_EMPTY_CONDITIONS
+# kept for docs; strict mode never trusts empty-condition OK alone.
+if gate_strict:
+    apply_floors = True
+
+def mfloat(key: str):
+    v = measures.get(key)
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+failures = []
+floor_cfg = {}
+if apply_floors:
+    max_bugs = env_num("GATE_MAX_BUGS", "0")
+    max_vuln = env_num("GATE_MAX_VULNERABILITIES", "0")
+    max_hot = env_num("GATE_MAX_SECURITY_HOTSPOTS", "0")
+    max_smells = env_num("GATE_MAX_CODE_SMELLS", "0")
+    min_cov = env_num("GATE_MIN_COVERAGE", "80")
+    max_dup = env_num("GATE_MAX_DUPLICATED_LINES_DENSITY", "3")
+    max_rel = env_num("GATE_MAX_RELIABILITY_RATING", "1")
+    max_sec = env_num("GATE_MAX_SECURITY_RATING", "1")
+    max_sqale = env_num("GATE_MAX_SQALE_RATING", "1")
+    floor_cfg = {
+        "GATE_MAX_BUGS": max_bugs,
+        "GATE_MAX_VULNERABILITIES": max_vuln,
+        "GATE_MAX_SECURITY_HOTSPOTS": max_hot,
+        "GATE_MAX_CODE_SMELLS": max_smells,
+        "GATE_MIN_COVERAGE": min_cov,
+        "GATE_MAX_DUPLICATED_LINES_DENSITY": max_dup,
+        "GATE_MAX_RELIABILITY_RATING": max_rel,
+        "GATE_MAX_SECURITY_RATING": max_sec,
+        "GATE_MAX_SQALE_RATING": max_sqale,
+    }
+
+    def fail_max(metric: str, thr, label: str):
+        if thr is None:
+            return
+        actual = mfloat(metric)
+        if actual is None:
+            failures.append(f"{metric}: missing measure (fail-closed; {label}={thr:g})")
+            return
+        if actual > thr:
+            failures.append(f"{metric}: {actual:g} > {label}={thr:g}")
+
+    def fail_min(metric: str, thr, label: str):
+        if thr is None or thr == 0:
+            return
+        actual = mfloat(metric)
+        if actual is None:
+            failures.append(f"{metric}: missing measure (fail-closed; {label}={thr:g})")
+            return
+        if actual < thr:
+            failures.append(f"{metric}: {actual:g} < {label}={thr:g}")
+
+    fail_max("bugs", max_bugs, "GATE_MAX_BUGS")
+    fail_max("vulnerabilities", max_vuln, "GATE_MAX_VULNERABILITIES")
+    fail_max("security_hotspots", max_hot, "GATE_MAX_SECURITY_HOTSPOTS")
+    fail_max("code_smells", max_smells, "GATE_MAX_CODE_SMELLS")
+    fail_min("coverage", min_cov, "GATE_MIN_COVERAGE")
+    fail_max("duplicated_lines_density", max_dup, "GATE_MAX_DUPLICATED_LINES_DENSITY")
+    fail_max("reliability_rating", max_rel, "GATE_MAX_RELIABILITY_RATING")
+    fail_max("security_rating", max_sec, "GATE_MAX_SECURITY_RATING")
+    fail_max("sqale_rating", max_sqale, "GATE_MAX_SQALE_RATING")
+
+    if not conditions and fail_empty:
+        # Informational line when Sonar QG is a no-op (common on CE ephemeral).
+        floor_cfg["note_empty_qg_conditions"] = True
+
+gate_result = "FAIL" if failures else "PASS"
+local_gate = {
+    "strict": gate_strict,
+    "applied": apply_floors,
+    "result": gate_result,
+    "failures": failures,
+    "thresholds": floor_cfg,
+    "qg_status": qg_status,
+    "qg_conditions_count": len(conditions),
+}
+
+bundle = {
+    "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "project_key": os.environ.get("PROJECT_KEY"),
+    "project_name": os.environ.get("PROJECT_NAME"),
+    "ephemeral": os.environ.get("EPHEMERAL"),
+    "sonar_host": os.environ.get("SONAR_HOST_URL"),
+    "scanner_exit": int(os.environ.get("SCAN_RC") or 0),
+    "quality_gate": qg,
+    "local_gate": local_gate,
+    "measures": meas,
+    "issues_total": issues_payload.get("total", len(issues)),
+    "issues": issues,
+    "rules": issues_payload.get("rules") or [],
+    "components": issues_payload.get("components") or [],
+    "issues_fetch_error": issues_payload.get("error"),
+    "schema": "ai-standards/sonar-report@2",
+}
+json_path = report_dir / "sonar-report.json"
+json_path.write_text(json.dumps(bundle, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
 sev_count, type_count = {}, {}
 for issue in issues:
     sev, typ = issue.get("severity") or "?", issue.get("type") or "?"
@@ -300,9 +414,10 @@ lines = [
     f"- **Project name:** {bundle['project_name']}",
     f"- **Ephemeral:** {bundle['ephemeral']}",
     f"- **Scanner exit:** {bundle['scanner_exit']}",
-    f"- **Quality gate:** **{qg_status}**",
+    f"- **Quality gate (Sonar):** **{qg_status}**",
+    f"- **Local floors:** **{gate_result}**",
     f"- **Issues total:** {bundle['issues_total']}",
-    "", "## Quality gate conditions", "",
+    "", "## Quality gate conditions (Sonar API)", "",
 ]
 if conditions:
     lines += ["| Metric | Status | Actual | Threshold |", "|--------|--------|--------|-----------|"]
@@ -311,7 +426,19 @@ if conditions:
             f"| {c.get('metricKey')} | {c.get('status')} | {c.get('actualValue')} | {c.get('errorThreshold')} |"
         )
 else:
-    lines.append("_(no conditions returned)_")
+    lines.append("_(no conditions returned — common on CE ephemeral projects; local floors apply)_")
+
+lines += ["", "## Local quality floors", ""]
+if not apply_floors:
+    lines.append("_Local floors disabled (`GATE_STRICT=0`)._")
+elif not failures:
+    lines.append(f"**PASS** (thresholds: `{json.dumps(floor_cfg, ensure_ascii=False)}`)")
+else:
+    lines.append("**FAIL**")
+    lines.append("")
+    for f in failures:
+        lines.append(f"- {f}")
+
 lines += ["", "## Measures", ""]
 if measures:
     lines += ["| Metric | Value |", "|--------|-------|"]
@@ -356,12 +483,15 @@ txt = [
     "======== Sonar report (persisted) ========",
     f"projectKey: {bundle['project_key']}",
     f"quality_gate: {qg_status}",
+    f"local_floors: {gate_result}",
     f"issues_total: {bundle['issues_total']}",
     f"scanner_exit: {bundle['scanner_exit']}",
     f"json: {json_path}",
     f"markdown: {md_path}",
     "",
 ]
+for f in failures:
+    txt.append(f"FLOOR_FAIL: {f}")
 for issue in issues[:200]:
     txt.append(
         f"[{issue.get('severity')}] {issue.get('type')} "
@@ -372,11 +502,21 @@ if len(issues) > 200:
 txt.append("========================================")
 report_file.write_text("\n".join(txt) + "\n", encoding="utf-8")
 (report_dir / ".qg_status").write_text(qg_status + "\n", encoding="utf-8")
+(report_dir / ".gate_result").write_text(gate_result + "\n", encoding="utf-8")
+(report_dir / ".gate_failures").write_text(
+    ("\n".join(failures) + "\n") if failures else "",
+    encoding="utf-8",
+)
 print(f"→ wrote {json_path}")
 print(f"→ wrote {md_path}")
 print(f"→ wrote {report_file}")
 print(f"quality_gate_status={qg_status}")
+print(f"local_gate_result={gate_result}")
 print(f"issues_total={bundle['issues_total']}")
+if failures:
+    print("✘ Local quality floors failed:")
+    for f in failures:
+        print(f"  - {f}")
 PY
 
 if [ "$GENERATE_PDF" = "1" ] && [ -f "$REPORT_DIR/sonar-report.md" ]; then
@@ -406,14 +546,29 @@ if [ -f "$REPORT_DIR/sonar-report.md" ]; then
 fi
 
 QG_STATUS="$(cat "$REPORT_DIR/.qg_status" 2>/dev/null || echo UNKNOWN)"
+GATE_RESULT="$(cat "$REPORT_DIR/.gate_result" 2>/dev/null || echo PASS)"
 echo "quality_gate_status=$QG_STATUS"
+echo "local_gate_result=$GATE_RESULT"
+
+FAIL=0
 if [ "$QG_STATUS" = "ERROR" ] || [ "$QG_STATUS" = "FAILED" ]; then
-  echo "✘ Quality gate FAILED (reports kept under $REPORT_DIR before project delete)"
+  echo "✘ Sonar quality gate FAILED (status=$QG_STATUS)"
+  FAIL=1
+fi
+if [ "${SCAN_RC}" -ne 0 ]; then
+  echo "✘ Scanner exit code ${SCAN_RC} (reports kept under $REPORT_DIR)"
+  FAIL=1
+fi
+if [ "$GATE_RESULT" = "FAIL" ]; then
+  echo "✘ Local quality floors FAILED (bugs/vulns/smells/coverage/ratings — see report)"
+  if [ -s "$REPORT_DIR/.gate_failures" ]; then
+    sed 's/^/  - /' "$REPORT_DIR/.gate_failures"
+  fi
+  FAIL=1
+fi
+if [ "$FAIL" -ne 0 ]; then
+  echo "✘ Gate blocked — reports persisted under $REPORT_DIR before project delete"
   exit 1
 fi
-if [ "${SCAN_RC}" -ne 0 ] && [ "$QG_STATUS" = "UNKNOWN" ]; then
-  echo "✘ Scanner failed and QG unknown"
-  exit 1
-fi
-echo "✓ Quality gate acceptable ($QG_STATUS); reports persisted under $REPORT_DIR"
+echo "✓ Quality gates passed (Sonar=$QG_STATUS, floors=$GATE_RESULT); reports under $REPORT_DIR"
 exit 0
