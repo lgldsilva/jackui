@@ -40,6 +40,8 @@
 #   GATE_MAX_VULNERABILITIES       [0]
 #   GATE_MAX_SECURITY_HOTSPOTS     [0]
 #   GATE_MAX_CODE_SMELLS           [0]
+#   GATE_MAX_OPEN_ISSUES           [0]  — bugs+vulns+smells+hotspots (measures preferred;
+#                                         issues/search only when measures missing — avoids CE ghosts)
 #   GATE_MIN_COVERAGE              [80] — percent; 0 disables
 #   GATE_MAX_DUPLICATED_LINES_DENSITY [3] — empty string disables
 #   GATE_MAX_RELIABILITY_RATING    [1]  — 1=A … 5=E
@@ -47,6 +49,7 @@
 #   GATE_MAX_SQALE_RATING          [1]  — maintainability
 #   GATE_DIFF_BASE_REF             [empty] — git ref for PR diff (e.g. base SHA); enables diff gate
 #   GATE_MAX_ISSUES_IN_DIFF        [empty] — max Sonar issues in changed files (0 = new_violations)
+#                                            jackui local overlay (not yet a sonar-ce workflow input)
 set -euo pipefail
 
 SONAR_HOST_URL="${SONAR_HOST_URL:-${SONAR_URL:-https://sonar.raspberrypi.lan}}"
@@ -70,7 +73,25 @@ PDF_CMD="${PDF_CMD:-}"
 # When 1, only pass host/token/projectKey/name; rely on sonar-project.properties
 # for sources/tests/exclusions (CLI -D would override those keys).
 USE_PROJECT_PROPERTIES="${USE_PROJECT_PROPERTIES:-0}"
-NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-/usr/local/share/ca-certificates/gitea-ca.crt}"
+# Homelab: prefer baked CA; never export a missing path (Node fails TLS harder).
+# Keep variable always set under `set -u` (empty = no CA file).
+_default_ca=/usr/local/share/ca-certificates/gitea-ca.crt
+NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}"
+if [ -n "$NODE_EXTRA_CA_CERTS" ] && [ ! -f "$NODE_EXTRA_CA_CERTS" ]; then
+  echo "→ NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS missing — clearing"
+  NODE_EXTRA_CA_CERTS=""
+fi
+if [ -z "$NODE_EXTRA_CA_CERTS" ] && [ -f "$_default_ca" ]; then
+  NODE_EXTRA_CA_CERTS="$_default_ca"
+fi
+if [ -n "$NODE_EXTRA_CA_CERTS" ]; then
+  export NODE_EXTRA_CA_CERTS
+else
+  unset NODE_EXTRA_CA_CERTS 2>/dev/null || true
+  # Generic runner image without homelab CA (docker.gitea.com/runner-images:ubuntu-latest).
+  export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
+  echo "→ no Node CA bundle; NODE_TLS_REJECT_UNAUTHORIZED=${NODE_TLS_REJECT_UNAUTHORIZED} (homelab Sonar TLS)"
+fi
 if [ -z "$SONAR_TOKEN" ]; then
   echo "✘ SONAR_TOKEN not set"
   exit 1
@@ -82,6 +103,51 @@ fi
 
 mkdir -p "$REPORT_DIR"
 export SONAR_HOST_URL SONAR_TOKEN PROJECT_KEY PROJECT_NAME EPHEMERAL REPORT_DIR REPORT_FILE
+
+# Java SonarScanner engine does NOT honor NODE_TLS_REJECT_UNAUTHORIZED.
+# On generic runners, build a temporary trustStore from the server/homelab CA.
+_setup_java_truststore_for_sonar() {
+  local host port cert ts pass
+  host=$(printf '%s' "$SONAR_HOST_URL" | sed -E 's#https?://##; s#/.*##; s#:.*##')
+  port=$(printf '%s' "$SONAR_HOST_URL" | sed -E 's#https?://##; s#/.*##' | awk -F: '{print ($2==""?443:$2)}')
+  cert="$REPORT_DIR/.sonar-server.pem"
+  ts="$REPORT_DIR/.sonar-truststore.jks"
+  pass=changeit
+
+  if [ -n "${NODE_EXTRA_CA_CERTS:-}" ] && [ -f "${NODE_EXTRA_CA_CERTS}" ]; then
+    cp "${NODE_EXTRA_CA_CERTS}" "$cert" 2>/dev/null || true
+  fi
+  if [ ! -s "$cert" ] && command -v openssl >/dev/null 2>&1; then
+    echo "→ fetching Sonar TLS cert via openssl (${host}:${port})"
+    # -servername for SNI; ignore verify so self-signed works.
+    echo | openssl s_client -connect "${host}:${port}" -servername "$host" 2>/dev/null \
+      | openssl x509 >"$cert" 2>/dev/null || true
+  fi
+  if [ ! -s "$cert" ]; then
+    echo "→ WARN: no PEM for Java trustStore; Scanner SSL may fail on self-signed hosts"
+    return 0
+  fi
+  if ! command -v keytool >/dev/null 2>&1; then
+    echo "→ installing keytool (openjdk jre) for Java trustStore"
+    if command -v sudo >/dev/null 2>&1; then
+      sudo apt-get update -qq >/dev/null 2>&1 || true
+      sudo apt-get install -y -qq openjdk-21-jre-headless >/dev/null 2>&1 \
+        || sudo apt-get install -y -qq default-jre-headless >/dev/null 2>&1 || true
+    fi
+  fi
+  if ! command -v keytool >/dev/null 2>&1; then
+    echo "→ WARN: keytool unavailable; cannot build Java trustStore"
+    return 0
+  fi
+  rm -f "$ts"
+  keytool -importcert -noprompt -alias sonar-homelab -file "$cert" \
+    -keystore "$ts" -storepass "$pass" >/dev/null
+  export SONAR_SCANNER_OPTS="${SONAR_SCANNER_OPTS:-} -Djavax.net.ssl.trustStore=${ts} -Djavax.net.ssl.trustStorePassword=${pass}"
+  # Propagate to the JRE the bootstrapper downloads/launches.
+  export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djavax.net.ssl.trustStore=${ts} -Djavax.net.ssl.trustStorePassword=${pass}"
+  echo "→ Java trustStore ready for Sonar: $ts"
+}
+_setup_java_truststore_for_sonar
 
 api() {
   local method="$1" path="$2"
@@ -119,10 +185,6 @@ if [ -n "$COVERAGE_FILE" ]; then
       *)                  COVERAGE_PROPERTY="sonar.coverageReportPaths=${COVERAGE_FILE}" ;;
     esac
   fi
-fi
-
-if [ -f "$NODE_EXTRA_CA_CERTS" ]; then
-  export NODE_EXTRA_CA_CERTS
 fi
 
 echo "→ SonarScanner projectKey=$PROJECT_KEY ephemeral=$EPHEMERAL url=$SONAR_HOST_URL"
@@ -215,7 +277,13 @@ total, error, data = 0, None, {}
 
 while True:
     q = urllib.parse.urlencode({
-        "componentKeys": key, "ps": ps, "p": page, "additionalFields": "_all",
+        "componentKeys": key,
+        "ps": ps,
+        "p": page,
+        "additionalFields": "_all",
+        # Exclude RESOLVED/CLOSED ghosts that can linger on permanent CE projects.
+        "statuses": "OPEN,CONFIRMED,REOPENED",
+        "types": "BUG,VULNERABILITY,CODE_SMELL",
     })
     req = urllib.request.Request(
         f"{host}/api/issues/search?{q}",
@@ -317,6 +385,7 @@ if apply_floors:
     max_vuln = env_num("GATE_MAX_VULNERABILITIES", "0")
     max_hot = env_num("GATE_MAX_SECURITY_HOTSPOTS", "0")
     max_smells = env_num("GATE_MAX_CODE_SMELLS", "0")
+    max_open = env_num("GATE_MAX_OPEN_ISSUES", "0")
     min_cov = env_num("GATE_MIN_COVERAGE", "80")
     max_dup = env_num("GATE_MAX_DUPLICATED_LINES_DENSITY", "3")
     max_rel = env_num("GATE_MAX_RELIABILITY_RATING", "1")
@@ -327,6 +396,7 @@ if apply_floors:
         "GATE_MAX_VULNERABILITIES": max_vuln,
         "GATE_MAX_SECURITY_HOTSPOTS": max_hot,
         "GATE_MAX_CODE_SMELLS": max_smells,
+        "GATE_MAX_OPEN_ISSUES": max_open,
         "GATE_MIN_COVERAGE": min_cov,
         "GATE_MAX_DUPLICATED_LINES_DENSITY": max_dup,
         "GATE_MAX_RELIABILITY_RATING": max_rel,
@@ -364,11 +434,38 @@ if apply_floors:
     fail_max("security_rating", max_sec, "GATE_MAX_SECURITY_RATING")
     fail_max("sqale_rating", max_sqale, "GATE_MAX_SQALE_RATING")
 
+    # Any open apontamento breaks the build. Prefer measures (bugs+vulns+smells+
+    # hotspots) — they match the post-analysis truth. issues/search on permanent
+    # CE projects can still list line-less ghosts after a refactor (md-converter
+    # main: code_smells=0 but issues_total=1 on pdf_converter.py:-).
+    if max_open is not None:
+        measure_parts = [
+            mfloat("bugs"),
+            mfloat("vulnerabilities"),
+            mfloat("code_smells"),
+            mfloat("security_hotspots"),
+        ]
+        if all(v is not None for v in measure_parts):
+            open_total = sum(measure_parts)
+            open_src = "measures"
+        else:
+            try:
+                open_total = int(issues_payload.get("total", len(issues)) or 0)
+            except (TypeError, ValueError):
+                open_total = len(issues)
+            open_src = "issues_search"
+        floor_cfg["GATE_MAX_OPEN_ISSUES_source"] = open_src
+        if open_total > max_open:
+            failures.append(
+                f"open_issues({open_src}): {open_total:g} > GATE_MAX_OPEN_ISSUES={max_open:g}"
+            )
+
     if not conditions and fail_empty:
         # Informational line when Sonar QG is a no-op (common on CE ephemeral).
         floor_cfg["note_empty_qg_conditions"] = True
 
 # PR diff gate — mirrors Sonar "new_violations = 0" when CE ephemeral QG is empty.
+# Local overlay for jackui (GATE_DIFF_* not exposed by sonar-ce reusable yet).
 issues_in_diff: list = []
 diff_base = (os.environ.get("GATE_DIFF_BASE_REF") or "").strip()
 max_issues_in_diff = env_num("GATE_MAX_ISSUES_IN_DIFF", "")
