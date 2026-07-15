@@ -37,7 +37,7 @@ func TestComputeOSHash_Valid(t *testing.T) {
 		t.Fatalf("stat: %v", err)
 	}
 
-	hashRes, hashErr, query := computeOSHash(f, st, f.Name())
+	hashRes, query, hashErr := computeOSHash(f, st, f.Name())
 	if hashErr != nil {
 		t.Fatalf("computeOSHash: %v", hashErr)
 	}
@@ -58,7 +58,7 @@ func TestComputeOSHash_SmallFile(t *testing.T) {
 	f.Write([]byte("tiny"))
 	st, _ := f.Stat()
 
-	_, hashErr, query := computeOSHash(f, st, f.Name())
+	_, query, hashErr := computeOSHash(f, st, f.Name())
 	if hashErr == nil {
 		t.Error("expected error for small file")
 	}
