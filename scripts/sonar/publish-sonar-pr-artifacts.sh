@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # publish-sonar-pr-artifacts.sh — comment + downloadable PR attachments for Sonar reports.
 #
-# Source of truth: ai-standards (scripts/sonar/).
+# Source of truth: gitea-workflows@v1.0.8 (scripts/sonar/).
 #
 # Publishes sonar-out/* to the open PR via Gitea API:
 #   1) markdown summary comment

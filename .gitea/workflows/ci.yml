@@ -136,49 +136,28 @@ jobs:
       - run: npm test          # vitest run
       - run: npm run build
 
-  # Gates de segurança (espelham o semidx): secret scan, CVEs em deps/stdlib e SAST.
-  # Steps `go run` portáveis; gosec pinado porque @latest exige Go >= 1.26.
-  gitleaks:
-    runs-on: [self-hosted, arm64]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go run github.com/zricethezav/gitleaks/v8@latest detect --source . --no-banner --redact --exit-code 1
+  # Gates de segurança via gitea-workflows@v1.0.8 (reusable).
+  # runner input is a single string label — multi-label [self-hosted, arm64] is not
+  # supported via workflow_call string; "self-hosted" matches the arm64 pool.
+  # gosec pin v2.27.1 + gitleaks v8.24.3 live in the library defaults.
+  # SAST remains blocking (#480): triaged #nosec require `-- motivo`; no gosec_exclude.
+  secrets-scan:
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/secrets-scan.yml@v1.0.8
+    with:
+      runner: self-hosted
 
-  govulncheck:
-    runs-on: [self-hosted, arm64]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  security:
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/go-security.yml@v1.0.8
+    with:
+      runner: self-hosted
+    secrets: inherit
 
-  # SAST — BLOQUEANTE (#480). Os 116 findings da 1ª rodada foram triados: fixes
-  # reais (G112 ReadHeaderTimeout, G115 overflow de header de zip em archive.go) e
-  # `#nosec RULE -- motivo` nos aceitos (G304 paths validados por ResolvePath/hash,
-  # G204 exec sem shell com args controlados, G301/G302/G306 perms de mídia
-  # intencionais, G401/G505 hash não-cripto, G104 cleanup best-effort, G101/G706
-  # falsos-positivos). gosec agora reporta 0 findings; sem `|| true` e DENTRO de
-  # `approve.needs` — um finding novo (Nosec não justificado) reprova o PR, igual
-  # ao semidx. Novos #nosec exigem `-- motivo` (triagem explícita).
-  gosec:
-    runs-on: [self-hosted, arm64]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./...
-
-
-  # Sonar CE: ephemeral project on PR + export artifacts (ai-standards scripts/sonar).
-  # Reuses coverage.out from backend (no second full go test; needs ffmpeg only there).
-  # Main permanent analysis remains in release.yml (post-merge gate before deploy).
+  # Sonar CE: LOCAL (not sonar-ce reusable yet).
+  # Why local: needs backend coverage artifact (Postgres+ffmpeg; no regenerate),
+  # GATE_DIFF_BASE_REF / GATE_MAX_ISSUES_IN_DIFF floors (library has no GATE_DIFF_*
+  # inputs), and multi-label self-hosted arm64. Scripts synced from
+  # gitea-workflows@v1.0.8 (+ local GATE_DIFF overlay). Main permanent analysis
+  # remains in release.yml.
   sonar:
     name: sonarqube quality gate (PR)
     runs-on: [self-hosted, arm64]
@@ -232,7 +211,8 @@ jobs:
           export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
           export SCANNER=npx
           # CE ephemeral QG is often OK with empty conditions; jackui gate = new_violations=0
-          # + new_coverage≥80 (not zero total debt on the whole repo).
+          # + new_coverage≥80 (not zero total debt on the whole repo). Absolute floors
+          # (incl. GATE_MAX_OPEN_ISSUES from library scripts) stay empty/disabled.
           export GATE_DIFF_BASE_REF="${PR_BASE_SHA}"
           export GATE_MAX_ISSUES_IN_DIFF=0
           export GATE_MIN_COVERAGE=80
@@ -240,6 +220,7 @@ jobs:
           export GATE_MAX_VULNERABILITIES=
           export GATE_MAX_SECURITY_HOTSPOTS=
           export GATE_MAX_CODE_SMELLS=
+          export GATE_MAX_OPEN_ISSUES=
           export GATE_MAX_RELIABILITY_RATING=
           export GATE_MAX_SECURITY_RATING=
           export GATE_MAX_SQALE_RATING=
@@ -280,7 +261,7 @@ jobs:
           retention-days: 30
 
   approve:
-    needs: [backend, frontend, gitleaks, govulncheck, gosec, sonar]
+    needs: [backend, frontend, secrets-scan, security, sonar]
     runs-on: [self-hosted, arm64]
     # Executa a aprovação se os testes passarem e for de fato um PR
     if: github.event_name == 'pull_request'

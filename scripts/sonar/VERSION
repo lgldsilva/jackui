@@ -1,5 +1,6 @@
-source=ai-standards
+source=gitea-workflows@v1.0.8
 path=scripts/sonar
-commit=1ea3bf2
-installed_at=2026-07-15T18:42:44Z
-# Re-sync: ~/.config/ai-standards/scripts/sonar/install-into-repo.sh /storage/Projetos/jackui
+migrated_from=ai-standards@2eb9419
+installed_at=2026-07-15T23:04:47Z
+# Local overlay: GATE_DIFF_BASE_REF / GATE_MAX_ISSUES_IN_DIFF kept for jackui PR floors
+# (library sonar-ce does not expose GATE_DIFF_* workflow inputs yet).
