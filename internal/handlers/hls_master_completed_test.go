@@ -45,7 +45,7 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := st.SetFilePath(1, d.ID, media); err != nil {
+	if err := st.SetFilePath(0, d.ID, media); err != nil {
 		t.Fatalf("SetFilePath: %v", err)
 	}
 	if _, err := st.SetStatusForUser(0, downloads.StatusCompleted); err != nil {
