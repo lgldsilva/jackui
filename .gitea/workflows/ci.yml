@@ -213,6 +213,7 @@ jobs:
           NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
           SONAR_HOSTS_ENTRY: ${{ vars.SONAR_HOSTS }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SHORT_SHA: ${{ github.sha }}
         run: |
           set -eu
@@ -230,10 +231,23 @@ jobs:
           export REPORT_DIR="$PWD/sonar-out"
           export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
           export SCANNER=npx
+          # CE ephemeral QG is often OK with empty conditions; jackui gate = new_violations=0
+          # + new_coverage≥80 (not zero total debt on the whole repo).
+          export GATE_DIFF_BASE_REF="${PR_BASE_SHA}"
+          export GATE_MAX_ISSUES_IN_DIFF=0
+          export GATE_MIN_COVERAGE=80
+          export GATE_MAX_BUGS=
+          export GATE_MAX_VULNERABILITIES=
+          export GATE_MAX_SECURITY_HOTSPOTS=
+          export GATE_MAX_CODE_SMELLS=
+          export GATE_MAX_RELIABILITY_RATING=
+          export GATE_MAX_SECURITY_RATING=
+          export GATE_MAX_SQALE_RATING=
+          export GATE_MAX_DUPLICATED_LINES_DENSITY=
           ./scripts/sonar/sonar-ephemeral.sh
           ls -la "$REPORT_DIR" || true
       - name: Publish Sonar report artifacts on PR
-        if: ${{ env.SONAR_TOKEN != '' }}
+        if: ${{ always() && env.SONAR_TOKEN != '' }}
         continue-on-error: true
         env:
           GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
