@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
@@ -43,6 +44,9 @@ func LocalPromote(d LocalPromoteDeps) gin.HandlerFunc {
 		if !ok {
 			return
 		}
+		if abortIfPromotePathsHidden(c, d.Streamer, req) {
+			return
+		}
 		targetDir, err := localPromoteTargetDir(base, req.TargetSubdir)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -62,7 +66,8 @@ func LocalPromote(d LocalPromoteDeps) gin.HandlerFunc {
 		}
 		// One Transfers job for the whole batch (X/Y files across all items) — the
 		// dock shows live progress while this (possibly large/cross-fs) move runs.
-		deps.job = startPromoteJob(d.Tracker, d.Browser, req, paths, username)
+		userID, _, _ := auth.UserIDFromCtx(c)
+		deps.job = startPromoteJob(d.Tracker, d.Browser, req, paths, userID)
 		moved, errs, results := execPromoteMoves(d.Browser, deps, req.Mount, paths, orig, targetDir)
 		deps.job.Done()
 		// `errors` keeps the legacy {path,error} list (single-item callers);
@@ -131,7 +136,7 @@ func execPromoteMoves(b *lb.Browser, deps *promoteDstDeps, mount string, paths, 
 // startPromoteJob opens a single Transfers job covering every path in the batch
 // (X/Y files + summed bytes), so the dock shows aggregate progress. nil tracker
 // → nil job (all reporting becomes a no-op).
-func startPromoteJob(tr *transfer.Tracker, b *lb.Browser, req *localPromoteReq, paths []string, username string) *transfer.Job {
+func startPromoteJob(tr *transfer.Tracker, b *lb.Browser, req *localPromoteReq, paths []string, userID int) *transfer.Job {
 	files, total := 0, int64(0)
 	for _, rel := range paths {
 		if abs, err := b.ResolvePath(req.Mount, rel); err == nil {
@@ -141,7 +146,7 @@ func startPromoteJob(tr *transfer.Tracker, b *lb.Browser, req *localPromoteReq, 
 		}
 	}
 	label := promoteJobLabel(req, paths)
-	return tr.Start(label, "promote", files, total)
+	return tr.StartFor(userID, label, "promote", files, total)
 }
 
 // promoteJobLabel names the dock entry: the single file's name, or "N itens".
@@ -272,7 +277,7 @@ func localContextFor(base, mount, currentPath string) *renamer.LocalContext {
 // renamer/AI so a huge library never blows up the prompt or the work.
 const maxPromoteContextFolders = 40
 
-func LocalPromotePreview(b *lb.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
+func LocalPromotePreview(b *lb.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
@@ -282,11 +287,31 @@ func LocalPromotePreview(b *lb.Browser, aiClient *ai.Client, tmdbClient *tmdb.Cl
 		if !ok {
 			return
 		}
+		if abortIfPromotePathsHidden(c, s, req) {
+			return
+		}
 		orig := originalLocalPaths(req)
 		paths := resolveLocalPaths(b, req, scopeUser(c))
 		previews := buildLocalPreviews(&localPreviewDeps{c: c, b: b, aiClient: aiClient, tmdbClient: tmdbClient, mount: req.Mount, base: base}, paths, orig)
 		c.JSON(http.StatusOK, gin.H{"previews": previews})
 	}
+}
+
+// abortIfPromotePathsHidden refuses promote/preview when any source path is
+// behind the closed curtain (single Path and multi Paths).
+func abortIfPromotePathsHidden(c *gin.Context, s *streamer.Streamer, req *localPromoteReq) bool {
+	if req == nil {
+		return false
+	}
+	if AbortIfLocalPathHidden(c, s, req.Mount, req.Path) {
+		return true
+	}
+	for _, p := range req.Paths {
+		if AbortIfLocalPathHidden(c, s, req.Mount, p) {
+			return true
+		}
+	}
+	return false
 }
 
 type localPreviewDeps struct {

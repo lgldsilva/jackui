@@ -29,6 +29,7 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, includeAll))
+		list = dropHiddenLocalLibrary(c, s, list, userID)
 		c.JSON(http.StatusOK, list)
 	}
 }

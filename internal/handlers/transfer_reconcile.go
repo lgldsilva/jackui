@@ -81,7 +81,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 	o := &promoteOpts{store: store, s: s, userID: pl.UserID, keepSeeding: pl.KeepSeeding, tracker: tr, pending: pending}
 	p := &promotePlan{d: d, src: pt.Src, dst: pt.Dst, srcInfo: info, files: files, bytes: bytes}
 	label := safeBaseName(pt.Src, d.Name)
-	tr.Submit(label, "promote", files, bytes, func(job *transfer.Job) {
+	tr.SubmitFor(pl.UserID, label, "promote", files, bytes, func(job *transfer.Job) {
 		if err := runPromotePlan(o, p, job); err != nil {
 			job.Fail(err)
 			log.Printf("transfer reconcile: resume promote #%d failed: %v", pl.DownloadID, err)

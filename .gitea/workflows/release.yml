@@ -40,7 +40,18 @@ jobs:
           go-version: '1.26'
           cache: true
           cache-dependency-path: go.sum
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: ffmpeg (testes de transcode/streamer)
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then ffmpeg -version | head -1; exit 0; fi
+          for i in 1 2 3 4 5; do
+            echo "apt install ffmpeg attempt $i…"
+            if sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg; then
+              ffmpeg -version | head -1; exit 0
+            fi
+            sleep $((i * 5))
+          done
+          echo "ERRO: não foi possível instalar ffmpeg após retries"; exit 1
       - run: 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
       - run: go vet ./internal/...
       # Reforço contra "connection refused": exige o PG ESTÁVEL antes dos testes.

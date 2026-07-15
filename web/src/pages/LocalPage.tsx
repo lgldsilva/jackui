@@ -32,6 +32,7 @@ import { detectViewerKind } from '../components/viewer/viewerKind'
 import { previewRawURL } from '../api/preview'
 import { matchesEntryStatus, type LocalStatusFilter } from '../lib/localFilter'
 import { errMessage } from '../lib/errMessage'
+import { isHttpStatus, parentLocalPath } from '../lib/localBrowse'
 import { type SortKey, type KindFilter } from '../components/local/localViewTypes'
 import { LocalSidebar } from '../components/local/LocalSidebar'
 import { MountSheet } from '../components/local/MountSheet'
@@ -156,14 +157,20 @@ export default function LocalPage() {
       })
       .catch((e: unknown) => {
         if (seq !== reqSeq.current) return
-        const msg = errMessage(e)
-        setError(msg)
         setEntries([])
+        // Hidden curtain / missing path: deep-link into a blocked folder returns
+        // the same 404 as a deleted one. Climb to the parent (or mount root)
+        // without saying "hidden" — that would confirm the folder exists.
+        if (path && isHttpStatus(e, 404)) {
+          updateNavigation(activeMount, parentLocalPath(path), true)
+          return
+        }
+        setError(errMessage(e))
       })
       .finally(() => {
         if (seq === reqSeq.current) setLoading(false)
       })
-  }, [activeMount, path, viewAsUser])
+  }, [activeMount, path, viewAsUser, updateNavigation])
 
   const { requestDelete, requestCleanEmptyDirs, handleToggleLock, requestCacheFolder } =
     useLocalOps(activeMount, path, refresh, setError, setNotice)

@@ -42,7 +42,7 @@ func TestFindDuplicates_GroupsByContentNotName(t *testing.T) {
 	// the size pre-filter against false positives).
 	writeFile(t, filepath.Join(dir, "collide.mkv"), []byte(strings.Repeat("x", len(same))))
 
-	groups, err := findDuplicates(context.Background(), b, "Test", "")
+	groups, err := findDuplicates(context.Background(), b, "Test", "", nil)
 	if err != nil {
 		t.Fatalf("findDuplicates: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestFindDuplicates_LargeFilesSampledHeadTail(t *testing.T) {
 	diff[0] ^= 0xFF // differ in the sampled head
 	writeFile(t, filepath.Join(dir, "big-diff.bin"), diff)
 
-	groups, err := findDuplicates(context.Background(), b, "Test", "")
+	groups, err := findDuplicates(context.Background(), b, "Test", "", nil)
 	if err != nil {
 		t.Fatalf("findDuplicates: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestFindDuplicates_NoDuplicates(t *testing.T) {
 	b, dir := dedupBrowser(t)
 	writeFile(t, filepath.Join(dir, "a.mkv"), []byte("aaaa"))
 	writeFile(t, filepath.Join(dir, "b.mkv"), []byte("bbbbbb"))
-	groups, err := findDuplicates(context.Background(), b, "Test", "")
+	groups, err := findDuplicates(context.Background(), b, "Test", "", nil)
 	if err != nil {
 		t.Fatalf("findDuplicates: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestLocalDuplicates_Endpoint(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "two.mkv"), same)
 
 	r := gin.New()
-	r.GET("/d", LocalDuplicates(b))
+	r.GET("/d", LocalDuplicates(b, nil))
 	req := httptest.NewRequest("GET", "/d?mount=Test&path=", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -141,7 +141,7 @@ func TestLocalDuplicates_MissingMount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b, _ := dedupBrowser(t)
 	r := gin.New()
-	r.GET("/d", LocalDuplicates(b))
+	r.GET("/d", LocalDuplicates(b, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/d", nil))
 	if w.Code != http.StatusBadRequest {

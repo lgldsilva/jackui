@@ -36,7 +36,7 @@ func TestLocalCacheFolder_EnqueuesPlayableRecursive(t *testing.T) {
 	forceRemoteFS(t, true)
 
 	r := gin.New()
-	r.POST("/cf", LocalCacheFolder(b, cache))
+	r.POST("/cf", LocalCacheFolder(b, cache, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/cf?mount=Test&path=", nil))
 	if w.Code != http.StatusAccepted {
@@ -82,7 +82,7 @@ func TestLocalCacheFolder_LocalDiskNoop(t *testing.T) {
 	forceRemoteFS(t, false)
 
 	r := gin.New()
-	r.POST("/cf", LocalCacheFolder(b, cache))
+	r.POST("/cf", LocalCacheFolder(b, cache, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/cf?mount=Test&path=", nil))
 	if w.Code != http.StatusOK {
@@ -102,7 +102,7 @@ func TestLocalCacheFolder_MissingMount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b, _ := cacheBrowser(t)
 	r := gin.New()
-	r.POST("/cf", LocalCacheFolder(b, nil))
+	r.POST("/cf", LocalCacheFolder(b, nil, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/cf?path=x", nil))
 	if w.Code != http.StatusBadRequest {
@@ -114,7 +114,7 @@ func TestLocalCacheFolder_NilCacheUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b, _ := cacheBrowser(t)
 	r := gin.New()
-	r.POST("/cf", LocalCacheFolder(b, nil))
+	r.POST("/cf", LocalCacheFolder(b, nil, nil))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/cf?mount=Test&path=", nil))
 	if w.Code != http.StatusServiceUnavailable {

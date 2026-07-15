@@ -50,6 +50,25 @@ func dropHiddenLocalEntries(entries []lb.Entry, hidden map[string]bool) []lb.Ent
 	return out
 }
 
+// filterHiddenLocalTree drops walk/duplicates/cache results that sit under a
+// hidden folder (ancestor walk). Shallow list uses exact-match dropHiddenLocalEntries
+// (siblings only); recursive APIs must use this so a closed curtain cannot leak
+// paths under a hidden subfolder of an allowed parent.
+func filterHiddenLocalTree(c *gin.Context, s *streamer.Streamer, mount string, entries []lb.Entry) []lb.Entry {
+	userID, _, _ := auth.UserIDFromCtx(c)
+	set := hiddenLocalSet(c, s, userID, mount)
+	if len(set) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if !localPathHidden(e.Path, set) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // localPathHidden reports whether `path` — or any ancestor folder of it — is in
 // the user's hidden set. The ancestor walk means a file deep-linked inside a
 // hidden folder is treated as hidden too, not just an exactly-hidden entry.
@@ -71,26 +90,40 @@ func localPathHidden(path string, hidden map[string]bool) bool {
 	return false
 }
 
+// IsLocalPathHidden reports whether (mount, path) sits behind the user's hidden
+// curtain for this request (reveal open ⇒ always false). Empty mount/path is
+// never hidden — callers that require those params still return their own 400.
+func IsLocalPathHidden(c *gin.Context, s *streamer.Streamer, mount, path string) bool {
+	if mount == "" || path == "" {
+		return false
+	}
+	userID, _, _ := auth.UserIDFromCtx(c)
+	return localPathHidden(path, hiddenLocalSet(c, s, userID, mount))
+}
+
+// AbortIfLocalPathHidden writes 404 and returns true when the path is hidden
+// under a closed curtain. Handlers with JSON bodies (no query mount/path) call
+// this after binding. Prefer LocalHiddenGate middleware for query-based routes.
+func AbortIfLocalPathHidden(c *gin.Context, s *streamer.Streamer, mount, path string) bool {
+	if !IsLocalPathHidden(c, s, mount, path) {
+		return false
+	}
+	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+	return true
+}
+
 // LocalHiddenGate refuses to resolve a local (mount,path) the user has hidden
-// while the reveal curtain (easter egg) is closed — closing the deep-link bypass
-// where ?play=local-… would reveal hidden local media regardless of the curtain.
-// It mirrors dropHiddenLocalEntries (the same set that hides the entry from
-// listings) and also blocks files inside a hidden folder. Applied to /local/play,
-// the player's direct-vs-HLS resolution step (called via axios, so the curtain
-// header/?revealHidden is present): blocked → the player never gets a playable
-// URL. Curtain open ⇒ hiddenLocalSet is empty ⇒ this is a no-op. Returns 404 (not
-// 403) so a hidden file is indistinguishable from a missing one.
+// while the reveal curtain is closed. Covers deep-link browse (?path= into a
+// hidden folder), media URLs (/file, /hls, /thumb, …), and any other query-based
+// local route. Path empty (e.g. list of mount root) passes through — only the
+// current path is gated; child filtering stays in LocalList via
+// dropHiddenLocalEntries. Returns 404 (not 403) so a hidden path is
+// indistinguishable from a missing one. Curtain open ⇒ no-op.
 func LocalHiddenGate(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
-		if mount == "" || path == "" {
-			c.Next() // nothing to gate; let the handler return its own 400
-			return
-		}
-		userID, _, _ := auth.UserIDFromCtx(c)
-		if localPathHidden(path, hiddenLocalSet(c, s, userID, mount)) {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+		if AbortIfLocalPathHidden(c, s, mount, path) {
 			return
 		}
 		c.Next()
