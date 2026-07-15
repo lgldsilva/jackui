@@ -277,7 +277,7 @@ func LocalSubtitlesAuto(b *lb.Browser, subClient *subtitles.Client) gin.HandlerF
 		}
 		defer f.Close()
 		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
-		hashRes, hashErr, query := computeOSHash(f, st, abs)
+		hashRes, query, hashErr := computeOSHash(f, st, abs)
 		opts := buildSearchOpts(query, langs, hashRes, hashErr)
 		// query is extension-stripped (for the search); the response's "file"
 		// field should carry the real filename with extension.
@@ -306,7 +306,7 @@ func resolveLocalFileWithStat(ctx *gin.Context, b *lb.Browser, mount, path strin
 	return abs, f, st, true
 }
 
-func computeOSHash(f *os.File, st os.FileInfo, abs string) (streamer.HashResult, error, string) {
+func computeOSHash(f *os.File, st os.FileInfo, abs string) (streamer.HashResult, string, error) {
 	var hashRes streamer.HashResult
 	var hashErr error
 	if st.Size() >= 64*1024 {
@@ -315,7 +315,7 @@ func computeOSHash(f *os.File, st os.FileInfo, abs string) (streamer.HashResult,
 		hashErr = errors.New("file too small for OS hash")
 	}
 	baseName := filepath.Base(abs)
-	return hashRes, hashErr, strings.TrimSuffix(baseName, filepath.Ext(baseName))
+	return hashRes, strings.TrimSuffix(baseName, filepath.Ext(baseName)), hashErr
 }
 
 func buildSearchOpts(query, langs string, hashRes streamer.HashResult, hashErr error) subtitles.SearchOpts {
