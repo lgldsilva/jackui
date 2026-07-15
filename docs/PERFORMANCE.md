@@ -35,7 +35,7 @@ Legenda: ✅ = entregue · ⬜ = pendente.
 | 5 | Download create por arquivo (sem batch-create) | `AddTorrentModal`/`DownloadModal` picks.map → POST `/downloads` | M por pick; N×M | **POST `/api/downloads/batch`** {items[]} | ✅ **feito** (`DownloadsBatchCreate` + `downloadBatchCreate` no `DownloadModal`/`AddTorrentModal`) |
 | 6 | `resolveArt` por tile da biblioteca no miss (204) | `LibraryPage` onArtError→resolveArt → POST `/stream/art/:hash/resolve` | até ~50 resolves frios | **`POST /api/stream/art/resolve/batch`** + batch após `libraryList` | ✅ **feito** |
 | 7 | `streamDrop` por download no delete em massa | `DownloadsPage.tsx` targets.map→streamDrop → DELETE `/stream/:hash` | N | **`POST /api/stream/drop/batch`** {hashes[]} | ✅ **feito** |
-| 8 | Art `<img>`: 1 round-trip por card | `Thumbnail`/`LibraryPage` streamArtURL → GET `/stream/art/:hash` | ~50+/página | resolve some com #2/#6 (retornar artUrl/artStatus → `<img>` só monta se há art). Bytes ficam por-`<img>` (HTTP/2) | ⬜ |
+| 8 | Art `<img>`: 1 round-trip por card | `Thumbnail`/`LibraryPage` streamArtURL → GET `/stream/art/:hash` | ~50+/página | resolve (#6) → `artPresence` / `hasArt`; `<img>` só monta se art existe (`shouldMountArtImg`). Bytes ficam por-`<img>` (HTTP/2) | ✅ **feito** |
 | 9 | `favoriteSetFolder`/`favoriteRemove` por nome | `FavoritesPage.tsx` names.map → PATCH/DELETE | 1 por favorito | **`POST /api/stream/favorites/batch/{folder,remove}`** | ✅ **feito** |
 | 10 | `downloadStopSeed` por item | `DownloadsPage.tsx` ds.map → POST `/downloads/:id/stop-seed` | 1 por item | **`POST /api/downloads/batch/stop-seed`** {ids[]} | ✅ **feito** |
 | 11 | Status de cache por arquivo (latente) | `LocalCacheButton` → GET `/api/local/cache/status` | 1 hoje; ~N se badge por-row | **GET `/api/local/cache/status/folder`** | ⬜ |
@@ -72,11 +72,13 @@ Os três N+1 de maior impacto (player local + grades TMDB + swarm health) já fo
 
 **#7 (`POST /api/stream/drop/batch`)** entregue — `StreamDropBatch` dedupe de hashes + `CloseForHash` por torrent; front (`useDownloadActions`) usa `streamDropBatch` no delete em massa e “remover concluídos” em vez de N `DELETE /stream/:hash`.
 
+**#8 (art `<img>` condicional)** entregue — `web/src/lib/artPresence.ts` + `LibraryPage` só monta `<img src={streamArtURL}>` quando o batch marca presença (`requireKnown`); `Thumbnail` aceita `hasArt?: boolean` (omitido = legacy try/onError). `onArtError`→`resolveArt` segue como fallback mid-session.
+
 **#9 (`POST /api/stream/favorites/batch/{folder,remove}`)** entregue — multi-select move/delete na `FavoritesPage` faz **1** POST em vez de N PATCH/DELETE por nome; cap 500; resposta `{affected,total,failed}`.
 
 **#10 (`POST /api/downloads/batch/stop-seed`)** entregue — um POST com `ids[]`; backend `DropSeed` uma vez por `info_hash` único; `onStopSeedMany` no front.
 
-Próximo alvo: **#8** (art `<img>` só monta quando há art).
+Próximo alvo: **#11** / **#12** (latentes: cache status e audio meta batch).
 
 ## Worked example — `POST /api/local/play/batch` (#1, referência)
 
