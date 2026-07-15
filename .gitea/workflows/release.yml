@@ -113,22 +113,44 @@ jobs:
           # instead of disabling TLS verification.
           NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
         with: { name: go-coverage }
-      - name: SonarQube analysis + gate
+      - name: SonarQube analysis + gate (permanent + reports)
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-          # Linha de /etc/hosts p/ resolver o host do Sonar no runner (formato "IP hostname").
           SONAR_HOSTS_ENTRY: ${{ vars.SONAR_HOSTS }}
-          # O Sonar do homelab usa cert assinado pela "Development CA" interna. O
-          # sonarqube-scanner (Node) ignora o trust store do OS (onde a imagem
-          # act-ubuntu:ca embute a CA) e falharia com "unable to verify the first
-          # certificate" — então apontamos o Node p/ a CA em vez de desligar o TLS.
           NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
         run: |
-          [ -n "$SONAR_HOSTS_ENTRY" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
-          npx -y sonarqube-scanner \
-            -Dsonar.host.url="$SONAR_HOST_URL" \
-            -Dsonar.token=$SONAR_TOKEN
+          set -eu
+          [ -n "${SONAR_HOSTS_ENTRY:-}" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
+          : "${SONAR_HOST_URL:=https://sonar.raspberrypi.lan}"
+          export SONAR_HOST_URL
+          chmod +x scripts/sonar/sonar-ephemeral.sh
+          export PROJECT_KEY=jackui
+          export PROJECT_NAME=JackUI
+          export EPHEMERAL=0
+          export USE_PROJECT_PROPERTIES=1
+          # coverage.out from download-artifact step above
+          export COVERAGE_FILE=coverage.out
+          export REPORT_DIR="$PWD/sonar-out"
+          export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
+          export SCANNER=npx
+          ./scripts/sonar/sonar-ephemeral.sh
+          ls -la "$REPORT_DIR" || true
+      - name: Upload Sonar reports as Actions artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v3
+        env:
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
+        with:
+          name: sonar-report-main-${{ github.sha }}
+          path: |
+            sonar-out/sonar-report.json
+            sonar-out/sonar-report.md
+            sonar-out/sonar-report.txt
+            sonar-out/sonar-report-pr*.zip
+          if-no-files-found: warn
+          retention-days: 30
 
   sbom:
     needs: [backend, frontend]
