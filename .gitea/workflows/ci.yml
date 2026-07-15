@@ -49,15 +49,15 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: ffmpeg (testes de transcode/streamer)
-        # ports.ubuntu.com (arm64) flapping + IPv6 unreachable on some runners.
-        # Prefer preinstalled binary; force IPv4 on apt; retry on mirror blips.
+        # ports.ubuntu.com (arm64) flapping + IPv6 unreachable: prefer preinstalled,
+        # ForceIPv4 apt retries, then static johnvansickle binary.
         run: |
           set -euo pipefail
           if command -v ffmpeg >/dev/null 2>&1; then
             ffmpeg -version | head -1
             exit 0
           fi
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3; do
             echo "apt install ffmpeg attempt $i…"
             if sudo apt-get update -qq -o Acquire::ForceIPv4=true \
               && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
@@ -67,8 +67,18 @@ jobs:
             fi
             sleep $((i * 5))
           done
-          echo "ERRO: não foi possível instalar ffmpeg após retries"
-          exit 1
+          echo "apt falhou — baixando ffmpeg estático (johnvansickle)…"
+          arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+          case "$arch" in
+            amd64|x86_64) jv=amd64 ;;
+            arm64|aarch64) jv=arm64 ;;
+            *) echo "arch não suportada p/ static: $arch"; exit 1 ;;
+          esac
+          curl -fsSL -o /tmp/ffmpeg-static.tar.xz \
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${jv}-static.tar.xz"
+          sudo tar -xJf /tmp/ffmpeg-static.tar.xz -C /tmp
+          sudo install -m 755 /tmp/ffmpeg-*-static/ffmpeg /tmp/ffmpeg-*-static/ffprobe /usr/local/bin/
+          ffmpeg -version | head -1
       - name: gofmt (falha se houver arquivo fora do padrão)
         run: 'test -z "$(gofmt -l .)" || { echo "gofmt:"; gofmt -l .; exit 1; }'
       - name: go vet
