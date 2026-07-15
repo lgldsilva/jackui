@@ -241,12 +241,20 @@ export function useDownloadActions(deps: {
   // de "Ações" do mobile).
   const doResumeAll = async () => {
     setBulkBusy(true)
-    try { await Promise.all([downloadResumeAll(), streamResumeAll()]); await reloadDownloadsRef.current() }
+    try {
+      // streamPauseAll/resumeAll are admin-only (shared swarm); non-admins still
+      // pause their download-queue rows. Ignore 403 so the bulk action succeeds.
+      await Promise.all([downloadResumeAll(), streamResumeAll().catch(() => {})])
+      await reloadDownloadsRef.current()
+    }
     finally { setBulkBusy(false) }
   }
   const doPauseAll = async () => {
     setBulkBusy(true)
-    try { await Promise.all([downloadPauseAll(), streamPauseAll()]); await reloadDownloadsRef.current() }
+    try {
+      await Promise.all([downloadPauseAll(), streamPauseAll().catch(() => {})])
+      await reloadDownloadsRef.current()
+    }
     finally { setBulkBusy(false) }
   }
   const doRemoveCompleted = async () => {

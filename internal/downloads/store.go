@@ -220,15 +220,25 @@ func (s *Store) getByKeyWith(x execer, userID int, infoHash string, fileIndex in
 	return scanRow(row)
 }
 
-func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error) {
+// GetCompletedPath returns the on-disk path of a completed download file.
+// userID scopes the lookup to that owner (multi-tenant isolation). Pass
+// userID < 0 only for trusted internal callers (streamer FilePathResolver /
+// re-seed) that must resolve any owner's completed row by hash.
+func (s *Store) GetCompletedPath(infoHash string, fileIndex int, userID int) (string, error) {
 	if s == nil {
 		return "", nil
 	}
-	var filePath string
-	err := s.db.QueryRow(`
+	q := `
 		SELECT file_path FROM downloads
-		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
-		LIMIT 1`, infoHash, fileIndex).Scan(&filePath)
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''`
+	args := []any{infoHash, fileIndex}
+	if userID >= 0 {
+		q += ` AND user_id=?`
+		args = append(args, userID)
+	}
+	q += ` LIMIT 1`
+	var filePath string
+	err := s.db.QueryRow(q, args...).Scan(&filePath)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -250,19 +260,25 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int) (string, error)
 // relPath is untrusted (it ultimately comes from torrent metadata): traversal
 // is rejected and the resolved path must be an existing regular file under the
 // destination directory. Empty relPath skips the whole-torrent fallback.
-func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath string) (string, error) {
-	path, err := s.GetCompletedPath(infoHash, fileIndex)
+func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath string, userID int) (string, error) {
+	path, err := s.GetCompletedPath(infoHash, fileIndex, userID)
 	if err != nil || path != "" {
 		return path, err
 	}
 	if s == nil || relPath == "" || fileIndex < 0 {
 		return "", nil
 	}
-	var destDir, name string
-	err = s.db.QueryRow(`
+	q := `
 		SELECT file_path, name FROM downloads
-		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
-		LIMIT 1`, infoHash, FileIndexWholeTorrent).Scan(&destDir, &name)
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''`
+	args := []any{infoHash, FileIndexWholeTorrent}
+	if userID >= 0 {
+		q += ` AND user_id=?`
+		args = append(args, userID)
+	}
+	q += ` LIMIT 1`
+	var destDir, name string
+	err = s.db.QueryRow(q, args...).Scan(&destDir, &name)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}

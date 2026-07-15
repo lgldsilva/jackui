@@ -47,3 +47,18 @@ export function localBrowseHref(
   if (!t) return null
   return `/local?mount=${encodeURIComponent(t.mount)}&path=${encodeURIComponent(t.path)}`
 }
+
+/** Parent of a mount-relative path (`a/b/c` → `a/b`, `secret` → `''`). Used when
+ *  a deep-linked path 404s (e.g. hidden curtain) so navigation can climb out. */
+export function parentLocalPath(path: string): string {
+  const p = path.replace(/^\/+|\/+$/g, '')
+  if (!p) return ''
+  const i = p.lastIndexOf('/')
+  return i < 0 ? '' : p.slice(0, i)
+}
+
+/** True when an axios-like error has the given HTTP status. */
+export function isHttpStatus(err: unknown, status: number): boolean {
+  const ax = err as { response?: { status?: number } }
+  return ax?.response?.status === status
+}

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"strings"
 
@@ -164,4 +166,90 @@ func dropHiddenLibrary(list []library.Entry, hidden map[string]bool) []library.E
 		}
 	}
 	return out
+}
+
+// dropHiddenLocalLibrary drops Continue Watching rows for local files whose
+// (mount, path) sits under a path the user hid in the local browser. Library
+// stores local plays as `local-<base64url(json{mount,path})>` info hashes —
+// favourite-folder HiddenHashSet never matches those, so without this pass a
+// hidden local folder still leaked into the home "Continue Watching" strip.
+func dropHiddenLocalLibrary(c *gin.Context, s *streamer.Streamer, list []library.Entry, userID int) []library.Entry {
+	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil || len(list) == 0 {
+		return list
+	}
+	paths, err := s.Favorites().HiddenLocalPaths(userID)
+	if err != nil || len(paths) == 0 {
+		return list
+	}
+	// mount → set of hidden relative paths
+	byMount := map[string]map[string]bool{}
+	for _, p := range paths {
+		if byMount[p.Mount] == nil {
+			byMount[p.Mount] = map[string]bool{}
+		}
+		byMount[p.Mount][p.Path] = true
+	}
+	out := list[:0]
+	for _, e := range list {
+		if localLibraryEntryHidden(e.InfoHash, byMount) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// localLibraryEntryHidden reports whether a library infoHash encodes a local
+// mount+path under a hidden folder. Non-local hashes are never hidden here.
+func localLibraryEntryHidden(infoHash string, byMount map[string]map[string]bool) bool {
+	mount, path, ok := parseLocalInfoHash(infoHash)
+	if !ok {
+		return false
+	}
+	set := byMount[mount]
+	if len(set) == 0 {
+		return false
+	}
+	return localPathIsHidden(path, set)
+}
+
+// parseLocalInfoHash decodes the frontend/backend `local-<base64url(json)>`
+// pseudo-hash. Returns ok=false for torrent hashes or corrupt payloads.
+func parseLocalInfoHash(infoHash string) (mount, path string, ok bool) {
+	const prefix = "local-"
+	if !strings.HasPrefix(infoHash, prefix) {
+		return "", "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(infoHash, prefix))
+	if err != nil {
+		return "", "", false
+	}
+	var payload struct {
+		Mount string `json:"mount"`
+		Path  string `json:"path"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil || payload.Mount == "" || payload.Path == "" {
+		return "", "", false
+	}
+	return payload.Mount, payload.Path, true
+}
+
+// localPathIsHidden mirrors handlers/local.localPathHidden (ancestor walk) so
+// this package does not import the local handler package (import cycle risk).
+func localPathIsHidden(path string, hidden map[string]bool) bool {
+	if len(hidden) == 0 {
+		return false
+	}
+	p := strings.Trim(path, "/")
+	for p != "" {
+		if hidden[p] {
+			return true
+		}
+		i := strings.LastIndex(p, "/")
+		if i < 0 {
+			break
+		}
+		p = p[:i]
+	}
+	return false
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { localBrowseTarget, localBrowseHref } from './localBrowse'
+import { localBrowseTarget, localBrowseHref, parentLocalPath, isHttpStatus } from './localBrowse'
 import type { LocalMount } from '../api/client'
 
 const mounts: LocalMount[] = [
@@ -42,5 +42,22 @@ describe('localBrowseHref', () => {
 
   it('returns null when unresolvable', () => {
     expect(localBrowseHref('/elsewhere/x.mkv', mounts, 'admin')).toBeNull()
+  })
+})
+
+describe('parentLocalPath', () => {
+  it('returns the parent folder or empty at root', () => {
+    expect(parentLocalPath('a/b/c')).toBe('a/b')
+    expect(parentLocalPath('secret')).toBe('')
+    expect(parentLocalPath('')).toBe('')
+    expect(parentLocalPath('/a/b/')).toBe('a')
+  })
+})
+
+describe('isHttpStatus', () => {
+  it('matches axios-style response status', () => {
+    expect(isHttpStatus({ response: { status: 404 } }, 404)).toBe(true)
+    expect(isHttpStatus({ response: { status: 500 } }, 404)).toBe(false)
+    expect(isHttpStatus(new Error('x'), 404)).toBe(false)
   })
 })

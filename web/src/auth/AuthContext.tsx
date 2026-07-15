@@ -1,6 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
 import api, { passkeyAuthenticate, clearMediaToken } from '../api/client'
 import { load, save, remove } from '../lib/storage'
+import { isIncognito, resetIncognitoFlag, clearIncognitoData } from '../lib/incognito'
+import { setRevealHidden } from '../lib/reveal'
+import { clearPlaylistSnapshot } from '../components/player/playlistSnapshot'
 import { REFRESH_MAX_ATTEMPTS, httpStatusOf, isAuthRejection, refreshBackoffMs } from './refreshPolicy'
 
 export type Role = 'admin' | 'user' | 'guest'
@@ -141,6 +144,11 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
+    // Purge server-side incognito rows while the access token is still valid
+    // (belt-and-suspenders with Logout's Optional claims path).
+    if (isIncognito()) {
+      try { await clearIncognitoData() } catch { /* ignore */ }
+    }
     const refresh = load<string>(REFRESH_KEY, '')
     try { if (refresh) await api.post('/auth/logout', { refresh }) } catch { /* ignore */ }
     clearTokens()
@@ -240,4 +248,9 @@ function clearTokens() {
   // Invalida o media token cacheado (módulo http) junto do logout/limpeza de auth,
   // pra que a próxima sessão pegue um token fresco em vez de reusar o da sessão antiga.
   clearMediaToken()
+  // Private-session hygiene: do not leave the next browser user with the
+  // previous session's playlist, open curtain, or inherited incognito toggle.
+  clearPlaylistSnapshot()
+  resetIncognitoFlag()
+  setRevealHidden(false)
 }

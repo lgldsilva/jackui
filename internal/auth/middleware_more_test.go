@@ -146,6 +146,26 @@ func TestRequired_MediaTokenOnMediaPath(t *testing.T) {
 	}
 }
 
+// A media token must not authorize mutations on media-path prefixes (e.g.
+// DELETE /api/local/file shares the /api/local/file prefix used by GET play).
+func TestRequired_MediaTokenRejectsMutatingMethod(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("DELETE", "/api/local/file?mount=M&path=x", nil)
+
+	tm := NewTokenManager([]byte("secret-key-at-least-32-bytes-long-xxx"), time.Hour)
+	u := &User{ID: 1, Username: "test", Role: RoleUser}
+	tok, _, _ := tm.SignMedia(u)
+	c.Request.Header.Set(HeaderAuthorization, BearerPrefix+tok)
+
+	Required(tm)(c)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for media token DELETE, got %d", w.Code)
+	}
+}
+
 func TestOptional_NoToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

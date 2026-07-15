@@ -15,7 +15,7 @@ func TestTrackerCancel_AbortsRunningJob(t *testing.T) {
 		t.Fatal("fresh job context should be live")
 	}
 
-	if !tr.Cancel(job.ID()) {
+	if !tr.Cancel(job.ID(), 0, true) {
 		t.Fatal("Cancel should find and cancel the running job")
 	}
 	if !job.Canceled() {
@@ -31,7 +31,7 @@ func TestTrackerCancel_AbortsRunningJob(t *testing.T) {
 
 func TestTrackerCancel_UnknownID(t *testing.T) {
 	tr := New(2)
-	if tr.Cancel("nope") {
+	if tr.Cancel("nope", 0, true) {
 		t.Error("Cancel of an unknown id should return false")
 	}
 }
@@ -39,7 +39,7 @@ func TestTrackerCancel_UnknownID(t *testing.T) {
 func TestCanceledJob_IgnoresLateFinish(t *testing.T) {
 	tr := New(2)
 	job := tr.Start("move", "download-move", 1, 100)
-	tr.Cancel(job.ID())
+	tr.Cancel(job.ID(), 0, true)
 	// The producer notices the cancellation only after it returns and calls Fail
 	// (or Done) — that must NOT resurrect the job out of the canceled state.
 	job.Fail(nil)
@@ -57,7 +57,7 @@ func TestCancel_AlreadyDoneJob(t *testing.T) {
 	job := tr.Start("move", "download-move", 1, 100)
 	job.Done()
 	// Cancel finds the job (returns true) but doesn't flip a terminal job.
-	if !tr.Cancel(job.ID()) {
+	if !tr.Cancel(job.ID(), 0, true) {
 		t.Error("Cancel should still report the job as found")
 	}
 	if got := job.Snapshot().Status; got != StatusDone {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -57,7 +58,8 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 		Container:    c.DefaultQuery("container", "mp4"),
 	}
 
-	if tryServeFromCompleted(c, store, h.HexString(), fileIdx, opts, s.FileRelPath(h, fileIdx)) {
+	userID, _, _ := auth.UserIDFromCtx(c)
+	if tryServeFromCompleted(c, store, h.HexString(), fileIdx, opts, s.FileRelPath(h, fileIdx), userID) {
 		return
 	}
 
@@ -77,11 +79,11 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 // relPath (the file's torrent-relative path from the cached metainfo) lets the
 // store resolve files inside whole-torrent rows, whose file_path is the
 // torrent's destination directory.
-func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex string, fileIdx int, opts transcode.Options, relPath string) bool {
+func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex string, fileIdx int, opts transcode.Options, relPath string, userID int) bool {
 	if store == nil {
 		return false
 	}
-	path, err := store.GetCompletedPathRel(hashHex, fileIdx, relPath)
+	path, err := store.GetCompletedPathRel(hashHex, fileIdx, relPath, userID)
 	if err != nil || path == "" {
 		return false
 	}

@@ -91,7 +91,7 @@ type folderLockReq struct {
 // "clean empty folders" sweep keeps it even with no files inside (a ".keep"
 // marker). Same access model as delete/clean: a writable mount ("meus
 // downloads") or admin. The mount root can't be pinned.
-func LocalSetFolderLock(b *lb.Browser) gin.HandlerFunc {
+func LocalSetFolderLock(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req folderLockReq
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -100,6 +100,9 @@ func LocalSetFolderLock(b *lb.Browser) gin.HandlerFunc {
 		}
 		if req.Mount == "" || req.Path == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			return
+		}
+		if AbortIfLocalPathHidden(c, s, req.Mount, req.Path) {
 			return
 		}
 		if !CheckMountAccess(b, c, req.Mount) {

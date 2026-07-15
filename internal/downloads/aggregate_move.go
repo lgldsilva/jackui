@@ -127,7 +127,12 @@ func (w *Worker) completeGroup(g Group, state groupState) {
 		delete(w.tracked, id)
 	}
 	w.mu.Unlock()
-	w.tracker.Submit(name, "download-move", len(movers), total, func(job *transfer.Job) {
+	// Group members share one owner; use the first member's userID for the dock.
+	owner := 0
+	if len(movers) > 0 {
+		owner = movers[0].row.UserID
+	}
+	w.tracker.SubmitFor(owner, name, "download-move", len(movers), total, func(job *transfer.Job) {
 		w.runGroupCompletionMove(g, name, movers, total, job)
 	})
 }

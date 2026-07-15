@@ -64,6 +64,10 @@ internal/
 
 ## Critical notes (gotchas that already bit)
 
+- **Hidden curtain is hard on local (mount,path)**: while the easter-egg reveal is closed, **every** local resolve (`/local/list` current path, file/hls/thumb/walk/preview/mutations, etc.) goes through `LocalHiddenGate` / `AbortIfLocalPathHidden` and returns **404** (not 403). Listing alone is not enough — deep-link `/local?path=secret` used to bypass. Library drops `local-…` hashes under hidden folders too (`dropHiddenLocalLibrary`). Favourites/downloads still filter by hash+path as before.
+- **Completed bulk is per-user**: `GetCompletedPath*` takes `userID` (HTTP handlers pass the JWT user). `userID < 0` is only for the internal streamer FilePathResolver. Do not reintroduce unscoped `WHERE info_hash=?` for serving disk paths.
+- **Transfers dock is per-user**: `transfer.Tracker` stamps `UserID` on jobs; List/Cancel filter non-admins to own (+ system userID=0). Use `SubmitFor`/`StartFor` when the owner is known.
+- **Media token is GET/HEAD only** on `isMediaPath` — a leaked `?token=` must not authorize DELETE/POST on stream/local prefixes.
 - **Playback premise**: **VOD (seekbar) is the default; EVENT/live is the LAST RESORT** (only when duration is unknown or there's no data buffered ahead). With data on disk, always VOD. Do NOT fix a VOD bug by switching to live — make VOD work. Support N audio/subtitle tracks + multi-resolution (Phase 2: HLS master playlist).
 - **HLS for Safari**: progressive MP4 over chunked is rejected (`SRC_NOT_SUPPORTED`). Use HLS. No `append_list` (it emits `EXT-X-DISCONTINUITY`, which Safari refuses). `-hls_playlist_type event` (not `vod` — ffmpeg delays the m3u8 until the transcode finishes).
 - **Safari stall at `currentTime 0` (ROOT CAUSE)**: ffmpeg's MPEG-TS muxer adds ~1.4s of `initial_offset`, so `seg_00000.ts` starts at 1.4s (a hole [0,1.4] → Safari/iOS hang at t=0). **`-muxdelay 0 -muxpreload 0`** zeroes it at the muxer (`setpts`/`asetpts=PTS-STARTPTS` only zeroes the filter — the muxer re-adds it afterwards). Guard: `TestEncodeSpecZeroesPTSBothModes`.

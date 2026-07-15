@@ -356,7 +356,7 @@ func TestLocalMoveEntry_PopulatesTracker(t *testing.T) {
 	// The job must be present and reach done with progress 1.0.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		list := tr.List()
+		list := tr.List(0, true)
 		if len(list) == 1 && list[0].Status == transfer.StatusDone {
 			if list[0].Kind != "local-move" || list[0].Progress != 1.0 {
 				t.Fatalf("job = %+v, want local-move at 100%%", list[0])
@@ -365,7 +365,7 @@ func TestLocalMoveEntry_PopulatesTracker(t *testing.T) {
 		}
 		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de move
 	}
-	t.Fatalf("tracker job did not reach done; list=%+v", tr.List())
+	t.Fatalf("tracker job did not reach done; list=%+v", tr.List(0, true))
 }
 
 func TestBuildLocalVODPlaylist_ZeroDuration(t *testing.T) {
@@ -1310,7 +1310,7 @@ func Test_hgC_LocalPromotePreview_NoSharedDir(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/local/promote/preview", nil)
 
-	LocalPromotePreview(b, nil, nil, "", nil)(c)
+	LocalPromotePreview(b, nil, nil, "", nil, nil)(c)
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409 (shared dir not configured); body: %s", w.Code, w.Body.String())
@@ -1332,7 +1332,7 @@ func Test_hgC_LocalPromotePreview_MountRoot(t *testing.T) {
 	c.Request.Header.Set("Content-Type", "application/json")
 	setAuth(c, 1, true)
 
-	LocalPromotePreview(b, nil, nil, sharedDir, nil)(c)
+	LocalPromotePreview(b, nil, nil, sharedDir, nil, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())

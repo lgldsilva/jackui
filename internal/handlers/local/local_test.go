@@ -207,7 +207,7 @@ func TestLocalWalk_UnknownMount(t *testing.T) {
 	})
 
 	router := gin.New()
-	router.GET("/api/local/walk", LocalWalk(b))
+	router.GET("/api/local/walk", LocalWalk(b, nil))
 
 	req := httptest.NewRequest("GET", "/api/local/walk?mount=DoesNotExist&path=test", nil)
 	w := httptest.NewRecorder()

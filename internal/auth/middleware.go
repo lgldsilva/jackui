@@ -29,7 +29,7 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
-		if claims.Scope == ScopeMedia && !isMediaPath(c.Request.URL.Path) {
+		if claims.Scope == ScopeMedia && !mediaTokenAllowed(c) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "media token not accepted here"})
 			return
 		}
@@ -47,7 +47,7 @@ func Optional(tm *TokenManager) gin.HandlerFunc {
 		raw := extractToken(c)
 		if raw != "" {
 			if claims, err := tm.ParseAccess(raw); err == nil {
-				if claims.Scope == ScopeMedia && !isMediaPath(c.Request.URL.Path) {
+				if claims.Scope == ScopeMedia && !mediaTokenAllowed(c) {
 					c.Next()
 					return
 				}
@@ -55,6 +55,22 @@ func Optional(tm *TokenManager) gin.HandlerFunc {
 			}
 		}
 		c.Next()
+	}
+}
+
+// mediaTokenAllowed is true only for safe, headerless media reads (GET/HEAD on
+// isMediaPath). A leaked media JWT in an M3U / copied URL must not authorize
+// DELETE /api/local/file, stream cache wipes, or other mutating stream routes
+// that share the same path prefixes.
+func mediaTokenAllowed(c *gin.Context) bool {
+	if !isMediaPath(c.Request.URL.Path) {
+		return false
+	}
+	switch c.Request.Method {
+	case http.MethodGet, http.MethodHead:
+		return true
+	default:
+		return false
 	}
 }
 
