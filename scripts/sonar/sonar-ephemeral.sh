@@ -45,6 +45,8 @@
 #   GATE_MAX_RELIABILITY_RATING    [1]  — 1=A … 5=E
 #   GATE_MAX_SECURITY_RATING       [1]
 #   GATE_MAX_SQALE_RATING          [1]  — maintainability
+#   GATE_DIFF_BASE_REF             [empty] — git ref for PR diff (e.g. base SHA); enables diff gate
+#   GATE_MAX_ISSUES_IN_DIFF        [empty] — max Sonar issues in changed files (0 = new_violations)
 set -euo pipefail
 
 SONAR_HOST_URL="${SONAR_HOST_URL:-${SONAR_URL:-https://sonar.raspberrypi.lan}}"
@@ -366,6 +368,44 @@ if apply_floors:
         # Informational line when Sonar QG is a no-op (common on CE ephemeral).
         floor_cfg["note_empty_qg_conditions"] = True
 
+# PR diff gate — mirrors Sonar "new_violations = 0" when CE ephemeral QG is empty.
+issues_in_diff: list = []
+diff_base = (os.environ.get("GATE_DIFF_BASE_REF") or "").strip()
+max_issues_in_diff = env_num("GATE_MAX_ISSUES_IN_DIFF", "")
+if diff_base and max_issues_in_diff is not None:
+    import subprocess
+
+    def issue_path(issue: dict) -> str:
+        comp = issue.get("component") or ""
+        return comp.split(":", 1)[1] if ":" in comp else comp
+
+    changed_set: set[str] | None = None
+    try:
+        merge_base = subprocess.check_output(
+            ["git", "merge-base", diff_base, "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        changed = subprocess.check_output(
+            ["git", "diff", "--name-only", merge_base, "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip().splitlines()
+        changed_set = {p.strip() for p in changed if p.strip()}
+    except Exception as exc:  # noqa: BLE001
+        failures.append(f"issues_in_diff: git diff failed (fail-closed): {exc}")
+
+    if changed_set is not None:
+        issues_in_diff = [i for i in issues if issue_path(i) in changed_set]
+        floor_cfg["GATE_DIFF_BASE_REF"] = diff_base
+        floor_cfg["GATE_MAX_ISSUES_IN_DIFF"] = max_issues_in_diff
+        floor_cfg["changed_files"] = len(changed_set)
+        floor_cfg["issues_in_diff"] = len(issues_in_diff)
+        if len(issues_in_diff) > max_issues_in_diff:
+            failures.append(
+                f"issues_in_diff: {len(issues_in_diff)} > GATE_MAX_ISSUES_IN_DIFF={max_issues_in_diff:g}"
+            )
+
 gate_result = "FAIL" if failures else "PASS"
 local_gate = {
     "strict": gate_strict,
@@ -373,6 +413,7 @@ local_gate = {
     "result": gate_result,
     "failures": failures,
     "thresholds": floor_cfg,
+    "issues_in_diff": len(issues_in_diff),
     "qg_status": qg_status,
     "qg_conditions_count": len(conditions),
 }
@@ -438,6 +479,30 @@ else:
     lines.append("")
     for f in failures:
         lines.append(f"- {f}")
+
+if diff_base and max_issues_in_diff is not None:
+    lines += [
+        "",
+        "## Issues in PR diff",
+        "",
+        f"- **Changed files:** {floor_cfg.get('changed_files', '?')}",
+        f"- **Issues in diff:** {len(issues_in_diff)} (max {max_issues_in_diff:g})",
+        "",
+    ]
+    if issues_in_diff:
+        order = {"BLOCKER": 0, "CRITICAL": 1, "MAJOR": 2, "MINOR": 3, "INFO": 4}
+        for idx, issue in enumerate(
+            sorted(
+                issues_in_diff,
+                key=lambda i: (order.get(i.get("severity") or "", 9), file_of(i), i.get("line") or 0),
+            ),
+            1,
+        ):
+            lines.append(
+                f"{idx}. [{issue.get('severity')}] `{file_of(issue)}:{issue.get('line') or '-'}` — {issue.get('message') or ''}"
+            )
+    else:
+        lines.append("_No issues in changed files._")
 
 lines += ["", "## Measures", ""]
 if measures:

@@ -145,6 +145,8 @@ jobs:
           export REPORT_DIR="$PWD/sonar-out"
           export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
           export SCANNER=npx
+          # Permanent project: Sonar QG (new_violations/new_coverage) is authoritative.
+          export GATE_STRICT=0
           ./scripts/sonar/sonar-ephemeral.sh
           ls -la "$REPORT_DIR" || true
       - name: Upload Sonar reports as Actions artifact
