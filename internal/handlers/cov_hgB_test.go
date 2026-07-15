@@ -156,11 +156,11 @@ func Test_hgB_ResolveHLSSession_RespawnsFromCompletedFile(t *testing.T) {
 	if err := os.WriteFile(file, []byte("payload-bytes"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+	store.SetStatus(0, d.ID, downloads.StatusCompleted)
 	t.Cleanup(func() { mgr.Close(hgBHexHash + "-0") })
 
 	w := httptest.NewRecorder()
@@ -187,11 +187,11 @@ func Test_hgB_ResolveHLSSession_RespawnEncoderUnavailable(t *testing.T) {
 	if err := os.WriteFile(file, []byte("payload-bytes"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+	store.SetStatus(0, d.ID, downloads.StatusCompleted)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -212,11 +212,11 @@ func Test_hgB_ResolveTranscodeSource_CompletedFile(t *testing.T) {
 	if err := os.WriteFile(file, []byte("payload-bytes"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+	store.SetStatus(0, d.ID, downloads.StatusCompleted)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -382,11 +382,11 @@ func Test_hgB_StreamFile_FromCompletedStore(t *testing.T) {
 	if err := os.WriteFile(file, []byte("completed-bytes"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: file})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+	store.SetStatus(0, d.ID, downloads.StatusCompleted)
 
 	s := streamer.NewForTesting()
 	r := gin.New()
@@ -429,11 +429,11 @@ func Test_hgB_StreamFile_BadFileIndex(t *testing.T) {
 func Test_hgB_ServeFromCompletedStore_MissingFile(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: "/no/such/path.mkv"})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "x", FilePath: "/no/such/path.mkv"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	store.SetStatus(1, d.ID, downloads.StatusCompleted)
+	store.SetStatus(0, d.ID, downloads.StatusCompleted)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

@@ -39,7 +39,7 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, err := st.Create(downloads.Download{
-		UserID: 1, InfoHash: hash, FileIndex: 0,
+		UserID: 0, InfoHash: hash, FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:" + hash, Name: "video",
 	})
 	if err != nil {
@@ -48,7 +48,7 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 	if err := st.SetFilePath(1, d.ID, media); err != nil {
 		t.Fatalf("SetFilePath: %v", err)
 	}
-	if _, err := st.SetStatusForUser(1, downloads.StatusCompleted); err != nil {
+	if _, err := st.SetStatusForUser(0, downloads.StatusCompleted); err != nil {
 		t.Fatalf("SetStatusForUser: %v", err)
 	}
 

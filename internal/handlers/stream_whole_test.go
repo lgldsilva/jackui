@@ -37,7 +37,7 @@ func wholeTestEnv(t *testing.T) (*downloads.Store, *streamer.Streamer, string) {
 		t.Fatal(err)
 	}
 	d, err := store.Create(downloads.Download{
-		UserID: 1, InfoHash: wholeHexHash, FileIndex: downloads.FileIndexWholeTorrent,
+		UserID: 0, InfoHash: wholeHexHash, FileIndex: downloads.FileIndexWholeTorrent,
 		Magnet: "m", Name: "Pack",
 	})
 	if err != nil {
@@ -46,7 +46,7 @@ func wholeTestEnv(t *testing.T) (*downloads.Store, *streamer.Streamer, string) {
 	if err := store.UpdateMetadata(1, d.ID, "Pack", destDir, 4); err != nil {
 		t.Fatalf("UpdateMetadata: %v", err)
 	}
-	if err := store.SetStatus(1, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestTryServeFromCompleted_WholeRowClaimsTheRequest(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	h, _ := parseHash(wholeHexHash)
 
-	if !tryServeFromCompleted(c, store, wholeHexHash, 0, transcode.Options{}, s.FileRelPath(h, 0), 1) {
+	if !tryServeFromCompleted(c, store, wholeHexHash, 0, transcode.Options{}, s.FileRelPath(h, 0), 0) {
 		t.Fatal("expected the whole-torrent completed file to be served from disk")
 	}
 }
@@ -125,11 +125,11 @@ func TestTryServeFromCompleted_MissAndDirectory(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
 	// Unknown hash → no completed row → fall through to the streamer.
-	if tryServeFromCompleted(c, store, "0123456789abcdef0123456789abcdef01234567", 0, transcode.Options{}, "", 1) {
+	if tryServeFromCompleted(c, store, "0123456789abcdef0123456789abcdef01234567", 0, transcode.Options{}, "", 0) {
 		t.Error("expected false when no completed row exists")
 	}
 	// The sentinel index resolves the whole row's file_path — a DIRECTORY.
-	if tryServeFromCompleted(c, store, wholeHexHash, downloads.FileIndexWholeTorrent, transcode.Options{}, "", 1) {
+	if tryServeFromCompleted(c, store, wholeHexHash, downloads.FileIndexWholeTorrent, transcode.Options{}, "", 0) {
 		t.Error("expected false for a directory path")
 	}
 }
