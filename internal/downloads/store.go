@@ -220,6 +220,29 @@ func (s *Store) getByKeyWith(x execer, userID int, infoHash string, fileIndex in
 	return scanRow(row)
 }
 
+// completedPathSQL is a static query (no concatenation) so Sonar/security
+// scanners do not flag dynamic SQL. user-scoped vs any-owner are two fixed forms.
+const (
+	sqlCompletedPathForUser = `
+		SELECT file_path FROM downloads
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
+		  AND user_id=?
+		LIMIT 1`
+	sqlCompletedPathAny = `
+		SELECT file_path FROM downloads
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
+		LIMIT 1`
+	sqlCompletedWholeForUser = `
+		SELECT file_path, name FROM downloads
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
+		  AND user_id=?
+		LIMIT 1`
+	sqlCompletedWholeAny = `
+		SELECT file_path, name FROM downloads
+		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''
+		LIMIT 1`
+)
+
 // GetCompletedPath returns the on-disk path of a completed download file.
 // userID scopes the lookup to that owner (multi-tenant isolation). Pass
 // userID < 0 only for trusted internal callers (streamer FilePathResolver /
@@ -228,17 +251,13 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int, userID int) (st
 	if s == nil {
 		return "", nil
 	}
-	q := `
-		SELECT file_path FROM downloads
-		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''`
-	args := []any{infoHash, fileIndex}
-	if userID >= 0 {
-		q += ` AND user_id=?`
-		args = append(args, userID)
-	}
-	q += ` LIMIT 1`
 	var filePath string
-	err := s.db.QueryRow(q, args...).Scan(&filePath)
+	var err error
+	if userID >= 0 {
+		err = s.db.QueryRow(sqlCompletedPathForUser, infoHash, fileIndex, userID).Scan(&filePath)
+	} else {
+		err = s.db.QueryRow(sqlCompletedPathAny, infoHash, fileIndex).Scan(&filePath)
+	}
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -268,17 +287,12 @@ func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath stri
 	if s == nil || relPath == "" || fileIndex < 0 {
 		return "", nil
 	}
-	q := `
-		SELECT file_path, name FROM downloads
-		WHERE info_hash=? AND file_index=? AND status='completed' AND file_path != ''`
-	args := []any{infoHash, FileIndexWholeTorrent}
-	if userID >= 0 {
-		q += ` AND user_id=?`
-		args = append(args, userID)
-	}
-	q += ` LIMIT 1`
 	var destDir, name string
-	err = s.db.QueryRow(q, args...).Scan(&destDir, &name)
+	if userID >= 0 {
+		err = s.db.QueryRow(sqlCompletedWholeForUser, infoHash, FileIndexWholeTorrent, userID).Scan(&destDir, &name)
+	} else {
+		err = s.db.QueryRow(sqlCompletedWholeAny, infoHash, FileIndexWholeTorrent).Scan(&destDir, &name)
+	}
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
