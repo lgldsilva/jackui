@@ -49,9 +49,8 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: ffmpeg (testes de transcode/streamer)
-        # ports.ubuntu.com (arm64) flapping: retry apt instead of failing the
-        # whole PR gate on a transient mirror blip. Prefer a preinstalled binary
-        # on the runner image when present.
+        # ports.ubuntu.com (arm64) flapping + IPv6 unreachable on some runners.
+        # Prefer preinstalled binary; force IPv4 on apt; retry on mirror blips.
         run: |
           set -euo pipefail
           if command -v ffmpeg >/dev/null 2>&1; then
@@ -60,7 +59,9 @@ jobs:
           fi
           for i in 1 2 3 4 5; do
             echo "apt install ffmpeg attempt $i…"
-            if sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg; then
+            if sudo apt-get update -qq -o Acquire::ForceIPv4=true \
+              && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+                -o Acquire::ForceIPv4=true ffmpeg; then
               ffmpeg -version | head -1
               exit 0
             fi
@@ -166,10 +167,13 @@ jobs:
 
 
   # Sonar CE: ephemeral project on PR + export artifacts (ai-standards scripts/sonar).
+  # Reuses coverage.out from backend (no second full go test; needs ffmpeg only there).
   # Main permanent analysis remains in release.yml (post-merge gate before deploy).
   sonar:
     name: sonarqube quality gate (PR)
     runs-on: [self-hosted, arm64]
+    needs: [backend]
+    if: ${{ always() && needs.backend.result == 'success' }}
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
@@ -182,14 +186,17 @@ jobs:
         if: ${{ env.SONAR_TOKEN != '' }}
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        if: ${{ env.SONAR_TOKEN != '' }}
-        with:
-          go-version-file: go.mod
       - uses: actions/setup-node@v4
         if: ${{ env.SONAR_TOKEN != '' }}
         with:
           node-version: '24'
+      - name: Download coverage from backend
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/download-artifact@v3
+        env:
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
+        with:
+          name: go-coverage
       - name: Sonar ephemeral (PR)
         if: ${{ env.SONAR_TOKEN != '' }}
         env:
@@ -202,6 +209,7 @@ jobs:
           [ -n "${SONAR_HOSTS_ENTRY:-}" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
           : "${SONAR_HOST_URL:=https://sonar.raspberrypi.lan}"
           export SONAR_HOST_URL
+          test -s coverage.out
           chmod +x scripts/sonar/sonar-ephemeral.sh scripts/sonar/publish-sonar-pr-artifacts.sh
           SHORT="${SHORT_SHA:0:8}"
           export PROJECT_KEY="jackui-pr-${PR_NUMBER:-0}-${SHORT}"
@@ -209,7 +217,6 @@ jobs:
           export EPHEMERAL=1
           export USE_PROJECT_PROPERTIES=1
           export COVERAGE_FILE=coverage.out
-          export COVERAGE_GENERATE_CMD='go test -p 4 -timeout 20m -count=1 -coverprofile=coverage.out ./internal/...'
           export REPORT_DIR="$PWD/sonar-out"
           export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
           export SCANNER=npx
