@@ -5,6 +5,11 @@
 # Community só analisa push e o job `sonar` consome o coverage.out gerado no mesmo run.
 # Manter `push: [main]` aqui duplicava backend+frontend a cada merge (o release já os roda).
 name: CI
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 on:
   pull_request:
 
@@ -44,9 +49,8 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - name: ffmpeg (testes de transcode/streamer)
-        # ports.ubuntu.com (arm64) flapping: retry apt instead of failing the
-        # whole PR gate on a transient mirror blip. Prefer a preinstalled binary
-        # on the runner image when present.
+        # ports.ubuntu.com (arm64) flapping + IPv6 unreachable on some runners.
+        # Prefer preinstalled binary; force IPv4 on apt; retry on mirror blips.
         run: |
           set -euo pipefail
           if command -v ffmpeg >/dev/null 2>&1; then
@@ -55,7 +59,9 @@ jobs:
           fi
           for i in 1 2 3 4 5; do
             echo "apt install ffmpeg attempt $i…"
-            if sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg; then
+            if sudo apt-get update -qq -o Acquire::ForceIPv4=true \
+              && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+                -o Acquire::ForceIPv4=true ffmpeg; then
               ffmpeg -version | head -1
               exit 0
             fi
@@ -159,8 +165,98 @@ jobs:
           go-version-file: go.mod
       - run: go run github.com/securego/gosec/v2/cmd/gosec@v2.27.1 -quiet ./...
 
+
+  # Sonar CE: ephemeral project on PR + export artifacts (ai-standards scripts/sonar).
+  # Reuses coverage.out from backend (no second full go test; needs ffmpeg only there).
+  # Main permanent analysis remains in release.yml (post-merge gate before deploy).
+  sonar:
+    name: sonarqube quality gate (PR)
+    runs-on: [self-hosted, arm64]
+    needs: [backend]
+    if: ${{ always() && needs.backend.result == 'success' }}
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+      SONAR_HOSTS: ${{ vars.SONAR_HOSTS }}
+    steps:
+      - name: Skip (no SONAR_TOKEN)
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set — skipping SonarQube on PR."
+      - uses: actions/checkout@v4
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          node-version: '24'
+      - name: Download coverage from backend
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/download-artifact@v3
+        env:
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
+        with:
+          name: go-coverage
+      - name: Sonar ephemeral (PR)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        env:
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
+          SONAR_HOSTS_ENTRY: ${{ vars.SONAR_HOSTS }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          [ -n "${SONAR_HOSTS_ENTRY:-}" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
+          : "${SONAR_HOST_URL:=https://sonar.raspberrypi.lan}"
+          export SONAR_HOST_URL
+          test -s coverage.out
+          chmod +x scripts/sonar/sonar-ephemeral.sh scripts/sonar/publish-sonar-pr-artifacts.sh
+          SHORT="${SHORT_SHA:0:8}"
+          export PROJECT_KEY="jackui-pr-${PR_NUMBER:-0}-${SHORT}"
+          export PROJECT_NAME="jackui PR #${PR_NUMBER:-0}"
+          export EPHEMERAL=1
+          export USE_PROJECT_PROPERTIES=1
+          export COVERAGE_FILE=coverage.out
+          export REPORT_DIR="$PWD/sonar-out"
+          export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
+          export SCANNER=npx
+          ./scripts/sonar/sonar-ephemeral.sh
+          ls -la "$REPORT_DIR" || true
+      - name: Publish Sonar report artifacts on PR
+        if: ${{ env.SONAR_TOKEN != '' }}
+        continue-on-error: true
+        env:
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEA_SERVER_URL: ${{ github.server_url }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITEA_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          export REPORT_DIR="$PWD/sonar-out"
+          if [ -z "${GITEA_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then export GITEA_TOKEN="$GITHUB_TOKEN"; fi
+          command -v zip >/dev/null || sudo apt-get install -y -qq zip >/dev/null || true
+          ./scripts/sonar/publish-sonar-pr-artifacts.sh
+      - name: Upload Sonar reports as Actions artifact
+        if: ${{ env.SONAR_TOKEN != '' && always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v3
+        env:
+          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
+        with:
+          name: sonar-report-${{ github.event.pull_request.number || github.sha }}
+          path: |
+            sonar-out/sonar-report.json
+            sonar-out/sonar-report.md
+            sonar-out/sonar-report.txt
+            sonar-out/sonar-report-pr*.zip
+          if-no-files-found: warn
+          retention-days: 30
+
   approve:
-    needs: [backend, frontend, gitleaks, govulncheck, gosec]
+    needs: [backend, frontend, gitleaks, govulncheck, gosec, sonar]
     runs-on: [self-hosted, arm64]
     # Executa a aprovação se os testes passarem e for de fato um PR
     if: github.event_name == 'pull_request'
