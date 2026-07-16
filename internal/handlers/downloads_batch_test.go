@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 func batchRouter(store *downloads.Store) *gin.Engine {
@@ -126,5 +127,88 @@ func TestDownloadsBatchCreate_Requeued(t *testing.T) {
 	}
 	if all, _ := store.List(0); len(all) != 1 {
 		t.Fatalf("duplicate row inserted: %d rows", len(all))
+	}
+}
+
+func postStopSeedBatch(t *testing.T, r *gin.Engine, body map[string]interface{}) *httptest.ResponseRecorder {
+	t.Helper()
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/downloads/batch/stop-seed", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestDownloadsBatchStopSeed_Empty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	s := streamer.NewForTesting()
+	r := gin.New()
+	r.POST("/api/downloads/batch/stop-seed", DownloadsBatchStopSeed(store, s))
+
+	w := postStopSeedBatch(t, r, map[string]interface{}{"ids": []int{}})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDownloadsBatchStopSeed_TooMany(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	s := streamer.NewForTesting()
+	r := gin.New()
+	r.POST("/api/downloads/batch/stop-seed", DownloadsBatchStopSeed(store, s))
+
+	ids := make([]int, downloadsStopSeedBatchMax+1)
+	for i := range ids {
+		ids[i] = i + 1
+	}
+	w := postStopSeedBatch(t, r, map[string]interface{}{"ids": ids})
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDownloadsBatchStopSeed_DedupeHashesAndFailed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	s := streamer.NewForTesting()
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	d1, err := store.Create(downloads.Download{
+		InfoHash: hash, Magnet: "magnet:?xt=urn:btih:" + hash, Name: "a", FileIndex: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2, err := store.Create(downloads.Download{
+		InfoHash: hash, Magnet: "magnet:?xt=urn:btih:" + hash, Name: "b", FileIndex: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := gin.New()
+	r.POST("/api/downloads/batch/stop-seed", DownloadsBatchStopSeed(store, s))
+
+	w := postStopSeedBatch(t, r, map[string]interface{}{
+		"ids": []int{d1.ID, d2.ID, 99999},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Affected int   `json:"affected"`
+		Total    int   `json:"total"`
+		Failed   []int `json:"failed"`
+		Hashes   int   `json:"hashes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Affected != 2 || resp.Total != 3 || resp.Hashes != 1 {
+		t.Fatalf("affected=%d total=%d hashes=%d, want 2/3/1", resp.Affected, resp.Total, resp.Hashes)
+	}
+	if len(resp.Failed) != 1 || resp.Failed[0] != 99999 {
+		t.Fatalf("failed = %v, want [99999]", resp.Failed)
 	}
 }

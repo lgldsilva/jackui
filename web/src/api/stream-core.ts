@@ -83,6 +83,18 @@ export const streamDrop = async (hash: string): Promise<void> => {
   await api.delete(`/stream/${hash}`)
 }
 
+/** Perf #7: drop many torrents (+ HLS) in one POST instead of N DELETE /stream/:hash. */
+export type StreamDropBatchResult = {
+  dropped: number
+  total: number
+  failed?: string[]
+}
+export const streamDropBatch = async (hashes: string[]): Promise<StreamDropBatchResult> => {
+  if (hashes.length === 0) return { dropped: 0, total: 0, failed: [] }
+  const { data } = await api.post<StreamDropBatchResult>('/stream/drop/batch', { hashes })
+  return data
+}
+
 export const streamAudioMeta = async (hash: string, fileIdx: number): Promise<AudioMeta> => {
   const { data } = await api.get<AudioMeta>(`/stream/audio/meta/${hash}/${fileIdx}`)
   return data

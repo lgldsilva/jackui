@@ -80,6 +80,77 @@ func TestStreamDrop_WithHLSManager(t *testing.T) {
 	}
 }
 
+func postDropBatch(t *testing.T, router *gin.Engine, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/api/stream/drop/batch", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
+}
+
+func TestStreamDropBatch_Empty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	router := gin.New()
+	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil))
+
+	w := postDropBatch(t, router, `{"hashes":[]}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStreamDropBatch_TooMany(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	router := gin.New()
+	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil))
+
+	hashes := make([]string, streamDropBatchMax+1)
+	for i := range hashes {
+		hashes[i] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	}
+	b, _ := json.Marshal(map[string]any{"hashes": hashes})
+	w := postDropBatch(t, router, string(b))
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStreamDropBatch_DedupeAndInvalid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	hlsMgr, err := transcode.NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	router := gin.New()
+	router.POST("/api/stream/drop/batch", StreamDropBatch(s, hlsMgr))
+
+	const h1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const h2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	body := `{"hashes":["` + h1 + `","` + h1 + `","nothex","` + h2 + `"]}`
+	w := postDropBatch(t, router, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Dropped int      `json:"dropped"`
+		Total   int      `json:"total"`
+		Failed  []string `json:"failed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Dropped != 2 || resp.Total != 4 {
+		t.Fatalf("dropped=%d total=%d, want 2/4", resp.Dropped, resp.Total)
+	}
+	if len(resp.Failed) != 1 || resp.Failed[0] != "nothex" {
+		t.Fatalf("failed = %v, want [nothex]", resp.Failed)
+	}
+}
+
 func TestStreamPrefetch_BadHash(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()

@@ -88,6 +88,75 @@ func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.Ha
 	}
 }
 
+// downloadsStopSeedBatchMax caps IDs per POST /downloads/batch/stop-seed (Perf #10).
+const downloadsStopSeedBatchMax = 500
+
+// DownloadsBatchStopSeed handles POST /api/downloads/batch/stop-seed {ids:[]} →
+// {affected,total,failed,hashes} — stops seeding for MANY queue rows in ONE call
+// so a multi-file seeding group does not fire N POST /downloads/:id/stop-seed
+// (Perf #10). Unique info_hashes are DropSeed'd once; missing IDs land in failed.
+func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			IDs []int `json:"ids"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.IDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ids is required"})
+			return
+		}
+		if len(req.IDs) > downloadsStopSeedBatchMax {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many ids"})
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		affected, failed, hashes := stopSeedBatch(store, s, userID, req.IDs)
+		c.JSON(http.StatusOK, gin.H{
+			"affected": affected,
+			"total":    len(req.IDs),
+			"failed":   failed,
+			"hashes":   hashes,
+		})
+	}
+}
+
+// stopSeedBatch resolves each id, DropSeed's unique info_hashes once, and
+// collects missing IDs. Extracted so DownloadsBatchStopSeed stays under S3776.
+func stopSeedBatch(store *downloads.Store, s *streamer.Streamer, userID int, ids []int) (affected int, failed []int, hashCount int) {
+	seen := make(map[string]struct{})
+	failed = make([]int, 0)
+	for _, id := range ids {
+		if !stopSeedOne(store, s, userID, id, seen) {
+			failed = append(failed, id)
+			continue
+		}
+		affected++
+	}
+	return affected, failed, len(seen)
+}
+
+// stopSeedOne loads a download row and DropSeeds its info_hash if not yet seen.
+// Returns false when the row is missing (caller records failed).
+func stopSeedOne(store *downloads.Store, s *streamer.Streamer, userID, id int, seen map[string]struct{}) bool {
+	d, err := store.Get(userID, id)
+	if err != nil || d == nil {
+		return false
+	}
+	if d.InfoHash == "" {
+		return true
+	}
+	if _, ok := seen[d.InfoHash]; ok {
+		return true
+	}
+	seen[d.InfoHash] = struct{}{}
+	var h metainfo.Hash
+	if err := h.FromHexString(d.InfoHash); err == nil {
+		// Explicit stop-seed also clears persisted auto-seed (same as
+		// the singular POST /downloads/:id/stop-seed).
+		s.DropSeed(h)
+	}
+	return true
+}
+
 // DownloadsRecheck handles POST /api/downloads/:id/recheck — força um
 // "Force Recheck" estilo qBittorrent no arquivo do download: re-hasha TODOS
 // os pieces do arquivo (não só os incompletos), zera bytes_downloaded e
