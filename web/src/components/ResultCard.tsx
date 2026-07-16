@@ -385,6 +385,44 @@ type CardShell = {
   }
 }
 
+function resolveCardClick(
+  result: SearchResult,
+  canPlay: boolean,
+  hasSource: boolean,
+  onPlay: ((result: SearchResult) => void) | undefined,
+  onExploreContents: ((result: SearchResult) => void) | undefined,
+): (() => void) | undefined {
+  if (canPlay) return () => onPlay?.(result)
+  if (hasSource && onExploreContents) return () => onExploreContents(result)
+  return undefined
+}
+
+function cardTitleAttr(tmdb: TmdbMatch | null, result: SearchResult): string {
+  if (!tmdb) return result.title
+  const yearStr = tmdb.year ? ` (${tmdb.year})` : ''
+  return `${tmdb.title}${yearStr} — ${tmdb.overview}`
+}
+
+function cardShellTitle(canPlay: boolean, cardClickable: boolean): string | undefined {
+  if (canPlay) return i18n.t('search.play_stream')
+  if (cardClickable) return i18n.t('search.tap_explore')
+  return undefined
+}
+
+function cardKeyDownHandler(handleCardClick: () => void): (e: React.KeyboardEvent<HTMLDivElement>) => void {
+  return (e) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleCardClick()
+    }
+  }
+}
+
+const CLICKABLE_CARD_CLASS =
+  'card flex flex-col gap-3 text-left cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
+const STATIC_CARD_CLASS = 'card flex flex-col gap-3 text-left cursor-default'
+
 function buildCardShell(
   result: SearchResult,
   tmdb: TmdbMatch | null,
@@ -393,49 +431,17 @@ function buildCardShell(
   onPlay: ((result: SearchResult) => void) | undefined,
   onExploreContents: ((result: SearchResult) => void) | undefined,
 ): CardShell {
-  let handleCardClick: (() => void) | undefined
-  if (canPlay) {
-    handleCardClick = () => onPlay?.(result)
-  } else if (hasSource && onExploreContents) {
-    handleCardClick = () => onExploreContents(result)
-  }
+  const handleCardClick = resolveCardClick(result, canPlay, hasSource, onPlay, onExploreContents)
   const cardClickable = handleCardClick !== undefined
-  const handleCardKeyDown = handleCardClick
-    ? (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (e.target !== e.currentTarget) return
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          handleCardClick()
-        }
-      }
-    : undefined
-  let titleAttr: string
-  if (tmdb) {
-    const yearStr = tmdb.year ? ` (${tmdb.year})` : ''
-    titleAttr = `${tmdb.title}${yearStr} — ${tmdb.overview}`
-  } else {
-    titleAttr = result.title
-  }
-  const cardClass = `card flex flex-col gap-3 text-left ${
-    cardClickable
-      ? 'cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
-      : 'cursor-default'
-  }`
-  let cardTitle: string | undefined
-  if (canPlay) {
-    cardTitle = i18n.t('search.play_stream')
-  } else if (cardClickable) {
-    cardTitle = i18n.t('search.tap_explore')
-  }
   return {
     handleCardClick,
     cardClickable,
-    titleAttr,
-    cardClass,
+    titleAttr: cardTitleAttr(tmdb, result),
+    cardClass: cardClickable ? CLICKABLE_CARD_CLASS : STATIC_CARD_CLASS,
     cardTapStyle: cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined,
-    cardTitle,
+    cardTitle: cardShellTitle(canPlay, cardClickable),
     interactiveProps: cardClickable
-      ? { role: 'button' as const, tabIndex: 0, onClick: handleCardClick, onKeyDown: handleCardKeyDown }
+      ? { role: 'button' as const, tabIndex: 0, onClick: handleCardClick, onKeyDown: cardKeyDownHandler(handleCardClick) }
       : {},
   }
 }
