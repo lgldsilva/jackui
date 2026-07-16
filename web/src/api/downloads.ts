@@ -406,6 +406,19 @@ export const downloadStopSeed = async (id: number): Promise<void> => {
   await api.post(`/downloads/${id}/stop-seed`)
 }
 
+/** Perf #10: stop-seed many queue rows in one POST (unique info_hashes DropSeed'd once). */
+export type StopSeedBatchResult = {
+  affected: number
+  total: number
+  failed?: number[]
+  hashes?: number
+}
+export const downloadBatchStopSeed = async (ids: number[]): Promise<StopSeedBatchResult> => {
+  if (ids.length === 0) return { affected: 0, total: 0, failed: [] }
+  const { data } = await api.post<StopSeedBatchResult>('/downloads/batch/stop-seed', { ids })
+  return data
+}
+
 // ─── Cross-torrent dedup (#23) ─────────────────────────────────────────────
 // One of a torrent's files that the user ALREADY has on disk, so it can be
 // linked instead of re-downloaded. source 'download' = already in the queue;
