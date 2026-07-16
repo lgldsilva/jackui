@@ -151,7 +151,7 @@ type TMDBConfig struct {
 }
 
 type AuthConfig struct {
-	Enabled       bool   `yaml:"enabled"`        // false = legacy no-auth mode (everything public)
+	Enabled       bool   `yaml:"enabled"`        // env default ON; explicit JACKUI_AUTH_ENABLED=0 + escape for dev/LAN
 	JWTSecret     string `yaml:"jwt_secret"`     // HS256 secret; REQUIRED (>=32 bytes) when auth enabled — boot fails otherwise
 	AdminUsername string `yaml:"admin_username"` // bootstrap admin login
 	AdminPassword string `yaml:"admin_password"` // bootstrap admin password (only used on first run)

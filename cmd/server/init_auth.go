@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/auth"
@@ -35,7 +36,10 @@ func initDB(deps *appDeps) {
 func initAuth(deps *appDeps) {
 	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
 	if !deps.cfg.Auth.Enabled {
-		log.Printf("WARNING: auth disabled (JACKUI_AUTH_ENABLED!=1) — ALL endpoints are public, including admin routes (config, mounts, cache) and the Transmission RPC. Only run like this behind a trusted reverse proxy / on a private LAN; set JACKUI_AUTH_ENABLED=1 to protect them.")
+		if os.Getenv("JACKUI_ALLOW_INSECURE_AUTH") != "1" {
+			log.Fatalf("Auth disabled — set JACKUI_AUTH_ENABLED=1 (recommended) or JACKUI_ALLOW_INSECURE_AUTH=1 for dev/LAN only")
+		}
+		log.Printf("WARNING: auth disabled with JACKUI_ALLOW_INSECURE_AUTH=1 — ALL endpoints are public, including admin routes (config, mounts, cache) and the Transmission RPC. Only run like this behind a trusted reverse proxy / on a private LAN.")
 		return
 	}
 	initAuthStore(deps)

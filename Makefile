@@ -294,7 +294,7 @@ dev-frontend: web/node_modules
 	@cd web && npm run dev
 
 dev-backend: _check-go
-	@go run ./cmd/server
+	@JACKUI_AUTH_ENABLED=0 JACKUI_ALLOW_INSECURE_AUTH=1 go run ./cmd/server
 
 # ─────────────────────────────────────────
 # Electron (Desktop)
