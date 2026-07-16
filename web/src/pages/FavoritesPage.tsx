@@ -325,18 +325,24 @@ export default function FavoritesPage() {
   const clearSelection = () => setSelected(new Set())
   const moveSelectedToFolder = async (folderId: number | null) => {
     const names = [...selected]
-    // ONE batch call (Perf #9) — not N PATCH /stream/favorite/:name/folder.
-    await favoriteSetFolderBatch(names, folderId).catch(() => {})
-    setFavs(favs.map(f => selected.has(f.name) ? { ...f, folderId } : f))
+    // Batch call (Perf #9), auto-chunked below the server cap. Reconcile the
+    // optimistic update with the result: a rejection means all failed, a
+    // `failed` list means some did — only reflect the ones that actually moved
+    // and surface the rest instead of silently reporting success.
+    const res = await favoriteSetFolderBatch(names, folderId).catch(() => null)
+    const failed = new Set<string>(res ? res.failed : names)
+    setFavs(favs.map(f => (selected.has(f.name) && !failed.has(f.name)) ? { ...f, folderId } : f))
+    if (failed.size > 0) notify(t('favorites.batchPartialFailed', { count: failed.size }), 'error')
     clearSelection()
   }
   const deleteSelected = async () => {
     const names = [...selected]
     const ok = await confirm({ title: t('favorites.deleteSelectedTitle'), message: t('favorites.deleteSelectedMessage', { count: names.length }), confirmLabel: t('favorites.delete'), destructive: true })
     if (!ok) return
-    // ONE batch call (Perf #9) — not N DELETE /stream/favorite/:name.
-    await favoriteRemoveBatch(names).catch(() => {})
-    setFavs(favs.filter(f => !selected.has(f.name)))
+    const res = await favoriteRemoveBatch(names).catch(() => null)
+    const failed = new Set<string>(res ? res.failed : names)
+    setFavs(favs.filter(f => !(selected.has(f.name) && !failed.has(f.name))))
+    if (failed.size > 0) notify(t('favorites.batchPartialFailed', { count: failed.size }), 'error')
     clearSelection()
   }
 

@@ -1,6 +1,14 @@
 // Favoritos, pastas e import de torrent. Extraído de stream.ts (R3 follow-up).
 import { api } from './http'
+import { BATCH_CAPS, runChunked } from '../lib/batchChunk'
 import type { FavoriteFolder, ImportResult, StreamFavorite } from './stream-types'
+
+const emptyFavBatch: FavoriteBatchResult = { affected: 0, total: 0, failed: [] }
+const mergeFavBatch = (a: FavoriteBatchResult, b: FavoriteBatchResult): FavoriteBatchResult => ({
+  affected: a.affected + b.affected,
+  total: a.total + b.total,
+  failed: [...a.failed, ...b.failed],
+})
 
 export const favoritesList = async (includeHidden = false): Promise<StreamFavorite[]> => {
   const { data } = await api.get<StreamFavorite[]>(`/stream/favorites${includeHidden ? '?includeHidden=1' : ''}`)
@@ -23,11 +31,11 @@ export type FavoriteBatchResult = {
 }
 
 /** Remove many favorites in ONE call (Perf #9 — no N DELETE /stream/favorite/:name). */
-export const favoriteRemoveBatch = async (names: string[]): Promise<FavoriteBatchResult> => {
-  if (names.length === 0) return { affected: 0, total: 0, failed: [] }
-  const { data } = await api.post<FavoriteBatchResult>('/stream/favorites/batch/remove', { names })
-  return data
-}
+export const favoriteRemoveBatch = async (names: string[]): Promise<FavoriteBatchResult> =>
+  runChunked(names, BATCH_CAPS.favorites, async chunk => {
+    const { data } = await api.post<FavoriteBatchResult>('/stream/favorites/batch/remove', { names: chunk })
+    return data
+  }, mergeFavBatch, emptyFavBatch)
 
 export const streamImport = async (
   payload: { magnet?: string; torrentB64?: string; name?: string; folderId?: number | null },
@@ -74,11 +82,11 @@ export const favoriteSetFolder = async (name: string, folderID: number | null): 
 export const favoriteSetFolderBatch = async (
   names: string[],
   folderID: number | null,
-): Promise<FavoriteBatchResult> => {
-  if (names.length === 0) return { affected: 0, total: 0, failed: [] }
-  const body = folderID === null
-    ? { names, toRoot: true as const }
-    : { names, folderId: folderID }
-  const { data } = await api.post<FavoriteBatchResult>('/stream/favorites/batch/folder', body)
-  return data
-}
+): Promise<FavoriteBatchResult> =>
+  runChunked(names, BATCH_CAPS.favorites, async chunk => {
+    const body = folderID === null
+      ? { names: chunk, toRoot: true as const }
+      : { names: chunk, folderId: folderID }
+    const { data } = await api.post<FavoriteBatchResult>('/stream/favorites/batch/folder', body)
+    return data
+  }, mergeFavBatch, emptyFavBatch)
