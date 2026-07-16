@@ -106,7 +106,9 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
       {/* Top layer: per-torrent resolved art (poster/cover/frame). Covers the
           TMDB poster + fallback when present; a 204/404 hides it (onError),
           revealing the layers below. Only mounts when we have an info_hash. */}
-      {showArt && (
+      {/* infoHash is required by shouldMountArtImg for showArt=true; guard
+          keeps TypeScript happy (infoHash is optional on the props type). */}
+      {showArt && infoHash ? (
         <img
           src={streamArtURL(infoHash)}
           alt={title}
@@ -114,7 +116,7 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
           className="absolute inset-0 w-full h-full object-cover"
           onError={() => setArtFailed(true)}
         />
-      )}
+      ) : null}
     </div>
   )
 }
