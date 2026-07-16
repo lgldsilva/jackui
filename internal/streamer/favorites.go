@@ -61,7 +61,9 @@ func NewFavorites(pool *sql.DB) (*FavoritesStore, error) {
 }
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
-func (f *FavoritesStore) Close() {}
+func (f *FavoritesStore) Close() {
+	// No-op: shared Postgres pool lifecycle is owned by main (S1186).
+}
 
 // Add marks a stream as favorite. Idempotent — re-adding refreshes the timestamp.
 // userID=0 means "no auth/legacy". magnet may be empty if unknown.
