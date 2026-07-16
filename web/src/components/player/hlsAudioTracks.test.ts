@@ -30,8 +30,8 @@ describe('probeAudioToPosition', () => {
   })
 
   it('índice inexistente → null (não aplica nada)', () => {
-    expect(probeAudioToPosition(9, probeAudio)).toBe(null)
-    expect(probeAudioToPosition(2, probeAudio)).toBe(null)
+    expect(probeAudioToPosition(9, probeAudio)).toBeNull()
+    expect(probeAudioToPosition(2, probeAudio)).toBeNull()
   })
 })
 
