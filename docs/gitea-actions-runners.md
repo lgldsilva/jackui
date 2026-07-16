@@ -7,12 +7,12 @@ plano completo da migração (mapa Jenkins → Actions) no doc de planejamento.
 
 | Runner | Nó | Labels | Papel |
 |---|---|---|---|
-| CI-A | oci-ampere-1 | `arm64` | test / lint / frontend build / Sonar / SBOM |
-| CI-B | oci-ampere-2 | `arm64` | idem (paralelismo) |
-| Deploy | homeserver | `deploy` | build nvidia (amd64 nativo) + Trivy + push + deploy |
+| CI (swarm) | oci-ampere-1 + oci-ampere-2 | `ubuntu-latest`, `arm64`, `self-hosted` | test / lint / build / Sonar / SBOM |
+| Deploy | homeserver | **`deploy` only** | build nvidia (amd64 nativo) + Trivy + push + deploy |
 
-`runs-on: [self-hosted, arm64]` cai nos CI; `runs-on: [self-hosted, deploy]` no
-homeserver (onde vivem a GPU/NVENC, o `docker.sock` e o acesso ao compose de prod).
+`runs-on: [self-hosted, arm64]` (ou `ubuntu-latest`) cai nos CI ARM.
+`runs-on: deploy` cai **só** no homeserver (GPU/NVENC, `docker.sock`, `/portainer`).
+O deploy runner **não** anuncia `ubuntu-latest`/`self-hosted` — evita roubar jobs genéricos.
 
 ## Registro (por nó)
 
@@ -93,6 +93,9 @@ Se os runners estiverem sobrecarregados e runs ficarem presas em `pending`:
 5. Rollback de concurrency: se um grupo mal configurado causar cancelamentos
    indevidos, remova apenas o bloco `concurrency` do workflow problemático e
    re-execute — os outros workflows não são afetados.
+6. Se `deliver` ficar em "Waiting to run": confira se o deploy runner está
+   `online` com label **`deploy`** (não `self-hosted`). Workflows devem usar
+   `runs-on: deploy` (não `[self-hosted, deploy]`).
 
 ## Ativação
 

@@ -180,7 +180,7 @@ jobs:
 
   deliver:
     needs: [sonar]            # ← só entrega se o GATE passou
-    runs-on: [self-hosted, deploy]   # homeserver: amd64 nativo + GPU + docker.sock
+    runs-on: deploy   # homeserver only: amd64 nativo + GPU + docker.sock + /portainer
     env:
       # Host do container registry — configurado em Settings → Actions → Variables (vars.REGISTRY).
       REGISTRY: "${{ vars.REGISTRY }}"
