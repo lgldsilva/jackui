@@ -305,6 +305,9 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.GET("/stream/favorites", handlers.StreamFavorites(deps.streamSrv))
 	api.POST("/stream/favorite", handlers.StreamFavorite(deps.streamSrv))
 	api.DELETE("/stream/favorite/:name", handlers.StreamUnfavorite(deps.streamSrv))
+	// Batch favorites (Perf #9): multi-select move/delete on FavoritesPage.
+	api.POST("/stream/favorites/batch/remove", handlers.FavoritesBatchRemove(deps.streamSrv))
+	api.POST("/stream/favorites/batch/folder", handlers.FavoritesBatchSetFolder(deps.streamSrv))
 	api.GET("/stream/favorites/folders", handlers.FoldersList(deps.streamSrv))
 	api.POST("/stream/favorites/folders", handlers.FolderCreate(deps.streamSrv))
 	api.PATCH("/stream/favorites/folders/:id", handlers.FolderPatch(deps.streamSrv))

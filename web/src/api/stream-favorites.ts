@@ -15,6 +15,20 @@ export const favoriteRemove = async (name: string): Promise<void> => {
   await api.delete(`/stream/favorite/${encodeURIComponent(name)}`)
 }
 
+/** Result of favorites batch remove/folder (Perf #9). */
+export type FavoriteBatchResult = {
+  affected: number
+  total: number
+  failed: string[]
+}
+
+/** Remove many favorites in ONE call (Perf #9 — no N DELETE /stream/favorite/:name). */
+export const favoriteRemoveBatch = async (names: string[]): Promise<FavoriteBatchResult> => {
+  if (names.length === 0) return { affected: 0, total: 0, failed: [] }
+  const { data } = await api.post<FavoriteBatchResult>('/stream/favorites/batch/remove', { names })
+  return data
+}
+
 export const streamImport = async (
   payload: { magnet?: string; torrentB64?: string; name?: string; folderId?: number | null },
 ): Promise<ImportResult> => {
@@ -54,4 +68,17 @@ export const favoriteSetFolder = async (name: string, folderID: number | null): 
   await api.patch(`/stream/favorite/${encodeURIComponent(name)}/folder`, folderID === null
     ? { toRoot: true }
     : { folderId: folderID })
+}
+
+/** Move many favorites into a folder (or root) in ONE call (Perf #9). */
+export const favoriteSetFolderBatch = async (
+  names: string[],
+  folderID: number | null,
+): Promise<FavoriteBatchResult> => {
+  if (names.length === 0) return { affected: 0, total: 0, failed: [] }
+  const body = folderID === null
+    ? { names, toRoot: true as const }
+    : { names, folderId: folderID }
+  const { data } = await api.post<FavoriteBatchResult>('/stream/favorites/batch/folder', body)
+  return data
 }
