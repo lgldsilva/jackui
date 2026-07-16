@@ -10,23 +10,23 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 )
 
-// acquireVerify takes the global piece-hash slot (or no-ops if unlimited).
+// acquireVerify takes a piece-hash slot (disk-bound). Independent of max_active.
 func (s *Streamer) acquireVerify(label string) {
-	if s.verifySem == nil {
+	if s.verifyLim == nil {
 		return
 	}
-	s.verifySem <- struct{}{}
+	s.verifyLim.Acquire()
 	if label != "" {
-		log.Printf("streamer: piece-verify acquired (%s)", label)
+		log.Printf("streamer: piece-verify acquired (%s) limit=%d", label, s.verifyLim.Limit())
 	}
 }
 
-// releaseVerify frees the global piece-hash slot.
+// releaseVerify frees a piece-hash slot.
 func (s *Streamer) releaseVerify(label string) {
-	if s.verifySem == nil {
+	if s.verifyLim == nil {
 		return
 	}
-	<-s.verifySem
+	s.verifyLim.Release()
 	if label != "" {
 		log.Printf("streamer: piece-verify released (%s)", label)
 	}

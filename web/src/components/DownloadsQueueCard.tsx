@@ -109,6 +109,8 @@ export default function DownloadsQueueCard() {
           suffix={t('downloads.queueCard.suffixTotal')} hint={t('downloads.queueCard.maxActiveHint')} />
         <NumberField label={t('downloads.queueCard.perUserLabel')} value={form.perUserMaxActive} onChange={(n) => set('perUserMaxActive', n)}
           min={0} suffix={t('downloads.queueCard.suffixPerUser')} hint={t('downloads.queueCard.perUserHint')} />
+        <NumberField label={t('downloads.queueCard.verifyLabel')} value={form.maxConcurrentVerify ?? 1} onChange={(n) => set('maxConcurrentVerify', n)}
+          suffix={t('downloads.queueCard.suffixVerify')} hint={t('downloads.queueCard.verifyHint')} />
         <NumberField label={t('downloads.queueCard.stallLabel')} value={form.stallThresholdMin} onChange={(n) => set('stallThresholdMin', n)}
           suffix={t('downloads.queueCard.suffixMin')} hint={t('downloads.queueCard.stallHint')} />
         <NumberField label={t('downloads.queueCard.maxStallsLabel')} value={form.maxStalls} onChange={(n) => set('maxStalls', n)}

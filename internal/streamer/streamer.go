@@ -136,11 +136,10 @@ type Streamer struct {
 	// given file exactly once (not on every FileReader call).
 	verifiedMu    sync.RWMutex
 	verifiedFiles map[string]bool
-	// verifySem serializes disk-bound piece hashing across torrents. Capacity 1:
-	// without it, concurrent download inits each VerifyFile multi-GB packs in
-	// parallel after restart/requeue and thrash the bulk HDD (iowait storm).
-	// nil = unlimited (only for carefully constructed unit tests).
-	verifySem chan struct{}
+	// verifyLim caps concurrent piece-hash jobs (disk I/O), independent of the
+	// download scheduler's max_active (peer I/O). Live-tunable via
+	// SetVerifyConcurrency. nil = unlimited (tests only).
+	verifyLim *verifyLimiter
 	// Global bandwidth limiters wired into the anacrolix client config. Mutated
 	// in place via SetLimit/SetBurst — anacrolix re-reads the limit on every
 	// chunk read/write.
@@ -385,7 +384,7 @@ func New(cfg Config) (*Streamer, error) {
 		downloads:         make(map[string]struct{}),
 		metainfoDir:       metainfoDir,
 		verifiedFiles:     make(map[string]bool),
-		verifySem:         make(chan struct{}, 1),
+		verifyLim:         newVerifyLimiter(1),
 		dlLimiter:         dlLimiter,
 		upLimiter:         upLimiter,
 		storageImpl:       storageImpl,

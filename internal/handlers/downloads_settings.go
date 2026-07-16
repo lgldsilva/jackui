@@ -9,23 +9,29 @@ import (
 
 // downloadsQueueBody is the wire shape for GET/PUT /api/downloads/settings.
 type downloadsQueueBody struct {
-	MaxActive         int  `json:"maxActive"`
-	PerUserMaxActive  int  `json:"perUserMaxActive"`
-	StallThresholdMin int  `json:"stallThresholdMin"`
-	MaxStalls         int  `json:"maxStalls"`
-	AgingStepMin      int  `json:"agingStepMin"`
-	AgingCap          int  `json:"agingCap"`
-	RotationEnabled   bool `json:"rotationEnabled"`
-	AutoPromoteArr    bool `json:"autoPromoteArr"`
+	MaxActive           int  `json:"maxActive"`
+	PerUserMaxActive    int  `json:"perUserMaxActive"`
+	MaxConcurrentVerify int  `json:"maxConcurrentVerify"` // disk-bound piece rechecks; independent of maxActive
+	StallThresholdMin   int  `json:"stallThresholdMin"`
+	MaxStalls           int  `json:"maxStalls"`
+	AgingStepMin        int  `json:"agingStepMin"`
+	AgingCap            int  `json:"agingCap"`
+	RotationEnabled     bool `json:"rotationEnabled"`
+	AutoPromoteArr      bool `json:"autoPromoteArr"`
 	// TransferConcurrencyMode: "auto" (default) | "serial" | "parallel".
 	TransferConcurrencyMode string `json:"transferConcurrencyMode"`
 }
 
 func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
 	q := cfg.DownloadsQueue
+	mcv := q.MaxConcurrentVerify
+	if mcv < 1 {
+		mcv = 1
+	}
 	return downloadsQueueBody{
 		MaxActive:               q.MaxActive,
 		PerUserMaxActive:        q.PerUserMaxActive,
+		MaxConcurrentVerify:     mcv,
 		StallThresholdMin:       q.StallThresholdMin,
 		MaxStalls:               q.MaxStalls,
 		AgingStepMin:            q.AgingStepMin,
@@ -59,6 +65,9 @@ func validateDownloadsQueue(b *downloadsQueueBody) string {
 	if b.PerUserMaxActive < 0 {
 		return "perUserMaxActive deve ser >= 0 (0 = sem limite por usuário)"
 	}
+	if b.MaxConcurrentVerify < 1 {
+		return "maxConcurrentVerify deve ser >= 1"
+	}
 	if b.StallThresholdMin < 1 {
 		return "stallThresholdMin deve ser >= 1"
 	}
@@ -78,12 +87,17 @@ func validateDownloadsQueue(b *downloadsQueueBody) string {
 
 // DownloadsUpdateSettings handles PUT /api/downloads/settings (AdminOnly). The
 // worker reads these live each tick, so everything applies without a restart.
-func DownloadsUpdateSettings(cfg *config.Config, configPath string) gin.HandlerFunc {
+// setVerifyConcurrency applies maxConcurrentVerify to the streamer (may be nil).
+func DownloadsUpdateSettings(cfg *config.Config, configPath string, setVerifyConcurrency func(int)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b downloadsQueueBody
 		if err := c.ShouldBindJSON(&b); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
+		}
+		// Omitted field (0) → disk-safe default; keeps older clients working.
+		if b.MaxConcurrentVerify == 0 {
+			b.MaxConcurrentVerify = 1
 		}
 		if msg := validateDownloadsQueue(&b); msg != "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
@@ -91,6 +105,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string) gin.HandlerF
 		}
 		cfg.DownloadsQueue.MaxActive = b.MaxActive
 		cfg.DownloadsQueue.PerUserMaxActive = b.PerUserMaxActive
+		cfg.DownloadsQueue.MaxConcurrentVerify = b.MaxConcurrentVerify
 		cfg.DownloadsQueue.StallThresholdMin = b.StallThresholdMin
 		cfg.DownloadsQueue.MaxStalls = b.MaxStalls
 		cfg.DownloadsQueue.AgingStepMin = b.AgingStepMin
@@ -102,6 +117,9 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string) gin.HandlerF
 			cfg.Stream.TransferConcurrencyMode = ""
 		} else {
 			cfg.Stream.TransferConcurrencyMode = b.TransferConcurrencyMode
+		}
+		if setVerifyConcurrency != nil {
+			setVerifyConcurrency(b.MaxConcurrentVerify)
 		}
 
 		if err := cfg.Save(configPath); err != nil {

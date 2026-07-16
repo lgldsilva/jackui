@@ -138,6 +138,24 @@ func NewForTesting() *Streamer {
 		dlLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
 		upLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
 		verifiedFiles: make(map[string]bool),
-		verifySem:     make(chan struct{}, 1),
+		verifyLim:     newVerifyLimiter(1),
 	}
+}
+
+// SetVerifyConcurrency sets how many piece-hash jobs may run in parallel
+// (disk-bound). Independent of downloads max_active. n < 1 clamps to 1.
+// Live — no restart. Safe to call with a nil Streamer.
+func (s *Streamer) SetVerifyConcurrency(n int) {
+	if s == nil || s.verifyLim == nil {
+		return
+	}
+	s.verifyLim.SetLimit(n)
+}
+
+// VerifyConcurrency returns the current piece-hash concurrency cap (0 if unset).
+func (s *Streamer) VerifyConcurrency() int {
+	if s == nil || s.verifyLim == nil {
+		return 0
+	}
+	return s.verifyLim.Limit()
 }

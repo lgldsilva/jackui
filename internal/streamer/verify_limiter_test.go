@@ -1,0 +1,112 @@
+package streamer
+
+import (
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestVerifyLimiter_SerializesWhenLimitOne(t *testing.T) {
+	l := newVerifyLimiter(1)
+	var concurrent atomic.Int32
+	var maxSeen atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l.Acquire()
+			n := concurrent.Add(1)
+			for {
+				cur := maxSeen.Load()
+				if n <= cur || maxSeen.CompareAndSwap(cur, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			concurrent.Add(-1)
+			l.Release()
+		}()
+	}
+	wg.Wait()
+	if maxSeen.Load() != 1 {
+		t.Fatalf("max concurrent = %d, want 1", maxSeen.Load())
+	}
+}
+
+func TestVerifyLimiter_AllowsParallelUpToLimit(t *testing.T) {
+	l := newVerifyLimiter(2)
+	var concurrent atomic.Int32
+	var maxSeen atomic.Int32
+	entered := make(chan struct{}, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			l.Acquire()
+			n := concurrent.Add(1)
+			for {
+				cur := maxSeen.Load()
+				if n <= cur || maxSeen.CompareAndSwap(cur, n) {
+					break
+				}
+			}
+			entered <- struct{}{}
+			// Hold until both have entered so max concurrent is observable.
+			time.Sleep(50 * time.Millisecond)
+			concurrent.Add(-1)
+			l.Release()
+		}()
+	}
+	// Wait for both acquisitions without hanging the test forever.
+	deadline := time.After(2 * time.Second)
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-deadline:
+			t.Fatal("timed out waiting for both acquires")
+		}
+	}
+	wg.Wait()
+	if maxSeen.Load() != 2 {
+		t.Fatalf("max concurrent = %d, want 2", maxSeen.Load())
+	}
+}
+
+func TestVerifyLimiter_SetLimitWakesWaiters(t *testing.T) {
+	l := newVerifyLimiter(1)
+	l.Acquire() // hold the only slot
+	done := make(chan struct{})
+	go func() {
+		l.Acquire()
+		close(done)
+		l.Release()
+	}()
+	// Waiter must be blocked while limit is 1 and slot is held.
+	select {
+	case <-done:
+		t.Fatal("second acquire must block while limit=1 and slot held")
+	case <-time.After(50 * time.Millisecond):
+	}
+	l.SetLimit(2) // free a second slot without releasing the first
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetLimit(2) should allow the waiter to enter")
+	}
+	l.Release()
+}
+
+func TestNormalizeVerifyLimit(t *testing.T) {
+	if got := normalizeVerifyLimit(0); got != 1 {
+		t.Fatalf("0 → %d, want 1", got)
+	}
+	if got := normalizeVerifyLimit(-3); got != 1 {
+		t.Fatalf("-3 → %d, want 1", got)
+	}
+	if got := normalizeVerifyLimit(4); got != 4 {
+		t.Fatalf("4 → %d, want 4", got)
+	}
+}
