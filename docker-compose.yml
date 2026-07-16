@@ -123,6 +123,10 @@ services:
       # on boot into the owner's subfolder (via the downloads DB; no owner → admin).
       - JACKUI_EXTERNAL_MOUNTS=${JACKUI_EXTERNAL_MOUNTS:-Library:/mnt/storage/library,My downloads:/mnt/storage/downloads:usersubpath,Media:/mnt/gdrive/media}
       - JACKUI_AUTH_ENABLED=${JACKUI_AUTH_ENABLED:-1}
+      # Escape hatch for JACKUI_AUTH_ENABLED=0 (dev/LAN): the boot fails-closed
+      # without it. Forwarded here so the .env value actually reaches the process
+      # (compose .env only feeds ${interpolation}, not the container env).
+      - JACKUI_ALLOW_INSECURE_AUTH=${JACKUI_ALLOW_INSECURE_AUTH:-0}
       - JACKUI_ADMIN_USERNAME=${JACKUI_ADMIN_USERNAME:-admin}
       - JACKUI_ADMIN_PASSWORD=${JACKUI_ADMIN_PASSWORD}
       - JACKUI_JWT_SECRET=${JACKUI_JWT_SECRET}

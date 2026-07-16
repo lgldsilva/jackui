@@ -280,10 +280,14 @@ func envInt(name string) (int, bool) {
 }
 
 func applyAuthEnv(cfg *Config) {
+	// Only an EXPLICIT env value flips auth; when unset we respect the value
+	// already on cfg (from config.yaml, or defaultConfig which defaults ON). The
+	// old `default: true` forced auth on even when the file said
+	// `auth.enabled: false`, silently killing the YAML opt-out.
 	switch os.Getenv("JACKUI_AUTH_ENABLED") {
 	case "0", "false":
 		cfg.Auth.Enabled = false
-	default:
+	case "1", "true":
 		cfg.Auth.Enabled = true
 	}
 	if v := os.Getenv("JACKUI_ADMIN_PASSWORD"); v != "" {

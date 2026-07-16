@@ -1,6 +1,6 @@
 // Núcleo do streaming: add, metadata, info, drop, queue. Extraído de stream.ts (R3).
 import { api } from './http'
-import { extractBtihFromMagnet, extractInfoHashFromMagnet } from '../lib/magnet'
+import { extractBtihFromMagnet } from '../lib/magnet'
 import { downloadCreate, WHOLE_TORRENT_FILE_INDEX, type DownloadEntry } from './downloads'
 import {
   isLocalHash,
@@ -59,10 +59,11 @@ export const queueAllTorrentFiles = async (
   })
 
 export const streamAdd = async (magnet: string, kind?: 'audio' | 'video'): Promise<TorrentInfo> => {
+  // extractBtihFromMagnet keeps the raw btih segment (incl. a `local-…`
+  // pseudo-hash); extractInfoHashFromMagnet normalises to hex40 only, so the old
+  // second check could never see a local hash — it was dead code.
   const rawBtih = extractBtihFromMagnet(magnet)
   if (rawBtih && isLocalHash(rawBtih)) return synthesizeLocalInfo(rawBtih)
-  const localHash = extractInfoHashFromMagnet(magnet) || null
-  if (localHash && isLocalHash(localHash)) return synthesizeLocalInfo(localHash)
   const { data } = await api.post<TorrentInfo>('/stream/add', kind ? { magnet, kind } : { magnet })
   return data
 }
