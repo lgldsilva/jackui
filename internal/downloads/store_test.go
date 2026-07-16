@@ -216,6 +216,13 @@ func TestGetCompletedPath_ScopedByUser(t *testing.T) {
 	if path, err := s.GetCompletedPath("priv-hash", 0, -1); err != nil || path != "/done/a.mkv" {
 		t.Fatalf("system any-owner: path=%q err=%v", path, err)
 	}
+	// Rel variant: other user still empty.
+	if path, err := s.GetCompletedPathRel("priv-hash", 0, "x.mkv", 2); err != nil || path != "" {
+		t.Fatalf("rel other user: path=%q err=%v", path, err)
+	}
+	if path, err := s.GetCompletedPathRel("priv-hash", 0, "x.mkv", 1); err != nil || path != "/done/a.mkv" {
+		t.Fatalf("rel owner per-file: path=%q err=%v", path, err)
+	}
 }
 
 func TestGetCompletedPath_NilStore(t *testing.T) {

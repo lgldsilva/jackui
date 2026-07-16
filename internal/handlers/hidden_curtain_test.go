@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"encoding/base64"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/library"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -57,5 +60,43 @@ func TestParseLocalInfoHashAndDropLocalLibrary(t *testing.T) {
 	pub := "local-" + base64.RawURLEncoding.EncodeToString([]byte(`{"mount":"Movies","path":"public/x.mkv"}`))
 	if localLibraryEntryHidden(pub, byMount) {
 		t.Fatal("public local path must not be hidden")
+	}
+}
+
+func TestDropHiddenLocalLibrary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s, fav := newCurtainStreamer(t)
+	const uid = 4
+	if err := fav.SetLocalPathHidden(uid, "Movies", "secret", true); err != nil {
+		t.Fatalf("hide: %v", err)
+	}
+	secretHash := "local-" + base64.RawURLEncoding.EncodeToString([]byte(`{"mount":"Movies","path":"secret/a.mkv"}`))
+	pubHash := "local-" + base64.RawURLEncoding.EncodeToString([]byte(`{"mount":"Movies","path":"pub/a.mkv"}`))
+	list := []library.Entry{
+		{InfoHash: secretHash, Name: "secret"},
+		{InfoHash: pubHash, Name: "pub"},
+		{InfoHash: "deadbeef", Name: "torrent"},
+	}
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/api/library", nil)
+	got := dropHiddenLocalLibrary(c, s, list, uid)
+	if len(got) != 2 {
+		t.Fatalf("closed curtain: want 2 (pub+torrent), got %d %+v", len(got), got)
+	}
+	for _, e := range got {
+		if e.InfoHash == secretHash {
+			t.Fatal("secret local entry leaked")
+		}
+	}
+
+	// Curtain open → secret reappears.
+	c.Set("reveal_hidden", true)
+	if !middleware.IsRevealHidden(c) {
+		t.Fatal("setup: reveal flag not set")
+	}
+	gotOpen := dropHiddenLocalLibrary(c, s, list, uid)
+	if len(gotOpen) != 3 {
+		t.Fatalf("open curtain: want 3, got %d", len(gotOpen))
 	}
 }
