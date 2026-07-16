@@ -1,0 +1,32 @@
+# Manual smoke for gitea-workflows telegram-notify (no build/deploy).
+# Usage: Actions → Telegram smoke → Run workflow
+name: Telegram smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      status:
+        description: 'success or failure'
+        type: string
+        required: false
+        default: success
+      app_name:
+        description: Display name in the message
+        type: string
+        required: false
+        default: JackUI
+      semver:
+        description: Optional version tag in the message
+        type: string
+        required: false
+        default: smoke-test
+
+jobs:
+  notify:
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/telegram-notify.yml@v1.0.10
+    with:
+      app_name: ${{ inputs.app_name || 'JackUI' }}
+      status: ${{ inputs.status || 'success' }}
+      semver: ${{ inputs.semver || 'smoke-test' }}
+      runner: self-hosted
+    secrets: inherit
