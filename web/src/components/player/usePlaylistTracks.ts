@@ -163,13 +163,15 @@ export function usePlaylistTracks(
     const free = ACTIVATE_CONCURRENCY - inFlight.current.size
     if (free <= 0) return
     const next = orderPending(groups, currentItemIndex, inFlight.current).slice(0, free)
-    for (const idx of next) void resolveOne(idx)
+    for (const idx of next) {
+      resolveOne(idx).catch(() => { /* background resolve; status set in resolveOne */ })
+    }
   }, [groups, enabled, batchWarmDone, currentItemIndex, resolveOne])
 
   // ensureLoaded resolve UM grupo sob demanda (clique do usuário pra expandir um
   // grupo ainda 'pending'). É 1 requisição vinda de um gesto — não a rajada de N.
   const ensureLoaded = useCallback((itemIndex: number) => {
-    void resolveOne(itemIndex)
+    resolveOne(itemIndex).catch(() => { /* on-demand resolve; status set in resolveOne */ })
   }, [resolveOne])
 
   return { groups, ensureLoaded }
