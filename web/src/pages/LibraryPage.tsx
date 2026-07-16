@@ -19,33 +19,39 @@ import { useThumbnail } from '../lib/useThumbnail'
 import { usePersistedState } from '../lib/storage'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { newTabProps, playHref } from '../lib/cardNav'
+import {
+  artBustsFromBatch,
+  artPresenceFromBatch,
+  mergeArtBustMaps,
+  mergeArtPresence,
+  shouldMountArtImg,
+  withArtBust,
+} from '../lib/artPresence'
 
 type Filter = 'recent' | 'unfinished' | 'finished'
 
-function artBumpsFromBatchResults(results: Record<string, { source?: string }>): Record<string, number> {
-  const bumps: Record<string, number> = {}
-  for (const [hash, r] of Object.entries(results)) {
-    if (r.source) bumps[hash] = Date.now()
-  }
-  return bumps
+type LibraryArtSeed = {
+  presence: Record<string, boolean>
+  busts: Record<string, number>
 }
 
-function mergeArtBustMaps(prev: Record<string, number>, bumps: Record<string, number>): Record<string, number> {
-  return { ...prev, ...bumps }
-}
-
-async function resolveLibraryArtBumps(
+async function resolveLibraryArtSeed(
   items: { hash: string; name: string; file: number }[],
-): Promise<Record<string, number>> {
-  if (items.length === 0) return {}
+): Promise<LibraryArtSeed> {
+  if (items.length === 0) return { presence: {}, busts: {} }
   const results = await resolveArtBatch(items)
-  return artBumpsFromBatchResults(results)
+  return {
+    presence: artPresenceFromBatch(results),
+    busts: artBustsFromBatch(results),
+  }
 }
 
 export default function LibraryPage() {
   const [entries, setEntries] = useState<LibraryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Perf #8: presence from resolveArtBatch — <img> only mounts when true.
+  const [artPresence, setArtPresence] = useState<Record<string, boolean>>({})
   // Bust cache-buster per infoHash after batch/single art resolve persists art.
   const [artBustMap, setArtBustMap] = useState<Record<string, number>>({})
   useScrollRestoration(!loading)
@@ -61,9 +67,18 @@ export default function LibraryPage() {
 
   const [revealHidden] = useRevealHidden()
 
-  const applyArtBumps = (bumps: Record<string, number>) => {
-    if (Object.keys(bumps).length === 0) return
-    setArtBustMap(prev => mergeArtBustMaps(prev, bumps))
+  const applyArtSeed = (seed: LibraryArtSeed) => {
+    if (Object.keys(seed.presence).length > 0) {
+      setArtPresence(prev => mergeArtPresence(prev, seed.presence))
+    }
+    if (Object.keys(seed.busts).length > 0) {
+      setArtBustMap(prev => mergeArtBustMaps(prev, seed.busts))
+    }
+  }
+
+  const markArtPresent = (hash: string) => {
+    setArtPresence(prev => (prev[hash] ? prev : { ...prev, [hash]: true }))
+    setArtBustMap(prev => ({ ...prev, [hash]: Date.now() }))
   }
 
   const reload = () => {
@@ -72,11 +87,11 @@ export default function LibraryPage() {
       .then(entries => {
         setEntries(entries)
         setError(null)
-        return resolveLibraryArtBumps(
+        return resolveLibraryArtSeed(
           entries.filter(e => e.infoHash).map(e => ({ hash: e.infoHash, name: e.name, file: -1 })),
         )
       })
-      .then(applyArtBumps)
+      .then(applyArtSeed)
       .catch(err => setError(err instanceof Error ? err.message : 'Failed to load library'))
       .finally(() => setLoading(false))
   }
@@ -197,6 +212,7 @@ export default function LibraryPage() {
                 <LibraryCard
                   key={e.id}
                   entry={e}
+                  hasArt={artPresence[e.infoHash]}
                   artBust={artBustMap[e.infoHash]}
                   ratio={ratio}
                   remaining={remaining}
@@ -205,6 +221,7 @@ export default function LibraryPage() {
                   onRemove={() => handleRemoveOne(e)}
                   onDetails={() => setContentsTarget(entryToResult(e))}
                   onDownload={() => handleDownload(e)}
+                  onArtResolved={markArtPresent}
                 />
               )
             })}
@@ -229,6 +246,8 @@ export default function LibraryPage() {
 // title input, which is awkward inside .map() without a component boundary.
 type LibraryCardProps = {
   readonly entry: LibraryEntry
+  /** From resolveArtBatch: true only when art exists. Undefined until batch lands. */
+  readonly hasArt?: boolean
   readonly artBust?: number
   readonly ratio: number
   readonly remaining: number
@@ -237,9 +256,14 @@ type LibraryCardProps = {
   readonly onRemove: () => void
   readonly onDetails: () => void
   readonly onDownload: () => void
+  /** Mid-session resolveArt success (onArtError fallback) → parent re-seeds presence+bust. */
+  readonly onArtResolved?: (hash: string) => void
 }
 
-function LibraryCard({ entry, artBust, ratio, remaining, isDone, onPlay, onRemove, onDetails, onDownload }: LibraryCardProps) {
+function LibraryCard({
+  entry, hasArt, artBust, ratio, remaining, isDone,
+  onPlay, onRemove, onDetails, onDownload, onArtResolved,
+}: LibraryCardProps) {
   const { t } = useTranslation()
   const { ref, match } = useThumbnail<HTMLDivElement>(entry.name)
   const [artFailed, setArtFailed] = useState(false)
@@ -248,10 +272,16 @@ function LibraryCard({ entry, artBust, ratio, remaining, isDone, onPlay, onRemov
   // (Arquivos / Download / Apagar). On desktop the hover buttons stay.
   const [menuOpen, setMenuOpen] = useState(false)
   const longPress = useLongPress(() => setMenuOpen(true), { enabled: isMobile })
-  // bust forces the art <img> to refetch after a proactive resolve persists one.
-  const [bust, setBust] = useState(0)
+  // Local bust after onArtError→resolveArt when parent map hasn't updated yet.
+  const [localBust, setLocalBust] = useState(0)
   const resolvedRef = useRef(false)
-  const showArt = !!entry.infoHash && !artFailed
+  // Perf #8: require batch presence — no GET /stream/art when miss (204).
+  const showArt = shouldMountArtImg({
+    infoHash: entry.infoHash,
+    hasArt,
+    artFailed,
+    requireKnown: true,
+  })
 
   // New-tab deep-link mirrors handlePlay's file pick (lastFileIndex → positive
   // primaryFileIndex → let the server decide) plus the resume position, so a
@@ -259,27 +289,21 @@ function LibraryCard({ entry, artBust, ratio, remaining, isDone, onPlay, onRemov
   const playFileIdx = entry.lastFileIndex >= 0 ? entry.lastFileIndex : entry.primaryFileIndex
   const href = playHref(entry.infoHash, playFileIdx, entry.resumeSeconds)
 
-  // When the persisted art is missing (the <img> 204s → onError), proactively
-  // run the resolution chain once (TMDB → web search; no frame, torrent's idle)
-  // using the entry's name as the query. If it persists something, refetch;
-  // otherwise fall through to the title-based poster / icon.
+  // When batch said art exists but the <img> 204s/404s, re-run resolve once.
+  // (Batch already covers cold miss; this is mid-session / cache-bust miss.)
   const onArtError = () => {
     if (resolvedRef.current) { setArtFailed(true); return }
     resolvedRef.current = true
     resolveArt(entry.infoHash, -1, entry.name).then(src => {
-      if (src) setBust(b => b + 1)
-      else setArtFailed(true)
+      if (src) {
+        setLocalBust(b => b + 1)
+        onArtResolved?.(entry.infoHash)
+      } else {
+        setArtFailed(true)
+      }
     })
   }
-  const artURL = (() => {
-    const base = streamArtURL(entry.infoHash)
-    const bustVal = artBust ?? bust
-    if (bustVal > 0) {
-      const separator = base.includes('?') ? '&' : '?'
-      return `${base}${separator}_=${bustVal}`
-    }
-    return base
-  })()
+  const artURL = withArtBust(streamArtURL(entry.infoHash), artBust ?? localBust)
 
   return (
     <>
