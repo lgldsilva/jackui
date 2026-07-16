@@ -4,6 +4,7 @@
 // Aqui guardamos a lista inteira + qual item tocava, pra reabrir restaurando o
 // contexto completo da playlist (prev/next funcionando).
 import { load, save, remove } from '../../lib/storage'
+import { isIncognito } from '../../lib/incognito'
 import type { PlaylistItem } from '../../api/client'
 
 const KEY = 'player.playlistSnapshot'
@@ -22,6 +23,9 @@ export type PlaylistSnapshot = {
 
 export function savePlaylistSnapshot(name: string, items: readonly PlaylistItem[], currentItemIndex: number): void {
   if (items.length === 0) return
+  // Never persist playlists while incognito — that would leave titles/magnets
+  // in localStorage after the session ends (and after logout for the next user).
+  if (isIncognito()) return
   const snap: PlaylistSnapshot = { name, items, currentItemIndex, savedAt: Date.now() }
   save(KEY, snap)
 }

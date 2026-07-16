@@ -36,6 +36,13 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 		c.JSON(http.StatusBadRequest, gin.H{"error": "srcMount, srcPath and dstMount are required"})
 		return
 	}
+	// Curtain closed: refuse to move a hidden source (or into a hidden dest path).
+	if AbortIfLocalPathHidden(c, s, req.SrcMount, req.SrcPath) {
+		return
+	}
+	if AbortIfLocalPathHidden(c, s, req.DstMount, req.DstPath) {
+		return
+	}
 
 	if !isAdminMove(c) {
 		return
@@ -84,7 +91,8 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 	files, total := CountTree(srcAbs)
 	label := filepath.Base(req.SrcPath)
 	moved := filepath.Join(req.DstMount, req.DstPath, filepath.Base(req.SrcPath))
-	job := tr.Submit(label, "local-move", files, total, func(job *transfer.Job) {
+	userID, _, _ := auth.UserIDFromCtx(c)
+	job := tr.SubmitFor(userID, label, "local-move", files, total, func(job *transfer.Job) {
 		if err := MovePathJob(srcAbs, dstAbs, srcStat, job, files, total); err != nil {
 			job.Fail(err)
 			return
@@ -186,6 +194,9 @@ func LocalRename(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 	return func(c *gin.Context) {
 		req, ok := bindRenameReq(c)
 		if !ok {
+			return
+		}
+		if AbortIfLocalPathHidden(c, s, req.Mount, req.Path) {
 			return
 		}
 		if !CheckMountAccess(b, c, req.Mount) || !canModifyMount(c, req.Mount) {

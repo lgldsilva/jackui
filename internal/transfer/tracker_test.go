@@ -22,6 +22,39 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
+func TestTracker_ListFiltersByUser(t *testing.T) {
+	tr := New(2)
+	tr.StartFor(1, "a", "local-move", 1, 10)
+	tr.StartFor(2, "b", "local-move", 1, 10)
+	tr.StartFor(0, "sys", "promote", 1, 10) // system job visible to all
+
+	if n := len(tr.List(1, false)); n != 2 { // own + system
+		t.Fatalf("user1 list = %d, want 2", n)
+	}
+	if n := len(tr.List(2, false)); n != 2 {
+		t.Fatalf("user2 list = %d, want 2", n)
+	}
+	if n := len(tr.List(1, true)); n != 3 {
+		t.Fatalf("admin list = %d, want 3", n)
+	}
+	var otherID string
+	for _, s := range tr.List(2, false) {
+		if s.UserID == 2 {
+			otherID = s.ID
+			break
+		}
+	}
+	if otherID == "" {
+		t.Fatal("missing user2 job")
+	}
+	if tr.Cancel(otherID, 1, false) {
+		t.Fatal("user1 must not cancel user2 job")
+	}
+	if !tr.Cancel(otherID, 2, false) {
+		t.Fatal("owner should cancel own job")
+	}
+}
+
 func TestJobLifecycleAndProgress(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1000, 0)}
 	tr := &Tracker{now: clk.Now}
@@ -56,12 +89,12 @@ func TestJobLifecycleAndProgress(t *testing.T) {
 		t.Fatalf("rate após done = %d, want 0", got)
 	}
 
-	if n := len(tr.List()); n != 1 {
+	if n := len(tr.List(0, true)); n != 1 {
 		t.Fatalf("List = %d jobs, want 1", n)
 	}
 	// Passada a retenção, o job concluído some.
 	clk.advance(doneRetentionTTL + time.Second)
-	if n := len(tr.List()); n != 0 {
+	if n := len(tr.List(0, true)); n != 0 {
 		t.Fatalf("List após retenção = %d, want 0", n)
 	}
 }
@@ -181,7 +214,7 @@ func TestSubmitBoundsConcurrencyAndQueues(t *testing.T) {
 	<-started // one job acquired the single slot and is running
 
 	running, queued := 0, 0
-	for _, s := range tr.List() {
+	for _, s := range tr.List(0, true) {
 		switch s.Status {
 		case StatusRunning:
 			running++
@@ -200,7 +233,7 @@ func TestSubmitBoundsConcurrencyAndQueues(t *testing.T) {
 		t.Fatal("nem todos os 3 jobs concluíram após liberar a fila")
 	}
 	done := 0
-	for _, s := range tr.List() {
+	for _, s := range tr.List(0, true) {
 		if s.Status == StatusDone {
 			done++
 		}

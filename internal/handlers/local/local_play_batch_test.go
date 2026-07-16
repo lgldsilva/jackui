@@ -28,7 +28,7 @@ func batchRouter(t *testing.T, files ...string) (*gin.Engine, string) {
 	}
 	b := lb.NewBrowser([]config.ExternalMount{{Name: "Test", Path: mountDir}})
 	r := gin.New()
-	r.POST("/api/local/play/batch", LocalPlayBatch(b))
+	r.POST("/api/local/play/batch", LocalPlayBatch(b, nil))
 	return r, mountDir
 }
 

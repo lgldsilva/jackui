@@ -143,7 +143,7 @@ func TestTryServeFromCompleted_NilStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
-	result := tryServeFromCompleted(c, nil, "hash", 0, transcode.Options{}, "")
+	result := tryServeFromCompleted(c, nil, "hash", 0, transcode.Options{}, "", 1)
 
 	if result {
 		t.Error("expected false for nil store")

@@ -24,7 +24,7 @@ func newRenameRouter(t *testing.T) (*gin.Engine, *lb.Browser, *downloads.Store, 
 	b := lb.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: meus}})
 	router := gin.New()
 	router.POST("/api/local/rename", LocalRename(b, dls, nil))
-	router.POST("/api/local/lock", LocalSetFolderLock(b))
+	router.POST("/api/local/lock", LocalSetFolderLock(b, nil))
 	router.GET("/api/local/list", LocalList(b, nil))
 	return router, b, dls, meus
 }

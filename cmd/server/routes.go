@@ -196,7 +196,9 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		pub := router.Group("/api/auth")
 		pub.POST("/login", handlers.Login(deps.authStore, deps.tokenMgr, deps.loginLockout))
 		pub.POST("/refresh", handlers.Refresh(deps.authStore, deps.tokenMgr))
-		pub.POST("/logout", handlers.Logout(deps.authStore, deps.historyStore, deps.libraryStore))
+		// Optional so Bearer is parsed when present: Logout must see claims to
+		// purge incognito history/library. Without this, logout never cleaned.
+		pub.POST("/logout", auth.Optional(deps.tokenMgr), handlers.Logout(deps.authStore, deps.historyStore, deps.libraryStore))
 		pub.POST("/register", handlers.Register(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
 		pub.POST("/forgot", handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
@@ -286,14 +288,16 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	if deps.streamSrv == nil {
 		return
 	}
+	// Reads of the shared swarm stay on `api` (Downloads UI polls active/rate).
+	// Global mutations that affect every user are admin-only.
 	api.GET("/stream/cache", handlers.StreamCacheStats(deps.streamSrv))
-	api.DELETE("/stream/cache", handlers.StreamCacheClear(deps.streamSrv))
+	adminAPI.DELETE("/stream/cache", handlers.StreamCacheClear(deps.streamSrv))
 	api.GET("/stream/rate", handlers.StreamRateStats(deps.streamSrv))
 	api.GET("/stream/active", handlers.StreamActive(deps.streamSrv))
-	api.POST("/stream/active/pause", handlers.StreamPauseAll(deps.streamSrv))
-	api.POST("/stream/active/resume", handlers.StreamResumeAll(deps.streamSrv))
+	adminAPI.POST("/stream/active/pause", handlers.StreamPauseAll(deps.streamSrv))
+	adminAPI.POST("/stream/active/resume", handlers.StreamResumeAll(deps.streamSrv))
 	api.GET("/stream/limits", handlers.StreamGetLimits(deps.streamSrv))
-	api.POST("/stream/limits", handlers.StreamSetLimits(deps.streamSrv))
+	adminAPI.POST("/stream/limits", handlers.StreamSetLimits(deps.streamSrv))
 	api.POST("/stream/:hash/pause", handlers.StreamPause(deps.streamSrv))
 	api.POST("/stream/:hash/resume", handlers.StreamResume(deps.streamSrv))
 	api.POST("/stream/:hash/priority", handlers.StreamSetPriority(deps.streamSrv))
@@ -345,32 +349,40 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 // (?mount=&path=). All GET, all under /api/preview/ (whitelisted in
 // auth.isMediaPath for the ?token= fallback used by <img>/<iframe>).
 func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
+	// LocalHiddenGate is a no-op when the request uses ?hash= (torrent source)
+	// instead of ?mount=&path= — only local previews are curtain-gated.
+	gate := lh.LocalHiddenGate(deps.streamSrv)
 	d := handlers.PreviewDeps{Streamer: deps.streamSrv, Downloads: deps.downloadsStore, Local: deps.localBrowser}
-	api.GET("/preview/archive", handlers.PreviewArchiveList(d))
-	api.GET("/preview/archive/entry", handlers.PreviewArchiveEntry(d))
-	api.GET("/preview/comic", handlers.PreviewComicManifest(d))
-	api.GET("/preview/comic/page", handlers.PreviewComicPage(d))
-	api.GET("/preview/epub", handlers.PreviewEpubManifest(d))
-	api.GET("/preview/epub/chapter", handlers.PreviewEpubChapter(d))
-	api.GET("/preview/epub/res", handlers.PreviewEpubResource(d))
+	api.GET("/preview/archive", gate, handlers.PreviewArchiveList(d))
+	api.GET("/preview/archive/entry", gate, handlers.PreviewArchiveEntry(d))
+	api.GET("/preview/comic", gate, handlers.PreviewComicManifest(d))
+	api.GET("/preview/comic/page", gate, handlers.PreviewComicPage(d))
+	api.GET("/preview/epub", gate, handlers.PreviewEpubManifest(d))
+	api.GET("/preview/epub/chapter", gate, handlers.PreviewEpubChapter(d))
+	api.GET("/preview/epub/res", gate, handlers.PreviewEpubResource(d))
 }
 
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
+	// Hard curtain: any query-based (mount,path) resolution must go through the
+	// gate while the easter-egg reveal is closed. JSON-body mutations call
+	// AbortIfLocalPathHidden after bind. POST /local/hidden is intentionally
+	// ungated so the user can still hide/unhide when the curtain is open.
+	gate := lh.LocalHiddenGate(deps.streamSrv)
 	api.GET("/local/mounts", lh.LocalMounts(deps.localBrowser))
-	api.GET("/local/list", lh.LocalList(deps.localBrowser, deps.streamSrv))
+	api.GET("/local/list", gate, lh.LocalList(deps.localBrowser, deps.streamSrv))
 	api.POST("/local/hidden", lh.LocalSetHidden(deps.localBrowser, deps.streamSrv))
 	api.GET("/local/hidden", lh.LocalListHidden(deps.streamSrv))
-	api.GET("/local/file", lh.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
-	api.GET("/local/transfer-status", lh.LocalTransferStatus(deps.localBrowser, deps.localStream))
-	api.POST("/local/cache", lh.LocalCacheStart(deps.localBrowser, deps.localCache))
-	api.POST("/local/cache/folder", lh.LocalCacheFolder(deps.localBrowser, deps.localCache))
-	api.GET("/local/cache/status", lh.LocalCacheStatus(deps.localBrowser, deps.localCache))
-	api.DELETE("/local/cache", lh.LocalCacheDelete(deps.localBrowser, deps.localCache))
-	api.GET("/local/thumb", lh.LocalThumb(deps.localBrowser))
-	api.GET("/local/transcode", lh.LocalTranscode(deps.localBrowser))
-	api.DELETE("/local/file", lh.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/clean-empty", lh.LocalCleanEmptyDirs(deps.localBrowser))
-	api.GET("/local/duplicates", lh.LocalDuplicates(deps.localBrowser))
+	api.GET("/local/file", gate, lh.LocalFile(deps.localBrowser, deps.localStream, deps.localCache))
+	api.GET("/local/transfer-status", gate, lh.LocalTransferStatus(deps.localBrowser, deps.localStream))
+	api.POST("/local/cache", gate, lh.LocalCacheStart(deps.localBrowser, deps.localCache))
+	api.POST("/local/cache/folder", gate, lh.LocalCacheFolder(deps.localBrowser, deps.localCache, deps.streamSrv))
+	api.GET("/local/cache/status", gate, lh.LocalCacheStatus(deps.localBrowser, deps.localCache))
+	api.DELETE("/local/cache", gate, lh.LocalCacheDelete(deps.localBrowser, deps.localCache))
+	api.GET("/local/thumb", gate, lh.LocalThumb(deps.localBrowser))
+	api.GET("/local/transcode", gate, lh.LocalTranscode(deps.localBrowser))
+	api.DELETE("/local/file", gate, lh.LocalDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
+	api.POST("/local/clean-empty", gate, lh.LocalCleanEmptyDirs(deps.localBrowser))
+	api.GET("/local/duplicates", gate, lh.LocalDuplicates(deps.localBrowser, deps.streamSrv))
 	api.POST("/local/duplicates/delete", lh.LocalDuplicatesDelete(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/promote", lh.LocalPromote(lh.LocalPromoteDeps{
 		Browser:    deps.localBrowser,
@@ -382,24 +394,24 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 		Streamer:   deps.streamSrv,
 		Tracker:    deps.transferTracker,
 	}))
-	api.POST("/local/promote/preview", lh.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
-	api.GET("/local/walk", lh.LocalWalk(deps.localBrowser))
+	api.POST("/local/promote/preview", lh.LocalPromotePreview(deps.localBrowser, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests, deps.streamSrv))
+	api.GET("/local/walk", gate, lh.LocalWalk(deps.localBrowser, deps.streamSrv))
 	api.POST("/local/move", lh.LocalMoveEntry(deps.localBrowser, deps.downloadsStore, deps.streamSrv, deps.transferTracker))
 	api.POST("/local/rename", lh.LocalRename(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
-	api.POST("/local/lock", lh.LocalSetFolderLock(deps.localBrowser))
-	api.POST("/local/upload", lh.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
-	api.GET("/local/play", lh.LocalHiddenGate(deps.streamSrv), lh.LocalPlay(deps.localBrowser, deps.libraryStore))
-	api.POST("/local/play/batch", lh.LocalPlayBatch(deps.localBrowser))
-	api.GET("/local/audio/meta", lh.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
-	api.GET("/local/audio/cover", lh.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
+	api.POST("/local/lock", lh.LocalSetFolderLock(deps.localBrowser, deps.streamSrv))
+	api.POST("/local/upload", gate, lh.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
+	api.GET("/local/play", gate, lh.LocalPlay(deps.localBrowser, deps.libraryStore))
+	api.POST("/local/play/batch", lh.LocalPlayBatch(deps.localBrowser, deps.streamSrv))
+	api.GET("/local/audio/meta", gate, lh.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
+	api.GET("/local/audio/cover", gate, lh.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
 	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
 	api.GET("/music/trending", handlers.MusicTrending(deps.musicTrending))
-	api.GET("/local/probe", lh.LocalProbe(deps.localBrowser))
-	api.GET("/local/sidecars", lh.LocalSidecars(deps.localBrowser))
-	api.GET("/local/sidecar", lh.LocalSidecarRead(deps.localBrowser))
-	api.GET("/local/subtrack", lh.LocalSubtitleExtract(deps.localBrowser, deps.localCache))
+	api.GET("/local/probe", gate, lh.LocalProbe(deps.localBrowser))
+	api.GET("/local/sidecars", gate, lh.LocalSidecars(deps.localBrowser))
+	api.GET("/local/sidecar", gate, lh.LocalSidecarRead(deps.localBrowser))
+	api.GET("/local/subtrack", gate, lh.LocalSubtitleExtract(deps.localBrowser, deps.localCache))
 	if deps.subtitleClient != nil {
-		api.GET("/local/subtitles/auto", lh.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
+		api.GET("/local/subtitles/auto", gate, lh.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
 	}
 }
 
@@ -482,8 +494,9 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	// referencia o endpoint /stream/subtrack existente (ExtractSubtitle → VTT).
 	api.GET("/stream/hls/:hash/:file/sub/:track/index.m3u8", handlers.StreamHLSSubtitle(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	api.GET("/local/hls/index.m3u8", lh.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
-	api.GET("/local/hls/seg", lh.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
+	gate := lh.LocalHiddenGate(deps.streamSrv)
+	api.GET("/local/hls/index.m3u8", gate, lh.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
+	api.GET("/local/hls/seg", gate, lh.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
 	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
 	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))
 }

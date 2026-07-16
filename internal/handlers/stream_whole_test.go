@@ -112,7 +112,7 @@ func TestTryServeFromCompleted_WholeRowClaimsTheRequest(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	h, _ := parseHash(wholeHexHash)
 
-	if !tryServeFromCompleted(c, store, wholeHexHash, 0, transcode.Options{}, s.FileRelPath(h, 0)) {
+	if !tryServeFromCompleted(c, store, wholeHexHash, 0, transcode.Options{}, s.FileRelPath(h, 0), 1) {
 		t.Fatal("expected the whole-torrent completed file to be served from disk")
 	}
 }
@@ -125,11 +125,11 @@ func TestTryServeFromCompleted_MissAndDirectory(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 
 	// Unknown hash → no completed row → fall through to the streamer.
-	if tryServeFromCompleted(c, store, "0123456789abcdef0123456789abcdef01234567", 0, transcode.Options{}, "") {
+	if tryServeFromCompleted(c, store, "0123456789abcdef0123456789abcdef01234567", 0, transcode.Options{}, "", 1) {
 		t.Error("expected false when no completed row exists")
 	}
 	// The sentinel index resolves the whole row's file_path — a DIRECTORY.
-	if tryServeFromCompleted(c, store, wholeHexHash, downloads.FileIndexWholeTorrent, transcode.Options{}, "") {
+	if tryServeFromCompleted(c, store, wholeHexHash, downloads.FileIndexWholeTorrent, transcode.Options{}, "", 1) {
 		t.Error("expected false for a directory path")
 	}
 }

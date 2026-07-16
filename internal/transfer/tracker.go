@@ -50,6 +50,7 @@ type Snapshot struct {
 	ID         string  `json:"id"`
 	Label      string  `json:"label"`
 	Kind       string  `json:"kind"`
+	UserID     int     `json:"userId,omitempty"`
 	Status     Status  `json:"status"`
 	FilesDone  int     `json:"filesDone"`
 	FilesTotal int     `json:"filesTotal"`
@@ -74,6 +75,7 @@ type Job struct {
 	id         string
 	label      string
 	kind       string
+	userID     int // owner; List/Cancel filter non-admin callers to their own jobs
 	status     Status
 	filesTotal int
 	filesDone  int
@@ -272,7 +274,7 @@ func (j *Job) Snapshot() Snapshot {
 		eta = int((j.bytesTotal - j.bytesDone) / rate)
 	}
 	return Snapshot{
-		ID: j.id, Label: j.label, Kind: j.kind, Status: j.status,
+		ID: j.id, Label: j.label, Kind: j.kind, UserID: j.userID, Status: j.status,
 		FilesDone: j.filesDone, FilesTotal: j.filesTotal,
 		BytesDone: j.bytesDone, BytesTotal: j.bytesTotal,
 		RatePerSec: rate, ETASeconds: eta, Progress: progress,
@@ -328,12 +330,18 @@ func New(maxConcurrent ...int) *Tracker {
 }
 
 // Start registers and returns a new RUNNING Job (no queueing). filesTotal/
-// bytesTotal may be 0 when unknown (rate/ETA degrade gracefully).
+// bytesTotal may be 0 when unknown (rate/ETA degrade gracefully). userID=0 is
+// anonymous/system; prefer StartFor when the owner is known.
 func (t *Tracker) Start(label, kind string, filesTotal int, bytesTotal int64) *Job {
-	return t.startJob(label, kind, filesTotal, bytesTotal, StatusRunning)
+	return t.StartFor(0, label, kind, filesTotal, bytesTotal)
 }
 
-func (t *Tracker) startJob(label, kind string, filesTotal int, bytesTotal int64, status Status) *Job {
+// StartFor is Start with an explicit owner userID for multi-tenant filtering.
+func (t *Tracker) StartFor(userID int, label, kind string, filesTotal int, bytesTotal int64) *Job {
+	return t.startJob(userID, label, kind, filesTotal, bytesTotal, StatusRunning)
+}
+
+func (t *Tracker) startJob(userID int, label, kind string, filesTotal int, bytesTotal int64, status Status) *Job {
 	if t == nil {
 		return nil
 	}
@@ -342,7 +350,7 @@ func (t *Tracker) startJob(label, kind string, filesTotal int, bytesTotal int64,
 	now := t.now()
 	ctx, cancel := context.WithCancel(context.Background())
 	j := &Job{
-		now: t.now, id: idFor(t.seq, now), label: label, kind: kind,
+		now: t.now, id: idFor(t.seq, now), label: label, kind: kind, userID: userID,
 		status: status, filesTotal: filesTotal, bytesTotal: bytesTotal,
 		startedAt: now, updatedAt: now, ctx: ctx, cancel: cancel,
 	}
@@ -357,11 +365,16 @@ func (t *Tracker) startJob(label, kind string, filesTotal int, bytesTotal int64,
 // running Job and owns its terminal Done()/Fail(). Returns immediately. On a nil
 // Tracker, fn runs unbounded in a goroutine with a nil Job (tracking disabled).
 func (t *Tracker) Submit(label, kind string, filesTotal int, bytesTotal int64, fn func(*Job)) *Job {
+	return t.SubmitFor(0, label, kind, filesTotal, bytesTotal, fn)
+}
+
+// SubmitFor is Submit with an explicit owner userID.
+func (t *Tracker) SubmitFor(userID int, label, kind string, filesTotal int, bytesTotal int64, fn func(*Job)) *Job {
 	if t == nil {
 		go fn(nil)
 		return nil
 	}
-	j := t.startJob(label, kind, filesTotal, bytesTotal, StatusQueued)
+	j := t.startJob(userID, label, kind, filesTotal, bytesTotal, StatusQueued)
 	go func() {
 		if t.sem != nil {
 			t.sem <- struct{}{} // blocks while queued
@@ -373,20 +386,25 @@ func (t *Tracker) Submit(label, kind string, filesTotal int, bytesTotal int64, f
 	return j
 }
 
-// Cancel cancels a tracked job by ID: it cancels the job's context (so the
-// producer's copy loop / retries abort) and marks it canceled. Returns true when
-// a job with that ID exists (even if it was already terminal), false otherwise.
-func (t *Tracker) Cancel(id string) bool {
+// Cancel cancels a tracked job by ID. When includeAll is false, only a job owned
+// by userID may be canceled (userID 0 jobs are system-owned and cancelable by anyone).
+func (t *Tracker) Cancel(id string, userID int, includeAll bool) bool {
 	if t == nil {
 		return false
 	}
 	t.mu.Lock()
 	var target *Job
 	for _, j := range t.jobs {
-		if j.ID() == id {
-			target = j
-			break
+		if j.ID() != id {
+			continue
 		}
+		j.mu.Lock()
+		owner := j.userID
+		j.mu.Unlock()
+		if includeAll || owner == 0 || owner == userID {
+			target = j
+		}
+		break
 	}
 	t.mu.Unlock()
 	if target == nil {
@@ -396,8 +414,9 @@ func (t *Tracker) Cancel(id string) bool {
 	return true
 }
 
-// List returns snapshots of all active + recently-finished jobs (newest first).
-func (t *Tracker) List() []Snapshot {
+// List returns snapshots of jobs (newest first). When includeAll is false, only
+// jobs owned by userID (plus system jobs with userID 0) are included.
+func (t *Tracker) List(userID int, includeAll bool) []Snapshot {
 	if t == nil {
 		return nil
 	}
@@ -407,7 +426,10 @@ func (t *Tracker) List() []Snapshot {
 	t.mu.Unlock()
 	out := make([]Snapshot, 0, len(jobs))
 	for i := len(jobs) - 1; i >= 0; i-- { // newest first
-		out = append(out, jobs[i].Snapshot())
+		snap := jobs[i].Snapshot()
+		if includeAll || snap.UserID == 0 || snap.UserID == userID {
+			out = append(out, snap)
+		}
 	}
 	return out
 }

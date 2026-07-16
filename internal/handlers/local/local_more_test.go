@@ -273,7 +273,7 @@ func TestLocalWalk_NoMount(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/walk", nil)
 
-	LocalWalk(b)(c)
+	LocalWalk(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -287,7 +287,7 @@ func TestLocalWalk_NoPath(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/walk?mount=Test", nil)
 
-	LocalWalk(b)(c)
+	LocalWalk(b, nil)(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -304,7 +304,7 @@ func TestLocalWalk_NonExistentPath(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/walk?mount=Test&path=nonexistent", nil)
 
-	LocalWalk(b)(c)
+	LocalWalk(b, nil)(c)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())
@@ -323,7 +323,7 @@ func TestLocalWalk_Valid(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/walk?mount=Test&path=.", nil)
 
-	LocalWalk(b)(c)
+	LocalWalk(b, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -348,7 +348,7 @@ func TestLocalWalk_MediaOnly(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/local/walk?mount=Test&path=.&media_only=true", nil)
 
-	LocalWalk(b)(c)
+	LocalWalk(b, nil)(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -728,7 +728,7 @@ func TestLocalPromotePreview_NoSharedDir(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/api/local/promote/preview", bytes.NewReader([]byte(`{"mount":"Test","path":"video.mp4"}`)))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	LocalPromotePreview(b, nil, nil, "", nil)(c)
+	LocalPromotePreview(b, nil, nil, "", nil, nil)(c)
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("status = %d, want 409; body: %s", w.Code, w.Body.String())

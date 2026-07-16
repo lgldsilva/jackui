@@ -120,7 +120,7 @@ func initDownloadsStore(deps *appDeps) {
 		// FileRelPath lets the store resolve files inside whole-torrent rows
 		// (file_path = destination DIRECTORY) without activating the torrent.
 		relPath := deps.streamSrv.FileRelPath(h, fileIdx)
-		path, err := d.GetCompletedPathRel(h.HexString(), fileIdx, relPath)
+		path, err := d.GetCompletedPathRel(h.HexString(), fileIdx, relPath, -1)
 		if err != nil || path == "" {
 			return "", false
 		}
