@@ -326,11 +326,11 @@ func TestPreviewTorrentFromCompletedStore(t *testing.T) {
 	dir := t.TempDir()
 	zipPath := filepath.Join(dir, "bundle.cbz")
 	writeZipFile(t, zipPath, map[string][]byte{"p1.jpg": []byte("j"), "p2.jpg": []byte("j")})
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "bundle.cbz", FilePath: zipPath})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "bundle.cbz", FilePath: zipPath})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := store.SetStatus(1, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatalf("set status: %v", err)
 	}
 
@@ -346,11 +346,11 @@ func TestPreviewTorrentFromCompletedStore(t *testing.T) {
 
 	// Completed row pointing at a vanished file → falls through to the
 	// streamer, which has no active torrent → 404 (not a 500).
-	gone, err := store.Create(downloads.Download{UserID: 1, InfoHash: strings.Repeat("cd", 20), FileIndex: 0, Magnet: "m", Name: "gone.cbz", FilePath: filepath.Join(dir, "gone.cbz")})
+	gone, err := store.Create(downloads.Download{UserID: 0, InfoHash: strings.Repeat("cd", 20), FileIndex: 0, Magnet: "m", Name: "gone.cbz", FilePath: filepath.Join(dir, "gone.cbz")})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := store.SetStatus(1, gone.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(0, gone.ID, downloads.StatusCompleted); err != nil {
 		t.Fatalf("set status: %v", err)
 	}
 	if w := previewGET(router, "/api/preview/comic?hash="+strings.Repeat("cd", 20)+"&idx=0"); w.Code != http.StatusNotFound {
@@ -390,11 +390,11 @@ func TestStreamFileSecurityHeadersOnCompleted(t *testing.T) {
 	if err := os.WriteFile(file, []byte(`<svg onload="alert(1)"/>`), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	d, err := store.Create(downloads.Download{UserID: 1, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "evil.svg", FilePath: file})
+	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: hgBHexHash, FileIndex: 0, Magnet: "m", Name: "evil.svg", FilePath: file})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := store.SetStatus(1, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatalf("set status: %v", err)
 	}
 
