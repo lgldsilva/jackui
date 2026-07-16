@@ -46,7 +46,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod # fonte única da versão do Go (igual ao semidx)
-          cache: true
+          cache: false # act_runner: ~1.4GB Go cache post-save killed release run 1243
           cache-dependency-path: go.sum
       - name: ffmpeg (testes de transcode/streamer)
         # ports.ubuntu.com (arm64) flapping + IPv6 unreachable: prefer preinstalled,
