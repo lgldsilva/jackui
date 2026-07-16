@@ -9,21 +9,24 @@ export type SeriesLayoutItem =
 // seriesKeyOf derives a canonical series name from a release name by cutting at
 // the episode marker (S01E02 or 1x02) and normalizing separators. Returns ''
 // when the title doesn't look like an episode.
-// Separator run + episode marker. A word boundary after the marker fails when
-// the next separator is '_' (a word char), so we use a negative-lookahead on a
-// digit instead: the marker ends and isn't followed by another digit (avoids
-// matching "2x055" partially). Deliberately UNANCHORED with no leading capture:
-// the old `/^(.*?)[ ._-]+…/` used a lazy dot that backtracks super-linearly
-// (Sonar S8786 / ReDoS). Scanning for the first marker and slicing the prefix is
-// equivalent — the lazy `^(.*?)` matched exactly the text before the first
-// marker occurrence — but linear.
-const EPISODE_MARKER = /[ ._-]+(?:s\d{1,2}e\d{1,3}|\d{1,2}x\d{1,3})(?![0-9])/i
+// Episode marker preceded by a separator, matched with a fixed-width lookbehind
+// instead of a `[ ._-]+` run. Both the old `/^(.*?)[ ._-]+…/` and a plain
+// `[ ._-]+…` re-scan the whole separator run at every start position (O(n²) on
+// long separator strings — Sonar S8786 / ReDoS). The lookbehind is O(1) per
+// position and every quantifier below is bounded, so the scan is linear.
+// The trailing `(?!\d)` (not a word boundary: '_' is a word char) stops "2x055"
+// from matching as "2x05".
+const EPISODE_MARKER = /(?<=[ ._-])(?:s\d{1,2}e\d{1,3}|\d{1,2}x\d{1,3})(?!\d)/i
+const SEPARATORS = ' ._-'
 
 export function seriesKeyOf(title: string): string {
   const m = EPISODE_MARKER.exec(title)
   if (!m) return ''
-  const prefix = title.slice(0, m.index)
-  return prefix.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  // The lookbehind matches AT the marker, so the separator run is still in the
+  // prefix — walk it back (linear) instead of capturing it in the regex.
+  let end = m.index
+  while (end > 0 && SEPARATORS.includes(title[end - 1])) end--
+  return title.slice(0, end).replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 function titleCase(s: string): string {
@@ -48,8 +51,13 @@ function episodeInfo(r: SearchResult): EpisodeInfo | null {
 // afterwards in the original order. Only series with at least `minEpisodes`
 // episodes are grouped — folding a lone episode just adds noise. Results
 // themselves are never mutated.
-export function buildSeriesLayout(results: readonly SearchResult[], minEpisodes = 2): SeriesLayoutItem[] {
-  const info = new Map<SearchResult, EpisodeInfo>()
+type EpisodeIndex = Map<SearchResult, EpisodeInfo>
+// series key -> season -> episodes
+type SeasonTree = Map<string, Map<number, SearchResult[]>>
+
+// Indexes every groupable episode and counts per series key.
+function indexEpisodes(results: readonly SearchResult[]): { info: EpisodeIndex; counts: Map<string, number> } {
+  const info: EpisodeIndex = new Map()
   const counts = new Map<string, number>()
   for (const r of results) {
     const i = episodeInfo(r)
@@ -57,12 +65,11 @@ export function buildSeriesLayout(results: readonly SearchResult[], minEpisodes 
     info.set(r, i)
     counts.set(i.key, (counts.get(i.key) ?? 0) + 1)
   }
-  const grouped = new Set(
-    [...counts.entries()].filter(([, n]) => n >= minEpisodes).map(([k]) => k),
-  )
+  return { info, counts }
+}
 
-  // series key -> season -> episodes
-  const tree = new Map<string, Map<number, SearchResult[]>>()
+function buildSeasonTree(results: readonly SearchResult[], info: EpisodeIndex, grouped: Set<string>): SeasonTree {
+  const tree: SeasonTree = new Map()
   for (const r of results) {
     const i = info.get(r)
     if (!i || !grouped.has(i.key)) continue
@@ -72,9 +79,12 @@ export function buildSeriesLayout(results: readonly SearchResult[], minEpisodes 
     seasons.set(i.season, eps)
     tree.set(i.key, seasons)
   }
+  return tree
+}
 
-  const out: SeriesLayoutItem[] = []
-  for (const key of [...tree.keys()].sort()) {
+// Series alphabetically, seasons ascending, episodes by episode number.
+function emitGroups(tree: SeasonTree, info: EpisodeIndex, out: SeriesLayoutItem[]): void {
+  for (const key of [...tree.keys()].sort((a, b) => a.localeCompare(b))) {
     const seasons = tree.get(key)!
     for (const season of [...seasons.keys()].sort((a, b) => a - b)) {
       const eps = seasons.get(season)!.slice().sort((a, b) => (info.get(a)!.episode) - (info.get(b)!.episode))
@@ -82,6 +92,16 @@ export function buildSeriesLayout(results: readonly SearchResult[], minEpisodes 
       for (const r of eps) out.push({ kind: 'result', result: r })
     }
   }
+}
+
+export function buildSeriesLayout(results: readonly SearchResult[], minEpisodes = 2): SeriesLayoutItem[] {
+  const { info, counts } = indexEpisodes(results)
+  const grouped = new Set(
+    [...counts.entries()].filter(([, n]) => n >= minEpisodes).map(([k]) => k),
+  )
+
+  const out: SeriesLayoutItem[] = []
+  emitGroups(buildSeasonTree(results, info, grouped), info, out)
   // Loose results (non-episodes or series below the threshold), original order.
   for (const r of results) {
     const i = info.get(r)
