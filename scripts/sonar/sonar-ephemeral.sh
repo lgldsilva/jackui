@@ -152,7 +152,15 @@ _setup_java_truststore_for_sonar
 api() {
   local method="$1" path="$2"
   shift 2
-  curl -sk -X "$method" -H "Authorization: Bearer ${SONAR_TOKEN}" "${SONAR_HOST_URL}${path}" "$@"
+  # Verify TLS against the homelab CA when it's available (CI bakes it in and
+  # already sets NODE_EXTRA_CA_CERTS) instead of sending the admin SONAR_TOKEN
+  # over `curl -k`, which trusts any cert and leaks the token to a LAN MITM.
+  # Fall back to -k only where no CA is installed (local dev). NOTE: this diverges
+  # from the vendored ai-standards copy — the durable fix belongs upstream.
+  local ca="${SONAR_CA_CERT:-${NODE_EXTRA_CA_CERTS:-/usr/local/share/ca-certificates/gitea-ca.crt}}"
+  local tls=(-k)
+  [ -f "$ca" ] && tls=(--cacert "$ca")
+  curl -s "${tls[@]}" -X "$method" -H "Authorization: Bearer ${SONAR_TOKEN}" "${SONAR_HOST_URL}${path}" "$@"
 }
 
 cleanup() {

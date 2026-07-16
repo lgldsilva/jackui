@@ -187,8 +187,30 @@ jobs:
       gate_max_issues_in_diff: "0"
     secrets: inherit
 
+  # Fail-closed guard for the reusable Sonar gate: sonar-ce.yml gates every step
+  # on `if: env.SONAR_TOKEN != ''`, so an empty/missing SONAR_TOKEN makes the
+  # `sonar` job go GREEN without analysing anything — and `approve` would then
+  # auto-approve a PR the gate never actually checked. This job fails closed when
+  # the token is absent, and `approve` needs it, so a vacuous gate can no longer
+  # auto-approve. (The durable fix belongs upstream in gitea-workflows; this is
+  # the jackui-local backstop.)
+  sonar-token-guard:
+    name: sonar token present (fail-closed)
+    runs-on: [self-hosted, arm64]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Require SONAR_TOKEN
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "${SONAR_TOKEN:-}" ]; then
+            echo "::error::SONAR_TOKEN is empty — the reusable Sonar gate passes without analysing anything (fail-open). Refusing to auto-approve." >&2
+            exit 1
+          fi
+          echo "SONAR_TOKEN present — the Sonar gate ran for real."
+
   approve:
-    needs: [backend, frontend, secrets-scan, security, sonar]
+    needs: [backend, frontend, secrets-scan, security, sonar, sonar-token-guard]
     runs-on: [self-hosted, arm64]
     # Executa a aprovação se os testes passarem e for de fato um PR
     if: github.event_name == 'pull_request'
