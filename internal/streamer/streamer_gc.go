@@ -138,5 +138,6 @@ func NewForTesting() *Streamer {
 		dlLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
 		upLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
 		verifiedFiles: make(map[string]bool),
+		verifySem:     make(chan struct{}, 1),
 	}
 }
