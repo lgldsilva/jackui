@@ -181,6 +181,8 @@ jobs:
   deliver:
     needs: [sonar]            # ← só entrega se o GATE passou
     runs-on: deploy   # homeserver only: amd64 nativo + GPU + docker.sock + /portainer
+    outputs:
+      semver: ${{ steps.ver.outputs.semver }}
     env:
       # Host do container registry — configurado em Settings → Actions → Variables (vars.REGISTRY).
       REGISTRY: "${{ vars.REGISTRY }}"
@@ -267,33 +269,17 @@ jobs:
           GITEA_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
         run: |
           bash scripts/cleanup-packages.sh || echo "Aviso: falha na limpeza de pacotes."
-      - name: Notificar sucesso no Telegram
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SEMVER: ${{ steps.ver.outputs.semver }}
-        run: |
-          if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
-            MSG="✅ JackUI ${SEMVER:-} deployado com sucesso via Gitea Actions\nCommit: $(echo ${{ github.sha }} | cut -c1-7)"
-            curl -sf -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
-              --data-urlencode "chat_id=$TG_CHAT" \
-              --data-urlencode "text=$MSG" > /dev/null || echo "Aviso: notificação Telegram falhou."
-          fi
 
-  notify-failure:
+  # Telegram via gitea-workflows (canary). Status = full release fan-in (incl. deploy).
+  # Pin @v1.0.10 requires library tag; do not merge this before tagging gitea-workflows.
+  notify:
     needs: [backend, frontend, sonar, deliver]
-    runs-on: [self-hosted, arm64]
-    if: failure()
-    steps:
-      - name: Notificar falha no Telegram
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          if [ -n "$TG_TOKEN" ] && [ -n "$TG_CHAT" ]; then
-            MSG="❌ JackUI: Build ou Deploy FALHOU no Gitea Actions.\nCommit: $(echo ${{ github.sha }} | cut -c1-7)"
-            curl -sf -X POST "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
-              --data-urlencode "chat_id=$TG_CHAT" \
-              --data-urlencode "text=$MSG" > /dev/null || echo "Aviso: notificação Telegram falhou."
-          fi
+    if: always()
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/telegram-notify.yml@v1.0.10
+    with:
+      app_name: JackUI
+      status: ${{ (needs.backend.result == 'success' && needs.frontend.result == 'success' && needs.sonar.result == 'success' && needs.deliver.result == 'success') && 'success' || 'failure' }}
+      semver: ${{ needs.deliver.outputs.semver }}
+      runner: self-hosted
+    secrets: inherit
 
