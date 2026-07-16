@@ -9,13 +9,21 @@ export type SeriesLayoutItem =
 // seriesKeyOf derives a canonical series name from a release name by cutting at
 // the episode marker (S01E02 or 1x02) and normalizing separators. Returns ''
 // when the title doesn't look like an episode.
+// Separator run + episode marker. A word boundary after the marker fails when
+// the next separator is '_' (a word char), so we use a negative-lookahead on a
+// digit instead: the marker ends and isn't followed by another digit (avoids
+// matching "2x055" partially). Deliberately UNANCHORED with no leading capture:
+// the old `/^(.*?)[ ._-]+…/` used a lazy dot that backtracks super-linearly
+// (Sonar S8786 / ReDoS). Scanning for the first marker and slicing the prefix is
+// equivalent — the lazy `^(.*?)` matched exactly the text before the first
+// marker occurrence — but linear.
+const EPISODE_MARKER = /[ ._-]+(?:s\d{1,2}e\d{1,3}|\d{1,2}x\d{1,3})(?![0-9])/i
+
 export function seriesKeyOf(title: string): string {
-  // A word boundary after the marker fails when the next separator is '_' (a
-  // word char), so we use a negative-lookahead on a digit instead: the marker
-  // ends and isn't followed by another digit (avoids matching "2x055" partially).
-  const m = /^(.*?)[ ._-]+(?:s\d{1,2}e\d{1,3}|\d{1,2}x\d{1,3})(?![0-9])/i.exec(title)
+  const m = EPISODE_MARKER.exec(title)
   if (!m) return ''
-  return m[1].replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const prefix = title.slice(0, m.index)
+  return prefix.replace(/[._]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 function titleCase(s: string): string {

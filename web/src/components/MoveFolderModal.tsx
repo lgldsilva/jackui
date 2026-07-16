@@ -3,6 +3,7 @@ import { useTranslation, Trans } from 'react-i18next'
 import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { Sheet } from './Sheet'
+import { trimSlashes } from '../lib/localBrowse'
 import { useTrackedJobs } from '../lib/transfers'
 import FileProgressBar from './FileProgressBar'
 
@@ -67,7 +68,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
   // Subpasta nova (opcional) anexada ao destino. O backend (localMove) faz
   // MkdirAll no destino, então a pasta é criada na hora de mover — sem endpoint
   // extra. Aceita aninhado (a/b) e ignora barras nas pontas.
-  const cleanNew = newFolder.trim().replaceAll(/^\/+|\/+$/g, '')
+  const cleanNew = trimSlashes(newFolder.trim())
   const finalPath = cleanNew ? (browsePath ? `${browsePath}/${cleanNew}` : cleanNew) : browsePath
 
   const handleMove = async () => {
