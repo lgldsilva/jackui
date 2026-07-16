@@ -93,34 +93,43 @@ type folderLockReq struct {
 // downloads") or admin. The mount root can't be pinned.
 func LocalSetFolderLock(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req folderLockReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		if req.Mount == "" || req.Path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		req, ok := bindFolderLockReq(c)
+		if !ok {
 			return
 		}
 		if AbortIfLocalPathHidden(c, s, req.Mount, req.Path) {
 			return
 		}
-		if !CheckMountAccess(b, c, req.Mount) {
-			return
-		}
-		if !canModifyMount(c, req.Mount) {
+		if !CheckMountAccess(b, c, req.Mount) || !canModifyMount(c, req.Mount) {
 			return
 		}
 		if err := b.SetFolderLock(req.Mount, ScopePath(b, c, req.Mount, req.Path), req.Locked); err != nil {
-			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
-				return
-			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			respondFolderLockErr(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"locked": req.Locked})
 	}
+}
+
+func bindFolderLockReq(c *gin.Context) (folderLockReq, bool) {
+	var req folderLockReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return req, false
+	}
+	if req.Mount == "" || req.Path == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		return req, false
+	}
+	return req, true
+}
+
+func respondFolderLockErr(c *gin.Context, err error) {
+	if os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 func canModifyMount(c *gin.Context, mount string) bool {
