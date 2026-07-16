@@ -180,7 +180,7 @@ func TestGetCompletedPath_Found(t *testing.T) {
 	s := newTestStore(t)
 	d, _ := s.Create(Download{UserID: 1, InfoHash: "comp-hash", FileIndex: 0, Magnet: "m", Name: "x", FilePath: "/done/movie.mkv"})
 	s.SetStatus(1, d.ID, StatusCompleted)
-	path, err := s.GetCompletedPath("comp-hash", 0)
+	path, err := s.GetCompletedPath("comp-hash", 0, 1)
 	if err != nil {
 		t.Fatalf("GetCompletedPath: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestGetCompletedPath_Found(t *testing.T) {
 
 func TestGetCompletedPath_NotFound(t *testing.T) {
 	s := newTestStore(t)
-	path, err := s.GetCompletedPath("nonexistent", 0)
+	path, err := s.GetCompletedPath("nonexistent", 0, 1)
 	if err != nil {
 		t.Fatalf("GetCompletedPath: %v", err)
 	}
@@ -200,9 +200,34 @@ func TestGetCompletedPath_NotFound(t *testing.T) {
 	}
 }
 
+// Multi-tenant: user B must not resolve user A's completed file by hash alone.
+func TestGetCompletedPath_ScopedByUser(t *testing.T) {
+	s := newTestStore(t)
+	d, _ := s.Create(Download{UserID: 1, InfoHash: "priv-hash", FileIndex: 0, Magnet: "m", Name: "secret", FilePath: "/done/a.mkv"})
+	s.SetStatus(1, d.ID, StatusCompleted)
+
+	if path, err := s.GetCompletedPath("priv-hash", 0, 1); err != nil || path != "/done/a.mkv" {
+		t.Fatalf("owner: path=%q err=%v", path, err)
+	}
+	if path, err := s.GetCompletedPath("priv-hash", 0, 2); err != nil || path != "" {
+		t.Fatalf("other user must get empty path, got %q err=%v", path, err)
+	}
+	// Internal streamer resolver (userID < 0) may still locate any completed row.
+	if path, err := s.GetCompletedPath("priv-hash", 0, -1); err != nil || path != "/done/a.mkv" {
+		t.Fatalf("system any-owner: path=%q err=%v", path, err)
+	}
+	// Rel variant: other user still empty.
+	if path, err := s.GetCompletedPathRel("priv-hash", 0, "x.mkv", 2); err != nil || path != "" {
+		t.Fatalf("rel other user: path=%q err=%v", path, err)
+	}
+	if path, err := s.GetCompletedPathRel("priv-hash", 0, "x.mkv", 1); err != nil || path != "/done/a.mkv" {
+		t.Fatalf("rel owner per-file: path=%q err=%v", path, err)
+	}
+}
+
 func TestGetCompletedPath_NilStore(t *testing.T) {
 	var nilS *Store
-	path, err := nilS.GetCompletedPath("hash", 0)
+	path, err := nilS.GetCompletedPath("hash", 0, 1)
 	if err != nil {
 		t.Fatalf("GetCompletedPath nil: %v", err)
 	}

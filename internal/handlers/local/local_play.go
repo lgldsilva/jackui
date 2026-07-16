@@ -21,6 +21,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/library"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // localSessionKey derives a stable, filesystem-safe HLS session key from
@@ -280,7 +281,7 @@ const (
 // GET /api/local/play (ffprobe) per file (the frontend N+1 when opening an
 // album). It only RESOLVES (to seed the playback URL cache); it does NOT upsert
 // the library — that stays on the actual play via GET /api/local/play.
-func LocalPlayBatch(b *lb.Browser) gin.HandlerFunc {
+func LocalPlayBatch(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Mount string   `json:"mount"`
@@ -307,6 +308,13 @@ func LocalPlayBatch(b *lb.Browser) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		token := localPlayToken(c)
 		username := scopeUser(c)
+		// Snapshot which paths are behind the closed curtain so worker goroutines
+		// don't race on gin.Context. Hidden items return the same "not found"
+		// as a missing file (no existence leak).
+		hidden := make([]bool, len(req.Paths))
+		for i, p := range req.Paths {
+			hidden[i] = IsLocalPathHidden(c, s, req.Mount, p)
+		}
 
 		items := make([]LocalPlayBatchItem, len(req.Paths))
 		sem := make(chan struct{}, localPlayBatchConcurrency)
@@ -317,6 +325,10 @@ func LocalPlayBatch(b *lb.Browser) gin.HandlerFunc {
 			go func(i int, p string) {
 				defer wg.Done()
 				defer func() { <-sem }()
+				if hidden[i] {
+					items[i] = LocalPlayBatchItem{Path: p, Error: "not found"}
+					return
+				}
 				items[i] = resolveBatchItem(ctx, b, req.Mount, p, username, token, req.ForceHLS)
 			}(i, p)
 		}

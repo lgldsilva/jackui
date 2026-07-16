@@ -8,6 +8,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
+	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
 // Local file cache endpoints: pre-fetch a whole file from a slow mount (rclone/
@@ -92,11 +93,11 @@ func LocalCacheStart(b *lb.Browser, cache *localcache.Cache) gin.HandlerFunc {
 // disk instead of caching file by file. A big folder won't overrun the cache:
 // the LRU drops the coldest cached files as new copies land (favourites/active
 // downloads stay protected); the enqueue just lines them up.
-func LocalCacheFolder(b *lb.Browser, cache *localcache.Cache) gin.HandlerFunc {
-	return func(c *gin.Context) { localCacheFolderHandler(b, cache, c) }
+func LocalCacheFolder(b *lb.Browser, cache *localcache.Cache, s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) { localCacheFolderHandler(b, cache, s, c) }
 }
 
-func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, c *gin.Context) {
+func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, s *streamer.Streamer, c *gin.Context) {
 	mount := c.Query("mount")
 	if mount == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
@@ -121,6 +122,9 @@ func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, c *gin.Cont
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Do not pre-cache files under a closed-curtain hidden folder.
+	entries = b.StripUserScope(mount, scopeUser(c), entries)
+	entries = filterHiddenLocalTree(c, s, mount, entries)
 	queued := enqueueCacheEntries(cache, b, mount, entries)
 	c.JSON(http.StatusAccepted, gin.H{"queued": queued, "cacheable": true})
 }

@@ -307,7 +307,7 @@ func isTraversalErr(err error) bool {
 
 // LocalWalk handles GET /api/local/walk?mount=&path=&media_only=
 // Recursively lists all files under a directory in a mount.
-func LocalWalk(b *lb.Browser) gin.HandlerFunc {
+func LocalWalk(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -319,6 +319,7 @@ func LocalWalk(b *lb.Browser) gin.HandlerFunc {
 			return
 		}
 		mediaOnly := c.Query("media_only") == "true" || c.Query("media_only") == "1"
+		username := scopeUser(c)
 		entries, err := b.Walk(mount, ScopePath(b, c, mount, path), mediaOnly)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -331,6 +332,8 @@ func LocalWalk(b *lb.Browser) gin.HandlerFunc {
 		if entries == nil {
 			entries = []lb.Entry{}
 		}
+		entries = b.StripUserScope(mount, username, entries)
+		entries = filterHiddenLocalTree(c, s, mount, entries)
 		c.JSON(http.StatusOK, gin.H{"entries": entries, "total": len(entries)})
 	}
 }

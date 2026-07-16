@@ -430,7 +430,7 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 	for _, p := range plans {
 		p := p // captura por iteração
 		pid := addPendingPromote(o, p)
-		tr.Submit(safeBaseName(p.src, p.d.Name), "promote", p.files, p.bytes, func(job *transfer.Job) {
+		tr.SubmitFor(o.userID, safeBaseName(p.src, p.d.Name), "promote", p.files, p.bytes, func(job *transfer.Job) {
 			if err := runPromotePlan(o, p, job); err != nil {
 				job.Fail(err)
 				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
@@ -456,7 +456,7 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 	if len(plans) > 1 {
 		label = fmt.Sprintf("%d itens", len(plans))
 	}
-	tr.Submit(label, "promote", files, bytes, func(job *transfer.Job) {
+	tr.SubmitFor(o.userID, label, "promote", files, bytes, func(job *transfer.Job) {
 		var firstErr error
 		for i, p := range plans {
 			if err := runPromotePlan(o, p, job); err != nil {

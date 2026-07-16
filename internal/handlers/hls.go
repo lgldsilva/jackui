@@ -13,6 +13,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
@@ -388,7 +389,8 @@ func openCompletedFile(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 		return nil, 0, false
 	}
 	relPath := hc.s.FileRelPath(hc.h, hc.fileIdx)
-	path, err := hc.store.GetCompletedPathRel(hc.h.HexString(), hc.fileIdx, relPath)
+	userID, _, _ := auth.UserIDFromCtx(hc.c)
+	path, err := hc.store.GetCompletedPathRel(hc.h.HexString(), hc.fileIdx, relPath, userID)
 	if err != nil || path == "" {
 		return nil, 0, false
 	}

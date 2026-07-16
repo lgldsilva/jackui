@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -53,7 +54,7 @@ type dupGroup struct {
 
 // LocalDuplicates handles GET /api/local/duplicates?mount=&path= — read-only
 // scan that returns groups of ≥2 byte-identical files under the folder.
-func LocalDuplicates(b *lb.Browser) gin.HandlerFunc {
+func LocalDuplicates(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		if mount == "" {
@@ -64,7 +65,11 @@ func LocalDuplicates(b *lb.Browser) gin.HandlerFunc {
 			return
 		}
 		scoped := ScopePath(b, c, mount, c.Query("path"))
-		groups, err := findDuplicates(c.Request.Context(), b, mount, scoped)
+		groups, err := findDuplicates(c.Request.Context(), b, mount, scoped, func(entries []lb.Entry) []lb.Entry {
+			username := scopeUser(c)
+			entries = b.StripUserScope(mount, username, entries)
+			return filterHiddenLocalTree(c, s, mount, entries)
+		})
 		if err != nil {
 			if os.IsNotExist(err) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
@@ -77,10 +82,13 @@ func LocalDuplicates(b *lb.Browser) gin.HandlerFunc {
 	}
 }
 
-func findDuplicates(ctx context.Context, b *lb.Browser, mount, scopedBase string) ([]dupGroup, error) {
+func findDuplicates(ctx context.Context, b *lb.Browser, mount, scopedBase string, filter func([]lb.Entry) []lb.Entry) ([]dupGroup, error) {
 	entries, err := b.Walk(mount, scopedBase, false)
 	if err != nil {
 		return nil, err
+	}
+	if filter != nil {
+		entries = filter(entries)
 	}
 	groups := []dupGroup{}
 	// Pre-filter by size: a content match is impossible across different sizes,
@@ -211,12 +219,25 @@ func LocalDuplicatesDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Stre
 		if !canModifyMount(c, req.Mount) {
 			return
 		}
+		// Drop paths under the closed curtain so a bulk-delete cannot reach
+		// hidden folders via a crafted path list (same 404 policy as single delete).
+		visible := req.Paths[:0]
+		for _, p := range req.Paths {
+			if IsLocalPathHidden(c, s, req.Mount, p) {
+				continue
+			}
+			visible = append(visible, p)
+		}
+		if len(visible) == 0 {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+			return
+		}
 		baseAbs, err := b.ResolvePath(req.Mount, ScopePath(b, c, req.Mount, ""))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		deleted, errs := deleteDuplicates(b, dls, s, req.Mount, baseAbs, req.Paths)
+		deleted, errs := deleteDuplicates(b, dls, s, req.Mount, baseAbs, visible)
 		c.JSON(http.StatusOK, gin.H{"deleted": deleted, "errors": errs})
 	}
 }

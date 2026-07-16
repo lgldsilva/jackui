@@ -447,7 +447,7 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) string {
 	if st, e := os.Stat(currentPath); e == nil {
 		size = st.Size()
 	}
-	job := w.tracker.Start(filepath.Base(newDst), "ai-rename", 1, size)
+	job := w.tracker.StartFor(d.UserID, filepath.Base(newDst), "ai-rename", 1, size)
 	if err := moveFileProgress(job.Context(), currentPath, newDst, job.AddBytesFunc()); err != nil {
 		job.Fail(err)
 		log.Printf("downloads: AI-rename move #%d: %v", d.ID, err)

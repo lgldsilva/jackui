@@ -52,7 +52,7 @@ func TestGetCompletedPathRel_WholeRowResolvesMovedFile(t *testing.T) {
 	want := mustWrite(t, destDir, "Sub", "a.mkv")
 	seedWholeCompleted(t, s, "wh1", "Pack", destDir)
 
-	got, err := s.GetCompletedPathRel("wh1", 0, "Pack/Sub/a.mkv")
+	got, err := s.GetCompletedPathRel("wh1", 0, "Pack/Sub/a.mkv", -1)
 	if err != nil {
 		t.Fatalf("GetCompletedPathRel: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestGetCompletedPathRel_SingleFileTorrentFormat(t *testing.T) {
 	want := mustWrite(t, destDir, "Solo.mkv")
 	seedWholeCompleted(t, s, "wh2", "Solo.mkv", destDir)
 
-	got, err := s.GetCompletedPathRel("wh2", 0, "Solo.mkv")
+	got, err := s.GetCompletedPathRel("wh2", 0, "Solo.mkv", -1)
 	if err != nil {
 		t.Fatalf("GetCompletedPathRel: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestGetCompletedPathRel_PerFileRowWins(t *testing.T) {
 	if err := s.SetStatus(1, d.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
-	got, err := s.GetCompletedPathRel("pf1", 0, "Movie/whatever.mkv")
+	got, err := s.GetCompletedPathRel("pf1", 0, "Movie/whatever.mkv", -1)
 	if err != nil {
 		t.Fatalf("GetCompletedPathRel: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestGetCompletedPathRel_RejectsTraversal(t *testing.T) {
 	seedWholeCompleted(t, s, "wh3", "Pack", destDir)
 
 	for _, rel := range []string{"Pack/../secret.txt", "../secret.txt", "/etc/passwd", "Pack/../../secret.txt"} {
-		got, err := s.GetCompletedPathRel("wh3", 0, rel)
+		got, err := s.GetCompletedPathRel("wh3", 0, rel, -1)
 		if err != nil {
 			t.Fatalf("GetCompletedPathRel(%q): %v", rel, err)
 		}
@@ -129,7 +129,7 @@ func TestGetCompletedPathRel_MissingFileResolvesEmpty(t *testing.T) {
 	destDir := t.TempDir()
 	seedWholeCompleted(t, s, "wh4", "Pack", destDir)
 
-	got, err := s.GetCompletedPathRel("wh4", 0, "Pack/ghost.mkv")
+	got, err := s.GetCompletedPathRel("wh4", 0, "Pack/ghost.mkv", -1)
 	if err != nil || got != "" {
 		t.Fatalf("got (%q, %v), want empty for a file missing from the tree", got, err)
 	}
@@ -137,7 +137,7 @@ func TestGetCompletedPathRel_MissingFileResolvesEmpty(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(destDir, "Sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got, err = s.GetCompletedPathRel("wh4", 0, "Pack/Sub")
+	got, err = s.GetCompletedPathRel("wh4", 0, "Pack/Sub", -1)
 	if err != nil || got != "" {
 		t.Fatalf("got (%q, %v), want empty for a directory", got, err)
 	}
@@ -150,20 +150,20 @@ func TestGetCompletedPathRel_GuardsAndMisses(t *testing.T) {
 	seedWholeCompleted(t, s, "wh5", "Pack", destDir)
 
 	// Empty rel path → no whole fallback (caller had no metainfo).
-	if got, err := s.GetCompletedPathRel("wh5", 0, ""); err != nil || got != "" {
+	if got, err := s.GetCompletedPathRel("wh5", 0, "", -1); err != nil || got != "" {
 		t.Fatalf("empty rel: got (%q, %v), want empty", got, err)
 	}
 	// Sentinel/negative indices never resolve through the whole fallback.
-	if got, err := s.GetCompletedPathRel("wh5", FileIndexAuto, "Pack/a.mkv"); err != nil || got != "" {
+	if got, err := s.GetCompletedPathRel("wh5", FileIndexAuto, "Pack/a.mkv", -1); err != nil || got != "" {
 		t.Fatalf("negative idx: got (%q, %v), want empty", got, err)
 	}
 	// Unknown hash → miss.
-	if got, err := s.GetCompletedPathRel("nope", 0, "Pack/a.mkv"); err != nil || got != "" {
+	if got, err := s.GetCompletedPathRel("nope", 0, "Pack/a.mkv", -1); err != nil || got != "" {
 		t.Fatalf("unknown hash: got (%q, %v), want empty", got, err)
 	}
 	// Nil store stays nil-safe like GetCompletedPath.
 	var nilS *Store
-	if got, err := nilS.GetCompletedPathRel("wh5", 0, "Pack/a.mkv"); err != nil || got != "" {
+	if got, err := nilS.GetCompletedPathRel("wh5", 0, "Pack/a.mkv", -1); err != nil || got != "" {
 		t.Fatalf("nil store: got (%q, %v), want empty", got, err)
 	}
 }

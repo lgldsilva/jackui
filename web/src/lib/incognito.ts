@@ -13,10 +13,18 @@ import { load, save } from './storage'
 import api from '../api/client'
 
 const KEY = 'incognito'
+const EVT = 'jackui:incognito'
 const HEARTBEAT_INTERVAL = 5 * 60 * 1000 // 5 min — well within the 1h server TTL
 
 export function isIncognito(): boolean {
   return load<boolean>(KEY, false)
+}
+
+/** Clears the client-side incognito flag (does not call the backend). Used on
+ *  logout so the next user/session does not inherit "incognito still on". */
+export function resetIncognitoFlag(): void {
+  save(KEY, false)
+  globalThis.dispatchEvent(new CustomEvent<boolean>(EVT, { detail: false }))
 }
 
 // clearIncognitoData calls the backend to delete all incognito entries for the user.
@@ -28,7 +36,6 @@ export async function clearIncognitoData(): Promise<void> {
 // useIncognito mirrors the flag to localStorage + notifies same-tab listeners
 // so every consumer (axios interceptor, header indicator) sees the change
 // without waiting for the storage event (which fires across tabs only).
-const EVT = 'jackui:incognito'
 
 export function useIncognito(): [boolean, (next: boolean) => void] {
   const [on, setOn] = useState<boolean>(() => load<boolean>(KEY, false))
