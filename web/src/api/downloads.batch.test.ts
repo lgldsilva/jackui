@@ -8,7 +8,12 @@ vi.mock('./http', () => ({
   MAGNET_PREFIX: 'magnet:?xt=urn:btih:',
 }))
 
-import { buildBatchFiles, downloadBatchCreate, isWholeTorrentSelection } from './downloads'
+import {
+  buildBatchFiles,
+  downloadBatchCreate,
+  downloadBatchStopSeed,
+  isWholeTorrentSelection,
+} from './downloads'
 import type { StreamFile } from './client'
 
 const sf = (over: Partial<StreamFile>): StreamFile =>
@@ -81,5 +86,28 @@ describe('downloadBatchCreate', () => {
     ])
     expect(res.created).toHaveLength(2)
     expect(res.requeued).toBe(0)
+  })
+})
+
+describe('downloadBatchStopSeed', () => {
+  beforeEach(() => {
+    postMock.mockReset()
+    postMock.mockResolvedValue({ status: 200, data: { affected: 2, total: 2, failed: [], hashes: 1 } })
+  })
+
+  it('no-ops without a network call when ids is empty', async () => {
+    const res = await downloadBatchStopSeed([])
+    expect(postMock).not.toHaveBeenCalled()
+    expect(res).toEqual({ affected: 0, total: 0, failed: [] })
+  })
+
+  it('posts ids once to /downloads/batch/stop-seed', async () => {
+    const res = await downloadBatchStopSeed([10, 11])
+    expect(postMock).toHaveBeenCalledTimes(1)
+    const [url, body] = postMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(url).toBe('/downloads/batch/stop-seed')
+    expect(body).toEqual({ ids: [10, 11] })
+    expect(res.affected).toBe(2)
+    expect(res.hashes).toBe(1)
   })
 })

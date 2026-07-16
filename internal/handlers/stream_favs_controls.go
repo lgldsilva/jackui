@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
@@ -50,11 +51,58 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.H
 		// DropSeed (não Drop): remover o torrent é uma ação explícita do usuário,
 		// então também limpa o auto-seed persistido — senão ele voltaria a seedar
 		// no próximo boot e reapareceria como "ativo".
-		s.DropSeed(h)
-		if hlsMgr != nil {
-			hlsMgr.CloseForHash(h.HexString())
-		}
+		dropStreamHash(s, hlsMgr, h)
 		c.JSON(http.StatusOK, gin.H{"message": "dropped"})
+	}
+}
+
+// streamDropBatchMax caps hashes per POST /stream/drop/batch (Perf #7).
+const streamDropBatchMax = 300
+
+// StreamDropBatch handles POST /api/stream/drop/batch {hashes:[...]} →
+// {dropped,total,failed} — drops MANY torrents (and their HLS sessions) in ONE
+// call so mass-delete on Downloads does not fire N DELETE /stream/:hash (Perf #7).
+// Hashes are deduped; invalid entries land in failed without aborting the batch.
+func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Hashes []string `json:"hashes"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.Hashes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hashes is required"})
+			return
+		}
+		if len(req.Hashes) > streamDropBatchMax {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many hashes"})
+			return
+		}
+		seen := make(map[string]struct{}, len(req.Hashes))
+		dropped := 0
+		failed := make([]string, 0)
+		for _, raw := range req.Hashes {
+			h, err := parseHash(raw)
+			if err != nil {
+				failed = append(failed, raw)
+				continue
+			}
+			key := h.HexString()
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			dropStreamHash(s, hlsMgr, h)
+			dropped++
+		}
+		c.JSON(http.StatusOK, gin.H{"dropped": dropped, "total": len(req.Hashes), "failed": failed})
+	}
+}
+
+// dropStreamHash tears down swarm seed + HLS for one info-hash (shared by
+// StreamDrop and StreamDropBatch).
+func dropStreamHash(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, h metainfo.Hash) {
+	s.DropSeed(h)
+	if hlsMgr != nil {
+		hlsMgr.CloseForHash(h.HexString())
 	}
 }
 
