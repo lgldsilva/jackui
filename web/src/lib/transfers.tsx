@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { transfersList, transferCancel, type TransferSnapshot } from '../api/transfers'
 import { useAuth } from '../auth/AuthContext'
 
@@ -20,7 +20,11 @@ type TransfersAPI = {
 
 const Ctx = createContext<TransfersAPI | null>(null)
 
-export function TransfersProvider({ children }: { children: ReactNode }) {
+type TransfersProviderProps = {
+  readonly children: ReactNode
+}
+
+export function TransfersProvider({ children }: TransfersProviderProps) {
   const { user } = useAuth()
   const [transfers, setTransfers] = useState<TransferSnapshot[]>([])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -85,7 +89,12 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
     }
   }, [user, firePoll])
 
-  return <Ctx.Provider value={{ transfers, bump, cancel }}>{children}</Ctx.Provider>
+  const value = useMemo<TransfersAPI>(
+    () => ({ transfers, bump, cancel }),
+    [transfers, bump, cancel],
+  )
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useTransfers(): TransfersAPI {
