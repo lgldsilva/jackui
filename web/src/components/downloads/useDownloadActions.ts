@@ -6,7 +6,9 @@ import {
   DownloadEntry, DownloadPriority, StreamPriority,
   downloadDelete, downloadPause, downloadResume, downloadStopSeed, downloadSetPriority,
   downloadPauseAll, downloadResumeAll, downloadBatchPause, downloadBatchResume, downloadBatchDelete,
-  streamPause, streamResume, streamSetPriority, streamPauseAll, streamResumeAll, streamSetLimits, streamDrop,
+  downloadBatchStopSeed,
+  streamPause, streamResume, streamSetPriority, streamPauseAll, streamResumeAll, streamSetLimits,
+  streamDrop, streamDropBatch,
 } from '../../api/client'
 import { markDeleted, clearDeleted, type PendingDeletes } from '../../lib/downloadsReconcile'
 
@@ -15,6 +17,13 @@ type StatusGroups = {
   paused: DownloadEntry[]
   completed: DownloadEntry[]
   failed: DownloadEntry[]
+}
+
+/** Unique non-empty infoHashes → one streamDropBatch (Perf #7). */
+async function dropStreamsForEntries(entries: readonly DownloadEntry[]): Promise<void> {
+  const hashes = [...new Set(entries.map(d => d.infoHash).filter((h): h is string => Boolean(h)))]
+  if (hashes.length === 0) return
+  await streamDropBatch(hashes).catch(() => {})
 }
 
 // useDownloadActions — every download/torrent mutation handler the page wires to
@@ -134,8 +143,8 @@ export function useDownloadActions(deps: {
     setItems(prev => prev.filter(x => !ids.includes(x.id)))
     try {
       await downloadBatchPause(ids).catch(() => {}) // pausa todos antes de remover
-      // Encerra qualquer sessão de stream/transcode aberta pelo Play (ver onDelete).
-      await Promise.all(targets.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
+      // Encerra sessões de stream/transcode abertas pelo Play — 1 batch (Perf #7).
+      await dropStreamsForEntries(targets)
       const res = await downloadBatchDelete(ids)
       const failed = res.failed ?? []
       if (failed.length > 0) {
@@ -197,8 +206,11 @@ export function useDownloadActions(deps: {
     if (ds.length === 0) return
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedManyMessage', { count: ds.length }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBulkBusy(true)
-    try { await Promise.all(ds.map(d => downloadStopSeed(d.id).catch(() => {}))); await reloadDownloadsRef.current(); await loadTorrents() }
-    finally { setBulkBusy(false) }
+    try {
+      await downloadBatchStopSeed(ds.map(d => d.id)).catch(() => {})
+      await reloadDownloadsRef.current()
+      await loadTorrents()
+    } finally { setBulkBusy(false) }
   }
   const onRetryMany = async (ds: DownloadEntry[]) => {
     const ids = ds.filter(d => d.status === 'failed').map(d => d.id)
@@ -267,8 +279,8 @@ export function useDownloadActions(deps: {
     if (!ok) return
     setBulkBusy(true)
     try {
-      // Encerra sessões de seed/stream antes de remover as rows concluídas.
-      await Promise.all(completedDownloads.map(d => d.infoHash ? streamDrop(d.infoHash).catch(() => {}) : Promise.resolve()))
+      // Encerra sessões de seed/stream antes de remover as rows — 1 batch (Perf #7).
+      await dropStreamsForEntries(completedDownloads)
       await downloadBatchDelete(completedDownloads.map(d => d.id)); await reloadDownloadsRef.current(); await loadTorrents()
     }
     finally { setBulkBusy(false) }
