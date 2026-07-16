@@ -370,72 +370,45 @@ function renderCardActions(props: RenderCardActionsProps): React.ReactNode {
   )
 }
 
-export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
-  // Subscribe to language changes so this card (and its i18n.t()-driven helpers)
-  // re-renders when the user switches locale.
-  useTranslation()
-  const [copied, setCopied] = useState(false)
-  const [resolvingMagnet, setResolvingMagnet] = useState(false)
-  const [resolvingTorrent, setResolvingTorrent] = useState(false)
-  const [favOpt, setFavOpt] = useState<boolean | null>(null)
-  const [favResolving, setFavResolving] = useState(false)
-
-  const { tmdb, cardRef } = useTmdbMatch(result.title)
-
-  const isFavorited = favOpt ?? (result.isFavorited ?? false)
-
-  const toggleFavorite = (e: React.MouseEvent) => {
-    swallowClick(e)
-    if (favResolving) return
-    void handleToggleFavorite(result, isFavorited, setFavOpt, setFavResolving)
+type CardShell = {
+  handleCardClick: (() => void) | undefined
+  cardClickable: boolean
+  titleAttr: string
+  cardClass: string
+  cardTapStyle: { WebkitTapHighlightColor: string } | undefined
+  cardTitle: string | undefined
+  interactiveProps: {
+    role?: 'button'
+    tabIndex?: number
+    onClick?: () => void
+    onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
   }
+}
 
-  const handleCopyMagnet = async () => {
-    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
-    if (!magnet) return
-    await copyToClipboard(magnet)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const handleOpenMagnet = async () => {
-    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
-    if (magnet) {
-      globalThis.location.href = magnet
-    }
-  }
-
-  const handleTorrentDownload = () => {
-    void startTorrentDownload(result, setResolvingTorrent)
-  }
-
-  const hasMagnet = Boolean(result.magnetUri)
-  const hasTorrent = Boolean(result.link)
-  const hasSource = hasMagnet || hasTorrent  // either is enough — streamer.Add accepts both
-  const canDownload = hasMagnet || hasTorrent
-  // result.playable vem do backend. Fallback `true` mantém comportamento legacy
-  // para syntheticResult / deep links que constroem SearchResult sem o campo.
-  const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
-
-  const playLinkHref = canPlay && result.infoHash ? playHref(result.infoHash) : null
+function buildCardShell(
+  result: SearchResult,
+  tmdb: TmdbMatch | null,
+  canPlay: boolean,
+  hasSource: boolean,
+  onPlay: ((result: SearchResult) => void) | undefined,
+  onExploreContents: ((result: SearchResult) => void) | undefined,
+): CardShell {
   let handleCardClick: (() => void) | undefined
   if (canPlay) {
     handleCardClick = () => onPlay?.(result)
   } else if (hasSource && onExploreContents) {
     handleCardClick = () => onExploreContents(result)
-  } else {
-    handleCardClick = undefined
   }
   const cardClickable = handleCardClick !== undefined
-
-  const handleCardKeyDown = handleCardClick ? (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      handleCardClick()
-    }
-  } : undefined
-
+  const handleCardKeyDown = handleCardClick
+    ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleCardClick()
+        }
+      }
+    : undefined
   let titleAttr: string
   if (tmdb) {
     const yearStr = tmdb.year ? ` (${tmdb.year})` : ''
@@ -443,46 +416,100 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
   } else {
     titleAttr = result.title
   }
-
   const cardClass = `card flex flex-col gap-3 text-left ${
     cardClickable
       ? 'cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
       : 'cursor-default'
   }`
-  const cardTapStyle = cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined
   let cardTitle: string | undefined
   if (canPlay) {
     cardTitle = i18n.t('search.play_stream')
   } else if (cardClickable) {
     cardTitle = i18n.t('search.tap_explore')
-  } else {
-    cardTitle = undefined
   }
-  // Interactive-role/tabindex/handlers travel together and only when the card
-  // is clickable — spreading keeps a non-interactive card a plain <div> (no
-  // stray tabindex on a non-interactive element).
-  const interactiveProps = cardClickable
-    ? { role: 'button' as const, tabIndex: 0, onClick: handleCardClick, onKeyDown: handleCardKeyDown }
-    : {}
-  const cardInner = (
-    <>
-      {renderCardTitle(tmdb, result, isFavorited, cardClickable, titleAttr, toggleFavorite, favResolving)}
-      <QualityBadges quality={result.quality} />
-      {renderCategoryBadges(result)}
-      {renderCardStats(result, onRefresh, refreshing, refreshedAt)}
-      {renderCardActions({ canPlay, playLinkHref, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result, handleOpenMagnet, handleCopyMagnet, handleTorrentDownload, resolvingMagnet, resolvingTorrent, copied })}
-    </>
-  )
+  return {
+    handleCardClick,
+    cardClickable,
+    titleAttr,
+    cardClass,
+    cardTapStyle: cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined,
+    cardTitle,
+    interactiveProps: cardClickable
+      ? { role: 'button' as const, tabIndex: 0, onClick: handleCardClick, onKeyDown: handleCardKeyDown }
+      : {},
+  }
+}
+
+function useResultCardActions(result: SearchResult) {
+  const [copied, setCopied] = useState(false)
+  const [resolvingMagnet, setResolvingMagnet] = useState(false)
+  const [resolvingTorrent, setResolvingTorrent] = useState(false)
+  const [favOpt, setFavOpt] = useState<boolean | null>(null)
+  const [favResolving, setFavResolving] = useState(false)
+  const isFavorited = favOpt ?? (result.isFavorited ?? false)
+
+  const toggleFavorite = (e: React.MouseEvent) => {
+    swallowClick(e)
+    if (favResolving) return
+    handleToggleFavorite(result, isFavorited, setFavOpt, setFavResolving).catch(() => { /* optimistic UI reverts on error */ })
+  }
+  const handleCopyMagnet = async () => {
+    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
+    if (!magnet) return
+    await copyToClipboard(magnet)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  const handleOpenMagnet = async () => {
+    const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
+    if (magnet) globalThis.location.href = magnet
+  }
+  const handleTorrentDownload = () => {
+    startTorrentDownload(result, setResolvingTorrent).catch(() => { /* notifyError inside */ })
+  }
+  return {
+    isFavorited, favResolving, toggleFavorite,
+    copied, resolvingMagnet, resolvingTorrent,
+    handleCopyMagnet, handleOpenMagnet, handleTorrentDownload,
+  }
+}
+
+export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPlaylist, onExploreContents, onRefresh, refreshing, refreshedAt }: ResultCardProps) {
+  // Subscribe to language changes so this card (and its i18n.t()-driven helpers)
+  // re-renders when the user switches locale.
+  useTranslation()
+  const { tmdb, cardRef } = useTmdbMatch(result.title)
+  const actions = useResultCardActions(result)
+
+  const hasSource = Boolean(result.magnetUri || result.link)
+  const canDownload = hasSource
+  // result.playable vem do backend. Fallback `true` mantém comportamento legacy
+  // para syntheticResult / deep links que constroem SearchResult sem o campo.
+  const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
+  const playLinkHref = canPlay && result.infoHash ? playHref(result.infoHash) : null
+  const shell = buildCardShell(result, tmdb, canPlay, hasSource, onPlay, onExploreContents)
 
   return (
     <div
       ref={(el) => { cardRef.current = el }}
-      className={cardClass}
-      style={cardTapStyle}
-      title={cardTitle}
-      {...interactiveProps}
+      className={shell.cardClass}
+      style={shell.cardTapStyle}
+      title={shell.cardTitle}
+      {...shell.interactiveProps}
     >
-      {cardInner}
+      {renderCardTitle(tmdb, result, actions.isFavorited, shell.cardClickable, shell.titleAttr, actions.toggleFavorite, actions.favResolving)}
+      <QualityBadges quality={result.quality} />
+      {renderCategoryBadges(result)}
+      {renderCardStats(result, onRefresh, refreshing, refreshedAt)}
+      {renderCardActions({
+        canPlay, playLinkHref, hasSource, canDownload, onPlay, onExploreContents, onAddToPlaylist, onDownload, result,
+        handleOpenMagnet: actions.handleOpenMagnet,
+        handleCopyMagnet: actions.handleCopyMagnet,
+        handleTorrentDownload: actions.handleTorrentDownload,
+        resolvingMagnet: actions.resolvingMagnet,
+        resolvingTorrent: actions.resolvingTorrent,
+        copied: actions.copied,
+      })}
     </div>
   )
 })
