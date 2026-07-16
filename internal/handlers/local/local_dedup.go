@@ -204,30 +204,14 @@ type dedupDeleteReq struct {
 // non-admin can't delete another user's file by passing a crafted path.
 func LocalDuplicatesDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req dedupDeleteReq
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		req, ok := bindDedupDeleteReq(c)
+		if !ok {
 			return
 		}
-		if req.Mount == "" || len(req.Paths) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "mount and paths are required"})
+		if !CheckMountAccess(b, c, req.Mount) || !canModifyMount(c, req.Mount) {
 			return
 		}
-		if !CheckMountAccess(b, c, req.Mount) {
-			return
-		}
-		if !canModifyMount(c, req.Mount) {
-			return
-		}
-		// Drop paths under the closed curtain so a bulk-delete cannot reach
-		// hidden folders via a crafted path list (same 404 policy as single delete).
-		visible := req.Paths[:0]
-		for _, p := range req.Paths {
-			if IsLocalPathHidden(c, s, req.Mount, p) {
-				continue
-			}
-			visible = append(visible, p)
-		}
+		visible := filterVisibleDedupPaths(c, s, req.Mount, req.Paths)
 		if len(visible) == 0 {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
 			return
@@ -240,6 +224,32 @@ func LocalDuplicatesDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Stre
 		deleted, errs := deleteDuplicates(b, dls, s, req.Mount, baseAbs, visible)
 		c.JSON(http.StatusOK, gin.H{"deleted": deleted, "errors": errs})
 	}
+}
+
+func bindDedupDeleteReq(c *gin.Context) (dedupDeleteReq, bool) {
+	var req dedupDeleteReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return req, false
+	}
+	if req.Mount == "" || len(req.Paths) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mount and paths are required"})
+		return req, false
+	}
+	return req, true
+}
+
+// filterVisibleDedupPaths drops paths behind the closed curtain so bulk-delete
+// cannot reach hidden folders via a crafted path list.
+func filterVisibleDedupPaths(c *gin.Context, s *streamer.Streamer, mount string, paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if IsLocalPathHidden(c, s, mount, p) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func deleteDuplicates(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer, mount, baseAbs string, paths []string) (int, []string) {
