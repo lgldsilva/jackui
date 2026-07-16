@@ -3,6 +3,7 @@ import { Film, Music, FileVideo } from 'lucide-react'
 import { useThumbnail } from '../lib/useThumbnail'
 import { detectKind } from '../lib/playable'
 import { streamArtURL } from '../api/client'
+import { shouldMountArtImg } from '../lib/artPresence'
 
 // Thumbnail renders a mini-poster for a torrent title via the TMDB enrichment
 // endpoint. It's the shared building block used by every card-style list in
@@ -21,6 +22,12 @@ type ThumbnailProps = {
   readonly size?: ThumbnailSize
   readonly className?: string
   readonly infoHash?: string
+  /**
+   * Perf #8: when the list owner already knows art status (e.g. resolveArtBatch),
+   * pass true/false so we skip GET /stream/art/:hash on known misses.
+   * Omit for legacy behaviour (attempt mount; onError hides).
+   */
+  readonly hasArt?: boolean
 }
 
 // Tailwind-stable size classes — keep them static strings so JIT picks them up.
@@ -36,7 +43,7 @@ const ICON_SIZES: Record<ThumbnailSize, string> = {
   lg: 'w-7 h-7',
 }
 
-export default function Thumbnail({ title, categoryId = 0, size = 'md', className = '', infoHash }: ThumbnailProps) {
+export default function Thumbnail({ title, categoryId = 0, size = 'md', className = '', infoHash, hasArt }: ThumbnailProps) {
   const { ref, match, loaded } = useThumbnail<HTMLDivElement>(title)
   const [artFailed, setArtFailed] = useState(false)
   // Cards reuse this component across torrents (e.g. paginated lists); reset the
@@ -54,7 +61,8 @@ export default function Thumbnail({ title, categoryId = 0, size = 'md', classNam
   } else {
     FallbackIcon = Film
   }
-  const showArt = !!infoHash && !artFailed
+  // hasArt===false skips the GET; undefined keeps legacy try-then-onError.
+  const showArt = shouldMountArtImg({ infoHash, hasArt, artFailed })
 
   let tooltipTitle: string
   if (match) {
