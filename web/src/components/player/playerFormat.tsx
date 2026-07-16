@@ -1,9 +1,8 @@
 import { Loader2, Check, Download } from 'lucide-react'
 import { MediaTrack } from '../../api/client'
-import { formatBytes } from '../../lib/format'
 import i18n from '../../lib/i18n'
 
-export { formatBytes as formatSize }
+export { formatBytes as formatSize } from '../../lib/format'
 
 // Human-readable playhead / duration (m:ss or h:mm:ss). Shared by the video and
 // controls components as the `formatTime` prop.

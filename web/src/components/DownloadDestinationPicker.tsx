@@ -35,7 +35,10 @@ export default function DownloadDestinationPicker({ onChange }: { readonly onCha
   }, [base, path])
 
   const trimmed = newFolder.trim()
-  const finalSub = trimmed ? (path ? `${path}/${trimmed}` : trimmed) : path
+  let finalSub = path
+  if (trimmed) {
+    finalSub = path ? `${path}/${trimmed}` : trimmed
+  }
   useEffect(() => {
     onChange({ destBase: base, destSubdir: base ? finalSub : '' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
