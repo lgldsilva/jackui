@@ -69,10 +69,17 @@ export type DownloadSource = {
   createdAt: string
 }
 
+// AUTO_FILE_INDEX espelha downloads.FileIndexAuto no backend: o worker resolve
+// o melhor arquivo via pickBestFile (maior vídeo/mídia). Usar SEMPRE que a lista
+// de arquivos ainda não estiver resolvida — NUNCA fileIndex 0 (em packs adult/
+// scene o índice 0 costuma ser um .nfo de dezenas de bytes; o download "completa"
+// em segundos e o usuário fica sem o vídeo).
+export const AUTO_FILE_INDEX = -1
+
 // WHOLE_TORRENT_FILE_INDEX espelha downloads.FileIndexWholeTorrent no backend:
 // UMA linha na fila que baixa o torrent INTEIRO (progresso agregado, conclusão
 // move todos os arquivos preservando a estrutura). -1 já significa "auto-pick"
-// (shim Transmission RPC), por isso -2.
+// (AUTO_FILE_INDEX), por isso -2.
 export const WHOLE_TORRENT_FILE_INDEX = -2
 
 export type DownloadCreateParams = {
@@ -86,6 +93,39 @@ export type DownloadCreateParams = {
   category?: string
   destBase?: string   // chosen destination (#16); empty = default download dir
   destSubdir?: string // optional subfolder under destBase
+}
+
+/** Identity fields needed when the torrent file list is still unknown. */
+export type UnresolvedCreateIdentity = {
+  infoHash: string
+  magnet: string
+  name: string
+  tracker?: string
+  category?: string
+  destBase?: string
+  destSubdir?: string
+}
+
+/**
+ * Build a downloadCreate payload when the file list is null/empty (metadata not
+ * resolved yet). Always uses AUTO_FILE_INDEX so the worker runs pickBestFile.
+ *
+ * Regression: hardcoding fileIndex: 0 here completed only a 34-byte .nfo in
+ * multi-file scene packs while the UI reported success.
+ */
+export function createParamsWhenFilesUnknown(base: UnresolvedCreateIdentity): DownloadCreateParams {
+  return {
+    infoHash: base.infoHash,
+    magnet: base.magnet,
+    name: base.name,
+    fileIndex: AUTO_FILE_INDEX,
+    filePath: '',
+    fileSize: 0,
+    tracker: base.tracker,
+    category: base.category,
+    destBase: base.destBase,
+    destSubdir: base.destSubdir,
+  }
 }
 
 // DownloadDestination is a writable target the user may pick for a download:

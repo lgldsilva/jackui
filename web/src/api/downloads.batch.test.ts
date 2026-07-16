@@ -9,12 +9,83 @@ vi.mock('./http', () => ({
 }))
 
 import {
+  AUTO_FILE_INDEX,
+  WHOLE_TORRENT_FILE_INDEX,
   buildBatchFiles,
+  createParamsWhenFilesUnknown,
   downloadBatchCreate,
   downloadBatchStopSeed,
   isWholeTorrentSelection,
 } from './downloads'
 import type { StreamFile } from './client'
+
+describe('file-index sentinels', () => {
+  // Regression: when the file list is still unresolved the UI must enqueue
+  // AUTO_FILE_INDEX (-1 → pickBestFile), never 0 (often a 34-byte .nfo).
+  it('AUTO_FILE_INDEX is backend FileIndexAuto (-1)', () => {
+    expect(AUTO_FILE_INDEX).toBe(-1)
+  })
+  it('WHOLE_TORRENT_FILE_INDEX is backend FileIndexWholeTorrent (-2)', () => {
+    expect(WHOLE_TORRENT_FILE_INDEX).toBe(-2)
+  })
+  it('auto and whole sentinels are distinct from concrete indices', () => {
+    expect(AUTO_FILE_INDEX).toBeLessThan(0)
+    expect(WHOLE_TORRENT_FILE_INDEX).toBeLessThan(AUTO_FILE_INDEX)
+  })
+})
+
+// ─── Regression: unresolved file list must never enqueue index 0 ───────────
+// Bug: DownloadModal / AddTorrentModal fell back to fileIndex:0 when metadata
+// had not resolved yet → worker downloaded only "Torrent Downloaded From … .nfo"
+// (34B) and marked completed. Guard is createParamsWhenFilesUnknown.
+describe('createParamsWhenFilesUnknown', () => {
+  const base = {
+    infoHash: 'abc123def456',
+    magnet: 'magnet:?xt=urn:btih:abc123def456',
+    name: 'Tushy.26.05.17.Melanie.Marie.XXX.2160p.MP4-P2P[XC]',
+  }
+
+  it('uses AUTO_FILE_INDEX (-1), never concrete 0', () => {
+    const p = createParamsWhenFilesUnknown(base)
+    expect(p.fileIndex).toBe(AUTO_FILE_INDEX)
+    expect(p.fileIndex).toBe(-1)
+    expect(p.fileIndex).not.toBe(0)
+  })
+
+  it('does not invent a path/size for the unknown target', () => {
+    const p = createParamsWhenFilesUnknown(base)
+    expect(p.filePath).toBe('')
+    expect(p.fileSize).toBe(0)
+  })
+
+  it('forwards identity + optional dest fields', () => {
+    const p = createParamsWhenFilesUnknown({
+      ...base,
+      tracker: 'xxxclub',
+      category: 'XXX',
+      destBase: '/mnt/storage/jacktrack/download',
+      destSubdir: 'admin/XXX',
+    })
+    expect(p).toMatchObject({
+      infoHash: base.infoHash,
+      magnet: base.magnet,
+      name: base.name,
+      fileIndex: AUTO_FILE_INDEX,
+      tracker: 'xxxclub',
+      category: 'XXX',
+      destBase: '/mnt/storage/jacktrack/download',
+      destSubdir: 'admin/XXX',
+    })
+  })
+
+  it('regression: payload is never the old "fileIndex: 0" shape', () => {
+    // The exact broken payload that completed only the .nfo in prod.
+    const broken = { ...base, fileIndex: 0, filePath: '', fileSize: 0 }
+    const fixed = createParamsWhenFilesUnknown(base)
+    expect(fixed.fileIndex).not.toBe(broken.fileIndex)
+    expect(fixed.fileIndex).toBeLessThan(0)
+  })
+})
 
 const sf = (over: Partial<StreamFile>): StreamFile =>
   ({ index: 0, path: 'f.mkv', size: 0, isVideo: false, downloaded: 0, progress: 0, priority: 'normal', ...over } as StreamFile)
