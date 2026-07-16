@@ -152,113 +152,40 @@ jobs:
       runner: self-hosted
     secrets: inherit
 
-  # Sonar CE: LOCAL (not sonar-ce reusable yet).
-  # Why local: needs backend coverage artifact (Postgres+ffmpeg; no regenerate),
-  # GATE_DIFF_BASE_REF / GATE_MAX_ISSUES_IN_DIFF floors (library has no GATE_DIFF_*
-  # inputs), and multi-label self-hosted arm64. Scripts synced from
-  # gitea-workflows@v1.0.8 (+ local GATE_DIFF overlay). Main permanent analysis
-  # remains in release.yml.
+  # Sonar CE PR gate via gitea-workflows@v1.0.9 (GATE_DIFF + coverage_artifact + floor overrides).
+  # Absolute floors disabled (""): jackui uses diff gate (0 new issues) + coverage≥80, not
+  # zero total debt on the whole repo. Coverage comes from backend artifact (Postgres+ffmpeg);
+  # do not re-run tests. Main permanent analysis stays local in release.yml (scripts/sonar/*).
   sonar:
     name: sonarqube quality gate (PR)
-    runs-on: [self-hosted, arm64]
     needs: [backend]
     if: ${{ always() && needs.backend.result == 'success' }}
-    env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-      SONAR_HOSTS: ${{ vars.SONAR_HOSTS }}
-    steps:
-      - name: Skip (no SONAR_TOKEN)
-        if: ${{ env.SONAR_TOKEN == '' }}
-        run: echo "SONAR_TOKEN not set — skipping SonarQube on PR."
-      - uses: actions/checkout@v4
-        if: ${{ env.SONAR_TOKEN != '' }}
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        if: ${{ env.SONAR_TOKEN != '' }}
-        with:
-          node-version: '24'
-      - name: Download coverage from backend
-        if: ${{ env.SONAR_TOKEN != '' }}
-        uses: actions/download-artifact@v3
-        env:
-          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
-        with:
-          name: go-coverage
-      - name: Sonar ephemeral (PR)
-        if: ${{ env.SONAR_TOKEN != '' }}
-        env:
-          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
-          SONAR_HOSTS_ENTRY: ${{ vars.SONAR_HOSTS }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          SHORT_SHA: ${{ github.sha }}
-        run: |
-          set -eu
-          [ -n "${SONAR_HOSTS_ENTRY:-}" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
-          : "${SONAR_HOST_URL:=https://sonar.raspberrypi.lan}"
-          export SONAR_HOST_URL
-          test -s coverage.out
-          chmod +x scripts/sonar/sonar-ephemeral.sh scripts/sonar/publish-sonar-pr-artifacts.sh
-          SHORT="${SHORT_SHA:0:8}"
-          export PROJECT_KEY="jackui-pr-${PR_NUMBER:-0}-${SHORT}"
-          export PROJECT_NAME="jackui PR #${PR_NUMBER:-0}"
-          export EPHEMERAL=1
-          export USE_PROJECT_PROPERTIES=1
-          export COVERAGE_FILE=coverage.out
-          export REPORT_DIR="$PWD/sonar-out"
-          export REPORT_FILE="$REPORT_DIR/sonar-report.txt"
-          export SCANNER=npx
-          # CE ephemeral QG is often OK with empty conditions; jackui gate = new_violations=0
-          # + new_coverage≥80 (not zero total debt on the whole repo). Absolute floors
-          # (incl. GATE_MAX_OPEN_ISSUES from library scripts) stay empty/disabled.
-          export GATE_DIFF_BASE_REF="${PR_BASE_SHA}"
-          export GATE_MAX_ISSUES_IN_DIFF=0
-          export GATE_MIN_COVERAGE=80
-          export GATE_MAX_BUGS=
-          export GATE_MAX_VULNERABILITIES=
-          export GATE_MAX_SECURITY_HOTSPOTS=
-          export GATE_MAX_CODE_SMELLS=
-          export GATE_MAX_OPEN_ISSUES=
-          export GATE_MAX_RELIABILITY_RATING=
-          export GATE_MAX_SECURITY_RATING=
-          export GATE_MAX_SQALE_RATING=
-          export GATE_MAX_DUPLICATED_LINES_DENSITY=
-          ./scripts/sonar/sonar-ephemeral.sh
-          ls -la "$REPORT_DIR" || true
-      - name: Publish Sonar report artifacts on PR
-        if: ${{ always() && env.SONAR_TOKEN != '' }}
-        continue-on-error: true
-        env:
-          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITEA_SERVER_URL: ${{ github.server_url }}
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITEA_REPOSITORY: ${{ github.repository }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          SHORT_SHA: ${{ github.sha }}
-        run: |
-          export REPORT_DIR="$PWD/sonar-out"
-          if [ -z "${GITEA_TOKEN:-}" ] && [ -n "${GITHUB_TOKEN:-}" ]; then export GITEA_TOKEN="$GITHUB_TOKEN"; fi
-          command -v zip >/dev/null || sudo apt-get install -y -qq zip >/dev/null || true
-          ./scripts/sonar/publish-sonar-pr-artifacts.sh
-      - name: Upload Sonar reports as Actions artifact
-        if: ${{ env.SONAR_TOKEN != '' && always() }}
-        continue-on-error: true
-        uses: actions/upload-artifact@v3
-        env:
-          NODE_EXTRA_CA_CERTS: /usr/local/share/ca-certificates/gitea-ca.crt
-        with:
-          name: sonar-report-${{ github.event.pull_request.number || github.sha }}
-          path: |
-            sonar-out/sonar-report.json
-            sonar-out/sonar-report.md
-            sonar-out/sonar-report.txt
-            sonar-out/sonar-report-pr*.zip
-          if-no-files-found: warn
-          retention-days: 30
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/sonar-ce.yml@v1.0.9
+    with:
+      runner: self-hosted   # string label only (matches arm64 pool)
+      project_key_base: jackui
+      project_name: jackui
+      use_project_properties: "true"
+      language_setup: go
+      coverage_file: coverage.out
+      coverage_generate_cmd: ""   # do NOT re-run tests; use artifact from backend
+      coverage_artifact: go-coverage
+      workflows_ref: v1.0.9
+      # Disable absolute repo floors (jackui uses diff gate, not zero total debt)
+      gate_max_bugs: ""
+      gate_max_vulnerabilities: ""
+      gate_max_security_hotspots: ""
+      gate_max_code_smells: ""
+      gate_max_open_issues: ""
+      gate_max_duplicated_lines_density: ""
+      gate_max_reliability_rating: ""
+      gate_max_security_rating: ""
+      gate_max_sqale_rating: ""
+      gate_min_coverage: "80"
+      # Prefer explicit base.sha; library also auto-fills on PR if this is empty.
+      gate_diff_base_ref: ${{ github.event.pull_request.base.sha }}
+      gate_max_issues_in_diff: "0"
+    secrets: inherit
 
   approve:
     needs: [backend, frontend, secrets-scan, security, sonar]
