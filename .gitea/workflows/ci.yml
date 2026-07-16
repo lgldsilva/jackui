@@ -136,23 +136,24 @@ jobs:
       - run: npm test          # vitest run
       - run: npm run build
 
-  # Gates de segurança via gitea-workflows@v1.0.8 (reusable).
-  # runner input is a single string label — multi-label [self-hosted, arm64] is not
-  # supported via workflow_call string; "self-hosted" matches the arm64 pool.
+  # Gates de segurança via gitea-workflows@v1.0.11 (reusable).
+  # v1.0.11 pins runs-on: self-hosted inside the library (Gitea used to expand
+  # ${{ inputs.runner }} to labels=[] → any runner, including deploy-homeserver).
+  # `with.runner` is kept as a no-op for call-site compatibility.
   # gosec pin v2.27.1 + gitleaks v8.24.3 live in the library defaults.
   # SAST remains blocking (#480): triaged #nosec require `-- motivo`; no gosec_exclude.
   secrets-scan:
-    uses: lgldsilva/gitea-workflows/.gitea/workflows/secrets-scan.yml@v1.0.8
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/secrets-scan.yml@v1.0.11
     with:
       runner: self-hosted
 
   security:
-    uses: lgldsilva/gitea-workflows/.gitea/workflows/go-security.yml@v1.0.8
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/go-security.yml@v1.0.11
     with:
       runner: self-hosted
     secrets: inherit
 
-  # Sonar CE PR gate via gitea-workflows@v1.0.9 (GATE_DIFF + coverage_artifact + floor overrides).
+  # Sonar CE PR gate via gitea-workflows@v1.0.11 (GATE_DIFF + coverage_artifact + floor overrides).
   # Absolute floors disabled (""): jackui uses diff gate (0 new issues) + coverage≥80, not
   # zero total debt on the whole repo. Coverage comes from backend artifact (Postgres+ffmpeg);
   # do not re-run tests. Main permanent analysis stays local in release.yml (scripts/sonar/*).
@@ -160,9 +161,9 @@ jobs:
     name: sonarqube quality gate (PR)
     needs: [backend]
     if: ${{ always() && needs.backend.result == 'success' }}
-    uses: lgldsilva/gitea-workflows/.gitea/workflows/sonar-ce.yml@v1.0.9
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/sonar-ce.yml@v1.0.11
     with:
-      runner: self-hosted   # string label only (matches arm64 pool)
+      runner: self-hosted   # ignored since v1.0.11; library pins self-hosted
       project_key_base: jackui
       project_name: jackui
       use_project_properties: "true"

@@ -275,7 +275,7 @@ jobs:
   notify:
     needs: [backend, frontend, sonar, deliver]
     if: always()
-    uses: lgldsilva/gitea-workflows/.gitea/workflows/telegram-notify.yml@v1.0.10
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/telegram-notify.yml@v1.0.11
     with:
       app_name: JackUI
       status: ${{ (needs.backend.result == 'success' && needs.frontend.result == 'success' && needs.sonar.result == 'success' && needs.deliver.result == 'success') && 'success' || 'failure' }}
