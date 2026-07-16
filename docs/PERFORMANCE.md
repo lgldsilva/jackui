@@ -36,7 +36,7 @@ Legenda: ✅ = entregue · ⬜ = pendente.
 | 6 | `resolveArt` por tile da biblioteca no miss (204) | `LibraryPage` onArtError→resolveArt → POST `/stream/art/:hash/resolve` | até ~50 resolves frios | **`POST /api/stream/art/resolve/batch`** + batch após `libraryList` | ✅ **feito** |
 | 7 | `streamDrop` por download no delete em massa | `DownloadsPage.tsx` targets.map→streamDrop → DELETE `/stream/:hash` | N | **`POST /api/stream/drop/batch`** {hashes[]} | ✅ **feito** |
 | 8 | Art `<img>`: 1 round-trip por card | `Thumbnail`/`LibraryPage` streamArtURL → GET `/stream/art/:hash` | ~50+/página | resolve some com #2/#6 (retornar artUrl/artStatus → `<img>` só monta se há art). Bytes ficam por-`<img>` (HTTP/2) | ⬜ |
-| 9 | `favoriteSetFolder`/`favoriteRemove` por nome | `FavoritesPage.tsx` names.map → PATCH/DELETE | 1 por favorito | **`/api/stream/favorites/batch/{folder,remove}`** | ⬜ |
+| 9 | `favoriteSetFolder`/`favoriteRemove` por nome | `FavoritesPage.tsx` names.map → PATCH/DELETE | 1 por favorito | **`POST /api/stream/favorites/batch/{folder,remove}`** | ✅ **feito** |
 | 10 | `downloadStopSeed` por item | `DownloadsPage.tsx` ds.map → POST `/downloads/:id/stop-seed` | 1 por item | **`POST /api/downloads/batch/stop-seed`** {ids[]} | ✅ **feito** |
 | 11 | Status de cache por arquivo (latente) | `LocalCacheButton` → GET `/api/local/cache/status` | 1 hoje; ~N se badge por-row | **GET `/api/local/cache/status/folder`** | ⬜ |
 | 12 | Tags de áudio por faixa (latente) | `MusicPanel useTrack` → `/api/local/audio/meta` | 1 hoje; ~N se sidebar exibir tags | **`/api/local/audio/meta/batch`** | ⬜ |
@@ -72,9 +72,11 @@ Os três N+1 de maior impacto (player local + grades TMDB + swarm health) já fo
 
 **#7 (`POST /api/stream/drop/batch`)** entregue — `StreamDropBatch` dedupe de hashes + `CloseForHash` por torrent; front (`useDownloadActions`) usa `streamDropBatch` no delete em massa e “remover concluídos” em vez de N `DELETE /stream/:hash`.
 
+**#9 (`POST /api/stream/favorites/batch/{folder,remove}`)** entregue — multi-select move/delete na `FavoritesPage` faz **1** POST em vez de N PATCH/DELETE por nome; cap 500; resposta `{affected,total,failed}`.
+
 **#10 (`POST /api/downloads/batch/stop-seed`)** entregue — um POST com `ids[]`; backend `DropSeed` uma vez por `info_hash` único; `onStopSeedMany` no front.
 
-Próximo alvo: **#8** (art `<img>` só monta quando há art) ou **#9** (favorites batch folder/remove).
+Próximo alvo: **#8** (art `<img>` só monta quando há art).
 
 ## Worked example — `POST /api/local/play/batch` (#1, referência)
 

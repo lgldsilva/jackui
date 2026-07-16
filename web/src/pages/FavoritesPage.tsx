@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Heart, Loader2, Folder, ChevronDown, Download, X, Search, CheckSquare, Square, RefreshCw } from 'lucide-react'
 import {
-  favoritesList, favoriteRemove, StreamFavorite,
-  FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden, favoriteSetFolder,
+  favoritesList, favoriteRemove, favoriteRemoveBatch, StreamFavorite,
+  FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden,
+  favoriteSetFolder, favoriteSetFolderBatch,
   streamImport, SearchResult,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
@@ -324,7 +325,8 @@ export default function FavoritesPage() {
   const clearSelection = () => setSelected(new Set())
   const moveSelectedToFolder = async (folderId: number | null) => {
     const names = [...selected]
-    await Promise.all(names.map(n => favoriteSetFolder(n, folderId).catch(() => {})))
+    // ONE batch call (Perf #9) — not N PATCH /stream/favorite/:name/folder.
+    await favoriteSetFolderBatch(names, folderId).catch(() => {})
     setFavs(favs.map(f => selected.has(f.name) ? { ...f, folderId } : f))
     clearSelection()
   }
@@ -332,7 +334,8 @@ export default function FavoritesPage() {
     const names = [...selected]
     const ok = await confirm({ title: t('favorites.deleteSelectedTitle'), message: t('favorites.deleteSelectedMessage', { count: names.length }), confirmLabel: t('favorites.delete'), destructive: true })
     if (!ok) return
-    await Promise.all(names.map(n => favoriteRemove(n).catch(() => {})))
+    // ONE batch call (Perf #9) — not N DELETE /stream/favorite/:name.
+    await favoriteRemoveBatch(names).catch(() => {})
     setFavs(favs.filter(f => !selected.has(f.name)))
     clearSelection()
   }
