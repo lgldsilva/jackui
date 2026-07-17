@@ -396,7 +396,7 @@ func TestErrStrIfAny_WithError(t *testing.T) {
 }
 
 func TestSegURLBuilder(t *testing.T) {
-	builder := segURLBuilder("Mount", "video.mp4", "mytoken", "", false, "")
+	builder := segURLBuilder("Mount", "video.mp4", "mytoken", "", false, true, "")
 	got := builder("seg_00000.ts")
 	if !strings.Contains(got, "mount=Mount") {
 		t.Errorf("expected mount param, got %q", got)
@@ -407,13 +407,19 @@ func TestSegURLBuilder(t *testing.T) {
 	if !strings.Contains(got, "token=mytoken") {
 		t.Errorf("expected token param, got %q", got)
 	}
+	if !strings.Contains(got, "revealHidden=1") {
+		t.Errorf("expected revealHidden param, got %q", got)
+	}
 }
 
 func TestSegURLBuilder_NoToken(t *testing.T) {
-	builder := segURLBuilder("Mount", "video.mp4", "", "", false, "")
+	builder := segURLBuilder("Mount", "video.mp4", "", "", false, false, "")
 	got := builder("seg_00000.ts")
 	if strings.Contains(got, "token=") {
 		t.Errorf("expected no token param, got %q", got)
+	}
+	if strings.Contains(got, "revealHidden=") {
+		t.Errorf("expected no revealHidden param, got %q", got)
 	}
 }
 

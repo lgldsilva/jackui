@@ -28,6 +28,8 @@ export type TorrentInfo = {
   priority?: 'low' | 'normal' | 'high' | ''
   trackers?: string[]
   stalled?: boolean
+  // Authoritative decision returned by /api/local/play for pseudo-hashes.
+  localPlaybackKind?: 'direct' | 'hls'
 }
 
 export type StreamHealth = {

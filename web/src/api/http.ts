@@ -47,21 +47,25 @@ api.interceptors.response.use(undefined, async (error: AxiosError) => {
   return api(config)
 })
 
-// stripToken remove um token= pré-existente (qualquer posição), sem deixar `?&`.
-// Torna o withToken IDEMPOTENTE: re-aplicar não empilha `token=A&token=B`. Sem isto,
-// o vídeo LOCAL ficava com `?...&token=ACCESS&token=MEDIA` (a URL cacheada do
-// /api/local/play já trazia um token e o withToken adicionava outro) — URL instável.
-function stripToken(url: string): string {
+// Remove stateful credentials that are rebuilt from the current browser
+// session. This keeps media URLs idempotent when auth or the hidden curtain
+// changes while a cached local-play URL is being reused.
+function stripMediaCredentials(url: string): string {
   const qIdx = url.indexOf('?')
   if (qIdx === -1) return url
   const base = url.slice(0, qIdx)
-  const params = url.slice(qIdx + 1).split('&').filter(p => p && !p.startsWith('token='))
+  const params = url.slice(qIdx + 1).split('&').filter((p) => {
+    if (!p) return false
+    const key = p.split('=', 1)[0]
+    return key !== 'token' && key !== 'revealHidden'
+  })
   return params.length ? `${base}?${params.join('&')}` : base
 }
 
 // withToken appends an access token as ?token= query param. Used em URLs que
 // vão pra <video src>/<track src> onde headers Authorization não podem ser
-// setados — middleware aceita ?token= como fallback. IDEMPOTENTE (stripToken).
+// setados — middleware aceita ?token= como fallback. IDEMPOTENTE para token e
+// para o estado da cortina (stripMediaCredentials).
 //
 // override: quando presente, usa esse token em vez do access token regular.
 // Caso de uso: o PlayerModal pega um media token (scope="media", TTL longo)
@@ -70,11 +74,18 @@ function stripToken(url: string): string {
 // playback pra 0 (mesmo path, src "novo" do ponto de vista do browser).
 export function withToken(url: string, override?: string): string {
   const raw = override ?? localStorage.getItem('jackui:auth.access')
-  if (!raw) return url
-  const cleaned = String(raw).replaceAll(/^"|"$/g, '') // localStorage values are JSON-stringified
-  const base = stripToken(url)
-  const sep = base.includes('?') ? '&' : '?'
-  return `${base}${sep}token=${encodeURIComponent(cleaned)}`
+  let result = stripMediaCredentials(url)
+  const append = (key: string, value: string) => {
+    result += `${result.includes('?') ? '&' : '?'}${key}=${encodeURIComponent(value)}`
+  }
+  // Native media elements, EventSource and iframe resources cannot carry the
+  // axios header, so mirror the curtain state in the query string.
+  if (isRevealHidden()) append('revealHidden', '1')
+  if (raw) {
+    const cleaned = String(raw).replaceAll(/^"|"$/g, '') // localStorage values are JSON-stringified
+    append('token', cleaned)
+  }
+  return result
 }
 
 // fetchMediaToken pede ao backend um JWT scope="media" com TTL longo (6h por
