@@ -32,7 +32,6 @@ func TestMe_WithClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/auth/me", nil)
@@ -92,7 +91,6 @@ func TestListUsers_ReturnsEmptyArray(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	router := gin.New()
 	router.GET("/api/auth/users", ListUsers(store))
@@ -341,7 +339,6 @@ func TestSetNtfyTopic_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	body := map[string]string{"topic": "mytopic"}
 	b, _ := json.Marshal(body)

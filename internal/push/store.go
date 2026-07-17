@@ -44,7 +44,6 @@ func New(pool *sql.DB) (*Store, error) {
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
-
 // LoadOrCreateVAPID returns the persisted VAPID pair, generating it on first
 // boot. Rotating the pair would invalidate every browser subscription, so it
 // is generated exactly once.

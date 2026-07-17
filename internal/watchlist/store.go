@@ -71,8 +71,6 @@ func New(pool *sql.DB) (*Store, error) {
 	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-
-
 // nextFor computes the next due time for a schedule using the store-wide
 // default interval as the fallback for "server default" interval items.
 func (s *Store) nextFor(sched Schedule, now time.Time) time.Time {

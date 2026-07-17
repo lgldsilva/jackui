@@ -58,7 +58,6 @@ func New(pool *sql.DB) (*Store, error) {
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
-
 // DismissRecommendation records that the user wants to never see this recommended
 // title again. Idempotent: re-dismissing the same (kind, tmdb_id) is a no-op
 // (PRIMARY KEY conflict is ignored). Scoped per user. kind is "movie" | "tv".

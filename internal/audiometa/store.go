@@ -31,8 +31,6 @@ func New(pool *sql.DB) (*Store, error) {
 	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-
-
 // Get returns the cached tags for absPath IFF the cached row's last_mod matches
 // the file's current modtime (incremental invalidation: a re-rip / promote that
 // changes the file changes its mtime, so a stale row is treated as a miss). ok
