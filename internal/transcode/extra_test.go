@@ -321,6 +321,49 @@ func TestEnsureSegmentNoRestartIfWithinRange(t *testing.T) {
 	}
 }
 
+// A real Safari seek can happen immediately after playback starts, while the
+// encoder is still at segment zero. It must not be discarded as the native
+// client's startup prefetch, or the requested segment waits 30 seconds and
+// returns 404.
+func TestEnsureSegmentQuickSeekAfterInitialPrefetchWindowRestarts(t *testing.T) {
+	dir := t.TempDir()
+	s := &HLSSession{
+		spec:      &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
+		Dir:       dir,
+		StartedAt: time.Now().Add(-hlsInitialPrefetchWindow - time.Second),
+		startSeg:  0,
+	}
+
+	s.EnsureSegment(250)
+	s.mu.Lock()
+	got := s.startSeg
+	s.mu.Unlock()
+	if got != 250 {
+		s.stop()
+		t.Fatalf("seek rápido foi ignorado como prefetch: startSeg=%d, want 250", got)
+	}
+	s.stop()
+}
+
+func TestEnsureSegmentInitialPrefetchStaysOnStart(t *testing.T) {
+	dir := t.TempDir()
+	s := &HLSSession{
+		spec:      &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
+		Dir:       dir,
+		StartedAt: time.Now(),
+		startSeg:  0,
+	}
+
+	s.EnsureSegment(250)
+	s.mu.Lock()
+	got := s.startSeg
+	s.mu.Unlock()
+	if got != 0 {
+		s.stop()
+		t.Fatalf("prefetch inicial reiniciou o encoder: startSeg=%d, want 0", got)
+	}
+}
+
 // Safari can leave segments from an earlier seek in the shared directory and
 // then issue another seek before the restart cooldown expires. The active
 // encoder must follow the new target rather than treating those stale files as
