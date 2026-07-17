@@ -54,6 +54,10 @@ export default function LibraryPage() {
   const [artPresence, setArtPresence] = useState<Record<string, boolean>>({})
   // Bust cache-buster per infoHash after batch/single art resolve persists art.
   const [artBustMap, setArtBustMap] = useState<Record<string, number>>({})
+  // Art batch outcome. 'pending'/'ok' keep the Perf #8 fast-path (only mount
+  // <img> when presence is known); 'failed' falls back to legacy try/onError so
+  // a 504/503 on resolveArtBatch doesn't blank out already-persisted art.
+  const [artMode, setArtMode] = useState<'pending' | 'ok' | 'failed'>('pending')
   useScrollRestoration(!loading)
   const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
@@ -83,15 +87,21 @@ export default function LibraryPage() {
 
   const reload = () => {
     setLoading(true)
+    setArtMode('pending')
     libraryList({ limit: 50 })
       .then(entries => {
         setEntries(entries)
         setError(null)
-        return resolveLibraryArtSeed(
+        // Art seed is best-effort and detached: its failure must not wipe the
+        // list (setError) nor block the grid's first paint. On success we mark
+        // 'ok' (keep the presence fast-path); on failure 'failed' so the cards
+        // fall back to legacy art loading instead of never mounting the <img>.
+        resolveLibraryArtSeed(
           entries.filter(e => e.infoHash).map(e => ({ hash: e.infoHash, name: e.name, file: -1 })),
         )
+          .then(seed => { applyArtSeed(seed); setArtMode('ok') })
+          .catch(() => setArtMode('failed'))
       })
-      .then(applyArtSeed)
       .catch(err => setError(err instanceof Error ? err.message : 'Failed to load library'))
       .finally(() => setLoading(false))
   }
@@ -213,6 +223,7 @@ export default function LibraryPage() {
                   key={e.id}
                   entry={e}
                   hasArt={artPresence[e.infoHash]}
+                  requireArtPresence={artMode !== 'failed'}
                   artBust={artBustMap[e.infoHash]}
                   ratio={ratio}
                   remaining={remaining}
@@ -248,6 +259,8 @@ type LibraryCardProps = {
   readonly entry: LibraryEntry
   /** From resolveArtBatch: true only when art exists. Undefined until batch lands. */
   readonly hasArt?: boolean
+  /** Perf #8 fast-path: gate <img> on presence. False (batch failed) ⇒ legacy load. */
+  readonly requireArtPresence?: boolean
   readonly artBust?: number
   readonly ratio: number
   readonly remaining: number
@@ -261,7 +274,7 @@ type LibraryCardProps = {
 }
 
 function LibraryCard({
-  entry, hasArt, artBust, ratio, remaining, isDone,
+  entry, hasArt, requireArtPresence = true, artBust, ratio, remaining, isDone,
   onPlay, onRemove, onDetails, onDownload, onArtResolved,
 }: LibraryCardProps) {
   const { t } = useTranslation()
@@ -280,7 +293,7 @@ function LibraryCard({
     infoHash: entry.infoHash,
     hasArt,
     artFailed,
-    requireKnown: true,
+    requireKnown: requireArtPresence,
   })
 
   // New-tab deep-link mirrors handlePlay's file pick (lastFileIndex → positive

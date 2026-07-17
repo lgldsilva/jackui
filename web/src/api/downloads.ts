@@ -1,4 +1,5 @@
 import { api } from './http'
+import { BATCH_CAPS, runChunked } from '../lib/batchChunk'
 import type { TorrentInfo, PromotePreviewEntry, StreamFile } from './client'
 
 // ─── Background downloads ──────────────────────────────────────────────────
@@ -413,11 +414,15 @@ export type StopSeedBatchResult = {
   failed?: number[]
   hashes?: number
 }
-export const downloadBatchStopSeed = async (ids: number[]): Promise<StopSeedBatchResult> => {
-  if (ids.length === 0) return { affected: 0, total: 0, failed: [] }
-  const { data } = await api.post<StopSeedBatchResult>('/downloads/batch/stop-seed', { ids })
-  return data
-}
+export const downloadBatchStopSeed = async (ids: number[]): Promise<StopSeedBatchResult> =>
+  runChunked(ids, BATCH_CAPS.stopSeed, async chunk => {
+    const { data } = await api.post<StopSeedBatchResult>('/downloads/batch/stop-seed', { ids: chunk })
+    return data
+  }, (a, b) => ({
+    affected: a.affected + b.affected,
+    total: a.total + b.total,
+    failed: [...(a.failed ?? []), ...(b.failed ?? [])],
+  }), { affected: 0, total: 0, failed: [] })
 
 // ─── Cross-torrent dedup (#23) ─────────────────────────────────────────────
 // One of a torrent's files that the user ALREADY has on disk, so it can be
