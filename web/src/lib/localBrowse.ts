@@ -54,8 +54,8 @@ export function localBrowseHref(
 export function trimSlashes(path: string): string {
   let start = 0
   let end = path.length
-  while (start < end && path.charCodeAt(start) === 47 /* '/' */) start++
-  while (end > start && path.charCodeAt(end - 1) === 47) end--
+  while (start < end && path.codePointAt(start) === 47 /* '/' */) start++
+  while (end > start && path.codePointAt(end - 1) === 47) end--
   return path.slice(start, end)
 }
 
