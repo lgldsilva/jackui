@@ -61,7 +61,6 @@ func initAuthStore(deps *appDeps) {
 		log.Fatalf("Auth store init failed: %v", err)
 	}
 	deps.authStore = authStore
-	deps.addCleanup(func() { authStore.Close() })
 	log.Printf("Auth enabled: user store on PostgreSQL")
 }
 

@@ -13,9 +13,14 @@ import (
 
 // Close shuts down the torrent client and releases storage.
 func (s *Streamer) Close() {
-	close(s.stop)
+	if s.lifetimeCancel != nil {
+		s.lifetimeCancel()
+	}
 	if s.verifyLim != nil {
 		s.verifyLim.Shutdown()
+	}
+	if s.stop != nil {
+		close(s.stop)
 	}
 	s.client.Close()
 	// Fecha o storage mmap (libera mapeamentos/handles). FileStorage default é
@@ -64,7 +69,7 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	// whole torrent) so a season pack doesn't trigger a multi-GB hash storm
 	// that starves the encoder. Runs before warmTail so verified head pieces
 	// are ready when ffmpeg starts reading.
-	go s.verifyFilePieces(hash, fileIdx, f)
+	go s.verifyFilePieces(s.lifetimeCtx, hash, fileIdx, f)
 
 	// Warm the TAIL of the file in the background. Container indexes live at the
 	// end: MP4 `moov` (non-faststart) and Matroska `Cues` both sit near EOF.

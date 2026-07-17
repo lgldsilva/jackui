@@ -31,8 +31,6 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("downloads.New: %v", err)
 	}
-	defer st.Close()
-
 	hash := "0123456789abcdef0123456789abcdef01234567"
 	media := filepath.Join(t.TempDir(), "video.mp4")
 	if err := os.WriteFile(media, []byte("not-really-media"), 0o644); err != nil {

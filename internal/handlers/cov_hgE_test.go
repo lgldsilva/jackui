@@ -45,7 +45,6 @@ func hgEHistory(t *testing.T) *history.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 
@@ -65,7 +64,6 @@ func hgEDownloads(t *testing.T) *downloads.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 
@@ -75,7 +73,6 @@ func hgELibrary(t *testing.T) *library.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 
@@ -85,7 +82,6 @@ func hgEPlaylists(t *testing.T) *playlists.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 
@@ -95,7 +91,6 @@ func hgEWatchlist(t *testing.T) *watchlist.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 

@@ -60,7 +60,7 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 		return
 	}
 
-	f, whole, ok := w.initTarget(&d, hash, t)
+	f, whole, ok := w.initTarget(ctx, &d, hash, t)
 	if !ok {
 		return
 	}
@@ -159,9 +159,9 @@ func (w *Worker) promoteOrAbort(d Download, td *trackedDL, name string) bool {
 // existem no disco mas anacrolix os marca como incompletos e pediria esses
 // bytes do swarm de novo. VerifyFile/VerifyTorrent hasheiam cada piece e marcam
 // como Complete os que casam (idempotente, dedupe por processo).
-func (w *Worker) initTarget(d *Download, hash metainfo.Hash, t wholeTarget) (*torrent.File, wholeTarget, bool) {
+func (w *Worker) initTarget(ctx context.Context, d *Download, hash metainfo.Hash, t wholeTarget) (*torrent.File, wholeTarget, bool) {
 	if d.IsWholeTorrent() {
-		if err := w.streamer.VerifyTorrent(hash); err != nil {
+		if err := w.streamer.VerifyTorrent(ctx, hash); err != nil {
 			log.Printf("downloads: verify torrent (structural error) for download %d: %v", d.ID, err)
 		}
 		// DownloadAll sets piece priority to Normal across the whole torrent —
@@ -182,7 +182,7 @@ func (w *Worker) initTarget(d *Download, hash metainfo.Hash, t wholeTarget) (*to
 	if w.tryLinkExisting(d, hash, fileIdx, f) {
 		return nil, nil, false
 	}
-	if err := w.streamer.VerifyFile(hash, fileIdx); err != nil {
+	if err := w.streamer.VerifyFile(ctx, hash, fileIdx); err != nil {
 		log.Printf("downloads: verify file (structural error) for download %d: %v", d.ID, err)
 	}
 	// File.Download() sets piece priority to Normal across the file's piece

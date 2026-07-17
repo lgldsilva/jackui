@@ -14,7 +14,7 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(s.Close)
+
 	return s
 }
 
@@ -124,8 +124,7 @@ func TestNotificationsFeed_TrimsToCap(t *testing.T) {
 }
 
 func TestStore_ErrorPathsOnClosedDB(t *testing.T) {
-	// Close the underlying pool (Store.Close is a no-op now that the pool is
-	// shared/owned by main) to force the error paths.
+	// Close the underlying pool to force the error paths.
 	pool := dbtest.NewDB(t)
 	s, err := New(pool)
 	if err != nil {

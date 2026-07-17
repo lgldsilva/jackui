@@ -17,7 +17,7 @@ func TestPasskeyRegisterBegin_StoreError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -37,7 +37,7 @@ func TestPasskeyRegisterFinish_StoreError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -74,7 +74,7 @@ func TestPasskeyLoginBegin_UserNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	wa := &auth.WAManager{}
 
 	w := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestPasskeyLoginBegin_NoPasskeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	_, err = store.CreateUserFull("testuser", "test@test.com", "password123", auth.RoleUser, auth.StatusActive)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestPasskeyLoginFinish_UserNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	wa := &auth.WAManager{}
 
 	w := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestPasskeyLoginFinish_PendingStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	_, err = store.CreateUserFull("pendinguser", "pending@test.com", "password123", auth.RoleUser, auth.StatusPending)
 	if err != nil {
 		t.Fatal(err)
@@ -166,7 +166,7 @@ func TestPasskeyLoginFinish_DisabledStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	_, err = store.CreateUserFull("disableduser", "disabled@test.com", "password123", auth.RoleUser, auth.StatusDisabled)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestPasskeyList_WithCreds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -210,7 +210,7 @@ func TestPasskeyDelete_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

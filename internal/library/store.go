@@ -57,9 +57,7 @@ func New(pool *sql.DB) (*Store, error) {
 }
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
-func (s *Store) Close() {
-	// No-op: shared Postgres pool lifecycle is owned by main (S1186).
-}
+
 
 // DismissRecommendation records that the user wants to never see this recommended
 // title again. Idempotent: re-dismissing the same (kind, tmdb_id) is a no-op

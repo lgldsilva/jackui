@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"log"
 	"path/filepath"
 	"strings"
@@ -132,13 +133,16 @@ func firstChars(s string, n int) string {
 // running dev server. Use this in handler/unit tests that don't need the
 // torrent transport.
 func NewForTesting() *Streamer {
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
 	return &Streamer{
-		active:        make(map[metainfo.Hash]*entry),
-		downloads:     make(map[string]struct{}),
-		dlLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
-		upLimiter:     rate.NewLimiter(rate.Inf, 1<<16),
-		verifiedFiles: make(map[string]bool),
-		verifyLim:     newVerifyLimiter(1),
+		active:         make(map[metainfo.Hash]*entry),
+		downloads:      make(map[string]struct{}),
+		dlLimiter:      rate.NewLimiter(rate.Inf, 1<<16),
+		upLimiter:      rate.NewLimiter(rate.Inf, 1<<16),
+		verifiedFiles:  make(map[string]bool),
+		verifyLim:      newVerifyLimiter(1),
+		lifetimeCtx:    lifetimeCtx,
+		lifetimeCancel: lifetimeCancel,
 	}
 }
 

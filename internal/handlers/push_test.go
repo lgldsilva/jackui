@@ -20,7 +20,6 @@ func pushStores(t *testing.T) (*push.Store, *push.Sender) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(s.Close)
 	sender, err := push.NewSender(s)
 	if err != nil {
 		t.Fatal(err)

@@ -19,7 +19,7 @@ func newRecLib(t *testing.T) *library.Store {
 	if err != nil {
 		t.Fatalf("library.New: %v", err)
 	}
-	t.Cleanup(func() { lib.Close() })
+
 	return lib
 }
 

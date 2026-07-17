@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
@@ -215,8 +216,12 @@ func TestMarkCheckedRoundTripsNextCheckAt(t *testing.T) {
 }
 
 func TestWorker_RunDueListError(t *testing.T) {
-	s := newTestStore(t)
+	pool := dbtest.NewDB(t)
+	s, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	w := NewWorker(s, &countingSearcher{}, &safeNotifier{}, "topic", time.Minute)
-	s.Close()
+	pool.Close()
 	w.runDue() // must not panic when the store is closed
 }
