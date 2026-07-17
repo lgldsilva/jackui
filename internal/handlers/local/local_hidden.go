@@ -2,6 +2,7 @@ package local
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,16 @@ import (
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
+
+// normLocalRel canonicalises a mount-relative path the SAME way Browser.ResolvePath
+// does (filepath.Clean of "/"+p, then drop the leading slash). Without this the
+// curtain gate compared the raw `?path=` while the resolver cleaned it, so a
+// deep-link like `?path=./secret` (or `.//secret`) slipped past IsLocalPathHidden
+// yet still resolved into the hidden folder.
+func normLocalRel(p string) string {
+	clean := filepath.Clean("/" + p)
+	return strings.TrimPrefix(clean, "/")
+}
 
 // hiddenLocalSet returns the set of paths (within mount) the user has hidden, or
 // nil when the request opened the curtain / favourites is unavailable. Keyed by
@@ -26,7 +37,9 @@ func hiddenLocalSet(c *gin.Context, s *streamer.Streamer, userID int, mount stri
 	set := map[string]bool{}
 	for _, p := range paths {
 		if p.Mount == mount {
-			set[p.Path] = true
+			if k := normLocalRel(p.Path); k != "" {
+				set[k] = true
+			}
 		}
 	}
 	if len(set) == 0 {
@@ -69,6 +82,34 @@ func filterHiddenLocalTree(c *gin.Context, s *streamer.Streamer, mount string, e
 	return out
 }
 
+// filterHiddenLocalScoped is filterHiddenLocalTree for callers that RESOLVE the
+// surviving entries on the server afterwards (duplicates fingerprint, folder
+// pre-cache). Those entries must keep their full mount-root-relative Path so the
+// later ResolvePath still lands on the real file; on a UserSubpath mount the
+// per-user prefix is only stripped to build the comparison key against the
+// user-scoped hidden set — never off the entry itself. Passing StripUserScope'd
+// entries straight into ResolvePath (empty user) resolved `<mount>/<rel>` instead
+// of `<mount>/<user>/<rel>`, so duplicates always found 0 and folder-cache primed
+// the wrong path/key.
+func filterHiddenLocalScoped(c *gin.Context, s *streamer.Streamer, b *lb.Browser, mount, username string, entries []lb.Entry) []lb.Entry {
+	userID, _, _ := auth.UserIDFromCtx(c)
+	set := hiddenLocalSet(c, s, userID, mount)
+	if len(set) == 0 {
+		return entries
+	}
+	prefix := ""
+	if b.IsUserSubpath(mount) && username != "" {
+		prefix = username + "/"
+	}
+	out := entries[:0]
+	for _, e := range entries {
+		if !localPathHidden(strings.TrimPrefix(e.Path, prefix), set) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // localPathHidden reports whether `path` — or any ancestor folder of it — is in
 // the user's hidden set. The ancestor walk means a file deep-linked inside a
 // hidden folder is treated as hidden too, not just an exactly-hidden entry.
@@ -76,7 +117,7 @@ func localPathHidden(path string, hidden map[string]bool) bool {
 	if len(hidden) == 0 {
 		return false
 	}
-	p := strings.Trim(path, "/")
+	p := normLocalRel(path)
 	for p != "" {
 		if hidden[p] {
 			return true
