@@ -66,7 +66,7 @@ func (w *Worker) initGroup(ctx context.Context, g Group) {
 		w.failOrRetryGroup(g, "timeout aguardando metadados")
 		return
 	}
-	w.applyFilePriorities(g, hash, t)
+	w.applyFilePriorities(ctx, g, hash, t)
 }
 
 // applyFilePriorities marks the group's SELECTED files wanted (Download) and the
@@ -74,7 +74,7 @@ func (w *Worker) initGroup(ctx context.Context, g Group) {
 // (the streamer dedups per (hash,file)), then persists metadata + tracks each
 // selected member. ONE EnsureActive (already done) + selected-only verifies —
 // never an N-file whole-torrent re-hash.
-func (w *Worker) applyFilePriorities(g Group, hash metainfo.Hash, t *torrent.Torrent) {
+func (w *Worker) applyFilePriorities(ctx context.Context, g Group, hash metainfo.Hash, t *torrent.Torrent) {
 	files := t.Files()
 	name := t.Name()
 	selected := make(map[int]bool, len(g.Members))
@@ -90,7 +90,7 @@ func (w *Worker) applyFilePriorities(g Group, hash metainfo.Hash, t *torrent.Tor
 			continue
 		}
 		selected[idx] = true
-		if err := w.streamer.VerifyFile(hash, idx); err != nil {
+		if err := w.streamer.VerifyFile(ctx, hash, idx); err != nil {
 			log.Printf("downloads: verify selected file #%d: %v", m.ID, err)
 		}
 		files[idx].Download()
@@ -146,7 +146,7 @@ func (w *Worker) failOrRetryGroup(g Group, msg string) {
 // tracks it. Whole-torrent groups have a single member that the init already
 // handled, so there's nothing to adopt. This is the cheap O(new files) path that
 // replaces a full per-row init for every sibling.
-func (w *Worker) adoptSiblings(g Group, state groupState) {
+func (w *Worker) adoptSiblings(ctx context.Context, g Group, state groupState) {
 	if g.isWhole() || state.torrent == nil {
 		return
 	}
@@ -161,7 +161,7 @@ func (w *Worker) adoptSiblings(g Group, state groupState) {
 		if !okIdx {
 			continue
 		}
-		if err := w.streamer.VerifyFile(hash, idx); err != nil {
+		if err := w.streamer.VerifyFile(ctx, hash, idx); err != nil {
 			log.Printf("downloads: verify adopted file #%d: %v", m.ID, err)
 		}
 		files[idx].Download()

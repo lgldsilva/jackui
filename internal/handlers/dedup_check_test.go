@@ -50,7 +50,6 @@ func dedupStore(t *testing.T) *downloads.Store {
 	if err != nil {
 		t.Fatalf("downloads.New: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 

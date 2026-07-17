@@ -23,6 +23,7 @@ package downloads
 // group of one covering N files.
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -226,7 +227,7 @@ func (w *Worker) reconcileGroup(g Group) {
 	case state.hasTracked:
 		// The torrent is live: adopt any not-yet-tracked siblings onto it (cheap —
 		// no re-EnsureActive / re-Verify), then sample + check completion as a unit.
-		w.adoptSiblings(g, state)
+		w.adoptSiblings(context.Background(), g, state)
 		w.sampleGroup(g, state)
 		w.checkGroupCompletion(g, state)
 	case state.anyPending:

@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,13 +13,14 @@ import (
 )
 
 // acquireVerify takes a piece-hash slot (disk-bound). Independent of max_active.
-// Returns false if the limiter shut down (e.g. Streamer.Close) — caller should skip verify work.
-func (s *Streamer) acquireVerify(label string) bool {
+// Returns false if ctx is canceled or the limiter shut down (e.g. Streamer.Close)
+// — caller should skip verify work.
+func (s *Streamer) acquireVerify(ctx context.Context, label string) bool {
 	if s.verifyLim == nil {
 		return true
 	}
-	if err := s.verifyLim.AcquireContext(context.Background()); err != nil {
-		if label != "" {
+	if err := s.verifyLim.AcquireContext(ctx); err != nil {
+		if label != "" && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			log.Printf("streamer: piece-verify not acquired (%s): %v", label, err)
 		}
 		return false
@@ -51,7 +53,7 @@ func (s *Streamer) releaseVerify(label string) {
 // bolt DB. Se o shutdown anterior foi ungraceful (SIGKILL, container OOM), o
 // bolt fica desatualizado e anacrolix "esquece" pieces que estão no disco.
 // Sem essa chamada, o worker pede ao swarm bytes que já temos.
-func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
+func (s *Streamer) VerifyFile(ctx context.Context, hash metainfo.Hash, fileIdx int) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	s.mu.Unlock()
@@ -62,7 +64,10 @@ func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
 	if fileIdx < 0 || fileIdx >= len(files) {
 		return fmt.Errorf(errFileIndexOutOfRange, fileIdx)
 	}
-	s.verifyFilePieces(hash, fileIdx, files[fileIdx])
+	s.verifyFilePieces(ctx, hash, fileIdx, files[fileIdx])
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -70,7 +75,7 @@ func (s *Streamer) VerifyFile(hash metainfo.Hash, fileIdx int) error {
 // whole-torrent download path. Same rationale and per-(hash,file) dedupe as
 // VerifyFile, applied file by file (sequencial: custo proporcional ao que está
 // no disco; pieces ausentes falham o hash rápido via sparse reads).
-func (s *Streamer) VerifyTorrent(hash metainfo.Hash) error {
+func (s *Streamer) VerifyTorrent(ctx context.Context, hash metainfo.Hash) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	s.mu.Unlock()
@@ -78,16 +83,19 @@ func (s *Streamer) VerifyTorrent(hash metainfo.Hash) error {
 		return ErrTorrentNotActive
 	}
 	for i, f := range e.t.Files() {
-		s.verifyFilePieces(hash, i, f)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		s.verifyFilePieces(ctx, hash, i, f)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // RecheckAllFiles força o "Force Recheck" em TODOS os arquivos de um torrent
 // (download de torrent inteiro). Mesmo contrato do RecheckFile; os arquivos são
 // re-hashados sequencialmente — um torrent de milhares de arquivos não dispara
 // milhares de hash loops concorrentes.
-func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
+func (s *Streamer) RecheckAllFiles(ctx context.Context, hash metainfo.Hash) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	s.mu.Unlock()
@@ -95,11 +103,14 @@ func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
 		return ErrTorrentNotActive
 	}
 	for i, f := range e.t.Files() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		key := fmt.Sprintf("%s-%d", hash.HexString(), i)
 		s.verifiedMu.Lock()
 		delete(s.verifiedFiles, key)
 		s.verifiedMu.Unlock()
-		if err := s.recheckFilePieces(key, f); err != nil {
+		if err := s.recheckFilePieces(ctx, key, f); err != nil {
 			return err
 		}
 	}
@@ -114,7 +125,7 @@ func (s *Streamer) RecheckAllFiles(hash metainfo.Hash) error {
 // Diferente do VerifyFile, que pula pieces já completos e dedupa por processo,
 // aqui valida tudo de novo — semantics equivalente ao "Force Recheck" do
 // qBittorrent. Bloqueia até terminar: o handler HTTP só reenfileira depois.
-func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
+func (s *Streamer) RecheckFile(ctx context.Context, hash metainfo.Hash, fileIdx int) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
 	s.mu.Unlock()
@@ -133,12 +144,12 @@ func (s *Streamer) RecheckFile(hash metainfo.Hash, fileIdx int) error {
 	delete(s.verifiedFiles, key)
 	s.verifiedMu.Unlock()
 	f := files[fileIdx]
-	return s.recheckFilePieces(key, f)
+	return s.recheckFilePieces(ctx, key, f)
 }
 
 // recheckFilePieces re-hashes every piece of a file (no skip-complete). Returns
 // the first VerifyData error so callers can fail the recheck end-to-end.
-func (s *Streamer) recheckFilePieces(key string, f *torrent.File) error {
+func (s *Streamer) recheckFilePieces(ctx context.Context, key string, f *torrent.File) error {
 	// Marca como em-progresso antes da hashagem pra concorrent calls não
 	// dispararem 2ª pass.
 	s.verifiedMu.Lock()
@@ -165,11 +176,17 @@ func (s *Streamer) recheckFilePieces(key string, f *torrent.File) error {
 		}
 	}()
 	// One multi-GB recheck at a time — concurrent RecheckFile calls thrash disk.
-	if !s.acquireVerify(key) {
+	if !s.acquireVerify(ctx, key) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return ErrVerifyLimiterClosed
 	}
 	defer s.releaseVerify(key)
 	for p := range f.Pieces() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := p.VerifyData(); err != nil {
 			return err
 		}
@@ -183,7 +200,7 @@ func (s *Streamer) recheckFilePieces(key string, f *torrent.File) error {
 // (hash,fileIdx) per process. Verifying only this file's piece range keeps the
 // cost proportional to what's being watched, not the whole (possibly huge)
 // torrent. Pieces missing from disk fail their hash quickly (sparse reads).
-func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.File) {
+func (s *Streamer) verifyFilePieces(ctx context.Context, hash metainfo.Hash, fileIdx int, f *torrent.File) {
 	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
 	// Claim the file so two concurrent readers don't both hash it.
 	s.verifiedMu.Lock()
@@ -214,11 +231,14 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 	}()
 	// Serialize hashing across torrents: N parallel download inits each
 	// VerifyFile a multi-GB pack after restart and starve the HDD.
-	if !s.acquireVerify(key) {
+	if !s.acquireVerify(ctx, key) {
 		return
 	}
 	defer s.releaseVerify(key)
 	for p := range f.Pieces() {
+		if err := ctx.Err(); err != nil {
+			return
+		}
 		// Only verify pieces that have bytes on disk; fully-missing pieces have
 		// nothing to reconcile and verifying them just wastes a hash pass.
 		if p.State().Complete {

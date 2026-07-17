@@ -55,7 +55,7 @@ func TestPasskeyRegisterBegin_NoWA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -88,7 +88,7 @@ func TestPasskeyRegisterFinish_NoWA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

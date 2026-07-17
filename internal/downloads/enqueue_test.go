@@ -14,7 +14,6 @@ func newEnqStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(s.Close)
 	return s
 }
 

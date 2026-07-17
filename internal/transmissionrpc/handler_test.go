@@ -25,7 +25,6 @@ func newTestStore(t *testing.T) *downloads.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(st.Close)
 	return st
 }
 

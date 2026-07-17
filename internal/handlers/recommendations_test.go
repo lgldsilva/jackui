@@ -136,7 +136,7 @@ func TestRecommendations_EmptyLibraryReturns200(t *testing.T) {
 	if err != nil {
 		t.Fatalf("library.New: %v", err)
 	}
-	defer lib.Close()
+
 	// Isolate from any cached result for the anonymous user (userID 0).
 	recCacheMu.Lock()
 	delete(recCache, 0)

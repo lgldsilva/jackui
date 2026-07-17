@@ -29,8 +29,6 @@ func TestRelinkMovedTorrents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dls.Close()
-
 	oldDir := "/srv/cache/Filmes"
 	// Exact file at oldDir, a file nested under oldDir, and an unrelated one.
 	exact, _ := dls.Create(downloads.Download{UserID: 1, InfoHash: "h1", Magnet: "m1", FilePath: oldDir + "/movie.mkv", Name: "movie"})
@@ -83,8 +81,6 @@ func TestRelinkMovedTorrentsDropsTorrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dls.Close()
-
 	hash := "0123456789abcdef0123456789abcdef01234567" // valid 40-hex, not loaded
 	d, _ := dls.Create(downloads.Download{UserID: 1, InfoHash: hash, Magnet: "m", FilePath: "/old/f.mkv", Name: "f"})
 

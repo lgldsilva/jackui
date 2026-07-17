@@ -30,8 +30,6 @@ func TestUserCacheGetWithStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
-
 	uc := userCache{}
 	uid, err := store.CreateUser("coveruser", "pass", auth.RoleUser)
 	if err != nil {
@@ -51,8 +49,6 @@ func TestUserCacheGetWithMissingUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
-
 	uc := userCache{}
 	if s := uc.get(store, 9999); s != "" {
 		t.Errorf("get() for non-existent user = %q, want empty", s)

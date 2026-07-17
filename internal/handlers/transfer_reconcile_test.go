@@ -24,7 +24,7 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pending.Close()
+
 	tr := transfer.New()
 
 	src := filepath.Join(t.TempDir(), "movie.mkv")
@@ -86,7 +86,7 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pending.Close()
+
 
 	dst := filepath.Join(t.TempDir(), "done.mkv")
 	if err := os.WriteFile(dst, []byte("ja-copiado"), 0o644); err != nil {
@@ -116,7 +116,7 @@ func Test_Reconcile_UnknownKindDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pending.Close()
+
 	_, _ = pending.Add(transfer.Pending{Kind: "bogus", Src: "a", Dst: "b"})
 	ReconcilePendingTransfers(pending, transfer.New(), hgAStore(t), streamer.NewForTesting())
 	if l, _ := pending.List(); len(l) != 0 {

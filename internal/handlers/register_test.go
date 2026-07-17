@@ -60,7 +60,7 @@ func TestInvite_WithStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -112,7 +112,7 @@ func TestForgot_Always200(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -132,7 +132,7 @@ func TestForgot_NoBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -192,7 +192,7 @@ func TestRegister_WithStoreConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 
 	router := gin.New()
 	router.POST("/api/auth/register", Register(store, nil, ""))

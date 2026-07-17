@@ -205,9 +205,12 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			return
 		}
 		// Whole-torrent rows re-hash every file; per-file rows only theirs.
-		recheck := s.RecheckFile
+		recheckCtx := c.Request.Context()
+		recheck := func(hash metainfo.Hash, fileIdx int) error {
+			return s.RecheckFile(recheckCtx, hash, fileIdx)
+		}
 		if d.IsWholeTorrent() {
-			recheck = func(_ metainfo.Hash, _ int) error { return s.RecheckAllFiles(h) }
+			recheck = func(_ metainfo.Hash, _ int) error { return s.RecheckAllFiles(recheckCtx, h) }
 		}
 		if err := recheck(h, d.FileIndex); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
