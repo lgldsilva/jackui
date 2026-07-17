@@ -39,6 +39,13 @@ import { usePlaybackProgress } from './player/usePlaybackProgress'
 
 export type { PlaylistMeta } from './player/playerTypes'
 
+function newPlaybackID(): string {
+  if (globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 export default function PlayerModal({
   result,
   onClose,
@@ -62,10 +69,10 @@ export default function PlayerModal({
 }: PlayerModalProps) {
   const { t } = useTranslation()
   const { notifyError } = useToast()
-  const playbackIDRef = useRef('')
-  if (!playbackIDRef.current) {
-    playbackIDRef.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  }
+	const playbackIDRef = useRef('')
+	if (!playbackIDRef.current) {
+		playbackIDRef.current = newPlaybackID()
+	}
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
