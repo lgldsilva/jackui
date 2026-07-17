@@ -111,7 +111,10 @@ func TestOOMWatcherDetectsLineAndTail(t *testing.T) {
 // tryAcquire returns false (caller decodes in software). release frees a slot.
 func TestGPUSemCapsConcurrency(t *testing.T) {
 	g := newGPUSem(2)
-	if !g.tryAcquire() || !g.tryAcquire() {
+	// Two separate acquires (not identical operands of || — Sonar S1764).
+	first := g.tryAcquire()
+	second := g.tryAcquire()
+	if !first || !second {
 		t.Fatal("first two acquires must succeed under a cap of 2")
 	}
 	if g.tryAcquire() {

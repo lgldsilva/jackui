@@ -163,9 +163,12 @@ export default function SettingsPage() {
     finally { setSaving(false) }
   }
 
-  const connectionMsg = testResult === 'success'
-    ? t('settings.conn_ok')
-    : t('settings.conn_failed') + (testMsg ? `: ${testMsg}` : '')
+  let connectionMsg = t('settings.conn_failed')
+  if (testResult === 'success') {
+    connectionMsg = t('settings.conn_ok')
+  } else if (testMsg) {
+    connectionMsg = `${t('settings.conn_failed')}: ${testMsg}`
+  }
 
   if (loading) {
     return (

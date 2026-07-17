@@ -57,7 +57,7 @@ export function useTheme(): {
   setChoice: (next: ThemeChoice) => void
   systemPrefersDark: boolean
 } {
-  const [choice, setChoiceState] = useState<ThemeChoice>(() => readChoice())
+  const [choice, setChoice] = useState<ThemeChoice>(() => readChoice())
   const systemPrefersDark = useMediaQuery('(prefers-color-scheme: dark)')
   const resolved = resolveTheme(choice, systemPrefersDark)
 
@@ -69,18 +69,19 @@ export function useTheme(): {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<ThemeChoice>).detail
       if (detail === 'light' || detail === 'dark' || detail === 'system') {
-        setChoiceState(detail)
+        setChoice(detail)
       }
     }
     globalThis.addEventListener(EVT, handler as EventListener)
     return () => globalThis.removeEventListener(EVT, handler as EventListener)
   }, [])
 
-  const setChoice = useCallback((next: ThemeChoice) => {
+  // Persist + broadcast; wraps the useState setter (same name would shadow).
+  const commitChoice = useCallback((next: ThemeChoice) => {
     try { localStorage.setItem('jackui:' + KEY, next) } catch { /* ignore */ }
-    setChoiceState(next)
+    setChoice(next)
     globalThis.dispatchEvent(new CustomEvent<ThemeChoice>(EVT, { detail: next }))
   }, [])
 
-  return { choice, resolved, setChoice, systemPrefersDark }
+  return { choice, resolved, setChoice: commitChoice, systemPrefersDark }
 }
