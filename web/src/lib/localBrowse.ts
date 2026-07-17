@@ -48,10 +48,21 @@ export function localBrowseHref(
   return `/local?mount=${encodeURIComponent(t.mount)}&path=${encodeURIComponent(t.path)}`
 }
 
+/** Strips leading/trailing `/` from a path. Scans instead of using
+ *  `/^\/+|\/+$/g`: that alternation backtracks super-linearly on long slash runs
+ *  (Sonar S8786 / ReDoS). Same result, O(n). */
+export function trimSlashes(path: string): string {
+  let start = 0
+  let end = path.length
+  while (start < end && path.codePointAt(start) === 47 /* '/' */) start++
+  while (end > start && path.codePointAt(end - 1) === 47) end--
+  return path.slice(start, end)
+}
+
 /** Parent of a mount-relative path (`a/b/c` → `a/b`, `secret` → `''`). Used when
  *  a deep-linked path 404s (e.g. hidden curtain) so navigation can climb out. */
 export function parentLocalPath(path: string): string {
-  const p = path.replace(/^\/+|\/+$/g, '')
+  const p = trimSlashes(path)
   if (!p) return ''
   const i = p.lastIndexOf('/')
   return i < 0 ? '' : p.slice(0, i)
