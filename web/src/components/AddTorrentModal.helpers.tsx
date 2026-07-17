@@ -1,6 +1,7 @@
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import {
   downloadCreate, downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
+  createParamsWhenFilesUnknown,
   downloadTorrent,
   SearchResult, StreamFile
 } from '../api/client'
@@ -58,7 +59,8 @@ export function renderItemStatus(item: TorrentItem, t: TFn) {
 async function submitInternalItem(item: TorrentItem, infoHash: string, magnet: string): Promise<void> {
   const all = item.files ?? []
   if (all.length === 0) {
-    await downloadCreate({ infoHash, fileIndex: 0, magnet, name: item.name, filePath: '', fileSize: 0 })
+    // Sem lista de arquivos: auto-pick no backend. Nunca 0 (costuma ser .nfo spam).
+    await downloadCreate(createParamsWhenFilesUnknown({ infoHash, magnet, name: item.name }))
     return
   }
   if (isWholeTorrentSelection(all, item.selectedFiles)) {

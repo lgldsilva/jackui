@@ -152,6 +152,59 @@ function handleMetaLoaded(v: HTMLVideoElement, onTimeUpdate: () => void, kickAut
   if (canPlayNativeHls() && !disableNativeAutoplay) kickAutoplay()
 }
 
+function playerShellClass(audioMode: boolean): string {
+  const base = 'bg-black relative w-full mx-auto flex items-center justify-center '
+  // Áudio: capa contida (max-w-xl). Vídeo: aspect 16:9 via style.
+  return base + (audioMode ? 'h-44 sm:h-56 lg:h-72 xl:h-80 max-w-xl' : 'max-h-[70dvh] sm:max-h-[58dvh]')
+}
+
+function videoSrcAttr(iosNative: boolean, engineActive: boolean, useHlsJs: boolean, streamURL: string): string | undefined {
+  if (iosNative || engineActive || useHlsJs) return undefined
+  return streamURL || undefined
+}
+
+function attachHlsJs(
+  video: HTMLVideoElement,
+  streamURL: string,
+  onHlsAudioCount: ((n: number) => void) | undefined,
+  hlsRef: React.MutableRefObject<Hls | null>,
+): () => void {
+  // Buffer dianteiro modesto: transcode on-demand + seek-restart — pedir
+  // fragmentos longe do transcoder força restart caro.
+  const hls = new Hls({
+    enableWorker: true,
+    lowLatencyMode: false,
+    startPosition: 0,
+    testBandwidth: false,
+    maxBufferLength: 20,
+    maxMaxBufferLength: 40,
+    backBufferLength: 30,
+    fragLoadingTimeOut: 60000,
+    manifestLoadingTimeOut: 30000,
+  })
+  hls.on(Hls.Events.ERROR, (_evt, data) => recoverHlsFatal(hls, data))
+  hls.on(Hls.Events.MANIFEST_PARSED, () => { tryAutoplayMutedFallback(video) })
+  wireHlsAudioSubs(hls, onHlsAudioCount)
+  hlsRef.current = hls
+  hls.loadSource(streamURL)
+  hls.attachMedia(video)
+  return () => {
+    hlsRef.current = null
+    onHlsAudioCount?.(0)
+    hls.destroy()
+  }
+}
+
+function nudgeOnGap(
+  videoRef: React.RefObject<HTMLVideoElement | null>,
+  suppressNudge: boolean,
+  label: string,
+): void {
+  const v = videoRef.current
+  if (!v || suppressNudge) return
+  if (kickPastStartGap(v)) clientLog('info', 'player', label, { currentTime: v.currentTime })
+}
+
 export function VideoPlayerElement({
   videoRef,
   streamURL,
@@ -186,99 +239,35 @@ export function VideoPlayerElement({
   onResumeRestart,
 }: VideoPlayerElementProps) {
   const { t } = useTranslation()
-  // HLS (.m3u8) toca nativo só no WebKit (Safari + qualquer browser iOS). Chrome/
-  // Firefox/Edge desktop precisam do hls.js pra tocar o MESMO HLS-VOD — é o que
-  // lhes dá seek e evita o caminho progressive frágil. Fontes diretas/progressive
-  // vão direto no <video src>. A condição abaixo TEM que casar com o src= do
-  // <video> pra nunca setar os dois ao mesmo tempo.
-  // Com o motor gapless ativo o <video> não carrega nada (o áudio sai dos <audio>
-  // do motor) → nunca anexa hls.js nem seta src.
+  // HLS (.m3u8) toca nativo só no WebKit. Chrome/Firefox/Edge usam hls.js.
+  // Com motor gapless o <video> fica sem src → nunca anexa hls.js.
   const useHlsJs = !engineActive && shouldAttachHlsJs(streamURL)
-  // hlsRef expõe a instância viva do hls.js aos effects de troca de áudio (Fase 8)
-  // — antes ela era const local ao effect e sumia no cleanup. Só usada p/ SEAMLESS
-  // audio; o resto do ciclo de vida continua no effect abaixo.
   const hlsRef = useRef<Hls | null>(null)
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
-    // Buffer dianteiro modesto: como é transcode sob demanda atrás de um servidor
-    // com seek-restart, pedir fragmentos muito à frente do que o transcoder já
-    // produziu força um seek-restart caro (a cascata vista no Chrome/Firefox).
-    const hls = new Hls({
-      enableWorker: true,
-      lowLatencyMode: false,
-      startPosition: 0,
-      testBandwidth: false,
-      maxBufferLength: 20,
-      maxMaxBufferLength: 40,
-      backBufferLength: 30,
-      fragLoadingTimeOut: 60000,
-      manifestLoadingTimeOut: 30000,
-    })
-    // Recupera de erros transitórios (buracos enquanto o transcoder reinicia) em
-    // vez de mostrar a UI de erro fatal.
-    hls.on(Hls.Events.ERROR, (_evt, data) => recoverHlsFatal(hls, data))
-    // Autoplay: o atributo autoPlay não dispara sozinho no hls.js (a fonte é
-    // anexada via MSE de forma async, fora do gesto de abertura). Ao parsear o
-    // manifest, tenta tocar; se o browser bloquear sem áudio mudo (NotAllowed),
-    // tenta de novo mudado (autoplay mudo é sempre permitido) — aí o usuário só
-    // dá unmute, em vez de ter que clicar em play.
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      tryAutoplayMutedFallback(v)
-    })
-    // Fase 8: reporta faixas de áudio (>1 = seamless) e desliga legendas do HLS.
-    wireHlsAudioSubs(hls, onHlsAudioCount)
-    hlsRef.current = hls
-    hls.loadSource(streamURL)
-    hls.attachMedia(v)
-    return () => {
-      hlsRef.current = null
-      onHlsAudioCount?.(0)
-      hls.destroy()
-    }
+    return attachHlsJs(v, streamURL, onHlsAudioCount, hlsRef)
   }, [videoRef, streamURL, useHlsJs, onHlsAudioCount])
 
-  // Troca de áudio seamless (hls.audioTrack / WebKit AudioTrackList) + contagem de
-  // faixas do HLS nativo (Safari/iOS). Effects num hook próprio p/ não inflar a
-  // complexidade cognitiva deste componente (já no baseline). Ver useSeamlessAudio.
   useSeamlessAudio({ videoRef, hlsRef, engineActive, useHlsJs, streamURL, seamlessAudioIndex, probeAudioTracks, onHlsAudioCount })
-
-  // AirPlay (Safari/iOS): native <video controls> already shows the route button,
-  // but a custom one aids discovery and works while minimized (controls hidden).
-  // Only rendered when a target is on the network.
   const airplay = useAirPlay(videoRef, streamURL)
 
-  // iOS-áudio (tap-to-play): suprime os nudges não-gesto (start-gap) SÓ no
-  // direct-play — HLS/transcode no iOS ainda precisa do nudge de warmup. O overlay
-  // "Tocar" some assim que o usuário toca (startOverlayDismissed) e reseta a cada
-  // troca de faixa (streamURL). startAudioPlayback roda DENTRO do onClick (gesto)
-  // → o iOS baixa os dados e toca com som a partir de readyState 1.
   const suppressNudge = disableNativeAutoplay && !isTranscoded
   const [startOverlayDismissed, setStartOverlayDismissed] = useState(false)
   useEffect(() => { setStartOverlayDismissed(false) }, [streamURL])
   const showStartAudioOverlay = shouldShowStartAudioOverlay({
     disableNativeAutoplay, startOverlayDismissed, videoError, showResumePrompt, currentTime,
   })
-  // iOS: src IMPERATIVO (igual ao SimpleAudioPlayer que TOCA). O <video> é montado SEM
-  // src no iOS (não pré-carrega → não estaciona em readyState 2 antes do gesto — esse
-  // era o bug: o tap chamava v.load() num elemento pré-carregado, resetava rs2→0 e
-  // ABORTAVA o play, AbortError). Aqui o src é setado: pré-gesto (disableNativeAutoplay)
-  // ESPERA o tap; pós-blessed (auto-avanço) seta o src e o handleMetaLoaded toca no
-  // loadedmetadata. attachedSrcRef evita reanexar (el.src é absoluto; comparar com a
-  // streamURL relativa sempre diferiria → reload/abort).
   const iosNative = isIOS() && !engineActive && !useHlsJs
   const attachedSrcRef = useRef('')
   useEffect(() => {
     const v = videoRef.current
-    if (!v || !iosNative || !streamURL) return
-    if (disableNativeAutoplay) return
+    if (!v || !iosNative || !streamURL || disableNativeAutoplay) return
     if (attachedSrcRef.current === streamURL) return
     attachedSrcRef.current = streamURL
     v.src = streamURL
   }, [videoRef, iosNative, streamURL, disableNativeAutoplay])
-  // O tap no "Tocar" é o gesto que destrava o vídeo no iOS. Espelha o SimpleAudioPlayer:
-  // seta o src DENTRO do gesto (o elemento estava SEM src) e play() no mesmo tick —
-  // SEM v.load(). Re-exibe o overlay se o play() falhar e LOGA o desfecho.
+
   const startAudioPlayback = () => {
     const v = videoRef.current
     if (!v) return
@@ -293,32 +282,23 @@ export function VideoPlayerElement({
       })
   }
 
+  const showLoading = shouldShowStartOverlay({
+    videoError, engineActive, suppressStartOverlay, disableNativeAutoplay, currentTime, bufferedEnd,
+  })
+  const showResume = showResumePrompt && resumePosition !== null
+
   return (
-    <div
-      className={`bg-black relative w-full mx-auto flex items-center justify-center ${
-        audioMode
-          // Áudio: a capa é o foco visual. Cresce com a tela, mas continua contida
-          // (object-contain) e limitada a max-w-xl + mx-auto pra alinhar com o resto
-          // das seções centralizadas (transport, painel) — bloco coeso. No mobile
-          // fica compacta pra lista de faixas respirar.
-          ? 'h-44 sm:h-56 lg:h-72 xl:h-80 max-w-xl'
-          : 'max-h-[70dvh] sm:max-h-[58dvh]'
-      }`}
-      style={audioMode ? undefined : { aspectRatio: '16 / 9' }}
-    >
+    <div className={playerShellClass(audioMode)} style={audioMode ? undefined : { aspectRatio: '16 / 9' }}>
       <AudioCoverArt audioMode={audioMode} info={info} selectedFile={selectedFile} mediaToken={mediaToken} />
-      {showResumePrompt && resumePosition !== null && (
+      {showResume && (
         <ResumePrompt
-          resumePosition={resumePosition}
+          resumePosition={resumePosition!}
           formatTime={formatTime}
           onContinue={onResumeContinue}
           onRestart={onResumeRestart}
         />
       )}
-      {/* No modo-motor o <video> está mudo/sem-src (bufferedEnd fica sempre 0) e o
-          motor é quem toca — então NÃO mostra o overlay de "carregando" (senão ele
-          piscaria a cada faixa, o "refresh" indevido). Ver shouldShowStartOverlay. */}
-      {shouldShowStartOverlay({ videoError, engineActive, suppressStartOverlay, disableNativeAutoplay, currentTime, bufferedEnd }) && (
+      {showLoading && (
         <PlayerLoadingOverlay
           serverReady={serverReady}
           resumePosition={resumePosition}
@@ -332,14 +312,11 @@ export function VideoPlayerElement({
       {showStartAudioOverlay && <StartAudioOverlay onPlay={startAudioPlayback} />}
       <TranscodingBadge attempted={transcodeFallbackAttempted} videoError={videoError} />
       <AirPlayButton airplay={airplay} videoError={videoError} />
-      {videoError ? null : (
+      {!videoError && (
         <video
-          // Fresh element when an audio track crosses the direct-play↔HLS line on
-          // WebKit, so a graph-tapped element never inherits an HLS src (→ mute).
-          // See audioElementKey.
           key={audioElementKey(audioMode, isTranscoded)}
           ref={videoRef}
-          src={iosNative || engineActive || useHlsJs ? undefined : (streamURL || undefined)}
+          src={videoSrcAttr(iosNative, engineActive, useHlsJs, streamURL)}
           muted={engineActive}
           controls={!audioMode}
           autoPlay={!disableNativeAutoplay}
@@ -351,19 +328,16 @@ export function VideoPlayerElement({
           onLoadStart={() => clientLog('info', 'player', 'loadstart', { src: streamURL })}
           onStalled={() => {
             clientLog('warn', 'player', 'stalled', videoDiagnostic())
-            const v = videoRef.current
-            if (v && !suppressNudge && kickPastStartGap(v)) clientLog('info', 'player', 'start-gap nudge (stalled)', { currentTime: v.currentTime })
+            nudgeOnGap(videoRef, suppressNudge, 'start-gap nudge (stalled)')
           }}
           onWaiting={() => {
             clientLog('info', 'player', 'waiting (buffering)', { readyState: videoRef.current?.readyState })
-            const v = videoRef.current
-            if (v && !suppressNudge) kickPastStartGap(v)
+            nudgeOnGap(videoRef, suppressNudge, 'start-gap nudge (waiting)')
           }}
           onTimeUpdate={onTimeUpdate}
           onLoadedMetadata={(e) => handleMetaLoaded(e.currentTarget, onTimeUpdate, onVideoCanPlay, disableNativeAutoplay)}
           onProgress={() => {
-            const v = videoRef.current
-            if (v && !suppressNudge) kickPastStartGap(v)
+            nudgeOnGap(videoRef, suppressNudge, 'start-gap nudge (progress)')
             onTimeUpdate()
           }}
           onEnded={onVideoEnded}

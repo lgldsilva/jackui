@@ -107,3 +107,82 @@ export function nextRepeatMode(r: 'none' | 'all' | 'one'): 'none' | 'all' | 'one
   if (r === 'all') return 'one'
   return 'none'
 }
+
+/** Minimal snapshot shape for URL→state restore (avoids circular imports). */
+export type PlaylistSnapshotLike = {
+  readonly name: string
+  readonly items: readonly PlaylistItem[]
+  readonly currentItemIndex: number
+}
+
+export type PlayUrlDeps = {
+  readonly playSingle: (result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand?: boolean) => void
+  readonly playPlaylist: (name: string, items: PlaylistItem[], startIndex?: number, expand?: boolean) => void
+  readonly close: () => void
+  readonly hasCurrent: boolean
+  readonly loadSnapshot: () => PlaylistSnapshotLike | null
+  readonly isLocalHash: (h: string) => boolean
+  readonly parseLocalHash: (h: string) => { path: string } | null
+  readonly setLastSynced: (h: string | null) => void
+}
+
+/** Cold-boot restore when the URL has no ?play (PWA start_url). Returns true if it started playback. */
+export function tryBootRestorePlaylist(
+  playHash: string | null,
+  realHash: string | null,
+  deps: Pick<PlayUrlDeps, 'hasCurrent' | 'loadSnapshot' | 'playPlaylist'>,
+): boolean {
+  if (playHash || realHash || deps.hasCurrent) return false
+  const boot = deps.loadSnapshot()
+  if (!boot || boot.items.length === 0) return false
+  const idx = boot.currentItemIndex >= 0 && boot.currentItemIndex < boot.items.length
+    ? boot.currentItemIndex
+    : 0
+  deps.playPlaylist(boot.name, [...boot.items], idx)
+  return true
+}
+
+/** Empty ?play after router lag check: close active playback if the real URL also lacks play. */
+export function handleClearedPlayUrl(
+  realHash: string | null,
+  deps: Pick<PlayUrlDeps, 'hasCurrent' | 'close' | 'setLastSynced'>,
+): void {
+  if (realHash) return // router lag — real location still has ?play
+  if (deps.hasCurrent) deps.close()
+  deps.setLastSynced(null)
+}
+
+/** Apply a non-empty ?play hash: snapshot playlist → local mount → torrent deep link. */
+export function applyPlayHash(
+  hash: string,
+  fileUrlParam: string | null,
+  timeUrlParam: string | null,
+  deps: PlayUrlDeps,
+): void {
+  const fIdx = parsePositiveInt(fileUrlParam)
+  const initialSeek = parsePositiveFloat(timeUrlParam)
+
+  const snap = deps.loadSnapshot()
+  const snapIdx = snap ? snap.items.findIndex(it => it.infoHash === hash) : -1
+  // Prefer full playlist restore over single-item so prev/next survive reload.
+  if (snap && snapIdx >= 0) {
+    deps.setLastSynced(hash)
+    deps.playPlaylist(snap.name, [...snap.items], snapIdx)
+    return
+  }
+
+  if (deps.isLocalHash(hash)) {
+    deps.setLastSynced(hash)
+    const loc = deps.parseLocalHash(hash)
+    const name = loc ? (loc.path.split('/').pop() || loc.path) : hash
+    deps.playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek, true)
+    return
+  }
+
+  if (!/^[a-fA-F0-9]{40}$/.test(hash)) {
+    deps.setLastSynced(null)
+    return
+  }
+  deps.setLastSynced(hash)
+  resolveDeepLinkPlay(hash, fIdx, initialSeek, deps.playSingle)
+}

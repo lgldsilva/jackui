@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { transfersList, transferCancel, type TransferSnapshot } from '../api/transfers'
 import { useAuth } from '../auth/AuthContext'
 
@@ -20,7 +20,11 @@ type TransfersAPI = {
 
 const Ctx = createContext<TransfersAPI | null>(null)
 
-export function TransfersProvider({ children }: { children: ReactNode }) {
+type TransfersProviderProps = {
+  readonly children: ReactNode
+}
+
+export function TransfersProvider({ children }: TransfersProviderProps) {
   const { user } = useAuth()
   const [transfers, setTransfers] = useState<TransferSnapshot[]>([])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -49,10 +53,14 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const firePoll = useCallback(() => {
+    poll().catch(() => { /* next interval retries */ })
+  }, [poll])
+
   const bump = useCallback(() => {
     if (timer.current) clearTimeout(timer.current)
-    void poll()
-  }, [poll])
+    firePoll()
+  }, [firePoll])
 
   // Optimistically drop the job from the dock, tell the backend to abort, then
   // refresh (the job will come back as "canceled" briefly, then prune).
@@ -68,18 +76,25 @@ export function TransfersProvider({ children }: { children: ReactNode }) {
       setTransfers([])
       return () => { stopped.current = true }
     }
-    void poll()
+    firePoll()
     // Retoma o poll ao voltar pra aba (quando estava pausado: timer.current null).
-    const onVisible = () => { if (!document.hidden && !timer.current && !stopped.current) void poll() }
+    const onVisible = () => {
+      if (!document.hidden && !timer.current && !stopped.current) firePoll()
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       stopped.current = true
       if (timer.current) { clearTimeout(timer.current); timer.current = null }
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [user, poll])
+  }, [user, firePoll])
 
-  return <Ctx.Provider value={{ transfers, bump, cancel }}>{children}</Ctx.Provider>
+  const value = useMemo<TransfersAPI>(
+    () => ({ transfers, bump, cancel }),
+    [transfers, bump, cancel],
+  )
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useTransfers(): TransfersAPI {

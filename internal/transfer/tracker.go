@@ -116,7 +116,7 @@ func (j *Job) AddBytes(n int64) {
 // AddBytesFunc returns a callback for instrumenting an io.Copy via ProgressReader.
 func (j *Job) AddBytesFunc() func(int64) {
 	if j == nil {
-		return func(int64) {}
+		return func(int64) { /* no-op: nil Job has no progress to record */ }
 	}
 	return j.AddBytes
 }

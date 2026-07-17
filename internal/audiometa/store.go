@@ -32,7 +32,9 @@ func New(pool *sql.DB) (*Store, error) {
 }
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
-func (s *Store) Close() {}
+func (s *Store) Close() {
+	// No-op: shared Postgres pool lifecycle is owned by main (S1186).
+}
 
 // Get returns the cached tags for absPath IFF the cached row's last_mod matches
 // the file's current modtime (incremental invalidation: a re-rip / promote that

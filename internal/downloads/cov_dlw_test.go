@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -388,5 +389,76 @@ func Test_dlw_ResolveFileIndex(t *testing.T) {
 	}
 	if got.Status != StatusFailed {
 		t.Fatalf("esperava status failed, obteve %s", got.Status)
+	}
+}
+
+// FileIndexAuto (-1) must pick the largest video, not the leading spam .nfo
+// (regression: UI used to enqueue fileIndex=0 when metadata was unresolved).
+func Test_dlw_ResolveFileIndex_AutoPicksVideoOverNFO(t *testing.T) {
+	store := dlwNewStore(t)
+	w := dlwNewWorker(t, store, t.TempDir(), "")
+	tor := wholeSpecTorrent(t, "Scene", [][]string{
+		{"Torrent Downloaded From XXXClub.to .nfo"},
+		{"Scene.Title.2160p.mp4"},
+	})
+	files := tor.Files()
+	if len(files) < 2 {
+		t.Fatalf("need multi-file torrent, got %d files", len(files))
+	}
+	d, err := store.Create(Download{
+		UserID: 1, InfoHash: "auto-nfo", FileIndex: FileIndexAuto,
+		Magnet: "magnet:?xt=urn:btih:autonfo", Name: "Scene",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	idx, ok := w.resolveFileIndex(d, files)
+	if !ok {
+		t.Fatal("resolveFileIndex must succeed with auto + files present")
+	}
+	if idx != 1 {
+		t.Fatalf("auto-pick index = %d (path %q), want 1 (the .mp4)", idx, files[idx].Path())
+	}
+	if d.FileIndex != 1 {
+		t.Fatalf("resolved FileIndex on row = %d, want 1", d.FileIndex)
+	}
+	got, _ := store.Get(1, d.ID)
+	if got == nil || got.FileIndex != 1 {
+		t.Fatalf("persisted file_index = %+v, want 1", got)
+	}
+}
+
+// Concrete fileIndex 0 still respects the caller's choice (user may pick the nfo).
+// Contrasts with FileIndexAuto above — only -1 triggers pickBestFile.
+func Test_dlw_ResolveFileIndex_ConcreteZeroKeepsNFO(t *testing.T) {
+	store := dlwNewStore(t)
+	w := dlwNewWorker(t, store, t.TempDir(), "")
+	tor := wholeSpecTorrent(t, "Scene", [][]string{
+		{"Torrent Downloaded From XXXClub.to .nfo"},
+		{"Scene.Title.2160p.mp4"},
+	})
+	files := tor.Files()
+	d := &Download{UserID: 1, ID: 1, FileIndex: 0, InfoHash: "nfo0"}
+	idx, ok := w.resolveFileIndex(d, files)
+	if !ok || idx != 0 {
+		t.Fatalf("concrete 0 must stay 0, got idx=%d ok=%v", idx, ok)
+	}
+}
+
+func TestPickBestFile_VideoBeatsTinyNFO(t *testing.T) {
+	tor := wholeSpecTorrent(t, "Scene", [][]string{
+		{"Torrent Downloaded From XXXClub.to .nfo"},
+		{"video.mp4"},
+		{"sample.mkv"},
+	})
+	idx := pickBestFile(tor.Files())
+	// Equal Length in wholeSpecTorrent; video boost + later equal score keeps first video win.
+	// Either mp4 or mkv is fine; must NOT be the .nfo at 0.
+	if idx == 0 {
+		t.Fatal("pickBestFile must not prefer the leading .nfo")
+	}
+	path := tor.Files()[idx].Path()
+	if !strings.HasSuffix(strings.ToLower(path), ".mp4") && !strings.HasSuffix(strings.ToLower(path), ".mkv") {
+		t.Fatalf("pickBestFile chose %q, want a video", path)
 	}
 }

@@ -71,7 +71,9 @@ export default function SeedBadge({ infoHash, magnet, className = '', refreshSig
       const h = await streamHealth(infoHash, magnet, false)
       if (cancelled) return
       setHealth(h)
-      if (autoProbe && !h.known) void runProbe()
+      if (autoProbe && !h.known) {
+        runProbe().catch(() => { /* fire-and-forget probe */ })
+      }
     }
     if (typeof IntersectionObserver === 'undefined') {
       if (!fetchedRef.current) { fetchedRef.current = true; peek() }
@@ -92,14 +94,16 @@ export default function SeedBadge({ infoHash, magnet, className = '', refreshSig
   // Batch refresh from a parent: re-probe when the signal changes (skips the
   // initial undefined/0 so it never probes on mount).
   useEffect(() => {
-    if (refreshSignal) void runProbe()
+    if (refreshSignal) {
+      runProbe().catch(() => { /* fire-and-forget probe */ })
+    }
   }, [refreshSignal, runProbe])
 
   if (!infoHash) return null
 
   const verify = (e?: React.MouseEvent) => {
     e?.stopPropagation(); e?.preventDefault()
-    void runProbe()
+    runProbe().catch(() => { /* fire-and-forget probe */ })
   }
 
   const known = !!health?.known

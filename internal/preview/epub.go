@@ -48,21 +48,41 @@ type epubPackage struct {
 // and returns the spine in reading order. Pure stdlib: archive/zip +
 // encoding/xml.
 func ParseEpub(src Source) (*Epub, error) {
+	opfPath, err := readEpubRootfile(src)
+	if err != nil {
+		return nil, err
+	}
+	pkg, err := readEpubPackage(src, opfPath)
+	if err != nil {
+		return nil, err
+	}
+	chapters := spineChapters(pkg, path.Dir(opfPath))
+	if len(chapters) == 0 {
+		return nil, fmt.Errorf("epub opf: empty spine")
+	}
+	return &Epub{Title: strings.TrimSpace(pkg.Metadata.Title), Chapters: chapters}, nil
+}
+
+func readEpubRootfile(src Source) (string, error) {
 	containerXML, err := ReadEntry(src, FormatZip, "META-INF/container.xml", MaxChapterBytes)
 	if err != nil {
-		return nil, fmt.Errorf("epub container: %w", err)
+		return "", fmt.Errorf("epub container: %w", err)
 	}
 	var cont epubContainer
 	if err := xml.Unmarshal(containerXML, &cont); err != nil {
-		return nil, fmt.Errorf("epub container: %w", err)
+		return "", fmt.Errorf("epub container: %w", err)
 	}
 	if len(cont.Rootfiles) == 0 || cont.Rootfiles[0].FullPath == "" {
-		return nil, fmt.Errorf("epub container: no rootfile")
+		return "", fmt.Errorf("epub container: no rootfile")
 	}
 	opfPath := cont.Rootfiles[0].FullPath
 	if !SafeEntryName(opfPath) {
-		return nil, fmt.Errorf("epub container: unsafe rootfile path")
+		return "", fmt.Errorf("epub container: unsafe rootfile path")
 	}
+	return opfPath, nil
+}
+
+func readEpubPackage(src Source, opfPath string) (*epubPackage, error) {
 	opfXML, err := ReadEntry(src, FormatZip, opfPath, MaxChapterBytes)
 	if err != nil {
 		return nil, fmt.Errorf("epub opf: %w", err)
@@ -71,12 +91,14 @@ func ParseEpub(src Source) (*Epub, error) {
 	if err := xml.Unmarshal(opfXML, &pkg); err != nil {
 		return nil, fmt.Errorf("epub opf: %w", err)
 	}
+	return &pkg, nil
+}
 
+func spineChapters(pkg *epubPackage, opfDir string) []string {
 	hrefByID := make(map[string]string, len(pkg.Manifest.Items))
 	for _, it := range pkg.Manifest.Items {
 		hrefByID[it.ID] = it.Href
 	}
-	opfDir := path.Dir(opfPath)
 	chapters := make([]string, 0, len(pkg.Spine.Itemrefs))
 	for _, ref := range pkg.Spine.Itemrefs {
 		href, ok := hrefByID[ref.IDRef]
@@ -92,10 +114,7 @@ func ParseEpub(src Source) (*Epub, error) {
 		}
 		chapters = append(chapters, resolved)
 	}
-	if len(chapters) == 0 {
-		return nil, fmt.Errorf("epub opf: empty spine")
-	}
-	return &Epub{Title: strings.TrimSpace(pkg.Metadata.Title), Chapters: chapters}, nil
+	return chapters
 }
 
 // ResolveEpubRef resolves a (possibly URL-encoded) relative href against the

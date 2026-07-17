@@ -23,25 +23,9 @@ import (
 // (where the default storage already points). Only relocations OUTSIDE DataDir
 // switch to this storage, so the normal streaming/download paths are unchanged.
 func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) storage.ClientImpl {
-	if s.filePathResolver == nil || info == nil {
+	if !s.needsRelocatedStorage(info, hash) {
 		return nil
 	}
-	if len(info.UpvertedFiles()) == 0 {
-		return nil
-	}
-	p0, ok := s.filePathResolver(hash, 0)
-	if !ok || p0 == "" {
-		return nil
-	}
-	if st, err := os.Stat(p0); err != nil || st.IsDir() {
-		return nil
-	}
-	absData, _ := filepath.Abs(s.cfg.DataDir)
-	abs0, _ := filepath.Abs(p0)
-	if abs0 == absData || strings.HasPrefix(abs0, absData+string(os.PathSeparator)) {
-		return nil // still under the cache — default storage already handles it
-	}
-
 	return storage.NewFileOpts(storage.NewFileClientOpts{
 		// ClientBaseDir only roots the FilePathMaker fallback below.
 		ClientBaseDir: s.cfg.DataDir,
@@ -54,23 +38,52 @@ func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) sto
 		// Root the torrent at "/" so each file's absolute real path is used
 		// verbatim (joined under "/", it stays a valid sub-path).
 		TorrentDirMaker: func(string, *metainfo.Info, metainfo.Hash) string { return string(os.PathSeparator) },
-		FilePathMaker: func(o storage.FilePathMakerOpts) string {
-			if idx := fileIndexInInfo(o.Info, o.File); idx >= 0 {
-				if p, ok := s.filePathResolver(hash, idx); ok && p != "" {
-					return strings.TrimPrefix(p, string(os.PathSeparator))
-				}
-			}
-			// Unresolved file (shouldn't happen — file 0 resolved): fall back to the
-			// default layout under DataDir so we never write outside a known root.
-			parts := make([]string, 0, len(o.File.BestPath())+2)
-			parts = append(parts, strings.TrimPrefix(s.cfg.DataDir, string(os.PathSeparator)))
-			if o.Info.BestName() != metainfo.NoName {
-				parts = append(parts, o.Info.BestName())
-			}
-			parts = append(parts, o.File.BestPath()...)
-			return filepath.Join(parts...)
-		},
+		FilePathMaker:   s.relocatedFilePathMaker(hash),
 	})
+}
+
+// needsRelocatedStorage is true only when file 0 is a real file outside DataDir.
+func (s *Streamer) needsRelocatedStorage(info *metainfo.Info, hash metainfo.Hash) bool {
+	if s.filePathResolver == nil || info == nil || len(info.UpvertedFiles()) == 0 {
+		return false
+	}
+	p0, ok := s.filePathResolver(hash, 0)
+	if !ok || p0 == "" {
+		return false
+	}
+	if st, err := os.Stat(p0); err != nil || st.IsDir() {
+		return false
+	}
+	absData, _ := filepath.Abs(s.cfg.DataDir)
+	abs0, _ := filepath.Abs(p0)
+	// Still under the cache — default storage already handles it.
+	if abs0 == absData || strings.HasPrefix(abs0, absData+string(os.PathSeparator)) {
+		return false
+	}
+	return true
+}
+
+func (s *Streamer) relocatedFilePathMaker(hash metainfo.Hash) storage.FilePathMaker {
+	return func(o storage.FilePathMakerOpts) string {
+		if idx := fileIndexInInfo(o.Info, o.File); idx >= 0 {
+			if p, ok := s.filePathResolver(hash, idx); ok && p != "" {
+				return strings.TrimPrefix(p, string(os.PathSeparator))
+			}
+		}
+		// Unresolved file (shouldn't happen — file 0 resolved): fall back to the
+		// default layout under DataDir so we never write outside a known root.
+		return defaultDataDirFilePath(s.cfg.DataDir, o)
+	}
+}
+
+func defaultDataDirFilePath(dataDir string, o storage.FilePathMakerOpts) string {
+	parts := make([]string, 0, len(o.File.BestPath())+2)
+	parts = append(parts, strings.TrimPrefix(dataDir, string(os.PathSeparator)))
+	if o.Info.BestName() != metainfo.NoName {
+		parts = append(parts, o.Info.BestName())
+	}
+	parts = append(parts, o.File.BestPath()...)
+	return filepath.Join(parts...)
 }
 
 // MatchesSeedTrackerCached reports whether the torrent's CACHED metainfo announce
