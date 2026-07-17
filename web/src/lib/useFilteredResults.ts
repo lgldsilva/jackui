@@ -43,6 +43,50 @@ export type UseFilteredResultsOpts = ResultFilters & {
   readonly sortAsc: boolean
 }
 
+type MatchFilters = {
+  minSeeders: number
+  minLeechers: number
+  maxBytes: number
+  titleLower: string
+  onlyPlayable: boolean
+  audioOnly: boolean
+  resolution: string
+  hdrOnly: boolean
+  codecGroup: string
+}
+
+// Pure predicate so Sonar doesn't count the multi-clause filter as cognitive
+// complexity inside the useMemo callback (S3776).
+function matchesResultFilters(res: SearchResult, f: MatchFilters): boolean {
+  // -1 = contagem DESCONHECIDA (vários trackers/Jackett não expõem o número).
+  // Tratar como "não filtrar por contagem": só rejeita valores CONHECIDOS
+  // (>= 0) abaixo do mínimo. Sem o guard `>= 0`, `-1 < 0` derrubava esses
+  // resultados mesmo com o mínimo em 0 — e "limpar filtros" nunca os revelava.
+  if (res.seeders >= 0 && res.seeders < f.minSeeders) return false
+  if (res.leechers >= 0 && res.leechers < f.minLeechers) return false
+  if (res.size > f.maxBytes) return false
+  if (f.titleLower && !res.title.toLowerCase().includes(f.titleLower)) return false
+  if (f.onlyPlayable && !isPlayable(res)) return false
+  if (f.audioOnly && !isAudioResult(res)) return false
+  if (f.resolution && res.quality?.resolution !== f.resolution) return false
+  if (f.hdrOnly && !(res.quality?.hdr || res.quality?.dv)) return false
+  if (f.codecGroup && codecGroupOf(res.quality?.codec) !== f.codecGroup) return false
+  return true
+}
+
+function compareResults(a: SearchResult, b: SearchResult, sortKey: SortKey, sortAsc: boolean): number {
+  let diff = 0
+  switch (sortKey) {
+    case 'seeders':  diff = b.seeders - a.seeders; break
+    case 'leechers': diff = b.leechers - a.leechers; break
+    case 'size':     diff = b.size - a.size; break
+    case 'title':    diff = a.title.localeCompare(b.title); break
+    case 'date':
+    case 'age':      diff = b.publishDate.localeCompare(a.publishDate); break
+  }
+  return sortAsc ? -diff : diff
+}
+
 // Aplica groupByInfoHash + filtros + sort. Retorna também groupedCount pra
 // distinguir "reduzido por filtro" de "reduzido por dedup".
 export function useFilteredResults<T extends SearchResult>(
@@ -74,38 +118,15 @@ export function useFilteredResults<T extends SearchResult>(
       ? input
       : input.filter(res => res.tracker === trackerFilter)
     const grouped = groupByInfoHash(scoped)
-    const titleLower = titleFilter.toLowerCase()
-
-    let r = grouped.filter(res => {
-      // -1 = contagem DESCONHECIDA (vários trackers/Jackett não expõem o número).
-      // Tratar como "não filtrar por contagem": só rejeita valores CONHECIDOS
-      // (>= 0) abaixo do mínimo. Sem o guard `>= 0`, `-1 < 0` derrubava esses
-      // resultados mesmo com o mínimo em 0 — e "limpar filtros" nunca os revelava.
-      if (res.seeders >= 0 && res.seeders < minSeeders) return false
-      if (res.leechers >= 0 && res.leechers < minLeechers) return false
-      if (res.size > maxBytes) return false
-      if (titleLower && !res.title.toLowerCase().includes(titleLower)) return false
-      if (onlyPlayable && !isPlayable(res)) return false
-      if (audioOnly && !isAudioResult(res)) return false
-      if (resolution && res.quality?.resolution !== resolution) return false
-      if (hdrOnly && !(res.quality?.hdr || res.quality?.dv)) return false
-      if (codecGroup && codecGroupOf(res.quality?.codec) !== codecGroup) return false
-      return true
-    })
-
-    r = [...r].sort((a, b) => {
-      let diff = 0
-      switch (sortKey) {
-        case 'seeders':  diff = b.seeders - a.seeders; break
-        case 'leechers': diff = b.leechers - a.leechers; break
-        case 'size':     diff = b.size - a.size; break
-        case 'title':    diff = a.title.localeCompare(b.title); break
-        case 'date':
-        case 'age':      diff = b.publishDate.localeCompare(a.publishDate); break
-      }
-      return sortAsc ? -diff : diff
-    })
-
+    const filters: MatchFilters = {
+      minSeeders, minLeechers, maxBytes,
+      titleLower: titleFilter.toLowerCase(),
+      onlyPlayable, audioOnly, resolution, hdrOnly, codecGroup,
+    }
+    const r = grouped
+      .filter(res => matchesResultFilters(res, filters))
+      .slice()
+      .sort((a, b) => compareResults(a, b, sortKey, sortAsc))
     return { filteredResults: r, groupedCount: grouped.length }
   }, [input, minSeeders, minLeechers, maxBytes, trackerFilter, titleFilter, onlyPlayable, audioOnly, resolution, hdrOnly, codecGroup, sortKey, sortAsc])
 }
