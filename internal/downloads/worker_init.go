@@ -162,7 +162,7 @@ func (w *Worker) promoteOrAbort(d Download, td *trackedDL, name string) bool {
 func (w *Worker) initTarget(d *Download, hash metainfo.Hash, t wholeTarget) (*torrent.File, wholeTarget, bool) {
 	if d.IsWholeTorrent() {
 		if err := w.streamer.VerifyTorrent(hash); err != nil {
-			log.Printf("downloads: failed to verify torrent pieces for download %d: %v", d.ID, err)
+			log.Printf("downloads: verify torrent (structural error) for download %d: %v", d.ID, err)
 		}
 		// DownloadAll sets piece priority to Normal across the whole torrent —
 		// anacrolix schedules every file to completion. ONE queue row, ONE slot.
@@ -183,7 +183,7 @@ func (w *Worker) initTarget(d *Download, hash metainfo.Hash, t wholeTarget) (*to
 		return nil, nil, false
 	}
 	if err := w.streamer.VerifyFile(hash, fileIdx); err != nil {
-		log.Printf("downloads: failed to verify file pieces for download %d: %v", d.ID, err)
+		log.Printf("downloads: verify file (structural error) for download %d: %v", d.ID, err)
 	}
 	// File.Download() sets piece priority to Normal across the file's piece
 	// range — anacrolix then schedules a full download to completion.
