@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -147,12 +148,37 @@ func TestApplyAuthEnv_EnabledTrue(t *testing.T) {
 	}
 }
 
-func TestApplyAuthEnv_DefaultOnWhenUnset(t *testing.T) {
-	cfg := &Config{}
+func TestApplyAuthEnv_UnsetRespectsConfig(t *testing.T) {
 	t.Setenv("JACKUI_AUTH_ENABLED", "")
-	applyAuthEnv(cfg)
-	if !cfg.Auth.Enabled {
-		t.Fatal("expected auth enabled when JACKUI_AUTH_ENABLED unset")
+	// Unset env must NOT override the value already on cfg (YAML/defaultConfig).
+	on := &Config{}
+	on.Auth.Enabled = true
+	applyAuthEnv(on)
+	if !on.Auth.Enabled {
+		t.Fatal("unset env must keep cfg auth enabled (YAML/default ON)")
+	}
+	off := &Config{}
+	off.Auth.Enabled = false
+	applyAuthEnv(off)
+	if off.Auth.Enabled {
+		t.Fatal("unset env must respect explicit auth.enabled: false from YAML")
+	}
+}
+
+func TestDefaultConfig_AuthOn(t *testing.T) {
+	if !defaultConfig().Auth.Enabled {
+		t.Fatal("a fresh install must default to auth ON (fail-closed)")
+	}
+}
+
+func TestLoad_FreshBootAppliesAuthEnv(t *testing.T) {
+	t.Setenv("JACKUI_AUTH_ENABLED", "0")
+	cfg, err := Load(filepath.Join(t.TempDir(), "config.yaml"))
+	if err != nil {
+		t.Fatalf("Load fresh: %v", err)
+	}
+	if cfg.Auth.Enabled {
+		t.Fatal("fresh boot must honour JACKUI_AUTH_ENABLED=0 (env override on the not-exist path)")
 	}
 }
 

@@ -48,7 +48,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 - **Library extras** — Playlists, Watchlists (cron + ntfy push, opt-in auto-download with quality filters), Continue Watching (resume position), and an Incognito toggle that skips history/library writes. A global "reveal hidden" curtain hides flagged items across the UI.
 - **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS` + `JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`) keeps idle memory low on a home server.
 - **Desktop app** (optional) — an Electron wrapper bundling the Go server, with a status tray, magnet deep-links, and native downloads. See [`electron/`](electron/).
-- **Auth** — optional JWT (`JACKUI_AUTH_ENABLED=1`) with rotated refresh tokens, roles, MFA/passkeys, and `AdminOnly` routes (incl. admin password reset).
+- **Auth** — JWT **on by default** (opt out only with `JACKUI_AUTH_ENABLED=0` + `JACKUI_ALLOW_INSECURE_AUTH=1`) with rotated refresh tokens, roles, MFA/passkeys, and `AdminOnly` routes (incl. admin password reset).
 - **Observability** — public `/status` (version/commit/buildTime), Prometheus `/api/metrics` (admin JWT or `JACKUI_METRICS_TOKEN`), structured logs (`JACKUI_LOG_FORMAT=json`), and scheduled **bandwidth windows** for the streamer.
 
 ## Stack
@@ -210,7 +210,7 @@ internal/
 
 ## Security
 
-- **Auth is optional but real** — with `JACKUI_AUTH_ENABLED=1`, JWT with rotated refresh tokens; `AdminOnly` guards sensitive routes. Media elements (`<video>`/`<track>`) can't send headers, so media routes accept a scoped `?token=`.
+- **Auth is on by default** — JWT with rotated refresh tokens; `AdminOnly` guards sensitive routes. Running public is opt-in and explicit (`JACKUI_AUTH_ENABLED=0` + `JACKUI_ALLOW_INSECURE_AUTH=1`, dev/LAN only) — the boot fails closed otherwise. Media elements (`<video>`/`<track>`) can't send headers, so media routes accept a scoped `?token=`.
 - **SSRF guard** — torrent `.torrent`/metadata fetches are restricted to the configured Jackett host.
 - **The `*arr` RPC surface is opt-in** (`JACKUI_TRANSMISSION_RPC_ENABLED`, default off) and, when auth is enabled, requires Basic Auth.
 - **Local-file browser is confined** to explicitly configured, read-only mounts.
