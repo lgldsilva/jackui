@@ -3,11 +3,34 @@ package streamer
 import (
 	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 )
+
+// acquireVerify takes the global piece-hash slot (or no-ops if unlimited).
+func (s *Streamer) acquireVerify(label string) {
+	if s.verifySem == nil {
+		return
+	}
+	s.verifySem <- struct{}{}
+	if label != "" {
+		log.Printf("streamer: piece-verify acquired (%s)", label)
+	}
+}
+
+// releaseVerify frees the global piece-hash slot.
+func (s *Streamer) releaseVerify(label string) {
+	if s.verifySem == nil {
+		return
+	}
+	<-s.verifySem
+	if label != "" {
+		log.Printf("streamer: piece-verify released (%s)", label)
+	}
+}
 
 // Verify/recheck de pieces/arquivos — extraído de streamer.go.
 // VerifyFile is the exported entrypoint para o worker de downloads disparar a
@@ -133,6 +156,9 @@ func (s *Streamer) recheckFilePieces(key string, f *torrent.File) error {
 			s.verifiedMu.Unlock()
 		}
 	}()
+	// One multi-GB recheck at a time — concurrent RecheckFile calls thrash disk.
+	s.acquireVerify(key)
+	defer s.releaseVerify(key)
 	for p := range f.Pieces() {
 		if err := p.VerifyData(); err != nil {
 			return err
@@ -176,6 +202,10 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 			s.verifiedMu.Unlock()
 		}
 	}()
+	// Serialize hashing across torrents: N parallel download inits each
+	// VerifyFile a multi-GB pack after restart and starve the HDD.
+	s.acquireVerify(key)
+	defer s.releaseVerify(key)
 	for p := range f.Pieces() {
 		// Only verify pieces that have bytes on disk; fully-missing pieces have
 		// nothing to reconcile and verifying them just wastes a hash pass.
