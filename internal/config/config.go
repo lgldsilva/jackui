@@ -263,6 +263,10 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			cfg := defaultConfig()
+			// A fresh boot must still honour env overrides (auth, JWT secret, port,
+			// …); otherwise the first launch ignores JACKUI_AUTH_ENABLED/JWT_SECRET
+			// and initAuth fatals even when they were set correctly.
+			applyEnvOverrides(cfg)
 			if saveErr := cfg.Save(path); saveErr != nil {
 				return nil, fmt.Errorf("failed to create default config: %w", saveErr)
 			}
@@ -412,6 +416,7 @@ func (cfg *Config) appendOllamaSlots(chain []AIChainSlot) []AIChainSlot {
 func defaultConfig() *Config {
 	cfg := &Config{}
 	cfg.Port = 8989
+	cfg.Auth.Enabled = true // fail-closed: a fresh install defaults to auth ON
 	cfg.Jackett.URL = "http://localhost:9117"
 	cfg.Jackett.APIKey = "YOUR_API_KEY_HERE"
 	cfg.DownloadClients = []DownloadClient{
