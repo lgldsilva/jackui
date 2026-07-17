@@ -91,3 +91,58 @@ func TestBuildInfoLiveStats_ByteCounters(t *testing.T) {
 		t.Errorf("LiveStats returned negatives: down=%d up=%d uploaded=%d seeders=%d", down, up, uploaded, seeders)
 	}
 }
+
+// LiveStats is polled by GET /api/downloads every few seconds. It must NOT treat
+// that poll as "use" — otherwise dropIdleTorrents never reclaims finished torrents
+// and mmap of bulk media pins multi-GiB RSS while the UI is open.
+func TestLiveStatsDoesNotRefreshLastAccess(t *testing.T) {
+	s, dir := newRealStreamer(t)
+
+	piece := metainfo.HashBytes([]byte("llll"))
+	infoBytes, err := bencode.Marshal(metainfo.Info{
+		Name: "Idle.mkv", PieceLength: 1 << 14, Pieces: piece[:], Length: 4,
+	})
+	if err != nil {
+		t.Fatalf("bencode.Marshal: %v", err)
+	}
+	mi := &metainfo.MetaInfo{InfoBytes: infoBytes}
+	h := mi.HashInfoBytes()
+	if err := os.MkdirAll(filepath.Join(dir, ".metainfo"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	f, err := os.Create(filepath.Join(dir, ".metainfo", h.HexString()+".torrent"))
+	if err != nil {
+		t.Fatalf("create .torrent: %v", err)
+	}
+	if err := mi.Write(f); err != nil {
+		t.Fatalf("write .torrent: %v", err)
+	}
+	_ = f.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := s.Add(ctx, "magnet:?xt=urn:btih:"+h.HexString()); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	aged := time.Now().Add(-2 * time.Hour)
+	s.mu.Lock()
+	e, ok := s.active[h]
+	if !ok {
+		s.mu.Unlock()
+		t.Fatal("torrent not active after Add")
+	}
+	e.lastAccess = aged
+	s.mu.Unlock()
+
+	if _, _, _, _, ok := s.LiveStats(h); !ok {
+		t.Fatal("LiveStats ok=false")
+	}
+
+	s.mu.Lock()
+	got := s.active[h].lastAccess
+	s.mu.Unlock()
+	if !got.Equal(aged) {
+		t.Fatalf("LiveStats refreshed lastAccess: got %v want %v", got, aged)
+	}
+}

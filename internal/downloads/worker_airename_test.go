@@ -197,18 +197,17 @@ func TestRunCompletionMove_RenamesBeforeReseed(t *testing.T) {
 	}
 }
 
-// reseedAfterCompletion must release the torrent handle for a NON-seed download
-// whose file was just renamed (renamed=true) — otherwise the moved file's inode
-// keeps pinning RSS. With renamed=false it must NOT drop (nothing moved).
-func TestReseedAfterCompletion_RenamedNonSeedDropsHandle(t *testing.T) {
+// reseedAfterCompletion must ALWAYS drop a NON-seed download (download-to-bulk
+// and renamed paths alike) so mmap/RSS on the finished file is released. Seed-
+// tracker torrents reseed via Drop+EnsureActive instead (covered elsewhere).
+func TestReseedAfterCompletion_NonSeedAlwaysDropsHandle(t *testing.T) {
 	hashHex := "00112233445566778899aabbccddeeff00112233"
 	cases := []struct {
-		name      string
-		renamed   bool
-		wantDrops int
+		name    string
+		renamed bool
 	}{
-		{"renamed releases the stale handle", true, 1},
-		{"not renamed leaves the torrent alone", false, 0},
+		{"renamed (AI path) drops", true},
+		{"not renamed (bulk finalize) drops", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -220,10 +219,10 @@ func TestReseedAfterCompletion_RenamedNonSeedDropsHandle(t *testing.T) {
 			var drops []metainfo.Hash
 			w.drop = func(h metainfo.Hash) { drops = append(drops, h) }
 
-			w.reseedAfterCompletion(Download{UserID: 1, InfoHash: hashHex, Name: "x"}, tc.renamed)
+			w.reseedAfterCompletion(Download{UserID: 1, ID: 7, InfoHash: hashHex, Name: "x"}, tc.renamed)
 
-			if len(drops) != tc.wantDrops {
-				t.Fatalf("got %d drops, want %d", len(drops), tc.wantDrops)
+			if len(drops) != 1 {
+				t.Fatalf("got %d drops, want 1", len(drops))
 			}
 		})
 	}
