@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -624,15 +625,19 @@ func TestWorker_MoveCompletedFile_MkdirFailure(t *testing.T) {
 
 func TestWorkerTick_ListActiveError(t *testing.T) {
 	s := streamer.NewForTesting()
-	store := newTestStore(t)
-
+	// Close the pool so ListActive fails (store shares the Postgres pool).
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	store, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	w := NewWorker(WorkerConfig{
 		Store:    store,
 		Streamer: s,
 		DataDir:  t.TempDir(),
 	})
-	// Close the store so ListActive fails
-	store.Close()
+	pool.Close()
 
 	w.Start()
 	// Stop joins run() after the bootstrap tick, which hits the ListActive error.

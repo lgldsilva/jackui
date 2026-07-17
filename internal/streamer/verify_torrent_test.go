@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -10,14 +11,14 @@ import (
 
 func TestVerifyTorrent_NotActive(t *testing.T) {
 	s := NewForTesting()
-	if err := s.VerifyTorrent(metainfo.Hash{}); err == nil {
+	if err := s.VerifyTorrent(context.Background(), metainfo.Hash{}); err == nil {
 		t.Error("expected error for a torrent that isn't active")
 	}
 }
 
 func TestRecheckAllFiles_NotActive(t *testing.T) {
 	s := NewForTesting()
-	if err := s.RecheckAllFiles(metainfo.Hash{}); err == nil {
+	if err := s.RecheckAllFiles(context.Background(), metainfo.Hash{}); err == nil {
 		t.Error("expected error for a torrent that isn't active")
 	}
 }
@@ -43,7 +44,7 @@ func TestVerifyTorrent_ClaimsEveryFile(t *testing.T) {
 	s.active[hash] = &entry{t: tor, lastAccess: time.Now()}
 	s.mu.Unlock()
 
-	if err := s.VerifyTorrent(hash); err != nil {
+	if err := s.VerifyTorrent(context.Background(), hash); err != nil {
 		t.Fatalf("VerifyTorrent: %v", err)
 	}
 	s.verifiedMu.Lock()
@@ -76,7 +77,7 @@ func TestRecheckAllFiles_RehashesEveryFile(t *testing.T) {
 	s.active[hash] = &entry{t: tor, lastAccess: time.Now()}
 	s.mu.Unlock()
 
-	if err := s.RecheckAllFiles(hash); err != nil {
+	if err := s.RecheckAllFiles(context.Background(), hash); err != nil {
 		t.Fatalf("RecheckAllFiles: %v", err)
 	}
 	s.verifiedMu.Lock()

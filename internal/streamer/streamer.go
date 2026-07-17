@@ -115,6 +115,8 @@ type Streamer struct {
 	favs             *FavoritesStore // optional — nil disables favorites protection
 	cache            *MetadataCache  // optional — nil disables instant-open snapshots
 	stop             chan struct{}
+	lifetimeCtx      context.Context
+	lifetimeCancel   context.CancelFunc
 	filePathResolver FilePathResolver
 	// dlPieceCompletion is a shared, persistent (Bolt) piece-completion DB used by
 	// the download-to-bulk storage (downloadStorage). Persistent so a restart
@@ -376,11 +378,14 @@ func New(cfg Config) (*Streamer, error) {
 		dlPieceCompletion = nil
 	}
 
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
 	s := &Streamer{
 		cfg:               cfg,
 		client:            client,
 		active:            make(map[metainfo.Hash]*entry),
 		stop:              make(chan struct{}),
+		lifetimeCtx:       lifetimeCtx,
+		lifetimeCancel:    lifetimeCancel,
 		downloads:         make(map[string]struct{}),
 		metainfoDir:       metainfoDir,
 		verifiedFiles:     make(map[string]bool),

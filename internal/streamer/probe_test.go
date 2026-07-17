@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -745,7 +746,7 @@ func TestNewWithDataDir(t *testing.T) {
 
 func TestVerifyFile_Empty(t *testing.T) {
 	s := NewForTesting()
-	err := s.VerifyFile(metainfo.Hash{}, 0)
+	err := s.VerifyFile(context.Background(), metainfo.Hash{}, 0)
 	if err == nil {
 		t.Error("expected error for empty streamer")
 	}
@@ -753,7 +754,7 @@ func TestVerifyFile_Empty(t *testing.T) {
 
 func TestRecheckFile_Empty(t *testing.T) {
 	s := NewForTesting()
-	err := s.RecheckFile(metainfo.Hash{}, 0)
+	err := s.RecheckFile(context.Background(), metainfo.Hash{}, 0)
 	if err == nil {
 		t.Error("expected error for empty streamer")
 	}

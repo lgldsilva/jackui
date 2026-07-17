@@ -67,11 +67,6 @@ func New(pool *sql.DB) (*Store, error) {
 	return &Store{db: dbutil.Wrap(pool)}, nil
 }
 
-// Close is a no-op: the shared pool's lifecycle is owned by main.
-func (s *Store) Close() {
-	// No-op: shared Postgres pool lifecycle is owned by main (S1186).
-}
-
 // Bootstrap ensures an admin user exists. If no users at all, creates "admin" with the given password.
 // Use this once at startup with the password from config/env.
 func (s *Store) Bootstrap(adminUser, adminPass string) error {

@@ -133,8 +133,6 @@ func TestStoreRoundTripAndStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	defer st.Close()
-
 	tags := Tags{Title: "T", Artist: "A", Album: "Al", Year: 2024, TrackNumber: 3, HasCover: true}
 	if err := st.Save("/m/x.flac", 1000, tags); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -167,5 +165,4 @@ func TestStoreNilSafe(t *testing.T) {
 	if err := st.Save("/x", 1, Tags{}); err != nil {
 		t.Errorf("nil store Save should no-op, got %v", err)
 	}
-	st.Close() // must not panic
 }

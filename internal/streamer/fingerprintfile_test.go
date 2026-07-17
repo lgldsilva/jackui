@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,7 +50,7 @@ func TestFingerprintFile_MatchesOnDiskFingerprint(t *testing.T) {
 	s.mu.Lock()
 	s.active[hash] = &entry{t: tor, lastAccess: time.Now()}
 	s.mu.Unlock()
-	if err := s.VerifyFile(hash, 0); err != nil {
+	if err := s.VerifyFile(context.Background(), hash, 0); err != nil {
 		t.Fatalf("VerifyFile: %v", err)
 	}
 

@@ -45,7 +45,6 @@ func initLibraryStore(deps *appDeps) {
 		return
 	}
 	deps.libraryStore = l
-	deps.addCleanup(func() { l.Close() })
 	log.Printf("Library: PostgreSQL")
 	if mc := deps.streamSrv.MetadataCache(); mc != nil {
 		n, mErr := l.RefreshStalePrimary(func(hash string) (int, bool) {
@@ -74,7 +73,6 @@ func initAudioMetaStore(deps *appDeps) {
 		return
 	}
 	deps.audioMetaStore = am
-	deps.addCleanup(func() { am.Close() })
 	log.Printf("Audio metadata: PostgreSQL")
 }
 
@@ -88,7 +86,6 @@ func initPlaylistsStore(deps *appDeps) {
 		return
 	}
 	deps.playlistsStore = p
-	deps.addCleanup(func() { p.Close() })
 	log.Printf("Playlists: PostgreSQL")
 }
 
@@ -102,7 +99,6 @@ func initDownloadsStore(deps *appDeps) {
 		return
 	}
 	deps.downloadsStore = d
-	deps.addCleanup(func() { d.Close() })
 	log.Printf("Downloads: PostgreSQL")
 
 	// Pending-transfers store: persists move/promote copy intents so a deploy or
@@ -112,7 +108,6 @@ func initDownloadsStore(deps *appDeps) {
 		log.Printf("Warning: pending-transfers store init failed (resume disabled): %v", err)
 	} else {
 		deps.pendingTransfers = ts
-		deps.addCleanup(func() { ts.Close() })
 		handlers.ReconcilePendingTransfers(ts, deps.transferTracker, d, deps.streamSrv)
 	}
 
@@ -264,7 +259,6 @@ func initPushStore(deps *appDeps) {
 		return
 	}
 	deps.pushStore = p
-	deps.addCleanup(p.Close)
 	sender, err := push.NewSender(p)
 	if err != nil {
 		log.Printf("Warning: push sender init failed: %v", err)
@@ -284,7 +278,6 @@ func initWatchlistStore(deps *appDeps) {
 		return
 	}
 	deps.watchlistStore = w
-	deps.addCleanup(func() { w.Close() })
 	log.Printf("Watchlist: PostgreSQL")
 	interval := time.Duration(deps.cfg.Notifications.WatchlistInterval) * time.Minute
 	if interval <= 0 {

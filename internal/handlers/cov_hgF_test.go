@@ -25,7 +25,6 @@ func hgFHistory(t *testing.T) *history.Store {
 	if err != nil {
 		t.Fatalf("history.New: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
 	return s
 }
 

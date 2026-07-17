@@ -156,7 +156,7 @@ func TestInitTarget_WholeCallsDownloadAll(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 	fake := &fakeWhole{length: 100}
-	f, whole, ok := w.initTarget(d, metainfo.Hash{}, fake)
+	f, whole, ok := w.initTarget(context.Background(), d, metainfo.Hash{}, fake)
 	if !ok {
 		t.Fatal("initTarget must succeed for a whole-torrent row")
 	}
@@ -410,7 +410,7 @@ func TestInitTarget_PerFilePicksRequestedFile(t *testing.T) {
 	tor := wholeSpecTorrent(t, "P", [][]string{{"a.bin"}, {"b.bin"}})
 	// VerifyFile errors (torrent not active in the test streamer) — logged, not
 	// fatal; the per-file branch must still resolve and mark the file wanted.
-	f, whole, ok := w.initTarget(d, tor.InfoHash(), tor)
+	f, whole, ok := w.initTarget(context.Background(), d, tor.InfoHash(), tor)
 	if !ok {
 		t.Fatal("initTarget must succeed for an in-bounds per-file row")
 	}
@@ -432,7 +432,7 @@ func TestInitTarget_PerFileNoFilesFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	f, whole, ok := w.initTarget(d, metainfo.Hash{}, &fakeWhole{})
+	f, whole, ok := w.initTarget(context.Background(), d, metainfo.Hash{}, &fakeWhole{})
 	if ok || f != nil || whole != nil {
 		t.Fatal("initTarget must fail when the torrent has no files")
 	}

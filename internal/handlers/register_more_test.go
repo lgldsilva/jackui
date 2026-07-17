@@ -19,7 +19,6 @@ func TestRegisterHandler_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -39,7 +38,6 @@ func TestRegisterHandler_MissingFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -60,7 +58,6 @@ func TestRegisterHandler_DuplicateUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	_, err = store.CreateUserFull("existing", "existing@test.com", "password123", auth.RoleUser, auth.StatusActive)
 	if err != nil {
@@ -86,7 +83,6 @@ func TestRegisterHandler_DuplicateEmail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	_, err = store.CreateUserFull("other", "dup@test.com", "password123", auth.RoleUser, auth.StatusActive)
 	if err != nil {
@@ -112,7 +108,6 @@ func TestRegisterHandler_SuccessPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -141,7 +136,6 @@ func TestRegisterHandler_SuccessInvited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	inviteToken, err := store.CreateToken(auth.TokenInvite, 0, "invited@test.com", inviteTTL)
 	if err != nil {
@@ -175,7 +169,6 @@ func TestRegisterHandler_InvalidInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -195,7 +188,6 @@ func TestResolveInviteStatus_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	status, invited, ierr := resolveInviteStatus(store, "")
 	if ierr != nil {
@@ -214,7 +206,6 @@ func TestResolveInviteStatus_Invalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	_, _, ierr := resolveInviteStatus(store, "invalid-token")
 	if ierr == nil {
@@ -228,7 +219,6 @@ func TestVerifyEmail_InvalidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -249,7 +239,6 @@ func TestForgot_NeutralResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -268,7 +257,6 @@ func TestReset_NoToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -287,7 +275,6 @@ func TestInvite_GeneratesLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

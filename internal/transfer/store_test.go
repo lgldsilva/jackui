@@ -11,8 +11,6 @@ func TestStoreAddListRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
-
 	id1, err := s.Add(Pending{Kind: "promote", Src: "/a/x.mkv", Dst: "/b/x.mkv", Payload: `{"downloadID":1}`})
 	if err != nil || id1 == 0 {
 		t.Fatalf("Add 1: id=%d err=%v", id1, err)
@@ -50,7 +48,6 @@ func TestStoreNilSafe(t *testing.T) {
 	if l, err := s.List(); l != nil || err != nil {
 		t.Errorf("nil List: %v %v", l, err)
 	}
-	s.Close() // não deve dar panic
 }
 
 // Remove(0) é no-op (id 0 = store estava nil quando Add foi chamado).
@@ -59,7 +56,6 @@ func TestStoreRemoveZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
 	_, _ = s.Add(Pending{Kind: "promote", Src: "a", Dst: "b"})
 	if err := s.Remove(0); err != nil {
 		t.Fatalf("Remove(0): %v", err)
