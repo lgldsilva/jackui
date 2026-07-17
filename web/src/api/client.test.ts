@@ -12,7 +12,29 @@ vi.mock('./http', () => ({
   MAGNET_PREFIX: 'magnet:?xt=urn:btih:',
 }))
 
-import { streamInfo, buildLocalHash, queueAllTorrentFiles, WHOLE_TORRENT_FILE_INDEX, type TorrentInfo } from './client'
+import { streamInfo, streamAdd, buildLocalHash, queueAllTorrentFiles, WHOLE_TORRENT_FILE_INDEX, type TorrentInfo } from './client'
+
+describe('streamAdd for local pseudo-magnet', () => {
+  beforeEach(() => {
+    getMock.mockReset()
+    postMock.mockReset()
+    getMock.mockImplementation((url: string) => {
+      if (url.startsWith('/local/play')) {
+        return Promise.resolve({ status: 200, data: { kind: 'direct', url: '/api/local/stream/x' } })
+      }
+      return Promise.resolve({ status: 404, data: {} })
+    })
+  })
+
+  it('does not POST /stream/add when btih is a local- pseudo-hash', async () => {
+    const hash = buildLocalHash('Downloads', 'externalDisk/foo.mpeg')
+    const magnet = `magnet:?xt=urn:btih:${hash}`
+    const info = await streamAdd(magnet)
+    expect(info.infoHash).toBe(hash)
+    expect(postMock).not.toHaveBeenCalled()
+    expect(getMock.mock.calls.some(([u]) => String(u).startsWith('/local/play'))).toBe(true)
+  })
+})
 
 describe('streamInfo for local files', () => {
   beforeEach(() => {

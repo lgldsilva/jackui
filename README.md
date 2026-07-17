@@ -135,7 +135,7 @@ All variables below accept empty/unset as "use default". The canonical default i
 | | `JACKUI_DL_AGING_CAP` | — | Aging cap |
 | | `JACKUI_DL_ROTATION` | — | Download rotation strategy |
 | | `JACKUI_DL_AUTO_PROMOTE_ARR` | `0` | Promote `*arr` (Transmission-RPC) completed downloads into `SharedDir/<category>/` (`1`/`true`; needs `JACKUI_SHARED_DIR`) |
-| **Auth** | `JACKUI_AUTH_ENABLED` | `0` | Enable JWT auth (`1`/`true`) |
+| **Auth** | `JACKUI_AUTH_ENABLED` | `1` | JWT auth on by default; set `0` only with `JACKUI_ALLOW_INSECURE_AUTH=1` (dev/LAN) |
 | | `JACKUI_ADMIN_USERNAME` | `admin` | Admin username |
 | | `JACKUI_ADMIN_PASSWORD` | — | Admin password |
 | | `JACKUI_JWT_SECRET` | — | JWT signing secret (≥32 bytes, **required** with auth) |
