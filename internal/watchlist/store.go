@@ -72,7 +72,9 @@ func New(pool *sql.DB) (*Store, error) {
 }
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
-func (s *Store) Close() {}
+func (s *Store) Close() {
+	// No-op: shared Postgres pool lifecycle is owned by main (S1186).
+}
 
 // nextFor computes the next due time for a schedule using the store-wide
 // default interval as the fallback for "server default" interval items.
