@@ -155,7 +155,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_STREAM_DIR", "JACKUI_DOWNLOAD_DIR",
 		"JACKUI_SHARED_DIR",
 		"JACKUI_STREAM_MAX_GB",
-		"JACKUI_AUTH_ENABLED", "JACKUI_ADMIN_PASSWORD", "JACKUI_ADMIN_USERNAME", "JACKUI_JWT_SECRET",
+		"JACKUI_AUTH_ENABLED", "JACKUI_ALLOW_INSECURE_AUTH", "JACKUI_ADMIN_PASSWORD", "JACKUI_ADMIN_USERNAME", "JACKUI_JWT_SECRET",
 		"JACKUI_NTFY_TOPIC", "JACKUI_NTFY_URL", "JACKUI_NTFY_TOKEN",
 		"TMDB_API_KEY", "OMDB_API_KEY",
 		"JACKUI_SMTP_HOST", "JACKUI_SMTP_PORT", "JACKUI_SMTP_USER", "JACKUI_SMTP_PASS", "JACKUI_SMTP_FROM",
@@ -280,7 +280,10 @@ func envInt(name string) (int, bool) {
 }
 
 func applyAuthEnv(cfg *Config) {
-	if v := os.Getenv("JACKUI_AUTH_ENABLED"); v == "1" || v == "true" {
+	switch os.Getenv("JACKUI_AUTH_ENABLED") {
+	case "0", "false":
+		cfg.Auth.Enabled = false
+	default:
 		cfg.Auth.Enabled = true
 	}
 	if v := os.Getenv("JACKUI_ADMIN_PASSWORD"); v != "" {

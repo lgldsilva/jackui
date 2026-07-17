@@ -5,6 +5,7 @@ import {
   magnetFromInfoHash,
   TorrentLinkResolver,
 } from './favoritePayload'
+import { extractBtihFromMagnet } from './magnet'
 
 const HASH = 'a'.repeat(40)
 const OTHER = 'b'.repeat(40)
@@ -23,6 +24,14 @@ describe('extractInfoHashFromMagnet', () => {
     expect(extractInfoHashFromMagnet('magnet:?dn=NoHash')).toBe('')
     expect(extractInfoHashFromMagnet('magnet:?xt=urn:btih:ZOCMZQIPFFW7OLLMIC5HUB6BPCSDEOQU')).toBe('')
     expect(extractInfoHashFromMagnet('')).toBe('')
+  })
+})
+
+describe('extractBtihFromMagnet', () => {
+  it('returns raw local pseudo-hash from synthetic magnet', () => {
+    const local = 'local-eyJtb3VudCI6IkQifQ'
+    expect(extractBtihFromMagnet(`magnet:?xt=urn:btih:${local}`)).toBe(local)
+    expect(extractInfoHashFromMagnet(`magnet:?xt=urn:btih:${local}`)).toBe('')
   })
 })
 

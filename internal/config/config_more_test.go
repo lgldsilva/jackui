@@ -147,6 +147,24 @@ func TestApplyAuthEnv_EnabledTrue(t *testing.T) {
 	}
 }
 
+func TestApplyAuthEnv_DefaultOnWhenUnset(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_AUTH_ENABLED", "")
+	applyAuthEnv(cfg)
+	if !cfg.Auth.Enabled {
+		t.Fatal("expected auth enabled when JACKUI_AUTH_ENABLED unset")
+	}
+}
+
+func TestApplyAuthEnv_DisabledExplicit(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_AUTH_ENABLED", "0")
+	applyAuthEnv(cfg)
+	if cfg.Auth.Enabled {
+		t.Fatal("expected auth disabled when JACKUI_AUTH_ENABLED=0")
+	}
+}
+
 func TestApplyNotificationsEnv(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("JACKUI_NTFY_TOPIC", "mytopic")
