@@ -66,9 +66,9 @@ func LocalDuplicates(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		}
 		scoped := ScopePath(b, c, mount, c.Query("path"))
 		groups, err := findDuplicates(c.Request.Context(), b, mount, scoped, func(entries []lb.Entry) []lb.Entry {
-			username := scopeUser(c)
-			entries = b.StripUserScope(mount, username, entries)
-			return filterHiddenLocalTree(c, s, mount, entries)
+			// Keep the full scoped Path so fingerprintGroup's ResolvePath lands on
+			// the real file (UserSubpath mounts); strip only for the hidden compare.
+			return filterHiddenLocalScoped(c, s, b, mount, scopeUser(c), entries)
 		})
 		if err != nil {
 			if os.IsNotExist(err) {

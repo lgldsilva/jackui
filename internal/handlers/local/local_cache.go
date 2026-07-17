@@ -122,9 +122,12 @@ func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, s *streamer
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Do not pre-cache files under a closed-curtain hidden folder.
-	entries = b.StripUserScope(mount, scopeUser(c), entries)
-	entries = filterHiddenLocalTree(c, s, mount, entries)
+	// Do not pre-cache files under a closed-curtain hidden folder. Keep the full
+	// scoped Path (strip only for the hidden compare) so enqueueCacheEntries
+	// resolves + keys the same canonical form as LocalCacheStart on UserSubpath
+	// mounts — otherwise the abs path and cache key are wrong and the read side
+	// (cachedAbs, keyed by the scoped path) never finds the pre-fetched copy.
+	entries = filterHiddenLocalScoped(c, s, b, mount, scopeUser(c), entries)
 	queued := enqueueCacheEntries(cache, b, mount, entries)
 	c.JSON(http.StatusAccepted, gin.H{"queued": queued, "cacheable": true})
 }
