@@ -147,3 +147,30 @@ func TestVerifyLimiter_ShutdownUnblocksWaiter(t *testing.T) {
 	}
 	l.Release()
 }
+
+func TestVerifyLimiter_CancelWhileWaiting(t *testing.T) {
+	l := newVerifyLimiter(1)
+	l.Acquire()
+
+	for i := 0; i < 200; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- l.AcquireContext(ctx)
+		}()
+
+		// Stagger cancel timing so the waiter is usually blocked on the channel.
+		time.Sleep(time.Duration(i%10) * time.Microsecond)
+		cancel()
+
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("iteration %d: got %v, want context.Canceled", i, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("iteration %d: AcquireContext did not return after cancel", i)
+		}
+	}
+	l.Release()
+}
