@@ -34,7 +34,6 @@ func OpenStore(pool *sql.DB) (*Store, error) {
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
-
 // Add persists a pending transfer and returns its id (0 when the store is nil).
 func (s *Store) Add(p Pending) (int64, error) {
 	if s == nil || s.db == nil {

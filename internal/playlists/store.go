@@ -54,7 +54,6 @@ func New(pool *sql.DB) (*Store, error) {
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
-
 // ─── Playlists ─────────────────────────────────────────────────────────────
 
 // Create makes a new empty playlist owned by userID.

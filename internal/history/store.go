@@ -37,7 +37,6 @@ func New(pool *sql.DB) (*Store, error) {
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
-
 // buildFTSQuery turns a user query into a Postgres to_tsquery prefix-AND string.
 // Each token becomes `tok:*` joined by ` & `, reproducing the SQLite FTS5
 // prefix-AND behaviour. Tokens are reduced to letters/digits so the to_tsquery

@@ -111,7 +111,6 @@ func Test_plwAddItemWithLibraryID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	p, _ := s.Create(1, "P", "")
 	it, err := s.AddItem(p.ID, 1, Item{Title: "T", Magnet: "m:x", LibraryID: &lib, FileIndex: 3}, false)
 	if err != nil {

@@ -182,7 +182,6 @@ func New(pool *sql.DB) (*Store, error) {
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
-
 // UserStats aggregates the user's download history for the stats endpoint.
 func (s *Store) UserStats(userID int) (total, completed int, bytes int64, err error) {
 	row := s.db.QueryRow(`

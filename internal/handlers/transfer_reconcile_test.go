@@ -87,7 +87,6 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	dst := filepath.Join(t.TempDir(), "done.mkv")
 	if err := os.WriteFile(dst, []byte("ja-copiado"), 0o644); err != nil {
 		t.Fatal(err)

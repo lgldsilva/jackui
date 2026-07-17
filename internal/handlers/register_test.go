@@ -61,7 +61,6 @@ func TestInvite_WithStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/auth/invite", bytes.NewReader([]byte(`{"email":"test@example.com"}`)))
@@ -113,7 +112,6 @@ func TestForgot_Always200(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/auth/forgot", bytes.NewReader([]byte(`{"email":"nonexistent@test.com"}`)))
@@ -132,7 +130,6 @@ func TestForgot_NoBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -192,7 +189,6 @@ func TestRegister_WithStoreConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	router := gin.New()
 	router.POST("/api/auth/register", Register(store, nil, ""))

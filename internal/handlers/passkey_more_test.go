@@ -18,7 +18,6 @@ func TestPasskeyRegisterBegin_StoreError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("POST", "/api/auth/passkey/register/begin", nil)
@@ -37,7 +36,6 @@ func TestPasskeyRegisterFinish_StoreError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -191,7 +189,6 @@ func TestPasskeyList_WithCreds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/auth/passkey", nil)
@@ -210,7 +207,6 @@ func TestPasskeyDelete_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
