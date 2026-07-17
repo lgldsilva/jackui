@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -11,14 +12,21 @@ import (
 )
 
 // acquireVerify takes a piece-hash slot (disk-bound). Independent of max_active.
-func (s *Streamer) acquireVerify(label string) {
+// Returns false if the limiter shut down (e.g. Streamer.Close) — caller should skip verify work.
+func (s *Streamer) acquireVerify(label string) bool {
 	if s.verifyLim == nil {
-		return
+		return true
 	}
-	s.verifyLim.Acquire()
+	if err := s.verifyLim.AcquireContext(context.Background()); err != nil {
+		if label != "" {
+			log.Printf("streamer: piece-verify not acquired (%s): %v", label, err)
+		}
+		return false
+	}
 	if label != "" {
 		log.Printf("streamer: piece-verify acquired (%s) limit=%d", label, s.verifyLim.Limit())
 	}
+	return true
 }
 
 // releaseVerify frees a piece-hash slot.
@@ -157,7 +165,9 @@ func (s *Streamer) recheckFilePieces(key string, f *torrent.File) error {
 		}
 	}()
 	// One multi-GB recheck at a time — concurrent RecheckFile calls thrash disk.
-	s.acquireVerify(key)
+	if !s.acquireVerify(key) {
+		return ErrVerifyLimiterClosed
+	}
 	defer s.releaseVerify(key)
 	for p := range f.Pieces() {
 		if err := p.VerifyData(); err != nil {
@@ -204,7 +214,9 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 	}()
 	// Serialize hashing across torrents: N parallel download inits each
 	// VerifyFile a multi-GB pack after restart and starve the HDD.
-	s.acquireVerify(key)
+	if !s.acquireVerify(key) {
+		return
+	}
 	defer s.releaseVerify(key)
 	for p := range f.Pieces() {
 		// Only verify pieces that have bytes on disk; fully-missing pieces have
@@ -212,7 +224,9 @@ func (s *Streamer) verifyFilePieces(hash metainfo.Hash, fileIdx int, f *torrent.
 		if p.State().Complete {
 			continue
 		}
-		_ = p.VerifyData()
+		if err := p.VerifyData(); err != nil {
+			log.Printf("streamer: piece verify I/O error (key=%s): %v", key, err)
+		}
 	}
 	completed = true
 }
