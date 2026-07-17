@@ -19,7 +19,7 @@ func newDownloadsStore(t *testing.T) *downloads.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
+
 	return s
 }
 

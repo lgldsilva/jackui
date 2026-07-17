@@ -158,7 +158,6 @@ func TestRPC_AuthHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer as.Close()
 	if _, err := as.CreateUser("bob", "secret123!", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}

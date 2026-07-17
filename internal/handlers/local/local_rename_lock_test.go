@@ -20,7 +20,7 @@ func newRenameRouter(t *testing.T) (*gin.Engine, *lb.Browser, *downloads.Store, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { dls.Close() })
+
 	b := lb.NewBrowser([]config.ExternalMount{{Name: "Meus downloads", Path: meus}})
 	router := gin.New()
 	router.POST("/api/local/rename", LocalRename(b, dls, nil))

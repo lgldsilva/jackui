@@ -31,7 +31,7 @@ func TestUpsertLocalLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(lib.Close)
+
 	c, _ := newTestCtx()
 	id := upsertLocalLibrary(c, lib, "M", "song.flac", true)
 	if id <= 0 {

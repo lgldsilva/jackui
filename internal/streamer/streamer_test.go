@@ -801,7 +801,7 @@ func TestSetPriority_NonExistentHash(t *testing.T) {
 
 func TestRecheckFile_NonExistent(t *testing.T) {
 	s := NewForTesting()
-	err := s.RecheckFile(metainfo.Hash{}, 0)
+	err := s.RecheckFile(context.Background(), metainfo.Hash{}, 0)
 	if err == nil {
 		t.Error("expected error for non-existent hash")
 	}
@@ -809,7 +809,7 @@ func TestRecheckFile_NonExistent(t *testing.T) {
 
 func TestVerifyFile_NonExistent(t *testing.T) {
 	s := NewForTesting()
-	err := s.VerifyFile(metainfo.Hash{}, 0)
+	err := s.VerifyFile(context.Background(), metainfo.Hash{}, 0)
 	if err == nil {
 		t.Error("expected error for non-existent hash")
 	}
@@ -848,7 +848,7 @@ func TestStreamer_RecheckFilePieces_Dedup(t *testing.T) {
 	s.verifiedFiles = map[string]bool{"test-key": true}
 	s.verifiedMu.Unlock()
 
-	_ = s.recheckFilePieces("test-key", nil)
+	_ = s.recheckFilePieces(context.Background(), "test-key", nil)
 }
 
 // purgeVerifiedFiles substituiu o wipe-tudo-ao-atingir-2000: agora a limpeza é

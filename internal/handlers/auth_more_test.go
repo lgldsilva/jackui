@@ -20,7 +20,6 @@ func newAuthStore(t *testing.T) *auth.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
 	return store
 }
 
@@ -312,7 +311,7 @@ func TestMediaToken_UserNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
 	w := httptest.NewRecorder()

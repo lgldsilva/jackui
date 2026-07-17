@@ -52,7 +52,6 @@ func newDLHiddenFixture(t *testing.T) *dlHiddenFixture {
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
-	t.Cleanup(func() { authSt.Close() })
 	alice, err := authSt.CreateUser("alice", "pw-alice-123", auth.RoleUser)
 	if err != nil {
 		t.Fatalf("CreateUser alice: %v", err)

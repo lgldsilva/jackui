@@ -1,6 +1,7 @@
 package transmissionrpc
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -77,7 +78,7 @@ func (h *Handler) methodTorrentVerify(args map[string]interface{}) rpcResponse {
 		fileIdx := d.FileIndex
 		hash := hh
 		go func() {
-			_ = h.streamer.RecheckFile(hash, fileIdx)
+			_ = h.streamer.RecheckFile(context.Background(), hash, fileIdx)
 		}()
 		return nil
 	})

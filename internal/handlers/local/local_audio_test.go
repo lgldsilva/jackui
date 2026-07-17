@@ -56,7 +56,6 @@ func audioMount(t *testing.T, withCover bool) (*lb.Browser, *audiometa.Store) {
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
-	t.Cleanup(st.Close)
 	return b, st
 }
 

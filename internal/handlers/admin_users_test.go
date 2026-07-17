@@ -238,7 +238,7 @@ func TestAdminUserSessions_StoreErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(store.Close)
+
 	user := createTestUser(t, store, "alice", "secret123")
 
 	// Drop refresh_tokens out from under the store (users stays intact so the

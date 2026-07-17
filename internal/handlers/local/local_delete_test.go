@@ -30,7 +30,7 @@ func TestLocalDeleteRemovesLinkedTorrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dls.Close()
+
 	if _, err := dls.Create(downloads.Download{
 		UserID:    1,
 		InfoHash:  "aabbccddeeff00112233445566778899aabbccdd",

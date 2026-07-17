@@ -13,7 +13,6 @@ func TestUserStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(s.Close)
 
 	mk := func(hash string, status string, bytes int64) {
 		d, cerr := s.Create(Download{UserID: 1, InfoHash: hash, Magnet: "magnet:" + hash})

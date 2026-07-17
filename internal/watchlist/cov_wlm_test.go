@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/dbtest"
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
 
@@ -43,8 +44,13 @@ func Test_wlmRunOnceSearchError(t *testing.T) {
 // TestWlmRunOnceListAllError closes the store first so ListAll returns an error
 // inside runOnce (the early-return logging branch).
 func Test_wlmRunOnceListAllError(t *testing.T) {
-	s := newTestStore(t)
-	s.Close() // queries now fail on the closed DB
+	pool := dbtest.NewDB(t)
+	dbtest.SeedUsers(t, pool, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	s, err := New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Close() // queries now fail on the closed DB
 	w := NewWorker(s, &fakeSearcher{}, &recorderNotifier{}, "topic", 15*time.Minute)
 	w.RunOnce() // must not panic
 }

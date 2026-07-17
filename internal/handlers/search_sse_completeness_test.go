@@ -39,7 +39,7 @@ func newTestHistoryStore(t *testing.T) *history.Store {
 	if err != nil {
 		t.Fatalf("history.New: %v", err)
 	}
-	t.Cleanup(store.Close)
+
 	return store
 }
 

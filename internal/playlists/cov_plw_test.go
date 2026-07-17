@@ -14,7 +14,7 @@ func plwStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("plw New: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+
 	return s
 }
 
@@ -110,7 +110,6 @@ func Test_plwAddItemWithLibraryID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
 
 	p, _ := s.Create(1, "P", "")
 	it, err := s.AddItem(p.ID, 1, Item{Title: "T", Magnet: "m:x", LibraryID: &lib, FileIndex: 3}, false)
