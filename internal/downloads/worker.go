@@ -299,7 +299,44 @@ func rescueInterruptedMove(cfg WorkerConfig, d Download) {
 func (w *Worker) Start() {
 	w.doneWG.Add(1)
 	go w.run()
-	go w.autoSeedCompleted()
+	// Boot order: free non-seed completed handles first (RSS/mmap), then reseed
+	// only seed-tracker completed rows.
+	go w.reconcileCompletedSeeding()
+}
+
+// reconcileCompletedSeeding runs once at boot: drop completed public torrents that
+// may still be open (mmap pin), then re-activate seed-tracker completed rows.
+func (w *Worker) reconcileCompletedSeeding() {
+	w.dropCompletedNonSeedHandles()
+	w.autoSeedCompleted()
+}
+
+// dropCompletedNonSeedHandles drops any active client handle for a COMPLETED
+// download that is NOT a configured seed-tracker. Survives upgrades where
+// download-to-bulk left the torrent open (and UI polls kept lastAccess warm).
+func (w *Worker) dropCompletedNonSeedHandles() {
+	all, err := w.store.ListAll()
+	if err != nil {
+		return
+	}
+	dropped := 0
+	for _, d := range all {
+		if d.Status != StatusCompleted || d.InfoHash == "" {
+			continue
+		}
+		var h metainfo.Hash
+		if err := h.FromHexString(d.InfoHash); err != nil {
+			continue
+		}
+		if w.streamer.MatchesSeedTrackerCached(h) {
+			continue
+		}
+		w.dropTorrent(h)
+		dropped++
+	}
+	if dropped > 0 {
+		log.Printf("downloads: dropped %d completed non-seed torrent handle(s) at boot", dropped)
+	}
 }
 
 // autoSeedCompleted re-activates, on boot, every COMPLETED download whose tracker

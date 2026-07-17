@@ -73,15 +73,20 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	w.reseedAfterCompletion(d, renamed)
 }
 
-// reseedAfterCompletion re-activates a just-completed download from its new bulk
-// location when its tracker is configured for continuous seeding. The torrent
-// that drove the download still has cache-rooted storage pointing at the file we
-// just moved away, so Drop + EnsureActive swaps it onto the relocated storage
-// (anacrolix verifies the bulk file and seeds — no re-download). No-op when the
-// tracker isn't a seed-tracker — EXCEPT that when the file was just renamed
-// (`renamed`), it still Drops the torrent so the fd/mmap it holds on the moved
-// file is released (otherwise the (deleted) inode keeps pinning RSS).
+// reseedAfterCompletion finalizes the torrent client handle after a download
+// completes (bulk finalize, cache→dest move, or AI-rename):
+//
+//   - Seed-tracker content: Drop + EnsureActive so anacrolix re-attaches to the
+//     bulk path and keeps seeding (no re-download).
+//   - Everyone else: Drop the torrent always. Leaving it open mmaps the finished
+//     file (4K bulk can pin 1+ GiB RSS per torrent). Previously we only dropped
+//     when `renamed` was true, so download-to-bulk ("already in bulk", no rename)
+//     kept the handle forever — and LiveStats polls on /api/downloads refreshed
+//     lastAccess so idle GC never cleaned them up either.
+//
+// `renamed` is kept for call-site compatibility; drop no longer depends on it.
 func (w *Worker) reseedAfterCompletion(d Download, renamed bool) {
+	_ = renamed
 	if d.InfoHash == "" {
 		return
 	}
@@ -90,12 +95,9 @@ func (w *Worker) reseedAfterCompletion(d Download, renamed bool) {
 		return
 	}
 	if !w.streamer.MatchesSeedTrackerCached(h) {
-		if renamed {
-			// Not a seed-tracker, but the file was just moved by AI-rename: the
-			// download torrent still holds an fd/mmap on the old path. Drop it so
-			// the (deleted) inode stops pinning RSS. No EnsureActive — we don't seed.
-			w.dropTorrent(h)
-		}
+		// Public/indexer swarms: stop seeding and release mmap/RSS.
+		w.dropTorrent(h)
+		log.Printf("downloads: #%d %q dropped after complete (not a seed-tracker)", d.ID, d.Name)
 		return
 	}
 	w.streamer.Drop(h)
