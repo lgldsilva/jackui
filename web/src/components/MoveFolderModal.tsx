@@ -3,6 +3,7 @@ import { useTranslation, Trans } from 'react-i18next'
 import { FolderInput, Loader2, Folder, ChevronRight, Home, HardDrive, AlertCircle, CheckCircle2, FolderPlus } from 'lucide-react'
 import { LocalEntry, LocalMount, localList, localMounts, localMove } from '../api/client'
 import { Sheet } from './Sheet'
+import { trimSlashes } from '../lib/localBrowse'
 import { useTrackedJobs } from '../lib/transfers'
 import FileProgressBar from './FileProgressBar'
 
@@ -15,12 +16,44 @@ type Props = {
   readonly onMoved: () => void
 }
 
+// Unifica os dois modos: lista de itens a mover (1 no modo single, N no lote).
+function resolveItems(entry: LocalEntry | null, entries?: readonly LocalEntry[]): readonly LocalEntry[] {
+  if (entries && entries.length > 0) return entries
+  return entry ? [entry] : []
+}
+
+// Destino final = pasta navegada + subpasta nova (opcional). Extraído do
+// componente: como ternário aninhado o Sonar reclama (S3358) e soma na
+// complexidade cognitiva.
+function joinDest(browsePath: string, cleanNew: string): string {
+  if (!cleanNew) return browsePath
+  return browsePath ? `${browsePath}/${cleanNew}` : cleanNew
+}
+
+// No lote não há uma única "localização atual"; deixa o backend validar cada item.
+function isSameLocation(isBatch: boolean, dstMount: string, srcMount: string, browsePath: string, singlePath: string): boolean {
+  if (isBatch || dstMount !== srcMount) return false
+  const parent = singlePath.includes('/') ? singlePath.slice(0, singlePath.lastIndexOf('/')) : ''
+  return browsePath === parent
+}
+
+function moveErrorMessage(reason: any, fallback: string): string {
+  return reason?.response?.data?.error || reason?.message || fallback
+}
+
+// allSettled: um item que falha na validação (ex: colisão de nome) não aborta os
+// outros. Cada move aceito roda em background (202) e reporta ao painel de
+// Transferências; aqui só validamos o aceite.
+async function runMoves(
+  srcMount: string, items: readonly LocalEntry[], dstMount: string, finalPath: string,
+): Promise<PromiseRejectedResult[]> {
+  const results = await Promise.allSettled(items.map(it => localMove(srcMount, it.path, dstMount, finalPath)))
+  return results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+}
+
 export default function MoveFolderModal({ mount, entry, entries, onClose, onMoved }: Props) {
   const { t } = useTranslation()
-  // Unifica os dois modos: lista de itens a mover (1 no modo single, N no lote).
-  let items: readonly LocalEntry[] = []
-  if (entries && entries.length > 0) items = entries
-  else if (entry) items = [entry]
+  const items = resolveItems(entry, entries)
   const active = items.length > 0
 
   const [mounts, setMounts] = useState<LocalMount[]>([])
@@ -67,8 +100,8 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
   // Subpasta nova (opcional) anexada ao destino. O backend (localMove) faz
   // MkdirAll no destino, então a pasta é criada na hora de mover — sem endpoint
   // extra. Aceita aninhado (a/b) e ignora barras nas pontas.
-  const cleanNew = newFolder.trim().replaceAll(/^\/+|\/+$/g, '')
-  const finalPath = cleanNew ? (browsePath ? `${browsePath}/${cleanNew}` : cleanNew) : browsePath
+  const cleanNew = trimSlashes(newFolder.trim())
+  const finalPath = joinDest(browsePath, cleanNew)
 
   const handleMove = async () => {
     if (!dstMount) return
@@ -76,30 +109,23 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
     setError('')
     startTracking() // snapshot + bump: passa a acompanhar os jobs deste move
     try {
-      // allSettled: um item que falha na validação (ex: colisão de nome) não
-      // aborta os outros. Cada move aceito roda em background (202) e reporta ao
-      // painel de Transferências; aqui só validamos o aceite.
-      const results = await Promise.allSettled(items.map(it => localMove(mount, it.path, dstMount, finalPath)))
-      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      const failed = await runMoves(mount, items, dstMount, finalPath)
       if (failed.length === items.length) {
-        const first = failed[0]
-        setError(first.reason?.response?.data?.error || first.reason?.message || t('local.move.error'))
+        setError(moveErrorMessage(failed[0].reason, t('local.move.error')))
         return
       }
       if (failed.length > 0) setError(t('local.move.partialFailed', { failed: failed.length, total: items.length }))
       setDone(true)
       onMoved()
     } catch (e: any) {
-      setError(e?.response?.data?.error || e.message || t('local.move.error'))
+      setError(moveErrorMessage(e, t('local.move.error')))
     } finally {
       setSubmitting(false)
     }
   }
 
-  // No lote, não há uma única "localização atual"; deixa o backend validar cada item.
   const singlePath = items[0].path
-  const isSameLoc = !isBatch && dstMount === mount &&
-    browsePath === (singlePath.includes('/') ? singlePath.slice(0, singlePath.lastIndexOf('/')) : '')
+  const isSameLoc = isSameLocation(isBatch, dstMount, mount, browsePath, singlePath)
 
   return (
     <Sheet
