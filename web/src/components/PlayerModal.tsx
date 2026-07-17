@@ -39,6 +39,13 @@ import { usePlaybackProgress } from './player/usePlaybackProgress'
 
 export type { PlaylistMeta } from './player/playerTypes'
 
+function newPlaybackID(): string {
+  if (globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+}
+
 export default function PlayerModal({
   result,
   onClose,
@@ -62,6 +69,10 @@ export default function PlayerModal({
 }: PlayerModalProps) {
   const { t } = useTranslation()
   const { notifyError } = useToast()
+	const playbackIDRef = useRef('')
+	if (!playbackIDRef.current) {
+		playbackIDRef.current = newPlaybackID()
+	}
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -298,7 +309,7 @@ export default function PlayerModal({
 
   // URL builder: raw direct play unless any transcoding option is active. Safari
   // + HEVC/x265/AV1/4K short-circuits to HLS before the first <video> attempt.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe, playbackID: playbackIDRef.current })
   const { streamURL, encoderLabel, isTranscoded } = videoUrls
 
   // Fase 8: seleção de áudio unificada. Com o master expondo >1 rendition, a troca

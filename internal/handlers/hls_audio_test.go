@@ -34,6 +34,7 @@ func TestHlsSessionKeyFromReqRouting(t *testing.T) {
 		{"/api/stream/hls/" + testHash + "/3/a/2/index.m3u8", "-ao2"},
 		{"/api/stream/hls/" + testHash + "/3/v/1/index.m3u8", "-v1"},
 		{"/api/stream/hls/" + testHash + "/3/index.m3u8", "-3"},
+		{"/api/stream/hls/" + testHash + "/3/index.m3u8?playback=viewer-a", "-pviewer-a"},
 	}
 	for _, c := range cases {
 		w := httptest.NewRecorder()

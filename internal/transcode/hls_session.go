@@ -25,6 +25,7 @@ func (s *HLSSession) launch(startSeg int) error {
 	}
 	s.mu.Unlock()
 	ffctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
 	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
 	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
 	log.Printf("hls: ffmpeg %s", strings.Join(s.spec.args(startSeg), " "))
@@ -45,6 +46,7 @@ func (s *HLSSession) launch(startSeg int) error {
 	}
 	s.Cmd = cmd
 	s.Cancel = cancel
+	s.done = done
 	s.oomDetector = oom
 	s.startSeg = startSeg
 	// Relançar limpa o flag de "encoder morto": um run anterior pode ter terminado
@@ -52,6 +54,7 @@ func (s *HLSSession) launch(startSeg int) error {
 	// completar perto do fim). Sem isso a sessão segue marcada closed e o GC a reapa.
 	s.closed = false
 	s.gen++
+	s.encodingSince = time.Now()
 	myGen := s.gen
 	s.mu.Unlock()
 
@@ -65,6 +68,7 @@ func (s *HLSSession) launch(startSeg int) error {
 			s.closed = true
 		}
 		s.mu.Unlock()
+		close(done)
 		// CUDA-OOM recovery: ffmpeg died trying to create a hardware decoder with
 		// no VRAM. Relaunch the SAME session in software decode (NVENC still
 		// encodes) so playback succeeds. Only for a non-superseded HW-decode run
@@ -162,13 +166,22 @@ func (s *HLSSession) EnsureSegment(idx int) {
 	}
 }
 
-// highestSeg returns the largest seg_NNNNN.ts index currently on disk, or -1
-// when none exist. Cheap readdir; only called when a requested segment is
-// missing, not on the hot path.
+// highestSeg returns the largest segment produced by the active ffmpeg
+// invocation, or startSeg-1 when it has not produced one yet. Older seek
+// segments intentionally remain reusable on disk, but must not make a new
+// encoder appear farther ahead than it is.
 func (s *HLSSession) highestSeg() int {
+	s.mu.Lock()
+	since := s.encodingSince
+	start := s.startSeg
+	s.mu.Unlock()
 	entries, _ := os.ReadDir(s.Dir)
-	hi := -1
+	hi := start - 1
 	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || (!since.IsZero() && info.ModTime().Before(since)) {
+			continue
+		}
 		if n, ok := parseSegName(e.Name()); ok && n > hi {
 			hi = n
 		}
@@ -213,6 +226,7 @@ func (s *HLSSession) RestartAt(seg int) error {
 	s.mu.Lock()
 	cur := s.startSeg
 	cancel := s.Cancel
+	done := s.done
 	since := time.Since(s.lastRestart)
 	closed := s.closed
 	dead := s.dead
@@ -227,18 +241,29 @@ func (s *HLSSession) RestartAt(seg int) error {
 	if seg == cur && !closed {
 		return nil // already encoding from here
 	}
-	// Debounce: a single seek fires several segment requests near the target.
-	// The first restart wins; the rest (different seg numbers) are absorbed so
-	// they don't kill the just-launched encoder. A genuine later seek (after the
-	// cooldown) still restarts. Um encoder MORTO (closed) ignora o cooldown —
-	// senão o playback fica 404 até o cooldown vencer.
+	// Debounce normal read-ahead, but never let a superseding seek be absorbed
+	// by the cooldown. Safari can issue a request for an abandoned scrub target
+	// immediately before the actual target; the active encoder then starts too
+	// far away and the requested segment times out. A segment outside the
+	// active encoder's own read-ahead window is a new seek and replaces it.
+	// Um encoder MORTO (closed) ignora o cooldown — senão o playback fica 404
+	// até o cooldown vencer.
 	if since < hlsRestartCooldown && !closed {
-		return nil
+		highest := s.highestSeg()
+		if seg >= cur && seg <= highest+hlsForwardSeekThreshold {
+			return nil
+		}
 	}
 
 	log.Printf("hls: seek-restart session %s from seg %d → %d (closed=%v)", s.Key, cur, seg, closed)
 	if cancel != nil {
-		cancel() // kill the current ffmpeg; gen bump in launch() guards the watcher
+		cancel()
+		// Do not overlap encoders: besides unnecessary GPU consumption, an old
+		// process could finish a segment after the replacement begins and make
+		// stale output look like it belongs to the new seek.
+		if done != nil {
+			<-done
+		}
 	}
 	s.mu.Lock()
 	s.lastRestart = time.Now()
