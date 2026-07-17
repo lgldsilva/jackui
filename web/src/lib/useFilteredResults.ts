@@ -55,22 +55,32 @@ type MatchFilters = {
   codecGroup: string
 }
 
-// Pure predicate so Sonar doesn't count the multi-clause filter as cognitive
-// complexity inside the useMemo callback (S3776).
+// -1 = contagem DESCONHECIDA: não filtrar. Só rejeita valores CONHECIDOS abaixo do min.
+function belowMinCount(n: number, min: number): boolean {
+  return n >= 0 && n < min
+}
+
+function failsQualityFilters(res: SearchResult, f: MatchFilters): boolean {
+  if (f.resolution && res.quality?.resolution !== f.resolution) return true
+  if (f.hdrOnly && !(res.quality?.hdr || res.quality?.dv)) return true
+  if (f.codecGroup && codecGroupOf(res.quality?.codec) !== f.codecGroup) return true
+  return false
+}
+
+function failsKindFilters(res: SearchResult, f: MatchFilters): boolean {
+  if (f.onlyPlayable && !isPlayable(res)) return true
+  if (f.audioOnly && !isAudioResult(res)) return true
+  return false
+}
+
+// Split into helpers so each stays under Sonar cognitive-complexity 15 (S3776).
 function matchesResultFilters(res: SearchResult, f: MatchFilters): boolean {
-  // -1 = contagem DESCONHECIDA (vários trackers/Jackett não expõem o número).
-  // Tratar como "não filtrar por contagem": só rejeita valores CONHECIDOS
-  // (>= 0) abaixo do mínimo. Sem o guard `>= 0`, `-1 < 0` derrubava esses
-  // resultados mesmo com o mínimo em 0 — e "limpar filtros" nunca os revelava.
-  if (res.seeders >= 0 && res.seeders < f.minSeeders) return false
-  if (res.leechers >= 0 && res.leechers < f.minLeechers) return false
+  if (belowMinCount(res.seeders, f.minSeeders)) return false
+  if (belowMinCount(res.leechers, f.minLeechers)) return false
   if (res.size > f.maxBytes) return false
   if (f.titleLower && !res.title.toLowerCase().includes(f.titleLower)) return false
-  if (f.onlyPlayable && !isPlayable(res)) return false
-  if (f.audioOnly && !isAudioResult(res)) return false
-  if (f.resolution && res.quality?.resolution !== f.resolution) return false
-  if (f.hdrOnly && !(res.quality?.hdr || res.quality?.dv)) return false
-  if (f.codecGroup && codecGroupOf(res.quality?.codec) !== f.codecGroup) return false
+  if (failsKindFilters(res, f)) return false
+  if (failsQualityFilters(res, f)) return false
   return true
 }
 
