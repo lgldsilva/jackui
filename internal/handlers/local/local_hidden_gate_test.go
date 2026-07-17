@@ -31,10 +31,12 @@ func runLocalGate(s *streamer.Streamer, userID int, route, mount, path string, r
 	if path != "" {
 		q.Set("path", path)
 	}
-	req := httptest.NewRequest("GET", route+"?"+q.Encode(), nil)
 	if reveal {
-		req.Header.Set("X-JackUI-Reveal-Hidden", "1")
+		// Native media elements cannot set X-JackUI-Reveal-Hidden; this is the
+		// exact query-string path used by <video>, HLS and preview resources.
+		q.Set("revealHidden", "1")
 	}
+	req := httptest.NewRequest("GET", route+"?"+q.Encode(), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w.Code
