@@ -65,13 +65,16 @@ export const streamSubtrackURL = (hash: string, fileIdx: number, trackIdx: numbe
   return withToken(`/api/stream/subtrack/${hash}/${fileIdx}/${trackIdx}`, tokenOverride)
 }
 
-export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?: string, audioTrack?: number): string => {
+export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?: string, audioTrack?: number, playbackID?: string): string => {
   const hasAudio = audioTrack != null && audioTrack >= 0
+  const playbackQ = playbackID ? `&playback=${encodeURIComponent(playbackID)}` : ''
   if (isLocalHash(hash)) {
     const loc = parseLocalHash(hash)!
     const audioQ = hasAudio ? `&audio=${audioTrack}` : ''
-    return withToken(`/api/local/hls/index.m3u8?${localQS(loc.mount, loc.path)}${audioQ}`, tokenOverride)
+    return withToken(`/api/local/hls/index.m3u8?${localQS(loc.mount, loc.path)}${audioQ}${playbackQ}`, tokenOverride)
   }
   const audioQ = hasAudio ? `?audio=${audioTrack}` : ''
-  return withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8${audioQ}`, tokenOverride)
+  const separator = audioQ ? '&' : '?'
+  const playbackSuffix = playbackID ? `${separator}playback=${encodeURIComponent(playbackID)}` : ''
+  return withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8${audioQ}${playbackSuffix}`, tokenOverride)
 }

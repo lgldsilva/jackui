@@ -43,6 +43,10 @@ type hlsCtx struct {
 // created (see HLSSessionManager.EffectiveKey), so both sides need the flag.
 // With only a token the output is identical to the previous `?token=X`.
 func mediaSegQuery(token string, nativeHLS bool) string {
+	return mediaSegQueryWithPlayback(token, nativeHLS, "")
+}
+
+func mediaSegQueryWithPlayback(token string, nativeHLS bool, playback string) string {
 	q := ""
 	if token != "" {
 		q = "?token=" + token
@@ -52,6 +56,13 @@ func mediaSegQuery(token string, nativeHLS bool) string {
 			q = "?native_hls=1"
 		} else {
 			q += "&native_hls=1"
+		}
+	}
+	if playback != "" {
+		if q == "" {
+			q = "?playback=" + playback
+		} else {
+			q += "&playback=" + playback
 		}
 	}
 	return q
@@ -87,11 +98,15 @@ func withSegAudio(data []byte, audio string) []byte {
 // treating the stream as headless LIVE. Segments the encoder hasn't produced
 // yet are generated on demand (seek-restart) when the player requests them.
 func buildVODPlaylist(durationSec float64, token string, nativeHLS bool) []byte {
+	return buildVODPlaylistWithPlayback(durationSec, token, nativeHLS, "")
+}
+
+func buildVODPlaylistWithPlayback(durationSec float64, token string, nativeHLS bool, playback string) []byte {
 	n := int(math.Ceil(durationSec / httpshared.HLSVODSegDur))
 	if n < 1 {
 		n = 1
 	}
-	q := mediaSegQuery(token, nativeHLS)
+	q := mediaSegQueryWithPlayback(token, nativeHLS, playback)
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")
@@ -209,10 +224,13 @@ func hlsAudioOnlyKey(h metainfo.Hash, fileIdx, track int) string {
 // (`a/:track`) → -ao{track}; senão o path de vídeo (-v{variant}[-a{audio}]).
 // Master, playlist e segmentos DEVEM usar esta MESMA função pra bater o Dir.
 func hlsSessionKeyFromReq(c *gin.Context, h metainfo.Hash, fileIdx int) string {
+	var key string
 	if t := hlsAudioTrackParam(c); t >= 0 {
-		return hlsAudioOnlyKey(h, fileIdx, t)
+		key = hlsAudioOnlyKey(h, fileIdx, t)
+	} else {
+		key = hlsSessionKey(h, fileIdx, hlsVariantParam(c), httpshared.ParseIntOr(c.Query("audio"), -1))
 	}
-	return hlsSessionKey(h, fileIdx, hlsVariantParam(c), httpshared.ParseIntOr(c.Query("audio"), -1))
+	return key + httpshared.PlaybackSessionSuffix(c)
 }
 
 func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, complete bool) (*transcode.HLSSession, error) {
@@ -246,7 +264,7 @@ func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
 	if sess.IsVOD() {
 		c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
 		c.Data(http.StatusOK, httpshared.MIMEMPEGURL,
-			withSegAudio(buildVODPlaylist(sess.DurationSec, c.Query("token"), httpshared.NativeHLSParam(c)), c.Query("audio")))
+			withSegAudio(buildVODPlaylistWithPlayback(sess.DurationSec, c.Query("token"), httpshared.NativeHLSParam(c), httpshared.PlaybackSession(c)), c.Query("audio")))
 		return
 	}
 	data := readEventPlaylist(c, sess)
@@ -263,7 +281,7 @@ func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
 		return nil
 	}
-	if q := mediaSegQuery(c.Query("token"), httpshared.NativeHLSParam(c)); q != "" {
+	if q := mediaSegQueryWithPlayback(c.Query("token"), httpshared.NativeHLSParam(c), httpshared.PlaybackSession(c)); q != "" {
 		lines := strings.Split(string(data), "\n")
 		for i, line := range lines {
 			trim := strings.TrimSpace(line)

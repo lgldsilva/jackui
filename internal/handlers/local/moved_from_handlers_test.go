@@ -435,13 +435,17 @@ func TestLocalPromoteBatch(t *testing.T) {
 }
 
 func TestSegURLBuilder_NativeHLS(t *testing.T) {
-	withFlag := segURLBuilder("M", "v.mkv", "TOK", "", true, false, "")("seg_00001.ts")
+	withFlag := segURLBuilder("M", "v.mkv", "TOK", "", true, false, "", "")("seg_00001.ts")
 	if !strings.Contains(withFlag, "native_hls=1") {
 		t.Fatalf("expected native_hls=1 in seg URL, got %q", withFlag)
 	}
-	without := segURLBuilder("M", "v.mkv", "TOK", "", false, false, "")("seg_00001.ts")
+	without := segURLBuilder("M", "v.mkv", "TOK", "", false, false, "", "")("seg_00001.ts")
 	if strings.Contains(without, "native_hls") {
 		t.Fatalf("did not expect native_hls when false, got %q", without)
+	}
+	withPlayback := segURLBuilder("M", "v.mkv", "TOK", "", false, false, "", "viewer-a")("seg_00001.ts")
+	if !strings.Contains(withPlayback, "playback=viewer-a") {
+		t.Fatalf("expected playback ID in segment URL, got %q", withPlayback)
 	}
 }
 
@@ -681,7 +685,7 @@ func Test_hgB_ResolveLocalFileStat_Missing(t *testing.T) {
 // to drive without ffmpeg; instead verify the VOD synth builder used by it.
 func Test_hgB_BuildLocalVODPlaylist_Rewrites(t *testing.T) {
 	seen := []string{}
-	build := segURLBuilder("Test", "movie.mkv", "TOK", "", false, false, "")
+	build := segURLBuilder("Test", "movie.mkv", "TOK", "", false, false, "", "")
 	pl := string(buildLocalVODPlaylist(10, func(name string) string {
 		u := build(name)
 		seen = append(seen, u)

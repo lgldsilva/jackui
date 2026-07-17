@@ -50,7 +50,7 @@ func LocalHLSMaster(b *lb.Browser, mgr *transcode.HLSSessionManager, reg *locals
 		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), httpshared.NativeHLSParam(c), middleware.IsRevealHidden(c), c.Query("audio"))
+		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), httpshared.NativeHLSParam(c), middleware.IsRevealHidden(c), c.Query("audio"), httpshared.PlaybackSession(c))
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
 }
@@ -108,6 +108,7 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	if src.audioTrack >= 0 {
 		key += fmt.Sprintf("-a%d", src.audioTrack) // sessão por faixa: trocar áudio não reusa o cache
 	}
+	key += httpshared.PlaybackSessionSuffix(c)
 	f, oerr := os.Open(src.abs)
 	if oerr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
@@ -174,7 +175,7 @@ func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	return true
 }
 
-func segURLBuilder(mount, path, token, user string, nativeHLS, revealHidden bool, audio string) func(name string) string {
+func segURLBuilder(mount, path, token, user string, nativeHLS, revealHidden bool, audio, playback string) func(name string) string {
 	return func(name string) string {
 		p := url.Values{}
 		p.Set("mount", mount)
@@ -200,6 +201,9 @@ func segURLBuilder(mount, path, token, user string, nativeHLS, revealHidden bool
 		}
 		if revealHidden {
 			p.Set("revealHidden", "1")
+		}
+		if playback != "" {
+			p.Set("playback", playback)
 		}
 		return "/api/local/hls/seg?" + p.Encode()
 	}
@@ -308,6 +312,7 @@ func resolveLocalSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount
 	if a := httpshared.ParseIntOr(c.Query("audio"), -1); a >= 0 {
 		raw += fmt.Sprintf("-a%d", a)
 	}
+	raw += httpshared.PlaybackSessionSuffix(c)
 	key := mgr.EffectiveKey(raw, httpshared.NativeHLSParam(c))
 	sess, err := mgr.Peek(key)
 	if err != nil {

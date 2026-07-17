@@ -87,9 +87,17 @@ type HLSSession struct {
 	startSeg    int
 	gen         int
 	lastRestart time.Time // debounces seek-restart against bursty parallel requests
-	restartMu   sync.Mutex
-	mu          sync.Mutex
-	closed      bool
+	// done is closed by the active ffmpeg wait goroutine after the process has
+	// exited. RestartAt waits for it before launching a replacement, preventing
+	// two encoders from writing the same segment directory concurrently.
+	done chan struct{}
+	// encodingSince separates the segments written by the active ffmpeg
+	// invocation from files retained for previous seeks in the same directory.
+	// Guarded by mu.
+	encodingSince time.Time
+	restartMu     sync.Mutex
+	mu            sync.Mutex
+	closed        bool
 	// dead marks a session stop()ed by the manager (idle reap / explicit
 	// close). A dead session must never relaunch ffmpeg: a segment handler
 	// holding a stale pointer could otherwise resurrect an encoder writing

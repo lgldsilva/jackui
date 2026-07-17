@@ -62,6 +62,10 @@ export default function PlayerModal({
 }: PlayerModalProps) {
   const { t } = useTranslation()
   const { notifyError } = useToast()
+  const playbackIDRef = useRef('')
+  if (!playbackIDRef.current) {
+    playbackIDRef.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -298,7 +302,7 @@ export default function PlayerModal({
 
   // URL builder: raw direct play unless any transcoding option is active. Safari
   // + HEVC/x265/AV1/4K short-circuits to HLS before the first <video> attempt.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe })
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe, playbackID: playbackIDRef.current })
   const { streamURL, encoderLabel, isTranscoded } = videoUrls
 
   // Fase 8: seleção de áudio unificada. Com o master expondo >1 rendition, a troca

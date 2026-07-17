@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLastLine(t *testing.T) {
@@ -318,6 +319,39 @@ func TestEnsureSegmentNoRestartIfWithinRange(t *testing.T) {
 	if got != 0 {
 		t.Errorf("startSeg mudou para %d — houve relançamento indevido", got)
 	}
+}
+
+// Safari can leave segments from an earlier seek in the shared directory and
+// then issue another seek before the restart cooldown expires. The active
+// encoder must follow the new target rather than treating those stale files as
+// its own read-ahead window or letting the first request win the cooldown.
+func TestEnsureSegmentReplacesSupersededSeek(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "seg_00357.ts")
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	launched := time.Now()
+	if err := os.Chtimes(stale, launched.Add(-time.Second), launched.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	s := &HLSSession{
+		spec:          &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
+		Dir:           dir,
+		startSeg:      109,
+		lastRestart:   launched,
+		encodingSince: launched,
+	}
+
+	s.EnsureSegment(358)
+	s.mu.Lock()
+	got := s.startSeg
+	s.mu.Unlock()
+	if got != 358 {
+		s.stop()
+		t.Fatalf("seek mais recente ficou no alvo antigo: startSeg=%d, want 358", got)
+	}
+	s.stop()
 }
 
 // Um encoder morto (closed) deve RESSUSCITAR quando o player pede um segmento
