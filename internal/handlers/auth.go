@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
 	"strconv"
 	"sync"
@@ -185,7 +185,7 @@ func refreshOutcomeOK(c *gin.Context, store *auth.Store, user *auth.User, outcom
 func issueTokenPair(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, ua, ip string) (tokenResp, error) {
 	access, exp, err := tm.SignAccess(user)
 	if err != nil {
-		return tokenResp{}, fmt.Errorf("%s", errTokenSigningFailed)
+		return tokenResp{}, errors.New(errTokenSigningFailed)
 	}
 	ttl := refreshTTLNormal
 	if remember {
