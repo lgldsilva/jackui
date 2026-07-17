@@ -10,8 +10,6 @@ import {
   RepeatMode,
   PlaylistState,
   playlistItemToResult,
-  parsePositiveInt,
-  parsePositiveFloat,
   nextRepeatMode,
   tryBootRestorePlaylist,
   handleClearedPlayUrl,
@@ -20,7 +18,7 @@ import {
 } from './player/providerHelpers'
 
 // Re-exported so the provider module keeps its original public surface.
-export { parsePositiveInt, parsePositiveFloat }
+export { parsePositiveInt, parsePositiveFloat } from './player/providerHelpers'
 // Lazy so hls.js (~150KB gz) + the whole player bundle load only on first play,
 // not in the initial bundle of every page (this provider lives above the router).
 const PlayerModal = lazy(() => import('./PlayerModal'))
