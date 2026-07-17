@@ -99,13 +99,17 @@ type AIChainSlot struct {
 // queue's anti-starvation aging. RotationEnabled gates the Phase-2 automatic
 // source rotation (re-search Jackett when a source dries up).
 type DownloadsQueueConfig struct {
-	MaxActive         int  `yaml:"max_active"`          // GLOBAL ceiling: concurrent downloads across all users (streaming excluded); default 3
-	PerUserMaxActive  int  `yaml:"per_user_max_active"` // per-user concurrent cap; 0 = no per-user limit (only the global ceiling applies); default 0
-	StallThresholdMin int  `yaml:"stall_threshold_min"` // no-progress+no-seed minutes before a demote; default 30
-	MaxStalls         int  `yaml:"max_stalls"`          // stalls before pausing the download; default 3 (0 = cycle forever)
-	AgingStepMin      int  `yaml:"aging_step_min"`      // queue aging: minutes waited per +1 bonus; default 60
-	AgingCap          int  `yaml:"aging_cap"`           // ceiling on the aging bonus; default 150
-	RotationEnabled   bool `yaml:"rotation_enabled"`    // Phase 2: auto source rotation via Jackett; default false
+	MaxActive        int `yaml:"max_active"`          // GLOBAL ceiling: concurrent downloads across all users (streaming excluded); default 3
+	PerUserMaxActive int `yaml:"per_user_max_active"` // per-user concurrent cap; 0 = no per-user limit (only the global ceiling applies); default 0
+	// MaxConcurrentVerify caps disk-bound piece rechecks (VerifyFile) running at
+	// once. Independent of MaxActive: you can download 5 torrents while only 1
+	// multi-GB rehash runs on the bulk HDD. Default 1 (safe for spinning disks).
+	MaxConcurrentVerify int  `yaml:"max_concurrent_verify"`
+	StallThresholdMin   int  `yaml:"stall_threshold_min"` // no-progress+no-seed minutes before a demote; default 30
+	MaxStalls           int  `yaml:"max_stalls"`          // stalls before pausing the download; default 3 (0 = cycle forever)
+	AgingStepMin        int  `yaml:"aging_step_min"`      // queue aging: minutes waited per +1 bonus; default 60
+	AgingCap            int  `yaml:"aging_cap"`           // ceiling on the aging bonus; default 150
+	RotationEnabled     bool `yaml:"rotation_enabled"`    // Phase 2: auto source rotation via Jackett; default false
 	// AutoPromoteArr: when on, a completed download created via the Transmission
 	// RPC (Sonarr/Radarr) is written straight into SharedDir/<category>/ — the
 	// same "completed downloads" tree Transmission uses — so the *arr import it as

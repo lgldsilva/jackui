@@ -9,6 +9,9 @@ func TestApplyDownloadsQueueEnv_Defaults(t *testing.T) {
 	if q.MaxActive != 3 || q.StallThresholdMin != 30 || q.MaxStalls != 3 || q.AgingStepMin != 60 || q.AgingCap != 150 {
 		t.Fatalf("unexpected defaults: %+v", q)
 	}
+	if q.MaxConcurrentVerify != 1 {
+		t.Errorf("max_concurrent_verify should default to 1 (disk-safe), got %d", q.MaxConcurrentVerify)
+	}
 	if q.PerUserMaxActive != 0 {
 		t.Errorf("per-user limit should default to 0 (unlimited), got %d", q.PerUserMaxActive)
 	}
@@ -37,6 +40,7 @@ func TestApplyDownloadsQueueEnv_NegativePerUserClampsToZero(t *testing.T) {
 
 func TestApplyDownloadsQueueEnv_Overrides(t *testing.T) {
 	t.Setenv("JACKUI_DL_MAX_ACTIVE", "5")
+	t.Setenv("JACKUI_DL_MAX_CONCURRENT_VERIFY", "2")
 	t.Setenv("JACKUI_DL_STALL_MIN", "15")
 	t.Setenv("JACKUI_DL_MAX_STALLS", "2")
 	t.Setenv("JACKUI_DL_AGING_STEP_MIN", "30")
@@ -48,6 +52,9 @@ func TestApplyDownloadsQueueEnv_Overrides(t *testing.T) {
 	q := cfg.DownloadsQueue
 	if q.MaxActive != 5 || q.StallThresholdMin != 15 || q.MaxStalls != 2 || q.AgingStepMin != 30 || q.AgingCap != 100 {
 		t.Fatalf("env overrides not applied: %+v", q)
+	}
+	if q.MaxConcurrentVerify != 2 {
+		t.Errorf("max_concurrent_verify env not applied: got %d", q.MaxConcurrentVerify)
 	}
 	if !q.RotationEnabled {
 		t.Error("rotation should be enabled via env")

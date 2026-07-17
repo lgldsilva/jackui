@@ -141,10 +141,10 @@ func TestDownloadsUpdateSettings_Validation(t *testing.T) {
 	configPath := t.TempDir() + "/config.yaml"
 
 	router := gin.New()
-	router.PUT("/api/downloads/settings", DownloadsUpdateSettings(cfg, configPath))
+	router.PUT("/api/downloads/settings", DownloadsUpdateSettings(cfg, configPath, nil))
 
 	// maxActive < 1 → 400
-	body, _ := json.Marshal(downloadsQueueBody{MaxActive: 0, StallThresholdMin: 30, MaxStalls: 3})
+	body, _ := json.Marshal(downloadsQueueBody{MaxActive: 0, MaxConcurrentVerify: 1, StallThresholdMin: 30, MaxStalls: 3})
 	req := httptest.NewRequest("PUT", "/api/downloads/settings", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -158,12 +158,12 @@ func TestDownloadsUpdateSettings_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{}
 	configPath := t.TempDir() + "/config.yaml"
-
+	var gotVerify int
 	router := gin.New()
-	router.PUT("/api/downloads/settings", DownloadsUpdateSettings(cfg, configPath))
+	router.PUT("/api/downloads/settings", DownloadsUpdateSettings(cfg, configPath, func(n int) { gotVerify = n }))
 
 	body, _ := json.Marshal(downloadsQueueBody{
-		MaxActive: 5, StallThresholdMin: 15, MaxStalls: 2, AgingStepMin: 30, AgingCap: 100, RotationEnabled: true,
+		MaxActive: 5, MaxConcurrentVerify: 2, StallThresholdMin: 15, MaxStalls: 2, AgingStepMin: 30, AgingCap: 100, RotationEnabled: true,
 	})
 	req := httptest.NewRequest("PUT", "/api/downloads/settings", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -174,5 +174,8 @@ func TestDownloadsUpdateSettings_Success(t *testing.T) {
 	}
 	if cfg.DownloadsQueue.MaxActive != 5 || !cfg.DownloadsQueue.RotationEnabled {
 		t.Errorf("config not updated: %+v", cfg.DownloadsQueue)
+	}
+	if cfg.DownloadsQueue.MaxConcurrentVerify != 2 || gotVerify != 2 {
+		t.Errorf("maxConcurrentVerify not applied: cfg=%d callback=%d", cfg.DownloadsQueue.MaxConcurrentVerify, gotVerify)
 	}
 }

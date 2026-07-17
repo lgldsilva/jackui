@@ -42,6 +42,8 @@ export type DownloadPriority = 'high' | 'normal' | 'low'
 export type DownloadsQueueSettings = {
   maxActive: number
   perUserMaxActive: number
+  /** Disk-bound piece rechecks in parallel — independent of maxActive. */
+  maxConcurrentVerify: number
   stallThresholdMin: number
   maxStalls: number
   agingStepMin: number
