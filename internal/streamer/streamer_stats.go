@@ -30,6 +30,11 @@ func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 // rate/seeders, so this skips the O(files) loop → O(1) per torrent. uploaded is
 // the cumulative bytes served THIS session (anacrolix BytesWrittenData; resets on
 // re-add). ok=false when the torrent isn't active.
+//
+// Intentionally does NOT refresh lastAccess: the downloads UI polls this every
+// few seconds, and treating that as "use" prevented dropIdleTorrents from ever
+// reclaiming finished torrents (mmap of bulk 4K files pinned 1+ GiB RSS each).
+// Real use (stream readers, Get, EnsureActive, viewers) still bumps lastAccess.
 func (s *Streamer) LiveStats(hash metainfo.Hash) (down, up, uploaded int64, seeders int, ok bool) {
 	now := time.Now()
 	s.mu.Lock()
@@ -38,7 +43,6 @@ func (s *Streamer) LiveStats(hash metainfo.Hash) (down, up, uploaded int64, seed
 		s.mu.Unlock()
 		return 0, 0, 0, 0, false
 	}
-	e.lastAccess = now
 	down, up = sampleRateLocked(e, now)
 	t := e.t
 	s.mu.Unlock()

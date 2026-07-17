@@ -23,7 +23,7 @@ var (
 	healthInflight sync.Map
 )
 
-// activeEntry returns the active entry for a hash (or nil), bumping lastAccess.
+// activeEntry returns the active entry for a hash (or nil). Does not touch lastAccess.
 func (s *Streamer) activeEntry(hash metainfo.Hash) *entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
