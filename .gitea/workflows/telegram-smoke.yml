@@ -23,7 +23,7 @@ on:
 
 jobs:
   notify:
-    uses: lgldsilva/gitea-workflows/.gitea/workflows/telegram-notify.yml@v1.0.10
+    uses: lgldsilva/gitea-workflows/.gitea/workflows/telegram-notify.yml@v1.0.11
     with:
       app_name: ${{ inputs.app_name || 'JackUI' }}
       status: ${{ inputs.status || 'success' }}

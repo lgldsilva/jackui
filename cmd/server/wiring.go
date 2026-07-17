@@ -163,7 +163,11 @@ func initStreamer(deps *appDeps) {
 	}
 	deps.streamSrv = s
 	deps.addCleanup(func() { s.Close() })
-	log.Printf("Streamer ready: %s (idle=%s, metadata=%s)", deps.streamCfg.DataDir, deps.streamCfg.IdleTimeout, deps.streamCfg.MetadataWait)
+	// Piece-hash concurrency (disk) is independent of max_active (peer downloads).
+	s.SetVerifyConcurrency(deps.cfg.DownloadsQueue.MaxConcurrentVerify)
+	log.Printf("Streamer ready: %s (idle=%s, metadata=%s, verifyConcurrency=%d)",
+		deps.streamCfg.DataDir, deps.streamCfg.IdleTimeout, deps.streamCfg.MetadataWait,
+		s.VerifyConcurrency())
 
 	if favs, ferr := streamer.NewFavorites(deps.db); ferr == nil {
 		s.SetFavorites(favs)

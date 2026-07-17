@@ -27,6 +27,268 @@ function viewCacheEntries(entries: readonly CacheEntry[], filter: string, sortBy
   return out
 }
 
+function usageBarClass(overLimit: boolean, usagePct: number): string {
+  if (overLimit) return 'bg-yellow-500'
+  if (usagePct > 80) return 'bg-orange-500'
+  return 'bg-green-500'
+}
+
+function entriesListMessage(
+  total: number,
+  visible: number,
+  emptyLabel: string,
+  noMatchLabel: string,
+): string | null {
+  if (total === 0) return emptyLabel
+  if (visible === 0) return noMatchLabel
+  return null
+}
+
+type LoadedProps = {
+  readonly stats: StreamCacheStats
+  readonly loading: boolean
+  readonly busy: boolean
+  readonly filter: string
+  readonly sortBy: CacheSort
+  readonly sortDesc: boolean
+  readonly visibleEntries: readonly CacheEntry[]
+  readonly onReload: () => void
+  readonly onClearAll: () => void
+  readonly onFilter: (v: string) => void
+  readonly onSort: (col: CacheSort) => void
+  readonly onPlay: (hash: string, name: string) => void
+  readonly onClearEntry: (path: string, isActive: boolean) => void
+}
+
+// JSX body extracted so StreamCacheCard stays under the cognitive-complexity gate.
+function StreamCacheLoaded({
+  stats, loading, busy, filter, sortBy, sortDesc, visibleEntries,
+  onReload, onClearAll, onFilter, onSort, onPlay, onClearEntry,
+}: LoadedProps) {
+  const { t } = useTranslation()
+  const usagePct = stats.maxSize > 0 ? (stats.totalSize / stats.maxSize) * 100 : 0
+  const overLimit = stats.maxSize > 0 && stats.totalSize > stats.maxSize
+  const barClass = usageBarClass(overLimit, usagePct)
+  const listMsg = entriesListMessage(
+    stats.entries.length,
+    visibleEntries.length,
+    t('stream.cache.empty'),
+    t('stream.cache.no_match'),
+  )
+
+  return (
+    <div className="card flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <HardDrive className="w-5 h-5 text-green-500" />
+          <h2 className="text-lg font-semibold text-text-primary">{t('stream.cache.title')}</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onReload}
+            disabled={busy}
+            title={t('stream.cache.reload')}
+            className="text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          {stats.entries.length > 0 && (
+            <button
+              onClick={onClearAll}
+              disabled={busy}
+              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 transition-colors disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              {t('stream.cache.clear_all_confirm')}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <CacheUsageSummary stats={stats} overLimit={overLimit} usagePct={usagePct} barClass={barClass} />
+
+      {stats.entries.length > 1 && (
+        <CacheSortFilter
+          filter={filter}
+          sortBy={sortBy}
+          sortDesc={sortDesc}
+          onFilter={onFilter}
+          onSort={onSort}
+        />
+      )}
+
+      {listMsg ? (
+        <p className="text-sm text-text-muted italic text-center py-4">{listMsg}</p>
+      ) : (
+        <CacheEntriesList entries={visibleEntries} busy={busy} onPlay={onPlay} onClearEntry={onClearEntry} />
+      )}
+    </div>
+  )
+}
+
+function CacheUsageSummary({
+  stats, overLimit, usagePct, barClass,
+}: {
+  readonly stats: StreamCacheStats
+  readonly overLimit: boolean
+  readonly usagePct: number
+  readonly barClass: string
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between text-sm">
+        <span className="text-text-secondary">
+          <span className={`font-medium ${overLimit ? 'text-yellow-400' : 'text-text-primary'}`}>
+            {formatBytes(stats.totalSize)}
+          </span>
+          {stats.maxSize > 0
+            ? <span className="text-text-muted"> {t('stream.cache.of')} {formatBytes(stats.maxSize)}</span>
+            : <span className="text-text-muted"> {t('stream.cache.used_no_limit')}</span>
+          }
+        </span>
+        <span className="text-xs text-text-muted">
+          {stats.entries.length} {stats.entries.length === 1 ? t('stream.cache.file') : t('stream.cache.files')}
+          {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} {stats.numActive === 1 ? t('stream.cache.active') : t('stream.cache.active_plural')}</span>}
+        </span>
+      </div>
+      {stats.maxSize > 0 && (
+        <div className="bg-surface rounded-full h-2 overflow-hidden">
+          <div className={`h-full transition-all ${barClass}`} style={{ width: `${Math.min(100, usagePct)}%` }} />
+        </div>
+      )}
+      <p className="text-xs text-text-muted">
+        {t('stream.cache.folder_label')} <code className="text-text-secondary">{stats.dataDir}</code>
+        {stats.maxSize > 0 && <span className="ml-2">{t('stream.cache.limit_note')}</span>}
+      </p>
+      {stats.diskTotal > 0 && (
+        <p className="text-xs text-text-muted">
+          {t('stream.cache.disk_label')} <span className="text-text-secondary">{formatBytes(stats.diskFree)} {t('stream.cache.free')}</span> {t('stream.cache.of')} {formatBytes(stats.diskTotal)}
+        </p>
+      )}
+      {stats.evictedCount > 0 && (
+        <p className="text-xs text-text-muted">
+          {t('stream.cache.lru_recycled')}{' '}
+          <span className="text-text-secondary">
+            {stats.evictedCount} {stats.evictedCount === 1 ? t('stream.cache.item') : t('stream.cache.items')} ({formatBytes(stats.evictedBytes)})
+          </span>
+          {stats.lastEvictionAt && <span>{t('stream.cache.last_eviction', { date: formatDate(stats.lastEvictionAt) })}</span>}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function CacheSortFilter({
+  filter, sortBy, sortDesc, onFilter, onSort,
+}: {
+  readonly filter: string
+  readonly sortBy: CacheSort
+  readonly sortDesc: boolean
+  readonly onFilter: (v: string) => void
+  readonly onSort: (col: CacheSort) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="relative flex-1 min-w-[140px]">
+        <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          value={filter}
+          onChange={e => onFilter(e.target.value)}
+          placeholder={t('stream.cache.filter_placeholder')}
+          className="w-full bg-surface border border-default rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
+        />
+      </div>
+      {(['size', 'name', 'date'] as CacheSort[]).map(col => (
+        <button
+          key={col}
+          onClick={() => onSort(col)}
+          className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border transition-colors ${
+            sortBy === col
+              ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40'
+              : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary'
+          }`}
+        >
+          {t(`stream.cache.sort_${col}`)}
+          {sortBy === col && (sortDesc ? <ArrowDownWideNarrow className="w-3 h-3" /> : <ArrowUpWideNarrow className="w-3 h-3" />)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function CacheEntriesList({
+  entries, busy, onPlay, onClearEntry,
+}: {
+  readonly entries: readonly CacheEntry[]
+  readonly busy: boolean
+  readonly onPlay: (hash: string, name: string) => void
+  readonly onClearEntry: (path: string, isActive: boolean) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+      {entries.map((e) => (
+        <div
+          key={e.path}
+          className="flex items-center justify-between gap-2 px-3 py-2 bg-surface/50 rounded-lg group hover:bg-surface"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              {e.isActive && (
+                <span title={t('stream.cache.in_use')}>
+                  <Play className="w-3 h-3 text-green-400 fill-current flex-shrink-0" />
+                </span>
+              )}
+              {e.isFavorite && (
+                <span title={t('stream.cache.favorite_protected')}>
+                  <Heart className="w-3 h-3 text-pink-400 fill-current flex-shrink-0" />
+                </span>
+              )}
+              <span className="text-sm text-text-primary truncate" title={e.path}>
+                {e.path}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-0.5 text-xs text-text-muted">
+              <span>{formatBytes(e.size)}</span>
+              <span className="flex items-center gap-1">
+                <Clock className="w-2.5 h-2.5" />{formatDate(e.modTime)}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {e.infoHash && (
+              <button
+                onClick={() => onPlay(e.infoHash!, e.path)}
+                disabled={busy}
+                title={t('stream.cache.play_title')}
+                className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span className="hidden sm:inline">{t('stream.cache.play')}</span>
+              </button>
+            )}
+            <button
+              onClick={() => onClearEntry(e.path, e.isActive)}
+              disabled={busy || e.isFavorite}
+              className={`transition-all ${
+                e.isFavorite
+                  ? 'opacity-0 cursor-not-allowed'
+                  : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 disabled:opacity-50'
+              }`}
+              title={e.isFavorite ? t('stream.cache.favorite_no_remove') : t('stream.cache.remove_entry')}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function StreamCacheCard() {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -63,14 +325,13 @@ export default function StreamCacheCard() {
       const s = await streamCacheStats()
       setStats(s)
     } catch (e: unknown) {
-      const m = errMessage(e)
-      setError(m)
+      setError(errMessage(e))
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load().catch(() => { /* error state set in load */ }) }, [])
 
   const handleClearAll = async () => {
     const ok = await confirm({ title: t('stream.cache.clear_all_title'), message: t('stream.cache.clear_all_message'), confirmLabel: t('stream.cache.clear_all_confirm'), destructive: true })
@@ -99,6 +360,11 @@ export default function StreamCacheCard() {
     }
   }
 
+  const onSort = (col: CacheSort) => {
+    if (sortBy === col) setSortDesc(d => !d)
+    else { setSortBy(col); setSortDesc(col !== 'name') }
+  }
+
   if (loading && !stats) {
     return (
       <div className="card flex items-center gap-3 text-text-secondary">
@@ -118,192 +384,21 @@ export default function StreamCacheCard() {
 
   if (!stats) return null
 
-  const usagePct = stats.maxSize > 0 ? (stats.totalSize / stats.maxSize) * 100 : 0
-  const overLimit = stats.maxSize > 0 && stats.totalSize > stats.maxSize
-
-  let barClass: string
-  if (overLimit) {
-    barClass = 'bg-yellow-500'
-  } else if (usagePct > 80) {
-    barClass = 'bg-orange-500'
-  } else {
-    barClass = 'bg-green-500'
-  }
-
   return (
-    <div className="card flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <HardDrive className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-text-primary">{t('stream.cache.title')}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={load}
-            disabled={busy}
-            title={t('stream.cache.reload')}
-            className="text-text-secondary hover:text-text-primary disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-          {stats.entries.length > 0 && (
-            <button
-              onClick={handleClearAll}
-              disabled={busy}
-              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-500 dark:hover:text-red-300 transition-colors disabled:opacity-50"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              {t('stream.cache.clear_all_confirm')}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Usage summary */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between text-sm">
-          <span className="text-text-secondary">
-            <span className={`font-medium ${overLimit ? 'text-yellow-400' : 'text-text-primary'}`}>
-              {formatBytes(stats.totalSize)}
-            </span>
-            {stats.maxSize > 0
-              ? <span className="text-text-muted"> {t('stream.cache.of')} {formatBytes(stats.maxSize)}</span>
-              : <span className="text-text-muted"> {t('stream.cache.used_no_limit')}</span>
-            }
-          </span>
-          <span className="text-xs text-text-muted">
-            {stats.entries.length} {stats.entries.length === 1 ? t('stream.cache.file') : t('stream.cache.files')}
-            {stats.numActive > 0 && <span className="ml-1 text-green-400">• {stats.numActive} {stats.numActive === 1 ? t('stream.cache.active') : t('stream.cache.active_plural')}</span>}
-          </span>
-        </div>
-        {stats.maxSize > 0 && (
-          <div className="bg-surface rounded-full h-2 overflow-hidden">
-            <div
-              className={`h-full transition-all ${barClass}`}
-              style={{ width: `${Math.min(100, usagePct)}%` }}
-            />
-          </div>
-        )}
-        <p className="text-xs text-text-muted">
-          {t('stream.cache.folder_label')} <code className="text-text-secondary">{stats.dataDir}</code>
-          {stats.maxSize > 0 && (
-            <span className="ml-2">{t('stream.cache.limit_note')}</span>
-          )}
-        </p>
-        {stats.diskTotal > 0 && (
-          <p className="text-xs text-text-muted">
-            {t('stream.cache.disk_label')} <span className="text-text-secondary">{formatBytes(stats.diskFree)} {t('stream.cache.free')}</span> {t('stream.cache.of')} {formatBytes(stats.diskTotal)}
-          </p>
-        )}
-        {stats.evictedCount > 0 && (
-          <p className="text-xs text-text-muted">
-            {t('stream.cache.lru_recycled')}{' '}
-            <span className="text-text-secondary">
-              {stats.evictedCount} {stats.evictedCount === 1 ? t('stream.cache.item') : t('stream.cache.items')} ({formatBytes(stats.evictedBytes)})
-            </span>
-            {stats.lastEvictionAt && <span>{t('stream.cache.last_eviction', { date: formatDate(stats.lastEvictionAt) })}</span>}
-          </p>
-        )}
-      </div>
-
-      {/* Sort + filter controls (only worth showing with a few entries) */}
-      {stats.entries.length > 1 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 min-w-[140px]">
-            <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-              placeholder={t('stream.cache.filter_placeholder')}
-              className="w-full bg-surface border border-default rounded-lg pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-cyan-500 text-text-primary"
-            />
-          </div>
-          {(['size', 'name', 'date'] as CacheSort[]).map(col => (
-            <button
-              key={col}
-              onClick={() => {
-                if (sortBy === col) setSortDesc(d => !d)
-                else { setSortBy(col); setSortDesc(col !== 'name') }
-              }}
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs border transition-colors ${
-                sortBy === col
-                  ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40'
-                  : 'bg-surface text-text-secondary border-default hover:bg-surface-tertiary'
-              }`}
-            >
-              {t(`stream.cache.sort_${col}`)}
-              {sortBy === col && (sortDesc ? <ArrowDownWideNarrow className="w-3 h-3" /> : <ArrowUpWideNarrow className="w-3 h-3" />)}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Entries list */}
-      {stats.entries.length === 0 ? (
-        <p className="text-sm text-text-muted italic text-center py-4">{t('stream.cache.empty')}</p>
-      ) : visibleEntries.length === 0 ? (
-        <p className="text-sm text-text-muted italic text-center py-4">{t('stream.cache.no_match')}</p>
-      ) : (
-        <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
-          {visibleEntries.map((e) => (
-            <div
-              key={e.path}
-              className="flex items-center justify-between gap-2 px-3 py-2 bg-surface/50 rounded-lg group hover:bg-surface"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  {e.isActive && (
-                    <span title={t('stream.cache.in_use')}>
-                      <Play className="w-3 h-3 text-green-400 fill-current flex-shrink-0" />
-                    </span>
-                  )}
-                  {e.isFavorite && (
-                    <span title={t('stream.cache.favorite_protected')}>
-                      <Heart className="w-3 h-3 text-pink-400 fill-current flex-shrink-0" />
-                    </span>
-                  )}
-                  <span className="text-sm text-text-primary truncate" title={e.path}>
-                    {e.path}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 mt-0.5 text-xs text-text-muted">
-                  <span>{formatBytes(e.size)}</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-2.5 h-2.5" />{formatDate(e.modTime)}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {e.infoHash && (
-                  <button
-                    onClick={() => handlePlay(e.infoHash!, e.path)}
-                    disabled={busy}
-                    title={t('stream.cache.play_title')}
-                    className="flex items-center gap-1 text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-500/30 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span className="hidden sm:inline">{t('stream.cache.play')}</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => handleClearEntry(e.path, e.isActive)}
-                  disabled={busy || e.isFavorite}
-                  className={`transition-all ${
-                    e.isFavorite
-                      ? 'opacity-0 cursor-not-allowed'
-                      : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 disabled:opacity-50'
-                  }`}
-                  title={e.isFavorite ? t('stream.cache.favorite_no_remove') : t('stream.cache.remove_entry')}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    <StreamCacheLoaded
+      stats={stats}
+      loading={loading}
+      busy={busy}
+      filter={filter}
+      sortBy={sortBy}
+      sortDesc={sortDesc}
+      visibleEntries={visibleEntries}
+      onReload={() => { load().catch(() => { /* error state set in load */ }) }}
+      onClearAll={() => { handleClearAll().catch(() => { /* busy cleared in finally */ }) }}
+      onFilter={setFilter}
+      onSort={onSort}
+      onPlay={handlePlay}
+      onClearEntry={(path, isActive) => { handleClearEntry(path, isActive).catch(() => { /* busy cleared in finally */ }) }}
+    />
   )
 }

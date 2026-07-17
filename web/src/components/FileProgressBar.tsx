@@ -35,6 +35,38 @@ function deriveProgress(p: FileProgressBarProps): number {
   return 0
 }
 
+function StatusIcon({ status }: { readonly status: string }) {
+  if (status === 'done') return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+  if (status === 'failed') return <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+  if (status === 'queued') return <Clock className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+  return <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />
+}
+
+function StatusDetail({
+  status,
+  error,
+  ratePerSec,
+  eta,
+}: {
+  readonly status: string
+  readonly error?: string
+  readonly ratePerSec: number
+  readonly eta: string
+}) {
+  if (status === 'failed' && error) {
+    return <span className="text-red-400 truncate ml-2" title={error}>{error}</span>
+  }
+  if (status === 'queued') {
+    return <span className="ml-2">Na fila…</span>
+  }
+  return (
+    <span className="flex items-center gap-2">
+      {status === 'running' && ratePerSec > 0 && <span>{formatRate(ratePerSec)}</span>}
+      {eta && <span>· {eta}</span>}
+    </span>
+  )
+}
+
 export default function FileProgressBar(props: FileProgressBarProps) {
   const { label, status = 'running', filesDone = 0, filesTotal = 0, bytesDone = 0, bytesTotal = 0, ratePerSec = 0, etaSeconds = 0, error, onCancel, className = '' } = props
   const pct = deriveProgress(props) * 100
@@ -43,13 +75,7 @@ export default function FileProgressBar(props: FileProgressBarProps) {
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
       <div className="flex items-center gap-2">
-        {status === 'done'
-          ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-          : status === 'failed'
-            ? <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-            : status === 'queued'
-              ? <Clock className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-              : <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin flex-shrink-0" />}
+        <StatusIcon status={status} />
         <span className="text-xs font-medium text-text-primary truncate flex-1" title={label}>{label}</span>
         {filesTotal > 0 && (
           <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">{filesDone}/{filesTotal}</span>
@@ -71,16 +97,7 @@ export default function FileProgressBar(props: FileProgressBarProps) {
           {bytesTotal > 0 ? formatBytesPair(bytesDone, bytesTotal) : formatBytes(bytesDone)}
           <span className="ml-1">({pct.toFixed(0)}%)</span>
         </span>
-        {status === 'failed' && error
-          ? <span className="text-red-400 truncate ml-2" title={error}>{error}</span>
-          : status === 'queued'
-            ? <span className="ml-2">Na fila…</span>
-            : (
-              <span className="flex items-center gap-2">
-                {status === 'running' && ratePerSec > 0 && <span>{formatRate(ratePerSec)}</span>}
-                {eta && <span>· {eta}</span>}
-              </span>
-            )}
+        <StatusDetail status={status} error={error} ratePerSec={ratePerSec} eta={eta} />
       </div>
     </div>
   )

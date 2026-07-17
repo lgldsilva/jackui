@@ -1,23 +1,24 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, lazy, Suspense, ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SearchResult, PlaylistItem, streamAdd, isLocalHash, parseLocalHash } from '../api/client'
-import { detectKind, syntheticResult } from '../lib/playable'
+import { detectKind } from '../lib/playable'
 import { clientLog } from '../lib/diag'
 import { useMediaMode, getMediaMode } from '../lib/mediaMode'
 import { shuffledOrder } from '../lib/shuffle'
-import { savePlaylistSnapshot, loadPlaylistSnapshot, clearPlaylistSnapshot, snapshotIndexOfHash } from './player/playlistSnapshot'
+import { savePlaylistSnapshot, loadPlaylistSnapshot, clearPlaylistSnapshot } from './player/playlistSnapshot'
 import {
   RepeatMode,
   PlaylistState,
   playlistItemToResult,
-  parsePositiveInt,
-  parsePositiveFloat,
-  resolveDeepLinkPlay,
   nextRepeatMode,
+  tryBootRestorePlaylist,
+  handleClearedPlayUrl,
+  applyPlayHash,
+  type PlayUrlDeps,
 } from './player/providerHelpers'
 
 // Re-exported so the provider module keeps its original public surface.
-export { parsePositiveInt, parsePositiveFloat }
+export { parsePositiveInt, parsePositiveFloat } from './player/providerHelpers'
 // Lazy so hls.js (~150KB gz) + the whole player bundle load only on first play,
 // not in the initial bundle of every page (this provider lives above the router).
 const PlayerModal = lazy(() => import('./PlayerModal'))
@@ -362,9 +363,20 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const fileUrlParam = searchParams.get('f')
   const timeUrlParam = searchParams.get('t')
 
-  // URL → state
+  // URL → state (branching lives in providerHelpers to keep cognitive complexity down)
   useEffect(() => {
     const hash = playUrlParam
+    const realHash = () => new URLSearchParams(globalThis.location.search).get('play')
+    const deps: PlayUrlDeps = {
+      playSingle,
+      playPlaylist,
+      close,
+      hasCurrent: !!current,
+      loadSnapshot: loadPlaylistSnapshot,
+      isLocalHash,
+      parseLocalHash,
+      setLastSynced: (h) => { lastSyncedHashRef.current = h },
+    }
     // Boot frio (1ª execução): restaura a última playlist ANTES do short-circuit
     // abaixo. No mount, hash e lastSynced são ambos null, então `hash === lastSynced`
     // pularia tudo — e o PWA standalone reabre no start_url SEM ?play, nunca
@@ -372,66 +384,14 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     // router); roda 1x (fechar o player limpa o ?play e não deve re-abrir).
     if (!bootRestoredRef.current) {
       bootRestoredRef.current = true
-      const realHash = new URLSearchParams(globalThis.location.search).get('play')
-      if (!hash && !realHash && !current) {
-        const boot = loadPlaylistSnapshot()
-        if (boot && boot.items.length > 0) {
-          const idx = boot.currentItemIndex >= 0 && boot.currentItemIndex < boot.items.length ? boot.currentItemIndex : 0
-          playPlaylist(boot.name, [...boot.items], idx)
-          return
-        }
-      }
+      if (tryBootRestorePlaylist(hash, realHash(), deps)) return
     }
     if (hash === lastSyncedHashRef.current) return
     if (!hash) {
-      // Double check location.search to prevent React Router race conditions on tab resume/hydration
-      const realHash = new URLSearchParams(globalThis.location.search).get('play')
-      if (realHash) {
-        // The URL actually has the hash! It's just a router sync lag. Ignore it.
-        return
-      }
-      // URL cleared externally (user removed ?play) — close any active playback
-      if (current) close()
-      lastSyncedHashRef.current = null
+      handleClearedPlayUrl(realHash(), deps)
       return
     }
-    const fIdx = parsePositiveInt(fileUrlParam)
-    const initialSeek = parsePositiveFloat(timeUrlParam)
-
-    // Reabrir o app: se este hash pertence à última playlist salva, restaura a
-    // LISTA inteira (prev/next + posição) em vez de só o item — playSingle fazia
-    // setPlaylist(null), apagando o contexto. Vem ANTES do ramo local porque
-    // playlists de pastas locais usam pseudo-hash `local-...` (senão cairiam no
-    // isLocalHash e voltariam a perder a lista).
-    const snap = loadPlaylistSnapshot()
-    const snapIdx = snap ? snapshotIndexOfHash(snap, hash) : -1
-    if (snap && snapIdx >= 0) {
-      lastSyncedHashRef.current = hash
-      playPlaylist(snap.name, [...snap.items], snapIdx)
-      return
-    }
-
-    // Local pseudo-hash (`local-<base64url>`): a deep link to a file on a mount,
-    // used by "open in new tab" from the local browser. No library lookup —
-    // playSingle with a synthetic result; the client routes it to /api/local/*.
-    if (isLocalHash(hash)) {
-      lastSyncedHashRef.current = hash
-      const loc = parseLocalHash(hash)
-      const name = loc ? (loc.path.split('/').pop() || loc.path) : hash
-      // expand=true: deep-link de arquivo LOCAL (nova aba) abre maximizado, igual
-      // ao play direto da LocalPage. (Torrent via deep-link segue o card → minimizado.)
-      playSingle(syntheticResult(hash, name, `magnet:?xt=urn:btih:${hash}`), fIdx, initialSeek, true)
-      return
-    }
-
-    // Validate: info_hash is 40 hex chars. Reject malformed values silently —
-    // a stray ?play=foo in the URL shouldn't blow up the app.
-    if (!/^[a-fA-F0-9]{40}$/.test(hash)) {
-      lastSyncedHashRef.current = null
-      return
-    }
-    lastSyncedHashRef.current = hash
-    resolveDeepLinkPlay(hash, fIdx, initialSeek, playSingle)
+    applyPlayHash(hash, fileUrlParam, timeUrlParam, deps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playUrlParam, fileUrlParam])
 

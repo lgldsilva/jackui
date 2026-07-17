@@ -110,66 +110,68 @@ func NewIsolatedDB(t *testing.T) *sql.DB {
 	if base == "" {
 		t.Skipf("%s not set; skipping (needs a PostgreSQL test database)", envURL)
 	}
+	schema := fmt.Sprintf("dbtest_iso_p%d_%d", os.Getpid(), isoSeq.Add(1))
+	pool, err := createIsolatedSchema(base, schema)
+	if err != nil {
+		t.Fatalf("isolated schema: %v", err)
+	}
+	pool.SetMaxOpenConns(4)
+	t.Cleanup(func() { dropIsolatedSchema(base, schema, pool) })
+	return pool
+}
+
+// createIsolatedSchema creates + migrates a private schema under the advisory lock.
+func createIsolatedSchema(base, schema string) (*sql.DB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	admin, err := sql.Open("pgx", base)
 	if err != nil {
-		t.Fatalf("open admin: %v", err)
+		return nil, fmt.Errorf("open admin: %w", err)
 	}
+	defer func() { _ = admin.Close() }()
+
 	conn, err := admin.Conn(ctx)
 	if err != nil {
-		_ = admin.Close()
-		t.Fatalf("admin conn: %v", err)
+		return nil, fmt.Errorf("admin conn: %w", err)
 	}
+	defer func() { _ = conn.Close() }()
+
 	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryKey); err != nil {
-		_ = conn.Close()
-		_ = admin.Close()
-		t.Fatalf("advisory lock: %v", err)
+		return nil, fmt.Errorf("advisory lock: %w", err)
 	}
-	schema := fmt.Sprintf("dbtest_iso_p%d_%d", os.Getpid(), isoSeq.Add(1))
-	mkErr := func() error {
-		if err := createGlobals(ctx, conn); err != nil {
-			return err
-		}
-		if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
-			return err
-		}
-		_, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", schema))
-		return err
-	}()
-	pool, mig := (*sql.DB)(nil), error(nil)
-	if mkErr == nil {
-		pool, mig = sql.Open("pgx", withSearchPath(base, schema))
-		if mig == nil {
-			mig = appdb.Migrate(pool)
-		}
+	defer func() { _, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", advisoryKey) }()
+
+	if err := createGlobals(ctx, conn); err != nil {
+		return nil, err
 	}
-	_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", advisoryKey)
-	_ = conn.Close()
-	_ = admin.Close()
-	if mkErr != nil {
-		t.Fatalf("isolated schema: %v", mkErr)
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
+		return nil, err
 	}
-	if mig != nil {
-		if pool != nil {
-			_ = pool.Close()
-		}
-		t.Fatalf("isolated migrate: %v", mig)
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", schema)); err != nil {
+		return nil, err
 	}
-	pool.SetMaxOpenConns(4)
-	t.Cleanup(func() {
+	pool, err := sql.Open("pgx", withSearchPath(base, schema))
+	if err != nil {
+		return nil, err
+	}
+	if err := appdb.Migrate(pool); err != nil {
 		_ = pool.Close()
-		dropCtx, dropCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer dropCancel()
-		drop, err := sql.Open("pgx", base)
-		if err != nil {
-			return
-		}
-		defer func() { _ = drop.Close() }()
-		_, _ = drop.ExecContext(dropCtx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema))
-	})
-	return pool
+		return nil, err
+	}
+	return pool, nil
+}
+
+func dropIsolatedSchema(base, schema string, pool *sql.DB) {
+	_ = pool.Close()
+	dropCtx, dropCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer dropCancel()
+	drop, err := sql.Open("pgx", base)
+	if err != nil {
+		return
+	}
+	defer func() { _ = drop.Close() }()
+	_, _ = drop.ExecContext(dropCtx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema))
 }
 
 // ensureProcessSchema creates + migrates this process's schema once. The shared
@@ -178,62 +180,60 @@ func NewIsolatedDB(t *testing.T) *sql.DB {
 // schema-local and needs no lock.
 func ensureProcessSchema(base string) {
 	procOnce.Do(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer cancel()
-
-		admin, err := sql.Open("pgx", base)
-		if err != nil {
-			procErr = err
-			return
-		}
-		defer func() { _ = admin.Close() }()
-		if err := admin.PingContext(ctx); err != nil {
-			procErr = err
-			return
-		}
-
-		// Serialize the WHOLE per-process setup across processes with one
-		// database-global advisory lock. golang-migrate's own lock is keyed by
-		// database (not schema), and running many per-schema migrations against
-		// the same database concurrently proved unreliable (partially-created
-		// schemas). This runs once per process, so the serialization cost is tiny.
-		conn, err := admin.Conn(ctx)
-		if err != nil {
-			procErr = err
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryKey); err != nil {
-			procErr = err
-			return
-		}
-		defer func() { _, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", advisoryKey) }()
-
-		if procErr = createGlobals(ctx, conn); procErr != nil {
-			return
-		}
-
-		procSchema = fmt.Sprintf("dbtest_p%d", os.Getpid())
-		if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", procSchema)); err != nil {
-			procErr = err
-			return
-		}
-		if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", procSchema)); err != nil {
-			procErr = err
-			return
-		}
-
-		pool, err := sql.Open("pgx", withSearchPath(base, procSchema))
-		if err != nil {
-			procErr = err
-			return
-		}
-		defer func() { _ = pool.Close() }()
-		if procErr = appdb.Migrate(pool); procErr != nil {
-			return
-		}
-		truncateStmt, procErr = buildTruncate(ctx, pool, procSchema)
+		procErr = setupProcessSchema(base)
 	})
+}
+
+func setupProcessSchema(base string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	admin, err := sql.Open("pgx", base)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = admin.Close() }()
+	if err := admin.PingContext(ctx); err != nil {
+		return err
+	}
+
+	// Serialize the WHOLE per-process setup across processes with one
+	// database-global advisory lock. golang-migrate's own lock is keyed by
+	// database (not schema); concurrent per-schema migrations proved unreliable.
+	conn, err := admin.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", advisoryKey); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", advisoryKey) }()
+
+	if err := createGlobals(ctx, conn); err != nil {
+		return err
+	}
+	procSchema = fmt.Sprintf("dbtest_p%d", os.Getpid())
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", procSchema)); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE SCHEMA %q", procSchema)); err != nil {
+		return err
+	}
+	pool, err := sql.Open("pgx", withSearchPath(base, procSchema))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = pool.Close() }()
+	if err := appdb.Migrate(pool); err != nil {
+		return err
+	}
+	stmt, err := buildTruncate(ctx, pool, procSchema)
+	if err != nil {
+		return err
+	}
+	truncateStmt = stmt
+	return nil
 }
 
 // createGlobals creates the shared public objects on an already-advisory-locked

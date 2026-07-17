@@ -11,7 +11,7 @@ const CP437_HIGH =
 export function decodeCP437(bytes: Uint8Array): string {
   let out = ''
   for (const b of bytes) {
-    out += b < 0x80 ? String.fromCharCode(b) : CP437_HIGH[b - 0x80]
+    out += b < 0x80 ? String.fromCodePoint(b) : CP437_HIGH[b - 0x80]
   }
   return out
 }

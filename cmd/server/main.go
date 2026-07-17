@@ -127,50 +127,68 @@ func main() {
 	setupLogger()
 	// Subcommands must be handled before loadConfig (which treats os.Args[1] as
 	// the config path).
-	if len(os.Args) > 1 && os.Args[1] == "migrate-auth" {
-		if err := runMigrateAuth(os.Args[2:]); err != nil {
-			log.Fatalf("migrate-auth: %v", err)
-		}
+	if handledMigrateAuth() {
 		return
 	}
+	deps := bootstrapApp()
+	defer deps.runCleanup()
+
+	gin.SetMode(gin.ReleaseMode)
+	router := setupRouter(deps)
+	distFS := mustGetDistFS()
+	router.NoRoute(spaFallback(distFS, http.FileServer(http.FS(distFS))))
+
+	addr := fmt.Sprintf(":%d", deps.cfg.Port)
+	log.Printf("JackUI starting on http://localhost%s", addr)
+	// ReadHeaderTimeout bounds how long a client may take to send request
+	// headers — without it a slow-loris connection can hold a goroutine open
+	// indefinitely (gosec G112). Body/handler timeouts stay off: media streaming
+	// and long transcode reads legitimately run for minutes.
+	srv := &http.Server{Addr: addr, Handler: router, ReadHeaderTimeout: 30 * time.Second}
+	serveUntilShutdown(deps, srv)
+}
+
+// handledMigrateAuth runs the migrate-auth subcommand when requested.
+// Returns true when main should exit (subcommand handled, success or fatal).
+func handledMigrateAuth() bool {
+	if len(os.Args) <= 1 || os.Args[1] != "migrate-auth" {
+		return false
+	}
+	if err := runMigrateAuth(os.Args[2:]); err != nil {
+		log.Fatalf("migrate-auth: %v", err)
+	}
+	return true
+}
+
+// bootstrapApp wires config, stores, workers and destinations.
+func bootstrapApp() *appDeps {
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
 	if err := config.CheckWritable(deps.configPath); err != nil {
 		log.Printf("WARNING: config %s não é gravável (%v) — alterações em Settings/Mounts não vão persistir; ajuste dono/permissão no host para o uid do container", deps.configPath, err)
 	}
-	jackettClient := jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
-	deps.jackettClient = jackettClient
+	deps.jackettClient = jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
 	deps.localBrowser = local.NewBrowser(deps.cfg.External.Mounts)
 	deps.localStream = localstream.NewRegistry(deps.cfg.External.LocalReadaheadMB)
 	deps.addCleanup(deps.localStream.Close)
 	// Global move/copy progress tracker, shared by the post-download move (worker)
-	// and the Local-tab/promote/AI moves (handlers) → the Transfers dock. The
-	// concurrency cap (default 3; 0 → default) bounds simultaneous transfers; the
-	// rest queue FIFO.
+	// and the Local-tab/promote/AI moves (handlers) → the Transfers dock.
 	deps.transferTracker = transfer.New(deps.cfg.Stream.MaxConcurrentTransfers)
 	deps.webSearch = imagesearch.Default()
 	deps.mlr = mailer.New(deps.cfg.SMTP)
-
 	deps.restart = make(chan struct{}, 1)
+
 	initDB(deps)
 	initHistoryStore(deps)
 	deps.streamCfg = prepareStreamConfig(deps.cfg, deps.restart)
-	// Persist local-file thumbnails (and negative markers) under the stream
-	// DataDir so they survive restarts instead of regenerating in /tmp.
+	// Persist local-file thumbnails under stream DataDir so they survive restarts.
 	lh.SetLocalThumbCacheDir(filepath.Join(deps.streamCfg.DataDir, ".thumbs", "local"))
-	// Dedicated cache for pre-fetching whole files from slow mounts (rclone) to
-	// local disk — instant, seekable, EIO-proof playback. LRU-capped.
-	if cache, cerr := localcache.New(filepath.Join(deps.streamCfg.DataDir, "local-cache"), deps.cfg.External.LocalCacheGB); cerr == nil {
-		deps.localCache = cache
-		deps.addCleanup(cache.Close)
-	} else {
-		log.Printf("Warning: local cache init failed: %v — local caching disabled", cerr)
-	}
+	initLocalCache(deps)
 	initStreamer(deps)
 	initLibraryStore(deps)
 	initAudioMetaStore(deps)
-	deps.lyricsClient = lyrics.New()         // public LrcLib proxy; no config/DB needed
-	deps.musicTrending = musictrending.New() // keyless Apple RSS proxy; in-memory cache
+	deps.lyricsClient = lyrics.New()
+	deps.musicTrending = musictrending.New()
 	initPlaylistsStore(deps)
 	initDownloadsStore(deps)
 	initTMDBClient(deps)
@@ -181,7 +199,27 @@ func main() {
 	initAuth(deps)
 	migrateUserSubpathMounts(deps)
 	deps.promoteDests = buildPromoteDests(deps.cfg)
-	deps.destinations = &handlers.DestinationService{
+	deps.destinations = newDestinationService(deps)
+	initHLSManager(deps)
+	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+	startStreamWorkers(deps)
+	startTranscodeProbe()
+	return deps
+}
+
+func initLocalCache(deps *appDeps) {
+	// Dedicated cache for pre-fetching whole files from slow mounts (rclone).
+	cache, err := localcache.New(filepath.Join(deps.streamCfg.DataDir, "local-cache"), deps.cfg.External.LocalCacheGB)
+	if err != nil {
+		log.Printf("Warning: local cache init failed: %v — local caching disabled", err)
+		return
+	}
+	deps.localCache = cache
+	deps.addCleanup(cache.Close)
+}
+
+func newDestinationService(deps *appDeps) *handlers.DestinationService {
+	return &handlers.DestinationService{
 		Mounts:    deps.cfg.External.Mounts,
 		Promote:   deps.promoteDests,
 		SharedDir: deps.cfg.Stream.SharedDir,
@@ -196,40 +234,21 @@ func main() {
 			return u.Username
 		},
 	}
-	initHLSManager(deps)
+}
 
-	// Incognito reaper: delete stale incognito data after 1h of inactivity
-	// (tab closed / crash). Both stores are guaranteed initialized by here.
-	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
-
-	if deps.streamSrv != nil {
-		// Cancellable so graceful shutdown stops these background loops instead of
-		// leaving them ticking against half-closed stores.
-		workerCtx, cancelWorkers := context.WithCancel(context.Background())
-		deps.addCleanup(cancelWorkers)
-		metrics.StartWorker(workerCtx, deps.streamSrv, deps.hlsMgr)
-		streamer.StartBandwidthScheduler(workerCtx, deps.streamSrv, deps.cfg)
+func startStreamWorkers(deps *appDeps) {
+	if deps.streamSrv == nil {
+		return
 	}
+	// Cancellable so graceful shutdown stops these loops before stores close.
+	workerCtx, cancelWorkers := context.WithCancel(context.Background())
+	deps.addCleanup(cancelWorkers)
+	metrics.StartWorker(workerCtx, deps.streamSrv, deps.hlsMgr)
+	streamer.StartBandwidthScheduler(workerCtx, deps.streamSrv, deps.cfg)
+}
 
-	startTranscodeProbe()
-
-	defer deps.runCleanup()
-
-	gin.SetMode(gin.ReleaseMode)
-	router := setupRouter(deps)
-
-	distFS := mustGetDistFS()
-	fileServer := http.FileServer(http.FS(distFS))
-	router.NoRoute(spaFallback(distFS, fileServer))
-
-	addr := fmt.Sprintf(":%d", deps.cfg.Port)
-	log.Printf("JackUI starting on http://localhost%s", addr)
-
-	// ReadHeaderTimeout bounds how long a client may take to send request
-	// headers — without it a slow-loris connection can hold a goroutine open
-	// indefinitely (gosec G112). Body/handler timeouts stay off: media streaming
-	// and long transcode reads legitimately run for minutes.
-	srv := &http.Server{Addr: addr, Handler: router, ReadHeaderTimeout: 30 * time.Second}
+// serveUntilShutdown listens, waits for stop signal/restart, then drains transfers.
+func serveUntilShutdown(deps *appDeps, srv *http.Server) {
 	serverErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -239,7 +258,6 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case err := <-serverErr:
 		deps.runCleanup() // explícito antes de fatal (defer não roda em log.Fatalf)
@@ -255,18 +273,22 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
 	}
-	// HTTP is down → no new transfers can be submitted via the API. Give in-flight
-	// moves a bounded window to finish before stores close; whatever doesn't drain
-	// is picked up by downloads.RescueStuckMoving at next boot.
-	if n := deps.transferTracker.ActiveCount(); n > 0 {
-		log.Printf("Aguardando %d transferência(s) em andamento (até 20s)...", n)
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 20*time.Second)
-		if deps.transferTracker.WaitIdle(waitCtx) {
-			log.Printf("Transferências concluídas.")
-		} else {
-			log.Printf("Timeout — %d transferência(s) ainda ativa(s); serão retomadas no próximo boot.", deps.transferTracker.ActiveCount())
-		}
-		waitCancel()
-	}
+	waitInFlightTransfers(deps)
 	log.Printf("HTTP server encerrado — rodando cleanups (anacrolix, stores, worker)...")
+}
+
+// waitInFlightTransfers gives active moves a bounded drain window before stores close.
+func waitInFlightTransfers(deps *appDeps) {
+	n := deps.transferTracker.ActiveCount()
+	if n == 0 {
+		return
+	}
+	log.Printf("Aguardando %d transferência(s) em andamento (até 20s)...", n)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer waitCancel()
+	if deps.transferTracker.WaitIdle(waitCtx) {
+		log.Printf("Transferências concluídas.")
+		return
+	}
+	log.Printf("Timeout — %d transferência(s) ainda ativa(s); serão retomadas no próximo boot.", deps.transferTracker.ActiveCount())
 }

@@ -11,7 +11,8 @@ export type TransferKind = 'download-move' | 'local-move' | 'promote' | 'ai-rena
 export type TransferSnapshot = {
   id: string
   label: string
-  kind: TransferKind | string
+  // Backend may introduce new kinds; keep open as string (TransferKind is the known set).
+  kind: string
   status: TransferStatus
   filesDone: number
   filesTotal: number

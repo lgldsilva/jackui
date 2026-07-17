@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -141,48 +142,60 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		}
 		// Atomic rotation with a grace window: distinguishes a benign concurrent
 		// refresh (reissue) from a real replay of a long-rotated token (revoke).
-		// Replaces the old validate-then-consume sequence whose loser revoked the
-		// whole family — the root cause of the re-login after every deploy.
 		user, remember, outcome, err := store.RotateRefreshToken(req.Refresh, refreshGrace)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		switch outcome {
-		case auth.RefreshInvalid:
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
-			return
-		case auth.RefreshReuse:
-			// A rotated token replayed after the grace → treat as theft: revoke all.
-			_ = store.RevokeAllSessions(user.ID)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+		if !refreshOutcomeOK(c, store, user, outcome) {
 			return
 		}
-		// A disabled/pending account must not be able to keep renewing access — an
-		// admin disabling someone takes effect within one access-token TTL.
-		if user.Status != auth.StatusActive && user.Status != "" {
-			_ = store.RevokeAllSessions(user.ID)
-			c.JSON(http.StatusForbidden, gin.H{"error": "conta inativa", "status": string(user.Status)})
-			return
-		}
-
-		access, exp, err := tm.SignAccess(user)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
-			return
-		}
-		// Sliding window: new TTL counted FROM NOW. Remember-me stays remember-me eternally.
-		ttl := refreshTTLNormal
-		if remember {
-			ttl = refreshTTLRemember
-		}
-		newRefresh, err := store.CreateRefreshToken(user.ID, ttl, remember, c.Request.UserAgent(), c.ClientIP())
+		resp, err := issueTokenPair(store, tm, user, remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, tokenResp{Access: access, Refresh: newRefresh, ExpiresAt: exp, User: user})
+		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// refreshOutcomeOK writes the error response for a failed rotation and returns false.
+// true means the caller may issue a new token pair.
+func refreshOutcomeOK(c *gin.Context, store *auth.Store, user *auth.User, outcome auth.RefreshOutcome) bool {
+	switch outcome {
+	case auth.RefreshInvalid:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+		return false
+	case auth.RefreshReuse:
+		// Rotated token replayed after the grace → treat as theft: revoke all.
+		_ = store.RevokeAllSessions(user.ID)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+		return false
+	}
+	// Disabled/pending accounts must not keep renewing access.
+	if user.Status != auth.StatusActive && user.Status != "" {
+		_ = store.RevokeAllSessions(user.ID)
+		c.JSON(http.StatusForbidden, gin.H{"error": "conta inativa", "status": string(user.Status)})
+		return false
+	}
+	return true
+}
+
+// issueTokenPair signs a fresh access token and sliding-window refresh token.
+func issueTokenPair(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, ua, ip string) (tokenResp, error) {
+	access, exp, err := tm.SignAccess(user)
+	if err != nil {
+		return tokenResp{}, fmt.Errorf("%s", errTokenSigningFailed)
+	}
+	ttl := refreshTTLNormal
+	if remember {
+		ttl = refreshTTLRemember
+	}
+	newRefresh, err := store.CreateRefreshToken(user.ID, ttl, remember, ua, ip)
+	if err != nil {
+		return tokenResp{}, err
+	}
+	return tokenResp{Access: access, Refresh: newRefresh, ExpiresAt: exp, User: user}, nil
 }
 
 // MediaToken handles POST /api/auth/media-token — emits a long-lived JWT

@@ -102,6 +102,7 @@ func applyDatabaseEnv(cfg *Config) {
 func applyDownloadsQueueEnv(cfg *Config) {
 	applyEnvInt(&cfg.DownloadsQueue.MaxActive, "JACKUI_DL_MAX_ACTIVE")
 	applyEnvInt(&cfg.DownloadsQueue.PerUserMaxActive, "JACKUI_DL_PER_USER_MAX")
+	applyEnvInt(&cfg.DownloadsQueue.MaxConcurrentVerify, "JACKUI_DL_MAX_CONCURRENT_VERIFY")
 	applyEnvInt(&cfg.DownloadsQueue.StallThresholdMin, "JACKUI_DL_STALL_MIN")
 	applyEnvInt(&cfg.DownloadsQueue.MaxStalls, "JACKUI_DL_MAX_STALLS")
 	applyEnvInt(&cfg.DownloadsQueue.AgingStepMin, "JACKUI_DL_AGING_STEP_MIN")
@@ -117,6 +118,9 @@ func applyDownloadsQueueEnv(cfg *Config) {
 	}
 	if cfg.DownloadsQueue.PerUserMaxActive < 0 {
 		cfg.DownloadsQueue.PerUserMaxActive = 0 // 0 = no per-user limit
+	}
+	if cfg.DownloadsQueue.MaxConcurrentVerify <= 0 {
+		cfg.DownloadsQueue.MaxConcurrentVerify = 1 // disk-safe default (HDD bulk)
 	}
 	if cfg.DownloadsQueue.StallThresholdMin <= 0 {
 		cfg.DownloadsQueue.StallThresholdMin = 30

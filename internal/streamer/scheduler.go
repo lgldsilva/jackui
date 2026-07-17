@@ -60,43 +60,41 @@ func StartBandwidthScheduler(ctx context.Context, s *Streamer, cfg *config.Confi
 	if s == nil || len(cfg.Stream.BandwidthSchedules) == 0 {
 		return
 	}
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
+	go runBandwidthScheduler(ctx, s, cfg)
+}
 
-		lastDown, lastUp := int64(-2), int64(-2) // Valores dummy iniciais
+func runBandwidthScheduler(ctx context.Context, s *Streamer, cfg *config.Config) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				now := time.Now()
-				matched := false
-				var targetDown, targetUp int64
-
-				for _, sched := range cfg.Stream.BandwidthSchedules {
-					if InTimeRange(now, sched.TimeRange) {
-						targetDown = sched.MaxDownloadRate
-						targetUp = sched.MaxUploadRate
-						matched = true
-						break
-					}
-				}
-
-				if !matched {
-					targetDown = cfg.Stream.MaxDownloadRate
-					targetUp = cfg.Stream.MaxUploadRate
-				}
-
-				// Só atualiza os limites se eles mudaram de fato para evitar concorrência desnecessária no streamer.
-				if targetDown != lastDown || targetUp != lastUp {
-					s.SetRateLimits(targetDown, targetUp)
-					lastDown = targetDown
-					lastUp = targetUp
-					log.Printf("[BandwidthScheduler] Limites de banda atualizados para download=%d B/s, upload=%d B/s (horário atual: %02d:%02d)", targetDown, targetUp, now.Hour(), now.Minute())
-				}
-			}
+	lastDown, lastUp := int64(-2), int64(-2) // Valores dummy iniciais
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			lastDown, lastUp = applyBandwidthSchedule(s, cfg, time.Now(), lastDown, lastUp)
 		}
-	}()
+	}
+}
+
+// applyBandwidthSchedule resolves the active schedule (or defaults) and pushes
+// rate limits only when they change. Returns the last-applied pair.
+func applyBandwidthSchedule(s *Streamer, cfg *config.Config, now time.Time, lastDown, lastUp int64) (int64, int64) {
+	targetDown, targetUp := resolveBandwidthTargets(cfg, now)
+	if targetDown == lastDown && targetUp == lastUp {
+		return lastDown, lastUp
+	}
+	s.SetRateLimits(targetDown, targetUp)
+	log.Printf("[BandwidthScheduler] Limites de banda atualizados para download=%d B/s, upload=%d B/s (horário atual: %02d:%02d)", targetDown, targetUp, now.Hour(), now.Minute())
+	return targetDown, targetUp
+}
+
+func resolveBandwidthTargets(cfg *config.Config, now time.Time) (down, up int64) {
+	for _, sched := range cfg.Stream.BandwidthSchedules {
+		if InTimeRange(now, sched.TimeRange) {
+			return sched.MaxDownloadRate, sched.MaxUploadRate
+		}
+	}
+	return cfg.Stream.MaxDownloadRate, cfg.Stream.MaxUploadRate
 }

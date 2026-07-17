@@ -37,17 +37,17 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(undefined, async (error: AxiosError) => {
   const config = error.config as (InternalAxiosRequestConfig & { _retryCount?: number }) | undefined
   if (!config || !isRetryableGet(config.method, error.response?.status)) {
-    return Promise.reject(error)
+    throw error
   }
   const attempt = config._retryCount ?? 0
-  if (attempt >= RETRY_MAX) return Promise.reject(error)
+  if (attempt >= RETRY_MAX) throw error
   config._retryCount = attempt + 1
   const ra = Number(error.response?.headers?.['retry-after'])
   await new Promise((res) => setTimeout(res, retryDelayMs(attempt, Number.isFinite(ra) ? ra : undefined)))
   return api(config)
 })
 
-// stripToken remove TODO token= pré-existente (qualquer posição), sem deixar `?&`.
+// stripToken remove um token= pré-existente (qualquer posição), sem deixar `?&`.
 // Torna o withToken IDEMPOTENTE: re-aplicar não empilha `token=A&token=B`. Sem isto,
 // o vídeo LOCAL ficava com `?...&token=ACCESS&token=MEDIA` (a URL cacheada do
 // /api/local/play já trazia um token e o withToken adicionava outro) — URL instável.

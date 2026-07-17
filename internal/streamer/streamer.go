@@ -136,6 +136,10 @@ type Streamer struct {
 	// given file exactly once (not on every FileReader call).
 	verifiedMu    sync.RWMutex
 	verifiedFiles map[string]bool
+	// verifyLim caps concurrent piece-hash jobs (disk I/O), independent of the
+	// download scheduler's max_active (peer I/O). Live-tunable via
+	// SetVerifyConcurrency. nil = unlimited (tests only).
+	verifyLim *verifyLimiter
 	// Global bandwidth limiters wired into the anacrolix client config. Mutated
 	// in place via SetLimit/SetBurst — anacrolix re-reads the limit on every
 	// chunk read/write.
@@ -380,6 +384,7 @@ func New(cfg Config) (*Streamer, error) {
 		downloads:         make(map[string]struct{}),
 		metainfoDir:       metainfoDir,
 		verifiedFiles:     make(map[string]bool),
+		verifyLim:         newVerifyLimiter(1),
 		dlLimiter:         dlLimiter,
 		upLimiter:         upLimiter,
 		storageImpl:       storageImpl,
