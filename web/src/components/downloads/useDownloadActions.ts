@@ -207,7 +207,12 @@ export function useDownloadActions(deps: {
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedManyMessage', { count: ds.length }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBulkBusy(true)
     try {
-      await downloadBatchStopSeed(ds.map(d => d.id)).catch(() => {})
+      // Auto-chunked below the server cap; a rejection means the whole set
+      // failed, otherwise `failed` lists the rows we couldn't stop. Surface it
+      // instead of the old swallow-and-pretend-success.
+      const res = await downloadBatchStopSeed(ds.map(d => d.id)).catch(() => null)
+      const failedCount = res === null ? ds.length : (res.failed?.length ?? 0)
+      if (failedCount > 0) notify(t('downloads.page.stopSeedFailed', { count: failedCount }), 'error')
       await reloadDownloadsRef.current()
       await loadTorrents()
     } finally { setBulkBusy(false) }

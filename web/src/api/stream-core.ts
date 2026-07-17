@@ -1,5 +1,6 @@
 // Núcleo do streaming: add, metadata, info, drop, queue. Extraído de stream.ts (R3).
 import { api } from './http'
+import { BATCH_CAPS, runChunked } from '../lib/batchChunk'
 import { extractBtihFromMagnet } from '../lib/magnet'
 import { downloadCreate, WHOLE_TORRENT_FILE_INDEX, type DownloadEntry } from './downloads'
 import {
@@ -93,11 +94,15 @@ export type StreamDropBatchResult = {
   total: number
   failed?: string[]
 }
-export const streamDropBatch = async (hashes: string[]): Promise<StreamDropBatchResult> => {
-  if (hashes.length === 0) return { dropped: 0, total: 0, failed: [] }
-  const { data } = await api.post<StreamDropBatchResult>('/stream/drop/batch', { hashes })
-  return data
-}
+export const streamDropBatch = async (hashes: string[]): Promise<StreamDropBatchResult> =>
+  runChunked(hashes, BATCH_CAPS.streamDrop, async chunk => {
+    const { data } = await api.post<StreamDropBatchResult>('/stream/drop/batch', { hashes: chunk })
+    return data
+  }, (a, b) => ({
+    dropped: a.dropped + b.dropped,
+    total: a.total + b.total,
+    failed: [...(a.failed ?? []), ...(b.failed ?? [])],
+  }), { dropped: 0, total: 0, failed: [] })
 
 export const streamAudioMeta = async (hash: string, fileIdx: number): Promise<AudioMeta> => {
   const { data } = await api.get<AudioMeta>(`/stream/audio/meta/${hash}/${fileIdx}`)
