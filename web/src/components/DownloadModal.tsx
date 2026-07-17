@@ -5,6 +5,7 @@ import { Download, Loader2, Clock, Server, CheckCircle2 } from 'lucide-react'
 import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
+  createParamsWhenFilesUnknown,
   streamAdd, streamMetadata, StreamFile, TorrentInfo,
   dedupCheck, dedupLink, DedupCheckResult,
 } from '../api/client'
@@ -106,7 +107,13 @@ async function downloadInternal(
       return t('downloads.modal.partialQueued', { created: res.created.length, total: picks.length })
     }
   } else {
-    await downloadCreate({ infoHash, fileIndex: 0, magnet, name: result.title, filePath: '', fileSize: 0, tracker: result.tracker || undefined, category: result.category || undefined, destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined })
+    // Sem lista de arquivos: auto-pick no backend (pickBestFile). Nunca fileIndex 0
+    // (costuma ser .nfo spam) — ver createParamsWhenFilesUnknown + testes.
+    await downloadCreate(createParamsWhenFilesUnknown({
+      infoHash, magnet, name: result.title,
+      tracker: result.tracker || undefined, category: result.category || undefined,
+      destBase: dest.destBase || undefined, destSubdir: dest.destSubdir || undefined,
+    }))
   }
   return null
 }
