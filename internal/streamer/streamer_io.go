@@ -14,6 +14,9 @@ import (
 // Close shuts down the torrent client and releases storage.
 func (s *Streamer) Close() {
 	close(s.stop)
+	if s.verifyLim != nil {
+		s.verifyLim.Shutdown()
+	}
 	s.client.Close()
 	// Fecha o storage mmap (libera mapeamentos/handles). FileStorage default é
 	// gerido pelo client, então storageImpl é nil nesse caso.

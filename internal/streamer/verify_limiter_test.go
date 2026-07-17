@@ -1,6 +1,8 @@
 package streamer
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -109,4 +111,66 @@ func TestNormalizeVerifyLimit(t *testing.T) {
 	if got := normalizeVerifyLimit(4); got != 4 {
 		t.Fatalf("4 → %d, want 4", got)
 	}
+}
+
+func TestVerifyLimiter_AcquireContextCanceled(t *testing.T) {
+	l := newVerifyLimiter(1)
+	l.Acquire()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := l.AcquireContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcquireContext: got %v, want context.Canceled", err)
+	}
+	l.Release()
+}
+
+func TestVerifyLimiter_ShutdownUnblocksWaiter(t *testing.T) {
+	l := newVerifyLimiter(1)
+	l.Acquire()
+	done := make(chan error, 1)
+	go func() {
+		done <- l.AcquireContext(context.Background())
+	}()
+	select {
+	case <-done:
+		t.Fatal("waiter should block until Shutdown")
+	case <-time.After(50 * time.Millisecond):
+	}
+	l.Shutdown()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrVerifyLimiterClosed) {
+			t.Fatalf("waiter err = %v, want ErrVerifyLimiterClosed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not unblock waiter")
+	}
+	l.Release()
+}
+
+func TestVerifyLimiter_CancelWhileWaiting(t *testing.T) {
+	l := newVerifyLimiter(1)
+	l.Acquire()
+
+	for i := 0; i < 200; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- l.AcquireContext(ctx)
+		}()
+
+		// Stagger cancel timing so the waiter is usually blocked on the channel.
+		time.Sleep(time.Duration(i%10) * time.Microsecond)
+		cancel()
+
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("iteration %d: got %v, want context.Canceled", i, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("iteration %d: AcquireContext did not return after cancel", i)
+		}
+	}
+	l.Release()
 }
