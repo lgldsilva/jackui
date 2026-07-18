@@ -130,6 +130,12 @@ const hlsForwardSeekThreshold = 30
 // requests a seek fires (around the target) doesn't spawn competing encoders.
 const hlsRestartCooldown = 3 * time.Second
 
+// hlsInitialPrefetchWindow is the brief interval where Safari's far-forward
+// request is known to be speculative startup prefetch. After it expires, a
+// far-forward request is a user seek even if the sequential encoder has not
+// yet reached the normal read-ahead threshold.
+const hlsInitialPrefetchWindow = 5 * time.Second
+
 // EnsureSegment makes sure an encoder is (or will soon be) producing segment
 // `idx`. The segment handler calls this when `idx` isn't on disk yet. It only
 // restarts the encoder for a real seek: backward (idx < startSeg — the encoder
@@ -143,6 +149,7 @@ func (s *HLSSession) EnsureSegment(idx int) {
 	s.mu.Lock()
 	start := s.startSeg
 	closed := s.closed
+	startedAt := s.StartedAt
 	s.mu.Unlock()
 	// Relança quando: o encoder morreu (closed — ex: terminou de transcodificar
 	// após um seek perto do fim, deixando o miolo sem segmentos); seek pra trás
@@ -159,7 +166,7 @@ func (s *HLSSession) EnsureSegment(idx int) {
 		// tratamos o salto grande como prefetch e deixamos o encode sequencial
 		// seguir — a posição real (baixa) do player continua sendo servida. Seek
 		// pra trás e seeks depois que o encode avançou ainda relançam normalmente.
-		if !closed && start == 0 && idx > s.highestSeg()+hlsForwardSeekThreshold && s.highestSeg() < hlsForwardSeekThreshold {
+		if !closed && start == 0 && time.Since(startedAt) < hlsInitialPrefetchWindow && idx > s.highestSeg()+hlsForwardSeekThreshold && s.highestSeg() < hlsForwardSeekThreshold {
 			return
 		}
 		_ = s.RestartAt(idx)
