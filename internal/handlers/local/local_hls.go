@@ -50,7 +50,11 @@ func LocalHLSMaster(b *lb.Browser, mgr *transcode.HLSSessionManager, reg *locals
 		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), httpshared.NativeHLSParam(c), middleware.IsRevealHidden(c), c.Query("audio"))
+		buildSegURL := segURLBuilder(localSegURLOpts{
+			mount: mount, path: path, token: c.Query("token"), user: c.Query("user"),
+			nativeHLS: httpshared.NativeHLSParam(c), revealHidden: middleware.IsRevealHidden(c),
+			audio: c.Query("audio"), playback: httpshared.PlaybackSession(c),
+		})
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
 }
@@ -108,6 +112,7 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	if src.audioTrack >= 0 {
 		key += fmt.Sprintf("-a%d", src.audioTrack) // sessão por faixa: trocar áudio não reusa o cache
 	}
+	key += httpshared.PlaybackSessionSuffix(c)
 	f, oerr := os.Open(src.abs)
 	if oerr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
@@ -174,32 +179,41 @@ func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	return true
 }
 
-func segURLBuilder(mount, path, token, user string, nativeHLS, revealHidden bool, audio string) func(name string) string {
+type localSegURLOpts struct {
+	mount, path, token, user string
+	nativeHLS, revealHidden  bool
+	audio, playback          string
+}
+
+func segURLBuilder(opts localSegURLOpts) func(name string) string {
 	return func(name string) string {
 		p := url.Values{}
-		p.Set("mount", mount)
-		p.Set("path", path)
+		p.Set("mount", opts.mount)
+		p.Set("path", opts.path)
 		p.Set("seg", name)
-		if token != "" {
-			p.Set("token", token)
+		if opts.token != "" {
+			p.Set("token", opts.token)
 		}
 		// Faixa de áudio: o segmento precisa bater na MESMA sessão (keyed por áudio)
 		// que o master, senão cai na sessão default (primeira faixa).
-		if audio != "" {
-			p.Set("audio", audio)
+		if opts.audio != "" {
+			p.Set("audio", opts.audio)
 		}
 		// Propagate the admin "view as user" target so each segment request
 		// re-scopes to the same subdir the master playlist resolved against.
-		if user != "" {
-			p.Set("user", user)
+		if opts.user != "" {
+			p.Set("user", opts.user)
 		}
 		// Carry native_hls so the segment resolves to the same session key the
 		// master created (see HLSSessionManager.EffectiveKey).
-		if nativeHLS {
+		if opts.nativeHLS {
 			p.Set("native_hls", "1")
 		}
-		if revealHidden {
+		if opts.revealHidden {
 			p.Set("revealHidden", "1")
+		}
+		if opts.playback != "" {
+			p.Set("playback", opts.playback)
 		}
 		return "/api/local/hls/seg?" + p.Encode()
 	}
@@ -308,6 +322,7 @@ func resolveLocalSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount
 	if a := httpshared.ParseIntOr(c.Query("audio"), -1); a >= 0 {
 		raw += fmt.Sprintf("-a%d", a)
 	}
+	raw += httpshared.PlaybackSessionSuffix(c)
 	key := mgr.EffectiveKey(raw, httpshared.NativeHLSParam(c))
 	sess, err := mgr.Peek(key)
 	if err != nil {

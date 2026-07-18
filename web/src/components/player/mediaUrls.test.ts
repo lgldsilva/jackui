@@ -44,4 +44,9 @@ describe('local playback URL decisions', () => {
     )
     expect(streamHLSMasterURL(info.infoHash, 0, 'media-token')).not.toBe(streamFileURL(info.infoHash, 0, 'media-token'))
   })
+
+  it('includes a playback ID in the HLS master URL when supplied', () => {
+    const info = localInfo('hls')
+    expect(streamHLSMasterURL(info.infoHash, 0, 'media-token', undefined, 'viewer-a')).toContain('playback=viewer-a')
+  })
 })

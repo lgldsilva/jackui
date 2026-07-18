@@ -35,6 +35,7 @@ export type MediaUrlInput = {
   caps: TranscodeCapabilities | null
   authEnabled: boolean
   probe: StreamProbe | null
+  playbackID?: string
 }
 
 // buildStreamURL: vazia se não der pra tocar; direct-play (streamFileURL) quando
@@ -44,10 +45,16 @@ export type MediaUrlInput = {
 // seek e tinha o ffmpeg morto a cada byte-range (Chrome E iOS Edge). (HLS usa a
 // faixa de áudio default → AAC; seleção de faixa não-default e burn de legenda
 // image-based não passam por aqui — tradeoff do HLS-everywhere.)
-function buildStreamURL(info: TorrentInfo | null, selectedFile: number, serverReady: boolean, tokenMissing: boolean, isTranscoded: boolean, mediaToken: string, transcodeAudio: number | null): string {
+type StreamURLInput = Pick<MediaUrlInput, 'info' | 'selectedFile' | 'serverReady' | 'mediaToken' | 'transcodeAudio' | 'playbackID'> & {
+  tokenMissing: boolean
+  isTranscoded: boolean
+}
+
+function buildStreamURL(input: StreamURLInput): string {
+  const { info, selectedFile, serverReady, tokenMissing, isTranscoded, mediaToken, transcodeAudio, playbackID } = input
   if (!info || selectedFile < 0 || !serverReady || tokenMissing) return ''
   if (!isTranscoded) return streamFileURL(info.infoHash, selectedFile, mediaToken)
-  return appendNativeHLS(streamHLSMasterURL(info.infoHash, selectedFile, mediaToken, transcodeAudio ?? undefined))
+  return appendNativeHLS(streamHLSMasterURL(info.infoHash, selectedFile, mediaToken, transcodeAudio ?? undefined, playbackID))
 }
 
 // appendNativeHLS marks the HLS master URL when the client plays HLS natively
@@ -121,7 +128,10 @@ export function computeMediaUrls(input: MediaUrlInput) {
   const tokenMissing = authEnabled && !mediaToken
   const isTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
 
-  const streamURL = buildStreamURL(info, selectedFile, serverReady, tokenMissing, isTranscoded, mediaToken, transcodeAudio)
+  const streamURL = buildStreamURL({
+    info, selectedFile, serverReady, tokenMissing, isTranscoded, mediaToken, transcodeAudio,
+    playbackID: input.playbackID,
+  })
   const subtitleVttURL = buildSubtitleVttURL(input, tokenMissing)
 
   let vlcURL = ''

@@ -103,6 +103,7 @@ type masterOpts struct {
 	subs       []streamer.Track
 	token      string
 	nativeHLS  bool
+	playback   string
 	audioQuery string
 	renditions bool
 }
@@ -123,7 +124,7 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	}
 	o := masterOpts{
 		ladder: ladder, srcW: pr.VideoWidth, srcH: pr.VideoHeight,
-		token: hc.c.Query("token"), nativeHLS: httpshared.NativeHLSParam(hc.c),
+		token: hc.c.Query("token"), nativeHLS: httpshared.NativeHLSParam(hc.c), playback: httpshared.PlaybackSession(hc.c),
 		renditions: hc.mediaRenditions,
 	}
 	if hc.mediaRenditions {
@@ -220,7 +221,7 @@ func writeAudioRenditions(b *strings.Builder, audio []streamer.Track, q string) 
 // a/:track routes; token+native_hls propagate so each child authenticates and
 // resolves to the same EffectiveKey.
 func buildMasterPlaylist(o masterOpts) []byte {
-	q := mediaSegQuery(o.token, o.nativeHLS)
+	q := mediaSegQueryWithPlayback(o.token, o.nativeHLS, o.playback)
 	// M2a (sem renditions): a faixa escolhida vai na query do variant (troca por
 	// reload). Com renditions o áudio vem por a/:track e o variant fica no default.
 	variantQ := q
