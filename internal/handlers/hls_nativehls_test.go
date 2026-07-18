@@ -25,6 +25,9 @@ func TestMediaSegQuery(t *testing.T) {
 			t.Errorf("mediaSegQuery(%q,%v)=%q want %q", c.token, c.nativeHLS, got, c.want)
 		}
 	}
+	if got := mediaSegQueryWithPlayback("TOK", true, "viewer-a"); got != "?token=TOK&native_hls=1&playback=viewer-a" {
+		t.Errorf("playback query = %q", got)
+	}
 }
 
 func TestNativeHLSParam(t *testing.T) {
