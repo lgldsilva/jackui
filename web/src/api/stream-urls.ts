@@ -68,9 +68,9 @@ export const streamSubtrackURL = (hash: string, fileIdx: number, trackIdx: numbe
 export const streamHLSMasterURL = (hash: string, fileIdx: number, tokenOverride?: string, audioTrack?: number): string => {
   const hasAudio = audioTrack != null && audioTrack >= 0
   if (isLocalHash(hash)) {
-    const local = localResolvedURL(hash, tokenOverride)
-    if (!local || !hasAudio) return local
-    return local + (local.includes('?') ? '&' : '?') + `audio=${audioTrack}`
+    const loc = parseLocalHash(hash)!
+    const audioQ = hasAudio ? `&audio=${audioTrack}` : ''
+    return withToken(`/api/local/hls/index.m3u8?${localQS(loc.mount, loc.path)}${audioQ}`, tokenOverride)
   }
   const audioQ = hasAudio ? `?audio=${audioTrack}` : ''
   return withToken(`/api/stream/hls/${hash}/${fileIdx}/index.m3u8${audioQ}`, tokenOverride)

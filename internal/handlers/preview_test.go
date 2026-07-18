@@ -16,6 +16,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -37,6 +38,25 @@ func writeZipFile(t *testing.T, path string, files map[string][]byte) {
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestEpubResBaseURLPropagatesRevealHidden(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(middleware.RevealHidden())
+	router.GET("/chapter", func(c *gin.Context) { c.String(http.StatusOK, epubResBaseURL(c)) })
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/chapter?mount=Media&path=book.epub&revealHidden=1", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "revealHidden=1") {
+		t.Fatalf("revealed resource base = status %d body %q", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/chapter?mount=Media&path=book.epub", nil))
+	if strings.Contains(w.Body.String(), "revealHidden=") {
+		t.Fatalf("closed curtain leaked reveal flag: %q", w.Body.String())
 	}
 }
 
