@@ -15,6 +15,7 @@ import (
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
 	"github.com/lgldsilva/jackui/internal/localstream"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
@@ -49,7 +50,7 @@ func LocalHLSMaster(b *lb.Browser, mgr *transcode.HLSSessionManager, reg *locals
 		if !waitLocalPlaylist(c, sess) {
 			return
 		}
-		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), httpshared.NativeHLSParam(c), c.Query("audio"))
+		buildSegURL := segURLBuilder(mount, path, c.Query("token"), c.Query("user"), httpshared.NativeHLSParam(c), middleware.IsRevealHidden(c), c.Query("audio"))
 		serveLocalPlaylist(c, sess, buildSegURL)
 	}
 }
@@ -173,7 +174,7 @@ func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	return true
 }
 
-func segURLBuilder(mount, path, token, user string, nativeHLS bool, audio string) func(name string) string {
+func segURLBuilder(mount, path, token, user string, nativeHLS, revealHidden bool, audio string) func(name string) string {
 	return func(name string) string {
 		p := url.Values{}
 		p.Set("mount", mount)
@@ -196,6 +197,9 @@ func segURLBuilder(mount, path, token, user string, nativeHLS bool, audio string
 		// master created (see HLSSessionManager.EffectiveKey).
 		if nativeHLS {
 			p.Set("native_hls", "1")
+		}
+		if revealHidden {
+			p.Set("revealHidden", "1")
 		}
 		return "/api/local/hls/seg?" + p.Encode()
 	}

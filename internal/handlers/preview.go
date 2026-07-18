@@ -17,6 +17,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/local"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/preview"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -377,6 +378,9 @@ func epubResBaseURL(c *gin.Context) string {
 		if v := c.Query(k); v != "" {
 			params.Set(k, v)
 		}
+	}
+	if middleware.IsRevealHidden(c) {
+		params.Set("revealHidden", "1")
 	}
 	return "/api/preview/epub/res?" + params.Encode()
 }

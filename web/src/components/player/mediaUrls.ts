@@ -99,12 +99,17 @@ export function computeIsTranscoded(input: {
   burnSubTrack: number | null
   probe: StreamProbe | null
 }): boolean {
+  const explicitTranscode = input.transcodeAudio !== null || input.forceH264 || input.burnSubTrack !== null
+  if (explicitTranscode) return true
+  if (input.info && isLocalHash(input.info.infoHash) && input.info.localPlaybackKind) {
+    return input.info.localPlaybackKind === 'hls'
+  }
   const selectedFilename = input.info?.files?.[input.selectedFile]?.path ?? ''
   const nameSuggestsTranscode =
     /(x265|h\.?265|hevc|av1|vp9|2160p?|4k|uhd)/i.test(selectedFilename) ||
     /\.(mkv|avi|ts|m2ts|wmv|flv|mpg|mpeg|ogv)$/i.test(selectedFilename)
   const needsTranscode = input.probe?.needsTranscode ?? nameSuggestsTranscode
-  return input.transcodeAudio !== null || input.forceH264 || input.burnSubTrack !== null || needsTranscode
+  return needsTranscode
 }
 
 export function computeMediaUrls(input: MediaUrlInput) {

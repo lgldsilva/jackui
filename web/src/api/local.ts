@@ -26,7 +26,8 @@ export * from './local-download'
 // Cache da URL resolvida por localPlay (direct ou HLS) — populada por
 // synthesizeLocalInfo, lida pelos URL builders (streamFileURL etc.) pra que
 // PlayerModal não precise distinguir torrent de local.
-const localPlayableURLCache = new Map<string, string>()
+type LocalPlayable = Pick<LocalPlaySource, 'url' | 'kind'>
+const localPlayableURLCache = new Map<string, LocalPlayable>()
 
 // synthesizeLocalInfo constrói um TorrentInfo "falso" pra arquivos locais.
 // O PlayerModal não distingue — só lê os mesmos campos (infoHash, name, files,
@@ -39,7 +40,7 @@ export async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
   // desktop seguem no direct.
   const play = await localPlay(loc.mount, loc.path, isVideo && isIOS())
   // The URL from localPlay starts with /api/... (no token); withToken adds it.
-  localPlayableURLCache.set(hash, play.url)
+  localPlayableURLCache.set(hash, { url: play.url, kind: play.kind })
   const name = loc.path.split('/').pop() || loc.path
   const file: StreamFile = {
     index: 0,
@@ -61,6 +62,7 @@ export async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
     upRate: 0,
     progress: 1,
     primaryFile: 0,
+    localPlaybackKind: play.kind,
   }
 }
 
@@ -76,6 +78,7 @@ export async function localStreamInfo(hash: string): Promise<TorrentInfo> {
   if (!localPlayableURLCache.has(hash)) return synthesizeLocalInfo(hash)
 
   const st = await localTransferStatus(loc.mount, loc.path)
+  const playable = localPlayableURLCache.get(hash)!
   const size = st?.size ?? 0
   const bytesRead = st?.bytesRead ?? 0
   const progress = size > 0 ? Math.min(1, bytesRead / size) : 1
@@ -101,16 +104,16 @@ export async function localStreamInfo(hash: string): Promise<TorrentInfo> {
     progress,
     primaryFile: 0,
     stalled: st?.stalled ?? false,
+    localPlaybackKind: playable.kind,
   }
 }
 
-// localResolvedURL returns the cached URL with auth token attached, or empty
-// string if not yet resolved. Used by the streamFileURL/streamHLSMasterURL
-// builders when the hash is a local pseudo-hash — they all converge to the
-// same URL (the server decided direct vs HLS in /api/local/play).
+// localResolvedURL returns the backend-selected cached URL with media
+// credentials attached, or empty when the file has not been resolved yet.
+// Direct playback uses it; an explicit fallback builds a fresh local HLS URL.
 export function localResolvedURL(hash: string, tokenOverride?: string): string {
-  const url = localPlayableURLCache.get(hash)
-  return url ? withToken(url, tokenOverride) : ''
+  const source = localPlayableURLCache.get(hash)
+  return source ? withToken(source.url, tokenOverride) : ''
 }
 
 // localSubtrackBlobURL fetches a LOCAL embedded subtitle track as a WebVTT blob
@@ -342,11 +345,13 @@ export const localPlay = async (mount: string, path: string, forceHLS = false): 
 // (that track just falls back to the normal resolve path on play).
 export async function localPlayBatch(mount: string, paths: string[]): Promise<void> {
   if (paths.length === 0) return
-  const { data } = await api.post<{ items: { path: string; url?: string; error?: string }[] }>(
+  const { data } = await api.post<{ items: { path: string; kind?: 'direct' | 'hls'; url?: string; error?: string }[] }>(
     withViewAs('/local/play/batch'),
     { mount, paths, forceHLS: isIOS() },
   )
   for (const it of data.items ?? []) {
-    if (it.url && !it.error) localPlayableURLCache.set(buildLocalHash(mount, it.path), withViewAs(it.url))
+    if (it.url && it.kind && !it.error) {
+      localPlayableURLCache.set(buildLocalHash(mount, it.path), { url: withViewAs(it.url), kind: it.kind })
+    }
   }
 }

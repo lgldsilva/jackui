@@ -61,6 +61,7 @@ describe('streamInfo for local files', () => {
     // Second call takes the cheap transfer-status path and maps throughput.
     const info = await streamInfo(hash)
 
+    expect(info.localPlaybackKind).toBe('hls')
     expect(info.downRate).toBe(1_048_576)
     expect(info.totalSize).toBe(10_000_000)
     expect(info.progress).toBeCloseTo(0.5, 5)
