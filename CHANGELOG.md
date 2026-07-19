@@ -21,7 +21,7 @@ As seções abaixo consolidam o resumo de cada versão para consulta rápida jun
 - use --no-deps jackui to avoid conflicting with server-managed postgres (213536e)
 
 ### Manutenção / CI
-- add concurrency policy section to gitea-actions-runners.md (19702ed)
+- add concurrency policy section to github-actions-runners.md (19702ed)
 - add concurrency control to all workflows (5b1246c)
 
 ## [0.90.1] — 2026-07-06
