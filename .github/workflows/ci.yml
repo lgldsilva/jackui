@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: jackui_test
+          POSTGRES_USER: jackui
+          POSTGRES_PASSWORD: jackui_test
+          PGPORT: 5433
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:jackui_test@localhost:5433/jackui_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: gofmt
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: go vet
+        run: go vet ./internal/...
+
+      - name: go test
+        run: go test -p 4 -timeout 20m -coverprofile=coverage.out ./internal/...
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        if: hashFiles('coverage.out') != ''
+        with:
+          name: coverage-out
+          path: coverage.out
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: lint
+        run: npm run lint
+
+      - name: check i18n
+        run: npm run check:i18n
+
+      - name: test
+        run: npm test
+
+      - name: build
+        run: npm run build
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+
+      - uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84  # v6
+        with:
+          args: --new-from-rev=origin/main
