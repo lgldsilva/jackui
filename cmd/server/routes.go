@@ -147,7 +147,18 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.Use(gin.Recovery())
 
 	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
+	if origins := deps.cfg.AllowedOrigins; len(origins) > 0 {
+		corsConfig.AllowOrigins = origins
+		corsConfig.AllowAllOrigins = false
+	} else {
+		// Sem AllowedOrigins configurado: mantém compatibilidade com o
+		// comportamento legado (AllowAllOrigins) para não quebrar deployments
+		// existentes, mas avisa que é inseguro em produção. O admin deve definir
+		// JACKUI_ALLOWED_ORIGINS ou allowed_origins no config.yaml.
+		corsConfig.AllowAllOrigins = true
+		log.Print("[SECURITY] CORS: AllowedOrigins vazio — permitindo TODAS as origens. " +
+			"Defina JACKUI_ALLOWED_ORIGINS=... no .env ou allowed_origins no config.yaml.")
+	}
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range"}
 	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges"}

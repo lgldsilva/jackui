@@ -23,6 +23,7 @@ func applyEnvOverrides(cfg *Config) {
 	applySMTPEnv(cfg)
 	applyAIEnv(cfg)
 	applyDownloadsQueueEnv(cfg)
+	applyCORSEnv(cfg)
 
 	applyEnvPositiveInt(&cfg.External.MaxUploadMB, "JACKUI_MAX_UPLOAD_MB")
 	applyEnvPositiveInt(&cfg.External.LocalReadaheadMB, "JACKUI_LOCAL_READAHEAD_MB")
@@ -136,6 +137,18 @@ func applyDownloadsQueueEnv(cfg *Config) {
 	}
 }
 
+// applyCORSEnv reads the allowed CORS origins from the environment and
+// populates cfg.AllowedOrigins. The value is a comma-separated list of origin
+// URLs (e.g. "https://jackui.example.com,https://app.jackui.internal").
+// The existing splitCSV helper handles trimming and dedupe isn't needed at this
+// layer (the gin cors middleware ignores duplicates). An empty list means
+// "allow all" (current default; logs a warning at startup).
+func applyCORSEnv(cfg *Config) {
+	if v := os.Getenv("JACKUI_ALLOWED_ORIGINS"); v != "" {
+		cfg.AllowedOrigins = splitCSV(v)
+	}
+}
+
 // ActiveEnvOverrides returns which env vars are set and override the YAML config.
 // Used by the frontend to show "managed by environment" badges.
 // maskedEnvKeys are env overrides that hold secrets: their presence is reported
@@ -166,6 +179,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_BASE_URL",
 		"JACKUI_EXTERNAL_MOUNTS",
 		"JACKUI_AI_ENABLED", "GROQ_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY", "GEMINI_API_KEY", "OLLAMA_BASE_URL", "JACKUI_AI_MAX_COST_PER_1M", "JACKUI_AI_KWH_PRICE", "JACKUI_AI_LOCAL_WATTS",
+		"JACKUI_ALLOWED_ORIGINS",
 		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB", "JACKUI_LOCAL_CACHE_GB", "JACKUI_HLS_VOD_MODE", "JACKUI_HLS_MEDIA_RENDITIONS", "JACKUI_MAX_GPU_TRANSCODES",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",

@@ -1,0 +1,4 @@
+# OpenCode/ripgrep local-only signals. Keep these out of search results
+# but readable for tools that consult this file.
+!.slim/deepwork/
+!.slim/deepwork/**

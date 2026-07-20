@@ -32,6 +32,11 @@ type Config struct {
 	// used to build links in emails (reset/verify/invite). Falls back to the
 	// request's Origin when empty.
 	BaseURL string `yaml:"base_url"`
+	// AllowedOrigins controls CORS — the list of origins allowed to make
+	// browser requests (e.g. "https://jackui.example.com"). Empty string or
+	// env var allows ALL origins (discouraged; logs a warning at startup).
+	// Env: JACKUI_ALLOWED_ORIGINS (comma-separated).
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 // SMTPConfig configures outbound email (password reset, email verification,
