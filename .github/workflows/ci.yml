@@ -21,7 +21,6 @@ jobs:
           POSTGRES_DB: jackui_test
           POSTGRES_USER: jackui
           POSTGRES_PASSWORD: jackui_test
-          PGPORT: 5433
         ports:
           - 5433:5432
         options: >-

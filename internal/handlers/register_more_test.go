@@ -72,8 +72,8 @@ func TestRegisterHandler_DuplicateUser(t *testing.T) {
 
 	registerHandler(c, store, nil, "")
 
-	if w.Code != http.StatusConflict {
-		t.Errorf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (anti-enumeration); body: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -97,8 +97,8 @@ func TestRegisterHandler_DuplicateEmail(t *testing.T) {
 
 	registerHandler(c, store, nil, "")
 
-	if w.Code != http.StatusConflict {
-		t.Errorf("status = %d, want 409; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (anti-enumeration); body: %s", w.Code, w.Body.String())
 	}
 }
 

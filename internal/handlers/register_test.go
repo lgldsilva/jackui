@@ -209,7 +209,7 @@ func TestRegister_WithStoreConflict(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	router.ServeHTTP(w2, req2)
 
-	if w2.Code != http.StatusConflict {
-		t.Errorf("duplicate register status = %d, want 409; body: %s", w2.Code, w2.Body.String())
+	if w2.Code != http.StatusOK {
+		t.Errorf("duplicate register status = %d, want 200 (anti-enumeration); body: %s", w2.Code, w2.Body.String())
 	}
 }
