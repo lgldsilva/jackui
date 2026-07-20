@@ -6,7 +6,8 @@ on:
     branches: [main]
 
 concurrency:
-  group: release-${{ github.event.head_commit.id }}
+  # github.event.head_commit is null on workflow_dispatch → startup_failure
+  group: release-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 permissions:
