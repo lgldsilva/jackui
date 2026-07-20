@@ -6,14 +6,33 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/mailer"
 )
+
+// dummyBcryptHash pre-computed once for constant-time dummy work in the
+// "user exists" path (anti-timing-enumeration).
+var (
+	dummyBcryptHash []byte
+	dummyHashOnce   sync.Once
+)
+
+func ensureDummyBcryptHash() {
+	dummyHashOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing"), bcrypt.DefaultCost)
+		if err != nil {
+			panic(err)
+		}
+		dummyBcryptHash = h
+	})
+}
 
 const (
 	inviteTTL = 7 * 24 * time.Hour
@@ -88,7 +107,10 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 		return
 	}
 	if taken {
-		c.JSON(http.StatusConflict, gin.H{"error": "usuário ou e-mail já cadastrado"})
+		// Indistinguishable timing + 200 to prevent user enumeration.
+		ensureDummyBcryptHash()
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
+		c.JSON(http.StatusOK, gin.H{"message": "Cadastro criado. Confirme seu e-mail e aguarde a aprovação de um admin."})
 		return
 	}
 
