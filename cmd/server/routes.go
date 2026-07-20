@@ -205,16 +205,18 @@ func setupRouter(deps *appDeps) *gin.Engine {
 
 	if deps.authStore != nil && deps.tokenMgr != nil {
 		pub := router.Group("/api/auth")
-		rateLimit := middleware.RateLimit(deps.authRateLimiter)
-		pub.POST("/login", rateLimit, handlers.Login(deps.authStore, deps.tokenMgr, deps.loginLockout))
+		loginRateLimit := middleware.RateLimit(deps.loginRateLimiter)
+		registerRateLimit := middleware.RateLimit(deps.registerRateLimiter)
+		passwordRateLimit := middleware.RateLimit(deps.passwordRateLimiter)
+		pub.POST("/login", loginRateLimit, handlers.Login(deps.authStore, deps.tokenMgr, deps.loginLockout))
 		pub.POST("/refresh", handlers.Refresh(deps.authStore, deps.tokenMgr))
 		// Optional so Bearer is parsed when present: Logout must see claims to
 		// purge incognito history/library. Without this, logout never cleaned.
 		pub.POST("/logout", auth.Optional(deps.tokenMgr), handlers.Logout(deps.authStore, deps.historyStore, deps.libraryStore))
-		pub.POST("/register", rateLimit, handlers.Register(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+		pub.POST("/register", registerRateLimit, handlers.Register(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
-		pub.POST("/forgot", rateLimit, handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
-		pub.POST("/reset", rateLimit, handlers.Reset(deps.authStore))
+		pub.POST("/forgot", passwordRateLimit, handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
+		pub.POST("/reset", passwordRateLimit, handlers.Reset(deps.authStore))
 		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(deps.authStore, deps.waManager))
 		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(deps.authStore, deps.tokenMgr, deps.waManager))
 	}

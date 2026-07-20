@@ -76,8 +76,10 @@ type appDeps struct {
 	authStore        *auth.Store
 	tokenMgr         *auth.TokenManager
 	waManager        *auth.WAManager
-	loginLockout     *auth.Lockout
-	authRateLimiter  *auth.IPRateLimiter
+	loginLockout      *auth.Lockout
+	loginRateLimiter  *auth.IPRateLimiter
+	registerRateLimiter *auth.IPRateLimiter
+	passwordRateLimiter *auth.IPRateLimiter
 	mlr              *mailer.Mailer
 	promoteDests     []httpshared.PromoteDest
 	destinations     *handlers.DestinationService
