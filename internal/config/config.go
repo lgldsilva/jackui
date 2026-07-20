@@ -232,7 +232,7 @@ type StreamConfig struct {
 	// SeedTrackers lista substrings/hostnames de trackers cujos torrents devem
 	// CONTINUAR seedando após o uso (não são dropados pelo idle reaper nem pelo
 	// fim do stream), em vez do comportamento padrão de dropar. Casado
-	// case-insensitive contra as announce URLs do torrent (ex.: "jackui").
+	// case-insensitive contra as announce URLs do torrent (ex.: "my-tracker.example.com").
 	// Vazio = ninguém é mantido (comportamento atual). Aplicado ao vivo via
 	// Streamer.SetSeedTrackers. Env: JACKUI_SEED_TRACKERS (CSV).
 	SeedTrackers []string `yaml:"seed_trackers"`

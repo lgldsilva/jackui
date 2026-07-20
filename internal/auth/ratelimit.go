@@ -68,7 +68,7 @@ func (l *IPRateLimiter) Allow(ip string) (bool, time.Duration) {
 
 	// Within the current window.
 	s.count++
-	if s.count >= l.MaxRequests {
+	if s.count > l.MaxRequests {
 		// Lock until the window expires.
 		s.lockedUntil = s.windowStart.Add(l.Window)
 		return false, s.lockedUntil.Sub(now)

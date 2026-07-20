@@ -9,6 +9,18 @@ Thanks for considering a contribution! This document covers the workflow and the
 - Branch names follow `<type>/<slug>`, e.g. `fix/hls-seek-restart`.
 - Keep PRs small and focused. Incremental cuts beat big-bang rewrites.
 
+## Fork and PR workflow
+
+If you don't have push access to this repository:
+
+1. Fork the repository on GitHub
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/jackui.git`
+3. Add the upstream remote: `git remote add upstream https://github.com/lgldsilva/jackui.git`
+4. Create a branch for your changes: `git checkout -b feature/your-change`
+5. Make your changes and commit with conventional commits
+6. Push to your fork: `git push origin feature/your-change`
+7. Open a pull request from your fork to this repository
+
 ## Before you push
 
 Run the local gates — they mirror what CI enforces:
@@ -18,12 +30,13 @@ make test                 # full Go suite (requires a reachable PostgreSQL for D
 cd web && npm test        # vitest (pure-function tests)
 cd web && npx tsc --noEmit && npm run build
 gofmt -l . && go vet ./...
+golangci-lint run --new-from-rev=origin/main  # cognitive complexity gate (≤ 15)
 ```
 
 Quality expectations:
 
 - **Tests accompany code.** New logic ships with unit tests; bug fixes ship with a regression test.
-- **Cognitive complexity ≤ 15** per function (SonarQube S3776). If you must exceed it, justify with a `// NOSONAR: reason` comment.
+- **Cognitive complexity ≤ 15** per function (gocognit). If you must exceed it, justify with a `//nolint:gocognit // reason` comment.
 - New UI strings use `t()` with keys added to **both** `web/src/locales/pt.json` and `en.json`.
 - Backend error responses are JSON `{"error": "..."}`.
 - Don't fatten the known god-files (see `CLAUDE.md`) — new components/logic go in their own files.

@@ -188,7 +188,7 @@ make deploy-auto-vpn    # same, but routes through a gluetun VPN overlay (opt-in
 > [!NOTE]
 > The author's own production instance currently runs **behind gluetun** (`network_mode: container:gluetun`, on the VPN's forwarded port — `watchForwardedPort` in `cmd/server/main.go` triggers a graceful restart to rebind when the port rotates), even though the no-VPN path is the documented default. Pick the mode that keeps your swarm healthy.
 
-CI/CD runs on **Gitea Actions** (SonarQube quality gate + Trivy + Dependency-Track), documented in [docs/CICD.md](docs/CICD.md) and [docs/gitea-actions-runners.md](docs/gitea-actions-runners.md). The deploy step runs `docker compose up -d --force-recreate` against a **hand-maintained** `docker-compose.yml` on the server (not a Portainer stack) — it only swaps the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
+**Deployment**: Images are published to **GitHub Container Registry (GHCR)** as `ghcr.io/lgldsilva/jackui` with tags `:latest`, `:vX.Y.Z` (multi-arch), and `:nvidia`. Use `docker pull ghcr.io/lgldsilva/jackui:latest` and configure your `docker-compose.yml` to reference the GHCR image. Consider using **Watchtower** for automated updates: `containrrr/watchtower --interval 3600 ghcr.io/lgldsilva/jackui:latest`.
 
 ## Architecture
 
