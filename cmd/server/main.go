@@ -48,46 +48,46 @@ const (
 )
 
 type appDeps struct {
-	cfg              *config.Config
-	configPath       string
-	db               *sql.DB // shared PostgreSQL pool (all stores)
-	jackettClient    *jackett.Client
-	localBrowser     *local.Browser
-	historyStore     *history.Store
-	streamSrv        *streamer.Streamer
-	streamCfg        streamer.Config
-	libraryStore     *library.Store
-	audioMetaStore   *audiometa.Store
-	lyricsClient     *lyrics.Client
-	musicTrending    *musictrending.Client
-	playlistsStore   *playlists.Store
-	downloadsStore   *downloads.Store
-	downloadsWkr     *downloads.Worker
-	tmdbClient       *tmdb.Client
-	aiClient         *ai.Client
-	aiBench          *ai.BenchmarkStore
-	aiBenchRun       *handlers.BenchmarkRunTracker
-	webSearch        *imagesearch.Chain
-	watchlistStore   *watchlist.Store
-	watchlistWkr     *watchlist.Worker
-	pushStore        *push.Store
-	pushSender       *push.Sender
-	subtitleClient   *subtitles.Client
-	authStore        *auth.Store
-	tokenMgr         *auth.TokenManager
-	waManager        *auth.WAManager
-	loginLockout      *auth.Lockout
-	loginRateLimiter  *auth.IPRateLimiter
+	cfg                 *config.Config
+	configPath          string
+	db                  *sql.DB // shared PostgreSQL pool (all stores)
+	jackettClient       *jackett.Client
+	localBrowser        *local.Browser
+	historyStore        *history.Store
+	streamSrv           *streamer.Streamer
+	streamCfg           streamer.Config
+	libraryStore        *library.Store
+	audioMetaStore      *audiometa.Store
+	lyricsClient        *lyrics.Client
+	musicTrending       *musictrending.Client
+	playlistsStore      *playlists.Store
+	downloadsStore      *downloads.Store
+	downloadsWkr        *downloads.Worker
+	tmdbClient          *tmdb.Client
+	aiClient            *ai.Client
+	aiBench             *ai.BenchmarkStore
+	aiBenchRun          *handlers.BenchmarkRunTracker
+	webSearch           *imagesearch.Chain
+	watchlistStore      *watchlist.Store
+	watchlistWkr        *watchlist.Worker
+	pushStore           *push.Store
+	pushSender          *push.Sender
+	subtitleClient      *subtitles.Client
+	authStore           *auth.Store
+	tokenMgr            *auth.TokenManager
+	waManager           *auth.WAManager
+	loginLockout        *auth.Lockout
+	loginRateLimiter    *auth.IPRateLimiter
 	registerRateLimiter *auth.IPRateLimiter
 	passwordRateLimiter *auth.IPRateLimiter
-	mlr              *mailer.Mailer
-	promoteDests     []httpshared.PromoteDest
-	destinations     *handlers.DestinationService
-	hlsMgr           *transcode.HLSSessionManager
-	localStream      *localstream.Registry
-	localCache       *localcache.Cache
-	transferTracker  *transfer.Tracker
-	pendingTransfers *transfer.Store // persisted move/promote intents → resumed on boot
+	mlr                 *mailer.Mailer
+	promoteDests        []httpshared.PromoteDest
+	destinations        *handlers.DestinationService
+	hlsMgr              *transcode.HLSSessionManager
+	localStream         *localstream.Registry
+	localCache          *localcache.Cache
+	transferTracker     *transfer.Tracker
+	pendingTransfers    *transfer.Store // persisted move/promote intents → resumed on boot
 	// restart is signalled by the gluetun forwarded-port watcher when the VPN
 	// port changes. main's select drains it and runs the SAME graceful shutdown
 	// as a SIGTERM (instead of os.Exit, which skipped every cleanup), then the
