@@ -12,9 +12,10 @@
 # existe" como "não criar tag/Release nova" — build+deploy seguem, sem inflar a
 # versão a cada merge trivial (era 1 tag por merge → 173 tags).
 #
-# Robusto a merge commits do Gitea: o assunto do merge carrega o título do PR
-# ("Merge pull request 'fix(x): ...'"), então o tipo é detectado tanto no início
-# do assunto quanto logo após "Merge pull request '".
+# Robusto a merge commits: o assunto do merge carrega o título do PR, tanto em
+# Gitea ("Merge pull request 'fix(x): ...'") quanto em GitHub ("Merge pull request #N from owner/branch")
+# e squash-merge (o título do PR vira o assunto do merge commit). Conventional Commits
+# diretos também funcionam.
 #
 # Uso:  scripts/semver.sh          → imprime "vX.Y.Z" no stdout (só isso).
 # Não cria nem dá push de tag — quem decide isso é o chamador.
@@ -46,10 +47,10 @@ subjects=$(git log "$range" --format='%s' 2>/dev/null || true)
 bodies=$(git log "$range" --format='%B' 2>/dev/null || true)
 
 # match_type <alternação-de-tipos> → sucesso se algum commit é daquele(s) tipo(s),
-# aceitando o tipo no início do assunto OU dentro do título de um merge do Gitea.
+# aceitando o tipo no início do assunto OU dentro do título de um merge.
 match_type() {
   printf '%s\n' "$subjects" | grep -qiE \
-    "^($1)(\([^)]*\))?!?:|^Merge pull request '($1)(\([^)]*\))?!?:"
+    "^($1)(\([^)]*\))?!?:|^Merge pull request '($1)(\([^)]*\))?!?:|^Merge pull request #[0-9]+ from [^/]+/($1)(\([^)]*\))?!?:"
 }
 
 # breaking: "<tipo>!:" no assunto (qualquer forma) OU "BREAKING CHANGE" como FOOTER
@@ -58,7 +59,7 @@ match_type() {
 # MENCIONA "BREAKING CHANGE" no meio de uma explicação não é um breaking change.
 is_breaking() {
   printf '%s\n' "$subjects" | grep -qE \
-    "^[a-zA-Z]+(\([^)]*\))?!:|^Merge pull request '[a-zA-Z]+(\([^)]*\))?!:" \
+    "^[a-zA-Z]+(\([^)]*\))?!:|^Merge pull request '[a-zA-Z]+(\([^)]*\))?!:|^Merge pull request #[0-9]+ from [^/]+/[a-zA-Z]+(\([^)]*\))?!:" \
     || printf '%s\n' "$bodies" | grep -qE '^BREAKING[ -]CHANGE:'
 }
 
