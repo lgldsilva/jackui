@@ -15,6 +15,7 @@ config.yaml
 *.yaml
 !*.example.yaml
 !docker-compose.yml
+!.github/**
 
 # OS
 .DS_Store
@@ -34,6 +35,11 @@ coverage.out
 # AI tooling worktrees / agent transcripts (Claude Code, Gemini, etc.)
 .claude/
 .gemini/
+.agents/
+.cursor/
+.grok/
+.opencode/
+.specify/
 
 # Deepwork progress files (session state, not for the repo)
 .slim/
@@ -59,6 +65,7 @@ internal/streamer/streams/
 # Sonar scanner workspace
 .scannerwork/
 /.scannerwork/
+sonar-out/
 
 # Root-level node tooling (not the web/ app)
 *.out
