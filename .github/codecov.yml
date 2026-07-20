@@ -1,0 +1,11 @@
+coverage:
+  status:
+    patch:
+      default:
+        target: 80%
+        threshold: 1%
+
+ignore:
+  - "web/**"
+  - "cmd/**"
+  - "electron/**"

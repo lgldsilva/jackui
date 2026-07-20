@@ -60,6 +60,14 @@ jobs:
           name: coverage-out
           path: coverage.out
 
+      - name: Upload coverage to Codecov
+        if: always() && hashFiles('coverage.out') != ''
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
+        with:
+          files: coverage.out
+          flags: backend
+          fail_ci_if_error: false
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
