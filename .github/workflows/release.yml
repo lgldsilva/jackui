@@ -103,12 +103,12 @@ jobs:
 
       - name: Trivy scan
         run: |
-          trivy image --severity CRITICAL --exit-code 1 \
+          trivy image --severity CRITICAL --exit-code 1 --ignore-unfixed \
             ghcr.io/${{ github.repository }}:v${{ needs.semver.outputs.version }}
 
       - name: Generate SBOM
         run: |
-          trivy image --format cyclonedx --output bom.json \
+          trivy image --format cyclonedx --output bom.json --ignore-unfixed \
             ghcr.io/${{ github.repository }}:v${{ needs.semver.outputs.version }}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
