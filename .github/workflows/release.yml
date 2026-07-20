@@ -3,11 +3,10 @@ name: Release
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    tags: ["v*"]
 
 concurrency:
-  # github.event.head_commit is null on workflow_dispatch → startup_failure
-  group: release-${{ github.workflow }}-${{ github.ref }}-${{ github.sha }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 permissions:
@@ -30,7 +29,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   build-and-push:
-    needs: [semver, ci]
+    needs: [semver]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,7 +118,7 @@ jobs:
           path: bom.json
 
   release:
-    needs: [semver, build-and-push]
+    needs: [build-and-push]
     runs-on: ubuntu-latest
     permissions:
       contents: write
