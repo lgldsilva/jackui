@@ -9,9 +9,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 jobs:
   semver:
@@ -32,6 +30,9 @@ jobs:
   build-and-push:
     needs: [semver, ci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
@@ -118,6 +119,8 @@ jobs:
   release:
     needs: [semver, build-and-push]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
