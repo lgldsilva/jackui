@@ -11,12 +11,30 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
 )
+
+// dummyBcryptHash pre-computed once for constant-time dummy work in
+// VerifyPassword (anti-timing-enumeration).
+var (
+	dummyBcryptHash []byte
+	dummyHashOnce   sync.Once
+)
+
+func ensureDummyBcryptHash() {
+	dummyHashOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing"), bcrypt.DefaultCost)
+		if err != nil {
+			panic(err)
+		}
+		dummyBcryptHash = h
+	})
+}
 
 // Role identifies a user's authorization level.
 type Role string
@@ -242,6 +260,10 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 		username,
 	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
+		// Indistinguishable timing: do dummy bcrypt work so ErrNoRows does not
+		// return measurably faster than a password mismatch on a real user.
+		ensureDummyBcryptHash()
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(password))
 		return nil, errors.New("usuário ou senha inválidos")
 	}
 	if err != nil {
