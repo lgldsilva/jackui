@@ -214,7 +214,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		pub.POST("/register", rateLimit, handlers.Register(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
 		pub.POST("/forgot", rateLimit, handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
-		pub.POST("/reset", handlers.Reset(deps.authStore))
+		pub.POST("/reset", rateLimit, handlers.Reset(deps.authStore))
 		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(deps.authStore, deps.waManager))
 		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(deps.authStore, deps.tokenMgr, deps.waManager))
 	}
