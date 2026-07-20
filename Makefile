@@ -27,7 +27,7 @@ DEPLOY_ADDR    := $(shell echo '$(DEPLOY_HOST)' | sed 's/.*@//')
 # Diretório de config no servidor remoto (onde o config.yaml é sincronizado).
 REMOTE_CONFIG_DIR ?= $(or $(shell grep -E '^REMOTE_CONFIG_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/opt/jackui)
 # VPN gateway directory (read from .env to avoid homelab-specific paths in versioned files)
-VPN_GATEWAY_DIR ?= $(or $(shell grep -E '^VPN_GATEWAY_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/Files/AppData/Config/vpn-gateway)
+VPN_GATEWAY_DIR ?= $(or $(shell grep -E '^VPN_GATEWAY_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/opt/jackui)
 IMAGE_CPU      := jackui:latest
 IMAGE_NVIDIA   := jackui:nvidia
 IMAGE_VAAPI    := jackui:vaapi
