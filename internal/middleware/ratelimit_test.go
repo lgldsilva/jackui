@@ -93,7 +93,7 @@ func TestRateLimit_DifferentIPsIndependent(t *testing.T) {
 	}
 
 	// Different IP should still be allowed.
-	code = allowIP("127.0.0.1")
+	code = allowIP("10.0.0.1")
 	if code != http.StatusOK {
 		t.Fatalf("expected 200 for different IP, got %d", code)
 	}

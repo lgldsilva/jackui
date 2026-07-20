@@ -35,14 +35,14 @@ func TestIPRateLimiterBlocksAfterThreshold(t *testing.T) {
 func TestIPRateLimiterDifferentIPsIndependent(t *testing.T) {
 	l := NewIPRateLimiter(2, time.Minute)
 	l.Allow("127.0.0.1")
-	l.Allow("127.0.0.1") // 2/2 for .3
+	l.Allow("127.0.0.1") // 2/2 for 127.0.0.1
 
 	// Different IP should not be affected.
-	allowed, _ := l.Allow("127.0.0.1")
+	allowed, _ := l.Allow("10.0.0.1")
 	if !allowed {
 		t.Fatal("a different IP should not be rate-limited")
 	}
-	// .3 should be blocked now.
+	// 127.0.0.1 should be blocked now.
 	if allowed, _ := l.Allow("127.0.0.1"); allowed {
 		t.Fatal("127.0.0.1 should be blocked after 2 requests")
 	}

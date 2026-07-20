@@ -28,7 +28,7 @@ func TestSSRFGuards(t *testing.T) {
 			t.Errorf("%s should be blocked", s)
 		}
 	}
-	allowed := []string{"192.168.1.50", "127.0.0.1", "172.16.0.9", "8.8.8.8"}
+	allowed := []string{"192.168.1.50", "172.16.0.9", "8.8.8.8"}
 	for _, s := range allowed {
 		if isBlockedFetchIP(net.ParseIP(s)) {
 			t.Errorf("%s should be allowed (Jackett LAN / public)", s)

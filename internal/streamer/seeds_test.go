@@ -95,7 +95,7 @@ func TestMatchesSeedTracker(t *testing.T) {
 	}{
 		{"empty trackers", []string{"https://jackui.club/announce/pk"}, nil, false},
 		{"empty announces", nil, []string{"jackui"}, false},
-		{"substring match", []string{"https://AMIGOS-share.club/announce/pk"}, []string{"jackui"}, true},
+		{"substring match", []string{"https://jackui.share.club/announce/pk"}, []string{"jackui"}, true},
 		{"no match public", []string{"udp://tracker.openbittorrent.com:80/announce"}, []string{"jackui"}, false},
 		{"one of many matches", []string{"udp://public/announce", "https://jackui.club/x"}, []string{"jackui"}, true},
 		{"empty want never matches", []string{"https://x/announce"}, []string{""}, false},
@@ -110,7 +110,7 @@ func TestMatchesSeedTracker(t *testing.T) {
 }
 
 func TestNormalizeSeedTrackers(t *testing.T) {
-	got := normalizeSeedTrackers([]string{" Amigos-Share ", "", "  ", "Other"})
+	got := normalizeSeedTrackers([]string{" JackUI ", "", "  ", "Other"})
 	want := []string{"jackui", "other"}
 	if len(got) != len(want) {
 		t.Fatalf("len got %v want %v", got, want)
@@ -135,7 +135,7 @@ func TestPeersInactiveReturnsError(t *testing.T) {
 
 func TestSetSeedTrackersLive(t *testing.T) {
 	s := &Streamer{}
-	s.SetSeedTrackers([]string{" AMIGOS-share ", ""})
+	s.SetSeedTrackers([]string{" JackUI ", ""})
 	if len(s.seedTrackers) != 1 || s.seedTrackers[0] != "jackui" {
 		t.Fatalf("SetSeedTrackers normalize failed: %v", s.seedTrackers)
 	}
