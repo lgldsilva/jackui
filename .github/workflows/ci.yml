@@ -109,8 +109,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84  # v6
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
         with:
-          install-mode: goinstall
-          version: v2.12.2
-          args: --new-from-rev=origin/main
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run --new-from-rev=origin/main ./...
