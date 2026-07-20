@@ -44,7 +44,7 @@ func testClientWithOMDb(t *testing.T, srv *httptest.Server, omdbSrv *httptest.Se
 	t.Cleanup(func() { c.Close() })
 	c.http = &http.Client{Transport: &testTransport{serverURL: srv.URL}}
 	if omdbSrv != nil {
-		// NOSONAR: omdb not needed yet, kept for future use
+		// omdb not needed yet, kept for future use
 		_ = omdbSrv
 	}
 	return c
