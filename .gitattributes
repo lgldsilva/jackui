@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+# Visual Studio Code
+.vscode/* text eol=crlf
+
+# JavaScript package lock files (auto-generated)
+web/package-lock.json linguist-generated
+
+# Go vendoring (not used, but for completeness)
+vendor/** linguist-generated
+
+# Electron build output (not in repo)
+dist-electron/** linguist-generated
+
+# Temporary files
+*.tmp linguist-generated
+*.log linguist-generated

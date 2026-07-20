@@ -274,6 +274,7 @@
     "env_vars_priority": "(priority over config.yaml)",
     "env_vars_note": "These variables override config.yaml at startup.",
     "about": "About JackUI",
+    "tmdb_attribution": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
     "error_account_card": "Error in the Account card",
     "error_users_card": "Error in the Users card",
     "config_load_failed": "Failed to load settings",

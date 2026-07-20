@@ -165,6 +165,7 @@ export default function GeneralTab({ config, setConfig, isAdmin, testing, testRe
               navegador (GET /status). Antes só renderizava no Electron,
               então o navegador nunca via os metadados de build. */}
           <VersionInfo />
+          <p className="text-[11px] text-text-muted mt-2">{t('settings.tmdb_attribution')}</p>
         </div>
       </section>
     </>
