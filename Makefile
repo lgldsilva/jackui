@@ -2,7 +2,7 @@
         deploy-vpn deploy-auto-vpn deploy-nvidia-vpn deploy-vaapi-vpn \
         detect-gpu \
         restart logs down build test test-verbose clean \
-        dev-frontend dev-backend probe-gpu sonar-scan
+        dev-frontend dev-backend probe-gpu
 
 # ─────────────────────────────────────────
 # Deploy variants — combine GPU vendor × VPN
@@ -26,9 +26,8 @@ DEPLOY_HOST    ?= $(or $(shell grep -E '^DEPLOY_HOST=' .env 2>/dev/null | head -
 DEPLOY_ADDR    := $(shell echo '$(DEPLOY_HOST)' | sed 's/.*@//')
 # Diretório de config no servidor remoto (onde o config.yaml é sincronizado).
 REMOTE_CONFIG_DIR ?= $(or $(shell grep -E '^REMOTE_CONFIG_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/opt/jackui)
-# The production compose that INCLUDES jackui alongside gluetun/postgres.
-# JackUI runs in network_mode:service:gluetun — the repo compose is for dev only.
-VPN_GATEWAY_DIR ?= /Files/AppData/Config/vpn-gateway
+# VPN gateway directory (read from .env to avoid homelab-specific paths in versioned files)
+VPN_GATEWAY_DIR ?= $(or $(shell grep -E '^VPN_GATEWAY_DIR=' .env 2>/dev/null | head -1 | cut -d= -f2-),/Files/AppData/Config/vpn-gateway)
 IMAGE_CPU      := jackui:latest
 IMAGE_NVIDIA   := jackui:nvidia
 IMAGE_VAAPI    := jackui:vaapi
@@ -338,31 +337,3 @@ test-stability:
 
 branch-hygiene:
 	@./scripts/branch-hygiene.sh $(if $(DELETE),--delete-merged,)
-
-# ─────────────────────────────────────────
-# análise SonarQube + thresholds
-# ─────────────────────────────────────────
-
-SONAR_HOST_URL  ?= $(or $(shell grep -E '^SONAR_HOST_URL=' .env 2>/dev/null | head -1 | cut -d= -f2-),https://sonar.example.com)
-SONAR_TOKEN     ?= $(shell grep SONAR_TOKEN .env 2>/dev/null | head -1 | cut -d= -f2-)
-
-# Gate local REAL: mesma config do CI (sonar-project.properties é a fonte única,
-# incl. sonar.qualitygate.wait=true) — se o quality gate reprovar, o make FALHA.
-# Antes este alvo engolia falha de teste (`|| echo`) e o exit do scanner (`-@`),
-# dando falso-verde vs. o gate do CI (achado #413 da auditoria).
-sonar-scan:
-	$(call step,Gerando cobertura de testes...)
-	@go test -coverprofile=coverage.out ./internal/... || { echo "  ✗ testes falharam — corrija antes de escanear"; exit 1; }
-	$(call ok,Cobertura salva em coverage.out)
-
-	$(call step,Verificando sonar-scanner...)
-	@command -v sonar-scanner >/dev/null 2>&1 || { echo "  Erro: sonar-scanner não encontrado. Instale: brew install sonar-scanner"; exit 1; }
-	$(call ok,sonar-scanner encontrado)
-
-	$(call step,Executando análise SonarQube (aguarda o veredito do quality gate)...)
-	@sonar-scanner \
-		-Dsonar.host.url=$(SONAR_HOST_URL) \
-		-Dsonar.token=$(SONAR_TOKEN) \
-		2>&1 | tail -15
-	@rm -f coverage.out
-	$(call ok,Quality gate OK — mesmo gate do CI)

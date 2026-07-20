@@ -35,6 +35,7 @@ func initDB(deps *appDeps) {
 
 func initAuth(deps *appDeps) {
 	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
+	deps.authRateLimiter = auth.NewIPRateLimiter(20, 1*time.Minute)
 	if !deps.cfg.Auth.Enabled {
 		if os.Getenv("JACKUI_ALLOW_INSECURE_AUTH") != "1" {
 			log.Fatalf("Auth disabled — set JACKUI_AUTH_ENABLED=1 (recommended) or JACKUI_ALLOW_INSECURE_AUTH=1 for dev/LAN only")

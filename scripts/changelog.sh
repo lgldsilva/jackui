@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gera um changelog em markdown a partir dos Conventional Commits desde a última
-# tag semver até HEAD, agrupado por tipo. Alimenta o corpo do Release do Gitea.
+# tag semver até HEAD, agrupado por tipo. Alimenta o corpo do Release do GitHub.
 #
 # Uso:  scripts/changelog.sh [<nova-versão>]   → imprime markdown no stdout.
 # Env (opcional):
