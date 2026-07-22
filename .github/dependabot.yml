@@ -44,6 +44,16 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "lucide-react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/plugin-react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "autoprefixer"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "postcss"
+        update-types: ["version-update:semver-major"]
 
   # ── Desktop (root package.json / Electron) ─────────────────────────────────
   - package-ecosystem: npm
@@ -107,6 +117,10 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Majors still open as individual PRs unless ignored (group filter ≠ global).
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     # Majors (checkout 4→7, build-push 6→7, …) = one intentional batch PR.
 
   # ── Docker base images ─────────────────────────────────────────────────────
@@ -117,9 +131,8 @@ updates:
       day: monday
     open-pull-requests-limit: 2
     ignore:
-      # GPU runtime — only with NVENC matrix on homeserver.
+      # GPU runtime — only with intentional NVENC bake (any CUDA bump).
       - dependency-name: "nvidia/cuda"
-        update-types: ["version-update:semver-major"]
       # Stay on Node LTS line used in CI (node-version: '24').
       - dependency-name: "node"
         update-types: ["version-update:semver-major"]
