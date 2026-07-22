@@ -2,7 +2,7 @@
 
 A self-hosted **torrent streaming media server** — search, stream a torrent to your browser *before it finishes downloading*, transcode on the fly with hardware acceleration, and watch (Safari included, via HLS). Go backend, React UI embedded in a single binary, runs in Docker.
 
-![status](https://img.shields.io/badge/status-active-success) ![go](https://img.shields.io/badge/Go-1.25+-00ADD8) ![license](https://img.shields.io/badge/license-MIT-blue)
+![status](https://img.shields.io/badge/status-active-success) ![go](https://img.shields.io/badge/Go-1.26+-00ADD8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > JackUI started as a visual front-end for [Jackett](https://github.com/Jackett/Jackett) and grew into a full media server: find a release, start playing it while it downloads, and let the server transcode incompatible codecs to something your browser can play. No "wait for the download to finish", no separate transcoding box.
 >
@@ -55,7 +55,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 | Layer | Tech |
 |---|---|
-| Backend | Go 1.25, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
+| Backend | Go 1.26, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
 | Transcode | ffmpeg (NVENC / VAAPI / QSV / libx264), HLS for Safari |
 | Frontend | React 18 + TypeScript + Vite + TailwindCSS, embedded via `//go:embed all:dist` |
 | Storage | PostgreSQL (`JACKUI_DATABASE_URL`, unified schema via `internal/db`); disk cache for torrent pieces |
@@ -188,7 +188,7 @@ make deploy-auto-vpn    # same, but routes through a gluetun VPN overlay (opt-in
 > [!NOTE]
 > The author's own production instance currently runs **behind gluetun** (`network_mode: container:gluetun`, on the VPN's forwarded port — `watchForwardedPort` in `cmd/server/main.go` triggers a graceful restart to rebind when the port rotates), even though the no-VPN path is the documented default. Pick the mode that keeps your swarm healthy.
 
-CI/CD runs on **Gitea Actions** (SonarQube quality gate + Trivy + Dependency-Track), documented in [docs/CICD.md](docs/CICD.md) and [docs/gitea-actions-runners.md](docs/gitea-actions-runners.md). The deploy step runs `docker compose up -d --force-recreate` against a **hand-maintained** `docker-compose.yml` on the server (not a Portainer stack) — it only swaps the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
+CI/CD runs on **GitHub Actions** (PR + `main` gates, CodeQL, release → GHCR + Trivy pre-push + SBOM), documented in [docs/CICD.md](docs/CICD.md). Images publish to `ghcr.io/lgldsilva/jackui`. Homelab deploy is still a **hand-maintained** compose on the server (`docker compose up -d --force-recreate`) — the release job only publishes the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
 
 ## Architecture
 

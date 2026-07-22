@@ -27,7 +27,8 @@ echo "=== Branches locais NÃO mergeadas (revisar antes de apagar) ==="
 git branch --no-merged main | sed 's/^[*+ ]*//' | grep -Ev "$KEEP_REGEX" || echo "(nenhuma)"
 
 echo
-echo "=== Remotas órfãs sugeridas (R4 REQUIREMENTS — confirmar antes de push --delete) ==="
-for b in feat/i18n feat/hls-vod-seekbar feat/web-push feat/web-push-v2; do
-  git show-ref --verify --quiet "refs/remotes/origin/$b" 2>/dev/null && echo "  origin/$b"
-done
+echo "=== Remotas mergeadas em origin/main (candidatas a git push origin --delete) ==="
+git branch -r --merged origin/main 2>/dev/null \
+  | sed 's|^[[:space:]]*origin/||' \
+  | grep -Ev "$KEEP_REGEX|^HEAD$" \
+  || echo "(nenhuma)"

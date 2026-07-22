@@ -88,11 +88,13 @@ internal/
 
 ## CI/CD & quality gates
 
-- **CI/CD (Gitea Actions)**: `.gitea/workflows/ci.yml` runs the gates on every PR (Go tests+coverage, frontend build, auto-approve bot); `.gitea/workflows/release.yml` runs on push to `main` — re-runs the gates → **SonarQube gate** → SBOM→Dependency-Track → native build+push → Trivy (fails on CRITICAL) → deploy → healthcheck → version tag. Internal hosts (registry, Sonar, Dependency-Track) come from Actions **variables/secrets**, never hardcoded in the workflows.
-- **Sonar gate**: `new_coverage ≥ 80%` (Go only — `web/**` and `cmd/**` are coverage-excluded), `new_violations = 0`, cognitive complexity ≤ 15 (S3776). ⚠ The PR analysis does NOT flag everything the MAIN analysis flags (S3776 has bitten) — validate locally on the diff before pushing: `golangci-lint run --new-from-rev=gitea/main` (gocognit min 16) + coverage of new functions + `eslint-plugin-sonarjs` cognitive-complexity on changed `.tsx`.
-- **The deploy depends on the gates (`needs:` in release.yml)** — a failed gate blocks Build&Push/Deploy, so prod stays on the old version (this already masked a shipped fix).
-- **The deploy only swaps the image — prod is a HAND-MAINTAINED compose behind gluetun (VPN), NOT a Portainer stack**: the deploy job does `docker pull → tag …:nvidia → docker compose -f <prod compose> up -d --no-deps --force-recreate jackui`. Consequences: (1) it only swaps the image; (2) prod runs **behind gluetun** (VPN), contradicting the repo default; (3) **new env vars added to the repo compose do NOT reach prod** — edit the prod compose on the server (that's where the low-resource env profile `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`/`JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH` lives).
-- Never commit to `main` — always a PR (Gitea API; see the `gitea-pr` skill). Worktrees branch from updated `origin/main`.
+- **Source of truth: GitHub** (`github.com/lgldsilva/jackui`). Active workflows: `.github/workflows/{ci,codeql,release}.yml`. Former Gitea pipelines live under `docs/archive/`.
+- **CI (GitHub Actions)**: `.github/workflows/ci.yml` on every PR **and** push to `main` — backend (gofmt/vet/test + Postgres), frontend (tsc/eslint/i18n/vitest/build), golangci-lint `--new-from-rev=origin/main`.
+- **CodeQL**: security-extended + security-and-quality on push/PR/weekly.
+- **Release**: tag `v*` or `workflow_dispatch` → build amd64 → **Trivy CRITICAL gate (pre-push)** → push multi-arch + nvidia to `ghcr.io/lgldsilva/jackui` → SBOM → GitHub Release. See [docs/CICD.md](docs/CICD.md).
+- **Optional Sonar (homelab)**: `new_coverage ≥ 80%` (Go only — `web/**` and `cmd/**` excluded), `new_violations = 0`, cognitive complexity ≤ 15 (S3776). Validate locally before pushing: `golangci-lint run --new-from-rev=origin/main` (gocognit min 16) + coverage of new functions + `eslint-plugin-sonarjs` on changed `.tsx`.
+- **Homelab deploy is manual / Makefile** — release does **not** auto-deploy. Prod is a HAND-MAINTAINED compose (often behind gluetun). Consequences: (1) only the image is swapped; (2) **new env vars in the repo compose do NOT reach prod** — edit the server compose (low-resource profile: `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`/`JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`).
+- Never commit to `main` — always a PR. Worktrees branch from updated `origin/main`.
 
 ## Conventions
 
