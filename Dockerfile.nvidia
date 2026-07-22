@@ -55,7 +55,7 @@ RUN go build -ldflags "\
 # Stage 3: Final runtime — Ubuntu 22.04 + NVIDIA CUDA runtime + ffmpeg
 # nvidia/cuda image provides libcuda.so links, NVENC/NVDEC SDK, etc.
 # Ubuntu's ffmpeg package is compiled with --enable-nvenc --enable-cuvid.
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.9.2-runtime-ubuntu22.04
 
 # Signal to nvidia-container-runtime which capabilities we need
 ENV NVIDIA_VISIBLE_DEVICES=all
