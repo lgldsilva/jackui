@@ -40,6 +40,16 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
+      # Stay aligned with CI Node 24 LTS (not Node 26 types).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Testing Library majors need intentional test-setup review.
+      - dependency-name: "@testing-library/jest-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@testing-library/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@testing-library/user-event"
+        update-types: ["version-update:semver-major"]
       - dependency-name: "typescript-eslint"
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint"
