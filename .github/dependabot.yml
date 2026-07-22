@@ -1,5 +1,10 @@
+# Dependabot policy (jackui):
+# - Auto-friendly: patch/minor only in groups
+# - Manual PRs: React/TS/Vite majors, Actions majors, CUDA/Node majors
+# See session notes: major toolchain/GPU/UI = intentional PR, not bot merge.
 version: 2
 updates:
+  # ── Frontend (web/) ────────────────────────────────────────────────────────
   - package-ecosystem: npm
     directory: /web
     schedule:
@@ -9,15 +14,44 @@ updates:
     groups:
       web-production:
         dependency-type: production
+        update-types:
+          - "minor"
+          - "patch"
       web-development:
         dependency-type: development
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Toolchain majors need a dedicated migration PR (types/peers).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-router-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript-eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
+  # ── Desktop (root package.json / Electron) ─────────────────────────────────
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       electron-desktop:
         patterns:
@@ -25,24 +59,70 @@ updates:
           - "concurrently"
           - "tsx"
           - "typescript"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "electron"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "electron-builder"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
+  # ── Go modules ─────────────────────────────────────────────────────────────
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    # Keep low: go.mod PRs conflict if several land in parallel.
+    open-pull-requests-limit: 3
+    groups:
+      go-x:
+        patterns:
+          - "golang.org/x/*"
+        update-types:
+          - "minor"
+          - "patch"
+      go-indirect-safe:
+        patterns:
+          - "github.com/prometheus/*"
+          - "github.com/jackc/*"
+        update-types:
+          - "minor"
+          - "patch"
 
+  # ── GitHub Actions (digest-pinned in workflows) ────────────────────────────
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Majors (checkout 4→7, build-push 6→7, …) = one intentional batch PR.
 
+  # ── Docker base images ─────────────────────────────────────────────────────
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    ignore:
+      # GPU runtime — only with NVENC matrix on homeserver.
+      - dependency-name: "nvidia/cuda"
+        update-types: ["version-update:semver-major"]
+      # Stay on Node LTS line used in CI (node-version: '24').
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+      # Multi-minor Alpine jumps need a bake/test pass.
+      - dependency-name: "alpine"
+        update-types: ["version-update:semver-major"]
