@@ -48,7 +48,7 @@ RUN go build -ldflags "\
       -o jackui ./cmd/server
 
 # Stage 3: Final image
-FROM alpine:3.20
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata ffmpeg && \
     addgroup -g 1000 jackui && \
