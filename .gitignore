@@ -63,7 +63,6 @@ internal/streamer/streams/
 # Root-level node tooling (not the web/ app)
 *.out
 node_modules/
-package-lock.json
 
 # Electron build output
 dist-electron/
@@ -75,3 +74,8 @@ electron/version.json
 
 # ai-jail sandbox config (local AI tooling, not for the repo)
 .ai-jail
+
+# Sonar security artifacts & output
+sonar-out/
+*.pem
+
