@@ -13,7 +13,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/nwaples/rardecode/v2 v2.2.3
+	github.com/nwaples/rardecode/v2 v2.2.5
 	github.com/prometheus/client_golang v1.24.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/sys v0.47.0
