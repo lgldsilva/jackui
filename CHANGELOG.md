@@ -8,7 +8,7 @@ versionamento [SemVer](https://semver.org).
 > manual antigo**, anterior à automação; as versões intermediárias (0.4–0.58) não foram catalogadas
 > individualmente.
 
-ℹ️ **A partir da v0.81.0** o changelog detalhado é mantido nas [Releases do Gitea](https://gitea.raspberrypi.lan/lgldsilva/jackui/releases).
+ℹ️ **A partir da v0.81.0** o changelog detalhado é mantido nas [GitHub Releases](https://github.com/lgldsilva/jackui/releases).
 As seções abaixo consolidam o resumo de cada versão para consulta rápida junto ao histórico anterior.
 
 ## [0.90.2] — 2026-07-06

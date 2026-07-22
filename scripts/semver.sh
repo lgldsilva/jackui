@@ -12,9 +12,9 @@
 # existe" como "não criar tag/Release nova" — build+deploy seguem, sem inflar a
 # versão a cada merge trivial (era 1 tag por merge → 173 tags).
 #
-# Robusto a merge commits do Gitea: o assunto do merge carrega o título do PR
-# ("Merge pull request 'fix(x): ...'"), então o tipo é detectado tanto no início
-# do assunto quanto logo após "Merge pull request '".
+# Robusto a merge commits (GitHub/Gitea): o assunto do merge carrega o título do PR
+# ("Merge pull request 'fix(x): ...'" / "Merge pull request #N …"), então o tipo é
+# detectado tanto no início do assunto quanto logo após o prefixo de merge.
 #
 # Uso:  scripts/semver.sh          → imprime "vX.Y.Z" no stdout (só isso).
 # Não cria nem dá push de tag — quem decide isso é o chamador.

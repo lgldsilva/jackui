@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Gera um changelog em markdown a partir dos Conventional Commits desde a última
-# tag semver até HEAD, agrupado por tipo. Alimenta o corpo do Release do Gitea.
+# tag semver até HEAD, agrupado por tipo. Alimenta o corpo do GitHub Release.
 #
 # Uso:  scripts/changelog.sh [<nova-versão>]   → imprime markdown no stdout.
 # Env (opcional):
-#   REPO_URL   base do repo (ex. https://gitea.raspberrypi.lan/lgldsilva/jackui)
+#   REPO_URL   base do repo (ex. https://github.com/lgldsilva/jackui)
 #              → adiciona rodapé "Full changelog: <last>...<nova-versão>".
 #
 # A nova-versão AINDA NÃO existe como tag quando isto roda (o Release a cria), então

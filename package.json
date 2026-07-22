@@ -1,6 +1,6 @@
 {
   "name": "jackui-desktop",
-  "version": "0.1.0",
+  "version": "0.98.3",
   "description": "JackUI Desktop — streaming de torrents com transcode por hardware",
   "homepage": "https://github.com/lgldsilva/jackui",
   "main": "electron/dist/main.js",

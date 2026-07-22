@@ -11,7 +11,8 @@
 - Use `docker --context "$JACKUI_CI_DOCKER_CONTEXT" compose` nos scripts, para
   suportar contextos locais, SSH remotos e outros daemons Docker.
 - A mesma imagem e stack de CI devem servir à execução manual e aos runners do
-  Gitea Actions, evitando divergência entre a máquina local, o ARM e o CI.
+  GitHub Actions (e qualquer runner self-hosted), evitando divergência entre a
+  máquina local, o ARM e o CI.
 - Mantenha `.env` fora do Git; não inclua credenciais, nomes de hosts internos
   ou contextos específicos em arquivos versionados.
 

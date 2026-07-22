@@ -25,7 +25,6 @@ jobs:
       - id: semver
         run: echo "version=$(bash scripts/semver.sh)" >> $GITHUB_OUTPUT
 
-
   build-and-push:
     needs: [semver]
     runs-on: ubuntu-latest
@@ -76,6 +75,24 @@ jobs:
         id: ts
         run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # Scan amd64 BEFORE multi-arch push so CRITICAL CVEs never land on GHCR.
+      - name: Build amd64 image for scan (no push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: jackui:scan
+          platforms: linux/amd64
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            APP_VERSION=${{ needs.semver.outputs.version }}
+            BUILD_TIMESTAMP=${{ steps.ts.outputs.ts }}
+
+      - name: Trivy scan (pre-push gate)
+        run: |
+          trivy image --severity CRITICAL --exit-code 1 --ignore-unfixed jackui:scan
+
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
@@ -104,15 +121,9 @@ jobs:
             APP_VERSION=${{ needs.semver.outputs.version }}
             BUILD_TIMESTAMP=${{ steps.ts.outputs.ts }}
 
-      - name: Trivy scan
-        run: |
-          trivy image --severity CRITICAL --exit-code 1 --ignore-unfixed \
-            ghcr.io/${{ github.repository }}:${{ needs.semver.outputs.version }}
-
       - name: Generate SBOM
         run: |
-          trivy image --format cyclonedx --output bom.json --ignore-unfixed \
-            ghcr.io/${{ github.repository }}:${{ needs.semver.outputs.version }}
+          trivy image --format cyclonedx --output bom.json --ignore-unfixed jackui:scan
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
@@ -120,7 +131,7 @@ jobs:
           path: bom.json
 
   release:
-    needs: [build-and-push]
+    needs: [semver, build-and-push]
     runs-on: ubuntu-latest
     permissions:
       contents: write
