@@ -55,8 +55,14 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 		return err
 	}
 
-	c, err := smtp.Dial(addr)
+	d := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := d.Dial("tcp", addr)
 	if err != nil {
+		return fmt.Errorf("smtp dial: %w", err)
+	}
+	c, err := smtp.NewClient(conn, m.cfg.Host)
+	if err != nil {
+		_ = conn.Close()
 		return fmt.Errorf("smtp dial: %w", err)
 	}
 	defer func() { _ = c.Close() }()
