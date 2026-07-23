@@ -25,7 +25,10 @@ func TestSend_EnabledCheck(t *testing.T) {
 }
 
 func TestBuildMessageWithTLS(t *testing.T) {
-	msg := buildMessage("from@test.com", "to@test.com", "Subject", "<p>body</p>")
+	msg, err := buildMessage("from@test.com", "to@test.com", "Subject", "<p>body</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !contains(msg, "MIME-Version: 1.0") {
 		t.Error("expected MIME-Version header")
 	}
@@ -222,7 +225,10 @@ func TestSend_HelloError(t *testing.T) {
 }
 
 func TestBuildMessage_Empty(t *testing.T) {
-	msg := buildMessage("", "", "", "")
+	msg, err := buildMessage("", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if msg == "" {
 		t.Error("expected non-empty message even with empty params")
 	}

@@ -421,7 +421,7 @@ export default function HistoryPage() {
               filteredResults={filteredResults}
               browseVisible={browseVisible}
               browseSentinelRef={browseSentinelRef}
-              refreshingSearch={!!selected && refreshingQueries.has(selected)}
+              refreshingSearch={refreshingQueries.has(selected)}
               onRefreshSearch={() => handleRefreshSearch(selected)}
               onBack={() => { setSelected(null); setResults([]) }}
               onDownload={setDownloadTarget}

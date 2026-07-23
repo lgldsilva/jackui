@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strings"
 	"time"
@@ -40,10 +41,19 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 	if !m.Enabled() {
 		return fmt.Errorf("mailer: SMTP not configured")
 	}
+	parsed, err := mail.ParseAddress(to)
+	if err != nil {
+		return fmt.Errorf("mailer: invalid recipient: %w", err)
+	}
+	to = parsed.Address
+
 	addr := net.JoinHostPort(m.cfg.Host, fmt.Sprintf("%d", m.cfg.Port))
 	from := m.from()
 
-	msg := buildMessage(from, to, subject, htmlBody)
+	msg, err := buildMessage(from, to, subject, htmlBody)
+	if err != nil {
+		return err
+	}
 
 	c, err := smtp.Dial(addr)
 	if err != nil {
@@ -84,7 +94,27 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 	return c.Quit()
 }
 
-func buildMessage(from, to, subject, htmlBody string) string {
+// headerField rejects CR/LF so callers cannot inject extra SMTP headers.
+func headerField(name, value string) (string, error) {
+	if strings.ContainsAny(value, "\r\n") {
+		return "", fmt.Errorf("mailer: %s contains CR/LF", name)
+	}
+	return value, nil
+}
+
+func buildMessage(from, to, subject, htmlBody string) (string, error) {
+	from, err := headerField("From", from)
+	if err != nil {
+		return "", err
+	}
+	to, err = headerField("To", to)
+	if err != nil {
+		return "", err
+	}
+	subject, err = headerField("Subject", subject)
+	if err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + to + "\r\n")
@@ -94,5 +124,5 @@ func buildMessage(from, to, subject, htmlBody string) string {
 	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
 	b.WriteString("\r\n")
 	b.WriteString(htmlBody)
-	return b.String()
+	return b.String(), nil
 }
