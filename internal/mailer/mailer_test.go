@@ -55,7 +55,10 @@ func TestFrom(t *testing.T) {
 }
 
 func TestBuildMessage(t *testing.T) {
-	msg := buildMessage("from@test.com", "to@test.com", "Test Subject", "<p>body</p>")
+	msg, err := buildMessage("from@test.com", "to@test.com", "Test Subject", "<p>body</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if msg == "" {
 		t.Fatal("expected non-empty message")
 	}
@@ -85,7 +88,10 @@ func TestSend_NotEnabled(t *testing.T) {
 }
 
 func TestBuildMessage_WithSpecialChars(t *testing.T) {
-	msg := buildMessage("from@test.com", "to@test.com", "Test & Subject <3", "<p>hello & goodbye</p>")
+	msg, err := buildMessage("from@test.com", "to@test.com", "Test & Subject <3", "<p>hello & goodbye</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !contains(msg, "Subject: Test & Subject <3") {
 		t.Error("expected Subject with special chars")
 	}
@@ -111,28 +117,56 @@ func TestSend_NilMailer(t *testing.T) {
 }
 
 func TestBuildMessage_WithNewlines(t *testing.T) {
-	msg := buildMessage("from@test.com", "to@test.com", "Subject", "line1\nline2\r\nline3")
+	msg, err := buildMessage("from@test.com", "to@test.com", "Subject", "line1\nline2\r\nline3")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !contains(msg, "\r\nline3") {
 		t.Error("expected body to preserve newlines in SMTP format")
 	}
 }
 
+func TestBuildMessage_RejectsHeaderCRLF(t *testing.T) {
+	if _, err := buildMessage("from@test.com", "to@test.com\r\nBcc: evil@x", "Subject", "body"); err == nil {
+		t.Fatal("expected error for CR/LF in To")
+	}
+	if _, err := buildMessage("from@test.com", "to@test.com", "Sub\r\nX-Injected: 1", "body"); err == nil {
+		t.Fatal("expected error for CR/LF in Subject")
+	}
+}
+
+func TestSend_InvalidRecipient(t *testing.T) {
+	m := New(config.SMTPConfig{Host: "smtp.example.com", Port: 587})
+	if err := m.Send("not-an-email", "sub", "body"); err == nil {
+		t.Fatal("expected error for invalid recipient")
+	}
+}
+
 func TestBuildMessage_NonASCII(t *testing.T) {
-	msg := buildMessage("from@test.com", "to@test.com", "Assunto com ção", "<p>coração</p>")
+	msg, err := buildMessage("from@test.com", "to@test.com", "Assunto com ção", "<p>coração</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !contains(msg, "Subject: Assunto com ção") {
 		t.Error("expected Subject with non-ASCII chars")
 	}
 }
 
 func TestBuildMessage_HasDateHeader(t *testing.T) {
-	msg := buildMessage("f@t.com", "t@t.com", "S", "b")
+	msg, err := buildMessage("f@t.com", "t@t.com", "S", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !contains(msg, "Date: ") {
 		t.Error("expected Date header")
 	}
 }
 
 func TestBuildMessage_HasMIMEHeader(t *testing.T) {
-	msg := buildMessage("f@t.com", "t@t.com", "S", "b")
+	msg, err := buildMessage("f@t.com", "t@t.com", "S", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !contains(msg, "MIME-Version: 1.0") {
 		t.Error("expected MIME-Version header")
 	}
