@@ -65,6 +65,7 @@ type Cache struct {
 	entries map[string]*entry
 	jobs    chan job
 	stop    chan struct{}
+	done    chan struct{} // closed when the copy worker exits (or immediately if none)
 }
 
 // New creates (or reopens) a cache rooted at root, capped at maxGB gigabytes
@@ -95,10 +96,16 @@ func newCache(root string, maxBytes int64, nowFn func() time.Time, runWorker boo
 		entries:  make(map[string]*entry),
 		jobs:     make(chan job, 64),
 		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 	c.loadIndex()
 	if runWorker {
-		go c.worker()
+		go func() {
+			defer close(c.done)
+			c.worker()
+		}()
+	} else {
+		close(c.done) // no worker to wait for
 	}
 	return c, nil
 }
@@ -302,13 +309,15 @@ func (c *Cache) evict() {
 	}
 }
 
-// Close stops the worker.
+// Close stops the worker and waits for it to finish so callers (and test
+// TempDirs) can safely remove the cache root afterward.
 func (c *Cache) Close() {
 	select {
 	case <-c.stop:
 	default:
 		close(c.stop)
 	}
+	<-c.done
 }
 
 // ── On-disk index (so ready files survive a restart) ───────────────────────
