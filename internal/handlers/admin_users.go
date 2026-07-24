@@ -58,14 +58,14 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 			c.JSON(http.StatusOK, gin.H{"message": "senha redefinida"})
 			return
 		}
-		tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
 		base := baseURL(c, cfgBaseURL)
 		if base == "" {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "base URL pública não configurada"})
+			return
+		}
+		tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		link := base + "/reset-password?token=" + tok

@@ -21,25 +21,10 @@ const (
 	resetTTL  = 1 * time.Hour
 )
 
-// baseURL resolves the public base URL for building email links.
-// It must come from trusted configuration only.
-func baseURL(c *gin.Context, configuredURL string) string {
-    // 1. Use configured URL if available
-    if configuredURL != "" {
-        return configuredURL
-    }
-    
-    // 2. Check Origin header
-    if origin := c.Request.Header.Get("Origin"); origin != "" {
-        return origin
-    }
-    
-    // 3. Fall back to request host
-    scheme := "http"
-    if c.Request.TLS != nil {
-        scheme = "https"
-    }
-    return scheme + "://" + c.Request.Host
+// baseURL resolves the public base URL for building email links from trusted
+// configuration only. Request headers and host data are attacker-controlled.
+func baseURL(_ *gin.Context, configured string) string {
+	return strings.TrimRight(strings.TrimSpace(configured), "/")
 }
 
 // notify sends an email link, or — when SMTP is off — logs it so an admin (or a
@@ -149,14 +134,14 @@ func Invite(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		}
 		_ = c.ShouldBindJSON(&req)
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-		tok, err := store.CreateToken(auth.TokenInvite, 0, req.Email, inviteTTL)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
 		base := baseURL(c, cfgBaseURL)
 		if base == "" {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "base URL pública não configurada"})
+			return
+		}
+		tok, err := store.CreateToken(auth.TokenInvite, 0, req.Email, inviteTTL)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		link := base + "/register?invite=" + tok
@@ -201,9 +186,9 @@ func Forgot(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		_ = c.ShouldBindJSON(&req)
 		email := strings.TrimSpace(strings.ToLower(req.Email))
 		if u, _ := store.GetUserByEmail(email); u != nil {
-			if tok, terr := store.CreateToken(auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
-				base := baseURL(c, cfgBaseURL)
-				if base != "" {
+			base := baseURL(c, cfgBaseURL)
+			if base != "" {
+				if tok, terr := store.CreateToken(auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
 					link := base + "/reset-password?token=" + tok
 					notify(mlr, email, "JackUI — recuperar senha", "Para redefinir sua senha, acesse:", link)
 				}

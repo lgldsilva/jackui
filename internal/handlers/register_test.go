@@ -66,7 +66,7 @@ func TestInvite_WithStore(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/api/auth/invite", bytes.NewReader([]byte(`{"email":"test@example.com"}`)))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	Invite(store, &mailer.Mailer{}, "")(c)
+	Invite(store, &mailer.Mailer{}, "https://example.com")(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
