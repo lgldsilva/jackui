@@ -23,12 +23,23 @@ const (
 
 // baseURL resolves the public base URL for building email links.
 // It must come from trusted configuration only.
-func baseURL(c *gin.Context, configured string) string {
-	_ = c
-	if configured != "" {
-		return strings.TrimRight(configured, "/")
-	}
-	return ""
+func baseURL(c *gin.Context, configuredURL string) string {
+    // 1. Use configured URL if available
+    if configuredURL != "" {
+        return configuredURL
+    }
+    
+    // 2. Check Origin header
+    if origin := c.Request.Header.Get("Origin"); origin != "" {
+        return origin
+    }
+    
+    // 3. Fall back to request host
+    scheme := "http"
+    if c.Request.TLS != nil {
+        scheme = "https"
+    }
+    return scheme + "://" + c.Request.Host
 }
 
 // notify sends an email link, or — when SMTP is off — logs it so an admin (or a
