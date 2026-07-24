@@ -92,33 +92,20 @@ func TestWriteSSE(t *testing.T) {
 }
 
 func TestBaseURL_Configured(t *testing.T) {
-	if got := baseURL(nil, "https://example.com"); got != "https://example.com" {
+	if got := baseURL(nil, " https://example.com/// "); got != "https://example.com" {
 		t.Errorf("got %q, want 'https://example.com'", got)
 	}
 }
 
-func TestBaseURL_OriginHeader(t *testing.T) {
+func TestBaseURL_UnconfiguredDoesNotUseRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Request.Header.Set("Origin", "https://custom.origin")
+	c.Request = httptest.NewRequest("GET", "http://attacker.example/", nil)
+	c.Request.Header.Set("Origin", "https://attacker.example")
 
-	got := baseURL(c, "")
-	if got != "https://custom.origin" {
-		t.Errorf("got %q, want 'https://custom.origin'", got)
-	}
-}
-
-func TestBaseURL_Fallback(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-
-	got := baseURL(c, "")
-	if !strings.HasPrefix(got, "http") {
-		t.Errorf("expected http URL, got %q", got)
+	if got := baseURL(c, ""); got != "" {
+		t.Errorf("got %q, want empty URL when configuration is missing", got)
 	}
 }
 

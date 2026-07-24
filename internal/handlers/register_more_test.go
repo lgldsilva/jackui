@@ -281,7 +281,7 @@ func TestInvite_GeneratesLink(t *testing.T) {
 	c.Request = httptest.NewRequest("POST", "/api/auth/invite", bytes.NewReader([]byte(`{}`)))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	Invite(store, nil, "")(c)
+	Invite(store, nil, "https://example.com")(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -298,10 +298,9 @@ func TestBaseURL_EmptyConfigEmptyRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Request = httptest.NewRequest("GET", "http://attacker.example/", nil)
 
-	got := baseURL(c, "")
-	if got != "http://"+c.Request.Host {
-		t.Errorf("got %q, want http://...", got)
+	if got := baseURL(c, ""); got != "" {
+		t.Errorf("got %q, want empty URL when configuration is missing", got)
 	}
 }

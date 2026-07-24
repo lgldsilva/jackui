@@ -21,20 +21,10 @@ const (
 	resetTTL  = 1 * time.Hour
 )
 
-// baseURL resolves the public base URL for building email links: the configured
-// value wins; otherwise reconstruct it from the request (origin/host).
-func baseURL(c *gin.Context, configured string) string {
-	if configured != "" {
-		return strings.TrimRight(configured, "/")
-	}
-	if o := c.GetHeader("Origin"); o != "" {
-		return strings.TrimRight(o, "/")
-	}
-	scheme := "https"
-	if c.Request.TLS == nil && c.GetHeader("X-Forwarded-Proto") == "" {
-		scheme = "http"
-	}
-	return scheme + "://" + c.Request.Host
+// baseURL resolves the public base URL for building email links from trusted
+// configuration only. Request headers and host data are attacker-controlled.
+func baseURL(_ *gin.Context, configured string) string {
+	return strings.TrimRight(strings.TrimSpace(configured), "/")
 }
 
 // notify sends an email link, or — when SMTP is off — logs it so an admin (or a
@@ -124,8 +114,12 @@ func resolveInviteStatus(store *auth.Store, inviteToken string) (auth.Status, bo
 }
 
 func sendVerifyEmail(store *auth.Store, mlr *mailer.Mailer, c *gin.Context, cfgBaseURL string, id int, email string) {
+	base := baseURL(c, cfgBaseURL)
+	if base == "" {
+		return
+	}
 	if tok, terr := store.CreateToken(auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
-		link := baseURL(c, cfgBaseURL) + "/verify-email?token=" + tok
+		link := base + "/verify-email?token=" + tok
 		notify(mlr, email, "JackUI — confirme seu e-mail", "Confirme seu e-mail para concluir o cadastro:", link)
 	}
 }
@@ -140,12 +134,17 @@ func Invite(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		}
 		_ = c.ShouldBindJSON(&req)
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+		base := baseURL(c, cfgBaseURL)
+		if base == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "base URL pública não configurada"})
+			return
+		}
 		tok, err := store.CreateToken(auth.TokenInvite, 0, req.Email, inviteTTL)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		link := baseURL(c, cfgBaseURL) + "/register?invite=" + tok
+		link := base + "/register?invite=" + tok
 		if req.Email != "" {
 			notify(mlr, req.Email, "JackUI — convite", "Você foi convidado para o JackUI. Crie sua conta:", link)
 		}
@@ -187,9 +186,12 @@ func Forgot(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		_ = c.ShouldBindJSON(&req)
 		email := strings.TrimSpace(strings.ToLower(req.Email))
 		if u, _ := store.GetUserByEmail(email); u != nil {
-			if tok, terr := store.CreateToken(auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
-				link := baseURL(c, cfgBaseURL) + "/reset-password?token=" + tok
-				notify(mlr, email, "JackUI — recuperar senha", "Para redefinir sua senha, acesse:", link)
+			base := baseURL(c, cfgBaseURL)
+			if base != "" {
+				if tok, terr := store.CreateToken(auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
+					link := base + "/reset-password?token=" + tok
+					notify(mlr, email, "JackUI — recuperar senha", "Para redefinir sua senha, acesse:", link)
+				}
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "Se o e-mail estiver cadastrado, enviamos um link de recuperação."})

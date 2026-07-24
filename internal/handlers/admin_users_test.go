@@ -18,6 +18,10 @@ import (
 // registerAuthRoutes does (claims middleware + AdminOnly), so the 403 fence is
 // part of what's under test.
 func adminUsersRouter(store *auth.Store, claims *auth.Claims) *gin.Engine {
+	return adminUsersRouterWithBaseURL(store, claims, "")
+}
+
+func adminUsersRouterWithBaseURL(store *auth.Store, claims *auth.Claims, baseURL string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -28,7 +32,7 @@ func adminUsersRouter(store *auth.Store, claims *auth.Claims) *gin.Engine {
 	})
 	grp := r.Group("/api/auth/users")
 	grp.Use(auth.AdminOnly())
-	grp.POST("/:id/reset-password", AdminResetPassword(store, nil, ""))
+	grp.POST("/:id/reset-password", AdminResetPassword(store, nil, baseURL))
 	grp.GET("/:id/sessions", AdminListUserSessions(store))
 	grp.DELETE("/:id/sessions", AdminRevokeUserSessions(store))
 	grp.DELETE("/:id/sessions/:sid", AdminRevokeUserSession(store))
@@ -141,7 +145,7 @@ func TestAdminResetPassword_LinkMode(t *testing.T) {
 	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	r := adminUsersRouter(store, adminClaims())
+	r := adminUsersRouterWithBaseURL(store, adminClaims(), "https://example.com")
 
 	w := doJSON(t, r, "POST", "/api/auth/users/"+itoa(user.ID)+"/reset-password", `{}`)
 	if w.Code != http.StatusOK {
