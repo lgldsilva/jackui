@@ -63,7 +63,12 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		link := baseURL(c, cfgBaseURL) + "/reset-password?token=" + tok
+		base := baseURL(c, cfgBaseURL)
+		if base == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "base URL pública não configurada"})
+			return
+		}
+		link := base + "/reset-password?token=" + tok
 		if user.Email != "" {
 			notify(mlr, user.Email, "JackUI — recuperar senha", "Um administrador iniciou a redefinição da sua senha:", link)
 		}
