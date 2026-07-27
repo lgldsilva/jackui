@@ -19,7 +19,7 @@
   "devDependencies": {
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
-    "concurrently": "^10.0.3",
+    "concurrently": "^10.0.4",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2"
   },
