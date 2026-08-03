@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { shouldPromptJackettSetup } from '../../lib/jackettSetup'
 import { errMessage } from '../../lib/errMessage'
+import { api, type AppConfig } from '../../api/client'
+
+// Minimal shapes for the boot probe (only the fields the prompt decision reads).
+type StatusProbe = { readonly jackett?: string }
 
 // Estado + lógica do prompt de configuração do Jackett (primeira execução).
 // Extraído do SearchPage (god-file): agrupa o estado do formulário, o probe de
@@ -18,19 +22,24 @@ export function useJackettSetup() {
 
   useEffect(() => {
     // Check if Jackett is actually configured before showing the setup prompt.
-    // If the network request fails (transient Electron GPU crash), don't prompt —
-    // the config might already be saved.
-    fetch('/api/status')
-      .then(r => r.json())
-      .then(d => {
+    // MUST go through the authenticated `api` client: a plain fetch() sends no
+    // Authorization header, so with auth enabled both endpoints 401'd on every
+    // SearchPage mount and the wizard never showed. `api` injects the Bearer
+    // token and rides the 401→refresh interceptor like every other call.
+    // validateStatus also accepts 503: /api/status answers 503 "degraded" when
+    // Jackett is down, and that body still carries the jackett field the prompt
+    // decision needs (same semantics the old fetch() code relied on). Any other
+    // failure (network, genuine auth rejection) skips the prompt — the config
+    // might already be saved.
+    api.get<StatusProbe>('/status', { validateStatus: s => s === 200 || s === 503 })
+      .then(({ data: d }) => {
         if (d.jackett === 'ok') return
-        // Only prompt if there's truly no config saved. /api/config is admin-only,
-        // so capture response.ok: an unreadable config (non-admin 403, transient
-        // error) must NOT be misread as "unconfigured" — see lib/jackettSetup.ts.
-        fetch('/api/config')
-          .then(async r => ({ ok: r.ok, body: r.ok ? await r.json() : {} }))
-          .then(({ ok, body }) => {
-            if (shouldPromptJackettSetup(d.jackett, { ok, jackettUrl: body?.jackett?.url, apiKeySet: body?.jackett?.apiKeySet })) {
+        // Only prompt if there's truly no config saved. /api/config is admin-only;
+        // an unreadable config (non-admin 403, transient error) throws here and
+        // must NOT be misread as "unconfigured" — see lib/jackettSetup.ts.
+        api.get<AppConfig>('/config')
+          .then(({ data: body }) => {
+            if (shouldPromptJackettSetup(d.jackett, { ok: true, jackettUrl: body?.jackett?.url, apiKeySet: body?.jackett?.apiKeySet })) {
               setShowJackettSetup(true)
             }
           })
