@@ -346,7 +346,7 @@ As seções abaixo consolidam o resumo de cada versão para consulta rápida jun
 - fix(ci): make the SBOM→Dependency-Track upload truly non-gating (1d16af9)
 
 ### Manutenção / CI
-- ci(jackui): repontar registry/tag/API para gitea.raspberrypi.lan (d99bcfc)
+- ci(jackui): repontar registry/tag/API para gitea.internal.lgldsilva.com.br (d99bcfc)
 
 ## [0.76.1] — 2026-07-01
 
@@ -412,7 +412,7 @@ As seções abaixo consolidam o resumo de cada versão para consulta rápida jun
 - fix(downloads): liberar handle do torrent no auto-rename (RSS preso) (019e22a)
 
 ### Manutenção / CI
-- ci(jenkins): GITEA_API via hostname (gitea.raspberrypi.lan) p/ ci-bot approve no ARM (17b74ca)
+- ci(jenkins): GITEA_API via hostname (gitea.internal.lgldsilva.com.br) p/ ci-bot approve no ARM (17b74ca)
 - ci(jenkins): roda build de PR no agente ARM (offload), main intocada (9c2cc0c)
 
 ### Testes
