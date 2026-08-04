@@ -118,3 +118,47 @@ jobs:
         run: |
           mkdir -p ui/dist && printf '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>p</title></head><body></body></html>\n' > ui/dist/index.html
           go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run --new-from-rev=origin/main ./...
+
+  # SonarCloud (sonarcloud.io) — cloud analysis that works from GitHub-hosted
+  # runners (the homelab SonarQube is LAN-only; pattern modelled on ai-launcher).
+  # Needs the SONAR_TOKEN secret; organization/project key come from repo
+  # variables with the defaults below. Every step skips cleanly until the
+  # secret exists, so forks and early setup stay green.
+  #
+  # SONAR_TOKEN is scoped to this job only. The scanner package is pinned to an
+  # exact version so a newly published npm tag cannot run with the secret.
+  # Coverage is reused from the backend job's artifact — no duplicate test run.
+  sonar:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    needs: backend
+    env:
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION || 'lgldsilva' }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || 'lgldsilva_jackui' }}
+      # `secrets` is not available in step `if:` conditions, so the token is
+      # bound at the job level and the steps gate on `env.SONAR_TOKEN` instead.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        if: ${{ env.SONAR_TOKEN != '' }}
+        with:
+          fetch-depth: 0 # full history for accurate new-code detection
+      - name: Download coverage (from backend job)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: coverage-out
+      # Official SonarSource action pinned by SHA (an npx install trips the
+      # githubactions:S6505 supply-chain rule and fails the new-security gate).
+      - name: SonarCloud analysis (waits for the quality gate)
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.qualitygate.wait=true
+      - name: SonarCloud skipped
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set — skipping SonarCloud analysis."
