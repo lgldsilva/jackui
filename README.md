@@ -33,7 +33,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 ## Features
 
-- **Stream before download** — torrent → HTTP with Range; playback starts on the first pieces. Disk cache with LRU eviction (favourites protected).
+- **Stream before download** — torrent → HTTP with Range; playback starts on the first pieces. Disk cache with LRU eviction (favourites evicted last).
 - **On-demand transcode** — HEVC/AV1/x265 → H.264 via GPU (NVENC/VAAPI/QSV) or libx264 fallback. Safari gets **HLS**; everyone else gets direct-play or progressive transcode. The GPU is bounded: a semaphore caps concurrent CUDA decoders (`JACKUI_MAX_GPU_TRANSCODES`, default 3) and an extra session falls back to CPU-decode + NVENC-encode on `CUDA_ERROR_OUT_OF_MEMORY`, so playback never hard-fails for lack of VRAM.
 - **Music player** — audio playlists with **gapless** playback, selectable HLS audio track (torrent + local), cover art / chapters / `mediaSession` (lock-screen + AirPlay on Safari/iOS), and a footer mini-player you can drag and expand.
 - **Swarm health on cards** — `SeedBadge` shows seeders + availability. A background **tracker scrape** (BEP 48, private trackers included) backs the count so an active torrent never sits at a misleading 0; results are cached.
