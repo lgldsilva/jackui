@@ -148,14 +148,16 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
         with:
           name: coverage-out
+      # Official SonarSource action pinned by SHA (an npx install trips the
+      # githubactions:S6505 supply-chain rule and fails the new-security gate).
       - name: SonarCloud analysis (waits for the quality gate)
         if: ${{ env.SONAR_TOKEN != '' }}
-        run: |
-          npx -y sonarqube-scanner@5.0.0 \
-            -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.token="$SONAR_TOKEN" \
-            -Dsonar.organization="$SONAR_ORGANIZATION" \
-            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
             -Dsonar.qualitygate.wait=true
       - name: SonarCloud skipped
         if: ${{ env.SONAR_TOKEN == '' }}
